@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { api } from "@/lib/api";
 import { pdfToScreen, screenToPdf } from "@/lib/pdf-coords";
 import { PRESET_FIELDS, PRESET_FIELD_LABELS, PRESET_FIELD_COLORS, type PdfField } from "@/lib/pdf-types";
@@ -35,9 +35,21 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ fieldId: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  // Load page image via fetch (handles auth + avoids CORS issues)
+  useEffect(() => {
+    let cancelled = false;
+    setPageImageUrl(null);
+    fetch(api.getTemplatePageUrl(currentPage))
+      .then((res) => { if (res.ok) return res.blob(); throw new Error(); })
+      .then((blob) => { if (!cancelled) setPageImageUrl(URL.createObjectURL(blob)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentPage]);
 
   const selected = fields.find((f) => f.id === selectedId) || null;
   const pageFields = fields.filter((f) => f.page === currentPage);
@@ -207,8 +219,12 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
         {/* PDF page with overlay */}
         <div ref={containerRef} className="relative border rounded-lg overflow-hidden bg-gray-100" onClick={() => setSelectedId(null)}>
-          <img ref={imgRef} key={currentPage} src={`${api.getTemplatePageUrl(currentPage)}?t=${Date.now()}`}
-            alt={`Page ${currentPage + 1}`} className="w-full block" draggable={false} onLoad={() => setFields((f) => [...f])} />
+          {pageImageUrl ? (
+            <img ref={imgRef} src={pageImageUrl} alt={`Page ${currentPage + 1}`}
+              className="w-full block" draggable={false} onLoad={() => setFields((f) => [...f])} />
+          ) : (
+            <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">Loading page...</div>
+          )}
           {pageFields.map((field) => {
             const { w, h } = getImgDims();
             const ps = getPageSize(currentPage);

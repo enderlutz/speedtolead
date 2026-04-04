@@ -131,17 +131,30 @@ def update_field_map(body: FieldMapUpdate):
 
 @router.get("/pdf-templates/page/{page_num}")
 def get_template_page(page_num: int):
+    """Rasterize a single page of the template for the field editor."""
     db = get_db()
     try:
         template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
         if not template or not template.pdf_data:
             raise HTTPException(status_code=404, detail="No template uploaded")
 
-        pages = rasterize_pdf_pages(template.pdf_data)
-        if page_num < 0 or page_num >= len(pages):
+        import fitz
+        doc = fitz.open(stream=template.pdf_data, filetype="pdf")
+        if page_num < 0 or page_num >= len(doc):
+            doc.close()
             raise HTTPException(status_code=404, detail="Page not found")
 
-        return Response(content=pages[page_num], media_type="image/jpeg")
+        page = doc[page_num]
+        mat = fitz.Matrix(2, 2)
+        pix = page.get_pixmap(matrix=mat)
+        img_bytes = pix.tobytes("jpeg", jpg_quality=80)
+        doc.close()
+
+        return Response(
+            content=img_bytes,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
     finally:
         db.close()
 
