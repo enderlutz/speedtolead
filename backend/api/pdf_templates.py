@@ -38,6 +38,8 @@ async def upload_template(file: UploadFile = File(...)):
     db = get_db()
     try:
         now = _now()
+        # Delete existing templates — single global template
+        db.query(PdfTemplate).delete()
         template = PdfTemplate(
             id=str(uuid.uuid4()),
             filename=file.filename or "template.pdf",
