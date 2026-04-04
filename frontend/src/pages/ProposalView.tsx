@@ -28,7 +28,7 @@ function ProposalPage({
   totalPages: number;
 }) {
   const [loaded, setLoaded] = useState(false);
-  const eager = pageNum === 1;
+  const eager = pageNum === 0;
 
   return (
     <div className="relative w-full">
@@ -120,9 +120,9 @@ export default function ProposalView() {
           <div className="space-y-4">
             {Array.from({ length: pageCount }, (_, i) => (
               <ProposalPage
-                key={i + 1}
+                key={i}
                 token={token}
-                pageNum={i + 1}
+                pageNum={i}
                 totalPages={pageCount}
               />
             ))}
