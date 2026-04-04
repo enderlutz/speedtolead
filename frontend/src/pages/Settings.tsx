@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +27,7 @@ export default function Settings() {
   const [template, setTemplate] = useState<PdfTemplateInfo | null>(null);
   const [templateLoading, setTemplateLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // GHL state
@@ -55,9 +56,11 @@ export default function Settings() {
       .finally(() => setStatsLoading(false));
   }, []);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadFile = useCallback(async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      toast.error("Only PDF files are allowed");
+      return;
+    }
     setUploading(true);
     try {
       const result = await api.uploadPdfTemplate(file);
@@ -69,7 +72,29 @@ export default function Settings() {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }, []);
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file);
   };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) uploadFile(file);
+  }, [uploadFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+  }, []);
 
   const handleDeleteTemplate = async () => {
     // Reset template display (backend would need a delete endpoint)
@@ -145,7 +170,17 @@ export default function Settings() {
             <p className="text-sm text-muted-foreground">No template uploaded</p>
           )}
 
-          <div>
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+              dragging
+                ? "border-primary bg-primary/5"
+                : "border-muted-foreground/25 hover:border-muted-foreground/50"
+            } ${uploading ? "opacity-50 pointer-events-none" : ""}`}
+          >
             <Input
               ref={fileInputRef}
               type="file"
@@ -154,15 +189,9 @@ export default function Settings() {
               className="hidden"
               id="pdf-upload"
             />
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="w-full sm:w-auto"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              {uploading ? "Uploading..." : "Upload Template"}
-            </Button>
+            <Upload className={`h-8 w-8 mx-auto mb-2 ${dragging ? "text-primary" : "text-muted-foreground/50"}`} />
+            <p className="text-sm font-medium">{uploading ? "Uploading..." : "Drag & drop PDF here"}</p>
+            <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
           </div>
         </CardContent>
       </Card>
