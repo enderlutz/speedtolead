@@ -75,6 +75,11 @@ def get_lead(lead_id: str):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
+        # Mark as viewed on first open
+        if not lead.viewed_at:
+            lead.viewed_at = _now()
+            db.commit()
+
         estimates = (
             db.query(Estimate)
             .filter(Estimate.lead_id == lead_id)

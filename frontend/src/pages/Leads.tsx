@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type FC } from "react";
 import { Link } from "react-router-dom";
 import { api, type Lead, type LeadDetail } from "@/lib/api";
 import { formatDateTime, timeAgo } from "@/lib/utils";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -358,25 +358,48 @@ function DraggableCard({ lead, children }: { lead: Lead; children?: React.ReactN
   );
 }
 
+const ElapsedTimer: FC<{ since: string }> = ({ since }) => {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const ms = Date.now() - new Date(since).getTime();
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return <span>{mins}m</span>;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return <span>{hrs}h {mins % 60}m</span>;
+  const days = Math.floor(hrs / 24);
+  return <span>{days}d {hrs % 24}h</span>;
+};
+
 function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
+  const isNew = !lead.viewed_at;
   return (
     <Link
       to={`/leads/${lead.id}`}
       onMouseEnter={() => prefetchLead(lead.id)}
       className={`block rounded-md border bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab ${
         isDragging ? "shadow-lg ring-2 ring-primary/20 rotate-1" : ""
-      }`}
+      } ${isNew ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
       onClick={(e) => isDragging && e.preventDefault()}
     >
       <div className="flex items-start justify-between gap-1.5">
-        <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isNew && <Badge className="text-[8px] px-1 py-0 bg-primary text-primary-foreground shrink-0">NEW</Badge>}
+          <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
+        </div>
         <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
       </div>
       {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
       {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
       <div className="flex items-center justify-between mt-1.5">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
-        <span className="text-[9px] text-muted-foreground">{timeAgo(lead.created_at)}</span>
+        <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+          <Clock className="h-2.5 w-2.5" />
+          <ElapsedTimer since={lead.created_at} />
+        </span>
       </div>
     </Link>
   );

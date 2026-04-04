@@ -51,6 +51,7 @@ export interface Lead {
   form_data: Record<string, string>;
   customer_responded: boolean;
   customer_response_text: string;
+  viewed_at: string | null;
   created_at: string;
   updated_at: string;
 }
