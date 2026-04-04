@@ -234,13 +234,25 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
               <div key={field.id} data-field
                 onMouseDown={(e) => handleMouseDown(e, field.id)}
                 onTouchStart={(e) => handleTouchStart(e, field.id)}
-                className={`absolute cursor-grab select-none touch-none flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white whitespace-nowrap ${
-                  isSelected ? "ring-2 ring-white shadow-lg z-20" : "z-10 opacity-90 hover:opacity-100"
+                className={`absolute cursor-grab select-none touch-none ${
+                  isSelected ? "z-20" : "z-10"
                 }`}
-                style={{ left: screen.x, top: screen.y, backgroundColor: field.color,
-                  fontSize: Math.max(9, Math.min(field.font_size * 0.7, 14)) }}>
-                <GripVertical className="h-3 w-3 opacity-60" />
-                {field.label}
+                style={{ left: screen.x, top: screen.y }}>
+                <div className="flex items-start gap-1" style={{ transform: "translate(0, -50%)" }}>
+                  {/* Arrow pointing to exact text insertion point */}
+                  <div className={`flex flex-col items-center ${isSelected ? "" : "opacity-70 hover:opacity-100"}`}>
+                    <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[7px] border-l-transparent border-r-transparent"
+                      style={{ borderTopColor: isSelected ? "#3b82f6" : field.color }} />
+                    <div className="w-0.5 h-2.5" style={{ backgroundColor: isSelected ? "#3b82f6" : field.color }} />
+                  </div>
+                  {/* Label tag */}
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-sm ${
+                    isSelected ? "bg-blue-500 text-white ring-2 ring-blue-300" : "text-white"
+                  }`} style={{ backgroundColor: isSelected ? undefined : field.color }}>
+                    <GripVertical className="h-3 w-3 inline-block -ml-0.5 mr-0.5 opacity-60" />
+                    {field.label}
+                  </span>
+                </div>
               </div>
             );
           })}

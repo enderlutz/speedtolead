@@ -261,7 +261,7 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
                   <img ref={imgRef} src={`data:image/jpeg;base64,${currentPageData.image_data}`}
                     alt={`Page ${currentPage + 1}`} className="w-full block" draggable={false} />
                 )}
-                {/* Field overlays */}
+                {/* Field markers — small crosshairs since text is in the rendered PDF */}
                 {pageFields.map((field) => {
                   const { w, h } = getImgDims();
                   const ps = getPageSize(currentPage);
@@ -274,8 +274,8 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
                       onMouseDown={(e) => handleMouseDown(e, field.id)}
                       onDoubleClick={(e) => handleDoubleClick(e, field.id)}
                       onClick={(e) => { e.stopPropagation(); setSelectedId(field.id); }}
-                      className={`absolute select-none touch-none whitespace-nowrap ${
-                        isEditing ? "z-30" : isSelected ? "z-20 ring-2 ring-primary/50 rounded" : "z-10 cursor-grab"
+                      className={`absolute select-none touch-none ${
+                        isEditing ? "z-30" : isSelected ? "z-20" : "z-10 cursor-grab"
                       }`}
                       style={{ left: screen.x, top: screen.y }}
                     >
@@ -296,16 +296,21 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
                           }}
                         />
                       ) : (
-                        <span
-                          className={`px-0.5 rounded cursor-text ${isSelected ? "bg-white/30" : "hover:bg-white/20"}`}
-                          style={{
-                            color: field.color,
-                            fontSize: Math.max(8, Math.min(field.font_size * (w / (ps.width || 612)) * 0.9, 24)),
-                            fontFamily: "'Libre Baskerville', serif",
-                          }}
-                        >
-                          {field.value || field.label}
-                        </span>
+                        /* Crosshair marker + label */
+                        <div className="flex items-start gap-1" style={{ transform: "translate(0, -50%)" }}>
+                          {/* Arrow/crosshair pointing to exact insertion point */}
+                          <div className={`flex flex-col items-center ${isSelected ? "" : "opacity-60 hover:opacity-100"}`}>
+                            <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[6px] border-l-transparent border-r-transparent"
+                              style={{ borderTopColor: isSelected ? "#3b82f6" : field.color }} />
+                            <div className="w-px h-2" style={{ backgroundColor: isSelected ? "#3b82f6" : field.color }} />
+                          </div>
+                          {/* Small label */}
+                          <span className={`text-[9px] font-medium px-1 rounded whitespace-nowrap ${
+                            isSelected ? "bg-blue-500 text-white" : "bg-black/50 text-white"
+                          }`}>
+                            {field.label}
+                          </span>
+                        </div>
                       )}
                     </div>
                   );
