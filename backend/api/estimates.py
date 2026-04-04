@@ -150,6 +150,8 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
         if not est:
             raise HTTPException(status_code=404, detail="Estimate not found")
+        if est.status == "sent":
+            raise HTTPException(status_code=400, detail="Estimate already sent")
 
         lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
         if not lead:
