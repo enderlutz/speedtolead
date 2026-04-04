@@ -28,6 +28,11 @@ const CONFIDENCE_OPTIONS = [
   { label: "I'm not confident", value: "60" },
 ];
 
+const FENCE_SIDES = {
+  Inside: ["Inside Front", "Inside Left", "Inside Back", "Inside Right"],
+  Outside: ["Outside Front", "Outside Left", "Outside Back", "Outside Right"],
+};
+
 const APPROVAL_CONFIG = {
   green: { label: "Ready to Send", cls: "bg-green-50 border-green-300 text-green-800", dot: "bg-green-500" },
   yellow: { label: "Add-ons Pending", cls: "bg-yellow-50 border-yellow-300 text-yellow-800", dot: "bg-yellow-500" },
@@ -52,6 +57,9 @@ export default function LeadDetail() {
   const [previouslyStained, setPreviouslyStained] = useState("");
   const [timeline, setTimeline] = useState("");
   const [confidencePct, setConfidencePct] = useState("100");
+  const [fenceSides, setFenceSides] = useState<string[]>([]);
+  const [additionalServices, setAdditionalServices] = useState("");
+  const [militaryDiscount, setMilitaryDiscount] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -69,6 +77,10 @@ export default function LeadDetail() {
       setPreviouslyStained(fd.previously_stained || "Didn't answer");
       setTimeline(fd.service_timeline || "");
       setConfidencePct(fd.confident_pct || "100");
+      const rawSides = fd.fence_sides;
+      setFenceSides(Array.isArray(rawSides) ? rawSides : rawSides ? String(rawSides).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
+      setAdditionalServices(fd.additional_services || "");
+      setMilitaryDiscount(Boolean(fd.military_discount));
     }).catch(() => toast.error("Failed to load lead")).finally(() => setLoading(false));
   }, [id]);
 
@@ -103,6 +115,9 @@ export default function LeadDetail() {
         previously_stained: previouslyStained,
         service_timeline: timeline,
         confident_pct: confidencePct,
+        fence_sides: fenceSides,
+        additional_services: additionalServices,
+        military_discount: militaryDiscount,
       });
       setLead((prev) => (prev ? { ...prev, ...result, estimates: result.estimate ? [result.estimate] : prev.estimates } : prev));
       toast.success("Estimate recalculated");
@@ -325,6 +340,53 @@ export default function LeadDetail() {
                   </select>
                 </div>
               </div>
+              {/* Fence Sides */}
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-2 block">Fence Sides</label>
+                <div className="grid grid-cols-2 gap-4">
+                  {Object.entries(FENCE_SIDES).map(([group, sides]) => (
+                    <div key={group}>
+                      <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">{group}</p>
+                      <div className="space-y-1.5">
+                        {sides.map((side) => (
+                          <label key={side} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={fenceSides.includes(side)}
+                              onChange={(e) => {
+                                if (e.target.checked) setFenceSides((prev) => [...prev, side]);
+                                else setFenceSides((prev) => prev.filter((s) => s !== side));
+                              }}
+                              className="rounded border-input"
+                            />
+                            {side.replace("Inside ", "").replace("Outside ", "")}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Additional Services + Military Discount */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Additional Services</label>
+                  <Input placeholder="e.g. gate painting, pressure washing" value={additionalServices} onChange={(e) => setAdditionalServices(e.target.value)} />
+                </div>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={militaryDiscount}
+                      onChange={(e) => setMilitaryDiscount(e.target.checked)}
+                      className="rounded border-input"
+                    />
+                    Military Discount
+                  </label>
+                </div>
+              </div>
+
               <Button onClick={handleSaveRecalculate} disabled={saving} className="w-full">
                 <RefreshCw className={`h-4 w-4 mr-2 ${saving ? "animate-spin" : ""}`} />
                 {saving ? "Recalculating..." : "Save & Recalculate"}
