@@ -1,0 +1,101 @@
+from __future__ import annotations
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from database import init_db
+from config import get_settings
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth
+from services.poller import poll_ghl_contacts, poll_ghl_messages
+from services.nudge import run_nudge_check
+from services.event_bus import subscribe
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
+
+async def _poller_loop():
+    """Background task: sync GHL contacts every 60 seconds."""
+    while True:
+        try:
+            await asyncio.to_thread(poll_ghl_contacts)
+        except Exception as e:
+            logger.error(f"Poller error: {e}")
+        await asyncio.sleep(60)
+
+
+async def _message_poller_loop():
+    """Background task: sync GHL messages every 2 minutes (safety net for missed webhooks)."""
+    await asyncio.sleep(15)
+    while True:
+        try:
+            await asyncio.to_thread(poll_ghl_messages)
+        except Exception as e:
+            logger.error(f"Message poller error: {e}")
+        await asyncio.sleep(120)  # Every 2 minutes
+
+
+async def _nudge_loop():
+    """Background task: nudge Alan + Olga every 5 minutes about pending leads."""
+    await asyncio.sleep(30)
+    while True:
+        try:
+            await asyncio.to_thread(run_nudge_check)
+        except Exception as e:
+            logger.error(f"Nudge error: {e}")
+        await asyncio.sleep(300)  # Every 5 minutes
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    auth.seed_default_users()
+    logger.info("Database initialized")
+    poller = asyncio.create_task(_poller_loop())
+    msg_poller = asyncio.create_task(_message_poller_loop())
+    nudger = asyncio.create_task(_nudge_loop())
+    yield
+    poller.cancel()
+    msg_poller.cancel()
+    nudger.cancel()
+
+
+app = FastAPI(title="AT-System Lite", lifespan=lifespan)
+
+# CORS — allow configured origins
+_settings = get_settings()
+origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router, prefix="/api")
+app.include_router(webhooks.router)
+app.include_router(leads.router, prefix="/api")
+app.include_router(estimates.router, prefix="/api")
+app.include_router(proposals.router, prefix="/api")
+app.include_router(analytics.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
+app.include_router(pdf_templates.router, prefix="/api")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/events")
+async def sse_events():
+    """Server-Sent Events stream. Pushes new_lead, estimate_sent, etc. in real-time."""
+    return StreamingResponse(
+        subscribe(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )

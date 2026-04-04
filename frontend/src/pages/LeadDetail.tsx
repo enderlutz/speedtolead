@@ -1,0 +1,483 @@
+import { useEffect, useState, useCallback } from "react";
+import { useParams, Link } from "react-router-dom";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry } from "@/lib/api";
+import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
+import { toast } from "sonner";
+import { useSSE } from "@/hooks/useSSE";
+import { playSuccessSound, playWarningSound, playReplySound, playProposalViewedSound } from "@/hooks/useNotificationSound";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield,
+} from "lucide-react";
+
+const FENCE_HEIGHT_OPTIONS = [
+  "Didn't answer", "6ft standard", "6.5ft standard with rot board", "7ft", "8ft", "Not sure",
+];
+const FENCE_AGE_OPTIONS = [
+  "Didn't answer", "Brand new (less than 6 months)", "1-6 years", "6-15 years", "Older than 15 years / Not sure",
+];
+const PREVIOUSLY_STAINED_OPTIONS = ["Didn't answer", "No", "Yes"];
+const TIMELINE_OPTIONS = ["As soon as possible", "Within 2 weeks", "Sometime this month", "Just planning ahead"];
+const CONFIDENCE_OPTIONS = [
+  { label: "I'm confident", value: "100" },
+  { label: "Somewhat confident", value: "80" },
+  { label: "I'm not confident", value: "60" },
+];
+
+const APPROVAL_CONFIG = {
+  green: { label: "Ready to Send", cls: "bg-green-50 border-green-300 text-green-800", dot: "bg-green-500" },
+  yellow: { label: "Add-ons Pending", cls: "bg-yellow-50 border-yellow-300 text-yellow-800", dot: "bg-yellow-500" },
+  red: { label: "Owner Review Required", cls: "bg-red-50 border-red-300 text-red-800", dot: "bg-red-500" },
+} as const;
+
+const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
+
+export default function LeadDetail() {
+  const { id } = useParams<{ id: string }>();
+  const [lead, setLead] = useState<LeadDetailType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [checkingResponse, setCheckingResponse] = useState(false);
+  const [requestingReview, setRequestingReview] = useState(false);
+  const [messages, setMessages] = useState<MessageEntry[]>([]);
+
+  const [linearFeet, setLinearFeet] = useState("");
+  const [fenceHeight, setFenceHeight] = useState("");
+  const [fenceAge, setFenceAge] = useState("");
+  const [previouslyStained, setPreviouslyStained] = useState("");
+  const [timeline, setTimeline] = useState("");
+  const [confidencePct, setConfidencePct] = useState("100");
+
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    Promise.all([
+      api.getLead(id),
+      api.getMessages(id).catch(() => []),
+    ]).then(([data, msgs]) => {
+      setLead(data);
+      setMessages(msgs);
+      const fd = data.form_data || {};
+      setLinearFeet(fd.linear_feet || "");
+      setFenceHeight(fd.fence_height || "Didn't answer");
+      setFenceAge(fd.fence_age || "Didn't answer");
+      setPreviouslyStained(fd.previously_stained || "Didn't answer");
+      setTimeline(fd.service_timeline || "");
+      setConfidencePct(fd.confident_pct || "100");
+    }).catch(() => toast.error("Failed to load lead")).finally(() => setLoading(false));
+  }, [id]);
+
+  // Real-time: update if customer replies or views proposal for THIS lead
+  useSSE(useCallback((event) => {
+    if (!id) return;
+    const eventLeadId = event.data.lead_id as string;
+    if (eventLeadId !== id) return;
+
+    if (event.type === "customer_reply") {
+      playReplySound();
+      toast.info(`Customer replied: "${(event.data.body as string)?.slice(0, 80)}"`, { duration: 8000 });
+      api.getMessages(id).then(setMessages).catch(() => {});
+      api.getLead(id).then(setLead).catch(() => {});
+    }
+    if (event.type === "proposal_viewed") {
+      playProposalViewedSound();
+      toast(`Customer is viewing their estimate right now!`, { duration: 6000 });
+    }
+  }, [id]));
+
+  const estimate: EstimateDetail | undefined = lead?.estimates?.[0];
+
+  const handleSaveRecalculate = async () => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      const result = await api.updateFormData(id, {
+        linear_feet: linearFeet,
+        fence_height: fenceHeight,
+        fence_age: fenceAge,
+        previously_stained: previouslyStained,
+        service_timeline: timeline,
+        confident_pct: confidencePct,
+      });
+      setLead((prev) => (prev ? { ...prev, ...result, estimates: result.estimate ? [result.estimate] : prev.estimates } : prev));
+      toast.success("Estimate recalculated");
+    } catch {
+      toast.error("Failed to recalculate");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!estimate) return;
+    setApproving(true);
+    try {
+      const result = await api.approveEstimate(estimate.id);
+      const data = await api.getLead(id!);
+      setLead(data);
+      const url = result.proposal_url;
+      const smsSent = (result as Record<string, unknown>).sms_sent;
+      if (smsSent) {
+        playSuccessSound();
+        toast.success(`SMS sent to customer! Proposal: ${url}`, { duration: 8000 });
+      } else if (url) {
+        playWarningSound();
+        toast.warning(`Estimate approved but SMS failed to send. Proposal link: ${url}`, { duration: 10000 });
+      } else {
+        playSuccessSound();
+        toast.success("Estimate approved!");
+      }
+    } catch {
+      toast.error("Failed to approve");
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleCheckResponse = async () => {
+    if (!id) return;
+    setCheckingResponse(true);
+    try {
+      const result = await api.checkResponse(id);
+      if (result.new_count > 0) {
+        toast.success(`${result.new_count} new message(s) found`);
+        const msgs = await api.getMessages(id);
+        setMessages(msgs);
+        const data = await api.getLead(id);
+        setLead(data);
+      } else {
+        toast.info("No new messages");
+      }
+    } catch {
+      toast.error("Failed to check response");
+    } finally {
+      setCheckingResponse(false);
+    }
+  };
+
+  const handleRequestReview = async () => {
+    if (!estimate) return;
+    setRequestingReview(true);
+    try {
+      await api.requestReview(estimate.id);
+      toast.success("Review request sent to Alan via SMS");
+    } catch {
+      toast.error("Failed to send review request");
+    } finally {
+      setRequestingReview(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-4 sm:p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 w-48 bg-muted rounded" />
+          <div className="h-64 bg-muted rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!lead) {
+    return <div className="p-4 sm:p-6"><p className="text-muted-foreground">Lead not found</p></div>;
+  }
+
+  const approvalStatus = estimate?.approval_status as keyof typeof APPROVAL_CONFIG | undefined;
+  const approvalCfg = approvalStatus ? APPROVAL_CONFIG[approvalStatus] : null;
+  const mapsUrl = lead.address
+    ? `https://www.google.com/maps/@?api=1&map_action=map&basemap=satellite&center=${encodeURIComponent(lead.address)}&zoom=20`
+    : null;
+
+  return (
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-5xl">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <Link to="/leads" className="text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-2xl font-semibold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <Badge variant="outline" className="text-xs">{lead.location_label}</Badge>
+            <Badge variant="outline" className="text-xs capitalize">{lead.status}</Badge>
+            {lead.customer_responded && <Badge className="text-xs bg-blue-100 text-blue-800">Responded</Badge>}
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile: approval status */}
+      {approvalCfg && (
+        <div className={`rounded-lg border p-3 sm:p-4 lg:hidden ${approvalCfg.cls}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`h-2.5 w-2.5 rounded-full ${approvalCfg.dot}`} />
+            <span className="text-sm font-semibold">{approvalCfg.label}</span>
+          </div>
+          <p className="text-xs">{estimate?.approval_reason}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        {/* Left column */}
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+          {/* Contact info */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                <User className="h-4 w-4" /> Contact Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="truncate">{lead.contact_name || "—"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                <a href={`tel:${lead.contact_phone}`} className="text-primary hover:underline">{lead.contact_phone || "—"}</a>
+              </div>
+              <div className="flex items-center gap-2">
+                <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="truncate">{lead.contact_email || "—"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="truncate">{lead.address || "—"}</span>
+                {mapsUrl && (
+                  <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                    <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                  </a>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Google Maps Satellite View */}
+          {lead.address && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                  <MapPin className="h-4 w-4" /> Satellite View
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-md overflow-hidden border aspect-video">
+                  <iframe
+                    title="Satellite view"
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0, minHeight: 250 }}
+                    loading="lazy"
+                    src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ""}&q=${encodeURIComponent(lead.address)}&maptype=satellite&zoom=20`}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Estimate input form */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                <Calculator className="h-4 w-4" /> Estimator Input
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Linear Feet</label>
+                  <Input type="number" placeholder="e.g. 150" value={linearFeet} onChange={(e) => setLinearFeet(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Fence Height</label>
+                  <select className={selectCls} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
+                    {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Fence Age</label>
+                  <select className={selectCls} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>
+                    {FENCE_AGE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Previously Stained</label>
+                  <select className={selectCls} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
+                    {PREVIOUSLY_STAINED_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Timeline</label>
+                  <select className={selectCls} value={timeline} onChange={(e) => setTimeline(e.target.value)}>
+                    <option value="">Select...</option>
+                    {TIMELINE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Confidence</label>
+                  <select className={selectCls} value={confidencePct} onChange={(e) => setConfidencePct(e.target.value)}>
+                    {CONFIDENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <Button onClick={handleSaveRecalculate} disabled={saving} className="w-full">
+                <RefreshCw className={`h-4 w-4 mr-2 ${saving ? "animate-spin" : ""}`} />
+                {saving ? "Recalculating..." : "Save & Recalculate"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Message History */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" /> Messages
+                </CardTitle>
+                <Button variant="outline" size="sm" onClick={handleCheckResponse} disabled={checkingResponse}>
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${checkingResponse ? "animate-spin" : ""}`} />
+                  Check
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {messages.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No messages yet</p>
+              ) : (
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`rounded-lg px-3 py-2 text-sm max-w-[85%] ${
+                        msg.direction === "inbound"
+                          ? "bg-muted mr-auto"
+                          : "bg-primary/10 ml-auto text-right"
+                      }`}
+                    >
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">
+                        {msg.direction === "inbound" ? "Customer" : "Sent"} — {timeAgo(msg.created_at)}
+                      </p>
+                      <p>{msg.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-4 sm:space-y-6">
+          {/* Approval status — desktop */}
+          {approvalCfg && (
+            <div className={`hidden lg:block rounded-lg border p-4 ${approvalCfg.cls}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`h-2.5 w-2.5 rounded-full ${approvalCfg.dot}`} />
+                <span className="text-sm font-semibold">{approvalCfg.label}</span>
+              </div>
+              <p className="text-xs">{estimate?.approval_reason}</p>
+            </div>
+          )}
+
+          {/* Tier prices */}
+          {estimate && estimate.tiers && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm sm:text-base">Estimate</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(["essential", "signature", "legacy"] as const).map((tier) => {
+                  const price = estimate.tiers[tier] || 0;
+                  const monthly = Math.round(price / 21);
+                  return (
+                    <div
+                      key={tier}
+                      className={`flex items-center justify-between p-2.5 sm:p-3 rounded-md border ${
+                        tier === "signature" ? "bg-primary/5 border-primary/20" : "bg-muted/30"
+                      }`}
+                    >
+                      <div>
+                        <span className="text-sm font-medium capitalize">{tier}</span>
+                        {tier === "signature" && <span className="ml-1 text-[10px] text-primary font-medium">Rec.</span>}
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-bold">{formatCurrency(price)}</span>
+                        <span className="text-[10px] text-muted-foreground ml-1">~${monthly}/mo</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {estimate.breakdown.length > 0 && (
+                  <div className="pt-2 border-t space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Breakdown</p>
+                    {estimate.breakdown.map((item, i) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="truncate mr-2">{item.label}</span>
+                        <span className="font-medium shrink-0">{formatCurrency(item.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Actions */}
+          {estimate && estimate.status === "pending" && (
+            <div className="space-y-2">
+              <Button onClick={handleApprove} disabled={approving} className="w-full bg-green-600 hover:bg-green-700 text-white">
+                <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
+                {approving ? "Sending..." : "Approve & Send to Customer"}
+              </Button>
+              {estimate.approval_status === "red" && (
+                <>
+                  <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full">
+                    <Shield className={`h-4 w-4 mr-2 ${requestingReview ? "animate-spin" : ""}`} />
+                    {requestingReview ? "Sending..." : "Request Alan's Approval"}
+                  </Button>
+                  <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> Needs review before sending
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {estimate && estimate.status === "sent" && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-green-600 justify-center">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-sm font-medium">Sent {estimate.sent_at ? formatDateTime(estimate.sent_at) : ""}</span>
+              </div>
+              <Button variant="outline" className="w-full" asChild>
+                <a href={api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer">
+                  <FileText className="h-4 w-4 mr-2" /> View PDF
+                </a>
+              </Button>
+            </div>
+          )}
+
+          {/* Meta info */}
+          <Card>
+            <CardContent className="pt-4 text-xs space-y-1 text-muted-foreground">
+              <p>Created: {formatDate(lead.created_at)}</p>
+              <p>ZIP: {lead.zip_code || "—"}</p>
+              <p>Service: {lead.service_type}</p>
+              {estimate && (
+                <>
+                  <p>Zone: {String(estimate.inputs?.["_zone"] ?? "—")}</p>
+                  <p>Sqft: {String(estimate.inputs?.["_sqft"] ?? "—")}</p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
