@@ -21,8 +21,10 @@ def _now() -> str:
 
 
 def _today_start() -> datetime:
-    """Return midnight UTC of today."""
-    now = datetime.now(timezone.utc)
+    """Return midnight CST (UTC-6) of today."""
+    from datetime import timedelta
+    cst = timezone(timedelta(hours=-6))
+    now = datetime.now(cst)
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
