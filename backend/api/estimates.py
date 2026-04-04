@@ -164,6 +164,7 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         est.status = "sent"
         est.sent_at = now
         lead.status = "sent"
+        lead.kanban_column = "estimate_sent"
         lead.updated_at = now
 
         # Generate PDF if template exists

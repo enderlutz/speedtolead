@@ -386,17 +386,18 @@ def get_messages(lead_id: str):
 
 @router.post("/leads/backfill-tags")
 def backfill_tags():
-    """One-time: check each lead's GHL tags and archive those with estimate_sent."""
+    """Scan GHL tags: move estimate_sent tagged leads to Estimate Sent column."""
     db = get_db()
     try:
         leads = (
             db.query(Lead)
             .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
             .filter(Lead.status != "archived")
+            .filter(Lead.kanban_column != "estimate_sent")
             .all()
         )
 
-        archived_count = 0
+        sent_count = 0
         checked = 0
 
         for lead in leads:
@@ -408,17 +409,17 @@ def backfill_tags():
 
                 tags = [t.lower() for t in (contact.get("tags") or [])]
                 if "estimate_sent" in tags:
-                    lead.status = "archived"
-                    lead.kanban_column = "archived"
+                    lead.status = "sent"
+                    lead.kanban_column = "estimate_sent"
                     lead.updated_at = _now()
-                    archived_count += 1
-                    logger.info(f"Backfill: archived {lead.contact_name} (has estimate_sent tag)")
+                    sent_count += 1
+                    logger.info(f"Backfill: moved {lead.contact_name} to estimate_sent column")
 
             except Exception as e:
                 logger.error(f"Backfill: failed for {lead.id}: {e}")
 
         db.commit()
-        return {"checked": checked, "archived": archived_count, "total_leads": len(leads)}
+        return {"checked": checked, "sent_column": sent_count, "total_leads": len(leads)}
 
     except Exception as e:
         db.rollback()

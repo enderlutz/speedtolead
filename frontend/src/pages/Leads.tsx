@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -32,7 +32,7 @@ function getCachedLeads(): Lead[] {
   } catch { return []; }
 }
 
-type KanbanStatus = "new_lead" | "no_address" | "needs_info" | "hot_lead" | "yellow" | "needs_review";
+type KanbanStatus = "new_lead" | "no_address" | "needs_info" | "hot_lead" | "yellow" | "needs_review" | "estimate_sent";
 
 const COLUMNS: { key: KanbanStatus; label: string; shortLabel: string; headerCls: string; bgCls: string; dotCls: string }[] = [
   { key: "new_lead", label: "New Lead", shortLabel: "New", headerCls: "bg-gray-100 text-gray-800", bgCls: "bg-gray-50/50", dotCls: "bg-gray-400" },
@@ -41,10 +41,11 @@ const COLUMNS: { key: KanbanStatus; label: string; shortLabel: string; headerCls
   { key: "hot_lead", label: "Hot Lead", shortLabel: "Hot", headerCls: "bg-green-100 text-green-800", bgCls: "bg-green-50/20", dotCls: "bg-green-500" },
   { key: "yellow", label: "Add-ons", shortLabel: "Add-ons", headerCls: "bg-yellow-100 text-yellow-800", bgCls: "bg-yellow-50/20", dotCls: "bg-yellow-500" },
   { key: "needs_review", label: "Needs Review", shortLabel: "Review", headerCls: "bg-red-100 text-red-800", bgCls: "bg-red-50/20", dotCls: "bg-red-500" },
+  { key: "estimate_sent", label: "Estimate Sent", shortLabel: "Sent", headerCls: "bg-sky-100 text-sky-800", bgCls: "bg-sky-50/20", dotCls: "bg-sky-500" },
 ];
 
 const COLUMN_ORDER: Record<KanbanStatus, number> = {
-  hot_lead: 0, yellow: 1, needs_info: 2, no_address: 3, new_lead: 4, needs_review: 5,
+  hot_lead: 0, yellow: 1, needs_info: 2, no_address: 3, new_lead: 4, needs_review: 5, estimate_sent: 6,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -61,6 +62,7 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
   const prevCountRef = useRef(leads.length);
 
   const loadLeads = useCallback(() => {
@@ -162,7 +164,7 @@ export default function Leads() {
 
   const grouped = useMemo(() => {
     const groups: Record<KanbanStatus, Lead[]> = {
-      new_lead: [], no_address: [], needs_info: [], hot_lead: [], yellow: [], needs_review: [],
+      new_lead: [], no_address: [], needs_info: [], hot_lead: [], yellow: [], needs_review: [], estimate_sent: [],
     };
     for (const lead of filtered) {
       const col = (lead.kanban_column as KanbanStatus) || "new_lead";
@@ -211,10 +213,24 @@ export default function Leads() {
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="text-xs text-muted-foreground">{leads.length} total</p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadLeads} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={async () => {
+            setScanning(true);
+            try {
+              const result = await api.backfillTags();
+              toast.success(`Scanned ${result.checked} leads — ${result.sent_column} moved to Estimate Sent, ${result.archived} archived`);
+              loadLeads();
+            } catch { toast.error("Scan failed"); }
+            finally { setScanning(false); }
+          }} disabled={scanning}>
+            <ScanSearch className={`h-4 w-4 mr-1 ${scanning ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">Scan GHL</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={loadLeads} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
       </div>
 
       <div className="relative max-w-sm">

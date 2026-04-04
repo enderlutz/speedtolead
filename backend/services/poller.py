@@ -132,7 +132,7 @@ def _sync_location(location_id: str, label: str):
                         if key and value:
                             form_data[key] = value
 
-                # Check if GHL contact has "estimate_sent" tag — auto-archive
+                # Check if GHL contact has "estimate_sent" tag
                 ghl_tags = [t.lower() for t in (contact.get("tags") or [])]
                 already_sent = "estimate_sent" in ghl_tags
 
@@ -166,8 +166,8 @@ def _sync_location(location_id: str, label: str):
                     address=full_address,
                     zip_code=postal,
                     service_type="fence_staining",
-                    status="archived" if already_sent else ("estimated" if low > 0 else "new"),
-                    kanban_column="archived" if already_sent else kanban_col,
+                    status="sent" if already_sent else ("estimated" if low > 0 else "new"),
+                    kanban_column="estimate_sent" if already_sent else kanban_col,
                     priority=priority,
                     form_data=json.dumps(form_data),
                     created_at=ghl_created,

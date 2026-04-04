@@ -254,6 +254,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  backfillTags: () =>
+    request<{ checked: number; archived: number; sent_column: number; total_leads: number }>("/api/leads/backfill-tags", { method: "POST" }),
   archiveLead: (id: string) =>
     request<Lead>(`/api/leads/${id}/archive`, { method: "POST" }),
   unarchiveLead: (id: string) =>
