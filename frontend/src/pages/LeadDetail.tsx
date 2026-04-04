@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save,
 } from "lucide-react";
 
 const FENCE_HEIGHT_OPTIONS = [
@@ -50,6 +50,12 @@ export default function LeadDetail() {
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactAddress, setContactAddress] = useState("");
   const [messages, setMessages] = useState<MessageEntry[]>([]);
 
   const [linearFeet, setLinearFeet] = useState("");
@@ -58,6 +64,7 @@ export default function LeadDetail() {
   const [previouslyStained, setPreviouslyStained] = useState("");
   const [timeline, setTimeline] = useState("");
   const [confidencePct, setConfidencePct] = useState("100");
+  const [zipCode, setZipCode] = useState("");
   const [fenceSides, setFenceSides] = useState<string[]>([]);
   const [additionalServices, setAdditionalServices] = useState("");
   const [militaryDiscount, setMilitaryDiscount] = useState(false);
@@ -71,6 +78,12 @@ export default function LeadDetail() {
     ]).then(([data, msgs]) => {
       setLead(data);
       setMessages(msgs);
+      // Contact fields
+      setContactName(data.contact_name || "");
+      setContactPhone(data.contact_phone || "");
+      setContactEmail(data.contact_email || "");
+      setContactAddress(data.address || "");
+      // Estimator fields
       const fd = data.form_data || {};
       setLinearFeet(fd.linear_feet || "");
       setFenceHeight(fd.fence_height || "Didn't answer");
@@ -78,6 +91,7 @@ export default function LeadDetail() {
       setPreviouslyStained(fd.previously_stained || "Didn't answer");
       setTimeline(fd.service_timeline || "");
       setConfidencePct(fd.confident_pct || "100");
+      setZipCode(fd.zip_code || data.zip_code || "");
       const rawSides = fd.fence_sides;
       setFenceSides(Array.isArray(rawSides) ? rawSides : rawSides ? String(rawSides).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
       setAdditionalServices(fd.additional_services || "");
@@ -116,6 +130,7 @@ export default function LeadDetail() {
         previously_stained: previouslyStained,
         service_timeline: timeline,
         confident_pct: confidencePct,
+        zip_code: zipCode,
         fence_sides: fenceSides,
         additional_services: additionalServices,
         military_discount: militaryDiscount,
@@ -189,6 +204,26 @@ export default function LeadDetail() {
     }
   };
 
+  const handleSaveContact = async () => {
+    if (!id) return;
+    setSavingContact(true);
+    try {
+      const updated = await api.updateContact(id, {
+        contact_name: contactName,
+        contact_phone: contactPhone,
+        contact_email: contactEmail,
+        address: contactAddress,
+      });
+      setLead((prev) => (prev ? { ...prev, ...updated } : prev));
+      setEditingContact(false);
+      toast.success("Contact info saved");
+    } catch {
+      toast.error("Failed to save contact info");
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
   const handleCancel = async () => {
     if (!estimate || !confirm("Cancel this estimate? The customer's proposal link will stop working.")) return;
     setCancelling(true);
@@ -259,32 +294,69 @@ export default function LeadDetail() {
           {/* Contact info */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                <User className="h-4 w-4" /> Contact Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              <div className="flex items-center gap-2">
-                <User className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="truncate">{lead.contact_name || "—"}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                <a href={`tel:${lead.contact_phone}`} className="text-primary hover:underline">{lead.contact_phone || "—"}</a>
-              </div>
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="truncate">{lead.contact_email || "—"}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="truncate">{lead.address || "—"}</span>
-                {mapsUrl && (
-                  <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                    <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-primary" />
-                  </a>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                  <User className="h-4 w-4" /> Contact Information
+                </CardTitle>
+                {!editingContact ? (
+                  <Button variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                  </Button>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <Button variant="ghost" size="sm" onClick={() => setEditingContact(false)}>Cancel</Button>
+                    <Button size="sm" onClick={handleSaveContact} disabled={savingContact}>
+                      <Save className="h-3.5 w-3.5 mr-1" /> {savingContact ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
                 )}
               </div>
+            </CardHeader>
+            <CardContent>
+              {editingContact ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
+                    <Input value={contactName} onChange={(e) => setContactName(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone</label>
+                    <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
+                    <Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Address</label>
+                    <Input value={contactAddress} onChange={(e) => setContactAddress(e.target.value)} />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">{lead.contact_name || "—"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <a href={`tel:${lead.contact_phone}`} className="text-primary hover:underline">{lead.contact_phone || "—"}</a>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">{lead.contact_email || "—"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">{lead.address || "—"}</span>
+                    {mapsUrl && (
+                      <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -323,6 +395,10 @@ export default function LeadDetail() {
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Linear Feet</label>
                   <Input type="number" placeholder="e.g. 150" value={linearFeet} onChange={(e) => setLinearFeet(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">ZIP Code</label>
+                  <Input type="text" placeholder="e.g. 77429" maxLength={5} value={zipCode} onChange={(e) => setZipCode(e.target.value)} />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Fence Height</label>
