@@ -55,11 +55,11 @@ async def lifespan(app: FastAPI):
     logger.info("Database initialized")
     poller = asyncio.create_task(_poller_loop())
     msg_poller = asyncio.create_task(_message_poller_loop())
-    nudger = asyncio.create_task(_nudge_loop())
+    # Nudge loop disabled — was spamming Alan every 5 min
+    # nudger = asyncio.create_task(_nudge_loop())
     yield
     poller.cancel()
     msg_poller.cancel()
-    nudger.cancel()
 
 
 app = FastAPI(title="AT-System Lite", lifespan=lifespan)
