@@ -222,7 +222,8 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
         >
           <img
             ref={imgRef}
-            src={`${api.getTemplatePageUrl(currentPage)}`}
+            key={currentPage}
+            src={`${api.getTemplatePageUrl(currentPage)}?t=${Date.now()}`}
             alt={`Page ${currentPage + 1}`}
             className="w-full block"
             draggable={false}
