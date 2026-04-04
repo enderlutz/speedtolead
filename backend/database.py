@@ -254,6 +254,7 @@ class PdfTemplate(Base):
     pdf_data = Column(LargeBinary, nullable=True)
     page_count = Column(Integer, default=0)
     field_map = Column(Text, default="{}")
+    page_sizes_json = Column(Text, default="[]")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 

@@ -51,6 +51,8 @@ async def upload_template(file: UploadFile = File(...)):
         db.commit()
 
         page_sizes = get_pdf_page_sizes(pdf_data)
+        template.page_sizes_json = json.dumps(page_sizes)
+        db.commit()
         return {
             "id": template.id,
             "filename": template.filename,
@@ -68,7 +70,15 @@ async def upload_template(file: UploadFile = File(...)):
 def get_current_template():
     db = get_db()
     try:
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
+        # Load only metadata columns, skip pdf_data blob for speed
+        template = (
+            db.query(
+                PdfTemplate.id, PdfTemplate.filename, PdfTemplate.page_count,
+                PdfTemplate.field_map, PdfTemplate.page_sizes_json,
+            )
+            .order_by(PdfTemplate.created_at.desc())
+            .first()
+        )
         if not template:
             raise HTTPException(status_code=404, detail="No template uploaded")
 
@@ -79,7 +89,13 @@ def get_current_template():
             except Exception:
                 field_map = {}
 
-        page_sizes = get_pdf_page_sizes(template.pdf_data) if template.pdf_data else []
+        page_sizes = []
+        if template.page_sizes_json:
+            try:
+                page_sizes = json.loads(template.page_sizes_json) if isinstance(template.page_sizes_json, str) else template.page_sizes_json
+            except Exception:
+                pass
+
         return {
             "id": template.id,
             "filename": template.filename,
