@@ -16,6 +16,72 @@ from services.event_bus import publish
 logger = logging.getLogger(__name__)
 
 
+# --- Smart GHL field resolver (value-based, works across locations) ---
+
+_HEIGHT_VALUES = {"6ft", "6.5ft", "7ft", "8ft", "standard", "rot board", "not sure"}
+_AGE_VALUES = {"brand new", "less than 6", "1-6 year", "6-15 year", "older than 15", "not sure"}
+_TIMELINE_VALUES = {"as soon as possible", "within 2 weeks", "sometime this month", "just planning ahead"}
+_BOOL_VALUES = {"yes", "no"}
+
+
+def _classify_field(value: str) -> str | None:
+    """Guess which form field a GHL custom field value belongs to."""
+    v = str(value).lower().strip()
+    if any(h in v for h in _HEIGHT_VALUES):
+        return "fence_height"
+    if any(a in v for a in _AGE_VALUES):
+        return "fence_age"
+    if any(t in v for t in _TIMELINE_VALUES):
+        return "service_timeline"
+    return None
+
+
+def resolve_custom_fields(raw_fields: list | dict) -> dict:
+    """Map GHL custom fields to our internal field names using value detection."""
+    result: dict = {}
+    items: list[tuple[str, str]] = []
+
+    if isinstance(raw_fields, list):
+        for cf in raw_fields:
+            key = cf.get("key") or cf.get("id") or ""
+            value = cf.get("value") or ""
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            if key and value:
+                items.append((key, str(value)))
+    elif isinstance(raw_fields, dict):
+        for key, value in raw_fields.items():
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            if key and value:
+                items.append((key, str(value)))
+
+    stained_candidates: list[str] = []
+
+    for key, value in items:
+        v_lower = value.lower().strip()
+
+        # Try value-based classification first
+        field_name = _classify_field(value)
+        if field_name:
+            result[field_name] = value
+            continue
+
+        # Yes/No could be "previously_stained" — collect candidates
+        if v_lower in ("yes", "no"):
+            stained_candidates.append(value)
+            continue
+
+        # Keep unresolved fields with original key
+        result[key] = value
+
+    # Assign first Yes/No to previously_stained if not already set
+    if stained_candidates and "previously_stained" not in result:
+        result["previously_stained"] = stained_candidates[0]
+
+    return result
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -71,6 +137,8 @@ def _sync_location(location_id: str, label: str):
                 if not existing:
                     continue
 
+                changed = False
+
                 # Fix created_at to GHL's real date if we stored our sync time
                 date_added = contact.get("dateAdded") or contact.get("createdAt") or ""
                 if date_added:
@@ -80,8 +148,28 @@ def _sync_location(location_id: str, label: str):
                         ghl_dt = str(date_added).replace("Z", "+00:00")
                     if existing.created_at != ghl_dt:
                         existing.created_at = ghl_dt
-                        existing.updated_at = _now()
-                        updated_count += 1
+                        changed = True
+
+                # Re-resolve custom fields if form_data has unmapped GHL IDs
+                custom_fields = contact.get("customFields") or []
+                if custom_fields:
+                    resolved = resolve_custom_fields(custom_fields)
+                    existing_fd = json.loads(existing.form_data) if isinstance(existing.form_data, str) else (existing.form_data or {})
+                    # Merge: resolved fields take priority for known names
+                    for k, v in resolved.items():
+                        if k in ("fence_height", "fence_age", "previously_stained", "service_timeline"):
+                            if existing_fd.get(k) != v:
+                                existing_fd[k] = v
+                                changed = True
+                        elif k not in existing_fd:
+                            existing_fd[k] = v
+                            changed = True
+                    if changed:
+                        existing.form_data = json.dumps(existing_fd)
+
+                if changed:
+                    existing.updated_at = _now()
+                    updated_count += 1
 
             except Exception as e:
                 logger.error(f"Poller: failed to update contact {contact.get('id', '?')}: {e}")
@@ -123,14 +211,8 @@ def _sync_location(location_id: str, label: str):
                     from services.geocoder import extract_zip
                     postal = extract_zip(full_address)
 
-                form_data: dict = {}
                 custom_fields = contact.get("customFields") or []
-                if isinstance(custom_fields, list):
-                    for cf in custom_fields:
-                        key = cf.get("key") or cf.get("id") or ""
-                        value = cf.get("value") or ""
-                        if key and value:
-                            form_data[key] = value
+                form_data = resolve_custom_fields(custom_fields)
 
                 # Check if GHL contact has "estimate_sent" tag
                 ghl_tags = [t.lower().strip() for t in (contact.get("tags") or [])]
