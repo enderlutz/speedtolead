@@ -238,6 +238,11 @@ export const api = {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return request<Lead[]>(`/api/leads${qs}`);
   },
+  getArchivedLeads: (search?: string) => {
+    const params = new URLSearchParams({ status: "archived" });
+    if (search) params.set("search", search);
+    return request<Lead[]>(`/api/leads?${params.toString()}`);
+  },
   getLead: (id: string) => request<LeadDetail>(`/api/leads/${id}`),
   updateColumn: (id: string, kanban_column: string) =>
     request<Lead>(`/api/leads/${id}/column`, {

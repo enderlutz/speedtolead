@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -242,6 +242,7 @@ export default function Leads() {
         <TabsList>
           <TabsTrigger value="kanban"><LayoutGrid className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Kanban</span></TabsTrigger>
           <TabsTrigger value="queue"><List className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Queue</span></TabsTrigger>
+          <TabsTrigger value="archived"><Archive className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Archived</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="kanban" className="mt-3">
@@ -313,7 +314,141 @@ export default function Leads() {
             {queue.length === 0 && <p className="py-8 text-center text-muted-foreground text-sm">No leads</p>}
           </div>
         </TabsContent>
+
+        <TabsContent value="archived" className="mt-3">
+          <ArchivedList onRestore={loadLeads} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// --- Archived List ---
+
+function ArchivedList({ onRestore }: { onRestore: () => void }) {
+  const [archived, setArchived] = useState<Lead[]>([]);
+  const [archiveSearch, setArchiveSearch] = useState("");
+  const [loadingArchived, setLoadingArchived] = useState(true);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  const loadArchived = useCallback(() => {
+    setLoadingArchived(true);
+    api.getArchivedLeads(archiveSearch || undefined)
+      .then(setArchived)
+      .catch(() => toast.error("Failed to load archived leads"))
+      .finally(() => setLoadingArchived(false));
+  }, [archiveSearch]);
+
+  useEffect(() => { loadArchived(); }, [loadArchived]);
+
+  const handleRestore = async (id: string) => {
+    setRestoringId(id);
+    try {
+      await api.unarchiveLead(id);
+      setArchived((prev) => prev.filter((l) => l.id !== id));
+      toast.success("Lead restored");
+      onRestore();
+    } catch {
+      toast.error("Failed to restore");
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search archived leads..."
+          value={archiveSearch}
+          onChange={(e) => setArchiveSearch(e.target.value)}
+          className="pl-9 h-9"
+        />
+      </div>
+
+      {loadingArchived ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
+      ) : archived.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">No archived leads{archiveSearch ? ` matching "${archiveSearch}"` : ""}</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">{archived.length} archived lead{archived.length !== 1 ? "s" : ""}</p>
+
+          {/* Desktop */}
+          <div className="hidden sm:block rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-xs">
+                  <th className="text-left px-3 py-2 font-medium">Name</th>
+                  <th className="text-left px-3 py-2 font-medium">Phone</th>
+                  <th className="text-left px-3 py-2 font-medium">Address</th>
+                  <th className="text-left px-3 py-2 font-medium">Location</th>
+                  <th className="text-left px-3 py-2 font-medium">Created</th>
+                  <th className="text-right px-3 py-2 font-medium">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {archived.map((lead) => (
+                  <tr key={lead.id} className="border-b hover:bg-muted/30 transition-colors">
+                    <td className="px-3 py-2">
+                      <Link to={`/leads/${lead.id}`} className="text-primary hover:underline font-medium text-sm">
+                        {lead.contact_name || "Unknown"}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs">{lead.contact_phone}</td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs max-w-[180px] truncate">{lead.address || "—"}</td>
+                    <td className="px-3 py-2"><Badge variant="outline" className="text-[10px] py-0">{lead.location_label}</Badge></td>
+                    <td className="px-3 py-2 text-muted-foreground text-[10px]">{formatDateTime(lead.created_at)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRestore(lead.id)}
+                        disabled={restoringId === lead.id}
+                      >
+                        <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
+                        {restoringId === lead.id ? "Restoring..." : "Restore"}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile */}
+          <div className="sm:hidden space-y-2">
+            {archived.map((lead) => (
+              <div key={lead.id} className="rounded-lg border bg-card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link to={`/leads/${lead.id}`} className="text-sm font-semibold text-primary hover:underline truncate block">
+                      {lead.contact_name || "Unknown"}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">{lead.contact_phone}</p>
+                    {lead.address && <p className="text-xs text-muted-foreground mt-0.5 truncate">{lead.address}</p>}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRestore(lead.id)}
+                    disabled={restoringId === lead.id}
+                    className="shrink-0"
+                  >
+                    <ArchiveRestore className="h-3.5 w-3.5 mr-1" />
+                    {restoringId === lead.id ? "..." : "Restore"}
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="outline" className="text-[10px] py-0">{lead.location_label}</Badge>
+                  <span className="text-[10px] text-muted-foreground ml-auto">{timeAgo(lead.created_at)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
