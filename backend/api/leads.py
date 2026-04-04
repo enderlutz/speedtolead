@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages
+from services.ghl import get_conversations, get_conversation_messages, get_contact
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -380,5 +380,48 @@ def get_messages(lead_id: str):
             "message_type": m.message_type,
             "created_at": m.created_at,
         } for m in messages]
+    finally:
+        db.close()
+
+
+@router.post("/leads/backfill-tags")
+def backfill_tags():
+    """One-time: check each lead's GHL tags and archive those with estimate_sent."""
+    db = get_db()
+    try:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
+            .filter(Lead.status != "archived")
+            .all()
+        )
+
+        archived_count = 0
+        checked = 0
+
+        for lead in leads:
+            try:
+                contact = get_contact(lead.ghl_contact_id, lead.ghl_location_id or None)
+                if not contact:
+                    continue
+                checked += 1
+
+                tags = [t.lower() for t in (contact.get("tags") or [])]
+                if "estimate_sent" in tags:
+                    lead.status = "archived"
+                    lead.kanban_column = "archived"
+                    lead.updated_at = _now()
+                    archived_count += 1
+                    logger.info(f"Backfill: archived {lead.contact_name} (has estimate_sent tag)")
+
+            except Exception as e:
+                logger.error(f"Backfill: failed for {lead.id}: {e}")
+
+        db.commit()
+        return {"checked": checked, "archived": archived_count, "total_leads": len(leads)}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

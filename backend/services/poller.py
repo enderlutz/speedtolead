@@ -71,8 +71,6 @@ def _sync_location(location_id: str, label: str):
                 if not existing:
                     continue
 
-                changed = False
-
                 # Fix created_at to GHL's real date if we stored our sync time
                 date_added = contact.get("dateAdded") or contact.get("createdAt") or ""
                 if date_added:
@@ -82,18 +80,8 @@ def _sync_location(location_id: str, label: str):
                         ghl_dt = str(date_added).replace("Z", "+00:00")
                     if existing.created_at != ghl_dt:
                         existing.created_at = ghl_dt
-                        changed = True
-
-                # Check for estimate_sent tag → auto-archive
-                ghl_tags = [t.lower() for t in (contact.get("tags") or [])]
-                if "estimate_sent" in ghl_tags and existing.status not in ("archived", "sent"):
-                    existing.status = "archived"
-                    existing.kanban_column = "archived"
-                    changed = True
-
-                if changed:
-                    existing.updated_at = _now()
-                    updated_count += 1
+                        existing.updated_at = _now()
+                        updated_count += 1
 
             except Exception as e:
                 logger.error(f"Poller: failed to update contact {contact.get('id', '?')}: {e}")
