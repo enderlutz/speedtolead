@@ -43,12 +43,15 @@ def list_leads(
     kanban_column: str | None = Query(None),
     search: str | None = Query(None),
     location: str | None = Query(None),
+    include_archived: bool = Query(False),
 ):
     db = get_db()
     try:
         q = db.query(Lead)
         if status:
             q = q.filter(Lead.status == status)
+        elif not include_archived:
+            q = q.filter(Lead.status != "archived")
         if kanban_column:
             q = q.filter(Lead.kanban_column == kanban_column)
         if location:
@@ -107,6 +110,51 @@ def get_lead(lead_id: str):
         result = lead.to_dict()
         result["estimates"] = est_list
         return result
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/archive")
+def archive_lead(lead_id: str):
+    """Archive a lead — hides from kanban but keeps all data."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead.status = "archived"
+        lead.kanban_column = "archived"
+        lead.updated_at = _now()
+        db.commit()
+        log_event(lead_id, "lead_archived", f"Archived: {lead.contact_name}")
+        return lead.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/unarchive")
+def unarchive_lead(lead_id: str):
+    """Restore an archived lead back to new_lead column."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead.status = "new"
+        lead.kanban_column = "new_lead"
+        lead.updated_at = _now()
+        db.commit()
+        return lead.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

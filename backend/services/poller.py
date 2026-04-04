@@ -101,6 +101,19 @@ def _sync_location(location_id: str, label: str):
                         if key and value:
                             form_data[key] = value
 
+                # Check if GHL contact has "estimate_sent" tag — auto-archive
+                ghl_tags = [t.lower() for t in (contact.get("tags") or [])]
+                already_sent = "estimate_sent" in ghl_tags
+
+                # Use GHL's actual creation date, not our sync time
+                date_added = contact.get("dateAdded") or contact.get("createdAt") or ""
+                if isinstance(date_added, (int, float)):
+                    ghl_created = datetime.fromtimestamp(date_added / 1000, tz=timezone.utc).isoformat()
+                elif date_added:
+                    ghl_created = str(date_added).replace("Z", "+00:00")
+                else:
+                    ghl_created = _now()
+
                 lead_id = str(uuid.uuid4())
                 now = _now()
 
@@ -122,11 +135,11 @@ def _sync_location(location_id: str, label: str):
                     address=full_address,
                     zip_code=postal,
                     service_type="fence_staining",
-                    status="estimated" if low > 0 else "new",
-                    kanban_column=kanban_col,
+                    status="archived" if already_sent else ("estimated" if low > 0 else "new"),
+                    kanban_column="archived" if already_sent else kanban_col,
                     priority=priority,
                     form_data=json.dumps(form_data),
-                    created_at=now,
+                    created_at=ghl_created,
                     updated_at=now,
                 )
                 db.add(lead)

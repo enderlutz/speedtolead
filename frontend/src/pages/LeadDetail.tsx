@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore,
 } from "lucide-react";
 
 const FENCE_HEIGHT_OPTIONS = [
@@ -236,6 +236,30 @@ export default function LeadDetail() {
       toast.error("Failed to cancel estimate");
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!id) return;
+    try {
+      await api.archiveLead(id);
+      const data = await api.getLead(id);
+      setLead(data);
+      toast.success("Lead archived");
+    } catch {
+      toast.error("Failed to archive");
+    }
+  };
+
+  const handleUnarchive = async () => {
+    if (!id) return;
+    try {
+      await api.unarchiveLead(id);
+      const data = await api.getLead(id);
+      setLead(data);
+      toast.success("Lead restored");
+    } catch {
+      toast.error("Failed to restore");
     }
   };
 
@@ -633,6 +657,17 @@ export default function LeadDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Archive */}
+          {lead.status === "archived" ? (
+            <Button variant="outline" onClick={handleUnarchive} className="w-full">
+              <ArchiveRestore className="h-4 w-4 mr-2" /> Restore from Archive
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={handleArchive} className="w-full text-muted-foreground">
+              <Archive className="h-4 w-4 mr-2" /> Archive Lead
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -254,6 +254,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  archiveLead: (id: string) =>
+    request<Lead>(`/api/leads/${id}/archive`, { method: "POST" }),
+  unarchiveLead: (id: string) =>
+    request<Lead>(`/api/leads/${id}/unarchive`, { method: "POST" }),
   checkResponse: (id: string) =>
     request<{ new_count: number; messages: { direction: string; body: string }[] }>(
       `/api/leads/${id}/check-response`, { method: "POST" }
