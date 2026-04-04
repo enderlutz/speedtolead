@@ -270,7 +270,7 @@ def init_db():
     engine_kwargs: dict = {"echo": False}
 
     if db_url.startswith("sqlite"):
-        # Local dev with SQLite
+        # Local dev with SQLite — create_all for convenience
         _engine = create_engine(db_url, **engine_kwargs)
 
         @event.listens_for(_engine, "connect")
@@ -279,14 +279,15 @@ def init_db():
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
+
+        Base.metadata.create_all(_engine)
     else:
-        # PostgreSQL (Supabase) — use connection pooling
+        # PostgreSQL (Supabase) — use Alembic migrations for schema
         engine_kwargs["pool_size"] = 5
         engine_kwargs["max_overflow"] = 10
         engine_kwargs["pool_pre_ping"] = True
         _engine = create_engine(db_url, **engine_kwargs)
 
-    Base.metadata.create_all(_engine)
     _SessionLocal = sessionmaker(bind=_engine)
 
 
