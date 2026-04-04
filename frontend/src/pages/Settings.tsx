@@ -201,6 +201,7 @@ export default function Settings() {
           {template && (
             <PdfTemplateEditor
               pageCount={template.page_count}
+              pageSizes={(template as unknown as { page_sizes?: { width: number; height: number }[] }).page_sizes || []}
               initialFieldMap={safeFieldMap}
               onSave={(fieldMap) => setTemplate((prev) => prev ? { ...prev, field_map: fieldMap } : prev)}
             />

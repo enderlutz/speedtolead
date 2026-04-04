@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, PdfTemplate
-from services.pdf_generator import get_pdf_page_count, rasterize_pdf_pages
+from services.pdf_generator import get_pdf_page_count, get_pdf_page_sizes, rasterize_pdf_pages
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -50,10 +50,12 @@ async def upload_template(file: UploadFile = File(...)):
         db.add(template)
         db.commit()
 
+        page_sizes = get_pdf_page_sizes(pdf_data)
         return {
             "id": template.id,
             "filename": template.filename,
             "page_count": page_count,
+            "page_sizes": page_sizes,
         }
     except Exception as e:
         db.rollback()
@@ -77,11 +79,13 @@ def get_current_template():
             except Exception:
                 field_map = {}
 
+        page_sizes = get_pdf_page_sizes(template.pdf_data) if template.pdf_data else []
         return {
             "id": template.id,
             "filename": template.filename,
             "page_count": template.page_count,
             "field_map": field_map,
+            "page_sizes": page_sizes,
         }
     finally:
         db.close()

@@ -10,6 +10,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, Save, GripVertical } from "luc
 
 interface Props {
   pageCount: number;
+  pageSizes: { width: number; height: number }[];
   initialFieldMap: Record<string, { page: number; x: number; y: number; font_size: number; color?: string }>;
   onSave: (fieldMap: Record<string, unknown>) => void;
 }
@@ -18,10 +19,10 @@ function genId() {
   return `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }: Props) {
+export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMap, onSave }: Props) {
   const [currentPage, setCurrentPage] = useState(0);
-  const [fields, setFields] = useState<PdfField[]>(() => {
-    return Object.entries(initialFieldMap).map(([key, v]) => ({
+  const [fields, setFields] = useState<PdfField[]>(() =>
+    Object.entries(initialFieldMap).map(([key, v]) => ({
       id: key,
       label: PRESET_FIELD_LABELS[key] || key,
       page: v.page,
@@ -29,8 +30,8 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
       y: v.y,
       font_size: v.font_size || 12,
       color: v.color || PRESET_FIELD_COLORS[key] || "#2B2B2B",
-    }));
-  });
+    }))
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -42,7 +43,10 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
   const pageFields = fields.filter((f) => f.page === currentPage);
   const usedPresets = new Set(fields.filter((f) => PRESET_FIELDS.includes(f.id as never)).map((f) => f.id));
 
-  const [, setImgLoaded] = useState(false);
+  const getPageSize = useCallback((page: number) => {
+    return pageSizes[page] || { width: 612, height: 792 };
+  }, [pageSizes]);
+
   const getImgDims = useCallback(() => {
     if (!imgRef.current) return { w: 612, h: 792 };
     const w = imgRef.current.clientWidth;
@@ -52,16 +56,13 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
 
   const handleAddField = (key: string, label: string) => {
     const id = PRESET_FIELDS.includes(key as never) ? key : genId();
-    const newField: PdfField = {
-      id,
-      label,
-      page: currentPage,
-      x: 200,
-      y: 400,
+    const ps = getPageSize(currentPage);
+    setFields((prev) => [...prev, {
+      id, label, page: currentPage,
+      x: ps.width / 2, y: ps.height / 3,
       font_size: 14,
       color: PRESET_FIELD_COLORS[key] || "#2B2B2B",
-    };
-    setFields((prev) => [...prev, newField]);
+    }]);
     setSelectedId(id);
     setAddMenuOpen(false);
   };
@@ -82,31 +83,28 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
     const { w, h } = getImgDims();
     const field = fields.find((f) => f.id === fieldId);
     if (!field) return;
-    const screen = pdfToScreen(field.x, field.y, w, h);
+    const ps = getPageSize(field.page);
+    const screen = pdfToScreen(field.x, field.y, w, h, ps.width, ps.height);
     dragRef.current = { fieldId, startX: e.clientX, startY: e.clientY, origX: screen.x, origY: screen.y };
 
     const handleMove = (ev: MouseEvent) => {
       if (!dragRef.current) return;
       const dx = ev.clientX - dragRef.current.startX;
       const dy = ev.clientY - dragRef.current.startY;
-      const newScreenX = dragRef.current.origX + dx;
-      const newScreenY = dragRef.current.origY + dy;
       const { w: cw, h: ch } = getImgDims();
-      const pdf = screenToPdf(newScreenX, newScreenY, cw, ch);
+      const ps2 = getPageSize(currentPage);
+      const pdf = screenToPdf(dragRef.current.origX + dx, dragRef.current.origY + dy, cw, ch, ps2.width, ps2.height);
       updateField(dragRef.current.fieldId, { x: Math.round(pdf.x * 10) / 10, y: Math.round(pdf.y * 10) / 10 });
     };
-
     const handleUp = () => {
       dragRef.current = null;
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
   };
 
-  // Touch support
   const handleTouchStart = (e: React.TouchEvent, fieldId: string) => {
     e.stopPropagation();
     setSelectedId(fieldId);
@@ -114,28 +112,28 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
     const { w, h } = getImgDims();
     const field = fields.find((f) => f.id === fieldId);
     if (!field) return;
-    const screen = pdfToScreen(field.x, field.y, w, h);
+    const ps = getPageSize(field.page);
+    const screen = pdfToScreen(field.x, field.y, w, h, ps.width, ps.height);
     dragRef.current = { fieldId, startX: touch.clientX, startY: touch.clientY, origX: screen.x, origY: screen.y };
 
     const handleMove = (ev: TouchEvent) => {
       ev.preventDefault();
       if (!dragRef.current) return;
       const t = ev.touches[0];
-      const dx = t.clientX - dragRef.current.startX;
-      const dy = t.clientY - dragRef.current.startY;
-      const newScreenX = dragRef.current.origX + dx;
-      const newScreenY = dragRef.current.origY + dy;
       const { w: cw, h: ch } = getImgDims();
-      const pdf = screenToPdf(newScreenX, newScreenY, cw, ch);
+      const ps2 = getPageSize(currentPage);
+      const pdf = screenToPdf(
+        dragRef.current.origX + t.clientX - dragRef.current.startX,
+        dragRef.current.origY + t.clientY - dragRef.current.startY,
+        cw, ch, ps2.width, ps2.height
+      );
       updateField(dragRef.current.fieldId, { x: Math.round(pdf.x * 10) / 10, y: Math.round(pdf.y * 10) / 10 });
     };
-
     const handleEnd = () => {
       dragRef.current = null;
       window.removeEventListener("touchmove", handleMove);
       window.removeEventListener("touchend", handleEnd);
     };
-
     window.addEventListener("touchmove", handleMove, { passive: false });
     window.addEventListener("touchend", handleEnd);
   };
@@ -144,7 +142,13 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
     setSaving(true);
     const fieldMap: Record<string, unknown> = {};
     for (const f of fields) {
-      fieldMap[f.id] = { page: f.page, x: f.x, y: f.y, font_size: f.font_size, color: f.color };
+      fieldMap[f.id] = {
+        page: f.page,
+        x: Math.round(f.x * 100) / 100,
+        y: Math.round(f.y * 100) / 100,
+        font_size: f.font_size,
+        color: f.color,
+      };
     }
     try {
       await api.updateFieldMap(fieldMap);
@@ -157,11 +161,6 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
     }
   };
 
-  const handlePageClick = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("[data-field]")) return;
-    setSelectedId(null);
-  };
-
   return (
     <div className="space-y-3">
       {/* Toolbar */}
@@ -170,9 +169,7 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
           <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setCurrentPage((p) => p - 1)}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="text-xs font-medium min-w-[60px] text-center">
-            Page {currentPage + 1} / {pageCount}
-          </span>
+          <span className="text-xs font-medium min-w-[60px] text-center">Page {currentPage + 1} / {pageCount}</span>
           <Button variant="outline" size="sm" disabled={currentPage >= pageCount - 1} onClick={() => setCurrentPage((p) => p + 1)}>
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -185,23 +182,17 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
             {addMenuOpen && (
               <div className="absolute z-50 top-full mt-1 right-0 bg-popover border rounded-lg shadow-lg py-1 w-48">
                 {PRESET_FIELDS.filter((k) => !usedPresets.has(k)).map((key) => (
-                  <button
-                    key={key}
-                    onClick={() => handleAddField(key, PRESET_FIELD_LABELS[key])}
-                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2"
-                  >
+                  <button key={key} onClick={() => handleAddField(key, PRESET_FIELD_LABELS[key])}
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2">
                     <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: PRESET_FIELD_COLORS[key] }} />
                     {PRESET_FIELD_LABELS[key]}
                   </button>
                 ))}
                 <div className="border-t my-1" />
-                <button
-                  onClick={() => {
-                    const label = prompt("Custom field label:");
-                    if (label) handleAddField(label.toLowerCase().replace(/\s+/g, "_"), label);
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors text-muted-foreground"
-                >
+                <button onClick={() => {
+                  const label = prompt("Custom field label:");
+                  if (label) handleAddField(label.toLowerCase().replace(/\s+/g, "_"), label);
+                }} className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors text-muted-foreground">
                   + Custom Field...
                 </button>
               </div>
@@ -215,42 +206,23 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
         {/* PDF page with overlay */}
-        <div
-          ref={containerRef}
-          className="relative border rounded-lg overflow-hidden bg-gray-100"
-          onClick={handlePageClick}
-        >
-          <img
-            ref={imgRef}
-            key={currentPage}
-            src={`${api.getTemplatePageUrl(currentPage)}?t=${Date.now()}`}
-            alt={`Page ${currentPage + 1}`}
-            className="w-full block"
-            draggable={false}
-            onLoad={() => setImgLoaded(true)}
-          />
-          {/* Field markers overlay */}
+        <div ref={containerRef} className="relative border rounded-lg overflow-hidden bg-gray-100" onClick={() => setSelectedId(null)}>
+          <img ref={imgRef} key={currentPage} src={`${api.getTemplatePageUrl(currentPage)}?t=${Date.now()}`}
+            alt={`Page ${currentPage + 1}`} className="w-full block" draggable={false} onLoad={() => setFields((f) => [...f])} />
           {pageFields.map((field) => {
             const { w, h } = getImgDims();
-            const screen = pdfToScreen(field.x, field.y, w, h);
+            const ps = getPageSize(currentPage);
+            const screen = pdfToScreen(field.x, field.y, w, h, ps.width, ps.height);
             const isSelected = field.id === selectedId;
             return (
-              <div
-                key={field.id}
-                data-field
+              <div key={field.id} data-field
                 onMouseDown={(e) => handleMouseDown(e, field.id)}
                 onTouchStart={(e) => handleTouchStart(e, field.id)}
                 className={`absolute cursor-grab select-none touch-none flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-white whitespace-nowrap ${
                   isSelected ? "ring-2 ring-white shadow-lg z-20" : "z-10 opacity-90 hover:opacity-100"
                 }`}
-                style={{
-                  left: screen.x,
-                  top: screen.y,
-                  backgroundColor: field.color,
-                  transform: "translate(-50%, -100%)",
-                  fontSize: Math.max(9, Math.min(field.font_size * 0.7, 14)),
-                }}
-              >
+                style={{ left: screen.x, top: screen.y, backgroundColor: field.color,
+                  fontSize: Math.max(9, Math.min(field.font_size * 0.7, 14)) }}>
                 <GripVertical className="h-3 w-3 opacity-60" />
                 {field.label}
               </div>
@@ -270,14 +242,8 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
               <div>
                 <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Font Size</label>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="range"
-                    min={8}
-                    max={48}
-                    value={selected.font_size}
-                    onChange={(e) => updateField(selected.id, { font_size: Number(e.target.value) })}
-                    className="flex-1"
-                  />
+                  <input type="range" min={8} max={48} value={selected.font_size}
+                    onChange={(e) => updateField(selected.id, { font_size: Number(e.target.value) })} className="flex-1" />
                   <span className="text-xs font-mono w-8 text-right">{selected.font_size}</span>
                 </div>
               </div>
@@ -288,33 +254,18 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] font-medium text-muted-foreground mb-1 block">X</label>
-                  <Input
-                    type="number"
-                    value={Math.round(selected.x)}
-                    onChange={(e) => updateField(selected.id, { x: Number(e.target.value) })}
-                    className="h-7 text-xs"
-                  />
+                  <Input type="number" value={Math.round(selected.x)} onChange={(e) => updateField(selected.id, { x: Number(e.target.value) })} className="h-7 text-xs" />
                 </div>
                 <div>
                   <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Y</label>
-                  <Input
-                    type="number"
-                    value={Math.round(selected.y)}
-                    onChange={(e) => updateField(selected.id, { y: Number(e.target.value) })}
-                    className="h-7 text-xs"
-                  />
+                  <Input type="number" value={Math.round(selected.y)} onChange={(e) => updateField(selected.id, { y: Number(e.target.value) })} className="h-7 text-xs" />
                 </div>
               </div>
               <div>
                 <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Page</label>
-                <select
-                  className="w-full border border-input rounded-md px-2 py-1 text-xs bg-background"
-                  value={selected.page}
-                  onChange={(e) => updateField(selected.id, { page: Number(e.target.value) })}
-                >
-                  {Array.from({ length: pageCount }, (_, i) => (
-                    <option key={i} value={i}>Page {i + 1}</option>
-                  ))}
+                <select className="w-full border border-input rounded-md px-2 py-1 text-xs bg-background"
+                  value={selected.page} onChange={(e) => updateField(selected.id, { page: Number(e.target.value) })}>
+                  {Array.from({ length: pageCount }, (_, i) => <option key={i} value={i}>Page {i + 1}</option>)}
                 </select>
               </div>
               <Button variant="destructive" size="sm" onClick={() => deleteField(selected.id)} className="w-full">
@@ -322,21 +273,15 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
               </Button>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Click a field to edit its properties, or click "Add Field" to place a new one.</p>
+            <p className="text-xs text-muted-foreground">Click a field to edit, or "Add Field" to place a new one.</p>
           )}
-
-          {/* Field list */}
           <div>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">All Fields ({fields.length})</p>
             <div className="space-y-1 max-h-[300px] overflow-y-auto">
               {fields.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => { setSelectedId(f.id); setCurrentPage(f.page); }}
+                <button key={f.id} onClick={() => { setSelectedId(f.id); setCurrentPage(f.page); }}
                   className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${
-                    f.id === selectedId ? "bg-primary/10 text-primary" : "hover:bg-muted"
-                  }`}
-                >
+                    f.id === selectedId ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: f.color }} />
                   <span className="truncate">{f.label}</span>
                   <span className="ml-auto text-[10px] text-muted-foreground shrink-0">p{f.page + 1}</span>

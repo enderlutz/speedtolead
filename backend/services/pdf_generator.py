@@ -124,3 +124,14 @@ def get_pdf_page_count(pdf_bytes: bytes) -> int:
     count = len(doc)
     doc.close()
     return count
+
+
+def get_pdf_page_sizes(pdf_bytes: bytes) -> list[dict]:
+    """Return {width, height} in points for each page."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    sizes = []
+    for i in range(len(doc)):
+        rect = doc[i].rect
+        sizes.append({"width": rect.width, "height": rect.height})
+    doc.close()
+    return sizes
