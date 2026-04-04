@@ -14,7 +14,9 @@ interface Props {
   onSave: (fieldMap: Record<string, unknown>) => void;
 }
 
-let fieldCounter = 0;
+function genId() {
+  return `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
 
 export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }: Props) {
   const [currentPage, setCurrentPage] = useState(0);
@@ -40,13 +42,16 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
   const pageFields = fields.filter((f) => f.page === currentPage);
   const usedPresets = new Set(fields.filter((f) => PRESET_FIELDS.includes(f.id as never)).map((f) => f.id));
 
+  const [, setImgLoaded] = useState(false);
   const getImgDims = useCallback(() => {
     if (!imgRef.current) return { w: 612, h: 792 };
-    return { w: imgRef.current.clientWidth, h: imgRef.current.clientHeight };
+    const w = imgRef.current.clientWidth;
+    const h = imgRef.current.clientHeight;
+    return { w: w > 0 ? w : 612, h: h > 0 ? h : 792 };
   }, []);
 
   const handleAddField = (key: string, label: string) => {
-    const id = PRESET_FIELDS.includes(key as never) ? key : `custom_${++fieldCounter}`;
+    const id = PRESET_FIELDS.includes(key as never) ? key : genId();
     const newField: PdfField = {
       id,
       label,
@@ -221,6 +226,7 @@ export default function PdfTemplateEditor({ pageCount, initialFieldMap, onSave }
             alt={`Page ${currentPage + 1}`}
             className="w-full block"
             draggable={false}
+            onLoad={() => setImgLoaded(true)}
           />
           {/* Field markers overlay */}
           {pageFields.map((field) => {

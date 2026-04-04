@@ -1,8 +1,12 @@
-/** US Letter dimensions in PDF points (72 DPI). */
+/**
+ * US Letter dimensions in PDF points (72 DPI).
+ * PyMuPDF uses Y=0 at TOP of page (same as screen coordinates).
+ * No Y-axis flip needed.
+ */
 export const PDF_WIDTH = 612;
 export const PDF_HEIGHT = 792;
 
-/** Convert screen pixel coordinates to PDF points. Y-axis flips. */
+/** Convert screen pixel coordinates to PDF points. */
 export function screenToPdf(
   screenX: number,
   screenY: number,
@@ -11,11 +15,11 @@ export function screenToPdf(
 ): { x: number; y: number } {
   return {
     x: (screenX / renderedWidth) * PDF_WIDTH,
-    y: PDF_HEIGHT - (screenY / renderedHeight) * PDF_HEIGHT,
+    y: (screenY / renderedHeight) * PDF_HEIGHT,
   };
 }
 
-/** Convert PDF point coordinates to screen pixels. Y-axis flips. */
+/** Convert PDF point coordinates to screen pixels. */
 export function pdfToScreen(
   pdfX: number,
   pdfY: number,
@@ -24,6 +28,6 @@ export function pdfToScreen(
 ): { x: number; y: number } {
   return {
     x: (pdfX / PDF_WIDTH) * renderedWidth,
-    y: ((PDF_HEIGHT - pdfY) / PDF_HEIGHT) * renderedHeight,
+    y: (pdfY / PDF_HEIGHT) * renderedHeight,
   };
 }

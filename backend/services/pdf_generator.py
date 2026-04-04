@@ -11,7 +11,10 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "fonts", "LibreBaskerville-Regular.ttf")
+FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "LibreBaskerville-Regular.ttf")
+if not os.path.exists(FONT_PATH):
+    logger.warning(f"Libre Baskerville font not found at {FONT_PATH}, PDFs will use default font")
+    FONT_PATH = None
 FONT_NAME = "libre-baskerville"
 DEFAULT_COLOR = "#2B2B2B"
 
@@ -51,14 +54,11 @@ def generate_filled_pdf(
         color = _hex_to_rgb(placement.get("color", DEFAULT_COLOR))
 
         page = doc[page_num]
-        page.insert_text(
-            fitz.Point(x, y),
-            str(values[field_key]),
-            fontsize=font_size,
-            fontname=FONT_NAME,
-            fontfile=FONT_PATH,
-            color=color,
-        )
+        font_kwargs: dict = {"fontsize": font_size, "color": color}
+        if FONT_PATH:
+            font_kwargs["fontname"] = FONT_NAME
+            font_kwargs["fontfile"] = FONT_PATH
+        page.insert_text(fitz.Point(x, y), str(values[field_key]), **font_kwargs)
 
     # Insert extra custom text fields
     if extra_fields:
@@ -67,13 +67,17 @@ def generate_filled_pdf(
             if page_num >= len(doc):
                 continue
             page = doc[page_num]
+            font_kwargs = {
+                "fontsize": float(ef.get("font_size", 12)),
+                "color": _hex_to_rgb(ef.get("color", DEFAULT_COLOR)),
+            }
+            if FONT_PATH:
+                font_kwargs["fontname"] = FONT_NAME
+                font_kwargs["fontfile"] = FONT_PATH
             page.insert_text(
                 fitz.Point(float(ef.get("x", 72)), float(ef.get("y", 72))),
                 str(ef.get("value", "")),
-                fontsize=float(ef.get("font_size", 12)),
-                fontname=FONT_NAME,
-                fontfile=FONT_PATH,
-                color=_hex_to_rgb(ef.get("color", DEFAULT_COLOR)),
+                **font_kwargs,
             )
 
     result = doc.tobytes(garbage=4, deflate=True)
@@ -88,7 +92,7 @@ def generate_preview_pages(
     field_overrides: dict | None = None,
     extra_fields: list[dict] | None = None,
 ) -> list[str]:
-    """Generate filled PDF and return base64-encoded JPEG pages."""
+    """Generate filled PDF and return base64-encoded JPEG pages (lower DPI for speed)."""
     merged_map = {**field_map}
     if field_overrides:
         for key, override in field_overrides.items():
@@ -98,7 +102,8 @@ def generate_preview_pages(
                 merged_map[key] = override
 
     pdf_bytes = generate_filled_pdf(template_bytes, merged_map, values, extra_fields)
-    jpeg_pages = rasterize_pdf_pages(pdf_bytes)
+    # Use lower DPI + quality for preview (faster rendering + smaller transfer)
+    jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=1.5, quality=65)
     return [base64.b64encode(jpg).decode() for jpg in jpeg_pages]
 
 

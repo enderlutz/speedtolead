@@ -25,7 +25,9 @@ interface Props {
   onSent: () => void;
 }
 
-let customCounter = 0;
+function genId() {
+  return `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
 
 export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fenceSides, onSent }: Props) {
   const [pages, setPages] = useState<{ page_num: number; image_data: string }[]>([]);
@@ -37,6 +39,9 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
   const [editingValue, setEditingValue] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ fieldId: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+
+  // Clean up drag listeners on unmount
+  useEffect(() => () => { dragRef.current = null; }, []);
 
   const selected = fields.find((f) => f.id === selectedId) || null;
   const pageFields = fields.filter((f) => f.page === currentPage);
@@ -65,7 +70,13 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
 
   // Load preview on open
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setPages([]);
+      setFields([]);
+      setSelectedId(null);
+      setEditingValue(null);
+      return;
+    }
     setLoading(true);
     setSelectedId(null);
 
@@ -127,7 +138,7 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
   };
 
   const addCustomField = () => {
-    const id = `custom_${++customCounter}`;
+    const id = genId();
     setFields((prev) => [...prev, {
       id, label: "Custom Text", page: currentPage, x: 200, y: 400, font_size: 12, color: "#2B2B2B", value: "Custom text",
     }]);
