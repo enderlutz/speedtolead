@@ -39,13 +39,13 @@ export const PRESET_FIELD_LABELS: Record<string, string> = {
 };
 
 export const PRESET_FIELD_COLORS: Record<string, string> = {
-  customer_name: "#ef4444",
-  essential_price: "#22c55e",
-  signature_price: "#3b82f6",
-  legacy_price: "#8b5cf6",
-  essential_monthly: "#14b8a6",
-  signature_monthly: "#0ea5e9",
-  legacy_monthly: "#a855f7",
-  pricing_includes: "#f59e0b",
-  date: "#6b7280",
+  customer_name: "#000000",
+  essential_price: "#65351f",
+  signature_price: "#65351f",
+  legacy_price: "#e3a742",
+  essential_monthly: "#65351f",
+  signature_monthly: "#65351f",
+  legacy_monthly: "#e3a742",
+  pricing_includes: "#000000",
+  date: "#000000",
 };
