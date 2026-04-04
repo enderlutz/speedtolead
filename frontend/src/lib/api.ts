@@ -282,6 +282,16 @@ export const api = {
   requestReview: (id: string) =>
     request<{ status: string; approval_token: string }>(`/api/estimates/${id}/request-review`, { method: "POST" }),
   getEstimatePdfUrl: (id: string) => `${BASE}/api/estimates/${id}/pdf`,
+  previewEstimatePdf: (id: string, fieldOverrides?: Record<string, unknown>, extraFields?: Record<string, unknown>[]) =>
+    request<{ pages: { page_num: number; image_data: string }[] }>(`/api/estimates/${id}/preview-pdf`, {
+      method: "POST",
+      body: JSON.stringify({ field_overrides: fieldOverrides, extra_fields: extraFields }),
+    }),
+  approveWithOverrides: (id: string, fieldOverrides?: Record<string, unknown>, extraFields?: Record<string, unknown>[]) =>
+    request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ field_overrides: fieldOverrides, extra_fields: extraFields }),
+    }),
 
   // Quick approve (public)
   getQuickApproveInfo: (token: string) => request<QuickApproveInfo>(`/api/estimates/quick-approve/${token}/info`),
@@ -331,6 +341,7 @@ export const api = {
     return res.json();
   },
   getPdfTemplate: () => request<{ id: string; filename: string; page_count: number; field_map: Record<string, unknown> }>("/api/pdf-templates/current"),
+  getTemplatePageUrl: (pageNum: number) => `${BASE}/api/pdf-templates/page/${pageNum}`,
   updateFieldMap: (field_map: Record<string, unknown>) =>
     request("/api/pdf-templates/field-map", {
       method: "PUT",

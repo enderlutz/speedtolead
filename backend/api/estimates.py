@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage
 from services.notifications import notify_estimate_sent, notify_new_lead_red
-from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages
+from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.ghl import send_sms, add_contact_note, add_contact_tag
 from services.activity_log import log_event
 from services.event_bus import publish
@@ -27,6 +27,13 @@ def _now() -> str:
 
 class ApproveBody(BaseModel):
     force_send: bool = False
+    field_overrides: dict | None = None
+    extra_fields: list[dict] | None = None
+
+
+class PreviewBody(BaseModel):
+    field_overrides: dict | None = None
+    extra_fields: list[dict] | None = None
 
 
 @router.get("/estimates")
@@ -142,6 +149,80 @@ def get_estimate(estimate_id: str):
         db.close()
 
 
+@router.post("/estimates/{estimate_id}/preview-pdf")
+def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
+    """Generate a preview of the filled PDF and return base64 JPEG pages."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
+        if not template or not template.pdf_data:
+            raise HTTPException(status_code=404, detail="No PDF template uploaded")
+
+        field_map = json.loads(template.field_map) if isinstance(template.field_map, str) else template.field_map
+        tiers = est.to_dict()["tiers"]
+        values = {
+            "customer_name": lead.contact_name,
+            "address": lead.address,
+            "essential_price": f"${tiers.get('essential', 0):,.0f}",
+            "signature_price": f"${tiers.get('signature', 0):,.0f}",
+            "legacy_price": f"${tiers.get('legacy', 0):,.0f}",
+            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.0f}/mo",
+            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.0f}/mo",
+            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.0f}/mo",
+            "date": datetime.now().strftime("%B %d, %Y"),
+        }
+
+        # Add pricing_includes from form_data fence_sides
+        fd = lead.to_dict().get("form_data", {})
+        fence_sides = fd.get("fence_sides", [])
+        if isinstance(fence_sides, str):
+            fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
+        values["pricing_includes"] = _build_pricing_includes(fence_sides)
+
+        overrides = body.field_overrides if body else None
+        extra = body.extra_fields if body else None
+
+        pages = generate_preview_pages(template.pdf_data, field_map, values, overrides, extra)
+        return {"pages": [{"page_num": i, "image_data": img} for i, img in enumerate(pages)]}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Preview failed for {estimate_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+def _build_pricing_includes(fence_sides: list[str]) -> str:
+    """Generate pricing includes text from selected fence sides."""
+    inside_all = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
+    outside_all = {"Outside Front", "Outside Left", "Outside Back", "Outside Right"}
+
+    inside_checked = [s for s in fence_sides if s in inside_all]
+    outside_checked = [s for s in fence_sides if s in outside_all]
+
+    parts: list[str] = []
+    if len(inside_checked) == 4:
+        parts.append("Inside Facing Fences")
+    else:
+        parts.extend(inside_checked)
+    if len(outside_checked) == 4:
+        parts.append("Outside Facing Fences")
+    else:
+        parts.extend(outside_checked)
+
+    return ", ".join(parts) if parts else "Fence Staining"
+
+
 @router.post("/estimates/{estimate_id}/approve")
 def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
     """Approve an estimate: generate PDF, create proposal, SMS customer + notify team."""
@@ -185,7 +266,27 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                     "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.0f}/mo",
                     "date": datetime.now().strftime("%B %d, %Y"),
                 }
-                pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values)
+                # Add pricing includes
+                fd = lead.to_dict().get("form_data", {})
+                fence_sides = fd.get("fence_sides", [])
+                if isinstance(fence_sides, str):
+                    fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
+                values["pricing_includes"] = _build_pricing_includes(fence_sides)
+
+                # Apply overrides from preview editor
+                merged_map = field_map
+                extra = None
+                if body:
+                    if body.field_overrides:
+                        merged_map = {**field_map}
+                        for k, v in body.field_overrides.items():
+                            if k in merged_map:
+                                merged_map[k] = {**merged_map[k], **v}
+                            else:
+                                merged_map[k] = v
+                    extra = body.extra_fields
+
+                pdf_bytes = generate_filled_pdf(template.pdf_data, merged_map, values, extra)
             except Exception as e:
                 logger.error(f"PDF generation failed: {e}")
 

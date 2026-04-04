@@ -1,21 +1,41 @@
 """
 PDF template fill using PyMuPDF (fitz).
-Same approach as parent AT-System.
+Uses Libre Baskerville font with per-field color support.
 """
 from __future__ import annotations
+import os
 import json
 import logging
+import base64
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
+FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "fonts", "LibreBaskerville-Regular.ttf")
+FONT_NAME = "libre-baskerville"
+DEFAULT_COLOR = "#2B2B2B"
 
-def generate_filled_pdf(template_bytes: bytes, field_map: dict, values: dict) -> bytes:
+
+def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
+    """Convert hex color string to RGB tuple (0.0-1.0)."""
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return (0.17, 0.17, 0.17)
+    return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
+
+
+def generate_filled_pdf(
+    template_bytes: bytes,
+    field_map: dict,
+    values: dict,
+    extra_fields: list[dict] | None = None,
+) -> bytes:
     """
     Fill a PDF template with values at mapped positions.
 
-    field_map: {field_name: {"page": int, "x": float, "y": float, "font_size": float}}
+    field_map: {field_name: {"page": int, "x": float, "y": float, "font_size": float, "color": str}}
     values: {field_name: str_value}
+    extra_fields: [{"page": int, "x": float, "y": float, "font_size": float, "color": str, "value": str}]
     """
     doc = fitz.open(stream=template_bytes, filetype="pdf")
 
@@ -28,18 +48,58 @@ def generate_filled_pdf(template_bytes: bytes, field_map: dict, values: dict) ->
         x = float(placement.get("x", 72))
         y = float(placement.get("y", 72))
         font_size = float(placement.get("font_size", 12))
+        color = _hex_to_rgb(placement.get("color", DEFAULT_COLOR))
 
         page = doc[page_num]
         page.insert_text(
             fitz.Point(x, y),
             str(values[field_key]),
             fontsize=font_size,
-            color=(0.17, 0.17, 0.17),
+            fontname=FONT_NAME,
+            fontfile=FONT_PATH,
+            color=color,
         )
+
+    # Insert extra custom text fields
+    if extra_fields:
+        for ef in extra_fields:
+            page_num = int(ef.get("page", 0))
+            if page_num >= len(doc):
+                continue
+            page = doc[page_num]
+            page.insert_text(
+                fitz.Point(float(ef.get("x", 72)), float(ef.get("y", 72))),
+                str(ef.get("value", "")),
+                fontsize=float(ef.get("font_size", 12)),
+                fontname=FONT_NAME,
+                fontfile=FONT_PATH,
+                color=_hex_to_rgb(ef.get("color", DEFAULT_COLOR)),
+            )
 
     result = doc.tobytes(garbage=4, deflate=True)
     doc.close()
     return result
+
+
+def generate_preview_pages(
+    template_bytes: bytes,
+    field_map: dict,
+    values: dict,
+    field_overrides: dict | None = None,
+    extra_fields: list[dict] | None = None,
+) -> list[str]:
+    """Generate filled PDF and return base64-encoded JPEG pages."""
+    merged_map = {**field_map}
+    if field_overrides:
+        for key, override in field_overrides.items():
+            if key in merged_map:
+                merged_map[key] = {**merged_map[key], **override}
+            else:
+                merged_map[key] = override
+
+    pdf_bytes = generate_filled_pdf(template_bytes, merged_map, values, extra_fields)
+    jpeg_pages = rasterize_pdf_pages(pdf_bytes)
+    return [base64.b64encode(jpg).decode() for jpg in jpeg_pages]
 
 
 def rasterize_pdf_pages(pdf_bytes: bytes, dpi_scale: float = 2.0, quality: int = 80) -> list[bytes]:

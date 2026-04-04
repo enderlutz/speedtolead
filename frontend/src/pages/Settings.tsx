@@ -8,6 +8,7 @@ import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
   BarChart3, Database, Send,
 } from "lucide-react";
+import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 
 interface PdfTemplateInfo {
   id: string;
@@ -193,6 +194,15 @@ export default function Settings() {
             <p className="text-sm font-medium">{uploading ? "Uploading..." : "Drag & drop PDF here"}</p>
             <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
           </div>
+
+          {/* Template Editor */}
+          {template && (
+            <PdfTemplateEditor
+              pageCount={template.page_count}
+              initialFieldMap={template.field_map as Record<string, { page: number; x: number; y: number; font_size: number; color?: string }>}
+              onSave={(fieldMap) => setTemplate((prev) => prev ? { ...prev, field_map: fieldMap } : prev)}
+            />
+          )}
         </CardContent>
       </Card>
 

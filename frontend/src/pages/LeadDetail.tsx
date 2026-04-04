@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye,
 } from "lucide-react";
+import PdfPreviewModal from "@/components/PdfPreviewModal";
 
 const FENCE_HEIGHT_OPTIONS = [
   "Didn't answer", "6ft standard", "6.5ft standard with rot board", "7ft", "8ft", "Not sure",
@@ -50,6 +51,7 @@ export default function LeadDetail() {
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
   const [contactName, setContactName] = useState("");
@@ -608,6 +610,9 @@ export default function LeadDetail() {
           {/* Actions */}
           {estimate && estimate.status === "pending" && (
             <div className="space-y-2">
+              <Button variant="outline" onClick={() => setPreviewOpen(true)} className="w-full">
+                <Eye className="h-4 w-4 mr-2" /> Preview PDF
+              </Button>
               <Button onClick={handleApprove} disabled={approving} className="w-full bg-green-600 hover:bg-green-700 text-white">
                 <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
                 {approving ? "Sending..." : "Approve & Send to Customer"}
@@ -670,6 +675,21 @@ export default function LeadDetail() {
           )}
         </div>
       </div>
+
+      {/* PDF Preview Modal */}
+      {estimate && lead && (
+        <PdfPreviewModal
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          lead={lead}
+          estimate={estimate}
+          fenceSides={fenceSides}
+          onSent={async () => {
+            const data = await api.getLead(id!);
+            setLead(data);
+          }}
+        />
+      )}
     </div>
   );
 }
