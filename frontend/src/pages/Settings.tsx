@@ -65,7 +65,7 @@ export default function Settings() {
     setUploading(true);
     try {
       const result = await api.uploadPdfTemplate(file);
-      setTemplate(result);
+      setTemplate({ ...result, field_map: result.field_map ?? {} });
       toast.success("Template uploaded");
     } catch {
       toast.error("Upload failed");
@@ -79,6 +79,8 @@ export default function Settings() {
     const file = e.target.files?.[0];
     if (file) uploadFile(file);
   };
+
+  const safeFieldMap = (template?.field_map ?? {}) as Record<string, { page: number; x: number; y: number; font_size: number; color?: string }>;
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -199,7 +201,7 @@ export default function Settings() {
           {template && (
             <PdfTemplateEditor
               pageCount={template.page_count}
-              initialFieldMap={template.field_map as Record<string, { page: number; x: number; y: number; font_size: number; color?: string }>}
+              initialFieldMap={safeFieldMap}
               onSave={(fieldMap) => setTemplate((prev) => prev ? { ...prev, field_map: fieldMap } : prev)}
             />
           )}
