@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type SentLogEntry } from "@/lib/api";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -250,16 +250,16 @@ function SentLogCard({
             <div className="flex items-center justify-between pt-2 border-t">
               <span className="text-xs text-muted-foreground">Sent {formatDateTime(entry.sent_at)}</span>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={`/api/estimates/${entry.id}/pdf`} target="_blank" rel="noopener noreferrer">
+                <a href={`/api/estimates/${entry.id}/pdf`} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm">
                     <FileText className="h-3.5 w-3.5 mr-1" /> PDF
-                  </a>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to={`/leads/${entry.lead_id}`}>
+                  </Button>
+                </a>
+                <Link to={`/leads/${entry.lead_id}`}>
+                  <Button variant="outline" size="sm">
                     <ExternalLink className="h-3.5 w-3.5 mr-1" /> Lead
-                  </Link>
-                </Button>
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>

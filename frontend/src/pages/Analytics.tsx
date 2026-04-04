@@ -6,11 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend, PieChart, Pie, Cell,
+  LineChart, Line, Legend,
 } from "recharts";
 import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb } from "lucide-react";
-
-const COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
 
 export default function Analytics() {
   const [funnel, setFunnel] = useState<FunnelData | null>(null);
@@ -62,7 +60,7 @@ export default function Analytics() {
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm">Response Time Distribution</CardTitle></CardHeader>
                 <CardContent>
-                  {speed.buckets && (
+                  {speed.buckets != null && (
                     <ResponsiveContainer width="100%" height={200}>
                       <BarChart data={Object.entries(speed.buckets as Record<string, number>).map(([k, v]) => ({
                         name: k.replace("_", "-").replace("under", "<"),
@@ -271,7 +269,7 @@ export default function Analytics() {
                         { name: "Leads", value: funnel.total_leads },
                         { name: "Estimated", value: funnel.estimated },
                         { name: "Sent", value: funnel.sent },
-                        { name: "Viewed", value: funnel.viewed ?? 0 },
+                        { name: "Viewed", value: (funnel as unknown as Record<string, unknown>).viewed ?? 0 },
                       ]} layout="vertical">
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis type="number" tick={{ fontSize: 10 }} />

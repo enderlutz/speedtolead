@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { api, type Lead, type LeadDetail } from "@/lib/api";
-import { formatCurrency, formatDateTime, timeAgo } from "@/lib/utils";
+import { formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playReplySound, playSuccessSound, playProposalViewedSound, playUrgentSound } from "@/hooks/useNotificationSound";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Send, Zap } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -306,8 +306,6 @@ export default function Leads() {
 
 function KanbanColumn({ column, leads, onRefresh }: { column: typeof COLUMNS[number]; leads: Lead[]; onRefresh: () => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.key });
-  const navigate = useNavigate();
-
   // Quick approve for GREEN leads
   const handleQuickSend = async (e: React.MouseEvent, lead: Lead) => {
     e.preventDefault();
@@ -316,7 +314,7 @@ function KanbanColumn({ column, leads, onRefresh }: { column: typeof COLUMNS[num
       const detail = await api.getLead(lead.id);
       const est = detail.estimates?.[0];
       if (!est) { toast.error("No estimate found"); return; }
-      const result = await api.approveEstimate(est.id);
+      await api.approveEstimate(est.id);
       toast.success(`Sent to ${lead.contact_name}!`);
       onRefresh();
     } catch { toast.error("Failed to send"); }

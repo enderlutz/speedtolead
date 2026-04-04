@@ -121,7 +121,7 @@ export default function LeadDetail() {
       const data = await api.getLead(id!);
       setLead(data);
       const url = result.proposal_url;
-      const smsSent = (result as Record<string, unknown>).sms_sent;
+      const smsSent = (result as unknown as Record<string, unknown>).sms_sent;
       if (smsSent) {
         playSuccessSound();
         toast.success(`SMS sent to customer! Proposal: ${url}`, { duration: 8000 });
@@ -454,11 +454,11 @@ export default function LeadDetail() {
                 <CheckCircle2 className="h-4 w-4" />
                 <span className="text-sm font-medium">Sent {estimate.sent_at ? formatDateTime(estimate.sent_at) : ""}</span>
               </div>
-              <Button variant="outline" className="w-full" asChild>
-                <a href={api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer">
+              <a href={api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="w-full">
                   <FileText className="h-4 w-4 mr-2" /> View PDF
-                </a>
-              </Button>
+                </Button>
+              </a>
             </div>
           )}
 
