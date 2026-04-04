@@ -265,6 +265,8 @@ export const api = {
   getPendingAction: () => request<PendingEstimate[]>("/api/estimates/pending-action"),
   approveEstimate: (id: string) =>
     request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/approve`, { method: "POST" }),
+  cancelEstimate: (id: string) =>
+    request<EstimateDetail>(`/api/estimates/${id}/cancel`, { method: "POST" }),
   requestReview: (id: string) =>
     request<{ status: string; approval_token: string }>(`/api/estimates/${id}/request-review`, { method: "POST" }),
   getEstimatePdfUrl: (id: string) => `${BASE}/api/estimates/${id}/pdf`,

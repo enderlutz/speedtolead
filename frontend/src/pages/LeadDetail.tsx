@@ -49,6 +49,7 @@ export default function LeadDetail() {
   const [approving, setApproving] = useState(false);
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [messages, setMessages] = useState<MessageEntry[]>([]);
 
   const [linearFeet, setLinearFeet] = useState("");
@@ -185,6 +186,21 @@ export default function LeadDetail() {
       toast.error("Failed to send review request");
     } finally {
       setRequestingReview(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!estimate || !confirm("Cancel this estimate? The customer's proposal link will stop working.")) return;
+    setCancelling(true);
+    try {
+      await api.cancelEstimate(estimate.id);
+      const data = await api.getLead(id!);
+      setLead(data);
+      toast.success("Estimate cancelled — reverted to pending");
+    } catch {
+      toast.error("Failed to cancel estimate");
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -521,6 +537,9 @@ export default function LeadDetail() {
                   <FileText className="h-4 w-4 mr-2" /> View PDF
                 </Button>
               </a>
+              <Button variant="destructive" onClick={handleCancel} disabled={cancelling} className="w-full">
+                {cancelling ? "Cancelling..." : "Cancel Estimate"}
+              </Button>
             </div>
           )}
 

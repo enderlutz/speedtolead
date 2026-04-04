@@ -385,6 +385,52 @@ def quick_approve_info(token: str):
         db.close()
 
 
+@router.post("/estimates/{estimate_id}/cancel")
+def cancel_estimate(estimate_id: str):
+    """Cancel a sent estimate — reverts to pending, marks proposal cancelled."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        if est.status != "sent":
+            raise HTTPException(status_code=400, detail="Only sent estimates can be cancelled")
+
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+
+        # Revert estimate
+        est.status = "pending"
+        est.sent_at = None
+
+        # Mark proposal as cancelled
+        proposal = db.query(Proposal).filter(Proposal.estimate_id == estimate_id).first()
+        if proposal:
+            proposal.status = "cancelled"
+
+        # Revert lead status
+        if lead:
+            lead.status = "estimated"
+            lead.kanban_column = "hot_lead"
+            lead.updated_at = datetime.now(timezone.utc).isoformat()
+
+        db.commit()
+
+        log_event(est.lead_id, "estimate_cancelled",
+                  f"Estimate cancelled for {lead.contact_name if lead else 'unknown'}")
+        publish("estimate_cancelled", {"lead_id": est.lead_id, "estimate_id": est.id})
+
+        return est.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to cancel estimate {estimate_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.get("/estimates/{estimate_id}/pdf")
 def get_estimate_pdf(estimate_id: str):
     """Generate and return filled PDF for an estimate."""
