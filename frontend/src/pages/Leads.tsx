@@ -218,7 +218,7 @@ export default function Leads() {
             setScanning(true);
             try {
               const result = await api.backfillTags();
-              toast.success(`Scanned ${result.checked} leads — ${result.sent_column} moved to Estimate Sent, ${result.archived} archived`);
+              toast.success(`Scanned ${result.checked} leads — ${result.archived} archived`);
               loadLeads();
             } catch { toast.error("Scan failed"); }
             finally { setScanning(false); }
