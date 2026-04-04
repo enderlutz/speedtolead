@@ -20,20 +20,45 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _today_start() -> datetime:
+    """Return midnight UTC of today."""
+    now = datetime.now(timezone.utc)
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def _sync_location(location_id: str, label: str):
-    """Sync contacts from one GHL location."""
+    """Sync contacts from one GHL location — only today's leads."""
     if not location_id:
         return
 
     db = get_db()
     try:
         contacts = get_contacts(location_id, max_contacts=100)
-        logger.info(f"Poller: fetched {len(contacts)} contacts from {label}")
+        today_start = _today_start()
+
+        # Filter to only contacts created today or later
+        today_contacts = []
+        for c in contacts:
+            date_added = c.get("dateAdded") or c.get("createdAt") or ""
+            if date_added:
+                try:
+                    # GHL returns ms timestamps or ISO strings
+                    if isinstance(date_added, (int, float)):
+                        contact_dt = datetime.fromtimestamp(date_added / 1000, tz=timezone.utc)
+                    else:
+                        contact_dt = datetime.fromisoformat(str(date_added).replace("Z", "+00:00"))
+                    if contact_dt < today_start:
+                        continue
+                except (ValueError, OSError):
+                    pass
+            today_contacts.append(c)
+
+        logger.info(f"Poller: fetched {len(contacts)} contacts from {label}, {len(today_contacts)} from today")
 
         new_count = 0
         error_count = 0
 
-        for contact in contacts:
+        for contact in today_contacts:
             try:
                 contact_id = contact.get("id", "")
                 if not contact_id:
