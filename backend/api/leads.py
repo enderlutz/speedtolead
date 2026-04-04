@@ -407,8 +407,8 @@ def backfill_tags():
                     continue
                 checked += 1
 
-                tags = [t.lower() for t in (contact.get("tags") or [])]
-                if "estimate_sent" in tags:
+                tags = [t.lower().strip() for t in (contact.get("tags") or [])]
+                if "estimate_sent" in tags or "estimate sent" in tags:
                     lead.status = "archived"
                     lead.kanban_column = "archived"
                     lead.updated_at = _now()

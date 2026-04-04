@@ -133,8 +133,8 @@ def _sync_location(location_id: str, label: str):
                             form_data[key] = value
 
                 # Check if GHL contact has "estimate_sent" tag
-                ghl_tags = [t.lower() for t in (contact.get("tags") or [])]
-                already_sent = "estimate_sent" in ghl_tags
+                ghl_tags = [t.lower().strip() for t in (contact.get("tags") or [])]
+                already_sent = "estimate_sent" in ghl_tags or "estimate sent" in ghl_tags
 
                 # Use GHL's actual creation date, not our sync time
                 date_added = contact.get("dateAdded") or contact.get("createdAt") or ""
