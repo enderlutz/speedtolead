@@ -58,8 +58,51 @@ def _sync_location(location_id: str, label: str):
         logger.info(f"Poller: fetched {len(contacts)} contacts from {label}, {len(today_contacts)} from today")
 
         new_count = 0
+        updated_count = 0
         error_count = 0
 
+        # First pass: update existing leads (fix created_at, check tags)
+        for contact in contacts:
+            try:
+                contact_id = contact.get("id", "")
+                if not contact_id:
+                    continue
+                existing = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
+                if not existing:
+                    continue
+
+                changed = False
+
+                # Fix created_at to GHL's real date if we stored our sync time
+                date_added = contact.get("dateAdded") or contact.get("createdAt") or ""
+                if date_added:
+                    if isinstance(date_added, (int, float)):
+                        ghl_dt = datetime.fromtimestamp(date_added / 1000, tz=timezone.utc).isoformat()
+                    else:
+                        ghl_dt = str(date_added).replace("Z", "+00:00")
+                    if existing.created_at != ghl_dt:
+                        existing.created_at = ghl_dt
+                        changed = True
+
+                # Check for estimate_sent tag → auto-archive
+                ghl_tags = [t.lower() for t in (contact.get("tags") or [])]
+                if "estimate_sent" in ghl_tags and existing.status not in ("archived", "sent"):
+                    existing.status = "archived"
+                    existing.kanban_column = "archived"
+                    changed = True
+
+                if changed:
+                    existing.updated_at = _now()
+                    updated_count += 1
+
+            except Exception as e:
+                logger.error(f"Poller: failed to update contact {contact.get('id', '?')}: {e}")
+
+        if updated_count > 0:
+            db.commit()
+            logger.info(f"Poller: updated {updated_count} existing leads from {label}")
+
+        # Second pass: create new leads (today only)
         for contact in today_contacts:
             try:
                 contact_id = contact.get("id", "")
