@@ -173,12 +173,12 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
-            "essential_price": f"${tiers.get('essential', 0):,.2f}",
-            "signature_price": f"${tiers.get('signature', 0):,.2f}",
-            "legacy_price": f"${tiers.get('legacy', 0):,.2f}",
-            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
-            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
-            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
+            "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
+            "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
+            "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
+            "essential_monthly": "Per month for 21mo",
+            "signature_monthly": "Per month for 21mo",
+            "legacy_monthly": "Per month for 21mo",
             "date": datetime.now().strftime("%B %d, %Y"),
         }
 
@@ -187,7 +187,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         fence_sides = fd.get("fence_sides", [])
         if isinstance(fence_sides, str):
             fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
-        values["pricing_includes"] = _build_pricing_includes(fence_sides)
+        values["pricing_includes"] = _build_pricing_includes(fence_sides, fd)
 
         overrides = body.field_overrides if body else None
         extra = body.extra_fields if body else None
@@ -204,25 +204,36 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         db.close()
 
 
-def _build_pricing_includes(fence_sides: list[str]) -> str:
-    """Generate pricing includes text from selected fence sides."""
+def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = None) -> str:
+    """Generate pricing includes text from selected fence sides + linear feet."""
     inside_all = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
     outside_all = {"Outside Front", "Outside Left", "Outside Back", "Outside Right"}
 
     inside_checked = [s for s in fence_sides if s in inside_all]
     outside_checked = [s for s in fence_sides if s in outside_all]
 
-    parts: list[str] = []
+    side_parts: list[str] = []
     if len(inside_checked) == 4:
-        parts.append("Inside Facing Fences")
+        side_parts.append("Inside Facing Fences")
     else:
-        parts.extend(inside_checked)
+        side_parts.extend(inside_checked)
     if len(outside_checked) == 4:
-        parts.append("Outside Facing Fences")
+        side_parts.append("Outside Facing Fences")
     else:
-        parts.extend(outside_checked)
+        side_parts.extend(outside_checked)
 
-    return ", ".join(parts) if parts else "Fence Staining"
+    side_count = len(inside_checked) + len(outside_checked)
+    side_text = ", ".join(side_parts) if side_parts else "fence"
+
+    linear_feet = ""
+    if form_data:
+        lf = form_data.get("linear_feet", "")
+        if lf:
+            linear_feet = f"{lf} ft of linear feet "
+
+    side_label = f"on {side_count} side{'s' if side_count != 1 else ''}" if side_count > 0 else ""
+
+    return f"pricing includes: {linear_feet}{side_text} {side_label}".strip()
 
 
 @router.post("/estimates/{estimate_id}/approve")
@@ -260,9 +271,9 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                 values = {
                     "customer_name": (lead.contact_name or "").title(),
                     "address": lead.address,
-                    "essential_price": f"${tiers.get('essential', 0):,.2f}",
-                    "signature_price": f"${tiers.get('signature', 0):,.2f}",
-                    "legacy_price": f"${tiers.get('legacy', 0):,.2f}",
+                    "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
+                    "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
+                    "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
                     "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
                     "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
                     "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
@@ -273,7 +284,7 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                 fence_sides = fd.get("fence_sides", [])
                 if isinstance(fence_sides, str):
                     fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
-                values["pricing_includes"] = _build_pricing_includes(fence_sides)
+                values["pricing_includes"] = _build_pricing_includes(fence_sides, fd)
 
                 # Apply overrides from preview editor
                 merged_map = field_map
@@ -748,12 +759,12 @@ def get_estimate_pdf(estimate_id: str):
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
-            "essential_price": f"${tiers.get('essential', 0):,.2f}",
-            "signature_price": f"${tiers.get('signature', 0):,.2f}",
-            "legacy_price": f"${tiers.get('legacy', 0):,.2f}",
-            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
-            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
-            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
+            "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
+            "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
+            "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
+            "essential_monthly": "Per month for 21mo",
+            "signature_monthly": "Per month for 21mo",
+            "legacy_monthly": "Per month for 21mo",
             "date": datetime.now().strftime("%B %d, %Y"),
         }
         pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values)
