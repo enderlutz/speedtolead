@@ -72,6 +72,7 @@ export default function LeadDetail() {
   const [additionalServices, setAdditionalServices] = useState("");
   const [militaryDiscount, setMilitaryDiscount] = useState(false);
   const [confidenceNote, setConfidenceNote] = useState("");
+  const [includeFinancing, setIncludeFinancing] = useState(true);
   const [askingAddress, setAskingAddress] = useState(false);
   const [addressAsked, setAddressAsked] = useState(false);
 
@@ -103,6 +104,7 @@ export default function LeadDetail() {
       setAdditionalServices(fd.additional_services || "");
       setMilitaryDiscount(Boolean(fd.military_discount));
       setConfidenceNote(fd.confidence_note || "");
+      setIncludeFinancing(String(fd.include_financing ?? "true") !== "false");
     }).catch(() => toast.error("Failed to load lead")).finally(() => setLoading(false));
   }, [id]);
 
@@ -142,6 +144,7 @@ export default function LeadDetail() {
         additional_services: additionalServices,
         military_discount: militaryDiscount,
         confidence_note: confidenceNote,
+        include_financing: includeFinancing,
       });
       setLead((prev) => (prev ? { ...prev, ...result, estimates: result.estimate ? [result.estimate] : prev.estimates } : prev));
       toast.success("Estimate recalculated");
@@ -555,7 +558,16 @@ export default function LeadDetail() {
                     </label>
                   )}
                 </div>
-                <div className="flex items-end pb-1">
+                <div className="flex flex-col gap-2 pb-1 justify-end">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeFinancing}
+                      onChange={(e) => setIncludeFinancing(e.target.checked)}
+                      className="rounded border-input"
+                    />
+                    Include Financing
+                  </label>
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <input
                       type="checkbox"

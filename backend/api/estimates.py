@@ -25,6 +25,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _format_price(amount: float, include_financing: bool) -> str:
+    if include_financing:
+        return f"${amount:,.2f} or ${amount / 21:,.2f}/mo"
+    return f"${amount:,.2f}"
+
+
+def _format_monthly_label(include_financing: bool) -> str:
+    return "Per month for 21mo" if include_financing else ""
+
+
 class ApproveBody(BaseModel):
     force_send: bool = False
     field_overrides: dict | None = None
@@ -170,15 +180,17 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
 
         field_map = json.loads(template.field_map) if isinstance(template.field_map, str) else template.field_map
         tiers = est.to_dict()["tiers"]
+        _fd_fin = lead.to_dict().get("form_data", {})
+        _fin = _fd_fin.get("include_financing", True) is not False
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
-            "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
-            "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
-            "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
-            "essential_monthly": "Per month for 21mo",
-            "signature_monthly": "Per month for 21mo",
-            "legacy_monthly": "Per month for 21mo",
+            "essential_price": _format_price(tiers.get("essential", 0), _fin),
+            "signature_price": _format_price(tiers.get("signature", 0), _fin),
+            "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
+            "essential_monthly": _format_monthly_label(_fin),
+            "signature_monthly": _format_monthly_label(_fin),
+            "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
         }
 
@@ -756,15 +768,17 @@ def get_estimate_pdf(estimate_id: str):
 
         field_map = json.loads(template.field_map) if isinstance(template.field_map, str) else template.field_map
         tiers = est.to_dict()["tiers"]
+        _fd_fin = lead.to_dict().get("form_data", {})
+        _fin = _fd_fin.get("include_financing", True) is not False
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
-            "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
-            "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
-            "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
-            "essential_monthly": "Per month for 21mo",
-            "signature_monthly": "Per month for 21mo",
-            "legacy_monthly": "Per month for 21mo",
+            "essential_price": _format_price(tiers.get("essential", 0), _fin),
+            "signature_price": _format_price(tiers.get("signature", 0), _fin),
+            "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
+            "essential_monthly": _format_monthly_label(_fin),
+            "signature_monthly": _format_monthly_label(_fin),
+            "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
         }
         pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values)

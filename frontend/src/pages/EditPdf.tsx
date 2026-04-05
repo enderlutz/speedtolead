@@ -87,6 +87,7 @@ export default function EditPdf() {
       const tiers = est?.tiers || { essential: 0, signature: 0, legacy: 0 };
       const fd = leadData.form_data || {};
       const fenceSides = Array.isArray(fd.fence_sides) ? fd.fence_sides : [];
+      const includeFinancing = String(fd.include_financing ?? "true") !== "false";
       const linearFeet = fd.linear_feet || "";
       const pricingIncludes = linearFeet
         ? `pricing includes: ${linearFeet} ft of linear feet ${generatePricingIncludes(fenceSides)}`
@@ -95,12 +96,12 @@ export default function EditPdf() {
       const vals: Record<string, string> = {
         customer_name: (leadData.contact_name || "").split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
         address: leadData.address || "",
-        essential_price: `${formatCurrency(tiers.essential)} or $${(tiers.essential / 21).toFixed(2)}/mo`,
-        signature_price: `${formatCurrency(tiers.signature)} or $${(tiers.signature / 21).toFixed(2)}/mo`,
-        legacy_price: `${formatCurrency(tiers.legacy)} or $${(tiers.legacy / 21).toFixed(2)}/mo`,
-        essential_monthly: "Per month for 21mo",
-        signature_monthly: "Per month for 21mo",
-        legacy_monthly: "Per month for 21mo",
+        essential_price: includeFinancing ? `${formatCurrency(tiers.essential)} or $${(tiers.essential / 21).toFixed(2)}/mo` : formatCurrency(tiers.essential),
+        signature_price: includeFinancing ? `${formatCurrency(tiers.signature)} or $${(tiers.signature / 21).toFixed(2)}/mo` : formatCurrency(tiers.signature),
+        legacy_price: includeFinancing ? `${formatCurrency(tiers.legacy)} or $${(tiers.legacy / 21).toFixed(2)}/mo` : formatCurrency(tiers.legacy),
+        essential_monthly: includeFinancing ? "Per month for 21mo" : "",
+        signature_monthly: includeFinancing ? "Per month for 21mo" : "",
+        legacy_monthly: includeFinancing ? "Per month for 21mo" : "",
         pricing_includes: pricingIncludes,
         date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
       };
