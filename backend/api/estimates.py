@@ -393,7 +393,7 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         if lead.ghl_contact_id and lead.contact_phone:
             first_name = lead.contact_name.split()[0] if lead.contact_name else "there"
             customer_msg = (
-                f"Hi {first_name}!\n"
+                f"Here it is!\n"
                 f"A&T Fence Staining Proposal\n\n"
                 f"{proposal_url}"
             )
@@ -658,7 +658,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 sig_price = tiers_dict.get("signature", 0)
                 first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
                 customer_msg = (
-                    f"Hi {first_name}!\n"
+                    f"Here it is!\n"
                     f"A&T Fence Staining Proposal\n\n"
                     f"{proposal_url}"
                 )
