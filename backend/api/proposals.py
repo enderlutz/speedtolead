@@ -32,8 +32,10 @@ def get_proposal(token: str):
 
         # Mark as viewed on first access
         if proposal.status == "sent":
+            now_iso = datetime.now(timezone.utc).isoformat()
             proposal.status = "viewed"
-            proposal.first_viewed_at = datetime.now(timezone.utc).isoformat()
+            proposal.first_viewed_at = now_iso
+            lead.proposal_viewed_at = now_iso
             db.commit()
             log_event(lead.id, "proposal_viewed", f"Customer opened proposal {token}")
             publish("proposal_viewed", {

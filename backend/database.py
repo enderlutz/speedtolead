@@ -46,6 +46,7 @@ class Lead(Base):
     ghl_opportunity_id = Column(Text, default="")
     is_test = Column(Boolean, default=False)
     viewed_at = Column(Text, nullable=True)
+    proposal_viewed_at = Column(Text, nullable=True)
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -69,6 +70,7 @@ class Lead(Base):
             "customer_response_text": self.customer_response_text or "",
             "ghl_opportunity_id": self.ghl_opportunity_id or "",
             "viewed_at": self.viewed_at,
+            "proposal_viewed_at": self.proposal_viewed_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

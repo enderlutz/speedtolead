@@ -52,6 +52,7 @@ export interface Lead {
   customer_responded: boolean;
   customer_response_text: string;
   viewed_at: string | null;
+  proposal_viewed_at: string | null;
   created_at: string;
   updated_at: string;
 }

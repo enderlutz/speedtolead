@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore, Wrench, Check } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore, Wrench, Check, Eye } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -600,6 +600,13 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
           <button onClick={handleMarkAddon} className={`p-0.5 rounded ${addonsHandled ? "text-green-500" : "text-muted-foreground hover:text-green-500"}`} title={addonsHandled ? "Unmark" : "Mark as handled"}>
             <Check className="h-3 w-3" />
           </button>
+        </div>
+      )}
+      {lead.proposal_viewed_at && (
+        <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
+          <Eye className="h-3 w-3" />
+          <span className="font-medium">Viewed</span>
+          <span className="text-emerald-500">{timeAgo(lead.proposal_viewed_at)}</span>
         </div>
       )}
       <div className="flex items-center justify-between mt-2">
