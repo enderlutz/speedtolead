@@ -489,6 +489,47 @@ def quick_approve_info(token: str):
         db.close()
 
 
+class CloseBody(BaseModel):
+    tier: str  # essential, signature, legacy
+    closed_at: str | None = None
+
+
+@router.post("/estimates/{estimate_id}/close")
+def close_estimate(estimate_id: str, body: CloseBody):
+    """Mark an estimate as closed/won with the selected tier."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+
+        est.closed_tier = body.tier
+        est.closed_at = body.closed_at or _now()
+        est.status = "closed"
+
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+        if lead:
+            lead.status = "closed"
+            lead.updated_at = _now()
+
+        db.commit()
+
+        tiers = est.to_dict()["tiers"]
+        revenue = tiers.get(body.tier, 0)
+        log_event(est.lead_id, "estimate_closed",
+                  f"Closed: {body.tier.title()} — ${revenue:,.2f}",
+                  {"tier": body.tier, "revenue": revenue})
+
+        return est.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.post("/estimates/{estimate_id}/cancel")
 def cancel_estimate(estimate_id: str):
     """Cancel a sent estimate — reverts to pending, marks proposal cancelled."""

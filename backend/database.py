@@ -96,6 +96,8 @@ class Estimate(Base):
     owner_notes = Column(Text, default="")
     created_at = Column(Text, default="")
     sent_at = Column(Text, nullable=True)
+    closed_tier = Column(Text, nullable=True)  # essential, signature, legacy
+    closed_at = Column(Text, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -114,6 +116,8 @@ class Estimate(Base):
             "owner_notes": self.owner_notes or "",
             "created_at": self.created_at,
             "sent_at": self.sent_at,
+            "closed_tier": self.closed_tier,
+            "closed_at": self.closed_at,
         }
 
 

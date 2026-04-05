@@ -149,6 +149,8 @@ export interface SentLogEntry {
   fence_height: string;
   fence_age: string;
   priority: string;
+  closed_tier: string | null;
+  closed_at: string | null;
 }
 
 export interface PendingEstimate extends EstimateDetail {
@@ -279,6 +281,11 @@ export const api = {
   getPendingAction: () => request<PendingEstimate[]>("/api/estimates/pending-action"),
   approveEstimate: (id: string) =>
     request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/approve`, { method: "POST" }),
+  closeEstimate: (id: string, tier: string, closedAt: string) =>
+    request<EstimateDetail>(`/api/estimates/${id}/close`, {
+      method: "POST",
+      body: JSON.stringify({ tier, closed_at: closedAt }),
+    }),
   cancelEstimate: (id: string) =>
     request<EstimateDetail>(`/api/estimates/${id}/cancel`, { method: "POST" }),
   requestReview: (id: string) =>
