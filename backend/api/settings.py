@@ -21,10 +21,38 @@ def _now() -> str:
 
 @router.get("/settings/pricing")
 def get_pricing():
+    """Return full pricing config with defaults for fence_staining."""
+    from services.estimator import (
+        BASE_ZONE_ZIPS, BLUE_ZONE_ZIPS, PURPLE_ZONE_ZIPS,
+        TIER_RATES, SIZE_SURCHARGE_RATE, SIZE_SURCHARGE_MIN, SIZE_SURCHARGE_MAX,
+        ZONE_SURCHARGES,
+    )
     db = get_db()
     try:
-        configs = db.query(PricingConfig).all()
-        return {c.service_type: c.to_dict() for c in configs}
+        cfg = db.query(PricingConfig).filter(PricingConfig.service_type == "fence_staining").first()
+        if cfg and cfg.config:
+            data = json.loads(cfg.config) if isinstance(cfg.config, str) else cfg.config
+            if data:
+                return {"service_type": "fence_staining", "config": data}
+
+        # Return defaults
+        return {
+            "service_type": "fence_staining",
+            "config": {
+                "tier_rates": {k: v for k, v in TIER_RATES.items()},
+                "zones": {
+                    "base": sorted(BASE_ZONE_ZIPS),
+                    "blue": sorted(BLUE_ZONE_ZIPS),
+                    "purple": sorted(PURPLE_ZONE_ZIPS),
+                },
+                "zone_surcharges": {k: v for k, v in ZONE_SURCHARGES.items() if v is not None},
+                "surcharge": {
+                    "rate": SIZE_SURCHARGE_RATE,
+                    "min_sqft": SIZE_SURCHARGE_MIN,
+                    "max_sqft": SIZE_SURCHARGE_MAX,
+                },
+            },
+        }
     finally:
         db.close()
 

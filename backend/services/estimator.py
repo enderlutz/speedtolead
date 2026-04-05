@@ -2,12 +2,16 @@
 Fence staining pricing engine — ported from AT-System parent.
 Zone-based pricing, 3-tier system (Essential/Signature/Legacy),
 Green/Yellow/Red approval logic.
+Pricing can be overridden via PricingConfig DB table.
 """
 from __future__ import annotations
+import json
+import logging
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
-# --- Zone zip code sets ---
+# --- Default zone zip code sets (overridden by DB if configured) ---
 
 BASE_ZONE_ZIPS = {
     "77033", "77040", "77041", "77064", "77065", "77066", "77067", "77068",
@@ -38,7 +42,7 @@ ZONE_SURCHARGES: dict[str, float | None] = {
     "Outside": None,
 }
 
-# --- Pricing tiers per sqft by age bracket ---
+# --- Default pricing tiers per sqft by age bracket ---
 
 TIER_RATES: dict[str, dict[str, float] | None] = {
     "brand_new": {"essential": 0.72, "signature": 0.84, "legacy": 1.09},
@@ -53,15 +57,67 @@ SIZE_SURCHARGE_MAX = 1000
 MIN_SQFT_AUTO = 500
 
 
+def _load_pricing_config() -> dict | None:
+    """Try to load pricing config from DB. Returns None if not configured."""
+    try:
+        from database import get_db, PricingConfig
+        db = get_db()
+        try:
+            cfg = db.query(PricingConfig).filter(PricingConfig.service_type == "fence_staining").first()
+            if cfg and cfg.config:
+                data = json.loads(cfg.config) if isinstance(cfg.config, str) else cfg.config
+                return data if data else None
+            return None
+        finally:
+            db.close()
+    except Exception:
+        return None
+
+
+def _get_zone_zips() -> tuple[set, set, set]:
+    """Return (base, blue, purple) zip sets, from DB config or defaults."""
+    cfg = _load_pricing_config()
+    if cfg and "zones" in cfg:
+        zones = cfg["zones"]
+        return (
+            set(zones.get("base", list(BASE_ZONE_ZIPS))),
+            set(zones.get("blue", list(BLUE_ZONE_ZIPS))),
+            set(zones.get("purple", list(PURPLE_ZONE_ZIPS))),
+        )
+    return BASE_ZONE_ZIPS, BLUE_ZONE_ZIPS, PURPLE_ZONE_ZIPS
+
+
+def _get_tier_rates() -> dict[str, dict[str, float] | None]:
+    """Return tier rates from DB config or defaults."""
+    cfg = _load_pricing_config()
+    if cfg and "tier_rates" in cfg:
+        return cfg["tier_rates"]
+    return TIER_RATES
+
+
+def _get_surcharge_config() -> tuple[float, int, int]:
+    """Return (rate, min_sqft, max_sqft) from DB config or defaults."""
+    cfg = _load_pricing_config()
+    if cfg and "surcharge" in cfg:
+        s = cfg["surcharge"]
+        return (
+            float(s.get("rate", SIZE_SURCHARGE_RATE)),
+            int(s.get("min_sqft", SIZE_SURCHARGE_MIN)),
+            int(s.get("max_sqft", SIZE_SURCHARGE_MAX)),
+        )
+    return SIZE_SURCHARGE_RATE, SIZE_SURCHARGE_MIN, SIZE_SURCHARGE_MAX
+
+
 # --- Helpers ---
 
 def get_zone(zip_code: str) -> str:
+    base, blue, purple = _get_zone_zips()
     z = str(zip_code).strip()[:5]
-    if z in BASE_ZONE_ZIPS:
+    if z in base:
         return "Base"
-    if z in BLUE_ZONE_ZIPS:
+    if z in blue:
         return "Blue"
-    if z in PURPLE_ZONE_ZIPS:
+    if z in purple:
         return "Purple"
     return "Outside"
 
@@ -110,7 +166,7 @@ def get_approval_status(
         red_reasons.append("VA not confident in measurement")
     if zone == "Outside":
         red_reasons.append("Outside service zone")
-    if sqft < MIN_SQFT_AUTO:
+    if 0 < sqft < MIN_SQFT_AUTO:
         red_reasons.append(f"Job too small ({sqft:.0f} sqft)")
     if age_bracket == "15plus":
         red_reasons.append("Fence 15+ years old")
@@ -122,7 +178,7 @@ def get_approval_status(
     return "green", "All criteria met"
 
 
-def determine_kanban_column(form_data: dict, approval_status: str, zip_code: str) -> str:
+def determine_kanban_column(form_data: dict, approval_status: str, zip_code: str, approval_reason: str = "") -> str:
     """Auto-assign kanban column based on data completeness + approval."""
     address = str(form_data.get("address") or "").strip()
     has_zip = bool(zip_code and len(str(zip_code).strip()) >= 5)
@@ -135,6 +191,10 @@ def determine_kanban_column(form_data: dict, approval_status: str, zip_code: str
         return "needs_info"
 
     if approval_status == "red":
+        # Route to not_confident for specific reasons, needs_review for others
+        reason_lower = approval_reason.lower()
+        if "not confident" in reason_lower or "outside service zone" in reason_lower or "too small" in reason_lower:
+            return "not_confident"
         return "needs_review"
     if approval_status == "yellow":
         return "yellow"
@@ -165,17 +225,21 @@ def calculate_fence_staining(
 
     zip_str = str(zip_code or form_data.get("zip_code", "") or "").strip()
     zone = get_zone(zip_str)
-    zone_surcharge = ZONE_SURCHARGES.get(zone) or 0.0
+    zone_surcharge_rate = ZONE_SURCHARGES.get(zone) or 0.0
 
     sqft = round(linear_feet * height, 2)
 
+    tier_rates = _get_tier_rates()
+    surcharge_rate, surcharge_min, surcharge_max = _get_surcharge_config()
+
     if sqft == 0:
+        approval_status, approval_reason = "red", "Missing linear feet"
         meta: dict[str, Any] = {
-            "zone": zone, "zone_surcharge": zone_surcharge,
+            "zone": zone, "zone_surcharge": zone_surcharge_rate,
             "sqft": 0, "height": height, "age_bracket": age_bracket,
             "has_addons": has_addons, "priority": priority,
-            "approval_status": "red",
-            "approval_reason": "Missing linear feet",
+            "approval_status": approval_status,
+            "approval_reason": approval_reason,
             "tiers": {"essential": 0.0, "signature": 0.0, "legacy": 0.0},
             "size_surcharge_applied": False,
         }
@@ -183,10 +247,10 @@ def calculate_fence_staining(
 
     approval_status, approval_reason = get_approval_status(age_bracket, zone, sqft, has_addons, confident)
 
-    rates = TIER_RATES.get(age_bracket)
+    rates = tier_rates.get(age_bracket)
     if rates is None:
         meta = {
-            "zone": zone, "zone_surcharge": zone_surcharge,
+            "zone": zone, "zone_surcharge": zone_surcharge_rate,
             "sqft": sqft, "height": height, "age_bracket": age_bracket,
             "has_addons": has_addons, "priority": priority,
             "approval_status": "red",
@@ -196,11 +260,11 @@ def calculate_fence_staining(
         }
         return 0.0, 0.0, [], meta
 
-    size_surcharge_applied = SIZE_SURCHARGE_MIN <= sqft <= SIZE_SURCHARGE_MAX
-    size_surcharge = SIZE_SURCHARGE_RATE if size_surcharge_applied else 0.0
+    size_surcharge_applied = surcharge_min <= sqft <= surcharge_max
+    size_surcharge = surcharge_rate if size_surcharge_applied else 0.0
 
     def calc_tier(base_rate: float) -> float:
-        return round(sqft * (base_rate + zone_surcharge + size_surcharge), 2)
+        return round(sqft * (base_rate + zone_surcharge_rate + size_surcharge), 2)
 
     tiers = {
         "essential": calc_tier(rates["essential"]),
@@ -210,23 +274,33 @@ def calculate_fence_staining(
 
     mid = tiers["signature"]
 
+    # Expanded breakdown — per-sqft rates for all 3 tiers + surcharges
     breakdown = [
-        {"label": "Base cost (Signature tier)", "value": round(sqft * rates["signature"], 2),
-         "note": f"{sqft:.0f} sqft x ${rates['signature']}/sqft"},
+        {"label": f"Essential: ${rates['essential']:.2f}/sqft x {sqft:.0f} sqft",
+         "value": round(sqft * rates["essential"], 2),
+         "note": f"Base rate for {age_bracket.replace('_', ' ')} fence"},
+        {"label": f"Signature: ${rates['signature']:.2f}/sqft x {sqft:.0f} sqft",
+         "value": round(sqft * rates["signature"], 2),
+         "note": f"Recommended tier"},
+        {"label": f"Legacy: ${rates['legacy']:.2f}/sqft x {sqft:.0f} sqft",
+         "value": round(sqft * rates["legacy"], 2),
+         "note": f"Premium tier"},
     ]
-    if zone_surcharge > 0:
+    if zone_surcharge_rate > 0:
         breakdown.append({
-            "label": f"{zone} zone surcharge", "value": round(sqft * zone_surcharge, 2),
-            "note": f"+${zone_surcharge}/sqft",
+            "label": f"{zone} zone surcharge: +${zone_surcharge_rate:.2f}/sqft",
+            "value": round(sqft * zone_surcharge_rate, 2),
+            "note": f"Applied to all tiers",
         })
     if size_surcharge_applied:
         breakdown.append({
-            "label": "Small job surcharge", "value": round(sqft * SIZE_SURCHARGE_RATE, 2),
-            "note": f"+${SIZE_SURCHARGE_RATE}/sqft (500-1000 sqft)",
+            "label": f"Small job surcharge: +${surcharge_rate:.2f}/sqft",
+            "value": round(sqft * surcharge_rate, 2),
+            "note": f"Applied for {surcharge_min}-{surcharge_max} sqft jobs",
         })
 
     meta = {
-        "zone": zone, "zone_surcharge": zone_surcharge,
+        "zone": zone, "zone_surcharge": zone_surcharge_rate,
         "sqft": sqft, "height": height, "age_bracket": age_bracket,
         "has_addons": has_addons, "priority": priority,
         "approval_status": approval_status,

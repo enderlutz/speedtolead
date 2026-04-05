@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 
@@ -70,6 +70,9 @@ export default function LeadDetail() {
   const [fenceSides, setFenceSides] = useState<string[]>([]);
   const [additionalServices, setAdditionalServices] = useState("");
   const [militaryDiscount, setMilitaryDiscount] = useState(false);
+  const [confidenceNote, setConfidenceNote] = useState("");
+  const [askingAddress, setAskingAddress] = useState(false);
+  const [addressAsked, setAddressAsked] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -98,6 +101,7 @@ export default function LeadDetail() {
       setFenceSides(Array.isArray(rawSides) ? rawSides : rawSides ? String(rawSides).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
       setAdditionalServices(fd.additional_services || "");
       setMilitaryDiscount(Boolean(fd.military_discount));
+      setConfidenceNote(fd.confidence_note || "");
     }).catch(() => toast.error("Failed to load lead")).finally(() => setLoading(false));
   }, [id]);
 
@@ -136,6 +140,7 @@ export default function LeadDetail() {
         fence_sides: fenceSides,
         additional_services: additionalServices,
         military_discount: militaryDiscount,
+        confidence_note: confidenceNote,
       });
       setLead((prev) => (prev ? { ...prev, ...result, estimates: result.estimate ? [result.estimate] : prev.estimates } : prev));
       toast.success("Estimate recalculated");
@@ -325,9 +330,23 @@ export default function LeadDetail() {
                   <User className="h-4 w-4" /> Contact Information
                 </CardTitle>
                 {!editingContact ? (
-                  <Button variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
-                    <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
-                  </Button>
+                  <div className="flex gap-1.5">
+                    <Button variant="outline" size="sm" onClick={async () => {
+                      setAskingAddress(true);
+                      try {
+                        await api.askForAddress(id!);
+                        setAddressAsked(true);
+                        toast.success("Address request sent via SMS");
+                      } catch { toast.error("Failed to send"); }
+                      finally { setAskingAddress(false); }
+                    }} disabled={askingAddress || addressAsked}>
+                      <Navigation className="h-3.5 w-3.5 mr-1" />
+                      {addressAsked ? "Sent" : askingAddress ? "Sending..." : "Ask for Address"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
+                      <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                    </Button>
+                  </div>
                 ) : (
                   <div className="flex gap-1.5">
                     <Button variant="ghost" size="sm" onClick={() => setEditingContact(false)}>Cancel</Button>
@@ -458,6 +477,20 @@ export default function LeadDetail() {
                   </select>
                 </div>
               </div>
+
+              {/* Confidence Note — shown when not confident */}
+              {confidencePct === "60" && (
+                <div>
+                  <label className="text-xs font-medium text-red-600 mb-1 block">Why are you not confident?</label>
+                  <textarea
+                    className="w-full border border-red-200 rounded-md px-3 py-2 text-sm bg-red-50/30 focus:outline-none focus:ring-2 focus:ring-red-300 min-h-[60px]"
+                    placeholder="Explain why you're not confident in this measurement..."
+                    value={confidenceNote}
+                    onChange={(e) => setConfidenceNote(e.target.value)}
+                  />
+                </div>
+              )}
+
               {/* Fence Sides */}
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-2 block">Fence Sides</label>

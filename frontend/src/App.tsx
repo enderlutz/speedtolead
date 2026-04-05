@@ -10,6 +10,7 @@ import LeadDetail from "@/pages/LeadDetail";
 import SentLog from "@/pages/SentLog";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
+import Pricing from "@/pages/Pricing";
 import ProposalView from "@/pages/ProposalView";
 import QuickApprove from "@/pages/QuickApprove";
 
@@ -55,6 +56,7 @@ function AppLayout() {
               <Route path="/leads/:id" element={<LeadDetail />} />
               <Route path="/sent-log" element={<SentLog />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/pricing" element={<Pricing />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>

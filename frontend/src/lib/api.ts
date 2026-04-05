@@ -261,6 +261,8 @@ export const api = {
     }),
   backfillTags: () =>
     request<{ checked: number; archived: number; total_leads: number }>("/api/leads/backfill-tags", { method: "POST" }),
+  askForAddress: (id: string) =>
+    request<{ status: string; sms_sent: boolean }>(`/api/leads/${id}/ask-address`, { method: "POST" }),
   archiveLead: (id: string) =>
     request<Lead>(`/api/leads/${id}/archive`, { method: "POST" }),
   unarchiveLead: (id: string) =>

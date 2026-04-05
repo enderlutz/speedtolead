@@ -199,8 +199,9 @@ def update_form_data(lead_id: str, body: FormDataUpdate):
         low, high, breakdown, meta = calculate_estimate(lead.service_type, merged, zip_code)
         priority = meta.get("priority") or parse_priority(str(merged.get("service_timeline", "")))
         approval_status = meta.get("approval_status", "red")
+        approval_reason = meta.get("approval_reason", "")
         kanban_col = determine_kanban_column(
-            {**merged, "address": lead.address}, approval_status, zip_code
+            {**merged, "address": lead.address}, approval_status, zip_code, approval_reason
         )
 
         # Update lead
@@ -255,6 +256,24 @@ def update_form_data(lead_id: str, body: FormDataUpdate):
                   f"Recalculated: ${low:.0f} | {approval_status}",
                   {"tiers": meta.get("tiers", {}), "approval_status": approval_status})
 
+        # Notify Alan if VA is not confident
+        if "not confident" in approval_reason.lower():
+            try:
+                from config import get_settings
+                settings = get_settings()
+                confidence_note = merged.get("confidence_note", "")
+                msg = (
+                    f"VA not confident: {lead.contact_name} — {lead.address or 'No address'}\n"
+                    f"Reason: {confidence_note or 'No reason given'}\n"
+                    f"View: {settings.frontend_url}/leads/{lead_id}"
+                )
+                if settings.owner_ghl_contact_id:
+                    from services.ghl import send_sms
+                    send_sms(settings.owner_ghl_contact_id, msg)
+                    log_event(lead_id, "not_confident_alert", f"Alan notified: {confidence_note}")
+            except Exception as e:
+                logger.error(f"Failed to notify Alan about not-confident lead: {e}")
+
         result = lead.to_dict()
         result["estimate"] = estimate.to_dict()
         return result
@@ -264,6 +283,57 @@ def update_form_data(lead_id: str, body: FormDataUpdate):
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to update form data for {lead_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/ask-address")
+def ask_for_address(lead_id: str):
+    """Send SMS to customer asking for address, notify Alan, move to no_address column."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        from config import get_settings
+        from services.ghl import send_sms
+        settings = get_settings()
+
+        first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
+
+        # SMS to customer
+        customer_msg = (
+            f"Hey {first_name}! To get your free estimate put together, we measure your fence "
+            f"through Google Earth. We just need your home address and ZIP code. "
+            f"What's the best address for you?"
+        )
+        sms_sent = False
+        if lead.ghl_contact_id:
+            sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
+
+        # SMS to Alan
+        if settings.owner_ghl_contact_id:
+            alan_msg = (
+                f"Address requested from {lead.contact_name or 'Unknown'}\n"
+                f"View: {settings.frontend_url}/leads/{lead.id}"
+            )
+            send_sms(settings.owner_ghl_contact_id, alan_msg)
+
+        # Move to no_address column
+        lead.kanban_column = "no_address"
+        lead.updated_at = _now()
+        db.commit()
+
+        log_event(lead_id, "address_requested", f"Address request SMS sent to {lead.contact_name}")
+
+        return {"status": "ok", "sms_sent": sms_sent}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

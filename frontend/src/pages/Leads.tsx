@@ -32,7 +32,7 @@ function getCachedLeads(): Lead[] {
   } catch { return []; }
 }
 
-type KanbanStatus = "new_lead" | "no_address" | "needs_info" | "hot_lead" | "yellow" | "needs_review" | "estimate_sent";
+type KanbanStatus = "new_lead" | "no_address" | "needs_info" | "hot_lead" | "yellow" | "needs_review" | "not_confident" | "estimate_sent";
 
 const COLUMNS: { key: KanbanStatus; label: string; shortLabel: string; headerCls: string; bgCls: string; dotCls: string }[] = [
   { key: "new_lead", label: "New Lead", shortLabel: "New", headerCls: "bg-gray-100 text-gray-800", bgCls: "bg-gray-50/50", dotCls: "bg-gray-400" },
@@ -40,12 +40,13 @@ const COLUMNS: { key: KanbanStatus; label: string; shortLabel: string; headerCls
   { key: "needs_info", label: "Not Measurable", shortLabel: "Info", headerCls: "bg-orange-100 text-orange-800", bgCls: "bg-orange-50/20", dotCls: "bg-orange-500" },
   { key: "hot_lead", label: "Hot Lead", shortLabel: "Hot", headerCls: "bg-green-100 text-green-800", bgCls: "bg-green-50/20", dotCls: "bg-green-500" },
   { key: "yellow", label: "Add-ons", shortLabel: "Add-ons", headerCls: "bg-yellow-100 text-yellow-800", bgCls: "bg-yellow-50/20", dotCls: "bg-yellow-500" },
+  { key: "not_confident", label: "Not Confident", shortLabel: "Unsure", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/20", dotCls: "bg-indigo-500" },
   { key: "needs_review", label: "Needs Review", shortLabel: "Review", headerCls: "bg-red-100 text-red-800", bgCls: "bg-red-50/20", dotCls: "bg-red-500" },
   { key: "estimate_sent", label: "Estimate Sent", shortLabel: "Sent", headerCls: "bg-sky-100 text-sky-800", bgCls: "bg-sky-50/20", dotCls: "bg-sky-500" },
 ];
 
 const COLUMN_ORDER: Record<KanbanStatus, number> = {
-  hot_lead: 0, yellow: 1, needs_info: 2, no_address: 3, new_lead: 4, needs_review: 5, estimate_sent: 6,
+  hot_lead: 0, yellow: 1, needs_info: 2, no_address: 3, new_lead: 4, not_confident: 5, needs_review: 6, estimate_sent: 7,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -164,7 +165,7 @@ export default function Leads() {
 
   const grouped = useMemo(() => {
     const groups: Record<KanbanStatus, Lead[]> = {
-      new_lead: [], no_address: [], needs_info: [], hot_lead: [], yellow: [], needs_review: [], estimate_sent: [],
+      new_lead: [], no_address: [], needs_info: [], hot_lead: [], yellow: [], not_confident: [], needs_review: [], estimate_sent: [],
     };
     for (const lead of filtered) {
       const col = (lead.kanban_column as KanbanStatus) || "new_lead";
@@ -527,27 +528,37 @@ const ElapsedTimer: FC<{ since: string }> = ({ since }) => {
 
 function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
   const isNew = !lead.viewed_at;
+  const fd = lead.form_data || {};
+  const addons = String(fd.additional_services || "").trim();
+  const hasAddons = !!addons && addons.toLowerCase() !== "none" && addons.toLowerCase() !== "no";
+  const approvalReason = String(fd._approval_reason || lead.form_data?._approval_reason || "");
+  const isSmallJob = approvalReason.includes("too small");
+  const isOutsideZone = approvalReason.includes("Outside service zone");
+
   return (
     <Link
       to={`/leads/${lead.id}`}
       onMouseEnter={() => prefetchLead(lead.id)}
-      className={`block rounded-md border bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab ${
+      className={`block rounded-md bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab ${
         isDragging ? "shadow-lg ring-2 ring-primary/20 rotate-1" : ""
-      } ${isNew ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
+      } ${hasAddons ? "border-2 border-amber-400" : "border"} ${isNew ? "ring-1 ring-primary/20" : ""}`}
       onClick={(e) => isDragging && e.preventDefault()}
     >
       <div className="flex items-start justify-between gap-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
           {isNew && <Badge className="text-[8px] px-1 py-0 bg-primary text-primary-foreground shrink-0">NEW</Badge>}
+          {isSmallJob && <Badge className="text-[8px] px-1 py-0 bg-indigo-100 text-indigo-700 shrink-0">&lt;500sqft</Badge>}
+          {isOutsideZone && <Badge className="text-[8px] px-1 py-0 bg-indigo-100 text-indigo-700 shrink-0">Outside Zone</Badge>}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
         <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
       </div>
       {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
       {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
+      {hasAddons && <p className="text-[10px] text-amber-700 mt-0.5 truncate">Add-on: {addons}</p>}
       <div className="flex items-center justify-between mt-1.5">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
-        <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
+        <span className="text-[9px] text-red-500 font-medium flex items-center gap-0.5">
           <Clock className="h-2.5 w-2.5" />
           <ElapsedTimer since={lead.created_at} />
         </span>
