@@ -374,8 +374,8 @@ def new_build(lead_id: str):
             )
             send_sms(settings.owner_ghl_contact_id, alan_msg)
 
-        # Move to needs_info + tag
-        lead.kanban_column = "needs_info"
+        # Move to no_address + tag
+        lead.kanban_column = "no_address"
         existing_fd = lead.to_dict()["form_data"]
         existing_fd["address_action"] = "new_build"
         lead.form_data = json.dumps(existing_fd)
