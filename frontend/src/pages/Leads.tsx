@@ -486,12 +486,27 @@ function KanbanColumn({ column, leads, onRefresh }: { column: typeof COLUMNS[num
             {column.key === "hot_lead" && (
               <button
                 onClick={(e) => handleQuickSend(e, lead)}
-                className="absolute top-1.5 right-1.5 p-1 rounded bg-green-600 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-green-700"
+                className="absolute top-1.5 right-7 p-1 rounded bg-green-600 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-green-700"
                 title="Send Now"
               >
                 <Zap className="h-3 w-3" />
               </button>
             )}
+            <button
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  await api.archiveLead(lead.id);
+                  toast.success(`Archived ${lead.contact_name}`);
+                  onRefresh();
+                } catch { toast.error("Failed to archive"); }
+              }}
+              className="absolute top-1.5 right-1.5 p-1 rounded bg-gray-500 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-gray-600"
+              title="Archive"
+            >
+              <Archive className="h-3 w-3" />
+            </button>
           </DraggableCard>
         ))}
       </div>
