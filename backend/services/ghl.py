@@ -225,6 +225,30 @@ def update_opportunity_stage(opportunity_id: str, stage_id: str, location_id: st
         return False
 
 
+def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None = None) -> list[dict]:
+    """Fetch opportunities from a pipeline, optionally filtered by stage."""
+    all_opps: list[dict] = []
+    page = 1
+    while True:
+        params: dict = {"location_id": location_id, "pipeline_id": pipeline_id, "limit": 100, "page": page}
+        if stage_id:
+            params["pipeline_stage_id"] = stage_id
+        try:
+            r = _client.get(f"{GHL_BASE}/opportunities/search", headers=_headers(location_id), params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            opps = data.get("opportunities", [])
+            all_opps.extend(opps)
+            total = data.get("meta", {}).get("total", 0)
+            if len(all_opps) >= total or len(opps) == 0:
+                break
+            page += 1
+        except Exception as e:
+            logger.error(f"GHL get_opportunities failed: {e}")
+            break
+    return all_opps
+
+
 def get_custom_fields(location_id: str) -> list[dict]:
     """Fetch all custom fields for a location."""
     try:
