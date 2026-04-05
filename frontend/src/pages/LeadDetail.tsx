@@ -414,13 +414,15 @@ export default function LeadDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="rounded-md overflow-hidden border aspect-video">
+                <div className="rounded-md overflow-hidden border" style={{ minHeight: 250 }}>
                   <iframe
                     title="Satellite view"
                     width="100%"
-                    height="100%"
-                    style={{ border: 0, minHeight: 250 }}
+                    height="300"
+                    style={{ border: 0, display: "block" }}
                     loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
                     src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ""}&q=${encodeURIComponent(lead.address)}&maptype=satellite&zoom=20`}
                   />
                 </div>
