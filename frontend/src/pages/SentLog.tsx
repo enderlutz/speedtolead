@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Search, FileText, MapPin, Ruler, ChevronDown, ChevronUp, ExternalLink,
-  CheckCircle2, DollarSign,
+  CheckCircle2, DollarSign, Clock, Eye,
 } from "lucide-react";
 
 const AGE_LABELS: Record<string, string> = {
@@ -18,6 +18,14 @@ const AGE_LABELS: Record<string, string> = {
   "6_15yr": "6-15 years",
   "15plus": "15+ years",
 };
+
+function formatMins(mins: number | null): string {
+  if (mins === null || mins === undefined) return "—";
+  if (mins < 1) return "<1m";
+  if (mins < 60) return `${Math.round(mins)}m`;
+  if (mins < 1440) return `${(mins / 60).toFixed(1)}h`;
+  return `${(mins / 1440).toFixed(1)}d`;
+}
 
 const ZONE_COLORS: Record<string, string> = {
   Base: "bg-green-100 text-green-800",
@@ -130,6 +138,8 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{entry.address || "No address"}</span>
               <span className="flex items-center gap-1"><Ruler className="h-3 w-3" />{sqft.toLocaleString()} sqft</span>
+              <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Sent in {formatMins(entry.time_to_send_minutes)}</span>
+              <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{entry.proposal_viewed ? `Viewed in ${formatMins(entry.time_to_view_minutes)}` : "Not viewed"}</span>
             </div>
           </div>
 

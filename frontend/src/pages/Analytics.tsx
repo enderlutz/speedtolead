@@ -18,6 +18,7 @@ export default function Analytics() {
   const [patterns, setPatterns] = useState<Record<string, unknown> | null>(null);
   const [cohorts, setCohorts] = useState<Record<string, unknown>[] | null>(null);
   const [revenue, setRevenue] = useState<Record<string, unknown> | null>(null);
+  const [dealStats, setDealStats] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     api.getFunnel().then(setFunnel).catch(console.error);
@@ -27,6 +28,7 @@ export default function Analytics() {
     api.getClosePatterns().then(setPatterns).catch(console.error);
     api.getCohorts().then(setCohorts).catch(console.error);
     api.getRevenueInsights().then(setRevenue).catch(console.error);
+    api.getDealStats().then(setDealStats).catch(console.error);
   }, []);
 
   return (
@@ -185,6 +187,89 @@ export default function Analytics() {
                 <KPI label="Missed" value={formatCurrency(revenue.missed_revenue as number)} />
                 <KPI label="Capture Rate" value={`${revenue.capture_rate_pct}%`} good={(revenue.capture_rate_pct as number) >= 50} />
               </div>
+
+              {/* Deal Stats */}
+              {dealStats && (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <KPI label="Avg Deal Size" value={formatCurrency(dealStats.avg_deal_size as number)} />
+                    <KPI label="Total Closed" value={String(dealStats.total_closed)} good={(dealStats.total_closed as number) > 0} />
+                    <KPI label="View Rate" value={`${dealStats.view_rate_pct}%`} good={(dealStats.view_rate_pct as number) >= 50} />
+                    <KPI label="View → Close" value={`${dealStats.view_to_close_rate_pct}%`} good={(dealStats.view_to_close_rate_pct as number) >= 30} />
+                  </div>
+
+                  {/* Tier Breakdown */}
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm">Tier Selection Breakdown</CardTitle></CardHeader>
+                    <CardContent>
+                      {(dealStats.total_closed as number) > 0 ? (
+                        <div className="space-y-3">
+                          {(["essential", "signature", "legacy"] as const).map((tier) => {
+                            const data = (dealStats.tier_breakdown as Record<string, { count: number; pct: number; revenue: number; avg_deal: number }>)?.[tier];
+                            if (!data) return null;
+                            const colors = { essential: "bg-gray-200", signature: "bg-primary/30", legacy: "bg-yellow-200" };
+                            return (
+                              <div key={tier} className="space-y-1">
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="capitalize font-medium">{tier}</span>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-xs text-muted-foreground">{data.count} deals</span>
+                                    <Badge variant="outline" className="text-xs">{data.pct}%</Badge>
+                                    <span className="font-medium">{formatCurrency(data.revenue)}</span>
+                                  </div>
+                                </div>
+                                <div className="w-full bg-muted rounded-full h-2">
+                                  <div className={`h-2 rounded-full ${colors[tier]}`} style={{ width: `${data.pct}%` }} />
+                                </div>
+                                <p className="text-xs text-muted-foreground">Avg deal: {formatCurrency(data.avg_deal)}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">No closed deals yet. Mark deals as closed in the Sent Log.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Deal Size Summary */}
+                  {(dealStats.total_closed as number) > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">Deal Size Summary</CardTitle></CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                          <div><p className="text-xs text-muted-foreground">Average</p><p className="font-bold text-base">{formatCurrency(dealStats.avg_deal_size as number)}</p></div>
+                          <div><p className="text-xs text-muted-foreground">Median</p><p className="font-bold text-base">{formatCurrency(dealStats.median_deal_size as number)}</p></div>
+                          <div><p className="text-xs text-muted-foreground">Smallest</p><p className="font-medium">{formatCurrency(dealStats.min_deal_size as number)}</p></div>
+                          <div><p className="text-xs text-muted-foreground">Largest</p><p className="font-medium">{formatCurrency(dealStats.max_deal_size as number)}</p></div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* View-to-Close Funnel */}
+                  <Card>
+                    <CardHeader className="pb-2"><CardTitle className="text-sm">Proposal Engagement Funnel</CardTitle></CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-between gap-2">
+                        {[
+                          { label: "Sent", value: dealStats.proposals_sent as number },
+                          { label: "Viewed", value: dealStats.proposals_viewed as number },
+                          { label: "Closed", value: dealStats.closed_from_viewed as number },
+                        ].map((step, i) => (
+                          <div key={step.label} className="flex-1 text-center">
+                            <div className={`rounded-lg border p-3 ${i === 2 ? "bg-green-50 border-green-200" : "bg-muted/20"}`}>
+                              <p className="text-xs text-muted-foreground">{step.label}</p>
+                              <p className="text-xl font-bold">{step.value}</p>
+                            </div>
+                            {i < 2 && <div className="text-muted-foreground text-xs mt-1">→</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
 
               {/* Actionable Insights */}
               <Card className="border-yellow-200 bg-yellow-50/50">

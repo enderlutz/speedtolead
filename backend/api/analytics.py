@@ -543,6 +543,91 @@ def get_revenue_insights():
         db.close()
 
 
+# ─── Deal Stats — Tier Breakdown, Avg Deal Size, View-to-Close ──────────
+
+@router.get("/analytics/deal-stats")
+def get_deal_stats():
+    """Tier selection breakdown, average deal size, and view-to-close rate."""
+    db = get_db()
+    try:
+        # All closed estimates
+        closed = (
+            db.query(Estimate, Lead)
+            .join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None))
+            .all()
+        )
+
+        tier_counts = {"essential": 0, "signature": 0, "legacy": 0}
+        tier_revenue = {"essential": 0.0, "signature": 0.0, "legacy": 0.0}
+        deal_sizes: list[float] = []
+
+        for est, lead in closed:
+            tier = est.closed_tier
+            if tier in tier_counts:
+                tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
+                price = float(tiers.get(tier, 0))
+                tier_counts[tier] += 1
+                tier_revenue[tier] += price
+                if price > 0:
+                    deal_sizes.append(price)
+
+        total_closed = sum(tier_counts.values())
+        tier_breakdown = {}
+        for t in ["essential", "signature", "legacy"]:
+            tier_breakdown[t] = {
+                "count": tier_counts[t],
+                "pct": round(tier_counts[t] / total_closed * 100, 1) if total_closed > 0 else 0,
+                "revenue": round(tier_revenue[t], 2),
+                "avg_deal": round(tier_revenue[t] / tier_counts[t], 2) if tier_counts[t] > 0 else 0,
+            }
+
+        avg_deal_size = round(sum(deal_sizes) / len(deal_sizes), 2) if deal_sizes else 0
+        median_deal_size = round(sorted(deal_sizes)[len(deal_sizes) // 2], 2) if deal_sizes else 0
+        min_deal = round(min(deal_sizes), 2) if deal_sizes else 0
+        max_deal = round(max(deal_sizes), 2) if deal_sizes else 0
+
+        # View-to-close rate: of proposals that were viewed, how many closed?
+        sent_estimates = (
+            db.query(Estimate)
+            .join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]))
+            .all()
+        )
+        sent_ids = [e.id for e in sent_estimates]
+        proposals = {}
+        if sent_ids:
+            for p in db.query(Proposal).filter(Proposal.estimate_id.in_(sent_ids)).all():
+                proposals[p.estimate_id] = p
+
+        total_sent = len(sent_estimates)
+        total_viewed = sum(1 for e in sent_estimates if proposals.get(e.id) and proposals[e.id].first_viewed_at)
+        total_closed_from_viewed = sum(
+            1 for e in sent_estimates
+            if e.closed_tier and proposals.get(e.id) and proposals[e.id].first_viewed_at
+        )
+
+        view_rate = round(total_viewed / total_sent * 100, 1) if total_sent > 0 else 0
+        view_to_close_rate = round(total_closed_from_viewed / total_viewed * 100, 1) if total_viewed > 0 else 0
+
+        return {
+            "total_closed": total_closed,
+            "tier_breakdown": tier_breakdown,
+            "avg_deal_size": avg_deal_size,
+            "median_deal_size": median_deal_size,
+            "min_deal_size": min_deal,
+            "max_deal_size": max_deal,
+            "total_revenue": round(sum(tier_revenue.values()), 2),
+            "view_rate_pct": view_rate,
+            "view_to_close_rate_pct": view_to_close_rate,
+            "proposals_sent": total_sent,
+            "proposals_viewed": total_viewed,
+            "closed_from_viewed": total_closed_from_viewed,
+        }
+    finally:
+        db.close()
+
+
 def _generate_insights(total: int, sent: int, capture_rate: float, missed: list, zone_gaps: list) -> list[str]:
     """Auto-generate actionable insights from the data."""
     insights = []

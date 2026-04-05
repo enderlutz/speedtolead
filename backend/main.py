@@ -10,6 +10,7 @@ from config import get_settings
 from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.nudge import run_nudge_check
+from services.weekly_reminder import run_weekly_reminder
 from services.event_bus import subscribe
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -48,6 +49,17 @@ async def _nudge_loop():
         await asyncio.sleep(300)  # Every 5 minutes
 
 
+async def _weekly_reminder_loop():
+    """Background task: check every hour if it's Saturday morning to remind Alan."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await asyncio.to_thread(run_weekly_reminder)
+        except Exception as e:
+            logger.error(f"Weekly reminder error: {e}")
+        await asyncio.sleep(3600)  # Check every hour
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -55,11 +67,13 @@ async def lifespan(app: FastAPI):
     logger.info("Database initialized")
     poller = asyncio.create_task(_poller_loop())
     msg_poller = asyncio.create_task(_message_poller_loop())
+    weekly = asyncio.create_task(_weekly_reminder_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
     poller.cancel()
     msg_poller.cancel()
+    weekly.cancel()
 
 
 app = FastAPI(title="AT-System Lite", lifespan=lifespan)

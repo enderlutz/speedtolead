@@ -152,6 +152,9 @@ export interface SentLogEntry {
   priority: string;
   closed_tier: string | null;
   closed_at: string | null;
+  time_to_send_minutes: number | null;
+  time_to_view_minutes: number | null;
+  proposal_viewed: boolean;
 }
 
 export interface PendingEstimate extends EstimateDetail {
@@ -334,6 +337,7 @@ export const api = {
   getClosePatterns: () => request<Record<string, unknown>>("/api/analytics/close-patterns"),
   getCohorts: () => request<Record<string, unknown>[]>("/api/analytics/cohorts"),
   getRevenueInsights: () => request<Record<string, unknown>>("/api/analytics/revenue-insights"),
+  getDealStats: () => request<Record<string, unknown>>("/api/analytics/deal-stats"),
 
   // Notifications
   getRecentActivity: (limit?: number) =>
