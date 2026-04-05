@@ -202,6 +202,62 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
         db.close()
 
 
+@router.post("/webhook/test-lead")
+async def create_test_lead(background_tasks: BackgroundTasks):
+    """Create a fake test lead to verify notifications work."""
+    settings = get_settings()
+    lead_id = str(uuid.uuid4())
+    now = _now()
+
+    db = get_db()
+    try:
+        lead = Lead(
+            id=lead_id,
+            ghl_contact_id=None,
+            ghl_location_id=settings.ghl_location_id,
+            location_label=settings.ghl_location_1_label or "Cypress",
+            contact_name="Test Lead (delete me)",
+            contact_phone="+10000000000",
+            contact_email="test@test.com",
+            address="123 Test St, Cypress, TX 77429",
+            zip_code="77429",
+            service_type="fence_staining",
+            status="new",
+            kanban_column="new_lead",
+            priority="HOT",
+            is_test=True,
+            form_data=json.dumps({
+                "fence_height": "6ft standard",
+                "fence_age": "1-6 years",
+                "previously_stained": "No",
+                "service_timeline": "As soon as possible",
+                "linear_feet": "150",
+            }),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(lead)
+        db.commit()
+
+        lead_data = {
+            "id": lead_id,
+            "service_type": "fence_staining",
+            "form_data": json.loads(lead.form_data),
+            "zip_code": "77429",
+            "address": "123 Test St, Cypress, TX 77429",
+            "contact_name": "Test Lead (delete me)",
+            "location_label": settings.ghl_location_1_label or "Cypress",
+        }
+        background_tasks.add_task(_process_lead, lead_id, lead_data)
+
+        return {"status": "ok", "lead_id": lead_id, "message": "Test lead created — check your phone"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.post("/webhook/ghl/message")
 async def ghl_message_webhook(request: Request):
     """Receives GHL InboundMessage / OutboundMessage events."""
