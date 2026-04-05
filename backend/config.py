@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Notifications
     owner_ghl_contact_id: str = ""  # Alan - SMS
     olga_ghl_contact_id: str = ""   # Olga - WhatsApp
+    fragne_ghl_contact_id: str = "" # Fragne - SMS
 
     # Labels
     ghl_location_1_label: str = "Cypress"

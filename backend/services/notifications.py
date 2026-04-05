@@ -55,6 +55,11 @@ def notify_new_lead(lead: dict):
         ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_whatsapp", "olga", "new_lead", msg if ok else f"FAILED: {msg}")
 
+    # Fragne - SMS
+    if settings.fragne_ghl_contact_id:
+        ok = send_sms(settings.fragne_ghl_contact_id, msg)
+        _log_notification(lead_id, "ghl_sms", "fragne", "new_lead", msg if ok else f"FAILED: {msg}")
+
 
 def notify_estimate_sent(lead: dict, tiers: dict):
     """Notify Alan (SMS) and Olga (WhatsApp) that an estimate was sent."""
