@@ -88,7 +88,7 @@ export default function EditPdf() {
       const fd = leadData.form_data || {};
       const fenceSides = Array.isArray(fd.fence_sides) ? fd.fence_sides : [];
       const includeFinancing = String(fd.include_financing ?? "true") !== "false";
-      const pricingIncludes = `pricing includes: ${generatePricingIncludes(fenceSides)}`;
+      const pricingIncludes = generatePricingIncludes(fenceSides);
 
       const vals: Record<string, string> = {
         customer_name: (leadData.contact_name || "").split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),

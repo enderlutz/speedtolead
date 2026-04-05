@@ -239,7 +239,7 @@ def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = Non
 
     side_label = f"on {side_count} side{'s' if side_count != 1 else ''}" if side_count > 0 else ""
 
-    return f"pricing includes: {side_text} {side_label}".strip()
+    return f"{side_text} {side_label}".strip()
 
 
 @router.post("/estimates/{estimate_id}/approve")
