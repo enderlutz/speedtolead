@@ -119,7 +119,7 @@ export default function LeadDetail() {
     }
     if (event.type === "proposal_viewed") {
       playProposalViewedSound();
-      toast(`Customer is viewing their estimate right now!`, { duration: 6000 });
+      toast(`${lead?.contact_name || "Customer"} is viewing their estimate right now!`, { duration: 6000 });
     }
   }, [id]));
 
