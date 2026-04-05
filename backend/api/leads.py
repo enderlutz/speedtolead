@@ -321,12 +321,68 @@ def ask_for_address(lead_id: str):
             )
             send_sms(settings.owner_ghl_contact_id, alan_msg)
 
-        # Move to no_address column
+        # Move to no_address column + tag which button was used
         lead.kanban_column = "no_address"
+        existing_fd = lead.to_dict()["form_data"]
+        existing_fd["address_action"] = "asked_for_address"
+        lead.form_data = json.dumps(existing_fd)
         lead.updated_at = _now()
         db.commit()
 
         log_event(lead_id, "address_requested", f"Address request SMS sent to {lead.contact_name}")
+
+        return {"status": "ok", "sms_sent": sms_sent}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/new-build")
+def new_build(lead_id: str):
+    """Send SMS for new build (can't measure from satellite), notify Alan."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        from config import get_settings
+        from services.ghl import send_sms
+        settings = get_settings()
+
+        first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
+
+        # SMS to customer
+        customer_msg = (
+            f"Hey {first_name}! Google Earth hasn't updated your property yet (new construction). "
+            f"Could you send us a few photos of your fence, or we can schedule a quick visit to measure?"
+        )
+        sms_sent = False
+        if lead.ghl_contact_id:
+            sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
+
+        # SMS to Alan
+        if settings.owner_ghl_contact_id:
+            alan_msg = (
+                f"New build — can't measure: {lead.contact_name or 'Unknown'}\n"
+                f"View: {settings.frontend_url}/leads/{lead.id}"
+            )
+            send_sms(settings.owner_ghl_contact_id, alan_msg)
+
+        # Move to needs_info + tag
+        lead.kanban_column = "needs_info"
+        existing_fd = lead.to_dict()["form_data"]
+        existing_fd["address_action"] = "new_build"
+        lead.form_data = json.dumps(existing_fd)
+        lead.updated_at = _now()
+        db.commit()
+
+        log_event(lead_id, "new_build", f"New build SMS sent to {lead.contact_name}")
 
         return {"status": "ok", "sms_sent": sms_sent}
 

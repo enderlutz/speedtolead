@@ -588,6 +588,12 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
               <Wrench className={`h-3.5 w-3.5 ${addonsHandled ? "text-green-500" : "text-amber-500"}`} />
             </span>
           )}
+          {fd.address_action === "asked_for_address" && (
+            <Badge className="text-[7px] px-1 py-0 bg-purple-100 text-purple-700 shrink-0">Asked for Address</Badge>
+          )}
+          {fd.address_action === "new_build" && (
+            <Badge className="text-[7px] px-1 py-0 bg-orange-100 text-orange-700 shrink-0">New Build</Badge>
+          )}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
         <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>

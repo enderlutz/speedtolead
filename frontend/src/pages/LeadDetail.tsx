@@ -74,7 +74,7 @@ export default function LeadDetail() {
   const [confidenceNote, setConfidenceNote] = useState("");
   const [includeFinancing, setIncludeFinancing] = useState(true);
   const [askingAddress, setAskingAddress] = useState(false);
-  const [addressAsked, setAddressAsked] = useState(false);
+  const [askingNewBuild, setAskingNewBuild] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -334,18 +334,32 @@ export default function LeadDetail() {
                   <User className="h-4 w-4" /> Contact Information
                 </CardTitle>
                 {!editingContact ? (
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 flex-wrap">
                     <Button variant="outline" size="sm" onClick={async () => {
                       setAskingAddress(true);
                       try {
                         await api.askForAddress(id!);
-                        setAddressAsked(true);
+                        const data = await api.getLead(id!);
+                        setLead(data);
                         toast.success("Address request sent via SMS");
                       } catch { toast.error("Failed to send"); }
                       finally { setAskingAddress(false); }
-                    }} disabled={askingAddress || addressAsked}>
+                    }} disabled={askingAddress || lead?.form_data?.address_action === "asked_for_address"}>
                       <Navigation className="h-3.5 w-3.5 mr-1" />
-                      {addressAsked ? "Sent" : askingAddress ? "Sending..." : "Ask for Address"}
+                      {lead?.form_data?.address_action === "asked_for_address" ? "Asked" : askingAddress ? "Sending..." : "Ask for Address"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={async () => {
+                      setAskingNewBuild(true);
+                      try {
+                        await api.newBuild(id!);
+                        const data = await api.getLead(id!);
+                        setLead(data);
+                        toast.success("New build SMS sent");
+                      } catch { toast.error("Failed to send"); }
+                      finally { setAskingNewBuild(false); }
+                    }} disabled={askingNewBuild || lead?.form_data?.address_action === "new_build"}>
+                      <MapPin className="h-3.5 w-3.5 mr-1" />
+                      {lead?.form_data?.address_action === "new_build" ? "Sent" : askingNewBuild ? "Sending..." : "New Build"}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
                       <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
