@@ -99,18 +99,18 @@ export default function ProposalView() {
                 href={`${BASE}/api/proposal/${token}/pdf`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg border border-white/30 text-white font-semibold text-sm py-2.5 px-4 hover:bg-white/10 transition-colors"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/30 text-white font-semibold text-xs sm:text-sm py-2.5 px-3 hover:bg-white/10 transition-colors"
               >
-                <Download className="h-4 w-4" />
-                Download PDF
+                <Download className="h-4 w-4 shrink-0" />
+                <span>PDF</span>
               </a>
             )}
             <a
               href="tel:+18326515988"
-              className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-amber-500 text-white font-semibold text-sm py-2.5 px-4 hover:bg-amber-600 transition-colors shadow-md"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 text-white font-semibold text-xs sm:text-sm py-2.5 px-3 hover:bg-amber-600 transition-colors shadow-md"
             >
-              <Phone className="h-4 w-4" />
-              Call to Book
+              <Phone className="h-4 w-4 shrink-0" />
+              <span>Call to Book</span>
             </a>
           </div>
         </div>

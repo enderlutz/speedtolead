@@ -193,8 +193,8 @@ export default function Settings() {
               id="pdf-upload"
             />
             <Upload className={`h-8 w-8 mx-auto mb-2 ${dragging ? "text-primary" : "text-muted-foreground/50"}`} />
-            <p className="text-sm font-medium">{uploading ? "Uploading..." : "Drag & drop PDF here"}</p>
-            <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
+            <p className="text-sm font-medium">{uploading ? "Uploading..." : "Drop PDF here or tap to browse"}</p>
+            <p className="text-xs text-muted-foreground mt-1">PDF files only</p>
           </div>
 
           {/* Template Editor */}

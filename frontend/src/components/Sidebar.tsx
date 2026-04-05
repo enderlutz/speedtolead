@@ -113,7 +113,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
       <aside
         className={`
-          fixed top-0 left-0 z-50 h-screen w-60 bg-sidebar border-r border-sidebar-border flex flex-col
+          fixed top-0 left-0 z-50 h-dvh w-60 bg-sidebar border-r border-sidebar-border flex flex-col
           transition-transform duration-200 ease-in-out overflow-y-auto
           md:static md:translate-x-0 md:z-auto md:shrink-0
           ${open ? "translate-x-0" : "-translate-x-full"}

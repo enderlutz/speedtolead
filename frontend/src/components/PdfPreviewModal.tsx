@@ -230,7 +230,7 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[90vw] max-h-[92vh] overflow-hidden flex flex-col" showCloseButton>
+      <DialogContent className="max-w-[96vw] sm:max-w-[90vw] max-h-[92vh] overflow-hidden flex flex-col" showCloseButton>
         <DialogHeader>
           <DialogTitle>Preview — {lead.contact_name}</DialogTitle>
         </DialogHeader>
