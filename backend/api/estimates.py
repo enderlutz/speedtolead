@@ -115,6 +115,8 @@ def pending_action():
             .join(Lead, Estimate.lead_id == Lead.id)
             .filter(Estimate.status == "pending")
             .filter(Estimate.estimate_low > 0)
+            .filter(Lead.is_test.is_(False))
+            .filter(Lead.status != "archived")
             .order_by(Estimate.created_at.desc())
             .all()
         )

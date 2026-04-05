@@ -42,26 +42,60 @@ def get_kpis():
         curr_start, curr_end = _month_range(0)
         prev_start, prev_end = _month_range(-1)
 
-        curr_leads = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end).count()
-        curr_sent = db.query(Estimate).filter(Estimate.status == "sent", Estimate.sent_at >= curr_start, Estimate.sent_at < curr_end).count()
-        prev_leads = db.query(Lead).filter(Lead.created_at >= prev_start, Lead.created_at < prev_end).count()
-        prev_sent = db.query(Estimate).filter(Estimate.status == "sent", Estimate.sent_at >= prev_start, Estimate.sent_at < prev_end).count()
+        # Exclude test + archived leads from all counts
+        base_q = db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived")
 
-        curr_close_rate = (curr_sent / curr_leads * 100) if curr_leads > 0 else 0
-        prev_close_rate = (prev_sent / prev_leads * 100) if prev_leads > 0 else 0
+        curr_leads = base_q.filter(Lead.created_at >= curr_start, Lead.created_at < curr_end).count()
+        prev_leads = db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived", Lead.created_at >= prev_start, Lead.created_at < prev_end).count()
 
-        # Revenue pipeline
-        sent_estimates = db.query(Estimate).filter(Estimate.status == "sent", Estimate.sent_at >= curr_start, Estimate.sent_at < curr_end).all()
-        revenue = sum(float(json.loads(e.tiers).get("signature", 0)) if isinstance(e.tiers, str) else float((e.tiers or {}).get("signature", 0)) for e in sent_estimates)
+        # Estimates sent — exclude test leads
+        curr_sent = (
+            db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
+                    Estimate.sent_at >= curr_start, Estimate.sent_at < curr_end)
+            .count()
+        )
+        prev_sent = (
+            db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
+                    Estimate.sent_at >= prev_start, Estimate.sent_at < prev_end)
+            .count()
+        )
 
-        # Avg response time
-        pairs = db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.status == "sent", Estimate.sent_at >= curr_start).all()
+        # Close rate — based on actual closed deals (not just sent)
+        curr_closed = (
+            db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None),
+                    Estimate.closed_at >= curr_start, Estimate.closed_at < curr_end)
+            .count()
+        )
+        curr_close_rate = (curr_closed / curr_sent * 100) if curr_sent > 0 else 0
+
+        # Revenue — only from actual closed deals
+        closed_estimates = (
+            db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None),
+                    Estimate.closed_at >= curr_start, Estimate.closed_at < curr_end)
+            .all()
+        )
+        revenue = 0.0
+        for e in closed_estimates:
+            tiers = json.loads(e.tiers) if isinstance(e.tiers, str) else (e.tiers or {})
+            revenue += float(tiers.get(e.closed_tier, 0))
+
+        # Avg time to estimate (lead created → estimate sent)
+        pairs = (
+            db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
+                    Estimate.sent_at >= curr_start)
+            .all()
+        )
         total_mins, count = 0, 0
         for est, lead in pairs:
             c, s = _parse_dt(lead.created_at), _parse_dt(est.sent_at)
             if c and s:
                 diff = (s - c).total_seconds() / 60
-                if 0 <= diff < 1440:  # cap at 24h
+                if 0 <= diff < 1440:
                     total_mins += diff; count += 1
         avg_response_minutes = round(total_mins / count, 1) if count > 0 else 0
 
@@ -73,10 +107,11 @@ def get_kpis():
             "leads_change_pct": round((curr_leads - prev_leads) / prev_leads * 100, 1) if prev_leads > 0 else 0,
             "estimates_sent": curr_sent, "estimates_sent_last_month": prev_sent,
             "estimates_sent_change_pct": round((curr_sent - prev_sent) / prev_sent * 100, 1) if prev_sent > 0 else 0,
-            "close_rate": round(curr_close_rate, 1), "close_rate_last_month": round(prev_close_rate, 1),
-            "close_rate_change": round(curr_close_rate - prev_close_rate, 1),
-            "revenue_pipeline": round(revenue, 2),
-            "avg_response_minutes": avg_response_minutes,
+            "close_rate": round(curr_close_rate, 1) if curr_sent > 0 else None,
+            "close_rate_last_month": None,
+            "close_rate_change": None,
+            "revenue_pipeline": round(revenue, 2) if revenue > 0 else None,
+            "avg_response_minutes": avg_response_minutes if count > 0 else None,
             "goal_target": goal, "goal_current": curr_sent, "goal_progress_pct": goal_progress,
         }
     finally:

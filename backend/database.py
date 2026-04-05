@@ -44,6 +44,7 @@ class Lead(Base):
     customer_responded = Column(Boolean, default=False)
     customer_response_text = Column(Text, default="")
     ghl_opportunity_id = Column(Text, default="")
+    is_test = Column(Boolean, default=False)
     viewed_at = Column(Text, nullable=True)
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")

@@ -90,9 +90,9 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         <GradientKPI icon={Users} title="Leads This Month" value={kpis?.leads_this_month ?? 0} change={kpis?.leads_change_pct} gradient="from-blue-500 to-blue-600" />
         <GradientKPI icon={Send} title="Estimates Sent" value={kpis?.estimates_sent ?? 0} change={kpis?.estimates_sent_change_pct} gradient="from-emerald-500 to-emerald-600" />
-        <GradientKPI icon={TrendingUp} title="Close Rate" value={`${kpis?.close_rate ?? 0}%`} change={kpis?.close_rate_change} gradient="from-violet-500 to-violet-600" />
-        <GradientKPI icon={DollarSign} title="Revenue" value={formatCurrency(kpis?.revenue_pipeline ?? 0)} gradient="from-amber-500 to-orange-500" />
-        <GradientKPI icon={Clock} title="Avg Response" value={`${kpis?.avg_response_minutes ?? 0}m`} gradient="from-cyan-500 to-cyan-600" />
+        <GradientKPI icon={TrendingUp} title="Close Rate" value={kpis?.close_rate != null ? `${kpis.close_rate}%` : "—"} gradient="from-violet-500 to-violet-600" />
+        <GradientKPI icon={DollarSign} title="Closed Revenue" value={kpis?.revenue_pipeline != null ? formatCurrency(kpis.revenue_pipeline) : "—"} gradient="from-amber-500 to-orange-500" />
+        <GradientKPI icon={Clock} title="Avg Time to Est." value={kpis?.avg_response_minutes != null ? `${kpis.avg_response_minutes}m` : "—"} gradient="from-cyan-500 to-cyan-600" />
         <Card className="border-0 shadow-sm bg-card">
           <CardContent className="pt-4 pb-3 px-4">
             <div className="flex items-center justify-between mb-2">
