@@ -426,6 +426,14 @@ export default function LeadDetail() {
                     src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ""}&q=${encodeURIComponent(lead.address)}&maptype=satellite&zoom=20`}
                   />
                 </div>
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lead.address)}&basemap=satellite`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-md border text-sm py-2 hover:bg-muted transition-colors sm:hidden"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" /> Open in Google Maps
+                </a>
               </CardContent>
             </Card>
           )}
