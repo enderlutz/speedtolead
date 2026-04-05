@@ -55,12 +55,12 @@ export default function ProposalView() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
-        <div className="w-full max-w-2xl px-4 space-y-4">
-          <div className="h-10 w-56 mx-auto bg-gray-200 rounded animate-pulse" />
-          <div className="h-6 w-40 mx-auto bg-gray-200 rounded animate-pulse" />
-          <PageSkeleton />
+      <div className="min-h-screen bg-[#1C2235] flex flex-col items-center justify-center px-6">
+        <div className="relative mb-6">
+          <div className="h-16 w-16 rounded-full border-4 border-white/10 border-t-amber-400 animate-spin" />
         </div>
+        <h1 className="text-xl font-bold text-white tracking-tight">A&T Fence Restoration</h1>
+        <p className="text-white/50 text-sm mt-2 animate-pulse">Loading your proposal...</p>
       </div>
     );
   }

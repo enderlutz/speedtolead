@@ -8,7 +8,7 @@ import { PRESET_FIELD_LABELS, PRESET_FIELD_COLORS } from "@/lib/pdf-types";
 import ColorPicker from "@/components/ColorPicker";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Trash2, Save, Send, Type, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Trash2, Send, Type, Loader2 } from "lucide-react";
 
 interface CanvasField {
   id: string;
@@ -40,8 +40,8 @@ export default function EditPdf() {
   const [pageSizes, setPageSizes] = useState<{ width: number; height: number }[]>([]);
   const [pageCount, setPageCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 600, height: 776 });
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -183,23 +183,6 @@ export default function EditPdf() {
     }
   };
 
-  const handleSave = async () => {
-    if (!estimate) return;
-    setSaving(true);
-    try {
-      const payload = fields.map((f) => ({
-        id: f.id, page: f.page, x: f.x, y: f.y,
-        font_size: f.font_size, color: f.color, value: f.value, bold: f.bold,
-      }));
-      await api.saveEstimatePdf(estimate.id, payload);
-      toast.success("PDF saved");
-    } catch {
-      toast.error("Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleSend = async () => {
     if (!estimate) return;
     setSending(true);
@@ -209,11 +192,10 @@ export default function EditPdf() {
         font_size: f.font_size, color: f.color, value: f.value, bold: f.bold,
       }));
       await api.saveAndSendEstimate(estimate.id, payload);
-      toast.success("Estimate sent to customer!");
-      navigate(`/leads/${id}`);
+      setSent(true);
+      setTimeout(() => navigate(`/leads/${id}`), 2500);
     } catch {
       toast.error("Failed to send");
-    } finally {
       setSending(false);
     }
   };
@@ -234,6 +216,21 @@ export default function EditPdf() {
     ? { x: editingField.x * scaleX, y: editingField.y * scaleY }
     : { x: 0, y: 0 };
 
+  if (sent) {
+    return (
+      <div className="flex flex-col items-center justify-center h-dvh bg-[#1C2235] px-6">
+        <div className="h-20 w-20 rounded-full bg-green-500 flex items-center justify-center mb-6 animate-bounce">
+          <Send className="h-8 w-8 text-white" />
+        </div>
+        <h1 className="text-2xl font-bold text-white">Estimate Sent!</h1>
+        <p className="text-white/60 text-sm mt-2">
+          {lead?.contact_name ? `${lead.contact_name} will receive it shortly` : "The customer will receive it shortly"}
+        </p>
+        <p className="text-white/30 text-xs mt-4">Redirecting...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-dvh bg-gray-100">
       {/* Header */}
@@ -244,14 +241,10 @@ export default function EditPdf() {
         <h1 className="text-sm font-semibold truncate flex-1 text-center">
           Edit Proposal {lead?.contact_name ? `— ${lead.contact_name}` : ""}
         </h1>
-        <div className="flex gap-1.5">
-          <Button size="sm" variant="outline" onClick={handleSave} disabled={saving}>
-            <Save className="h-3.5 w-3.5 mr-1" />{saving ? "..." : "Save"}
-          </Button>
-          <Button size="sm" onClick={handleSend} disabled={sending} className="bg-green-600 hover:bg-green-700 text-white">
-            <Send className="h-3.5 w-3.5 mr-1" />{sending ? "..." : "Send"}
-          </Button>
-        </div>
+        <Button size="sm" onClick={handleSend} disabled={sending || sent} className="bg-green-600 hover:bg-green-700 text-white">
+          <Send className={`h-3.5 w-3.5 mr-1 ${sending ? "animate-spin" : ""}`} />
+          {sent ? "Sent!" : sending ? "Sending..." : "Send to Customer"}
+        </Button>
       </div>
 
       {/* Toolbar */}
