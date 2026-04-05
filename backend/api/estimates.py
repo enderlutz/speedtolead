@@ -13,6 +13,15 @@ from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.ghl import send_sms, add_contact_note, add_contact_tag
+
+
+def _parse_dt(iso: str | None):
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except Exception:
+        return None
 from services.activity_log import log_event
 from services.event_bus import publish
 from config import get_settings
@@ -74,12 +83,38 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
             .all()
         )
 
+        # Fetch proposals for timing data
+        est_ids = [e.id for e, _ in rows]
+        proposals = {}
+        if est_ids:
+            for p in db.query(Proposal).filter(Proposal.estimate_id.in_(est_ids)).all():
+                proposals[p.estimate_id] = p
+
         results = []
         for est, lead in rows:
             est_dict = est.to_dict()
             inputs = est_dict.get("inputs") or {}
             tiers = est_dict.get("tiers") or {}
             breakdown = est_dict.get("breakdown") or []
+
+            # Time to send: lead created → estimate sent
+            created_dt = _parse_dt(lead.created_at)
+            sent_dt = _parse_dt(est.sent_at)
+            time_to_send_mins = None
+            if created_dt and sent_dt:
+                diff = (sent_dt - created_dt).total_seconds() / 60
+                if diff >= 0:
+                    time_to_send_mins = round(diff, 1)
+
+            # Time to view: estimate sent → proposal first viewed
+            time_to_view_mins = None
+            prop = proposals.get(est.id)
+            if prop and prop.first_viewed_at and sent_dt:
+                viewed_dt = _parse_dt(prop.first_viewed_at)
+                if viewed_dt:
+                    diff = (viewed_dt - sent_dt).total_seconds() / 60
+                    if diff >= 0:
+                        time_to_view_mins = round(diff, 1)
 
             results.append({
                 "id": est_dict["id"],
@@ -108,6 +143,9 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
                 "fence_height": inputs.get("fence_height", ""),
                 "fence_age": inputs.get("fence_age", ""),
                 "priority": inputs.get("_priority", lead.priority),
+                "time_to_send_minutes": time_to_send_mins,
+                "time_to_view_minutes": time_to_view_mins,
+                "proposal_viewed": prop.first_viewed_at is not None if prop else False,
             })
 
         return results

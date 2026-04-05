@@ -140,6 +140,14 @@ def get_speed_metrics():
         by_location: dict[str, list[float]] = defaultdict(list)
         by_zone: dict[str, list[float]] = defaultdict(list)
         by_priority: dict[str, list[float]] = defaultdict(list)
+        view_times: list[float] = []
+
+        # Fetch proposals for time-to-view calculation
+        est_ids = [e.id for e, _ in pairs]
+        proposals = {}
+        if est_ids:
+            for p in db.query(Proposal).filter(Proposal.estimate_id.in_(est_ids)).all():
+                proposals[p.estimate_id] = p
 
         for est, lead in pairs:
             created = _parse_dt(lead.created_at)
@@ -154,6 +162,17 @@ def get_speed_metrics():
             inputs = json.loads(est.inputs) if isinstance(est.inputs, str) else (est.inputs or {})
             zone = inputs.get("_zone", "Unknown")
 
+            # Time to view: estimate sent → proposal first viewed
+            time_to_view_mins = None
+            prop = proposals.get(est.id)
+            if prop and prop.first_viewed_at:
+                viewed = _parse_dt(prop.first_viewed_at)
+                if viewed:
+                    ttv = (viewed - sent).total_seconds() / 60
+                    if ttv >= 0:
+                        time_to_view_mins = round(ttv, 1)
+                        view_times.append(ttv)
+
             lead_times.append({
                 "lead_id": lead.id,
                 "contact_name": lead.contact_name,
@@ -162,6 +181,7 @@ def get_speed_metrics():
                 "zone": zone,
                 "priority": lead.priority,
                 "minutes": round(mins, 1),
+                "time_to_view_minutes": time_to_view_mins,
                 "sent_at": est.sent_at,
             })
 
@@ -191,6 +211,10 @@ def get_speed_metrics():
             "by_location": {k: {"avg_minutes": _avg(v), "count": len(v)} for k, v in by_location.items()},
             "by_zone": {k: {"avg_minutes": _avg(v), "count": len(v)} for k, v in by_zone.items()},
             "by_priority": {k: {"avg_minutes": _avg(v), "count": len(v)} for k, v in by_priority.items()},
+            "avg_time_to_view_minutes": _avg(view_times) if view_times else None,
+            "median_time_to_view_minutes": round(sorted(view_times)[len(view_times) // 2], 1) if view_times else None,
+            "proposals_viewed_count": len(view_times),
+            "proposals_not_viewed_count": len(lead_times) - len(view_times),
             "recent": lead_times[:20],
         }
     finally:
