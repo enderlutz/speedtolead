@@ -176,9 +176,9 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
             "essential_price": f"${tiers.get('essential', 0):,.2f}",
             "signature_price": f"${tiers.get('signature', 0):,.2f}",
             "legacy_price": f"${tiers.get('legacy', 0):,.2f}",
-            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 months",
-            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 months",
-            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 months",
+            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
+            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
+            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
             "date": datetime.now().strftime("%B %d, %Y"),
         }
 
@@ -263,9 +263,9 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                     "essential_price": f"${tiers.get('essential', 0):,.2f}",
                     "signature_price": f"${tiers.get('signature', 0):,.2f}",
                     "legacy_price": f"${tiers.get('legacy', 0):,.2f}",
-                    "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 months",
-                    "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 months",
-                    "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 months",
+                    "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
+                    "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
+                    "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
                     "date": datetime.now().strftime("%B %d, %Y"),
                 }
                 # Add pricing includes
@@ -603,9 +603,9 @@ def get_estimate_pdf(estimate_id: str):
             "essential_price": f"${tiers.get('essential', 0):,.2f}",
             "signature_price": f"${tiers.get('signature', 0):,.2f}",
             "legacy_price": f"${tiers.get('legacy', 0):,.2f}",
-            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 months",
-            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 months",
-            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 months",
+            "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
+            "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
+            "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
             "date": datetime.now().strftime("%B %d, %Y"),
         }
         pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values)
