@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
@@ -44,6 +44,7 @@ const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-ba
 
 export default function LeadDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [lead, setLead] = useState<LeadDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -672,8 +673,8 @@ export default function LeadDetail() {
           {/* Actions */}
           {estimate && estimate.status === "pending" && (
             <div className="space-y-2">
-              <Button variant="outline" onClick={() => setPreviewOpen(true)} className="w-full">
-                <Eye className="h-4 w-4 mr-2" /> Preview PDF
+              <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="w-full">
+                <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
               </Button>
               <Button onClick={handleApprove} disabled={approving} className="w-full bg-green-600 hover:bg-green-700 text-white">
                 <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />

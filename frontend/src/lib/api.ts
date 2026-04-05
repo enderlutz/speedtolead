@@ -281,6 +281,16 @@ export const api = {
   getPendingAction: () => request<PendingEstimate[]>("/api/estimates/pending-action"),
   approveEstimate: (id: string) =>
     request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/approve`, { method: "POST" }),
+  saveEstimatePdf: (id: string, fields: Record<string, unknown>[]) =>
+    request<EstimateDetail>(`/api/estimates/${id}/save-pdf`, {
+      method: "POST",
+      body: JSON.stringify({ fields, send: false }),
+    }),
+  saveAndSendEstimate: (id: string, fields: Record<string, unknown>[]) =>
+    request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/save-pdf`, {
+      method: "POST",
+      body: JSON.stringify({ fields, send: true }),
+    }),
   closeEstimate: (id: string, tier: string, closedAt: string) =>
     request<EstimateDetail>(`/api/estimates/${id}/close`, {
       method: "POST",

@@ -491,6 +491,154 @@ def quick_approve_info(token: str):
         db.close()
 
 
+class SavePdfField(BaseModel):
+    id: str
+    page: int
+    x: float
+    y: float
+    font_size: float
+    color: str = "#2B2B2B"
+    value: str = ""
+    bold: bool = False
+
+
+class SavePdfBody(BaseModel):
+    fields: list[SavePdfField]
+    send: bool = False
+
+
+@router.post("/estimates/{estimate_id}/save-pdf")
+def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
+    """Generate PDF from canvas editor fields, optionally send to customer."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
+        if not template or not template.pdf_data:
+            raise HTTPException(status_code=404, detail="No PDF template")
+
+        settings = get_settings()
+        now = _now()
+
+        # Build field_map + values from canvas fields
+        field_map = {}
+        values = {}
+        extra_fields = []
+        for f in body.fields:
+            if f.id.startswith("custom_"):
+                extra_fields.append({
+                    "page": f.page, "x": f.x, "y": f.y,
+                    "font_size": f.font_size, "color": f.color, "value": f.value,
+                })
+            else:
+                field_map[f.id] = {
+                    "page": f.page, "x": f.x, "y": f.y,
+                    "font_size": f.font_size, "color": f.color,
+                }
+                values[f.id] = f.value
+
+        # Generate PDF
+        from services.pdf_generator import BOLD_FIELDS
+        # Temporarily update bold fields based on canvas
+        for f in body.fields:
+            if f.bold:
+                BOLD_FIELDS.add(f.id)
+            else:
+                BOLD_FIELDS.discard(f.id)
+
+        pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values, extra_fields or None)
+
+        # Rasterize pages
+        jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)
+
+        # Create/update proposal
+        token = str(uuid.uuid4())[:12]
+        proposal_id = str(uuid.uuid4())
+
+        # Delete old proposal pages for this estimate
+        old_proposals = db.query(Proposal).filter(Proposal.estimate_id == estimate_id).all()
+        for op in old_proposals:
+            db.query(ProposalPage).filter(ProposalPage.proposal_id == op.id).delete()
+            db.delete(op)
+
+        for i, jpeg_data in enumerate(jpeg_pages):
+            db.add(ProposalPage(
+                id=str(uuid.uuid4()),
+                proposal_id=proposal_id,
+                token=token,
+                page_num=i,
+                image_data=jpeg_data,
+                created_at=now,
+            ))
+
+        proposal = Proposal(
+            id=proposal_id, token=token, estimate_id=estimate_id,
+            lead_id=lead.id, status="sent" if body.send else "draft",
+            proposal_version="pdf", pdf_data=pdf_bytes,
+            pdf_page_count=len(jpeg_pages), created_at=now,
+        )
+        db.add(proposal)
+
+        if body.send:
+            if est.status == "sent":
+                raise HTTPException(status_code=400, detail="Already sent")
+            est.status = "sent"
+            est.sent_at = now
+            lead.status = "sent"
+            lead.kanban_column = "estimate_sent"
+            lead.updated_at = now
+
+            proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+
+            # SMS customer
+            if lead.ghl_contact_id and lead.contact_phone:
+                tiers_dict = est.to_dict()["tiers"]
+                sig_price = tiers_dict.get("signature", 0)
+                customer_msg = (
+                    f"Hi {(lead.contact_name or '').split()[0].title() if lead.contact_name else 'there'}! "
+                    f"Your fence staining estimate is ready: {proposal_url}"
+                )
+                sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
+                log_event(lead.id, "estimate_sent_to_customer",
+                          f"{'SMS sent' if sms_sent else 'SMS FAILED'}: {proposal_url}")
+
+            # GHL tag + note
+            if lead.ghl_contact_id:
+                add_contact_tag(lead.ghl_contact_id, "estimate_sent", lead.ghl_location_id or None)
+                tiers_dict = est.to_dict()["tiers"]
+                add_contact_note(lead.ghl_contact_id,
+                    f"Estimate sent — Essential: ${tiers_dict.get('essential',0):,.0f} | "
+                    f"Signature: ${tiers_dict.get('signature',0):,.0f} | Legacy: ${tiers_dict.get('legacy',0):,.0f}\n"
+                    f"Proposal: {proposal_url}",
+                    lead.ghl_location_id or None)
+
+            # Notify team
+            notify_estimate_sent(lead.to_dict(), est.to_dict()["tiers"])
+            publish("estimate_sent", {"lead_id": lead.id, "contact_name": lead.contact_name})
+
+        db.commit()
+
+        result = est.to_dict()
+        result["proposal_url"] = f"{settings.proposal_base_url}/proposal/{token}" if body.send else None
+        result["proposal_token"] = token
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Save PDF failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 class CloseBody(BaseModel):
     tier: str  # essential, signature, legacy
     closed_at: str | None = None

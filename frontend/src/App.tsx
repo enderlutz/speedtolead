@@ -10,6 +10,7 @@ import LeadDetail from "@/pages/LeadDetail";
 import SentLog from "@/pages/SentLog";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
+import EditPdf from "@/pages/EditPdf";
 import Pricing from "@/pages/Pricing";
 import ProposalView from "@/pages/ProposalView";
 import QuickApprove from "@/pages/QuickApprove";
@@ -54,6 +55,7 @@ function AppLayout() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
               <Route path="/leads/:id" element={<LeadDetail />} />
+              <Route path="/leads/:id/edit-pdf" element={<EditPdf />} />
               <Route path="/sent-log" element={<SentLog />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/pricing" element={<Pricing />} />
