@@ -519,11 +519,30 @@ export default function LeadDetail() {
                 </div>
               </div>
 
-              {/* Additional Services + Military Discount */}
+              {/* Additional Services + Add-on Handled + Military Discount */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Additional Services</label>
                   <Input placeholder="e.g. gate painting, pressure washing" value={additionalServices} onChange={(e) => setAdditionalServices(e.target.value)} />
+                  {additionalServices && additionalServices.toLowerCase() !== "none" && (
+                    <label className="flex items-center gap-2 text-xs mt-1.5 cursor-pointer text-green-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(lead?.form_data?.addons_handled)}
+                        onChange={async (e) => {
+                          if (!id) return;
+                          try {
+                            await api.updateFormData(id, { addons_handled: e.target.checked });
+                            const data = await api.getLead(id);
+                            setLead(data);
+                            toast.success(e.target.checked ? "Add-on marked as handled" : "Add-on unmarked");
+                          } catch { toast.error("Failed"); }
+                        }}
+                        className="rounded border-input"
+                      />
+                      Add-on sent / handled
+                    </label>
+                  )}
                 </div>
                 <div className="flex items-end pb-1">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore, Wrench, Check } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -39,14 +39,13 @@ const COLUMNS: { key: KanbanStatus; label: string; shortLabel: string; headerCls
   { key: "no_address", label: "Asking for Address", shortLabel: "No Addr", headerCls: "bg-purple-100 text-purple-800", bgCls: "bg-purple-50/20", dotCls: "bg-purple-500" },
   { key: "needs_info", label: "Not Measurable", shortLabel: "Info", headerCls: "bg-orange-100 text-orange-800", bgCls: "bg-orange-50/20", dotCls: "bg-orange-500" },
   { key: "hot_lead", label: "Hot Lead", shortLabel: "Hot", headerCls: "bg-green-100 text-green-800", bgCls: "bg-green-50/20", dotCls: "bg-green-500" },
-  { key: "yellow", label: "Add-ons", shortLabel: "Add-ons", headerCls: "bg-yellow-100 text-yellow-800", bgCls: "bg-yellow-50/20", dotCls: "bg-yellow-500" },
   { key: "not_confident", label: "Not Confident", shortLabel: "Unsure", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/20", dotCls: "bg-indigo-500" },
   { key: "needs_review", label: "Needs Review", shortLabel: "Review", headerCls: "bg-red-100 text-red-800", bgCls: "bg-red-50/20", dotCls: "bg-red-500" },
   { key: "estimate_sent", label: "Estimate Sent", shortLabel: "Sent", headerCls: "bg-sky-100 text-sky-800", bgCls: "bg-sky-50/20", dotCls: "bg-sky-500" },
 ];
 
 const COLUMN_ORDER: Record<KanbanStatus, number> = {
-  hot_lead: 0, yellow: 1, needs_info: 2, no_address: 3, new_lead: 4, not_confident: 5, needs_review: 6, estimate_sent: 7,
+  hot_lead: 0, yellow: 0, needs_info: 1, no_address: 2, new_lead: 3, not_confident: 4, needs_review: 5, estimate_sent: 6,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -167,6 +166,7 @@ export default function Leads() {
     const groups: Record<KanbanStatus, Lead[]> = {
       new_lead: [], no_address: [], needs_info: [], hot_lead: [], yellow: [], not_confident: [], needs_review: [], estimate_sent: [],
     };
+    // Note: "yellow" leads show in hot_lead column (add-ons column removed, icon shows instead)
     for (const lead of filtered) {
       const col = (lead.kanban_column as KanbanStatus) || "new_lead";
       if (groups[col]) groups[col].push(lead);
@@ -531,9 +531,18 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
   const fd = lead.form_data || {};
   const addons = String(fd.additional_services || "").trim();
   const hasAddons = !!addons && addons.toLowerCase() !== "none" && addons.toLowerCase() !== "no";
-  const approvalReason = String(fd._approval_reason || lead.form_data?._approval_reason || "");
-  const isSmallJob = approvalReason.includes("too small");
-  const isOutsideZone = approvalReason.includes("Outside service zone");
+  const addonsHandled = Boolean(fd.addons_handled);
+  const isSmallJob = lead.kanban_column === "not_confident" && String(fd._approval_reason || "").includes("too small");
+  const isOutsideZone = lead.kanban_column === "not_confident" && String(fd._approval_reason || "").includes("Outside");
+
+  const handleMarkAddon = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.updateFormData(lead.id, { addons_handled: !addonsHandled });
+      toast.success(addonsHandled ? "Add-on unmarked" : "Add-on marked as handled");
+    } catch { toast.error("Failed"); }
+  };
 
   return (
     <Link
@@ -541,7 +550,7 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
       onMouseEnter={() => prefetchLead(lead.id)}
       className={`block rounded-md bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab ${
         isDragging ? "shadow-lg ring-2 ring-primary/20 rotate-1" : ""
-      } ${hasAddons ? "border-2 border-amber-400" : "border"} ${isNew ? "ring-1 ring-primary/20" : ""}`}
+      } ${hasAddons && !addonsHandled ? "border-2 border-amber-400" : "border"} ${isNew ? "ring-1 ring-primary/20" : ""}`}
       onClick={(e) => isDragging && e.preventDefault()}
     >
       <div className="flex items-start justify-between gap-1.5">
@@ -549,13 +558,25 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
           {isNew && <Badge className="text-[8px] px-1 py-0 bg-primary text-primary-foreground shrink-0">NEW</Badge>}
           {isSmallJob && <Badge className="text-[8px] px-1 py-0 bg-indigo-100 text-indigo-700 shrink-0">&lt;500sqft</Badge>}
           {isOutsideZone && <Badge className="text-[8px] px-1 py-0 bg-indigo-100 text-indigo-700 shrink-0">Outside Zone</Badge>}
+          {hasAddons && (
+            <span title={addons} className="shrink-0">
+              <Wrench className={`h-3.5 w-3.5 ${addonsHandled ? "text-green-500" : "text-amber-500"}`} />
+            </span>
+          )}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
         <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
       </div>
       {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
       {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
-      {hasAddons && <p className="text-[10px] text-amber-700 mt-0.5 truncate">Add-on: {addons}</p>}
+      {hasAddons && (
+        <div className="flex items-center gap-1 mt-0.5">
+          <p className={`text-[10px] truncate flex-1 ${addonsHandled ? "text-green-600 line-through" : "text-amber-700"}`}>{addons}</p>
+          <button onClick={handleMarkAddon} className={`p-0.5 rounded ${addonsHandled ? "text-green-500" : "text-muted-foreground hover:text-green-500"}`} title={addonsHandled ? "Unmark" : "Mark as handled"}>
+            <Check className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between mt-1.5">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
         <span className="text-[9px] text-red-500 font-medium flex items-center gap-0.5">

@@ -14,16 +14,14 @@ logger = logging.getLogger(__name__)
 # --- Default zone zip code sets (overridden by DB if configured) ---
 
 BASE_ZONE_ZIPS = {
-    "77033", "77040", "77041", "77064", "77065", "77066", "77067", "77068",
+    "77040", "77041", "77064", "77065", "77066", "77067", "77068",
     "77069", "77070", "77084", "77095", "77355", "77362", "77375", "77377",
-    "77379", "77388", "77410", "77429", "77433", "77447", "77449", "77484",
-    "77493",
+    "77379", "77388", "77410", "77429", "77433", "77447", "77449", "77493",
 }
 
 BLUE_ZONE_ZIPS = {
-    "77018", "77024", "77077", "77079", "77094", "77354", "77380", "77381",
-    "77382", "77384", "77385", "77386", "77389", "77423", "77441", "77445",
-    "77450", "77494",
+    "77024", "77077", "77079", "77094", "77354", "77380", "77381",
+    "77382", "77384", "77385", "77386", "77389", "77441", "77450", "77494",
 }
 
 PURPLE_ZONE_ZIPS = {
@@ -196,8 +194,7 @@ def determine_kanban_column(form_data: dict, approval_status: str, zip_code: str
         if "not confident" in reason_lower or "outside service zone" in reason_lower or "too small" in reason_lower:
             return "not_confident"
         return "needs_review"
-    if approval_status == "yellow":
-        return "yellow"
+    # Yellow (add-ons) goes to hot_lead — add-on shown as icon on card instead of separate column
     return "hot_lead"
 
 
