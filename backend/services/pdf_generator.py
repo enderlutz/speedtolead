@@ -63,6 +63,9 @@ def generate_filled_pdf(
         color = _hex_to_rgb(placement.get("color", DEFAULT_COLOR))
 
         page = doc[page_num]
+        # PyMuPDF insert_text uses baseline Y (bottom of text).
+        # Canvas editor stores top Y. Offset by ascender height.
+        y_baseline = y + font_size * 0.82
         is_bold = field_key in BOLD_FIELDS
         font_kwargs: dict = {"fontsize": font_size, "color": color}
         if is_bold and FONT_BOLD_PATH:
@@ -71,7 +74,7 @@ def generate_filled_pdf(
         elif FONT_PATH:
             font_kwargs["fontname"] = FONT_NAME
             font_kwargs["fontfile"] = FONT_PATH
-        page.insert_text(fitz.Point(x, y), str(values[field_key]), **font_kwargs)
+        page.insert_text(fitz.Point(x, y_baseline), str(values[field_key]), **font_kwargs)
 
     # Insert extra custom text fields
     if extra_fields:
@@ -80,15 +83,17 @@ def generate_filled_pdf(
             if page_num >= len(doc):
                 continue
             page = doc[page_num]
+            ef_font_size = float(ef.get("font_size", 12))
+            ef_y = float(ef.get("y", 72)) + ef_font_size * 0.82
             font_kwargs = {
-                "fontsize": float(ef.get("font_size", 12)),
+                "fontsize": ef_font_size,
                 "color": _hex_to_rgb(ef.get("color", DEFAULT_COLOR)),
             }
             if FONT_PATH:
                 font_kwargs["fontname"] = FONT_NAME
                 font_kwargs["fontfile"] = FONT_PATH
             page.insert_text(
-                fitz.Point(float(ef.get("x", 72)), float(ef.get("y", 72))),
+                fitz.Point(float(ef.get("x", 72)), ef_y),
                 str(ef.get("value", "")),
                 **font_kwargs,
             )
