@@ -128,7 +128,8 @@ def get_speed_metrics():
         pairs = (
             db.query(Estimate, Lead)
             .join(Lead, Estimate.lead_id == Lead.id)
-            .filter(Estimate.status == "sent")
+            .filter(Estimate.status.in_(["sent", "closed"]))
+            .filter(Lead.is_test.is_(False), Lead.status != "archived")
             .order_by(Estimate.sent_at.desc())
             .limit(200)
             .all()
@@ -210,6 +211,7 @@ def get_close_patterns():
             db.query(Estimate, Lead)
             .join(Lead, Estimate.lead_id == Lead.id)
             .filter(Estimate.estimate_low > 0)
+            .filter(Lead.is_test.is_(False), Lead.status != "archived")
             .all()
         )
 
@@ -344,9 +346,9 @@ def get_funnel():
     db = get_db()
     try:
         curr_start, curr_end = _month_range(0)
-        total = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end).count()
-        estimated = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.status.in_(["estimated", "sent"])).count()
-        sent = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.status == "sent").count()
+        total = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status != "archived").count()
+        estimated = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status.in_(["estimated", "sent", "closed"])).count()
+        sent = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])).count()
         viewed = db.query(Proposal).filter(Proposal.created_at >= curr_start, Proposal.status.in_(["viewed"])).count()
 
         return {
@@ -368,8 +370,8 @@ def get_by_location():
         curr_start, curr_end = _month_range(0)
         locations = {}
         for label in ["Cypress", "Woodlands"]:
-            leads = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label).count()
-            sent = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.status == "sent").count()
+            leads = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.is_test.is_(False), Lead.status != "archived").count()
+            sent = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])).count()
             locations[label] = {"leads": leads, "sent": sent, "close_rate": round(sent / leads * 100, 1) if leads > 0 else 0}
         return locations
     finally:
@@ -387,8 +389,8 @@ def get_weekly_close_rate():
         for i in range(7, -1, -1):
             ws = now - timedelta(weeks=i + 1)
             we = now - timedelta(weeks=i)
-            leads = db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat()).count()
-            sent = db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.status == "sent").count()
+            leads = db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.is_test.is_(False), Lead.status != "archived").count()
+            sent = db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])).count()
             weeks.append({"week_start": ws.strftime("%b %d"), "leads": leads, "sent": sent, "close_rate": round(sent / leads * 100, 1) if leads > 0 else 0})
         return weeks
     finally:
@@ -410,7 +412,7 @@ def get_cohort_analysis():
             we = now - timedelta(weeks=i)
             start_iso, end_iso = ws.isoformat(), we.isoformat()
 
-            leads = db.query(Lead).filter(Lead.created_at >= start_iso, Lead.created_at < end_iso).all()
+            leads = db.query(Lead).filter(Lead.created_at >= start_iso, Lead.created_at < end_iso, Lead.is_test.is_(False), Lead.status != "archived").all()
             total = len(leads)
             if total == 0:
                 cohorts.append({"week": ws.strftime("%b %d"), "total": 0, "estimated": 0, "sent": 0, "est_rate": 0, "sent_rate": 0, "avg_response_min": 0})
@@ -452,7 +454,7 @@ def get_revenue_insights():
     """Actionable insights: where to focus to double revenue."""
     db = get_db()
     try:
-        all_est = db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.estimate_low > 0).all()
+        all_est = db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.estimate_low > 0, Lead.is_test.is_(False), Lead.status != "archived").all()
 
         total_leads = len(all_est)
         sent_leads = sum(1 for e, _ in all_est if e.status == "sent")
