@@ -237,15 +237,9 @@ def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = Non
     side_count = len(inside_checked) + len(outside_checked)
     side_text = ", ".join(side_parts) if side_parts else "fence"
 
-    linear_feet = ""
-    if form_data:
-        lf = form_data.get("linear_feet", "")
-        if lf:
-            linear_feet = f"{lf} ft of linear feet "
-
     side_label = f"on {side_count} side{'s' if side_count != 1 else ''}" if side_count > 0 else ""
 
-    return f"pricing includes: {linear_feet}{side_text} {side_label}".strip()
+    return f"pricing includes: {side_text} {side_label}".strip()
 
 
 @router.post("/estimates/{estimate_id}/approve")
@@ -359,10 +353,11 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         sig_price = tiers_dict.get("signature", 0)
         sms_sent = False
         if lead.ghl_contact_id and lead.contact_phone:
+            first_name = lead.contact_name.split()[0] if lead.contact_name else "there"
             customer_msg = (
-                f"Hi {lead.contact_name.split()[0] if lead.contact_name else 'there'}! "
-                f"Here's your fence staining estimate. "
-                f"View your quote here: {proposal_url}"
+                f"Hi {first_name}!\n"
+                f"A&T Fence Staining Proposal\n\n"
+                f"{proposal_url}"
             )
             sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
             log_event(lead.id, "estimate_sent_to_customer",
@@ -623,9 +618,11 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
             if lead.ghl_contact_id and lead.contact_phone:
                 tiers_dict = est.to_dict()["tiers"]
                 sig_price = tiers_dict.get("signature", 0)
+                first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
                 customer_msg = (
-                    f"Hi {(lead.contact_name or '').split()[0].title() if lead.contact_name else 'there'}! "
-                    f"Your fence staining estimate is ready: {proposal_url}"
+                    f"Hi {first_name}!\n"
+                    f"A&T Fence Staining Proposal\n\n"
+                    f"{proposal_url}"
                 )
                 sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
                 log_event(lead.id, "estimate_sent_to_customer",

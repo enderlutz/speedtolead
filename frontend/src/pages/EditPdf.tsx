@@ -88,10 +88,7 @@ export default function EditPdf() {
       const fd = leadData.form_data || {};
       const fenceSides = Array.isArray(fd.fence_sides) ? fd.fence_sides : [];
       const includeFinancing = String(fd.include_financing ?? "true") !== "false";
-      const linearFeet = fd.linear_feet || "";
-      const pricingIncludes = linearFeet
-        ? `pricing includes: ${linearFeet} ft of linear feet ${generatePricingIncludes(fenceSides)}`
-        : `pricing includes: ${generatePricingIncludes(fenceSides)}`;
+      const pricingIncludes = `pricing includes: ${generatePricingIncludes(fenceSides)}`;
 
       const vals: Record<string, string> = {
         customer_name: (leadData.contact_name || "").split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
@@ -168,9 +165,13 @@ export default function EditPdf() {
     setSelectedId(newField.id);
   };
 
+  // Offset fields above the finger while dragging on touch devices
+  const DRAG_OFFSET_Y = 50;
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
   const handleDragEnd = (fieldId: string, canvasX: number, canvasY: number) => {
     const pdfX = canvasX / scaleX;
-    const pdfY = canvasY / scaleY;
+    const pdfY = isTouchDevice ? (canvasY + DRAG_OFFSET_Y) / scaleY : canvasY / scaleY;
     updateField(fieldId, { x: Math.round(pdfX * 10) / 10, y: Math.round(pdfY * 10) / 10 });
   };
 
@@ -312,6 +313,7 @@ export default function EditPdf() {
                       fill={field.color}
                       draggable
                       visible={!isEditing}
+                      dragBoundFunc={isTouchDevice ? (pos) => ({ x: pos.x, y: pos.y - DRAG_OFFSET_Y }) : undefined}
                       onDragEnd={(e) => handleDragEnd(field.id, e.target.x(), e.target.y())}
                       onClick={() => setSelectedId(field.id)}
                       onTap={() => setSelectedId(field.id)}
