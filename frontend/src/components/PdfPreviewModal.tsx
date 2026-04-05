@@ -326,7 +326,7 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
                   <div>
                     <label className="text-[10px] text-muted-foreground block">Size</label>
                     <div className="flex items-center gap-1">
-                      <input type="range" min={8} max={48} value={selected.font_size}
+                      <input type="range" min={8} max={80} value={selected.font_size}
                         onChange={(e) => updateField(selected.id, { font_size: Number(e.target.value) })} className="flex-1" />
                       <span className="text-[10px] font-mono w-5">{selected.font_size}</span>
                     </div>

@@ -270,7 +270,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
               <div>
                 <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Font Size</label>
                 <div className="flex items-center gap-2">
-                  <input type="range" min={8} max={48} value={selected.font_size}
+                  <input type="range" min={8} max={80} value={selected.font_size}
                     onChange={(e) => updateField(selected.id, { font_size: Number(e.target.value) })} className="flex-1" />
                   <span className="text-xs font-mono w-8 text-right">{selected.font_size}</span>
                 </div>

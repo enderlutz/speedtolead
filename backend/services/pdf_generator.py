@@ -11,12 +11,21 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts", "LibreBaskerville-Regular.ttf")
+_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts")
+FONT_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Regular.ttf")
+FONT_BOLD_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Bold.ttf")
 if not os.path.exists(FONT_PATH):
     logger.warning(f"Libre Baskerville font not found at {FONT_PATH}, PDFs will use default font")
     FONT_PATH = None
+if not os.path.exists(FONT_BOLD_PATH):
+    logger.warning(f"Libre Baskerville Bold not found, falling back to regular")
+    FONT_BOLD_PATH = FONT_PATH
 FONT_NAME = "libre-baskerville"
+FONT_BOLD_NAME = "libre-baskerville-bold"
 DEFAULT_COLOR = "#2B2B2B"
+
+# Fields that should render in bold
+BOLD_FIELDS = {"customer_name"}
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
@@ -54,8 +63,12 @@ def generate_filled_pdf(
         color = _hex_to_rgb(placement.get("color", DEFAULT_COLOR))
 
         page = doc[page_num]
+        is_bold = field_key in BOLD_FIELDS
         font_kwargs: dict = {"fontsize": font_size, "color": color}
-        if FONT_PATH:
+        if is_bold and FONT_BOLD_PATH:
+            font_kwargs["fontname"] = FONT_BOLD_NAME
+            font_kwargs["fontfile"] = FONT_BOLD_PATH
+        elif FONT_PATH:
             font_kwargs["fontname"] = FONT_NAME
             font_kwargs["fontfile"] = FONT_PATH
         page.insert_text(fitz.Point(x, y), str(values[field_key]), **font_kwargs)

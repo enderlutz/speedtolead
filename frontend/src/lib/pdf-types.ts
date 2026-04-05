@@ -46,6 +46,6 @@ export const PRESET_FIELD_COLORS: Record<string, string> = {
   essential_monthly: "#65351f",
   signature_monthly: "#65351f",
   legacy_monthly: "#e3a742",
-  pricing_includes: "#000000",
+  pricing_includes: "#e6c68a",
   date: "#000000",
 };
