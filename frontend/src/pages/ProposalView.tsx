@@ -110,7 +110,7 @@ export default function ProposalView() {
               className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 text-white font-semibold text-xs sm:text-sm py-2.5 px-3 hover:bg-amber-600 transition-colors shadow-md"
             >
               <Phone className="h-4 w-4 shrink-0" />
-              <span>Call to Book</span>
+              <span>Call for Questions/Info</span>
             </a>
           </div>
         </div>
