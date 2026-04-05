@@ -519,11 +519,21 @@ const ElapsedTimer: FC<{ since: string }> = ({ since }) => {
 
   const ms = Date.now() - new Date(since).getTime();
   const mins = Math.floor(ms / 60_000);
-  if (mins < 60) return <span>{mins}m</span>;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return <span>{hrs}h {mins % 60}m</span>;
-  const days = Math.floor(hrs / 24);
-  return <span>{days}d {hrs % 24}h</span>;
+  const isCritical = mins >= 120;
+
+  let text: string;
+  if (mins < 60) text = `${mins}m`;
+  else {
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) text = `${hrs}h ${mins % 60}m`;
+    else { const days = Math.floor(hrs / 24); text = `${days}d ${hrs % 24}h`; }
+  }
+
+  return (
+    <span className={`font-mono font-bold ${isCritical ? "animate-pulse" : ""}`}>
+      {text}
+    </span>
+  );
 };
 
 function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
@@ -577,12 +587,14 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
           </button>
         </div>
       )}
-      <div className="flex items-center justify-between mt-1.5">
+      <div className="flex items-center justify-between mt-2">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
-        <span className="text-[9px] text-red-500 font-medium flex items-center gap-0.5">
-          <Clock className="h-2.5 w-2.5" />
-          <ElapsedTimer since={lead.created_at} />
-        </span>
+        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 border border-red-200">
+          <Clock className="h-3 w-3 text-red-500" />
+          <span className="text-[11px] text-red-600">
+            <ElapsedTimer since={lead.created_at} />
+          </span>
+        </div>
       </div>
     </Link>
   );
