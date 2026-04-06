@@ -255,7 +255,11 @@ def poll_ghl_contacts():
 
 
 def poll_ghl_messages():
-    """Sync recent inbound messages from GHL for active leads."""
+    """Sync recent inbound messages from GHL for active leads.
+    Rate-limited: processes 10 leads per cycle with delays between API calls.
+    """
+    import time
+
     db = get_db()
     try:
         leads = (
@@ -263,19 +267,21 @@ def poll_ghl_messages():
             .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
             .filter(Lead.status.in_(["new", "estimated", "sent"]))
             .order_by(Lead.updated_at.desc())
-            .limit(30)
+            .limit(10)
             .all()
         )
 
         new_count = 0
         for lead in leads:
             try:
+                time.sleep(2)  # Pace API calls to avoid 429s
                 convos = get_conversations(lead.ghl_contact_id, lead.ghl_location_id or None)
                 for convo in convos:
                     convo_id = convo.get("id", "")
                     if not convo_id:
                         continue
 
+                    time.sleep(1)
                     msgs = get_conversation_messages(convo_id, lead.ghl_location_id or None)
                     for m in msgs:
                         ghl_id = m.get("id", "")

@@ -28,14 +28,15 @@ async def _poller_loop():
 
 
 async def _message_poller_loop():
-    """Background task: sync GHL messages every 2 minutes (safety net for missed webhooks)."""
-    await asyncio.sleep(15)
+    """Background task: sync GHL messages every 5 minutes (safety net for missed webhooks).
+    Delayed start to let lead poller run first without hitting rate limits."""
+    await asyncio.sleep(90)
     while True:
         try:
             await asyncio.to_thread(poll_ghl_messages)
         except Exception as e:
             logger.error(f"Message poller error: {e}")
-        await asyncio.sleep(120)  # Every 2 minutes
+        await asyncio.sleep(300)  # Every 5 minutes
 
 
 async def _nudge_loop():
