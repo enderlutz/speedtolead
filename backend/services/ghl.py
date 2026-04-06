@@ -254,13 +254,16 @@ def get_custom_fields(location_id: str) -> list[dict]:
     try:
         r = _client.get(
             f"{GHL_BASE}/locations/{location_id}/customFields",
-            headers=_headers(),
+            headers=_headers(location_id),
             timeout=15,
         )
         r.raise_for_status()
-        return r.json().get("customFields", [])
+        data = r.json()
+        fields = data.get("customFields", [])
+        logger.info(f"GHL get_custom_fields for {location_id}: {len(fields)} fields found")
+        return fields
     except Exception as e:
-        logger.error(f"GHL get_custom_fields failed: {e}")
+        logger.error(f"GHL get_custom_fields failed for {location_id}: {e}")
         return []
 
 
