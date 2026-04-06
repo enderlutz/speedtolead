@@ -17,12 +17,23 @@ MEASUREMENT_PROMPT = """You are an expert fence measurement analyst specializing
 
 TASK: Identify all fence lines on the property at the given address and estimate their length in linear feet. This is for a FENCE STAINING estimate — only WOOD fences can be stained. Metal, chain-link, and wrought iron fences should be identified but NOT included in the stainable total.
 
+CRITICAL — DO NOT CONFUSE FENCES WITH ROOFLINES:
+- Fences are at GROUND LEVEL between yards. They are NEVER on top of a roof.
+- From satellite view, fences appear as thin lines running through GRASS areas between properties
+- Rooflines are the edges of the house roof — they are ABOVE the fence and should be ignored
+- If your traced line overlaps with any roof surface, you are tracing the WRONG thing
+- Fences run along the BOUNDARY between two grassy yards, visible as the dividing line where two lawns meet
+- Fence shadows fall ON THE GRASS, not on roofs
+- The fence is typically 5-15 feet away from the house walls, running along the property edge
+
 FENCE IDENTIFICATION GUIDE:
 Wood fences (most common in Houston):
-- Appear as tan, brown, or gray-brown lines along property boundaries
-- Cast clear shadows (look for parallel dark lines next to the fence)
+- Appear as tan, brown, or gray-brown lines at GROUND LEVEL along property boundaries
+- Located in the gaps between houses — the narrow strips of yard between neighboring homes
+- Cast shadows that fall on grass/ground (NOT on roofs)
+- Look for the thin line where one lawn ends and another begins
 - Typically 6-8 feet tall, visible width from above
-- Usually have a slightly different color than the ground on either side
+- The fence line should trace through grass, not through any building
 
 Metal/chain-link fences (NOT stainable):
 - Very thin silver or gray lines — much harder to see from above
@@ -44,9 +55,15 @@ HOW TO IDENTIFY THE CORRECT PROPERTY:
 - Only measure fences belonging to THIS property, not shared fences owned by neighbors
 
 MEASUREMENT APPROACH:
-1. Identify the property using the address, street layout, and house position
-2. Identify ALL fence segments around this property
-3. Estimate each segment's length using these reference objects:
+1. Identify the property using the address, red pin marker, street layout, and house position
+2. Identify the BACKYARD — this is behind the house, away from the street
+3. Look at the GROUND LEVEL boundaries of the backyard — the fence runs along:
+   - The BACK property line: the line at the far end of the backyard, separating this yard from the neighbor's yard behind
+   - The LEFT side: the narrow strip of ground between this house and the left neighbor's house
+   - The RIGHT side: the narrow strip of ground between this house and the right neighbor's house
+4. Fences typically start at the back corners of the house and extend to the back corners of the lot
+5. The side fences may not be straight — they can jog or step around structures, patios, or irregular lot lines
+6. Estimate each segment's length using these reference objects:
    - Driveways: typically 10-20 feet wide, 20-40 feet long
    - Single-car garage doors: ~9 feet wide
    - Double garage doors: ~16 feet wide
@@ -54,7 +71,8 @@ MEASUREMENT APPROACH:
    - Swimming pools: 15-30 feet long
    - Standard lot widths in Houston suburbs: 50-80 feet
    - Standard lot depths in Houston suburbs: 100-130 feet
-4. For each segment, label its position: front, left, back, right (relative to the front of the house facing the street)
+7. For each segment, label its position: front, left, back, right (relative to the front of the house facing the street)
+8. IMPORTANT: The total perimeter of a typical Houston backyard fence is 100-250 feet, NOT 200-400 feet. If your total exceeds 250 feet, double-check that you are measuring at ground level and not tracing rooflines.
 
 HANDLING SPECIAL CASES:
 
@@ -90,9 +108,11 @@ PIXEL COORDINATES (CRITICAL):
 - For each fence segment, provide the approximate start and end pixel coordinates on the FIRST image (the overview image at 640x640 pixels)
 - pixel_start is [x, y] where the segment begins, pixel_end is [x, y] where it ends
 - Top-left corner of the image is [0, 0], bottom-right is [640, 640]
-- The center of the image is approximately [320, 320]
+- The center of the image is approximately [320, 320] where the red pin is
 - These coordinates will be used to draw the fence outlines on the image, so be as accurate as possible
+- The coordinates must be at GROUND LEVEL on the grass/yard boundaries — NOT on any roof surface
 - For curved fences, pixel_start and pixel_end are the two endpoints of the curve
+- The drawn lines should trace the actual fence path visible on the ground between properties
 
 CONFIDENCE SCORING:
 - HIGH: Fence clearly visible, no obstructions, confident in measurement (+/- 10%)
