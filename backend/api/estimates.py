@@ -42,7 +42,7 @@ def _format_price(amount: float, include_financing: bool) -> str:
 
 
 def _format_monthly_label(include_financing: bool) -> str:
-    return "Per month for 21mo" if include_financing else ""
+    return "for 21 mos" if include_financing else ""
 
 
 class ApproveBody(BaseModel):
@@ -320,9 +320,9 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                     "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
                     "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
                     "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
-                    "essential_monthly": f"${tiers.get('essential', 0) / 21:,.2f}/mo for 21 mos",
-                    "signature_monthly": f"${tiers.get('signature', 0) / 21:,.2f}/mo for 21 mos",
-                    "legacy_monthly": f"${tiers.get('legacy', 0) / 21:,.2f}/mo for 21 mos",
+                    "essential_monthly": "for 21 mos",
+                    "signature_monthly": "for 21 mos",
+                    "legacy_monthly": "for 21 mos",
                     "date": datetime.now().strftime("%B %d, %Y"),
                 }
                 # Add pricing includes

@@ -25,7 +25,7 @@ FONT_BOLD_NAME = "libre-baskerville-bold"
 DEFAULT_COLOR = "#2B2B2B"
 
 # Fields that should render in bold
-BOLD_FIELDS = {"customer_name"}
+BOLD_FIELDS = {"customer_name", "essential_price", "signature_price", "legacy_price"}
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
