@@ -280,8 +280,10 @@ def poll_ghl_contacts():
     """Sync leads from both GHL locations with delay between to avoid rate limits."""
     import time
     settings = get_settings()
-    _sync_location(settings.ghl_location_id, settings.ghl_location_1_label)
-    time.sleep(10)  # Give rate limit time to reset between locations
+    # Cypress poller disabled — GHL daily rate limit exhausted.
+    # Re-enable once rate limit clears (check logs for 200 OK on Cypress pipelines).
+    # _sync_location(settings.ghl_location_id, settings.ghl_location_1_label)
+    # time.sleep(10)
     _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)
 
 
