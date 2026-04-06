@@ -253,6 +253,25 @@ class User(Base):
     created_at = Column(Text, default="")
 
 
+class AiFenceAnalysis(Base):
+    __tablename__ = "ai_fence_analyses"
+    __table_args__ = (
+        Index("idx_ai_fence_address", "normalized_address"),
+    )
+
+    id = Column(Text, primary_key=True)
+    address = Column(Text, nullable=False)
+    normalized_address = Column(Text, nullable=False)
+    lat = Column(Float, default=0.0)
+    lng = Column(Float, default=0.0)
+    zip_code = Column(Text, default="")
+    analysis_json = Column(Text, default="{}")
+    total_linear_feet = Column(Float, default=0.0)
+    overall_confidence = Column(Text, default="")
+    model_used = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+
 class SmsQueue(Base):
     __tablename__ = "sms_queue"
     __table_args__ = (

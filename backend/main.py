@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.nudge import run_nudge_check
 from services.weekly_reminder import run_weekly_reminder
@@ -77,6 +77,7 @@ async def _weekly_reminder_loop():
 async def lifespan(app: FastAPI):
     init_db()
     auth.seed_default_users()
+    auth.seed_fragned_user()
     logger.info("Database initialized")
     poller = asyncio.create_task(_poller_loop())
     # Message poller disabled — was consuming GHL rate limit and blocking lead poller
@@ -113,6 +114,7 @@ app.include_router(analytics.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(pdf_templates.router, prefix="/api")
+app.include_router(fence_ai.router, prefix="/api")
 
 
 @app.get("/health")

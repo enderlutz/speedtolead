@@ -346,6 +346,47 @@ export const api = {
   getDealStats: () => request<Record<string, unknown>>("/api/analytics/deal-stats"),
   getTimingAnalytics: () => request<Record<string, unknown>>("/api/analytics/timing"),
 
+  // AI Fence Estimation
+  analyzeFence: (address: string, force?: boolean) =>
+    request<{
+      id: string;
+      address: string;
+      lat: number;
+      lng: number;
+      zip_code: string;
+      images?: { zoom: number; label: string; base64: string }[];
+      analysis: {
+        property_description?: string;
+        fence_detected?: boolean;
+        fence_material?: string;
+        fence_color?: string;
+        segments: { label: string; side: string; length_ft: number; confidence: string; notes: string }[];
+        total_linear_feet: number;
+        overall_confidence: string;
+        obstructions?: string;
+        measurement_notes?: string;
+        sanity_warning?: string;
+        input_tokens?: number;
+        output_tokens?: number;
+      };
+      total_linear_feet: number;
+      overall_confidence: string;
+      cached: boolean;
+      created_at: string;
+    }>("/api/fence-ai/analyze", {
+      method: "POST",
+      body: JSON.stringify({ address, force: force || false }),
+    }),
+  applyFenceMeasurement: (leadId: string, linearFeet: number) =>
+    request<{ status: string; tiers: Record<string, number>; approval_status: string }>(
+      `/api/fence-ai/apply/${leadId}`,
+      { method: "POST", body: JSON.stringify({ linear_feet: linearFeet }) }
+    ),
+  getFenceAiHistory: () =>
+    request<{ id: string; address: string; total_linear_feet: number; overall_confidence: string; created_at: string }[]>(
+      "/api/fence-ai/history"
+    ),
+
   // Notifications
   getRecentActivity: (limit?: number) =>
     request<ActivityEvent[]>(`/api/notifications/recent${limit ? `?limit=${limit}` : ""}`),

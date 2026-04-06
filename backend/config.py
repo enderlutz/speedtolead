@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     ghl_pipeline_id: str = ""
     ghl_pipeline_id_2: str = ""
 
+    # Anthropic (Claude API for AI fence measurement)
+    anthropic_api_key: str = ""
+
     # Auth
     auth_secret: str = "change-me-in-production"
 

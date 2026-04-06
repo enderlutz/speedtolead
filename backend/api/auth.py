@@ -50,6 +50,12 @@ def require_admin(user: dict = Depends(get_current_user)):
     return user
 
 
+def require_fragned(user: dict = Depends(get_current_user)):
+    if user.get("sub") != "fragned":
+        raise HTTPException(status_code=403, detail="Access denied")
+    return user
+
+
 @router.post("/auth/login")
 def login(body: LoginRequest):
     db = get_db()
@@ -79,6 +85,27 @@ def me(user: dict = Depends(get_current_user)):
 @router.post("/auth/logout")
 def logout():
     return {"status": "ok"}
+
+
+def seed_fragned_user():
+    """Create fragned developer account if it doesn't exist."""
+    db = get_db()
+    try:
+        existing = db.query(User).filter(User.username == "fragned").first()
+        if existing:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="fragned",
+            display_name="Fragne",
+            password_hash=bcrypt.hashpw(b"atpressurewash3", bcrypt.gensalt()).decode(),
+            role="admin",
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
 
 
 def seed_default_users():

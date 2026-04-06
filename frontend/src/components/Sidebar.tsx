@@ -1,16 +1,17 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign } from "lucide-react";
+import { LayoutDashboard, Users, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
-const NAV_ITEMS = [
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/leads", icon: Users, label: "Leads" },
   { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/pricing", icon: DollarSign, label: "Pricing" },
+  { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings" },
 ];
 
@@ -138,7 +139,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1">
           <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-3 mb-2">Menu</p>
-          {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+          {NAV_ITEMS.filter(item => !item.restrictTo || getCurrentUser()?.sub === item.restrictTo).map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}

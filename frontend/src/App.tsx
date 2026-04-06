@@ -14,6 +14,7 @@ import EditPdf from "@/pages/EditPdf";
 import Pricing from "@/pages/Pricing";
 import ProposalView from "@/pages/ProposalView";
 import QuickApprove from "@/pages/QuickApprove";
+import AiFenceEstimation from "@/pages/AiFenceEstimation";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -59,6 +60,7 @@ function AppLayout() {
               <Route path="/sent-log" element={<SentLog />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/pricing" element={<Pricing />} />
+              <Route path="/ai-fence" element={<AiFenceEstimation />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>
