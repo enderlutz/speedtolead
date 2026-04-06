@@ -86,8 +86,25 @@ def _now() -> str:
 
 
 def _find_pipeline_and_stages(location_id: str) -> tuple[str | None, dict[str, str]]:
-    """Find the target pipeline ID and stage IDs for the target stages."""
+    """Find the target pipeline ID and stage IDs for the target stages.
+    Uses cached pipeline IDs from env vars when available to avoid rate-limited API calls."""
+    settings = get_settings()
+
+    # Check if we have a cached pipeline ID for this location
+    cached_pid = ""
+    if location_id == settings.ghl_location_id and settings.ghl_pipeline_id:
+        cached_pid = settings.ghl_pipeline_id
+    elif location_id == settings.ghl_location_id_2 and settings.ghl_pipeline_id_2:
+        cached_pid = settings.ghl_pipeline_id_2
+
     pipelines = get_pipelines(location_id)
+
+    # If API call failed but we have a cached pipeline ID, use it directly
+    if not pipelines and cached_pid:
+        logger.info(f"Poller: using cached pipeline ID {cached_pid} (API returned empty)")
+        # We still need stage IDs — fetch opportunities for all stages using search
+        return cached_pid, {}
+
     for p in pipelines:
         name = (p.get("name") or "").lower().strip()
         if TARGET_PIPELINE in name:
@@ -129,11 +146,13 @@ def _sync_location(location_id: str, label: str):
         new_count = 0
         error_count = 0
 
-        for stage_name, stage_id in stage_map.items():
-            if not stage_id:
-                continue
+        # If no stage map (API was rate limited but we have cached pipeline ID),
+        # fetch all opportunities from the pipeline without stage filter
+        if not stage_map:
+            stage_map = {"all": ""}
 
-            opps = get_opportunities(location_id, pipeline_id, stage_id)
+        for stage_name, stage_id in stage_map.items():
+            opps = get_opportunities(location_id, pipeline_id, stage_id if stage_id else None)
             priority = TARGET_STAGES.get(stage_name, "MEDIUM")
 
             for opp in opps:
