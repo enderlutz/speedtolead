@@ -35,8 +35,6 @@ export default function Settings() {
   const [pipelines, setPipelines] = useState<Record<string, unknown[]> | null>(null);
   const [pipelinesLoading, setPipelinesLoading] = useState(false);
   const [pipelinesOpen, setPipelinesOpen] = useState(false);
-  const [fields, setFields] = useState<Record<string, unknown[]> | null>(null);
-  const [fieldsLoading, setFieldsLoading] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
 
   // Field mapping state
@@ -126,19 +124,6 @@ export default function Settings() {
     }
   };
 
-  const handleDiscoverFields = async () => {
-    setFieldsLoading(true);
-    try {
-      const data = await api.getGhlFields();
-      setFields(data);
-      setFieldsOpen(true);
-      toast.success("Fields discovered");
-    } catch {
-      toast.error("Failed to discover fields");
-    } finally {
-      setFieldsLoading(false);
-    }
-  };
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-3xl">
