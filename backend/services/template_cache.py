@@ -24,41 +24,59 @@ def get_template() -> dict | None:
 
 
 def _reload_template() -> dict | None:
-    """Force reload template from DB into memory."""
+    """Force reload template from DB into memory. Retries on stale connections."""
     global _cached_template
-    db = get_db()
-    try:
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if not template or not template.pdf_data:
-            _cached_template = None
-            return None
+    import time
 
-        field_map = template.field_map
-        if isinstance(field_map, str):
+    for attempt in range(3):
+        db = get_db()
+        try:
+            template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
+            if not template or not template.pdf_data:
+                _cached_template = None
+                return None
+
+            field_map = template.field_map
+            if isinstance(field_map, str):
+                try:
+                    field_map = json.loads(field_map)
+                except Exception:
+                    field_map = {}
+
+            page_sizes = []
+            if template.page_sizes_json:
+                try:
+                    page_sizes = json.loads(template.page_sizes_json) if isinstance(template.page_sizes_json, str) else template.page_sizes_json
+                except Exception:
+                    pass
+
+            _cached_template = {
+                "id": template.id,
+                "filename": template.filename,
+                "pdf_data": template.pdf_data,
+                "page_count": template.page_count,
+                "field_map": field_map,
+                "page_sizes": page_sizes,
+            }
+            logger.info(f"PDF template cached in memory ({len(template.pdf_data)} bytes)")
+            return _cached_template
+        except Exception as e:
+            logger.warning(f"Template cache load attempt {attempt + 1}/3 failed: {e}")
             try:
-                field_map = json.loads(field_map)
+                db.close()
             except Exception:
-                field_map = {}
-
-        page_sizes = []
-        if template.page_sizes_json:
+                pass
+            if attempt < 2:
+                time.sleep(2)
+            continue
+        finally:
             try:
-                page_sizes = json.loads(template.page_sizes_json) if isinstance(template.page_sizes_json, str) else template.page_sizes_json
+                db.close()
             except Exception:
                 pass
 
-        _cached_template = {
-            "id": template.id,
-            "filename": template.filename,
-            "pdf_data": template.pdf_data,
-            "page_count": template.page_count,
-            "field_map": field_map,
-            "page_sizes": page_sizes,
-        }
-        logger.info(f"PDF template cached in memory ({len(template.pdf_data)} bytes)")
-        return _cached_template
-    finally:
-        db.close()
+    logger.error("Template cache: failed to load after 3 attempts")
+    return None
 
 
 def invalidate():

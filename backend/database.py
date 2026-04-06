@@ -279,10 +279,11 @@ def init_db():
 
     engine_kwargs: dict = {"echo": False}
 
-    engine_kwargs["pool_size"] = 5
-    engine_kwargs["max_overflow"] = 10
+    engine_kwargs["pool_size"] = 3
+    engine_kwargs["max_overflow"] = 5
     engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 300  # Recycle connections every 5 min to avoid stale SSL
+    engine_kwargs["pool_recycle"] = 60  # Recycle connections every 60s to avoid stale SSL
+    engine_kwargs["pool_timeout"] = 10
     _engine = create_engine(db_url, **engine_kwargs)
 
     _SessionLocal = sessionmaker(bind=_engine)
