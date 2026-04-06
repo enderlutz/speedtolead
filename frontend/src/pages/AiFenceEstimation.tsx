@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+// import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Brain, Search, MapPin, Ruler, AlertTriangle, CheckCircle2,
-  RefreshCw, Loader2, Eye, TreePine, Copy, ArrowRight,
+  RefreshCw, Loader2, Eye, TreePine, Copy,
 } from "lucide-react";
 
 interface FenceSegment {

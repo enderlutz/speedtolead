@@ -334,7 +334,7 @@ export default function Analytics() {
               {/* Peak insights */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <KPI label="Peak Lead Day" value={String(timing.peak_lead_day || "—")} />
-                <KPI label="Peak Lead Hour" value={timing.peak_lead_hour != null ? `${Number(timing.peak_lead_hour) > 12 ? Number(timing.peak_lead_hour) - 12 : timing.peak_lead_hour}${Number(timing.peak_lead_hour) >= 12 ? " PM" : " AM"}` : "—"} />
+                <KPI label="Peak Lead Hour" value={timing.peak_lead_hour != null ? `${Number(timing.peak_lead_hour) > 12 ? Number(timing.peak_lead_hour) - 12 : Number(timing.peak_lead_hour)}${Number(timing.peak_lead_hour) >= 12 ? " PM" : " AM"}` : "—"} />
                 <KPI label="Peak View Day" value={String(timing.peak_view_day || "—")} />
                 <KPI label="Avg Time to View" value={timing.avg_time_to_view_minutes != null ? (Number(timing.avg_time_to_view_minutes) < 60 ? `${timing.avg_time_to_view_minutes}m` : `${(Number(timing.avg_time_to_view_minutes) / 60).toFixed(1)}h`) : "—"} />
               </div>
@@ -415,7 +415,7 @@ export default function Analytics() {
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm">How Soon Customers Open Proposals</CardTitle></CardHeader>
                 <CardContent>
-                  {timing.time_to_view_buckets && (
+                  {timing.time_to_view_buckets != null && (
                     <ResponsiveContainer width="100%" height={200}>
                       <BarChart data={[
                         { label: "<5 min", count: (timing.time_to_view_buckets as Record<string, number>).under_5m },
@@ -436,11 +436,11 @@ export default function Analytics() {
                   <div className="flex justify-center gap-6 mt-3 text-sm">
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">Average</p>
-                      <p className="font-bold">{timing.avg_time_to_view_minutes != null ? (Number(timing.avg_time_to_view_minutes) < 60 ? `${timing.avg_time_to_view_minutes} min` : `${(Number(timing.avg_time_to_view_minutes) / 60).toFixed(1)} hrs`) : "—"}</p>
+                      <p className="font-bold">{timing.avg_time_to_view_minutes != null ? (Number(timing.avg_time_to_view_minutes) < 60 ? `${String(timing.avg_time_to_view_minutes)} min` : `${(Number(timing.avg_time_to_view_minutes) / 60).toFixed(1)} hrs`) : "—"}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">Median</p>
-                      <p className="font-bold">{timing.median_time_to_view_minutes != null ? (Number(timing.median_time_to_view_minutes) < 60 ? `${timing.median_time_to_view_minutes} min` : `${(Number(timing.median_time_to_view_minutes) / 60).toFixed(1)} hrs`) : "—"}</p>
+                      <p className="font-bold">{timing.median_time_to_view_minutes != null ? (Number(timing.median_time_to_view_minutes) < 60 ? `${String(timing.median_time_to_view_minutes)} min` : `${(Number(timing.median_time_to_view_minutes) / 60).toFixed(1)} hrs`) : "—"}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground">Total Viewed</p>
