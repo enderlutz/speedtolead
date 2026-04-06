@@ -29,6 +29,7 @@ interface AnalysisResult {
   lng: number;
   zip_code: string;
   images?: { zoom: number; label: string; base64: string }[];
+  annotated_image?: string;
   analysis: {
     property_description?: string;
     fence_detected?: boolean;
@@ -59,7 +60,7 @@ export default function AiFenceEstimation() {
   const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [activeImage, setActiveImage] = useState(0);
+  const [activeImage, setActiveImage] = useState(-1); // -1 = annotated view
 
   const handleAnalyze = async (force = false) => {
     if (!address.trim()) {
@@ -193,16 +194,34 @@ export default function AiFenceEstimation() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {images.length > 0 ? (
+                {(result.annotated_image || images.length > 0) ? (
                   <>
                     <div className="rounded-lg overflow-hidden border mb-2">
-                      <img
-                        src={`data:image/png;base64,${images[activeImage]?.base64}`}
-                        alt={`Satellite view - ${images[activeImage]?.label}`}
-                        className="w-full"
-                      />
+                      {activeImage === -1 && result.annotated_image ? (
+                        <img
+                          src={`data:image/jpeg;base64,${result.annotated_image}`}
+                          alt="Annotated satellite view with fence outlines"
+                          className="w-full"
+                        />
+                      ) : (
+                        <img
+                          src={`data:image/png;base64,${images[activeImage >= 0 ? activeImage : 0]?.base64}`}
+                          alt={`Satellite view - ${images[activeImage >= 0 ? activeImage : 0]?.label}`}
+                          className="w-full"
+                        />
+                      )}
                     </div>
                     <div className="flex gap-1">
+                      {result.annotated_image && (
+                        <button
+                          onClick={() => setActiveImage(-1)}
+                          className={`flex-1 text-xs py-1.5 px-2 rounded transition-colors ${
+                            activeImage === -1 ? "bg-purple-100 text-purple-800 font-medium" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }`}
+                        >
+                          Measured
+                        </button>
+                      )}
                       {images.map((img, i) => (
                         <button
                           key={i}

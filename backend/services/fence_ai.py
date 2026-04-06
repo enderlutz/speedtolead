@@ -86,6 +86,14 @@ ACCURACY RULES:
 - If two images give different impressions, go with the clearer one
 - State what you CAN see clearly and what you're estimating
 
+PIXEL COORDINATES (CRITICAL):
+- For each fence segment, provide the approximate start and end pixel coordinates on the FIRST image (the overview image at 640x640 pixels)
+- pixel_start is [x, y] where the segment begins, pixel_end is [x, y] where it ends
+- Top-left corner of the image is [0, 0], bottom-right is [640, 640]
+- The center of the image is approximately [320, 320]
+- These coordinates will be used to draw the fence outlines on the image, so be as accurate as possible
+- For curved fences, pixel_start and pixel_end are the two endpoints of the curve
+
 CONFIDENCE SCORING:
 - HIGH: Fence clearly visible, no obstructions, confident in measurement (+/- 10%)
 - MEDIUM: Fence partially visible or partially obstructed, reasonable estimate (+/- 20%)
@@ -106,6 +114,8 @@ Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
       "stainable": true,
       "confidence": "HIGH",
       "is_curved": false,
+      "pixel_start": [120, 450],
+      "pixel_end": [520, 450],
       "notes": "Clearly visible wood fence along back property line, no obstructions"
     },
     {
@@ -116,6 +126,8 @@ Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
       "stainable": true,
       "confidence": "MEDIUM",
       "is_curved": false,
+      "pixel_start": [120, 450],
+      "pixel_end": [120, 150],
       "notes": "Partially obscured by large oak tree near center, estimated 20ft hidden"
     },
     {
@@ -126,6 +138,8 @@ Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
       "stainable": false,
       "confidence": "HIGH",
       "is_curved": false,
+      "pixel_start": [520, 450],
+      "pixel_end": [520, 300],
       "notes": "Metal fence with spaced vertical bars, shadow shows gap pattern. NOT stainable."
     }
   ],
@@ -275,6 +289,95 @@ def analyze_with_claude(images: list[dict], address: str) -> dict:
     return analysis
 
 
+def annotate_image(image_base64: str, segments: list[dict]) -> str:
+    """Draw fence outlines and measurements on the satellite image."""
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+
+    # Decode base64 image
+    img_bytes = base64.b64decode(image_base64)
+    img = Image.open(BytesIO(img_bytes)).convert("RGBA")
+
+    # Create transparent overlay for drawing
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Try to load a font, fall back to default
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+    except Exception:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", 14)
+            font_small = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans.ttf", 11)
+        except Exception:
+            font = ImageFont.load_default()
+            font_small = font
+
+    for seg in segments:
+        start = seg.get("pixel_start")
+        end = seg.get("pixel_end")
+        if not start or not end:
+            continue
+
+        x1, y1 = int(start[0]), int(start[1])
+        x2, y2 = int(end[0]), int(end[1])
+        stainable = seg.get("stainable", True)
+        confidence = seg.get("confidence", "MEDIUM")
+
+        # Color: green for stainable wood, red for non-stainable
+        if not stainable:
+            color = (255, 60, 60, 200)  # Red
+        elif confidence == "HIGH":
+            color = (0, 220, 80, 200)  # Green
+        elif confidence == "MEDIUM":
+            color = (255, 200, 0, 200)  # Yellow
+        else:
+            color = (255, 140, 0, 200)  # Orange
+
+        # Draw thick line for the fence segment
+        for offset in range(-2, 3):
+            draw.line([(x1, y1 + offset), (x2, y2 + offset)], fill=color, width=1)
+            draw.line([(x1 + offset, y1), (x2 + offset, y2)], fill=color, width=1)
+
+        # Draw endpoints (circles)
+        r = 4
+        draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=(255, 255, 255, 230), outline=color)
+        draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=(255, 255, 255, 230), outline=color)
+
+        # Draw label with measurement
+        label = f"{seg.get('length_ft', '?')} ft"
+        mid_x = (x1 + x2) // 2
+        mid_y = (y1 + y2) // 2
+
+        # Background box for text
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        padding = 3
+        draw.rectangle(
+            [mid_x - tw // 2 - padding, mid_y - th // 2 - padding - 10,
+             mid_x + tw // 2 + padding, mid_y + th // 2 + padding - 10],
+            fill=(0, 0, 0, 180)
+        )
+        draw.text((mid_x - tw // 2, mid_y - th // 2 - 10), label, fill=(255, 255, 255, 255), font=font)
+
+        # Segment name below measurement
+        side_label = seg.get("label", seg.get("side", ""))
+        if side_label:
+            bbox2 = draw.textbbox((0, 0), side_label, font=font_small)
+            tw2 = bbox2[2] - bbox2[0]
+            draw.text((mid_x - tw2 // 2, mid_y + 4), side_label, fill=color, font=font_small)
+
+    # Composite overlay onto image
+    result = Image.alpha_composite(img, overlay)
+    result = result.convert("RGB")
+
+    # Encode back to base64
+    buffer = BytesIO()
+    result.save(buffer, format="JPEG", quality=90)
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
 def run_fence_analysis(address: str) -> dict:
     """Full pipeline: geocode → fetch images → analyze with Claude."""
     from services.geocoder import geocode_address
@@ -296,11 +399,22 @@ def run_fence_analysis(address: str) -> dict:
     # Step 3: Analyze with Claude
     analysis = analyze_with_claude(images, formatted_address)
 
+    # Step 4: Annotate the overview image with fence outlines
+    annotated_image = None
+    segments = analysis.get("segments", [])
+    if segments and images:
+        try:
+            annotated_image = annotate_image(images[0]["base64"], segments)
+            logger.info("Generated annotated satellite image with fence outlines")
+        except Exception as e:
+            logger.error(f"Failed to annotate image: {e}")
+
     return {
         "address": formatted_address,
         "lat": lat,
         "lng": lng,
         "zip_code": zip_code,
         "images": images,
+        "annotated_image": annotated_image,
         "analysis": analysis,
     }

@@ -102,6 +102,7 @@ def analyze_fence(body: AnalyzeRequest, user: dict = Depends(require_fragned)):
             "lng": result["lng"],
             "zip_code": result.get("zip_code", ""),
             "images": result["images"],
+            "annotated_image": result.get("annotated_image"),
             "analysis": analysis,
             "total_linear_feet": analysis.get("total_linear_feet", 0),
             "overall_confidence": analysis.get("overall_confidence", ""),
