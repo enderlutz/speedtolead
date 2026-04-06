@@ -148,9 +148,9 @@ def fetch_satellite_images(lat: float, lng: float) -> list[dict]:
 
     images = []
     configs = [
-        {"zoom": 19, "label": "overview", "center": f"{lat},{lng}"},
-        {"zoom": 20, "label": "close-up", "center": f"{lat},{lng}"},
-        {"zoom": 20, "label": "close-up-offset", "center": f"{lat + 0.0001},{lng + 0.0001}"},
+        {"zoom": 20, "label": "overview", "center": f"{lat},{lng}"},
+        {"zoom": 21, "label": "close-up", "center": f"{lat},{lng}"},
+        {"zoom": 21, "label": "close-up-offset", "center": f"{lat + 0.00005},{lng + 0.00005}"},
     ]
 
     for cfg in configs:
@@ -215,26 +215,47 @@ def analyze_with_claude(images: list[dict], address: str) -> dict:
     # Extract text response
     raw_text = response.content[0].text.strip()
     logger.info(f"Claude response length: {len(raw_text)} chars")
+    logger.info(f"Claude raw response (first 300): {raw_text[:300]}")
 
-    # Parse JSON from response (handle potential markdown wrapping)
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("```")[1]
-        if raw_text.startswith("json"):
-            raw_text = raw_text[4:]
-        raw_text = raw_text.strip()
+    # Parse JSON from response — handle various wrapping formats
+    json_text = raw_text
+
+    # Strip markdown code blocks
+    if "```" in json_text:
+        parts = json_text.split("```")
+        for part in parts:
+            stripped = part.strip()
+            if stripped.startswith("json"):
+                stripped = stripped[4:].strip()
+            if stripped.startswith("{"):
+                json_text = stripped
+                break
+
+    # Try to find JSON object in the response
+    if not json_text.startswith("{"):
+        start = json_text.find("{")
+        if start != -1:
+            # Find matching closing brace
+            depth = 0
+            for i in range(start, len(json_text)):
+                if json_text[i] == "{": depth += 1
+                elif json_text[i] == "}": depth -= 1
+                if depth == 0:
+                    json_text = json_text[start:i+1]
+                    break
 
     try:
-        analysis = json.loads(raw_text)
+        analysis = json.loads(json_text)
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse Claude response as JSON: {e}")
-        logger.error(f"Raw response: {raw_text[:500]}")
+        logger.error(f"Raw response: {raw_text[:1000]}")
         analysis = {
             "fence_detected": False,
             "segments": [],
             "total_linear_feet": 0,
             "overall_confidence": "LOW",
             "measurement_notes": f"Failed to parse AI response: {str(e)}",
-            "raw_response": raw_text[:1000],
+            "raw_response": raw_text[:2000],
         }
 
     # Sanity checks
