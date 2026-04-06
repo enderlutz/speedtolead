@@ -67,13 +67,13 @@ async def lifespan(app: FastAPI):
     auth.seed_default_users()
     logger.info("Database initialized")
     poller = asyncio.create_task(_poller_loop())
-    msg_poller = asyncio.create_task(_message_poller_loop())
+    # Message poller disabled — was consuming GHL rate limit and blocking lead poller
+    # msg_poller = asyncio.create_task(_message_poller_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
     poller.cancel()
-    msg_poller.cancel()
     weekly.cancel()
 
 

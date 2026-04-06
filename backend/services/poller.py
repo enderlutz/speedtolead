@@ -104,14 +104,24 @@ def _find_pipeline_and_stages(location_id: str) -> tuple[str | None, dict[str, s
 
 def _sync_location(location_id: str, label: str):
     """Sync leads from the fence staining pipeline for one GHL location."""
+    import time
+
     if not location_id:
         return
 
     db = get_db()
     try:
-        pipeline_id, stage_map = _find_pipeline_and_stages(location_id)
+        # Retry pipeline fetch up to 3 times with backoff (handles 429s)
+        pipeline_id, stage_map = None, {}
+        for attempt in range(3):
+            pipeline_id, stage_map = _find_pipeline_and_stages(location_id)
+            if pipeline_id:
+                break
+            logger.warning(f"Poller: pipeline not found for {label}, attempt {attempt + 1}/3, retrying in {5 * (attempt + 1)}s...")
+            time.sleep(5 * (attempt + 1))
+
         if not pipeline_id:
-            logger.warning(f"Poller: pipeline '{TARGET_PIPELINE}' not found for {label}")
+            logger.warning(f"Poller: pipeline '{TARGET_PIPELINE}' not found for {label} after 3 attempts")
             return
 
         logger.info(f"Poller: found pipeline for {label}, stages: {list(stage_map.keys())}")
@@ -248,9 +258,11 @@ def _sync_location(location_id: str, label: str):
 
 
 def poll_ghl_contacts():
-    """Sync leads from both GHL locations."""
+    """Sync leads from both GHL locations with delay between to avoid rate limits."""
+    import time
     settings = get_settings()
     _sync_location(settings.ghl_location_id, settings.ghl_location_1_label)
+    time.sleep(10)  # Give rate limit time to reset between locations
     _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)
 
 
