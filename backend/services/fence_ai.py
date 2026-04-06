@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import httpx
 from config import get_settings
 
@@ -96,6 +97,54 @@ Multiple fence materials:
 - Note the material type for each segment
 - Mark each segment as "stainable": true (wood only) or "stainable": false (metal, chain-link, wrought iron)
 - ONLY wood fences are stainable — the total_stainable_linear_feet should ONLY count wood segments
+
+VERIFIED MEASUREMENT EXAMPLES — Use these to calibrate your estimates:
+
+Example 1: Cul-de-sac house #5803 — Irregular shape
+- Back fence: ~100ft (runs along back property line, curves with the cul-de-sac)
+- Left side: ~150ft (long side fence, runs from back of house to back corner of lot)
+- Right side follows irregular lot line with multiple jogs near the house
+- Total: 270ft
+- KEY LESSON: Cul-de-sac lots have irregular shapes. The fence follows the LOT LINE, not a rectangle.
+
+Example 2: Corner house #5550 on Big Timber Dr — Rectangle shape
+- Back fence: ~100ft (along back property line)
+- Left side: ~50ft (shorter side, near neighboring house)
+- Right side: ~150ft (long side along the street, visible as fence line parallel to Big Timber Dr)
+- Total: 190ft (actual measured: 184ft)
+- KEY LESSON: Corner lots have one long side along the street. The fence is visible at GROUND LEVEL in the grass, not along rooflines.
+
+Example 3: Suburban house #6035 near Kelly Mill Ln — Roughly rectangular
+- Back fence: ~100ft (runs across back of property)
+- Right side visible near Kelly Mill Ln
+- Fence traces through the grass boundary between houses
+- Total: 165ft (actual measured: 161ft)
+- KEY LESSON: Fences run through the GRASS GAPS between houses, at ground level.
+
+Example 4: Suburban house #5928 near Kristen Pine Dr — Rectangular with tree obstruction
+- Back fence: ~100ft
+- Left side: irregular with jogs, partially hidden by heavy tree cover
+- Right side: ~150ft (along Kristen Pine Dr)
+- Total: 190ft (actual measured: 183ft)
+- CONFIDENCE: MEDIUM due to tree obstruction on left side
+- KEY LESSON: Even with heavy tree cover, the fence endpoints are usually visible. Estimate the hidden portion as a straight line between visible endpoints.
+
+Example 5: Cul-de-sac house #19403 — Large irregular lot with pool
+- Back fence: ~250ft (very long, wraps around the back of a large lot, includes 150ft + 200ft segments)
+- Left side: ~100ft
+- Right side visible but shorter with jog near the house
+- Pool visible in backyard — fence goes AROUND the perimeter of the lot, not around the pool
+- Total: 295ft (actual measured: 291ft)
+- KEY LESSON: Large lots with pools can have 250-300ft of fence. The fence follows the LOT PERIMETER, not the pool edge.
+
+IMPORTANT PATTERN FROM ALL EXAMPLES:
+- The white measurement lines in reference images show the fence running through GRASS at GROUND LEVEL
+- Lines never cross over roof surfaces
+- Side fences run through the narrow gap between neighboring houses
+- Back fences run along the very back edge of the yard where one lawn meets another
+- Typical suburban house: 150-200ft total
+- Corner lots: 180-250ft total
+- Cul-de-sac irregular lots: 250-300ft total
 
 ACCURACY RULES:
 - Round measurements to the nearest 5 feet
@@ -227,6 +276,36 @@ def analyze_with_claude(images: list[dict], address: str) -> dict:
 
     # Build message content with all images + prompt
     content: list[dict] = []
+
+    # Add reference images if available
+    ref_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reference_images")
+    if os.path.isdir(ref_dir):
+        ref_files = sorted([f for f in os.listdir(ref_dir) if f.endswith((".png", ".jpg", ".jpeg"))])[:2]
+        for ref_file in ref_files:
+            try:
+                with open(os.path.join(ref_dir, ref_file), "rb") as f:
+                    ref_b64 = base64.b64encode(f.read()).decode()
+                content.append({
+                    "type": "text",
+                    "text": f"REFERENCE IMAGE — This shows correctly measured fences with white lines drawn at GROUND LEVEL through the grass between houses. Study where the lines are drawn — they trace the fence at ground level, NOT along rooflines:",
+                })
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": ref_b64,
+                    },
+                })
+                logger.info(f"Included reference image: {ref_file}")
+            except Exception as e:
+                logger.warning(f"Failed to load reference image {ref_file}: {e}")
+
+    content.append({
+        "type": "text",
+        "text": "NOW ANALYZE THIS PROPERTY — the following satellite images show the property to measure. Draw fence lines at GROUND LEVEL like the reference images above:",
+    })
+
     for img in images:
         content.append({
             "type": "image",
