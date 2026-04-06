@@ -285,8 +285,14 @@ export const api = {
   getEstimates: () => request<EstimateDetail[]>("/api/estimates"),
   getSentLog: () => request<SentLogEntry[]>("/api/estimates/sent-log"),
   getPendingAction: () => request<PendingEstimate[]>("/api/estimates/pending-action"),
-  approveEstimate: (id: string) =>
-    request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/approve`, { method: "POST" }),
+  approveEstimate: (id: string, scheduledSendAt?: string) =>
+    request<EstimateDetail & { proposal_url?: string; sms_sent?: boolean; sms_scheduled?: boolean; scheduled_send_at?: string }>(
+      `/api/estimates/${id}/approve`,
+      {
+        method: "POST",
+        body: scheduledSendAt ? JSON.stringify({ scheduled_send_at: scheduledSendAt }) : undefined,
+      }
+    ),
   saveEstimatePdf: (id: string, fields: Record<string, unknown>[]) =>
     request<EstimateDetail>(`/api/estimates/${id}/save-pdf`, {
       method: "POST",

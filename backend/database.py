@@ -253,6 +253,27 @@ class User(Base):
     created_at = Column(Text, default="")
 
 
+class SmsQueue(Base):
+    __tablename__ = "sms_queue"
+    __table_args__ = (
+        Index("idx_sms_queue_pending", "send_at"),
+        Index("idx_sms_queue_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    ghl_contact_id = Column(Text, nullable=False)
+    ghl_location_id = Column(Text, default="")
+    message_body = Column(Text, nullable=False)
+    proposal_url = Column(Text, default="")
+    send_at = Column(Text, nullable=False)  # ISO timestamp — when to send
+    sent_at = Column(Text, nullable=True)
+    status = Column(Text, default="pending")  # pending, sent, cancelled, failed
+    error_message = Column(Text, default="")
+    attempts = Column(Integer, default=0)
+    created_at = Column(Text, default="")
+
+
 class PdfTemplate(Base):
     __tablename__ = "pdf_templates"
 
@@ -285,6 +306,9 @@ def init_db():
     engine_kwargs["pool_recycle"] = 60  # Recycle connections every 60s to avoid stale SSL
     engine_kwargs["pool_timeout"] = 10
     _engine = create_engine(db_url, **engine_kwargs)
+
+    # Auto-create any missing tables (safe — does nothing for existing tables)
+    Base.metadata.create_all(bind=_engine)
 
     _SessionLocal = sessionmaker(bind=_engine)
 

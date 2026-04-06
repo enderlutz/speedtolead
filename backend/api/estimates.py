@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
-from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage
+from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
@@ -49,6 +49,7 @@ class ApproveBody(BaseModel):
     force_send: bool = False
     field_overrides: dict | None = None
     extra_fields: list[dict] | None = None
+    scheduled_send_at: str | None = None  # ISO datetime — None = send immediately
 
 
 class PreviewBody(BaseModel):
@@ -387,10 +388,13 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         # Build proposal URL
         proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
 
-        # SMS the CUSTOMER with proposal link (with retry)
+        # SMS the CUSTOMER with proposal link
         tiers_dict = est.to_dict()["tiers"]
         sig_price = tiers_dict.get("signature", 0)
         sms_sent = False
+        sms_scheduled = False
+        scheduled_send_at = body.scheduled_send_at if body else None
+
         if lead.ghl_contact_id and lead.contact_phone:
             first_name = lead.contact_name.split()[0] if lead.contact_name else "there"
             customer_msg = (
@@ -398,10 +402,31 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                 f"A&T Fence Staining Proposal\n\n"
                 f"{proposal_url}"
             )
-            sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
-            log_event(lead.id, "estimate_sent_to_customer",
-                      f"{'SMS sent' if sms_sent else 'SMS FAILED'} with proposal link: {proposal_url}",
-                      {"token": token, "signature_price": sig_price, "sms_sent": sms_sent})
+
+            if scheduled_send_at:
+                # Queue the message for later
+                db.add(SmsQueue(
+                    id=str(uuid.uuid4()),
+                    lead_id=lead.id,
+                    ghl_contact_id=lead.ghl_contact_id,
+                    ghl_location_id=lead.ghl_location_id or "",
+                    message_body=customer_msg,
+                    proposal_url=proposal_url,
+                    send_at=scheduled_send_at,
+                    status="pending",
+                    created_at=now,
+                ))
+                db.commit()
+                sms_scheduled = True
+                log_event(lead.id, "estimate_sms_scheduled",
+                          f"SMS scheduled for {scheduled_send_at}. Proposal: {proposal_url}",
+                          {"token": token, "signature_price": sig_price, "scheduled_send_at": scheduled_send_at})
+            else:
+                # Send immediately
+                sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
+                log_event(lead.id, "estimate_sent_to_customer",
+                          f"{'SMS sent' if sms_sent else 'SMS FAILED'} with proposal link: {proposal_url}",
+                          {"token": token, "signature_price": sig_price, "sms_sent": sms_sent})
 
         # Add GHL contact note with all 3 tier prices
         if lead.ghl_contact_id:
@@ -435,6 +460,8 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         result["proposal_token"] = token
         result["pdf_generated"] = pdf_bytes is not None
         result["sms_sent"] = sms_sent
+        result["sms_scheduled"] = sms_scheduled
+        result["scheduled_send_at"] = scheduled_send_at
         return result
 
     except HTTPException:
@@ -442,6 +469,87 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to approve estimate {estimate_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("/sms-queue")
+def get_sms_queue(status: str = Query("pending")):
+    """List scheduled SMS messages."""
+    db = get_db()
+    try:
+        msgs = (
+            db.query(SmsQueue, Lead)
+            .join(Lead, SmsQueue.lead_id == Lead.id)
+            .filter(SmsQueue.status == status)
+            .order_by(SmsQueue.send_at.asc())
+            .limit(50)
+            .all()
+        )
+        return [{
+            "id": m.id,
+            "lead_id": m.lead_id,
+            "contact_name": lead.contact_name,
+            "message_body": m.message_body,
+            "proposal_url": m.proposal_url,
+            "send_at": m.send_at,
+            "sent_at": m.sent_at,
+            "status": m.status,
+            "attempts": m.attempts,
+            "error_message": m.error_message,
+            "created_at": m.created_at,
+        } for m, lead in msgs]
+    finally:
+        db.close()
+
+
+@router.post("/sms-queue/{message_id}/cancel")
+def cancel_scheduled_sms(message_id: str):
+    """Cancel a pending scheduled SMS."""
+    db = get_db()
+    try:
+        msg = db.query(SmsQueue).filter(SmsQueue.id == message_id, SmsQueue.status == "pending").first()
+        if not msg:
+            raise HTTPException(status_code=404, detail="Message not found or already sent")
+        msg.status = "cancelled"
+        db.commit()
+        log_event(msg.lead_id, "scheduled_sms_cancelled", "Scheduled SMS cancelled by user")
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/sms-queue/{message_id}/send-now")
+def send_scheduled_sms_now(message_id: str):
+    """Force-send a scheduled SMS immediately."""
+    db = get_db()
+    try:
+        msg = db.query(SmsQueue).filter(SmsQueue.id == message_id, SmsQueue.status == "pending").first()
+        if not msg:
+            raise HTTPException(status_code=404, detail="Message not found or already sent")
+
+        sent = send_sms(msg.ghl_contact_id, msg.message_body, msg.ghl_location_id or None)
+        if sent:
+            msg.status = "sent"
+            msg.sent_at = _now()
+            db.commit()
+            log_event(msg.lead_id, "scheduled_sms_sent_now", f"Scheduled SMS force-sent. Proposal: {msg.proposal_url}")
+            return {"status": "sent"}
+        else:
+            msg.attempts = (msg.attempts or 0) + 1
+            msg.error_message = "Manual send failed — GHL returned false"
+            db.commit()
+            raise HTTPException(status_code=500, detail="SMS send failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

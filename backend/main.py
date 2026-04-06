@@ -11,6 +11,7 @@ from api import webhooks, leads, estimates, analytics, pdf_templates, proposals,
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.nudge import run_nudge_check
 from services.weekly_reminder import run_weekly_reminder
+from services.sms_worker import process_pending_messages
 from services.event_bus import subscribe
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -50,6 +51,17 @@ async def _nudge_loop():
         await asyncio.sleep(300)  # Every 5 minutes
 
 
+async def _sms_worker_loop():
+    """Background task: process scheduled SMS messages every 30 seconds."""
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await asyncio.to_thread(process_pending_messages)
+        except Exception as e:
+            logger.error(f"SMS worker error: {e}")
+        await asyncio.sleep(30)
+
+
 async def _weekly_reminder_loop():
     """Background task: check every hour if it's Saturday morning to remind Alan."""
     await asyncio.sleep(60)
@@ -69,11 +81,13 @@ async def lifespan(app: FastAPI):
     poller = asyncio.create_task(_poller_loop())
     # Message poller disabled — was consuming GHL rate limit and blocking lead poller
     # msg_poller = asyncio.create_task(_message_poller_loop())
+    sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
     poller.cancel()
+    sms_worker.cancel()
     weekly.cancel()
 
 

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 
@@ -155,16 +155,46 @@ export default function LeadDetail() {
     }
   };
 
-  const handleApprove = async () => {
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("08:00");
+
+  // Check if it's after 8 PM CST
+  const isAfterHours = () => {
+    const now = new Date();
+    const cst = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+    return cst.getHours() >= 20 || cst.getHours() < 6;
+  };
+
+  const getDefaultScheduleDate = () => {
+    const now = new Date();
+    const cst = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+    // If after 8 PM, default to tomorrow
+    if (cst.getHours() >= 20) {
+      cst.setDate(cst.getDate() + 1);
+    }
+    // If before 6 AM, default to today
+    return cst.toISOString().slice(0, 10);
+  };
+
+  const handleApprove = async (scheduledSendAt?: string) => {
     if (!estimate) return;
     setApproving(true);
     try {
-      const result = await api.approveEstimate(estimate.id);
+      const result = await api.approveEstimate(estimate.id, scheduledSendAt);
       const data = await api.getLead(id!);
       setLead(data);
       const url = result.proposal_url;
-      const smsSent = (result as unknown as Record<string, unknown>).sms_sent;
-      if (smsSent) {
+      const smsScheduled = result.sms_scheduled;
+      const smsSent = result.sms_sent;
+      if (smsScheduled) {
+        playSuccessSound();
+        const sendTime = new Date(scheduledSendAt!).toLocaleString("en-US", {
+          timeZone: "America/Chicago", month: "short", day: "numeric",
+          hour: "numeric", minute: "2-digit", hour12: true,
+        });
+        toast.success(`SMS scheduled for ${sendTime}! Proposal: ${url}`, { duration: 8000 });
+      } else if (smsSent) {
         playSuccessSound();
         toast.success(`SMS sent to customer! Proposal: ${url}`, { duration: 8000 });
       } else if (url) {
@@ -174,6 +204,7 @@ export default function LeadDetail() {
         playSuccessSound();
         toast.success("Estimate approved!");
       }
+      setShowScheduler(false);
     } catch {
       toast.error("Failed to approve");
     } finally {
@@ -702,10 +733,73 @@ export default function LeadDetail() {
               <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="w-full">
                 <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
               </Button>
-              <Button onClick={handleApprove} disabled={approving} className="w-full bg-green-600 hover:bg-green-700 text-white">
-                <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
-                {approving ? "Sending..." : "Approve & Send to Customer"}
-              </Button>
+
+              {/* After-hours warning */}
+              {isAfterHours() && !showScheduler && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <div className="flex items-start gap-2">
+                    <Clock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800">It's late — consider scheduling</p>
+                      <p className="text-xs text-amber-600 mt-0.5">Customers respond better to messages received between 8-9 AM</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Schedule send UI */}
+              {showScheduler && (
+                <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 p-4 space-y-3">
+                  <h4 className="text-xs font-semibold text-blue-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" /> Schedule Send
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Date</label>
+                      <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="h-8 text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (CST)</label>
+                      <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className="h-8 text-sm" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        if (!scheduledDate) { toast.error("Pick a date"); return; }
+                        // Convert CST date+time to UTC ISO string
+                        const cstDateTime = `${scheduledDate}T${scheduledTime}:00`;
+                        const cstDate = new Date(cstDateTime + "-06:00"); // CST is UTC-6
+                        handleApprove(cstDate.toISOString());
+                      }}
+                      disabled={approving}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-8"
+                    >
+                      <Clock className="h-3.5 w-3.5 mr-1" />
+                      {approving ? "Scheduling..." : "Schedule Send"}
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowScheduler(false)} className="h-8">Cancel</Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button onClick={() => handleApprove()} disabled={approving} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+                  <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
+                  {approving ? "Sending..." : "Send Now"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setScheduledDate(getDefaultScheduleDate());
+                    setShowScheduler(!showScheduler);
+                  }}
+                  disabled={approving}
+                  className="shrink-0"
+                >
+                  <Clock className="h-4 w-4 mr-1" /> Schedule
+                </Button>
+              </div>
               {estimate.approval_status === "red" && (
                 <>
                   <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full">
