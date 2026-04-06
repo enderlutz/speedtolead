@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
-  BarChart3, Database, Send,
+  BarChart3, Database, Send, RefreshCw, Link2,
 } from "lucide-react";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 
@@ -38,6 +38,13 @@ export default function Settings() {
   const [fields, setFields] = useState<Record<string, unknown[]> | null>(null);
   const [fieldsLoading, setFieldsLoading] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
+
+  // Field mapping state
+  const [syncedFields, setSyncedFields] = useState<{ ghl_field_id: string; ghl_field_name: string; ghl_field_key: string; field_type: string; options: string[]; location: string }[]>([]);
+  const [mappings, setMappings] = useState<{ ghl_field_id: string; ghl_field_key: string; ghl_field_name: string; our_field_name: string }[]>([]);
+  const [ourFieldOptions, setOurFieldOptions] = useState<{ value: string; label: string }[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [mappingsLoaded, setMappingsLoaded] = useState(false);
 
   // Stats state
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -209,67 +216,88 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* GHL Pipelines */}
+      {/* GHL Field Mapping */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            GHL Pipelines & Fields
+            <Link2 className="h-4 w-4" />
+            GHL Field Mapping
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">Map GHL custom fields to our internal fields so leads are properly categorized.</p>
+
           <div className="flex flex-col sm:flex-row gap-2">
             <Button
               variant="outline"
-              onClick={handleDiscoverPipelines}
-              disabled={pipelinesLoading}
+              onClick={async () => {
+                setSyncing(true);
+                try {
+                  const data = await api.syncGhlFields();
+                  setSyncedFields(data.fields);
+                  // Load mappings after sync
+                  const mapData = await api.getFieldMappings();
+                  setMappings(mapData.mappings);
+                  setOurFieldOptions(mapData.our_field_options);
+                  setMappingsLoaded(true);
+                  toast.success(`Synced ${data.synced} fields from GHL`);
+                } catch {
+                  toast.error("Failed to sync fields");
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+              disabled={syncing}
             >
-              <Search className="h-4 w-4 mr-2" />
-              {pipelinesLoading ? "Discovering..." : "Discover Pipelines"}
+              <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Syncing..." : "Sync Fields from GHL"}
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleDiscoverFields}
-              disabled={fieldsLoading}
-            >
-              <Search className="h-4 w-4 mr-2" />
-              {fieldsLoading ? "Discovering..." : "Discover Fields"}
-            </Button>
+            {!mappingsLoaded && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const data = await api.getFieldMappings();
+                    setMappings(data.mappings);
+                    setOurFieldOptions(data.our_field_options);
+                    setMappingsLoaded(true);
+                  } catch {
+                    toast.error("Failed to load mappings");
+                  }
+                }}
+              >
+                <Database className="h-4 w-4 mr-2" /> Load Current Mappings
+              </Button>
+            )}
           </div>
 
-          {/* Pipelines result */}
-          {pipelines && (
+          {/* Synced fields with options */}
+          {syncedFields.length > 0 && (
             <div className="border rounded-lg">
               <button
-                onClick={() => setPipelinesOpen(!pipelinesOpen)}
+                onClick={() => setFieldsOpen(!fieldsOpen)}
                 className="w-full flex items-center justify-between p-3 text-sm font-medium hover:bg-muted/50 transition-colors"
               >
-                <span>Pipelines ({Object.keys(pipelines).length})</span>
-                {pipelinesOpen ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
+                <span>GHL Custom Fields ({syncedFields.length})</span>
+                {fieldsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </button>
-              {pipelinesOpen && (
-                <div className="border-t px-3 pb-3 space-y-3">
-                  {Object.entries(pipelines).map(([name, stages]) => (
-                    <div key={name} className="pt-3">
-                      <p className="text-sm font-semibold">{name}</p>
-                      <div className="mt-1 space-y-0.5">
-                        {Array.isArray(stages) &&
-                          stages.map((stage, i) => (
-                            <p
-                              key={i}
-                              className="text-xs text-muted-foreground pl-3"
-                            >
-                              {typeof stage === "object" && stage !== null
-                                ? (stage as Record<string, string>).name ||
-                                  JSON.stringify(stage)
-                                : String(stage)}
-                            </p>
-                          ))}
+              {fieldsOpen && (
+                <div className="border-t max-h-64 overflow-y-auto">
+                  {syncedFields.map((f) => (
+                    <div key={f.ghl_field_id} className="px-3 py-2 border-b last:border-0 hover:bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">{f.ghl_field_name}</p>
+                          <p className="text-[10px] text-muted-foreground">{f.location} | {f.field_type} | {f.ghl_field_key}</p>
+                        </div>
                       </div>
+                      {f.options && f.options.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {f.options.map((opt, i) => (
+                            <span key={i} className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{typeof opt === "object" ? JSON.stringify(opt) : String(opt)}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -277,38 +305,70 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Fields result */}
-          {fields && (
+          {/* Field mappings */}
+          {mappingsLoaded && mappings.length > 0 && (
             <div className="border rounded-lg">
-              <button
-                onClick={() => setFieldsOpen(!fieldsOpen)}
-                className="w-full flex items-center justify-between p-3 text-sm font-medium hover:bg-muted/50 transition-colors"
-              >
-                <span>Custom Fields ({Object.keys(fields).length})</span>
-                {fieldsOpen ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
+              <div className="p-3 border-b bg-muted/30">
+                <p className="text-sm font-medium">Field Mappings</p>
+                <p className="text-[10px] text-muted-foreground">Map each GHL field to an internal field</p>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {mappings.map((m) => (
+                  <div key={m.ghl_field_id} className="flex items-center gap-3 px-3 py-2 border-b last:border-0 hover:bg-muted/10">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{m.ghl_field_name || m.ghl_field_key}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{m.ghl_field_id}</p>
+                    </div>
+                    <select
+                      className="text-sm border rounded px-2 py-1 bg-background min-w-[150px]"
+                      value={m.our_field_name}
+                      onChange={async (e) => {
+                        const newValue = e.target.value;
+                        try {
+                          await api.updateFieldMapping(m.ghl_field_id, newValue);
+                          setMappings(prev => prev.map(p => p.ghl_field_id === m.ghl_field_id ? { ...p, our_field_name: newValue } : p));
+                          toast.success(`Mapped "${m.ghl_field_name}" → ${newValue || "unmapped"}`);
+                        } catch {
+                          toast.error("Failed to update mapping");
+                        }
+                      }}
+                    >
+                      {ourFieldOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Legacy discover buttons */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" size="sm" onClick={handleDiscoverPipelines} disabled={pipelinesLoading}>
+              <Search className="h-3.5 w-3.5 mr-1" />
+              {pipelinesLoading ? "Loading..." : "View Pipelines"}
+            </Button>
+          </div>
+
+          {pipelines && (
+            <div className="border rounded-lg">
+              <button onClick={() => setPipelinesOpen(!pipelinesOpen)} className="w-full flex items-center justify-between p-3 text-sm font-medium hover:bg-muted/50">
+                <span>Pipelines ({Object.keys(pipelines).length})</span>
+                {pipelinesOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </button>
-              {fieldsOpen && (
-                <div className="border-t px-3 pb-3 space-y-1 max-h-64 overflow-y-auto">
-                  {Object.entries(fields).map(([key, values]) => (
-                    <div key={key} className="pt-2">
-                      <p className="text-xs font-medium">{key}</p>
-                      {Array.isArray(values) &&
-                        values.map((v, i) => (
-                          <p
-                            key={i}
-                            className="text-xs text-muted-foreground pl-3 truncate"
-                          >
-                            {typeof v === "object" && v !== null
-                              ? (v as Record<string, string>).name ||
-                                (v as Record<string, string>).key ||
-                                JSON.stringify(v)
-                              : String(v)}
+              {pipelinesOpen && (
+                <div className="border-t px-3 pb-3 space-y-3">
+                  {Object.entries(pipelines).map(([name, stages]) => (
+                    <div key={name} className="pt-3">
+                      <p className="text-sm font-semibold">{name}</p>
+                      <div className="mt-1 space-y-0.5">
+                        {Array.isArray(stages) && stages.map((stage, i) => (
+                          <p key={i} className="text-xs text-muted-foreground pl-3">
+                            {typeof stage === "object" && stage !== null ? (stage as Record<string, string>).name || JSON.stringify(stage) : String(stage)}
                           </p>
                         ))}
+                      </div>
                     </div>
                   ))}
                 </div>

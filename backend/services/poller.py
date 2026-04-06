@@ -46,24 +46,67 @@ def _classify_field(value: str) -> str | None:
     return None
 
 
+def _load_field_mappings() -> dict[str, str]:
+    """Load saved GHL field ID → our field name mappings from DB."""
+    try:
+        from database import get_db, GhlFieldMapping
+        db = get_db()
+        try:
+            mappings = db.query(GhlFieldMapping).filter(GhlFieldMapping.our_field_name.isnot(None)).all()
+            return {m.ghl_field_id: m.our_field_name for m in mappings if m.our_field_name}
+        finally:
+            db.close()
+    except Exception:
+        return {}
+
+
+# Cache mappings in memory, reload every 5 minutes
+_field_mapping_cache: dict[str, str] = {}
+_field_mapping_loaded = False
+
+
+def _get_field_mappings() -> dict[str, str]:
+    global _field_mapping_cache, _field_mapping_loaded
+    if not _field_mapping_loaded:
+        _field_mapping_cache = _load_field_mappings()
+        _field_mapping_loaded = True
+    return _field_mapping_cache
+
+
+def invalidate_field_mapping_cache():
+    global _field_mapping_loaded
+    _field_mapping_loaded = False
+
+
 def resolve_custom_fields(raw_fields: list | dict) -> dict:
     result: dict = {}
+    saved_mappings = _get_field_mappings()
+
     items: list[tuple[str, str]] = []
     if isinstance(raw_fields, list):
         for cf in raw_fields:
-            key = cf.get("key") or cf.get("id") or ""
+            field_id = cf.get("id") or ""
+            key = cf.get("key") or field_id
             value = cf.get("value") or ""
             if isinstance(value, list):
                 value = ", ".join(str(v) for v in value)
             if key and value:
+                # Check saved mapping first (by field ID)
+                if field_id and field_id in saved_mappings:
+                    result[saved_mappings[field_id]] = str(value)
+                    continue
                 items.append((key, str(value)))
     elif isinstance(raw_fields, dict):
         for key, value in raw_fields.items():
             if isinstance(value, list):
                 value = ", ".join(str(v) for v in value)
             if key and value:
+                if key in saved_mappings:
+                    result[saved_mappings[key]] = str(value)
+                    continue
                 items.append((key, str(value)))
 
+    # Fall back to value-based guessing for unmapped fields
     stained_candidates: list[str] = []
     for key, value in items:
         v_lower = value.lower().strip()

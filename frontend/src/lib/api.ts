@@ -395,6 +395,9 @@ export const api = {
   // Settings
   getGhlPipelines: () => request<Record<string, unknown[]>>("/api/settings/ghl-pipelines"),
   getGhlFields: () => request<Record<string, unknown[]>>("/api/settings/ghl-fields"),
+  syncGhlFields: () => request<{ synced: number; fields: { ghl_field_id: string; ghl_field_name: string; ghl_field_key: string; field_type: string; options: string[]; location: string }[] }>("/api/settings/ghl-fields/sync", { method: "POST" }),
+  getFieldMappings: () => request<{ mappings: { ghl_field_id: string; ghl_field_key: string; ghl_field_name: string; our_field_name: string }[]; our_field_options: { value: string; label: string }[] }>("/api/settings/ghl-fields/mappings"),
+  updateFieldMapping: (ghlFieldId: string, ourFieldName: string) => request("/api/settings/ghl-fields/mapping", { method: "PUT", body: JSON.stringify({ ghl_field_id: ghlFieldId, our_field_name: ourFieldName }) }),
   getPricing: () => request<Record<string, unknown>>("/api/settings/pricing"),
   updatePricing: (service_type: string, config: Record<string, unknown>) =>
     request("/api/settings/pricing", {
