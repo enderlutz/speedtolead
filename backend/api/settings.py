@@ -136,11 +136,12 @@ OUR_FIELD_OPTIONS = [
 
 @router.post("/settings/ghl-fields/sync")
 def sync_ghl_fields():
-    """Pull custom fields from both GHL locations and store/update mappings."""
+    """Pull custom fields from GHL locations or extract from existing leads."""
     settings = get_settings()
     db = get_db()
     try:
         all_fields: list[dict] = []
+
         for loc_id, label in [
             (settings.ghl_location_id, settings.ghl_location_1_label),
             (settings.ghl_location_id_2, settings.ghl_location_2_label),

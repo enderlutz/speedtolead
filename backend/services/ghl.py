@@ -250,21 +250,38 @@ def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None =
 
 
 def get_custom_fields(location_id: str) -> list[dict]:
-    """Fetch all custom fields for a location."""
+    """Fetch all custom fields for a location. Tries multiple API endpoints."""
+    endpoints = [
+        f"{GHL_BASE}/locations/{location_id}/customFields",
+        f"{GHL_BASE}/locations/{location_id}/customFields?model=contact",
+    ]
+    for url in endpoints:
+        try:
+            r = _client.get(url, headers=_headers(location_id), timeout=15)
+            if r.status_code == 401:
+                logger.warning(f"GHL custom fields 401 at {url}, trying next...")
+                continue
+            r.raise_for_status()
+            data = r.json()
+            fields = data.get("customFields", [])
+            logger.info(f"GHL get_custom_fields for {location_id}: {len(fields)} fields via {url}")
+            return fields
+        except Exception as e:
+            logger.error(f"GHL get_custom_fields failed at {url}: {e}")
+
+    # Last resort: try fetching a single contact and extracting custom field structure
     try:
-        r = _client.get(
-            f"{GHL_BASE}/locations/{location_id}/customFields",
-            headers=_headers(location_id),
-            timeout=15,
-        )
-        r.raise_for_status()
-        data = r.json()
-        fields = data.get("customFields", [])
-        logger.info(f"GHL get_custom_fields for {location_id}: {len(fields)} fields found")
-        return fields
+        contacts = get_all_contacts(location_id)
+        if contacts:
+            sample = contacts[0]
+            custom_fields = sample.get("customFields", [])
+            if custom_fields:
+                logger.info(f"GHL extracted {len(custom_fields)} custom field entries from sample contact")
+                return [{"id": cf.get("id", ""), "key": cf.get("key", cf.get("id", "")), "name": cf.get("key", cf.get("id", "")), "value": cf.get("value", "")} for cf in custom_fields if cf.get("id")]
     except Exception as e:
-        logger.error(f"GHL get_custom_fields failed for {location_id}: {e}")
-        return []
+        logger.error(f"GHL fallback contact field extraction failed: {e}")
+
+    return []
 
 
 # --- Webhook parsing ---
