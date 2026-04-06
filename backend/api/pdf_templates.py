@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, PdfTemplate
 from services.pdf_generator import get_pdf_page_count, get_pdf_page_sizes, rasterize_pdf_pages
+from services.template_cache import get_template, invalidate as invalidate_template_cache
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ async def upload_template(file: UploadFile = File(...)):
         page_sizes = get_pdf_page_sizes(pdf_data)
         template.page_sizes_json = json.dumps(page_sizes)
         db.commit()
+        invalidate_template_cache()
         return {
             "id": template.id,
             "filename": template.filename,
@@ -113,13 +115,20 @@ def get_current_template():
 def update_field_map(body: FieldMapUpdate):
     db = get_db()
     try:
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
+        template = (
+            db.query(PdfTemplate.id)
+            .order_by(PdfTemplate.created_at.desc())
+            .first()
+        )
         if not template:
             raise HTTPException(status_code=404, detail="No template uploaded")
 
-        template.field_map = json.dumps(body.field_map)
-        template.updated_at = _now()
+        db.query(PdfTemplate).filter(PdfTemplate.id == template.id).update({
+            "field_map": json.dumps(body.field_map),
+            "updated_at": _now(),
+        })
         db.commit()
+        invalidate_template_cache()
 
         return {"status": "ok", "field_map": body.field_map}
     except HTTPException:
@@ -134,41 +143,36 @@ def update_field_map(body: FieldMapUpdate):
 @router.get("/pdf-templates/page/{page_num}")
 def get_template_page(page_num: int):
     """Rasterize a single page of the template for the field editor."""
-    db = get_db()
-    try:
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if not template or not template.pdf_data:
-            raise HTTPException(status_code=404, detail="No template uploaded")
+    cached = get_template()
+    if not cached:
+        raise HTTPException(status_code=404, detail="No template uploaded")
 
-        import fitz
-        doc = fitz.open(stream=template.pdf_data, filetype="pdf")
-        if page_num < 0 or page_num >= len(doc):
-            doc.close()
-            raise HTTPException(status_code=404, detail="Page not found")
-
-        page = doc[page_num]
-        mat = fitz.Matrix(2, 2)
-        pix = page.get_pixmap(matrix=mat)
-        img_bytes = pix.tobytes("jpeg", jpg_quality=80)
+    import fitz
+    doc = fitz.open(stream=cached["pdf_data"], filetype="pdf")
+    if page_num < 0 or page_num >= len(doc):
         doc.close()
+        raise HTTPException(status_code=404, detail="Page not found")
 
-        return Response(
-            content=img_bytes,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
-    finally:
-        db.close()
+    page = doc[page_num]
+    mat = fitz.Matrix(2, 2)
+    pix = page.get_pixmap(matrix=mat)
+    img_bytes = pix.tobytes("jpeg", jpg_quality=80)
+    doc.close()
+
+    return Response(
+        content=img_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.delete("/pdf-templates")
 def delete_template():
     db = get_db()
     try:
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if template:
-            db.delete(template)
-            db.commit()
+        db.query(PdfTemplate).delete()
+        db.commit()
+        invalidate_template_cache()
         return {"status": "ok"}
     except Exception as e:
         db.rollback()

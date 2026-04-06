@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
+from services.template_cache import get_template as get_cached_template
 from services.ghl import send_sms, add_contact_note, add_contact_tag
 
 
@@ -212,11 +213,11 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if not template or not template.pdf_data:
+        template = get_cached_template()
+        if not template:
             raise HTTPException(status_code=404, detail="No PDF template uploaded")
 
-        field_map = json.loads(template.field_map) if isinstance(template.field_map, str) else template.field_map
+        field_map = template["field_map"] if isinstance(template["field_map"], dict) else json.loads(template["field_map"])
         tiers = est.to_dict()["tiers"]
         _fd_fin = lead.to_dict().get("form_data", {})
         _fin = _fd_fin.get("include_financing", True) is not False
@@ -242,7 +243,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         overrides = body.field_overrides if body else None
         extra = body.extra_fields if body else None
 
-        pages = generate_preview_pages(template.pdf_data, field_map, values, overrides, extra)
+        pages = generate_preview_pages(template["pdf_data"], field_map, values, overrides, extra)
         return {"pages": [{"page_num": i, "image_data": img} for i, img in enumerate(pages)]}
 
     except HTTPException:
@@ -307,10 +308,10 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
 
         # Generate PDF if template exists
         pdf_bytes = None
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if template and template.pdf_data:
+        template = get_cached_template()
+        if template and template["pdf_data"]:
             try:
-                field_map = json.loads(template.field_map) if isinstance(template.field_map, str) else template.field_map
+                field_map = json.loads(template["field_map"]) if isinstance(template["field_map"], str) else template["field_map"]
                 tiers = est.to_dict()["tiers"]
                 values = {
                     "customer_name": (lead.contact_name or "").title(),
@@ -343,7 +344,7 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                                 merged_map[k] = v
                     extra = body.extra_fields
 
-                pdf_bytes = generate_filled_pdf(template.pdf_data, merged_map, values, extra)
+                pdf_bytes = generate_filled_pdf(template["pdf_data"], merged_map, values, extra)
             except Exception as e:
                 logger.error(f"PDF generation failed: {e}")
 
@@ -575,8 +576,8 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if not template or not template.pdf_data:
+        template = get_cached_template()
+        if not template or not template["pdf_data"]:
             raise HTTPException(status_code=404, detail="No PDF template")
 
         settings = get_settings()
@@ -608,7 +609,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
             else:
                 BOLD_FIELDS.discard(f.id)
 
-        pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values, extra_fields or None)
+        pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values, extra_fields or None)
 
         # Rasterize pages
         jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)
@@ -797,11 +798,11 @@ def get_estimate_pdf(estimate_id: str):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
-        template = db.query(PdfTemplate).order_by(PdfTemplate.created_at.desc()).first()
-        if not template or not template.pdf_data:
+        template = get_cached_template()
+        if not template:
             raise HTTPException(status_code=404, detail="No PDF template uploaded")
 
-        field_map = json.loads(template.field_map) if isinstance(template.field_map, str) else template.field_map
+        field_map = template["field_map"] if isinstance(template["field_map"], dict) else json.loads(template["field_map"])
         tiers = est.to_dict()["tiers"]
         _fd_fin = lead.to_dict().get("form_data", {})
         _fin = _fd_fin.get("include_financing", True) is not False
@@ -816,7 +817,7 @@ def get_estimate_pdf(estimate_id: str):
             "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
         }
-        pdf_bytes = generate_filled_pdf(template.pdf_data, field_map, values)
+        pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values)
 
         return Response(
             content=pdf_bytes,
