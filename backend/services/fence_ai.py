@@ -14,161 +14,73 @@ logger = logging.getLogger(__name__)
 
 VISION_MODEL = "claude-sonnet-4-6"
 
-MEASUREMENT_PROMPT = """You are an expert fence measurement analyst specializing in Houston, Texas residential properties. You are analyzing satellite/aerial imagery to measure fence linear feet for a fence staining estimate.
+MEASUREMENT_PROMPT = """You are measuring the backyard fence perimeter of a Houston, Texas residential property from satellite imagery. This is for a fence staining estimate.
 
-TASK: Identify all fence lines on the property at the given address and estimate their length in linear feet. This is for a FENCE STAINING estimate — only WOOD fences can be stained. Metal, chain-link, and wrought iron fences should be identified but NOT included in the stainable total.
+YOUR APPROACH — FIND THE BACKYARD GRASS AREA, THEN TRACE ITS EDGES:
 
-STEP ZERO — IDENTIFY AND IGNORE ALL ROOFS FIRST:
-Before looking for fences, identify every roof in the image. Roofs are the large gray/brown angular shapes with ridgelines and shingles. MENTALLY BLOCK THEM OUT. Fences will NEVER overlap with any roof surface. If you find yourself drawing a line that crosses over or touches any roof, STOP — that is NOT a fence.
+STEP 1 — FIND THE HOUSE:
+- The red pin marks the property. The house is the large roof structure nearest the pin.
+- Identify which direction the FRONT of the house faces (toward the street/road).
+- The BACKYARD is on the opposite side of the house from the street.
 
-WHERE FENCES ACTUALLY ARE:
-- Look ONLY at the narrow strips of GROUND (grass, dirt, concrete) BETWEEN houses
-- Fences appear as thin lines running through these ground-level gaps
-- In a typical Houston subdivision, there are narrow side yards (5-15 feet wide) between houses — the fence runs through THAT gap, not along the roof edge
-- The back fence runs across the FAR EDGE of the backyard, where the grass of this property meets the grass of the property behind it
-- Side fences run from the back corners of the house (at ground level) back to the corners of the lot
-- Think of it this way: if you were standing in the backyard looking at the fence, it would be at eye level on the GROUND — not on the roof above you
+STEP 2 — FIND THE BACKYARD GRASS AREA:
+- Look BEHIND the house (away from the street) for the patch of grass/lawn.
+- This grass area is the backyard. It is green or brown colored, flat, and at GROUND LEVEL.
+- IGNORE all roofs completely. Roofs are gray/brown angular shapes with ridgelines — they are NOT the ground.
+- The backyard grass is BELOW and BEHIND the roof when viewed from satellite.
 
-FENCE IDENTIFICATION GUIDE:
-Wood fences (most common in Houston):
-- Appear as tan, brown, or gray-brown lines at GROUND LEVEL along property boundaries
-- Located in the gaps between houses — the narrow strips of yard between neighboring homes
-- Cast shadows that fall on grass/ground (NOT on roofs)
-- Look for the thin line where one lawn ends and another begins
-- Typically 6-8 feet tall, visible width from above
-- The fence line should trace through grass, not through any building
+STEP 3 — TRACE THE EDGES OF THE GRASS AREA:
+- The fence runs along the EDGES of the backyard grass where it meets:
+  - The NEIGHBOR'S grass behind (back fence)
+  - The NEIGHBOR'S property on the left side (left fence) — visible as the narrow grass strip between houses
+  - The NEIGHBOR'S property on the right side (right fence) — visible as the narrow grass strip between houses
+- The fence line is where one yard ENDS and the next yard BEGINS
+- Side fences run through the narrow 5-15 foot gap between the subject house and neighboring houses
+- The back fence runs across the far edge of the backyard
 
-Metal/chain-link fences (NOT stainable):
-- Very thin silver or gray lines — much harder to see from above
-- May only be visible by their shadow or by the color/texture change at the property line
-- Sometimes visible as a faint line with grass showing through
-- If you suspect chain-link but can't confirm, mark confidence as LOW and note it
+STEP 4 — MEASURE EACH EDGE:
+Use these scale references:
+- Houses are typically 40-60 feet wide, 30-50 feet deep
+- Driveways: 10-20 feet wide
+- Standard lot widths: 50-80 feet
+- Standard lot depths: 100-130 feet
+- Swimming pools: 15-30 feet long
 
-Wrought iron / ornamental metal fences (NOT stainable):
-- Dark thin lines, usually black, along front yards or back property lines
-- KEY IDENTIFIER: Their shadow has visible GAPS/SPACES between vertical bars — looks like a striped or comb-like shadow pattern
-- Wood fence shadows are SOLID and continuous, metal fence shadows have gaps
-- These are common along back property lines where the property borders a park, school, or commercial area
-- Often shorter than wood fences (4-5 feet vs 6-8 feet for wood)
+CRITICAL RULES:
+- Your pixel coordinates and lines must ONLY touch grass/ground areas — NEVER any roof surface
+- If a line you're drawing would cross over a roof, that line is WRONG
+- Side fences are typically 30-80 feet long (from back of house to back of lot)
+- Back fences are typically 40-100 feet wide
+- Total fence for a standard suburban house: 100-200 feet
+- Total fence for a corner lot: 150-250 feet
+- Total fence for a large cul-de-sac lot: 200-300 feet
+- If your total exceeds 250 feet for a standard lot, you are probably measuring rooflines
 
-HOW TO IDENTIFY THE CORRECT PROPERTY:
-- The address provided tells you which property to measure
-- Use the first (overview) image to locate the property relative to streets and neighbors
-- The close-up images show more detail of the same property
-- Only measure fences belonging to THIS property, not shared fences owned by neighbors
+FENCE MATERIALS:
+- Wood (stainable): tan/brown lines on the ground, solid shadows
+- Metal/wrought iron (NOT stainable): thin dark lines, shadow has gaps between bars
+- Chain-link (NOT stainable): very thin, nearly invisible from above
+- Only wood fences count toward stainable total
 
-MEASUREMENT APPROACH:
-1. Identify the property using the address, red pin marker, street layout, and house position
-2. Identify the BACKYARD — this is behind the house, away from the street
-3. Look at the GROUND LEVEL boundaries of the backyard — the fence runs along:
-   - The BACK property line: the line at the far end of the backyard, separating this yard from the neighbor's yard behind
-   - The LEFT side: the narrow strip of ground between this house and the left neighbor's house
-   - The RIGHT side: the narrow strip of ground between this house and the right neighbor's house
-4. Fences typically start at the back corners of the house and extend to the back corners of the lot
-5. The side fences may not be straight — they can jog or step around structures, patios, or irregular lot lines
-6. Estimate each segment's length using these reference objects:
-   - Driveways: typically 10-20 feet wide, 20-40 feet long
-   - Single-car garage doors: ~9 feet wide
-   - Double garage doors: ~16 feet wide
-   - Houses: typically 40-60 feet wide, 30-50 feet deep
-   - Swimming pools: 15-30 feet long
-   - Standard lot widths in Houston suburbs: 50-80 feet
-   - Standard lot depths in Houston suburbs: 100-130 feet
-7. For each segment, label its position: front, left, back, right (relative to the front of the house facing the street)
-8. IMPORTANT: The total perimeter of a typical Houston backyard fence is 100-250 feet, NOT 200-400 feet. If your total exceeds 250 feet, double-check that you are measuring at ground level and not tracing rooflines.
+SPECIAL CASES:
+- Cul-de-sac: fence follows curved lot boundary, measure arc length
+- Tree obstruction: estimate hidden portion between visible endpoints, mark MEDIUM/LOW confidence
+- Corner lot: one side may run along the street, much longer than the other side
 
-HANDLING SPECIAL CASES:
+VERIFIED EXAMPLES:
+- Suburban patio home, tight lot: back 50ft + left 40ft + right 40ft = 130ft total
+- Corner house on Big Timber Dr: back 100ft + left 50ft + right 150ft = 184ft total
+- Suburban house near Kelly Mill Ln: roughly rectangular backyard = 161ft total
+- House with heavy tree cover: back 100ft + sides ~80ft = 183ft total
+- Large cul-de-sac with pool: wraps around large lot = 291ft total
 
-Curved fences (cul-de-sac, irregular lots):
-- If a fence follows a curve (common on cul-de-sac properties), measure the actual curved length, not the straight-line distance
-- A curved fence is LONGER than a straight line between its endpoints
-- Estimate the arc length — for a gentle curve, it's typically 10-20% longer than the straight distance
-- Note in the segment that the fence is curved
+PIXEL COORDINATES:
+- Provide pixel_start [x,y] and pixel_end [x,y] for each segment on the FIRST (overview) image
+- Image is 640x640 pixels. Top-left is [0,0], bottom-right is [640,640]. Center/pin is ~[320,320].
+- Coordinates MUST be on grass/ground. If a coordinate falls on a roof pixel, move it to the nearest grass edge.
+- The lines drawn from these coordinates should trace the backyard grass boundary, not any building.
 
-Tree obstructions:
-- If trees cover part of a fence, estimate the hidden portion based on visible endpoints
-- Fences almost always continue in a straight line behind trees
-- Mark obstructed segments as MEDIUM or LOW confidence
-- Note what's blocking the view
-
-Multiple fence materials:
-- A property may have wood on the sides and metal at the back (or vice versa)
-- List each material as a separate segment
-- Note the material type for each segment
-- Mark each segment as "stainable": true (wood only) or "stainable": false (metal, chain-link, wrought iron)
-- ONLY wood fences are stainable — the total_stainable_linear_feet should ONLY count wood segments
-
-VERIFIED MEASUREMENT EXAMPLES — Use these to calibrate your estimates:
-
-Example 1: Cul-de-sac house #5803 — Irregular shape
-- Back fence: ~100ft (runs along back property line, curves with the cul-de-sac)
-- Left side: ~150ft (long side fence, runs from back of house to back corner of lot)
-- Right side follows irregular lot line with multiple jogs near the house
-- Total: 270ft
-- KEY LESSON: Cul-de-sac lots have irregular shapes. The fence follows the LOT LINE, not a rectangle.
-
-Example 2: Corner house #5550 on Big Timber Dr — Rectangle shape
-- Back fence: ~100ft (along back property line)
-- Left side: ~50ft (shorter side, near neighboring house)
-- Right side: ~150ft (long side along the street, visible as fence line parallel to Big Timber Dr)
-- Total: 190ft (actual measured: 184ft)
-- KEY LESSON: Corner lots have one long side along the street. The fence is visible at GROUND LEVEL in the grass, not along rooflines.
-
-Example 3: Suburban house #6035 near Kelly Mill Ln — Roughly rectangular
-- Back fence: ~100ft (runs across back of property)
-- Right side visible near Kelly Mill Ln
-- Fence traces through the grass boundary between houses
-- Total: 165ft (actual measured: 161ft)
-- KEY LESSON: Fences run through the GRASS GAPS between houses, at ground level.
-
-Example 4: Suburban house #5928 near Kristen Pine Dr — Rectangular with tree obstruction
-- Back fence: ~100ft
-- Left side: irregular with jogs, partially hidden by heavy tree cover
-- Right side: ~150ft (along Kristen Pine Dr)
-- Total: 190ft (actual measured: 183ft)
-- CONFIDENCE: MEDIUM due to tree obstruction on left side
-- KEY LESSON: Even with heavy tree cover, the fence endpoints are usually visible. Estimate the hidden portion as a straight line between visible endpoints.
-
-Example 5: Cul-de-sac house #19403 — Large irregular lot with pool
-- Back fence: ~250ft (very long, wraps around the back of a large lot, includes 150ft + 200ft segments)
-- Left side: ~100ft
-- Right side visible but shorter with jog near the house
-- Pool visible in backyard — fence goes AROUND the perimeter of the lot, not around the pool
-- Total: 295ft (actual measured: 291ft)
-- KEY LESSON: Large lots with pools can have 250-300ft of fence. The fence follows the LOT PERIMETER, not the pool edge.
-
-IMPORTANT PATTERN FROM ALL EXAMPLES:
-- The white measurement lines in reference images show the fence running through GRASS at GROUND LEVEL
-- Lines never cross over roof surfaces
-- Side fences run through the narrow gap between neighboring houses
-- Back fences run along the very back edge of the yard where one lawn meets another
-- Typical suburban house: 150-200ft total
-- Corner lots: 180-250ft total
-- Cul-de-sac irregular lots: 250-300ft total
-
-ACCURACY RULES:
-- Round measurements to the nearest 5 feet
-- A typical Houston suburban backyard has 150-350 total linear feet of fence
-- If you see NO fence, say fence_detected: false — do NOT fabricate measurements
-- Be conservative — underestimate rather than overestimate
-- Cross-reference between all provided images for consistency
-- If two images give different impressions, go with the clearer one
-- State what you CAN see clearly and what you're estimating
-
-PIXEL COORDINATES (CRITICAL):
-- For each fence segment, provide the approximate start and end pixel coordinates on the FIRST image (the overview image at 640x640 pixels)
-- pixel_start is [x, y] where the segment begins, pixel_end is [x, y] where it ends
-- Top-left corner of the image is [0, 0], bottom-right is [640, 640]
-- The center of the image is approximately [320, 320] where the red pin is
-- These coordinates will be used to draw the fence outlines on the image, so be as accurate as possible
-- The coordinates must be at GROUND LEVEL on the grass/yard boundaries — NOT on any roof surface
-- For curved fences, pixel_start and pixel_end are the two endpoints of the curve
-- The drawn lines should trace the actual fence path visible on the ground between properties
-
-CONFIDENCE SCORING:
-- HIGH: Fence clearly visible, no obstructions, confident in measurement (+/- 10%)
-- MEDIUM: Fence partially visible or partially obstructed, reasonable estimate (+/- 20%)
-- LOW: Fence barely visible, heavily obstructed, or uncertain if fence exists (+/- 30%+)
+CONFIDENCE: HIGH (+/-10%), MEDIUM (+/-20%), LOW (+/-30%+)
 
 Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
 {
