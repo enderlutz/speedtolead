@@ -344,6 +344,7 @@ export const api = {
   getCohorts: () => request<Record<string, unknown>[]>("/api/analytics/cohorts"),
   getRevenueInsights: () => request<Record<string, unknown>>("/api/analytics/revenue-insights"),
   getDealStats: () => request<Record<string, unknown>>("/api/analytics/deal-stats"),
+  getTimingAnalytics: () => request<Record<string, unknown>>("/api/analytics/timing"),
 
   // Notifications
   getRecentActivity: (limit?: number) =>

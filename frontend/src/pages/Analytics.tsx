@@ -19,6 +19,7 @@ export default function Analytics() {
   const [cohorts, setCohorts] = useState<Record<string, unknown>[] | null>(null);
   const [revenue, setRevenue] = useState<Record<string, unknown> | null>(null);
   const [dealStats, setDealStats] = useState<Record<string, unknown> | null>(null);
+  const [timing, setTiming] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     api.getFunnel().then(setFunnel).catch(console.error);
@@ -29,6 +30,7 @@ export default function Analytics() {
     api.getCohorts().then(setCohorts).catch(console.error);
     api.getRevenueInsights().then(setRevenue).catch(console.error);
     api.getDealStats().then(setDealStats).catch(console.error);
+    api.getTimingAnalytics().then(setTiming).catch(console.error);
   }, []);
 
   return (
@@ -43,6 +45,7 @@ export default function Analytics() {
           <TabsTrigger value="speed"><Clock className="h-3.5 w-3.5 mr-1" />Speed</TabsTrigger>
           <TabsTrigger value="patterns"><TrendingUp className="h-3.5 w-3.5 mr-1" />Patterns</TabsTrigger>
           <TabsTrigger value="revenue"><DollarSign className="h-3.5 w-3.5 mr-1" />Revenue</TabsTrigger>
+          <TabsTrigger value="timing"><Clock className="h-3.5 w-3.5 mr-1" />Timing</TabsTrigger>
           <TabsTrigger value="funnel"><Zap className="h-3.5 w-3.5 mr-1" />Funnel</TabsTrigger>
         </TabsList>
 
@@ -318,6 +321,132 @@ export default function Analytics() {
                       <span className="font-bold text-red-600">{formatCurrency(z.gap as number)} gap</span>
                     </div>
                   ))}
+                </CardContent>
+              </Card>
+            </>
+          ) : <Loading />}
+        </TabsContent>
+
+        {/* ─── Timing Tab ─── */}
+        <TabsContent value="timing" className="mt-4 space-y-4">
+          {timing ? (
+            <>
+              {/* Peak insights */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <KPI label="Peak Lead Day" value={String(timing.peak_lead_day || "—")} />
+                <KPI label="Peak Lead Hour" value={timing.peak_lead_hour != null ? `${Number(timing.peak_lead_hour) > 12 ? Number(timing.peak_lead_hour) - 12 : timing.peak_lead_hour}${Number(timing.peak_lead_hour) >= 12 ? " PM" : " AM"}` : "—"} />
+                <KPI label="Peak View Day" value={String(timing.peak_view_day || "—")} />
+                <KPI label="Avg Time to View" value={timing.avg_time_to_view_minutes != null ? (Number(timing.avg_time_to_view_minutes) < 60 ? `${timing.avg_time_to_view_minutes}m` : `${(Number(timing.avg_time_to_view_minutes) / 60).toFixed(1)}h`) : "—"} />
+              </div>
+
+              {/* Leads by day of week */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm">Leads by Day of Week (CST)</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={Object.entries(timing.leads_by_day as Record<string, number>).map(([day, count]) => ({ day: day.slice(0, 3), count }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 10 }} width={30} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* Leads by hour */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm">Leads by Hour of Day (CST)</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={Object.entries(timing.leads_by_hour as Record<string, number>).map(([hour, count]) => ({
+                      hour: `${Number(hour) > 12 ? Number(hour) - 12 : Number(hour) || 12}${Number(hour) >= 12 ? "p" : "a"}`,
+                      count,
+                    }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 9 }} />
+                      <YAxis tick={{ fontSize: 10 }} width={30} />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Proposal views by day */}
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Proposal Views by Day (CST)</CardTitle></CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={Object.entries(timing.views_by_day as Record<string, number>).map(([day, count]) => ({ day: day.slice(0, 3), count }))}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 10 }} width={30} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                {/* Proposal views by hour */}
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Proposal Views by Hour (CST)</CardTitle></CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={Object.entries(timing.views_by_hour as Record<string, number>).map(([hour, count]) => ({
+                        hour: `${Number(hour) > 12 ? Number(hour) - 12 : Number(hour) || 12}${Number(hour) >= 12 ? "p" : "a"}`,
+                        count,
+                      }))}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="hour" tick={{ fontSize: 9 }} />
+                        <YAxis tick={{ fontSize: 10 }} width={30} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Time to view distribution */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm">How Soon Customers Open Proposals</CardTitle></CardHeader>
+                <CardContent>
+                  {timing.time_to_view_buckets && (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={[
+                        { label: "<5 min", count: (timing.time_to_view_buckets as Record<string, number>).under_5m },
+                        { label: "5-30 min", count: (timing.time_to_view_buckets as Record<string, number>)["5_30m"] },
+                        { label: "30m-1h", count: (timing.time_to_view_buckets as Record<string, number>)["30m_1h"] },
+                        { label: "1-4h", count: (timing.time_to_view_buckets as Record<string, number>)["1_4h"] },
+                        { label: "4-24h", count: (timing.time_to_view_buckets as Record<string, number>)["4_24h"] },
+                        { label: "1-7 days", count: (timing.time_to_view_buckets as Record<string, number>)["1_7d"] },
+                      ]}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} width={30} />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="#ec4899" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                  <div className="flex justify-center gap-6 mt-3 text-sm">
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Average</p>
+                      <p className="font-bold">{timing.avg_time_to_view_minutes != null ? (Number(timing.avg_time_to_view_minutes) < 60 ? `${timing.avg_time_to_view_minutes} min` : `${(Number(timing.avg_time_to_view_minutes) / 60).toFixed(1)} hrs`) : "—"}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Median</p>
+                      <p className="font-bold">{timing.median_time_to_view_minutes != null ? (Number(timing.median_time_to_view_minutes) < 60 ? `${timing.median_time_to_view_minutes} min` : `${(Number(timing.median_time_to_view_minutes) / 60).toFixed(1)} hrs`) : "—"}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">Total Viewed</p>
+                      <p className="font-bold">{String(timing.proposals_viewed)}</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </>

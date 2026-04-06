@@ -628,6 +628,132 @@ def get_deal_stats():
         db.close()
 
 
+# ─── Lead Timing & Proposal Engagement ──────────────────────────────────
+
+@router.get("/analytics/timing")
+def get_timing_analytics():
+    """When leads come in, when proposals are opened, and response patterns."""
+    db = get_db()
+    try:
+        # All non-test, non-archived leads
+        leads = (
+            db.query(Lead)
+            .filter(Lead.is_test.is_(False), Lead.status != "archived")
+            .all()
+        )
+
+        # --- Lead arrival patterns ---
+        leads_by_day = defaultdict(int)
+        leads_by_hour = defaultdict(int)
+        leads_by_day_hour = defaultdict(lambda: defaultdict(int))
+
+        for lead in leads:
+            created = _parse_dt(lead.created_at)
+            if not created:
+                continue
+            # Convert to CST for display
+            cst = created - timedelta(hours=6)
+            day = cst.strftime("%A")
+            hour = cst.hour
+            leads_by_day[day] += 1
+            leads_by_hour[hour] += 1
+            leads_by_day_hour[day][hour] += 1
+
+        # Sort days in order
+        day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        leads_by_day_sorted = {d: leads_by_day.get(d, 0) for d in day_order}
+
+        # Peak day and hour
+        peak_day = max(leads_by_day_sorted.items(), key=lambda x: x[1])[0] if leads_by_day_sorted else None
+        peak_hour = max(leads_by_hour.items(), key=lambda x: x[1])[0] if leads_by_hour else None
+
+        # --- Proposal view patterns ---
+        proposals = (
+            db.query(Proposal, Estimate)
+            .join(Estimate, Proposal.estimate_id == Estimate.id)
+            .join(Lead, Proposal.lead_id == Lead.id)
+            .filter(Lead.is_test.is_(False), Proposal.first_viewed_at.isnot(None))
+            .all()
+        )
+
+        views_by_day = defaultdict(int)
+        views_by_hour = defaultdict(int)
+        time_to_view: list[float] = []
+        view_details: list[dict] = []
+
+        for prop, est in proposals:
+            viewed = _parse_dt(prop.first_viewed_at)
+            sent = _parse_dt(est.sent_at)
+            if not viewed:
+                continue
+
+            # When do customers open proposals (CST)
+            cst_viewed = viewed - timedelta(hours=6)
+            views_by_day[cst_viewed.strftime("%A")] += 1
+            views_by_hour[cst_viewed.hour] += 1
+
+            # How soon after we text them
+            if sent and viewed > sent:
+                mins = (viewed - sent).total_seconds() / 60
+                if mins < 10080:  # Within 7 days
+                    time_to_view.append(mins)
+                    view_details.append({
+                        "lead_id": prop.lead_id,
+                        "minutes_to_view": round(mins, 1),
+                        "viewed_day": cst_viewed.strftime("%A"),
+                        "viewed_hour": cst_viewed.hour,
+                        "sent_at": est.sent_at,
+                        "viewed_at": prop.first_viewed_at,
+                    })
+
+        views_by_day_sorted = {d: views_by_day.get(d, 0) for d in day_order}
+
+        # Time-to-view buckets
+        view_buckets = {"under_5m": 0, "5_30m": 0, "30m_1h": 0, "1_4h": 0, "4_24h": 0, "1_7d": 0}
+        for mins in time_to_view:
+            if mins < 5: view_buckets["under_5m"] += 1
+            elif mins < 30: view_buckets["5_30m"] += 1
+            elif mins < 60: view_buckets["30m_1h"] += 1
+            elif mins < 240: view_buckets["1_4h"] += 1
+            elif mins < 1440: view_buckets["4_24h"] += 1
+            else: view_buckets["1_7d"] += 1
+
+        avg_view_mins = round(sum(time_to_view) / len(time_to_view), 1) if time_to_view else None
+        median_view_mins = round(sorted(time_to_view)[len(time_to_view) // 2], 1) if time_to_view else None
+
+        # Peak proposal view time
+        peak_view_hour = max(views_by_hour.items(), key=lambda x: x[1])[0] if views_by_hour else None
+        peak_view_day = max(views_by_day_sorted.items(), key=lambda x: x[1])[0] if any(views_by_day_sorted.values()) else None
+
+        # --- Heatmap data: day x hour ---
+        heatmap = []
+        for day in day_order:
+            for hour in range(24):
+                count = leads_by_day_hour.get(day, {}).get(hour, 0)
+                if count > 0:
+                    heatmap.append({"day": day, "hour": hour, "count": count})
+
+        return {
+            "total_leads": len(leads),
+            "leads_by_day": leads_by_day_sorted,
+            "leads_by_hour": dict(sorted(leads_by_hour.items())),
+            "peak_lead_day": peak_day,
+            "peak_lead_hour": peak_hour,
+            "heatmap": heatmap,
+            "proposals_viewed": len(time_to_view),
+            "views_by_day": views_by_day_sorted,
+            "views_by_hour": dict(sorted(views_by_hour.items())),
+            "peak_view_day": peak_view_day,
+            "peak_view_hour": peak_view_hour,
+            "avg_time_to_view_minutes": avg_view_mins,
+            "median_time_to_view_minutes": median_view_mins,
+            "time_to_view_buckets": view_buckets,
+            "recent_views": sorted(view_details, key=lambda x: x["minutes_to_view"])[:20],
+        }
+    finally:
+        db.close()
+
+
 def _generate_insights(total: int, sent: int, capture_rate: float, missed: list, zone_gaps: list) -> list[str]:
     """Auto-generate actionable insights from the data."""
     insights = []
