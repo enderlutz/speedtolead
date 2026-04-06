@@ -17,14 +17,16 @@ MEASUREMENT_PROMPT = """You are an expert fence measurement analyst specializing
 
 TASK: Identify all fence lines on the property at the given address and estimate their length in linear feet. This is for a FENCE STAINING estimate — only WOOD fences can be stained. Metal, chain-link, and wrought iron fences should be identified but NOT included in the stainable total.
 
-CRITICAL — DO NOT CONFUSE FENCES WITH ROOFLINES:
-- Fences are at GROUND LEVEL between yards. They are NEVER on top of a roof.
-- From satellite view, fences appear as thin lines running through GRASS areas between properties
-- Rooflines are the edges of the house roof — they are ABOVE the fence and should be ignored
-- If your traced line overlaps with any roof surface, you are tracing the WRONG thing
-- Fences run along the BOUNDARY between two grassy yards, visible as the dividing line where two lawns meet
-- Fence shadows fall ON THE GRASS, not on roofs
-- The fence is typically 5-15 feet away from the house walls, running along the property edge
+STEP ZERO — IDENTIFY AND IGNORE ALL ROOFS FIRST:
+Before looking for fences, identify every roof in the image. Roofs are the large gray/brown angular shapes with ridgelines and shingles. MENTALLY BLOCK THEM OUT. Fences will NEVER overlap with any roof surface. If you find yourself drawing a line that crosses over or touches any roof, STOP — that is NOT a fence.
+
+WHERE FENCES ACTUALLY ARE:
+- Look ONLY at the narrow strips of GROUND (grass, dirt, concrete) BETWEEN houses
+- Fences appear as thin lines running through these ground-level gaps
+- In a typical Houston subdivision, there are narrow side yards (5-15 feet wide) between houses — the fence runs through THAT gap, not along the roof edge
+- The back fence runs across the FAR EDGE of the backyard, where the grass of this property meets the grass of the property behind it
+- Side fences run from the back corners of the house (at ground level) back to the corners of the lot
+- Think of it this way: if you were standing in the backyard looking at the fence, it would be at eye level on the GROUND — not on the roof above you
 
 FENCE IDENTIFICATION GUIDE:
 Wood fences (most common in Houston):
