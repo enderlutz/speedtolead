@@ -29,6 +29,14 @@ STEP 2 — FIND THE BACKYARD GRASS AREA:
 - IGNORE all roofs completely. Roofs are gray/brown angular shapes with ridgelines — they are NOT the ground.
 - The backyard grass is BELOW and BEHIND the roof when viewed from satellite.
 
+STEP 2.5 — LOOK FOR FENCE LINES ON THE GROUND:
+- Now look carefully at the edges of the backyard grass area
+- You should see a thin tan/brown LINE running along the boundary between this yard and the neighboring yards
+- This line may cast a thin shadow on one side
+- On the SIDE yards (between houses), the fence line runs through the narrow grass strip — look for a line that divides the strip in half
+- On the BACK of the yard, look for a horizontal line where this yard's grass meets the neighbor's grass behind
+- If you can see these lines, trace them. If you cannot see them, trace the grass boundary where the yard appears to end.
+
 STEP 3 — TRACE THE EDGES OF THE GRASS AREA:
 - The fence runs along the EDGES of the backyard grass where it meets:
   - The NEIGHBOR'S grass behind (back fence)
@@ -76,9 +84,10 @@ VERIFIED EXAMPLES:
 
 PIXEL COORDINATES:
 - Provide pixel_start [x,y] and pixel_end [x,y] for each segment on the FIRST (overview) image
-- Image is 640x640 pixels. Top-left is [0,0], bottom-right is [640,640]. Center/pin is ~[320,320].
+- Image is 1280x1280 pixels (high resolution). Top-left is [0,0], bottom-right is [1280,1280]. Center/pin is ~[640,640].
 - Coordinates MUST be on grass/ground. If a coordinate falls on a roof pixel, move it to the nearest grass edge.
 - The lines drawn from these coordinates should trace the backyard grass boundary, not any building.
+- Place coordinates at the OUTER EDGE of the backyard where the grass meets the property boundary — not near the house.
 
 CONFIDENCE: HIGH (+/-10%), MEDIUM (+/-20%), LOW (+/-30%+)
 
@@ -156,6 +165,7 @@ def fetch_satellite_images(lat: float, lng: float) -> list[dict]:
             f"?center={cfg['center']}"
             f"&zoom={cfg['zoom']}"
             f"&size=640x640"
+            f"&scale=2"
             f"&maptype=satellite"
             f"&markers=color:red|size:small|{lat},{lng}"
             f"&key={api_key}"
@@ -191,28 +201,16 @@ def analyze_with_claude(images: list[dict], address: str) -> dict:
 
     # Add reference images if available
     ref_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reference_images")
-    ref_labels = {
-        "sample_3_no_measurements": "REFERENCE — Here is a satellite image of a property BEFORE measurement. Notice the backyard grass area behind the house:",
-        "sample_3_with_measurements": "REFERENCE — Here is the SAME property with CORRECT fence measurements drawn. Notice how the white lines trace the EDGES OF THE GRASS AREA at ground level, NOT along any rooflines. The lines run through the narrow gaps between houses on the sides, and across the far back edge of the yard. THIS is where fences are. Copy this pattern:",
-        "example_ideal_conditions": "REFERENCE — Another correctly measured property. White lines trace the grass boundary at ground level:",
-        "example_slight_obstructions": "REFERENCE — Property with slight tree obstruction. Lines still trace the grass edges at ground level, estimating through the obstruction:",
-    }
     if os.path.isdir(ref_dir):
-        ref_files = sorted([f for f in os.listdir(ref_dir) if f.endswith((".png", ".jpg", ".jpeg"))])
+        ref_files = sorted([f for f in os.listdir(ref_dir) if f.endswith((".png", ".jpg", ".jpeg"))])[:2]
         for ref_file in ref_files:
             try:
                 with open(os.path.join(ref_dir, ref_file), "rb") as f:
                     ref_b64 = base64.b64encode(f.read()).decode()
-
-                # Find matching label
-                file_stem = os.path.splitext(ref_file)[0]
-                label = "REFERENCE — Correctly measured fence at ground level:"
-                for key, val in ref_labels.items():
-                    if key in file_stem:
-                        label = val
-                        break
-
-                content.append({"type": "text", "text": label})
+                content.append({
+                    "type": "text",
+                    "text": f"REFERENCE IMAGE — This shows correctly measured fences with white lines drawn at GROUND LEVEL through the grass between houses. Study where the lines are drawn — they trace the fence at ground level, NOT along rooflines:",
+                })
                 content.append({
                     "type": "image",
                     "source": {
