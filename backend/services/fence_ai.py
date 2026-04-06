@@ -11,7 +11,7 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-VISION_MODEL = "claude-sonnet-4-5-20241022"
+VISION_MODEL = "claude-3-5-sonnet-20241022"
 
 MEASUREMENT_PROMPT = """You are an expert fence measurement analyst specializing in Houston, Texas residential properties. You are analyzing satellite/aerial imagery to measure fence linear feet for a fence staining estimate.
 
