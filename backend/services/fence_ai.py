@@ -184,9 +184,9 @@ def fetch_satellite_images(lat: float, lng: float) -> list[dict]:
 
     images = []
     configs = [
-        {"zoom": 20, "label": "overview", "center": f"{lat},{lng}"},
-        {"zoom": 21, "label": "close-up", "center": f"{lat},{lng}"},
-        {"zoom": 21, "label": "close-up-offset", "center": f"{lat + 0.00005},{lng + 0.00005}"},
+        {"zoom": 21, "label": "overview", "center": f"{lat},{lng}"},
+        {"zoom": 22, "label": "close-up", "center": f"{lat},{lng}"},
+        {"zoom": 22, "label": "close-up-offset", "center": f"{lat + 0.00003},{lng + 0.00003}"},
     ]
 
     for cfg in configs:
