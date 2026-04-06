@@ -15,7 +15,7 @@ VISION_MODEL = "claude-sonnet-4-6-20250514"
 
 MEASUREMENT_PROMPT = """You are an expert fence measurement analyst specializing in Houston, Texas residential properties. You are analyzing satellite/aerial imagery to measure fence linear feet for a fence staining estimate.
 
-TASK: Identify all fence lines on the property at the given address and estimate their length in linear feet.
+TASK: Identify all fence lines on the property at the given address and estimate their length in linear feet. This is for a FENCE STAINING estimate — only WOOD fences can be stained. Metal, chain-link, and wrought iron fences should be identified but NOT included in the stainable total.
 
 FENCE IDENTIFICATION GUIDE:
 Wood fences (most common in Houston):
@@ -24,15 +24,18 @@ Wood fences (most common in Houston):
 - Typically 6-8 feet tall, visible width from above
 - Usually have a slightly different color than the ground on either side
 
-Metal/chain-link fences:
+Metal/chain-link fences (NOT stainable):
 - Very thin silver or gray lines — much harder to see from above
 - May only be visible by their shadow or by the color/texture change at the property line
 - Sometimes visible as a faint line with grass showing through
 - If you suspect chain-link but can't confirm, mark confidence as LOW and note it
 
-Iron/wrought iron fences:
-- Dark thin lines, usually along front yards
-- Cast thin shadows
+Wrought iron / ornamental metal fences (NOT stainable):
+- Dark thin lines, usually black, along front yards or back property lines
+- KEY IDENTIFIER: Their shadow has visible GAPS/SPACES between vertical bars — looks like a striped or comb-like shadow pattern
+- Wood fence shadows are SOLID and continuous, metal fence shadows have gaps
+- These are common along back property lines where the property borders a park, school, or commercial area
+- Often shorter than wood fences (4-5 feet vs 6-8 feet for wood)
 
 HOW TO IDENTIFY THE CORRECT PROPERTY:
 - The address provided tells you which property to measure
@@ -71,6 +74,8 @@ Multiple fence materials:
 - A property may have wood on the sides and metal at the back (or vice versa)
 - List each material as a separate segment
 - Note the material type for each segment
+- Mark each segment as "stainable": true (wood only) or "stainable": false (metal, chain-link, wrought iron)
+- ONLY wood fences are stainable — the total_stainable_linear_feet should ONLY count wood segments
 
 ACCURACY RULES:
 - Round measurements to the nearest 5 feet
@@ -98,6 +103,7 @@ Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
       "side": "back",
       "length_ft": 75,
       "material": "wood",
+      "stainable": true,
       "confidence": "HIGH",
       "is_curved": false,
       "notes": "Clearly visible wood fence along back property line, no obstructions"
@@ -107,16 +113,29 @@ Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
       "side": "left",
       "length_ft": 100,
       "material": "wood",
+      "stainable": true,
       "confidence": "MEDIUM",
       "is_curved": false,
       "notes": "Partially obscured by large oak tree near center, estimated 20ft hidden"
+    },
+    {
+      "label": "Right side fence (partial)",
+      "side": "right",
+      "length_ft": 40,
+      "material": "wrought iron",
+      "stainable": false,
+      "confidence": "HIGH",
+      "is_curved": false,
+      "notes": "Metal fence with spaced vertical bars, shadow shows gap pattern. NOT stainable."
     }
   ],
-  "total_linear_feet": 250,
+  "total_linear_feet": 215,
+  "total_stainable_linear_feet": 175,
+  "total_non_stainable_linear_feet": 40,
   "overall_confidence": "HIGH",
   "obstructions": "Large tree on left side obscures approximately 20ft of fence",
-  "measurement_notes": "Wood fence on back and both sides. No front fence. Lot is rectangular.",
-  "staining_notes": "Both inside and outside faces accessible for staining on all segments"
+  "measurement_notes": "Wood fence on back and left side. Wrought iron on part of right side. No front fence.",
+  "staining_notes": "Only wood segments are stainable. Right side has 40ft of wrought iron that cannot be stained."
 }"""
 
 

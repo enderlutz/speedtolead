@@ -16,6 +16,7 @@ interface FenceSegment {
   side: string;
   length_ft: number;
   material?: string;
+  stainable?: boolean;
   confidence: string;
   is_curved?: boolean;
   notes: string;
@@ -85,8 +86,9 @@ export default function AiFenceEstimation() {
 
   const copyMeasurement = () => {
     if (!result) return;
-    navigator.clipboard.writeText(String(result.total_linear_feet));
-    toast.success("Copied to clipboard");
+    const stainable = (result.analysis as Record<string, unknown>).total_stainable_linear_feet as number ?? result.total_linear_feet;
+    navigator.clipboard.writeText(String(stainable));
+    toast.success("Copied stainable LF to clipboard");
   };
 
   const analysis = result?.analysis;
@@ -136,11 +138,17 @@ export default function AiFenceEstimation() {
       {result && analysis && (
         <>
           {/* KPI Row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <Card className="border-purple-200 bg-purple-50/30">
+              <CardContent className="pt-4">
+                <p className="text-[10px] sm:text-xs text-purple-600 font-medium">Stainable (Wood)</p>
+                <p className="text-2xl font-bold text-purple-700">{(analysis as Record<string, unknown>).total_stainable_linear_feet as number ?? analysis.total_linear_feet} ft</p>
+              </CardContent>
+            </Card>
             <Card>
               <CardContent className="pt-4">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Total Linear Feet</p>
-                <p className="text-2xl font-bold text-purple-600">{analysis.total_linear_feet}</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Total All Fences</p>
+                <p className="text-2xl font-bold">{analysis.total_linear_feet} ft</p>
               </CardContent>
             </Card>
             <Card>
@@ -159,8 +167,8 @@ export default function AiFenceEstimation() {
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Material</p>
-                <p className="text-sm font-medium capitalize mt-1">{analysis.fence_material || "Unknown"}</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Non-Stainable</p>
+                <p className="text-sm font-medium text-red-600 mt-1">{(analysis as Record<string, unknown>).total_non_stainable_linear_feet as number ?? 0} ft</p>
               </CardContent>
             </Card>
           </div>
@@ -238,16 +246,17 @@ export default function AiFenceEstimation() {
                       <span className="text-right">Conf.</span>
                     </div>
                     {analysis.segments.map((seg, i) => (
-                      <div key={i} className={`grid grid-cols-[1fr_60px_70px] gap-0 px-3 py-2.5 text-sm ${i % 2 === 0 ? "bg-white" : "bg-muted/10"}`}>
+                      <div key={i} className={`grid grid-cols-[1fr_60px_70px] gap-0 px-3 py-2.5 text-sm ${seg.stainable === false ? "bg-red-50/50" : i % 2 === 0 ? "bg-white" : "bg-muted/10"}`}>
                         <div>
                           <span className="font-medium">{seg.label}</span>
+                          {seg.stainable === false && <Badge className="text-[9px] bg-red-100 text-red-700 ml-1.5">Not Stainable</Badge>}
                           <span className="text-xs text-muted-foreground ml-1.5">
-                            {seg.material && seg.material !== "wood" ? `(${seg.material})` : ""}
+                            {seg.material ? `(${seg.material})` : ""}
                             {seg.is_curved ? " curved" : ""}
                           </span>
                           {seg.notes && <p className="text-xs text-muted-foreground mt-0.5">{seg.notes}</p>}
                         </div>
-                        <span className="text-right font-bold">{seg.length_ft} ft</span>
+                        <span className={`text-right font-bold ${seg.stainable === false ? "text-red-400 line-through" : ""}`}>{seg.length_ft} ft</span>
                         <span className="text-right">
                           <Badge className={`text-[9px] ${CONFIDENCE_STYLES[seg.confidence] || ""}`}>
                             {seg.confidence}
