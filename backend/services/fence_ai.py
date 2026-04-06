@@ -13,69 +13,110 @@ logger = logging.getLogger(__name__)
 
 VISION_MODEL = "claude-sonnet-4-6-20250514"
 
-MEASUREMENT_PROMPT = """You are an expert fence measurement analyst. You are looking at satellite/aerial imagery of a residential property in the Houston, Texas area.
+MEASUREMENT_PROMPT = """You are an expert fence measurement analyst specializing in Houston, Texas residential properties. You are analyzing satellite/aerial imagery to measure fence linear feet for a fence staining estimate.
 
-TASK: Identify all fence lines on this property and estimate their length in linear feet.
+TASK: Identify all fence lines on the property at the given address and estimate their length in linear feet.
 
-WHAT FENCES LOOK LIKE FROM ABOVE:
-- Thin dark or light lines along property boundaries
-- Usually wood (appears tan/brown) or metal/chain-link (thin gray/silver line)
-- Run along property edges, typically in straight segments
-- Cast narrow shadows (visible in high-res imagery)
-- Often separate the backyard from neighbors or common areas
-- May have gates (small gaps in the fence line)
+FENCE IDENTIFICATION GUIDE:
+Wood fences (most common in Houston):
+- Appear as tan, brown, or gray-brown lines along property boundaries
+- Cast clear shadows (look for parallel dark lines next to the fence)
+- Typically 6-8 feet tall, visible width from above
+- Usually have a slightly different color than the ground on either side
+
+Metal/chain-link fences:
+- Very thin silver or gray lines — much harder to see from above
+- May only be visible by their shadow or by the color/texture change at the property line
+- Sometimes visible as a faint line with grass showing through
+- If you suspect chain-link but can't confirm, mark confidence as LOW and note it
+
+Iron/wrought iron fences:
+- Dark thin lines, usually along front yards
+- Cast thin shadows
+
+HOW TO IDENTIFY THE CORRECT PROPERTY:
+- The address provided tells you which property to measure
+- Use the first (overview) image to locate the property relative to streets and neighbors
+- The close-up images show more detail of the same property
+- Only measure fences belonging to THIS property, not shared fences owned by neighbors
 
 MEASUREMENT APPROACH:
-1. First, identify the property at the CENTER of the image
-2. Identify ALL fence segments around this specific property
-3. For each segment, estimate length using these scale references:
-   - A typical Houston residential lot is 50-80 feet wide and 100-130 feet deep
-   - Driveways are typically 10-20 feet wide
-   - Single-car garage doors are about 9 feet wide, double are about 16 feet
-   - Houses are typically 40-60 feet wide
-   - Standard swimming pools are 15-30 feet long
-4. Label each segment by its position relative to the house: front, left, back, right
-5. Measure ONLY the fence belonging to this property, not neighbors
+1. Identify the property using the address, street layout, and house position
+2. Identify ALL fence segments around this property
+3. Estimate each segment's length using these reference objects:
+   - Driveways: typically 10-20 feet wide, 20-40 feet long
+   - Single-car garage doors: ~9 feet wide
+   - Double garage doors: ~16 feet wide
+   - Houses: typically 40-60 feet wide, 30-50 feet deep
+   - Swimming pools: 15-30 feet long
+   - Standard lot widths in Houston suburbs: 50-80 feet
+   - Standard lot depths in Houston suburbs: 100-130 feet
+4. For each segment, label its position: front, left, back, right (relative to the front of the house facing the street)
 
-HANDLING OBSTRUCTIONS:
-- If trees partially cover a fence line, estimate the hidden portion based on where the fence enters and exits the tree canopy
-- The fence almost always continues in a straight line behind trees
-- Mark these segments with MEDIUM or LOW confidence
-- Note which segments are obstructed and why
+HANDLING SPECIAL CASES:
 
-IMPORTANT:
+Curved fences (cul-de-sac, irregular lots):
+- If a fence follows a curve (common on cul-de-sac properties), measure the actual curved length, not the straight-line distance
+- A curved fence is LONGER than a straight line between its endpoints
+- Estimate the arc length — for a gentle curve, it's typically 10-20% longer than the straight distance
+- Note in the segment that the fence is curved
+
+Tree obstructions:
+- If trees cover part of a fence, estimate the hidden portion based on visible endpoints
+- Fences almost always continue in a straight line behind trees
+- Mark obstructed segments as MEDIUM or LOW confidence
+- Note what's blocking the view
+
+Multiple fence materials:
+- A property may have wood on the sides and metal at the back (or vice versa)
+- List each material as a separate segment
+- Note the material type for each segment
+
+ACCURACY RULES:
 - Round measurements to the nearest 5 feet
 - A typical Houston suburban backyard has 150-350 total linear feet of fence
-- If you see NO fence at all, say so — do not fabricate measurements
-- Be conservative — it's better to underestimate than overestimate
-- Each image shows the same property at different zoom levels. Use all images together for the most accurate measurement.
+- If you see NO fence, say fence_detected: false — do NOT fabricate measurements
+- Be conservative — underestimate rather than overestimate
+- Cross-reference between all provided images for consistency
+- If two images give different impressions, go with the clearer one
+- State what you CAN see clearly and what you're estimating
 
-Respond ONLY with valid JSON in this exact format (no markdown, no backticks):
+CONFIDENCE SCORING:
+- HIGH: Fence clearly visible, no obstructions, confident in measurement (+/- 10%)
+- MEDIUM: Fence partially visible or partially obstructed, reasonable estimate (+/- 20%)
+- LOW: Fence barely visible, heavily obstructed, or uncertain if fence exists (+/- 30%+)
+
+Respond ONLY with valid JSON in this exact format (no markdown, no code blocks):
 {
-  "property_description": "Brief description of what you see at the property",
+  "property_description": "Brief description of the property — lot shape, house position, yard layout",
+  "lot_shape": "rectangular",
   "fence_detected": true,
-  "fence_material": "wood",
-  "fence_color": "tan/brown",
+  "fence_materials": ["wood"],
   "segments": [
     {
       "label": "Back fence",
       "side": "back",
       "length_ft": 75,
+      "material": "wood",
       "confidence": "HIGH",
-      "notes": "Clearly visible wood fence along back property line"
+      "is_curved": false,
+      "notes": "Clearly visible wood fence along back property line, no obstructions"
     },
     {
       "label": "Left side fence",
       "side": "left",
       "length_ft": 100,
+      "material": "wood",
       "confidence": "MEDIUM",
-      "notes": "Partially obscured by large oak tree near center"
+      "is_curved": false,
+      "notes": "Partially obscured by large oak tree near center, estimated 20ft hidden"
     }
   ],
   "total_linear_feet": 250,
   "overall_confidence": "HIGH",
   "obstructions": "Large tree on left side obscures approximately 20ft of fence",
-  "measurement_notes": "Property has fence on back and both sides. No front fence detected."
+  "measurement_notes": "Wood fence on back and both sides. No front fence. Lot is rectangular.",
+  "staining_notes": "Both inside and outside faces accessible for staining on all segments"
 }"""
 
 

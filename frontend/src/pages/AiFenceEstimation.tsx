@@ -15,7 +15,9 @@ interface FenceSegment {
   label: string;
   side: string;
   length_ft: number;
+  material?: string;
   confidence: string;
+  is_curved?: boolean;
   notes: string;
 }
 
@@ -239,6 +241,10 @@ export default function AiFenceEstimation() {
                       <div key={i} className={`grid grid-cols-[1fr_60px_70px] gap-0 px-3 py-2.5 text-sm ${i % 2 === 0 ? "bg-white" : "bg-muted/10"}`}>
                         <div>
                           <span className="font-medium">{seg.label}</span>
+                          <span className="text-xs text-muted-foreground ml-1.5">
+                            {seg.material && seg.material !== "wood" ? `(${seg.material})` : ""}
+                            {seg.is_curved ? " curved" : ""}
+                          </span>
                           {seg.notes && <p className="text-xs text-muted-foreground mt-0.5">{seg.notes}</p>}
                         </div>
                         <span className="text-right font-bold">{seg.length_ft} ft</span>
