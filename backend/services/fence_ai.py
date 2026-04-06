@@ -160,6 +160,7 @@ def fetch_satellite_images(lat: float, lng: float) -> list[dict]:
             f"&zoom={cfg['zoom']}"
             f"&size=640x640"
             f"&maptype=satellite"
+            f"&markers=color:red|size:small|{lat},{lng}"
             f"&key={api_key}"
         )
         try:
