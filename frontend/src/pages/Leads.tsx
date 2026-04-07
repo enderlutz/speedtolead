@@ -626,7 +626,7 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
         }`}>
           <Clock className={`h-3 w-3 ${lead.kanban_column === "estimate_sent" ? "text-green-500" : "text-red-500"}`} />
           <span className={`text-[11px] ${lead.kanban_column === "estimate_sent" ? "text-green-600" : "text-red-600"}`}>
-            <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={lead.kanban_column === "estimate_sent" ? lead.updated_at : null} />
+            <ElapsedTimer since={lead.created_at} stoppedAt={lead.kanban_column === "estimate_sent" ? lead.updated_at : null} />
           </span>
         </div>
       </div>

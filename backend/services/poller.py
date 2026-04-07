@@ -279,8 +279,6 @@ def _sync_location(location_id: str, label: str):
                         priority=est_priority,
                         form_data=json.dumps(form_data),
                         ghl_opportunity_id=opp.get("id", ""),
-                        ghl_created_at=ghl_created,
-                        dashboard_synced_at=now,
                         created_at=ghl_created,
                         updated_at=now,
                     )

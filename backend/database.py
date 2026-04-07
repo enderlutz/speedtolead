@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from sqlalchemy import create_engine, text, Column, Text, Float, Integer, LargeBinary, Boolean, Index
+from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from config import get_settings
 
@@ -47,8 +47,6 @@ class Lead(Base):
     is_test = Column(Boolean, default=False)
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
-    ghl_created_at = Column(Text, default="")      # When lead was created in GHL
-    dashboard_synced_at = Column(Text, default="")  # When lead entered our dashboard
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -73,8 +71,6 @@ class Lead(Base):
             "ghl_opportunity_id": self.ghl_opportunity_id or "",
             "viewed_at": self.viewed_at,
             "proposal_viewed_at": self.proposal_viewed_at,
-            "ghl_created_at": self.ghl_created_at or self.created_at,
-            "dashboard_synced_at": self.dashboard_synced_at or self.created_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -333,31 +329,7 @@ def init_db():
     # Auto-create any missing tables (safe — does nothing for existing tables)
     Base.metadata.create_all(bind=_engine)
 
-    # Add missing columns to existing tables (safe — skips if already exists)
-    _run_migrations(_engine)
-
     _SessionLocal = sessionmaker(bind=_engine)
-
-
-def _run_migrations(engine):
-    """Add columns that were added after initial table creation."""
-    import logging
-    _log = logging.getLogger(__name__)
-    migrations = [
-        ("leads", "ghl_created_at", "TEXT DEFAULT ''"),
-        ("leads", "dashboard_synced_at", "TEXT DEFAULT ''"),
-    ]
-    for table, column, col_type in migrations:
-        try:
-            with engine.connect() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
-                conn.commit()
-            _log.info(f"Migration: added column {table}.{column}")
-        except Exception as e:
-            if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
-                _log.info(f"Migration: column {table}.{column} already exists, skipping")
-            else:
-                _log.warning(f"Migration: failed to add {table}.{column}: {e}")
 
 
 def get_db() -> Session:

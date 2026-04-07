@@ -100,7 +100,7 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
             breakdown = est_dict.get("breakdown") or []
 
             # Time to send: dashboard sync → estimate sent (fall back to created_at for old leads)
-            synced_dt = _parse_dt(getattr(lead, "dashboard_synced_at", None)) or _parse_dt(lead.created_at)
+            synced_dt = _parse_dt(lead.created_at)
             sent_dt = _parse_dt(est.sent_at)
             time_to_send_mins = None
             if synced_dt and sent_dt:
