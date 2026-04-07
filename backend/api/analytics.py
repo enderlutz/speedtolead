@@ -92,7 +92,7 @@ def get_kpis():
         )
         total_mins, count = 0, 0
         for est, lead in pairs:
-            c = _parse_dt(lead.created_at)
+            c = _parse_dt(lead.dashboard_synced_at or lead.created_at)
             s = _parse_dt(est.sent_at)
             if c and s:
                 diff = (s - c).total_seconds() / 60
@@ -151,7 +151,7 @@ def get_speed_metrics():
                 proposals[p.estimate_id] = p
 
         for est, lead in pairs:
-            created = _parse_dt(lead.created_at)
+            created = _parse_dt(lead.dashboard_synced_at or lead.created_at)
             sent = _parse_dt(est.sent_at)
             if not created or not sent:
                 continue
@@ -314,7 +314,7 @@ def get_close_patterns():
                     by_hour[hour]["sent"] += 1
 
             # Response time correlation
-            c = _parse_dt(lead.created_at)
+            c = _parse_dt(lead.dashboard_synced_at or lead.created_at)
             s = _parse_dt(est.sent_at)
             if c and s:
                 mins = (s - c).total_seconds() / 60
@@ -452,7 +452,7 @@ def get_cohort_analysis():
             est_pairs = db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.lead_id.in_(lead_ids), Estimate.status == "sent").all()
             resp_mins = []
             for est, lead in est_pairs:
-                c = _parse_dt(lead.created_at)
+                c = _parse_dt(lead.dashboard_synced_at or lead.created_at)
                 s = _parse_dt(est.sent_at)
                 if c and s:
                     m = (s - c).total_seconds() / 60

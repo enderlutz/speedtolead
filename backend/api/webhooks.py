@@ -175,6 +175,8 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
             kanban_column="new_lead",
             priority="MEDIUM",
             form_data=json.dumps(parsed["form_data"]),
+            ghl_created_at=now,
+            dashboard_synced_at=now,
             created_at=now,
             updated_at=now,
         )
