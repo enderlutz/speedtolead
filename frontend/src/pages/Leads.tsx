@@ -172,6 +172,8 @@ export default function Leads() {
       if (groups[col]) groups[col].push(lead);
       else groups.new_lead.push(lead);
     }
+    // Sort estimate_sent by most recently sent (updated_at) first
+    groups.estimate_sent.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     return groups;
   }, [filtered]);
 
