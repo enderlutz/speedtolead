@@ -11,15 +11,19 @@ import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
-_FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts")
+_FONTS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts"))
 FONT_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Regular.ttf")
 FONT_BOLD_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Bold.ttf")
 if not os.path.exists(FONT_PATH):
     logger.warning(f"Libre Baskerville font not found at {FONT_PATH}, PDFs will use default font")
     FONT_PATH = None
+else:
+    logger.info(f"PDF font loaded: {FONT_PATH}")
 if not os.path.exists(FONT_BOLD_PATH):
-    logger.warning(f"Libre Baskerville Bold not found, falling back to regular")
+    logger.warning(f"Libre Baskerville Bold not found at {FONT_BOLD_PATH}, falling back to regular")
     FONT_BOLD_PATH = FONT_PATH
+else:
+    logger.info(f"PDF bold font loaded: {FONT_BOLD_PATH}")
 FONT_NAME = "libre-baskerville"
 FONT_BOLD_NAME = "libre-baskerville-bold"
 DEFAULT_COLOR = "#2B2B2B"

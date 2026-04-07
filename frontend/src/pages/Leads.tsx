@@ -525,16 +525,18 @@ function DraggableCard({ lead, children }: { lead: Lead; children?: React.ReactN
   );
 }
 
-const ElapsedTimer: FC<{ since: string }> = ({ since }) => {
+const ElapsedTimer: FC<{ since: string; stoppedAt?: string | null }> = ({ since, stoppedAt }) => {
   const [, setTick] = useState(0);
   useEffect(() => {
+    if (stoppedAt) return; // Don't tick if timer is stopped
     const id = setInterval(() => setTick((t) => t + 1), 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [stoppedAt]);
 
-  const ms = Date.now() - new Date(since).getTime();
+  const end = stoppedAt ? new Date(stoppedAt).getTime() : Date.now();
+  const ms = end - new Date(since).getTime();
   const mins = Math.floor(ms / 60_000);
-  const isCritical = mins >= 120;
+  const isCritical = !stoppedAt && mins >= 120;
 
   let text: string;
   if (mins < 60) text = `${mins}m`;
@@ -617,10 +619,12 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
       )}
       <div className="flex items-center justify-between mt-2">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
-        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 border border-red-200">
-          <Clock className="h-3 w-3 text-red-500" />
-          <span className="text-[11px] text-red-600">
-            <ElapsedTimer since={lead.created_at} />
+        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
+          lead.kanban_column === "estimate_sent" ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+        }`}>
+          <Clock className={`h-3 w-3 ${lead.kanban_column === "estimate_sent" ? "text-green-500" : "text-red-500"}`} />
+          <span className={`text-[11px] ${lead.kanban_column === "estimate_sent" ? "text-green-600" : "text-red-600"}`}>
+            <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={lead.kanban_column === "estimate_sent" ? lead.updated_at : null} />
           </span>
         </div>
       </div>

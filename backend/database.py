@@ -47,6 +47,8 @@ class Lead(Base):
     is_test = Column(Boolean, default=False)
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
+    ghl_created_at = Column(Text, default="")      # When lead was created in GHL
+    dashboard_synced_at = Column(Text, default="")  # When lead entered our dashboard
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -71,6 +73,8 @@ class Lead(Base):
             "ghl_opportunity_id": self.ghl_opportunity_id or "",
             "viewed_at": self.viewed_at,
             "proposal_viewed_at": self.proposal_viewed_at,
+            "ghl_created_at": self.ghl_created_at or self.created_at,
+            "dashboard_synced_at": self.dashboard_synced_at or self.created_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

@@ -53,6 +53,8 @@ export interface Lead {
   customer_response_text: string;
   viewed_at: string | null;
   proposal_viewed_at: string | null;
+  ghl_created_at: string;
+  dashboard_synced_at: string;
   created_at: string;
   updated_at: string;
 }

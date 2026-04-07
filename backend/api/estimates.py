@@ -99,12 +99,12 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
             tiers = est_dict.get("tiers") or {}
             breakdown = est_dict.get("breakdown") or []
 
-            # Time to send: lead created → estimate sent
-            created_dt = _parse_dt(lead.created_at)
+            # Time to send: dashboard sync → estimate sent (fall back to created_at for old leads)
+            synced_dt = _parse_dt(lead.dashboard_synced_at) or _parse_dt(lead.created_at)
             sent_dt = _parse_dt(est.sent_at)
             time_to_send_mins = None
-            if created_dt and sent_dt:
-                diff = (sent_dt - created_dt).total_seconds() / 60
+            if synced_dt and sent_dt:
+                diff = (sent_dt - synced_dt).total_seconds() / 60
                 if diff >= 0:
                     time_to_send_mins = round(diff, 1)
 
@@ -257,29 +257,29 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
 
 
 def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = None) -> str:
-    """Generate pricing includes text from selected fence sides + linear feet."""
+    """Generate pricing includes text from selected fence sides."""
     inside_all = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
     outside_all = {"Outside Front", "Outside Left", "Outside Back", "Outside Right"}
 
     inside_checked = [s for s in fence_sides if s in inside_all]
     outside_checked = [s for s in fence_sides if s in outside_all]
 
-    side_parts: list[str] = []
+    parts: list[str] = []
+
     if len(inside_checked) == 4:
-        side_parts.append("Inside Facing Fences")
-    else:
-        side_parts.extend(inside_checked)
+        parts.append("Inside Fences")
+    elif inside_checked:
+        # "Inside Front, Back, Right"
+        directions = [s.replace("Inside ", "") for s in inside_checked]
+        parts.append("Inside " + ", ".join(directions))
+
     if len(outside_checked) == 4:
-        side_parts.append("Outside Facing Fences")
-    else:
-        side_parts.extend(outside_checked)
+        parts.append("Outside Fences")
+    elif outside_checked:
+        directions = [s.replace("Outside ", "") for s in outside_checked]
+        parts.append("Outside " + ", ".join(directions))
 
-    side_count = len(inside_checked) + len(outside_checked)
-    side_text = ", ".join(side_parts) if side_parts else "fence"
-
-    side_label = f"on {side_count} side{'s' if side_count != 1 else ''}" if side_count > 0 else ""
-
-    return f"{side_text} {side_label}".strip()
+    return ", ".join(parts) if parts else "fence"
 
 
 @router.post("/estimates/{estimate_id}/approve")
@@ -314,15 +314,17 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
             try:
                 field_map = json.loads(template["field_map"]) if isinstance(template["field_map"], str) else template["field_map"]
                 tiers = est.to_dict()["tiers"]
+                _fd_fin = lead.to_dict().get("form_data", {})
+                _fin = _fd_fin.get("include_financing", True) is not False
                 values = {
                     "customer_name": (lead.contact_name or "").title(),
                     "address": lead.address,
-                    "essential_price": f"${tiers.get('essential', 0):,.2f} or ${tiers.get('essential', 0) / 21:,.2f}/mo",
-                    "signature_price": f"${tiers.get('signature', 0):,.2f} or ${tiers.get('signature', 0) / 21:,.2f}/mo",
-                    "legacy_price": f"${tiers.get('legacy', 0):,.2f} or ${tiers.get('legacy', 0) / 21:,.2f}/mo",
-                    "essential_monthly": "for 21 mos",
-                    "signature_monthly": "for 21 mos",
-                    "legacy_monthly": "for 21 mos",
+                    "essential_price": _format_price(tiers.get("essential", 0), _fin),
+                    "signature_price": _format_price(tiers.get("signature", 0), _fin),
+                    "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
+                    "essential_monthly": _format_monthly_label(_fin),
+                    "signature_monthly": _format_monthly_label(_fin),
+                    "legacy_monthly": _format_monthly_label(_fin),
                     "date": datetime.now().strftime("%B %d, %Y"),
                 }
                 # Add pricing includes
@@ -708,16 +710,23 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 }
                 values[f.id] = f.value
 
-        # Generate PDF
-        from services.pdf_generator import BOLD_FIELDS
-        # Temporarily update bold fields based on canvas
+        # Generate PDF with per-request bold fields (don't mutate global)
+        from services.pdf_generator import BOLD_FIELDS as _DEFAULT_BOLD, generate_filled_pdf as _gen_pdf
+        local_bold = set(_DEFAULT_BOLD)
         for f in body.fields:
             if f.bold:
-                BOLD_FIELDS.add(f.id)
+                local_bold.add(f.id)
             else:
-                BOLD_FIELDS.discard(f.id)
+                local_bold.discard(f.id)
 
-        pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values, extra_fields or None)
+        # Temporarily swap bold fields for this request
+        import services.pdf_generator as _pdf_mod
+        _saved_bold = _pdf_mod.BOLD_FIELDS
+        _pdf_mod.BOLD_FIELDS = local_bold
+        try:
+            pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values, extra_fields or None)
+        finally:
+            _pdf_mod.BOLD_FIELDS = _saved_bold
 
         # Rasterize pages
         jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)

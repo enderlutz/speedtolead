@@ -83,7 +83,7 @@ def get_kpis():
             tiers = json.loads(e.tiers) if isinstance(e.tiers, str) else (e.tiers or {})
             revenue += float(tiers.get(e.closed_tier, 0))
 
-        # Avg time to estimate (lead created → estimate sent)
+        # Avg time to estimate (dashboard sync → estimate sent)
         pairs = (
             db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
@@ -92,7 +92,8 @@ def get_kpis():
         )
         total_mins, count = 0, 0
         for est, lead in pairs:
-            c, s = _parse_dt(lead.created_at), _parse_dt(est.sent_at)
+            c = _parse_dt(lead.dashboard_synced_at) or _parse_dt(lead.created_at)
+            s = _parse_dt(est.sent_at)
             if c and s:
                 diff = (s - c).total_seconds() / 60
                 if 0 <= diff < 1440:
@@ -313,7 +314,8 @@ def get_close_patterns():
                     by_hour[hour]["sent"] += 1
 
             # Response time correlation
-            c, s = _parse_dt(lead.created_at), _parse_dt(est.sent_at)
+            c = _parse_dt(lead.dashboard_synced_at) or _parse_dt(lead.created_at)
+            s = _parse_dt(est.sent_at)
             if c and s:
                 mins = (s - c).total_seconds() / 60
                 if mins < 15:  # "fast" = under 15 min
@@ -450,7 +452,8 @@ def get_cohort_analysis():
             est_pairs = db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.lead_id.in_(lead_ids), Estimate.status == "sent").all()
             resp_mins = []
             for est, lead in est_pairs:
-                c, s = _parse_dt(lead.created_at), _parse_dt(est.sent_at)
+                c = _parse_dt(lead.dashboard_synced_at) or _parse_dt(lead.created_at)
+                s = _parse_dt(est.sent_at)
                 if c and s:
                     m = (s - c).total_seconds() / 60
                     if 0 <= m < 1440:
