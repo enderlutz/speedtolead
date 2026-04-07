@@ -427,6 +427,24 @@ def update_contact(lead_id: str, body: ContactUpdate):
 
 
 @router.post("/leads/{lead_id}/check-response")
+# GHL system/status messages to filter out (case-insensitive substring match)
+_GHL_SYSTEM_PHRASES = [
+    "opportunity created", "opportunity moved", "opportunity stage",
+    "pipeline stage", "status changed", "workflow", "automation",
+    "contact created", "contact updated", "tag added", "tag removed",
+    "appointment scheduled", "appointment confirmed", "appointment cancelled",
+    "invoice", "payment received", "form submitted",
+]
+
+
+def _is_system_message(body: str) -> bool:
+    """Return True if the message looks like a GHL system/status update."""
+    if not body or not body.strip():
+        return True
+    lower = body.lower().strip()
+    return any(phrase in lower for phrase in _GHL_SYSTEM_PHRASES)
+
+
 def check_response(lead_id: str):
     """Fetch latest inbound messages from GHL for this lead."""
     db = get_db()
@@ -455,6 +473,8 @@ def check_response(lead_id: str):
 
                 direction = "inbound" if m.get("direction") == "inbound" else "outbound"
                 body = m.get("body") or m.get("message") or ""
+                if _is_system_message(body):
+                    continue
                 msg_obj = Message(
                     id=str(uuid.uuid4()),
                     ghl_contact_id=lead.ghl_contact_id,
@@ -505,7 +525,7 @@ def get_messages(lead_id: str):
             "body": m.body,
             "message_type": m.message_type,
             "created_at": m.created_at,
-        } for m in messages]
+        } for m in messages if not _is_system_message(m.body)]
     finally:
         db.close()
 
