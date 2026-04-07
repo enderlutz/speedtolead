@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json
-from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index
+from sqlalchemy import create_engine, text, Column, Text, Float, Integer, LargeBinary, Boolean, Index
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from config import get_settings
 
@@ -333,7 +333,25 @@ def init_db():
     # Auto-create any missing tables (safe — does nothing for existing tables)
     Base.metadata.create_all(bind=_engine)
 
+    # Add missing columns to existing tables (safe — skips if already exists)
+    _run_migrations(_engine)
+
     _SessionLocal = sessionmaker(bind=_engine)
+
+
+def _run_migrations(engine):
+    """Add columns that were added after initial table creation."""
+    migrations = [
+        ("leads", "ghl_created_at", "TEXT DEFAULT ''"),
+        ("leads", "dashboard_synced_at", "TEXT DEFAULT ''"),
+    ]
+    with engine.connect() as conn:
+        for table, column, col_type in migrations:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                conn.commit()
+            except Exception:
+                conn.rollback()  # Column already exists — safe to ignore
 
 
 def get_db() -> Session:
