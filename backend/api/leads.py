@@ -426,7 +426,6 @@ def update_contact(lead_id: str, body: ContactUpdate):
         db.close()
 
 
-@router.post("/leads/{lead_id}/check-response")
 # GHL system/status messages to filter out (case-insensitive substring match)
 _GHL_SYSTEM_PHRASES = [
     "opportunity created", "opportunity moved", "opportunity stage",
@@ -445,6 +444,7 @@ def _is_system_message(body: str) -> bool:
     return any(phrase in lower for phrase in _GHL_SYSTEM_PHRASES)
 
 
+@router.post("/leads/{lead_id}/check-response")
 def check_response(lead_id: str):
     """Fetch latest inbound messages from GHL for this lead."""
     db = get_db()
