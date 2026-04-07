@@ -341,17 +341,23 @@ def init_db():
 
 def _run_migrations(engine):
     """Add columns that were added after initial table creation."""
+    import logging
+    _log = logging.getLogger(__name__)
     migrations = [
         ("leads", "ghl_created_at", "TEXT DEFAULT ''"),
         ("leads", "dashboard_synced_at", "TEXT DEFAULT ''"),
     ]
-    with engine.connect() as conn:
-        for table, column, col_type in migrations:
-            try:
+    for table, column, col_type in migrations:
+        try:
+            with engine.connect() as conn:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                 conn.commit()
-            except Exception:
-                conn.rollback()  # Column already exists — safe to ignore
+            _log.info(f"Migration: added column {table}.{column}")
+        except Exception as e:
+            if "already exists" in str(e).lower() or "duplicate column" in str(e).lower():
+                _log.info(f"Migration: column {table}.{column} already exists, skipping")
+            else:
+                _log.warning(f"Migration: failed to add {table}.{column}: {e}")
 
 
 def get_db() -> Session:
