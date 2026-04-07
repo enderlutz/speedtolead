@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
@@ -649,23 +649,7 @@ export default function LeadDetail() {
               {messages.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">No messages yet</p>
               ) : (
-                <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                  {messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`rounded-lg px-3 py-2 text-sm max-w-[85%] ${
-                        msg.direction === "inbound"
-                          ? "bg-muted mr-auto"
-                          : "bg-primary/10 ml-auto text-right"
-                      }`}
-                    >
-                      <p className="text-xs font-medium text-muted-foreground mb-0.5">
-                        {msg.direction === "inbound" ? "Customer" : "Sent"} — {timeAgo(msg.created_at)}
-                      </p>
-                      <p>{msg.body}</p>
-                    </div>
-                  ))}
-                </div>
+                <MessageList messages={messages} />
               )}
             </CardContent>
           </Card>
@@ -873,6 +857,38 @@ export default function LeadDetail() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+
+function MessageList({ messages }: { messages: MessageEntry[] }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  // Sort oldest → newest (backend returns newest first)
+  const sorted = [...messages].reverse();
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  return (
+    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+      {sorted.map((msg) => (
+        <div
+          key={msg.id}
+          className={`rounded-lg px-3 py-2 text-sm max-w-[85%] ${
+            msg.direction === "inbound"
+              ? "bg-muted mr-auto"
+              : "bg-primary/10 ml-auto text-right"
+          }`}
+        >
+          <p className="text-xs font-medium text-muted-foreground mb-0.5">
+            {msg.direction === "inbound" ? "Customer" : "Sent"} — {timeAgo(msg.created_at)}
+          </p>
+          <p>{msg.body}</p>
+        </div>
+      ))}
+      <div ref={endRef} />
     </div>
   );
 }
