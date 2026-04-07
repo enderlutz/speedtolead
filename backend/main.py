@@ -96,11 +96,20 @@ app = FastAPI(title="AT-System Lite", lifespan=lifespan)
 
 # CORS — allow configured origins + frontend/proposal URLs
 _settings = get_settings()
-origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
-# Always include frontend and proposal URLs
-for extra in [_settings.frontend_url, _settings.proposal_base_url]:
-    if extra and extra not in origins:
-        origins.append(extra)
+_raw_origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
+# If wildcard, allow all origins
+if "*" in _raw_origins:
+    origins = ["*"]
+else:
+    origins = list(_raw_origins)
+    # Always include frontend and proposal URLs
+    for extra in [_settings.frontend_url, _settings.proposal_base_url]:
+        if extra and extra not in origins:
+            origins.append(extra)
+    # Always include custom domains
+    for domain in ["https://admin.atpressurewash.com", "https://proposal.atpressurewash.com"]:
+        if domain not in origins:
+            origins.append(domain)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
