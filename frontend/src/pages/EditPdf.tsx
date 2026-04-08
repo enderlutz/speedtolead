@@ -305,11 +305,19 @@ export default function EditPdf() {
                   const isEditing = field.id === editingId;
 
                   const boxW = (field.width || 0) * scaleX;
+                  const isPrice = field.id.endsWith("_price");
+                  const exampleText = isPrice ? "$2,115 or $100.57/mo" : field.value || "Example text";
                   return (
                     <React.Fragment key={field.id}>
                       {boxW > 0 && isSelected && (
-                        <Rect x={cx} y={cy} width={boxW} height={fontSize * 1.4}
-                          stroke="#3b82f6" strokeWidth={0.5} dash={[4, 2]} fill="rgba(59,130,246,0.05)" />
+                        <>
+                          <Rect x={cx} y={cy} width={boxW} height={fontSize * 1.4}
+                            stroke="#3b82f6" strokeWidth={0.5} dash={[4, 2]} fill="rgba(59,130,246,0.05)" />
+                          <KonvaText x={cx} y={cy} text={exampleText}
+                            fontSize={fontSize} fontFamily="'Libre Baskerville', Georgia, serif"
+                            fontStyle="bold" fill="rgba(100,100,100,0.3)"
+                            width={boxW} align="center" listening={false} />
+                        </>
                       )}
                       <KonvaText
                         x={boxW > 0 ? cx : cx}
