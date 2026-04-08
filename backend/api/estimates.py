@@ -715,8 +715,12 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
 
         # Generate PDF with per-request bold fields (don't mutate global)
         from services.pdf_generator import BOLD_FIELDS as _DEFAULT_BOLD, generate_filled_pdf as _gen_pdf
+        # Always bold: customer_name + all prices — never overridden by frontend
+        _ALWAYS_BOLD = {"customer_name", "essential_price", "signature_price", "legacy_price"}
         local_bold = set(_DEFAULT_BOLD)
         for f in body.fields:
+            if f.id in _ALWAYS_BOLD:
+                continue  # These are always bold
             if f.bold:
                 local_bold.add(f.id)
             else:
