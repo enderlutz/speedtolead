@@ -197,11 +197,14 @@ def _sync_location(location_id: str, label: str):
         for stage_name, stage_id in stage_map.items():
             opps = get_opportunities(location_id, pipeline_id, stage_id if stage_id else None)
             priority = TARGET_STAGES.get(stage_name, "MEDIUM")
+            logger.info(f"Poller: {label} stage '{stage_name}' returned {len(opps)} opportunities")
 
             for opp in opps:
                 try:
                     contact_id = opp.get("contact", {}).get("id") or opp.get("contactId") or ""
+                    contact_name = opp.get("contact", {}).get("name", "") or opp.get("name", "")
                     if not contact_id:
+                        logger.warning(f"Poller: skipping opp with no contact_id: {opp.get('id', '?')}")
                         continue
 
                     # Skip if already in our system
