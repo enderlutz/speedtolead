@@ -94,22 +94,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AT-System Lite", lifespan=lifespan)
 
-# CORS — allow configured origins + frontend/proposal URLs
+# CORS — explicit origin list (wildcard + credentials is invalid per spec)
 _settings = get_settings()
-_raw_origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
-# If wildcard, allow all origins
-if "*" in _raw_origins:
-    origins = ["*"]
-else:
-    origins = list(_raw_origins)
-    # Always include frontend and proposal URLs
-    for extra in [_settings.frontend_url, _settings.proposal_base_url]:
-        if extra and extra not in origins:
-            origins.append(extra)
-    # Always include custom domains
-    for domain in ["https://admin.atpressurewash.com", "https://proposal.atpressurewash.com"]:
-        if domain not in origins:
-            origins.append(domain)
+origins = [
+    "https://admin.atpressurewash.com",
+    "https://proposal.atpressurewash.com",
+]
+# Add frontend/proposal URLs from env
+for extra in [_settings.frontend_url, _settings.proposal_base_url]:
+    if extra and extra not in origins:
+        origins.append(extra)
+# Add any extra configured origins (skip wildcard)
+for o in _settings.allowed_origins.split(","):
+    o = o.strip()
+    if o and o != "*" and o not in origins:
+        origins.append(o)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
