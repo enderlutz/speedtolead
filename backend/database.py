@@ -130,6 +130,10 @@ class Estimate(Base):
 
 class Proposal(Base):
     __tablename__ = "proposals"
+    __table_args__ = (
+        Index("idx_proposals_estimate_id", "estimate_id"),
+        Index("idx_proposals_lead_id", "lead_id"),
+    )
 
     id = Column(Text, primary_key=True)
     token = Column(Text, unique=True, nullable=False)
@@ -161,6 +165,7 @@ class ProposalPage(Base):
     __tablename__ = "proposal_pages"
     __table_args__ = (
         Index("idx_proposal_pages_token_page", "token", "page_num"),
+        Index("idx_proposal_pages_proposal_id", "proposal_id"),
     )
 
     id = Column(Text, primary_key=True)

@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+from sqlalchemy.orm import defer
 from database import get_db, Proposal, ProposalPage, Estimate, Lead
 from services.activity_log import log_event
 from services.event_bus import publish
@@ -20,7 +21,7 @@ def get_proposal(token: str):
     """Public endpoint: get proposal data for customer view."""
     db = get_db()
     try:
-        proposal = db.query(Proposal).filter(Proposal.token == token).first()
+        proposal = db.query(Proposal).options(defer(Proposal.pdf_data)).filter(Proposal.token == token).first()
         if not proposal:
             raise HTTPException(status_code=404, detail="Proposal not found")
 
@@ -53,7 +54,7 @@ def get_proposal(token: str):
             "service_type": est.service_type,
             "tiers": est_dict["tiers"],
             "breakdown": est_dict["breakdown"],
-            "has_pdf": proposal.pdf_data is not None,
+            "has_pdf": (proposal.pdf_page_count or 0) > 0,
             "page_count": proposal.pdf_page_count or 0,
             "created_at": proposal.created_at,
         }

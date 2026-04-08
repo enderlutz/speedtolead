@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
@@ -94,7 +95,7 @@ def get_lead(lead_id: str):
         est_ids = [e.id for e in estimates]
         proposals = []
         if est_ids:
-            proposals = db.query(Proposal).filter(Proposal.estimate_id.in_(est_ids)).all()
+            proposals = db.query(Proposal).options(defer(Proposal.pdf_data)).filter(Proposal.estimate_id.in_(est_ids)).all()
         prop_map = {p.estimate_id: p.to_dict() for p in proposals}
 
         est_list = []
