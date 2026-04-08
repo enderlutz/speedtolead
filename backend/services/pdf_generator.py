@@ -12,8 +12,8 @@ import fitz  # PyMuPDF
 logger = logging.getLogger(__name__)
 
 _FONTS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fonts"))
-FONT_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Regular.ttf")
-FONT_BOLD_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Bold.ttf")
+FONT_PATH = os.path.join(_FONTS_DIR, "Montserrat-Regular.ttf")
+FONT_BOLD_PATH = os.path.join(_FONTS_DIR, "Montserrat-Bold.ttf")
 if not os.path.exists(FONT_PATH):
     logger.warning(f"Libre Baskerville font not found at {FONT_PATH}, PDFs will use default font")
     FONT_PATH = None
@@ -24,8 +24,8 @@ if not os.path.exists(FONT_BOLD_PATH):
     FONT_BOLD_PATH = FONT_PATH
 else:
     logger.info(f"PDF bold font loaded: {FONT_BOLD_PATH}")
-FONT_NAME = "libre-baskerville"
-FONT_BOLD_NAME = "libre-baskerville-bold"
+FONT_NAME = "montserrat"
+FONT_BOLD_NAME = "montserrat-bold"
 DEFAULT_COLOR = "#2B2B2B"
 
 # Fields that should render in bold
