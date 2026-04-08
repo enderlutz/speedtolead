@@ -35,9 +35,9 @@ BOLD_FIELDS = {"customer_name", "essential_price", "signature_price", "legacy_pr
 # Essential & Signature: brown prices, black "or"
 # Legacy: white prices, gold "or"
 PRICE_STYLE = {
-    "essential_price": {"price_color": "#6B3A0A", "or_color": "#000000"},
-    "signature_price": {"price_color": "#6B3A0A", "or_color": "#000000"},
-    "legacy_price": {"price_color": "#FFFFFF", "or_color": "#DAA520"},
+    "essential_price": {"price_color": "#622300", "or_color": "#000000"},
+    "signature_price": {"price_color": "#622300", "or_color": "#000000"},
+    "legacy_price": {"price_color": "#EDC9A8", "or_color": "#E3A742"},
 }
 
 
