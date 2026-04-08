@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from fastapi import APIRouter
+from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Proposal
 
 router = APIRouter()
@@ -147,7 +148,7 @@ def get_speed_metrics():
         est_ids = [e.id for e, _ in pairs]
         proposals = {}
         if est_ids:
-            for p in db.query(Proposal).filter(Proposal.estimate_id.in_(est_ids)).all():
+            for p in db.query(Proposal).options(defer(Proposal.pdf_data)).filter(Proposal.estimate_id.in_(est_ids)).all():
                 proposals[p.estimate_id] = p
 
         for est, lead in pairs:
@@ -600,7 +601,7 @@ def get_deal_stats():
         sent_ids = [e.id for e in sent_estimates]
         proposals = {}
         if sent_ids:
-            for p in db.query(Proposal).filter(Proposal.estimate_id.in_(sent_ids)).all():
+            for p in db.query(Proposal).options(defer(Proposal.pdf_data)).filter(Proposal.estimate_id.in_(sent_ids)).all():
                 proposals[p.estimate_id] = p
 
         total_sent = len(sent_estimates)
@@ -673,6 +674,7 @@ def get_timing_analytics():
         # --- Proposal view patterns ---
         proposals = (
             db.query(Proposal, Estimate)
+            .options(defer(Proposal.pdf_data))
             .join(Estimate, Proposal.estimate_id == Estimate.id)
             .join(Lead, Proposal.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Proposal.first_viewed_at.isnot(None))

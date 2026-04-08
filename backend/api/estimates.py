@@ -89,7 +89,8 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
         est_ids = [e.id for e, _ in rows]
         proposals = {}
         if est_ids:
-            for p in db.query(Proposal).filter(Proposal.estimate_id.in_(est_ids)).all():
+            from sqlalchemy.orm import defer
+            for p in db.query(Proposal).options(defer(Proposal.pdf_data)).filter(Proposal.estimate_id.in_(est_ids)).all():
                 proposals[p.estimate_id] = p
 
         results = []
