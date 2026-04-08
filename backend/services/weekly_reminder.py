@@ -3,9 +3,9 @@ Weekly reminder — sends Alan a text every Saturday to update closed deals in t
 """
 from __future__ import annotations
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from config import get_settings
-from database import get_db, Estimate, Lead
+from database import get_db, Estimate, Lead, Proposal
 from services.ghl import send_sms
 
 logger = logging.getLogger(__name__)
@@ -58,5 +58,38 @@ def run_weekly_reminder():
 
     except Exception as e:
         logger.error(f"Weekly reminder failed: {e}")
+    finally:
+        db.close()
+
+    # Also clean up stale PDF data
+    cleanup_stale_pdf_data()
+
+
+def cleanup_stale_pdf_data():
+    """Clear pdf_data from proposals older than 60 days that haven't closed.
+    JPEG pages are preserved so the proposal link still works."""
+    db = get_db()
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+        stale = (
+            db.query(Proposal)
+            .filter(
+                Proposal.pdf_data.isnot(None),
+                Proposal.created_at < cutoff,
+            )
+            .all()
+        )
+
+        cleared = 0
+        for p in stale:
+            p.pdf_data = None
+            cleared += 1
+
+        if cleared:
+            db.commit()
+            logger.info(f"Cleaned pdf_data from {cleared} stale proposal(s) (60+ days old)")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Stale PDF cleanup failed: {e}")
     finally:
         db.close()

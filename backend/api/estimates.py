@@ -839,6 +839,12 @@ def close_estimate(estimate_id: str, body: CloseBody):
             lead.status = "closed"
             lead.updated_at = _now()
 
+        # Free up storage: clear PDF binary from proposal (JPEG pages stay for viewing)
+        proposal = db.query(Proposal).filter(Proposal.estimate_id == estimate_id).first()
+        if proposal and proposal.pdf_data:
+            proposal.pdf_data = None
+            logger.info(f"Cleared pdf_data for closed proposal {proposal.id}")
+
         db.commit()
 
         tiers = est.to_dict()["tiers"]

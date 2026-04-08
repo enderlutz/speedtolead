@@ -4,6 +4,7 @@ Pre-rasterized JPEG pages for <2s loading.
 """
 from __future__ import annotations
 import logging
+import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
@@ -89,18 +90,23 @@ def get_proposal_page(token: str, page_num: int):
 
 @router.get("/proposal/{token}/pdf")
 def get_proposal_pdf(token: str):
-    """Serve the raw filled PDF (for download)."""
+    """Serve the filled PDF for download. Regenerates on-demand if cleared."""
     db = get_db()
     try:
         proposal = db.query(Proposal).filter(Proposal.token == token).first()
         if not proposal:
             raise HTTPException(status_code=404, detail="Proposal not found")
 
-        if not proposal.pdf_data:
-            raise HTTPException(status_code=404, detail="No PDF available")
+        pdf_bytes = proposal.pdf_data
+
+        # Regenerate on-demand if pdf_data was cleared (closed/stale proposals)
+        if not pdf_bytes:
+            pdf_bytes = _regenerate_pdf(db, proposal)
+            if not pdf_bytes:
+                raise HTTPException(status_code=404, detail="No PDF available")
 
         return Response(
-            content=proposal.pdf_data,
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f"inline; filename=estimate_{token}.pdf",
@@ -109,3 +115,43 @@ def get_proposal_pdf(token: str):
         )
     finally:
         db.close()
+
+
+def _regenerate_pdf(db, proposal) -> bytes | None:
+    """Regenerate a PDF from the template + estimate data."""
+    from services.template_cache import get_template as get_cached_template
+    from services.pdf_generator import generate_filled_pdf
+
+    try:
+        est = db.query(Estimate).filter(Estimate.id == proposal.estimate_id).first()
+        lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
+        template = get_cached_template()
+        if not est or not lead or not template:
+            return None
+
+        field_map = json.loads(template["field_map"]) if isinstance(template["field_map"], str) else template["field_map"]
+        tiers = est.to_dict()["tiers"]
+        fd = lead.to_dict().get("form_data", {})
+        fin = fd.get("include_financing", True) is not False
+
+        from api.estimates import _format_price, _format_monthly_label, _build_pricing_includes
+        values = {
+            "customer_name": (lead.contact_name or "").title(),
+            "address": lead.address,
+            "essential_price": _format_price(tiers.get("essential", 0), fin),
+            "signature_price": _format_price(tiers.get("signature", 0), fin),
+            "legacy_price": _format_price(tiers.get("legacy", 0), fin),
+            "essential_monthly": _format_monthly_label(fin),
+            "signature_monthly": _format_monthly_label(fin),
+            "legacy_monthly": _format_monthly_label(fin),
+            "date": datetime.now().strftime("%B %d, %Y"),
+        }
+        fence_sides = fd.get("fence_sides", [])
+        if isinstance(fence_sides, str):
+            fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
+        values["pricing_includes"] = _build_pricing_includes(fence_sides, fd)
+
+        return generate_filled_pdf(template["pdf_data"], field_map, values)
+    except Exception as e:
+        logger.error(f"PDF regeneration failed for proposal {proposal.id}: {e}")
+        return None
