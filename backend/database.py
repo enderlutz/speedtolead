@@ -154,7 +154,7 @@ class Proposal(Base):
             "lead_id": self.lead_id,
             "status": self.status,
             "proposal_version": self.proposal_version,
-            "has_pdf": self.pdf_data is not None,
+            "has_pdf": (self.pdf_page_count or 0) > 0,
             "first_viewed_at": self.first_viewed_at,
             "created_at": self.created_at,
         }
