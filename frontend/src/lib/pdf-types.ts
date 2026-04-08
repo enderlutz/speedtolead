@@ -5,6 +5,7 @@ export interface PdfFieldPlacement {
   font_size: number;
   color: string;
   width?: number; // text box width (0 = no box, left-aligned)
+  locked?: boolean;
 }
 
 export interface PdfField extends PdfFieldPlacement {
