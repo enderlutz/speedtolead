@@ -162,7 +162,7 @@ def get_template_page(page_num: int):
     return Response(
         content=img_bytes,
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": "no-cache"},
     )
 
 

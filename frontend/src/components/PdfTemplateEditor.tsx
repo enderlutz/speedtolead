@@ -44,7 +44,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
   useEffect(() => {
     let cancelled = false;
     setPageImageUrl(null);
-    fetch(api.getTemplatePageUrl(currentPage))
+    fetch(api.getTemplatePageUrl(currentPage, Date.now().toString()))
       .then((res) => { if (res.ok) return res.blob(); throw new Error(); })
       .then((blob) => { if (!cancelled) setPageImageUrl(URL.createObjectURL(blob)); })
       .catch(() => {});

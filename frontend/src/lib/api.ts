@@ -420,7 +420,7 @@ export const api = {
     return res.json();
   },
   getPdfTemplate: () => request<{ id: string; filename: string; page_count: number; field_map: Record<string, unknown> }>("/api/pdf-templates/current"),
-  getTemplatePageUrl: (pageNum: number) => `${BASE}/api/pdf-templates/page/${pageNum}`,
+  getTemplatePageUrl: (pageNum: number, bust?: string) => `${BASE}/api/pdf-templates/page/${pageNum}${bust ? `?v=${bust}` : ""}`,
   updateFieldMap: (field_map: Record<string, unknown>) =>
     request("/api/pdf-templates/field-map", {
       method: "PUT",

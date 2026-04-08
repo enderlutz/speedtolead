@@ -126,7 +126,7 @@ export default function EditPdf() {
         const img = new window.Image();
         img.crossOrigin = "anonymous";
         const pageIdx = i;
-        fetch(api.getTemplatePageUrl(i))
+        fetch(api.getTemplatePageUrl(i, tmpl.id))
           .then((r) => r.blob())
           .then((blob) => {
             img.onload = () => {
