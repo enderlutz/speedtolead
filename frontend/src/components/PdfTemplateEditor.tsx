@@ -11,7 +11,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, Save, GripVertical } from "luc
 interface Props {
   pageCount: number;
   pageSizes: { width: number; height: number }[];
-  initialFieldMap: Record<string, { page: number; x: number; y: number; font_size: number; color?: string }>;
+  initialFieldMap: Record<string, { page: number; x: number; y: number; font_size: number; color?: string; width?: number }>;
   onSave: (fieldMap: Record<string, unknown>) => void;
 }
 
@@ -30,6 +30,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
       y: v.y,
       font_size: v.font_size || 12,
       color: v.color || PRESET_FIELD_COLORS[key] || "#2B2B2B",
+      width: v.width || 0,
     }))
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
       x: ps.width / 2, y: ps.height / 3,
       font_size: 14,
       color: PRESET_FIELD_COLORS[key] || "#2B2B2B",
+      width: 0,
     }]);
     setSelectedId(id);
     setAddMenuOpen(false);
@@ -160,6 +162,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
         y: Math.round(f.y * 100) / 100,
         font_size: f.font_size,
         color: f.color,
+        width: f.width || 0,
       };
     }
     try {
@@ -230,6 +233,8 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
             const ps = getPageSize(currentPage);
             const screen = pdfToScreen(field.x, field.y, w, h, ps.width, ps.height);
             const isSelected = field.id === selectedId;
+            const boxW = (field.width || 0) * (w / ps.width);
+            const isPrice = field.id.endsWith("_price");
             return (
               <div key={field.id} data-field
                 onMouseDown={(e) => handleMouseDown(e, field.id)}
@@ -238,6 +243,21 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
                   isSelected ? "z-20" : "z-10"
                 }`}
                 style={{ left: screen.x, top: screen.y }}>
+                {/* Box width visual */}
+                {boxW > 0 && isSelected && (
+                  <div style={{
+                    position: "absolute", left: 0, top: 0,
+                    width: boxW, height: field.font_size * (w / ps.width) * 1.4,
+                    border: "1px dashed #3b82f6",
+                    backgroundColor: "rgba(59,130,246,0.05)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    pointerEvents: "none",
+                  }}>
+                    <span style={{ fontSize: field.font_size * (w / ps.width) * 0.8, color: "rgba(100,100,100,0.3)", fontWeight: "bold", whiteSpace: "nowrap" }}>
+                      {isPrice ? "$2,115 or $100.57/mo" : field.label}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-start gap-1" style={{ transform: "translate(0, -50%)" }}>
                   {/* Arrow pointing to exact text insertion point */}
                   <div className={`flex flex-col items-center ${isSelected ? "" : "opacity-70 hover:opacity-100"}`}>
@@ -278,6 +298,14 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
               <div>
                 <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Color</label>
                 <ColorPicker value={selected.color} onChange={(c) => updateField(selected.id, { color: c })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Box Width (0 = left-aligned)</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={0} max={400} value={selected.width || 0}
+                    onChange={(e) => updateField(selected.id, { width: Number(e.target.value) })} className="flex-1" />
+                  <span className="text-xs font-mono w-8 text-right">{selected.width || 0}</span>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>

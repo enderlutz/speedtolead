@@ -4,6 +4,7 @@ export interface PdfFieldPlacement {
   y: number;
   font_size: number;
   color: string;
+  width?: number; // text box width (0 = no box, left-aligned)
 }
 
 export interface PdfField extends PdfFieldPlacement {
