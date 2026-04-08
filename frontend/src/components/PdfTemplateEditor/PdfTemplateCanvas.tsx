@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useCallback } from "react";
 import { Stage, Layer, Rect, Text as KonvaText, Image as KonvaImage, Line, Group, Label, Tag } from "react-konva";
 import type Konva from "konva";
 import type { EditorField } from "./use-editor-state";
@@ -52,7 +52,7 @@ export default function PdfTemplateCanvas({
       y={panOffset.y}
       onWheel={onWheel}
       onClick={handleStageClick}
-      onTap={handleStageClick}
+      onTap={handleStageClick as unknown as (e: Konva.KonvaEventObject<TouchEvent>) => void}
     >
       {/* Background layer */}
       <Layer>

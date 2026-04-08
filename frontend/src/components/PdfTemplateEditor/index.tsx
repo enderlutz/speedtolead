@@ -197,7 +197,6 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
               fields={editor.fields}
               selectedId={editor.selectedId}
               usedPresets={editor.usedPresets}
-              currentPage={editor.currentPage}
               onSelect={editor.setSelectedId}
               onNavigate={editor.setCurrentPage}
               onToggleLock={editor.toggleLock}

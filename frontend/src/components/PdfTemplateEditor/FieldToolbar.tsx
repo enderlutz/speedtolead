@@ -7,7 +7,6 @@ interface Props {
   fields: EditorField[];
   selectedId: string | null;
   usedPresets: Set<string>;
-  currentPage: number;
   onSelect: (id: string) => void;
   onNavigate: (page: number) => void;
   onToggleLock: (id: string) => void;
@@ -34,7 +33,7 @@ function DraggableFieldItem({ fieldKey, label, color }: { fieldKey: string; labe
 }
 
 export default function FieldToolbar({
-  fields, selectedId, usedPresets, currentPage, onSelect, onNavigate, onToggleLock,
+  fields, selectedId, usedPresets, onSelect, onNavigate, onToggleLock,
 }: Props) {
   const availablePresets = PRESET_FIELDS.filter((k) => !usedPresets.has(k));
 
