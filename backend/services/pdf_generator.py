@@ -49,16 +49,20 @@ def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
     return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
 
 
-def _render_split_price(page, x: float, y_baseline: float, font_size: float, text: str, style: dict):
+def _render_split_price(page, x: float, y_baseline: float, font_size: float, text: str, style: dict, box_width: float = 0):
     """Render a price string like '$1,825 or $86.86/mo' with split colors.
-    Dollar amounts are bold in price_color, 'or' is regular in or_color."""
+    Dollar amounts are bold in price_color, 'or' is regular in or_color.
+    If box_width > 0, the entire price is centered within the box."""
     parts = text.split(" or ", 1)
     if len(parts) != 2:
-        # Fallback: render as single bold text
         kwargs = {"fontsize": font_size, "color": _hex_to_rgb(style["price_color"])}
         if FONT_BOLD_PATH:
             kwargs["fontname"] = FONT_BOLD_NAME
             kwargs["fontfile"] = FONT_BOLD_PATH
+        if box_width > 0:
+            font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
+            tw = font.text_length(text, fontsize=font_size)
+            x = x + (box_width - tw) / 2
         page.insert_text(fitz.Point(x, y_baseline), text, **kwargs)
         return
 
@@ -67,13 +71,20 @@ def _render_split_price(page, x: float, y_baseline: float, font_size: float, tex
     price_color = _hex_to_rgb(style["price_color"])
     or_color = _hex_to_rgb(style["or_color"])
 
-    # Build font objects for width measurement
     bold_font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
     regular_font = fitz.Font(fontfile=FONT_PATH) if FONT_PATH else fitz.Font("helv")
 
-    cursor_x = x
+    or_text = " or "
+    # Calculate total width for centering
+    total_w = (bold_font.text_length(price_part, fontsize=font_size)
+               + regular_font.text_length(or_text, fontsize=font_size)
+               + bold_font.text_length(monthly_part, fontsize=font_size))
 
-    # 1. Render price part — bold, price_color
+    cursor_x = x
+    if box_width > 0:
+        cursor_x = x + (box_width - total_w) / 2
+
+    # 1. Price part — bold, price_color
     bold_kwargs = {"fontsize": font_size, "color": price_color}
     if FONT_BOLD_PATH:
         bold_kwargs["fontname"] = FONT_BOLD_NAME
@@ -81,8 +92,7 @@ def _render_split_price(page, x: float, y_baseline: float, font_size: float, tex
     page.insert_text(fitz.Point(cursor_x, y_baseline), price_part, **bold_kwargs)
     cursor_x += bold_font.text_length(price_part, fontsize=font_size)
 
-    # 2. Render " or " — regular, or_color
-    or_text = " or "
+    # 2. " or " — regular, or_color
     or_kwargs = {"fontsize": font_size, "color": or_color}
     if FONT_PATH:
         or_kwargs["fontname"] = FONT_NAME
@@ -90,7 +100,7 @@ def _render_split_price(page, x: float, y_baseline: float, font_size: float, tex
     page.insert_text(fitz.Point(cursor_x, y_baseline), or_text, **or_kwargs)
     cursor_x += regular_font.text_length(or_text, fontsize=font_size)
 
-    # 3. Render monthly part — bold, price_color
+    # 3. Monthly part — bold, price_color
     page.insert_text(fitz.Point(cursor_x, y_baseline), monthly_part, **bold_kwargs)
 
 
@@ -126,10 +136,11 @@ def generate_filled_pdf(
         y_baseline = y + font_size * 0.82
         is_bold = field_key in BOLD_FIELDS
         text_value = str(values[field_key])
+        box_width = float(placement.get("width", 0))
 
         # Split price rendering: "$X,XXX" bold color + "or" different color + "$XX.XX/mo" bold color
         if field_key in PRICE_STYLE and " or " in text_value:
-            _render_split_price(page, x, y_baseline, font_size, text_value, PRICE_STYLE[field_key])
+            _render_split_price(page, x, y_baseline, font_size, text_value, PRICE_STYLE[field_key], box_width)
         else:
             font_kwargs: dict = {"fontsize": font_size, "color": color}
             if is_bold and FONT_BOLD_PATH:
@@ -138,7 +149,15 @@ def generate_filled_pdf(
             elif FONT_PATH:
                 font_kwargs["fontname"] = FONT_NAME
                 font_kwargs["fontfile"] = FONT_PATH
-            page.insert_text(fitz.Point(x, y_baseline), text_value, **font_kwargs)
+
+            # Center text within box if width is set
+            render_x = x
+            if box_width > 0:
+                font_obj = fitz.Font(fontfile=FONT_BOLD_PATH if is_bold and FONT_BOLD_PATH else FONT_PATH) if (FONT_BOLD_PATH or FONT_PATH) else fitz.Font("helv")
+                tw = font_obj.text_length(text_value, fontsize=font_size)
+                render_x = x + (box_width - tw) / 2
+
+            page.insert_text(fitz.Point(render_x, y_baseline), text_value, **font_kwargs)
 
     # Insert extra custom text fields
     if extra_fields:

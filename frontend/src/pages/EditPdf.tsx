@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect } from "react-konva";
 import { api, type LeadDetail, type EstimateDetail } from "@/lib/api";
@@ -20,6 +20,7 @@ interface CanvasField {
   color: string;
   value: string;
   bold: boolean;
+  width: number; // text box width (0 = no box, left-aligned)
 }
 
 function genId() {
@@ -104,7 +105,7 @@ export default function EditPdf() {
       };
 
       // Load field map from template + fill values
-      const fm = tmpl.field_map as Record<string, { page: number; x: number; y: number; font_size: number; color?: string }>;
+      const fm = tmpl.field_map as Record<string, { page: number; x: number; y: number; font_size: number; color?: string; width?: number }>;
       const initialFields: CanvasField[] = Object.entries(fm).map(([key, v]) => ({
         id: key,
         label: PRESET_FIELD_LABELS[key] || key,
@@ -115,6 +116,7 @@ export default function EditPdf() {
         color: v.color || PRESET_FIELD_COLORS[key] || "#2B2B2B",
         value: vals[key] || "",
         bold: key === "customer_name",
+        width: (v as Record<string, unknown>).width as number || 0,
       }));
       setFields(initialFields);
 
@@ -160,6 +162,7 @@ export default function EditPdf() {
       color: "#2B2B2B",
       value: "Custom text",
       bold: false,
+      width: 0,
     };
     setFields((prev) => [...prev, newField]);
     setSelectedId(newField.id);
@@ -196,7 +199,7 @@ export default function EditPdf() {
     try {
       const payload = fields.map((f) => ({
         id: f.id, page: f.page, x: f.x, y: f.y,
-        font_size: f.font_size, color: f.color, value: f.value, bold: f.bold,
+        font_size: f.font_size, color: f.color, value: f.value, bold: f.bold, width: f.width || 0,
       }));
       await api.saveAndSendEstimate(estimate.id, payload);
       setSent(true);
@@ -301,27 +304,35 @@ export default function EditPdf() {
                   const isSelected = field.id === selectedId;
                   const isEditing = field.id === editingId;
 
+                  const boxW = (field.width || 0) * scaleX;
                   return (
-                    <KonvaText
-                      key={field.id}
-                      x={cx}
-                      y={cy}
-                      text={isEditing ? "" : field.value}
-                      fontSize={fontSize}
-                      fontFamily="'Libre Baskerville', Georgia, serif"
-                      fontStyle={field.bold ? "bold" : "normal"}
-                      fill={field.color}
-                      draggable
-                      visible={!isEditing}
-                      dragBoundFunc={isTouchDevice ? (pos) => ({ x: pos.x, y: pos.y - DRAG_OFFSET_Y }) : undefined}
-                      onDragEnd={(e) => handleDragEnd(field.id, e.target.x(), e.target.y())}
-                      onClick={() => setSelectedId(field.id)}
-                      onTap={() => setSelectedId(field.id)}
-                      onDblClick={() => startEditing(field.id)}
-                      onDblTap={() => startEditing(field.id)}
-                      stroke={isSelected ? "#3b82f6" : undefined}
-                      strokeWidth={isSelected ? 0.5 : 0}
-                    />
+                    <React.Fragment key={field.id}>
+                      {boxW > 0 && isSelected && (
+                        <Rect x={cx} y={cy} width={boxW} height={fontSize * 1.4}
+                          stroke="#3b82f6" strokeWidth={0.5} dash={[4, 2]} fill="rgba(59,130,246,0.05)" />
+                      )}
+                      <KonvaText
+                        x={boxW > 0 ? cx : cx}
+                        y={cy}
+                        text={isEditing ? "" : field.value}
+                        fontSize={fontSize}
+                        fontFamily="'Libre Baskerville', Georgia, serif"
+                        fontStyle={field.bold ? "bold" : "normal"}
+                        fill={field.color}
+                        width={boxW > 0 ? boxW : undefined}
+                        align={boxW > 0 ? "center" : "left"}
+                        draggable
+                        visible={!isEditing}
+                        dragBoundFunc={isTouchDevice ? (pos) => ({ x: pos.x, y: pos.y - DRAG_OFFSET_Y }) : undefined}
+                        onDragEnd={(e) => handleDragEnd(field.id, e.target.x(), e.target.y())}
+                        onClick={() => setSelectedId(field.id)}
+                        onTap={() => setSelectedId(field.id)}
+                        onDblClick={() => startEditing(field.id)}
+                        onDblTap={() => startEditing(field.id)}
+                        stroke={isSelected ? "#3b82f6" : undefined}
+                        strokeWidth={isSelected ? 0.5 : 0}
+                      />
+                    </React.Fragment>
                   );
                 })}
               </Layer>
@@ -374,6 +385,14 @@ export default function EditPdf() {
                 <div>
                   <label className="text-[10px] text-muted-foreground block mb-0.5">Color</label>
                   <ColorPicker value={selected.color} onChange={(c) => updateField(selected.id, { color: c })} />
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-0.5">Box Width (0 = auto)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="range" min={0} max={400} value={selected.width || 0}
+                      onChange={(e) => updateField(selected.id, { width: Number(e.target.value) })} className="flex-1" />
+                    <span className="text-[10px] font-mono w-8 text-right">{selected.width || 0}</span>
+                  </div>
                 </div>
                 <div>
                   <label className="flex items-center gap-2 text-xs cursor-pointer">

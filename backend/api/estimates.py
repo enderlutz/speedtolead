@@ -668,6 +668,7 @@ class SavePdfField(BaseModel):
     color: str = "#2B2B2B"
     value: str = ""
     bold: bool = False
+    width: float = 0  # text box width (0 = no box)
 
 
 class SavePdfBody(BaseModel):
@@ -708,6 +709,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 field_map[f.id] = {
                     "page": f.page, "x": f.x, "y": f.y,
                     "font_size": f.font_size, "color": f.color,
+                    "width": f.width or 0,
                 }
                 values[f.id] = f.value
 
