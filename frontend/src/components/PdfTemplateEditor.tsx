@@ -6,7 +6,7 @@ import ColorPicker from "@/components/ColorPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Plus, Trash2, Save, GripVertical } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, Save, GripVertical, Crosshair } from "lucide-react";
 
 interface Props {
   pageCount: number;
@@ -18,6 +18,18 @@ interface Props {
 function genId() {
   return `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
+
+const EXAMPLE_TEXT: Record<string, string> = {
+  essential_price: "$1,825 or $86.86/mo",
+  signature_price: "$2,115 or $100.57/mo",
+  legacy_price: "$2,715 or $129.14/mo",
+  essential_monthly: "Per month for 21mo",
+  signature_monthly: "Per month for 21mo",
+  legacy_monthly: "Per month for 21mo",
+  pricing_includes: "Inside Fences, Outside Fences",
+  customer_name: "John Smith",
+  date: "April 8, 2026",
+};
 
 export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMap, onSave }: Props) {
   const [currentPage, setCurrentPage] = useState(0);
@@ -37,11 +49,13 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
+  // Draw mode: when a field is pending placement, user draws a box on the canvas
+  const [drawMode, setDrawMode] = useState<{ key: string; label: string } | null>(null);
+  const [drawRect, setDrawRect] = useState<{ startX: number; startY: number; curX: number; curY: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ fieldId: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
 
-  // Load page image via fetch (handles auth + avoids CORS issues)
   useEffect(() => {
     let cancelled = false;
     setPageImageUrl(null);
@@ -67,18 +81,79 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
     return { w: w > 0 ? w : 612, h: h > 0 ? h : 792 };
   }, []);
 
+  // Start draw mode when user picks a field from the menu
   const handleAddField = (key: string, label: string) => {
-    const id = PRESET_FIELDS.includes(key as never) ? key : genId();
+    setDrawMode({ key, label });
+    setAddMenuOpen(false);
+    setSelectedId(null);
+  };
+
+  // Cancel draw mode on Escape
+  useEffect(() => {
+    if (!drawMode) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setDrawMode(null); setDrawRect(null); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [drawMode]);
+
+  // Draw mode: mouse down on canvas starts the rectangle
+  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    if (!drawMode) {
+      setSelectedId(null);
+      return;
+    }
+    e.preventDefault();
+    const rect = imgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setDrawRect({ startX: x, startY: y, curX: x, curY: y });
+
+    const handleMove = (ev: MouseEvent) => {
+      setDrawRect((prev) => prev ? { ...prev, curX: ev.clientX - rect.left, curY: ev.clientY - rect.top } : null);
+    };
+    const handleUp = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      const endX = ev.clientX - rect.left;
+      const endY = ev.clientY - rect.top;
+      finalizeDraw(x, y, endX, endY);
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  };
+
+  const finalizeDraw = (sx: number, sy: number, ex: number, ey: number) => {
+    if (!drawMode) return;
+    const { w, h } = getImgDims();
     const ps = getPageSize(currentPage);
+    const left = Math.min(sx, ex);
+    const top = Math.min(sy, ey);
+    const boxScreenW = Math.abs(ex - sx);
+
+    // Convert screen coords to PDF coords
+    const pdf = screenToPdf(left, top, w, h, ps.width, ps.height);
+    const pdfWidth = (boxScreenW / w) * ps.width;
+
+    // Minimum box size — if they just clicked without dragging, default to 200pt width
+    const finalWidth = pdfWidth < 20 ? 200 : Math.round(pdfWidth);
+
+    const id = PRESET_FIELDS.includes(drawMode.key as never) ? drawMode.key : genId();
     setFields((prev) => [...prev, {
-      id, label, page: currentPage,
-      x: ps.width / 2, y: ps.height / 3,
+      id,
+      label: drawMode.label,
+      page: currentPage,
+      x: Math.round(pdf.x * 10) / 10,
+      y: Math.round(pdf.y * 10) / 10,
       font_size: 14,
-      color: PRESET_FIELD_COLORS[key] || "#2B2B2B",
-      width: 0,
+      color: PRESET_FIELD_COLORS[drawMode.key] || "#2B2B2B",
+      width: finalWidth,
     }]);
     setSelectedId(id);
-    setAddMenuOpen(false);
+    setDrawMode(null);
+    setDrawRect(null);
   };
 
   const updateField = (id: string, updates: Partial<PdfField>) => {
@@ -91,6 +166,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
   };
 
   const handleMouseDown = (e: React.MouseEvent, fieldId: string) => {
+    if (drawMode) return; // Don't drag fields during draw mode
     e.preventDefault();
     e.stopPropagation();
     setSelectedId(fieldId);
@@ -120,6 +196,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
   };
 
   const handleTouchStart = (e: React.TouchEvent, fieldId: string) => {
+    if (drawMode) return;
     e.stopPropagation();
     setSelectedId(fieldId);
     const touch = e.touches[0];
@@ -176,8 +253,27 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
     }
   };
 
+  // Compute draw rect in screen pixels
+  const drawRectStyle = drawRect ? {
+    left: Math.min(drawRect.startX, drawRect.curX),
+    top: Math.min(drawRect.startY, drawRect.curY),
+    width: Math.abs(drawRect.curX - drawRect.startX),
+    height: Math.abs(drawRect.curY - drawRect.startY),
+  } : null;
+
   return (
     <div className="space-y-3">
+      {/* Draw mode banner */}
+      {drawMode && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm">
+          <Crosshair className="h-4 w-4 shrink-0" />
+          <span>Draw a box on the PDF where <strong>{drawMode.label}</strong> should appear</span>
+          <Button variant="ghost" size="sm" className="ml-auto text-blue-600" onClick={() => { setDrawMode(null); setDrawRect(null); }}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-1.5">
@@ -191,7 +287,7 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
         </div>
         <div className="flex items-center gap-1.5">
           <div className="relative">
-            <Button variant="outline" size="sm" onClick={() => setAddMenuOpen(!addMenuOpen)}>
+            <Button variant="outline" size="sm" onClick={() => setAddMenuOpen(!addMenuOpen)} disabled={!!drawMode}>
               <Plus className="h-4 w-4 mr-1" /> Add Field
             </Button>
             {addMenuOpen && (
@@ -221,51 +317,72 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-4">
         {/* PDF page with overlay */}
-        <div ref={containerRef} className="relative border rounded-lg overflow-hidden bg-gray-100" onClick={() => setSelectedId(null)}>
+        <div ref={containerRef}
+          className={`relative border rounded-lg overflow-hidden bg-gray-100 ${drawMode ? "cursor-crosshair" : ""}`}
+          onMouseDown={handleCanvasMouseDown}>
           {pageImageUrl ? (
             <img ref={imgRef} src={pageImageUrl} alt={`Page ${currentPage + 1}`}
               className="w-full block" draggable={false} onLoad={() => setFields((f) => [...f])} />
           ) : (
             <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">Loading page...</div>
           )}
+
+          {/* Draw rectangle preview */}
+          {drawRect && drawRectStyle && drawRectStyle.width > 5 && (
+            <div className="absolute pointer-events-none" style={{
+              ...drawRectStyle,
+              border: "2px dashed #3b82f6",
+              backgroundColor: "rgba(59,130,246,0.1)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <span className="text-xs font-bold text-blue-500/50 whitespace-nowrap">
+                {EXAMPLE_TEXT[drawMode?.key || ""] || drawMode?.label || ""}
+              </span>
+            </div>
+          )}
+
+          {/* Placed fields */}
           {pageFields.map((field) => {
             const { w, h } = getImgDims();
             const ps = getPageSize(currentPage);
             const screen = pdfToScreen(field.x, field.y, w, h, ps.width, ps.height);
             const isSelected = field.id === selectedId;
             const boxW = (field.width || 0) * (w / ps.width);
-            const isPrice = field.id.endsWith("_price");
+            const boxH = field.font_size * (w / ps.width) * 1.4;
             return (
               <div key={field.id} data-field
                 onMouseDown={(e) => handleMouseDown(e, field.id)}
                 onTouchStart={(e) => handleTouchStart(e, field.id)}
-                className={`absolute cursor-grab select-none touch-none ${
+                className={`absolute select-none touch-none ${drawMode ? "pointer-events-none" : "cursor-grab"} ${
                   isSelected ? "z-20" : "z-10"
                 }`}
                 style={{ left: screen.x, top: screen.y }}>
-                {/* Box width visual */}
-                {boxW > 0 && isSelected && (
+                {/* Box visual with example text */}
+                {boxW > 0 && (
                   <div style={{
                     position: "absolute", left: 0, top: 0,
-                    width: boxW, height: field.font_size * (w / ps.width) * 1.4,
-                    border: "1px dashed #3b82f6",
-                    backgroundColor: "rgba(59,130,246,0.05)",
+                    width: boxW, height: boxH,
+                    border: isSelected ? "2px solid #3b82f6" : "1px dashed rgba(100,100,100,0.3)",
+                    backgroundColor: isSelected ? "rgba(59,130,246,0.05)" : "transparent",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    pointerEvents: "none",
+                    borderRadius: 2, pointerEvents: "none",
                   }}>
-                    <span style={{ fontSize: field.font_size * (w / ps.width) * 0.8, color: "rgba(100,100,100,0.3)", fontWeight: "bold", whiteSpace: "nowrap" }}>
-                      {isPrice ? "$2,115 or $100.57/mo" : field.label}
+                    <span style={{
+                      fontSize: field.font_size * (w / ps.width) * 0.75,
+                      color: isSelected ? "rgba(59,130,246,0.4)" : "rgba(100,100,100,0.25)",
+                      fontWeight: "bold", whiteSpace: "nowrap",
+                    }}>
+                      {EXAMPLE_TEXT[field.id] || field.label}
                     </span>
                   </div>
                 )}
+                {/* Label tag */}
                 <div className="flex items-start gap-1" style={{ transform: "translate(0, -50%)" }}>
-                  {/* Arrow pointing to exact text insertion point */}
                   <div className={`flex flex-col items-center ${isSelected ? "" : "opacity-70 hover:opacity-100"}`}>
                     <div className="w-0 h-0 border-l-[5px] border-r-[5px] border-t-[7px] border-l-transparent border-r-transparent"
                       style={{ borderTopColor: isSelected ? "#3b82f6" : field.color }} />
                     <div className="w-0.5 h-2.5" style={{ backgroundColor: isSelected ? "#3b82f6" : field.color }} />
                   </div>
-                  {/* Label tag */}
                   <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shadow-sm ${
                     isSelected ? "bg-blue-500 text-white ring-2 ring-blue-300" : "text-white"
                   }`} style={{ backgroundColor: isSelected ? undefined : field.color }}>
@@ -299,14 +416,6 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
                 <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Color</label>
                 <ColorPicker value={selected.color} onChange={(c) => updateField(selected.id, { color: c })} />
               </div>
-              <div>
-                <label className="text-[10px] font-medium text-muted-foreground mb-1 block">Box Width (0 = left-aligned)</label>
-                <div className="flex items-center gap-2">
-                  <input type="range" min={0} max={400} value={selected.width || 0}
-                    onChange={(e) => updateField(selected.id, { width: Number(e.target.value) })} className="flex-1" />
-                  <span className="text-xs font-mono w-8 text-right">{selected.width || 0}</span>
-                </div>
-              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] font-medium text-muted-foreground mb-1 block">X</label>
@@ -329,7 +438,9 @@ export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMa
               </Button>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Click a field to edit, or "Add Field" to place a new one.</p>
+            <p className="text-xs text-muted-foreground">
+              {drawMode ? "Draw on the PDF to place the field." : "Click a field to edit, or \"Add Field\" to place a new one."}
+            </p>
           )}
           <div>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">All Fields ({fields.length})</p>
