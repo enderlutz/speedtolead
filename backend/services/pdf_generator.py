@@ -26,6 +26,20 @@ else:
     logger.info(f"PDF bold font loaded: {FONT_BOLD_PATH}")
 FONT_NAME = "montserrat"
 FONT_BOLD_NAME = "montserrat-bold"
+
+# Libre Baskerville for customer name only
+LB_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Regular.ttf")
+LB_BOLD_PATH = os.path.join(_FONTS_DIR, "LibreBaskerville-Bold.ttf")
+if not os.path.exists(LB_PATH):
+    LB_PATH = FONT_PATH
+if not os.path.exists(LB_BOLD_PATH):
+    LB_BOLD_PATH = FONT_BOLD_PATH
+LB_NAME = "libre-baskerville"
+LB_BOLD_NAME = "libre-baskerville-bold"
+
+# Fields that use Libre Baskerville instead of Montserrat
+LIBRE_FIELDS = {"customer_name"}
+
 DEFAULT_COLOR = "#2B2B2B"
 
 # Fields that should render in bold
@@ -143,7 +157,15 @@ def generate_filled_pdf(
             _render_split_price(page, x, y_baseline, font_size, text_value, PRICE_STYLE[field_key], box_width)
         else:
             font_kwargs: dict = {"fontsize": font_size, "color": color}
-            if is_bold and FONT_BOLD_PATH:
+            use_libre = field_key in LIBRE_FIELDS
+            if use_libre:
+                if is_bold and LB_BOLD_PATH:
+                    font_kwargs["fontname"] = LB_BOLD_NAME
+                    font_kwargs["fontfile"] = LB_BOLD_PATH
+                elif LB_PATH:
+                    font_kwargs["fontname"] = LB_NAME
+                    font_kwargs["fontfile"] = LB_PATH
+            elif is_bold and FONT_BOLD_PATH:
                 font_kwargs["fontname"] = FONT_BOLD_NAME
                 font_kwargs["fontfile"] = FONT_BOLD_PATH
             elif FONT_PATH:
