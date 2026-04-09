@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 
@@ -697,15 +697,20 @@ export default function LeadDetail() {
                   );
                 })}
                 {estimate.breakdown.length > 0 && (
-                  <div className="pt-2 border-t space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">Breakdown</p>
-                    {estimate.breakdown.map((item, i) => (
-                      <div key={i} className="flex justify-between text-xs">
-                        <span className="truncate mr-2">{item.label}</span>
-                        <span className="font-medium shrink-0">{formatCurrency(item.value)}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <BreakdownEditor
+                    estimateId={estimate.id}
+                    items={estimate.breakdown}
+                    onSaved={(updated) => {
+                      setLead((prev) => {
+                        if (!prev) return prev;
+                        return {
+                          ...prev,
+                          estimates: prev.estimates.map((e) => (e.id === updated.id ? updated : e)),
+                          estimate: prev.estimate?.id === updated.id ? updated : prev.estimate,
+                        };
+                      });
+                    }}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -857,6 +862,191 @@ export default function LeadDetail() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+
+function BreakdownEditor({
+  estimateId, items, onSaved,
+}: {
+  estimateId: string;
+  items: BreakdownItem[];
+  onSaved: (updated: EstimateDetail) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editItems, setEditItems] = useState<BreakdownItem[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState<BreakdownItem[]>([]);
+
+  const startEdit = () => {
+    // Deep clone the current items as editable
+    const cloned = items.map((item) => ({
+      ...item,
+      rate: item.rate ?? undefined,
+      qty: item.qty ?? undefined,
+    }));
+    setEditItems(cloned);
+    setSavedSnapshot(cloned);
+    setEditing(true);
+  };
+
+  const updateItem = (index: number, updates: Partial<BreakdownItem>) => {
+    setEditItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        const updated = { ...item, ...updates };
+        // Recalculate value if rate and qty are present
+        if (updated.rate != null && updated.qty != null) {
+          updated.value = Math.round(updated.rate * updated.qty * 100) / 100;
+        }
+        return updated;
+      }),
+    );
+  };
+
+  const addSurcharge = (type: "rate" | "flat") => {
+    if (type === "rate") {
+      setEditItems((prev) => [...prev, { label: "Surcharge", rate: 0, qty: 0, value: 0, note: "Custom surcharge" }]);
+    } else {
+      setEditItems((prev) => [...prev, { label: "Surcharge", value: 0, note: "Flat surcharge" }]);
+    }
+  };
+
+  const removeItem = (index: number) => {
+    setEditItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const result = await api.overrideBreakdown(estimateId, editItems);
+      onSaved(result);
+      setEditing(false);
+      toast.success("Breakdown updated");
+    } catch {
+      toast.error("Failed to save breakdown");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUndo = () => {
+    setEditItems(savedSnapshot.map((item) => ({ ...item })));
+  };
+
+  const total = editing ? editItems.reduce((sum, item) => sum + (item.value || 0), 0) : 0;
+
+  if (!editing) {
+    return (
+      <div className="pt-2 border-t space-y-1">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">Breakdown</p>
+          <button onClick={startEdit} className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
+            <Pencil className="h-3 w-3" /> Edit
+          </button>
+        </div>
+        {items.map((item, i) => (
+          <div key={i} className="flex justify-between text-xs">
+            <span className="truncate mr-2">{item.label}</span>
+            <span className="font-medium shrink-0">{formatCurrency(item.value)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-2 border-t space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">Edit Breakdown</p>
+        <div className="flex items-center gap-1">
+          <button onClick={handleUndo} className="p-1 rounded hover:bg-muted text-muted-foreground" title="Undo changes">
+            <Undo2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {editItems.map((item, i) => (
+          <div key={i} className="rounded-md border bg-muted/20 p-2 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={item.label}
+                onChange={(e) => updateItem(i, { label: e.target.value })}
+                className="h-7 text-xs flex-1"
+                placeholder="Label"
+              />
+              <button onClick={() => removeItem(i)} className="p-1 rounded hover:bg-red-100 text-muted-foreground hover:text-red-500">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {item.rate != null && item.qty != null ? (
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-muted-foreground shrink-0">$</span>
+                <Input
+                  type="number" step="0.01"
+                  value={item.rate}
+                  onChange={(e) => updateItem(i, { rate: parseFloat(e.target.value) || 0 })}
+                  className="h-6 text-xs w-20"
+                  placeholder="Rate"
+                />
+                <span className="text-muted-foreground shrink-0">x</span>
+                <Input
+                  type="number" step="1"
+                  value={item.qty}
+                  onChange={(e) => updateItem(i, { qty: parseFloat(e.target.value) || 0 })}
+                  className="h-6 text-xs w-20"
+                  placeholder="Qty"
+                />
+                <span className="text-muted-foreground shrink-0">=</span>
+                <span className="font-medium text-xs">{formatCurrency(item.value)}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-muted-foreground shrink-0">$</span>
+                <Input
+                  type="number" step="0.01"
+                  value={item.value}
+                  onChange={(e) => updateItem(i, { value: parseFloat(e.target.value) || 0 })}
+                  className="h-6 text-xs w-28"
+                  placeholder="Amount"
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Add surcharge buttons */}
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => addSurcharge("rate")}
+          className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+        >
+          <Plus className="h-3 w-3" /> Rate x Qty
+        </button>
+        <span className="text-muted-foreground text-[10px]">|</span>
+        <button
+          onClick={() => addSurcharge("flat")}
+          className="flex items-center gap-1 text-[10px] text-primary hover:underline"
+        >
+          <Plus className="h-3 w-3" /> Flat Amount
+        </button>
+      </div>
+
+      {/* Total + Save */}
+      <div className="flex items-center justify-between pt-1.5 border-t">
+        <span className="text-xs font-medium">Essential Total: {formatCurrency(total)}</span>
+        <div className="flex gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -87,6 +87,8 @@ export interface BreakdownItem {
   label: string;
   value: number;
   note?: string;
+  rate?: number;
+  qty?: number;
 }
 
 export interface KPIs {
@@ -304,6 +306,11 @@ export const api = {
     request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/save-pdf`, {
       method: "POST",
       body: JSON.stringify({ fields, send: true }),
+    }),
+  overrideBreakdown: (id: string, items: BreakdownItem[]) =>
+    request<EstimateDetail>(`/api/estimates/${id}/breakdown`, {
+      method: "PUT",
+      body: JSON.stringify({ items }),
     }),
   closeEstimate: (id: string, tier: string, closedAt: string) =>
     request<EstimateDetail>(`/api/estimates/${id}/close`, {

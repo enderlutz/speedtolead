@@ -659,6 +659,70 @@ def quick_approve_info(token: str):
         db.close()
 
 
+class BreakdownItemOverride(BaseModel):
+    label: str
+    rate: float | None = None    # per-unit rate (e.g. $/sqft)
+    qty: float | None = None     # quantity (e.g. sqft)
+    value: float                 # subtotal (rate × qty, or flat amount)
+    note: str = ""
+
+
+class BreakdownOverrideBody(BaseModel):
+    items: list[BreakdownItemOverride]
+
+
+@router.put("/estimates/{estimate_id}/breakdown")
+def override_breakdown(estimate_id: str, body: BreakdownOverrideBody):
+    """Override the estimate breakdown. Recalculates all 3 tiers proportionally."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+
+        # Get original tier ratios
+        old_tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
+        old_essential = float(old_tiers.get("essential", 0))
+        old_signature = float(old_tiers.get("signature", 0))
+        old_legacy = float(old_tiers.get("legacy", 0))
+
+        # Calculate ratios (signature/essential, legacy/essential)
+        sig_ratio = old_signature / old_essential if old_essential > 0 else 1.16
+        leg_ratio = old_legacy / old_essential if old_essential > 0 else 1.50
+
+        # New essential = sum of all breakdown items
+        new_essential = sum(item.value for item in body.items)
+        new_signature = round(new_essential * sig_ratio, 2)
+        new_legacy = round(new_essential * leg_ratio, 2)
+        new_essential = round(new_essential, 2)
+
+        # Build breakdown for storage
+        breakdown = [{"label": item.label, "value": round(item.value, 2), "note": item.note,
+                       "rate": item.rate, "qty": item.qty} for item in body.items]
+
+        new_tiers = {"essential": new_essential, "signature": new_signature, "legacy": new_legacy}
+
+        est.breakdown = json.dumps(breakdown)
+        est.tiers = json.dumps(new_tiers)
+        est.estimate_low = new_signature
+        est.estimate_high = new_signature
+        db.commit()
+
+        log_event(est.lead_id, "breakdown_overridden",
+                  f"Manual breakdown edit: Essential ${new_essential:,.2f} / Signature ${new_signature:,.2f} / Legacy ${new_legacy:,.2f}")
+
+        return est.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Breakdown override failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 class SavePdfField(BaseModel):
     id: str
     page: int
