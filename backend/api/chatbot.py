@@ -5,10 +5,12 @@ Handles messages, config, profile picture, and escalation.
 from __future__ import annotations
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.orm import defer
 from database import get_db, ChatbotMessage, ChatbotConfig, Proposal, Lead, Estimate
 from services.ghl import send_sms
 from config import get_settings
@@ -21,13 +23,24 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _get_config(db) -> ChatbotConfig:
-    cfg = db.query(ChatbotConfig).filter(ChatbotConfig.id == "default").first()
+def _get_config(db, include_picture: bool = False) -> ChatbotConfig:
+    q = db.query(ChatbotConfig).filter(ChatbotConfig.id == "default")
+    if not include_picture:
+        q = q.options(defer(ChatbotConfig.profile_picture))
+    cfg = q.first()
     if not cfg:
         cfg = ChatbotConfig(id="default", updated_at=_now())
         db.add(cfg)
         db.commit()
     return cfg
+
+
+def _has_profile_picture(db) -> bool:
+    """Check if profile picture exists without loading the blob."""
+    row = db.query(func.length(ChatbotConfig.profile_picture)).filter(
+        ChatbotConfig.id == "default"
+    ).scalar()
+    return (row or 0) > 0
 
 
 def _is_test_allowed(cfg: ChatbotConfig, lead_id: str) -> bool:
@@ -68,7 +81,56 @@ def send_chatbot_message(body: ChatMessageBody):
 
         now = _now()
 
-        # Save user message
+        # --- Rate limiting / dedup / conversation cap ---
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        recent_count = (
+            db.query(ChatbotMessage)
+            .filter(
+                ChatbotMessage.proposal_token == body.token,
+                ChatbotMessage.direction == "user",
+                ChatbotMessage.created_at >= recent_cutoff.isoformat(),
+            )
+            .count()
+        )
+        if recent_count >= 10:
+            raise HTTPException(status_code=429, detail="Message limit reached. Please try again later.")
+
+        # Dedup: reject same content from same token within 5 seconds
+        dedup_cutoff = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+        dupe = (
+            db.query(ChatbotMessage)
+            .filter(
+                ChatbotMessage.proposal_token == body.token,
+                ChatbotMessage.direction == "user",
+                ChatbotMessage.content == body.message,
+                ChatbotMessage.created_at >= dedup_cutoff,
+            )
+            .first()
+        )
+        if dupe:
+            raise HTTPException(status_code=429, detail="Duplicate message")
+
+        # Conversation cap: auto-escalate after 15 user messages total
+        total_user_msgs = (
+            db.query(ChatbotMessage)
+            .filter(
+                ChatbotMessage.proposal_token == body.token,
+                ChatbotMessage.direction == "user",
+            )
+            .count()
+        )
+
+        # --- Fetch history BEFORE adding user message (avoids double-counting) ---
+        history = (
+            db.query(ChatbotMessage)
+            .filter(ChatbotMessage.proposal_token == body.token)
+            .order_by(ChatbotMessage.created_at.asc())
+            .limit(20)
+            .all()
+        )
+        history_list = [{"role": m.direction, "content": m.content} for m in history]
+
+        # Now save user message
         user_msg = ChatbotMessage(
             id=str(uuid.uuid4()),
             proposal_token=body.token,
@@ -92,20 +154,19 @@ def send_chatbot_message(body: ChatMessageBody):
                 response_text = a
                 break
 
-        # If no preset match, use AI (placeholder for now)
+        # If no preset match, use AI
         needs_escalation = False
-        if not response_text:
+        if total_user_msgs >= 15:
+            # Conversation cap hit — escalate instead of calling AI
+            response_text = (
+                "Great question! Let me connect you with our team for a more detailed answer. "
+                "Someone will follow up with you shortly."
+            )
+            needs_escalation = True
+        elif not response_text:
             from services.chatbot_ai import get_ai_response
             estimate = db.query(Estimate).filter(Estimate.lead_id == lead.id).order_by(Estimate.created_at.desc()).first()
             est_dict = estimate.to_dict() if estimate else {}
-            history = (
-                db.query(ChatbotMessage)
-                .filter(ChatbotMessage.proposal_token == body.token)
-                .order_by(ChatbotMessage.created_at.asc())
-                .limit(20)
-                .all()
-            )
-            history_list = [{"role": m.direction, "content": m.content} for m in history]
 
             response_text, needs_escalation = get_ai_response(
                 customer_name=lead.contact_name,
@@ -190,7 +251,7 @@ def get_chatbot_config_public():
         return {
             "enabled": cfg.enabled,
             "bot_name": cfg.bot_name,
-            "has_profile_picture": cfg.profile_picture is not None,
+            "has_profile_picture": _has_profile_picture(db),
             "google_review_link": cfg.google_review_link,
             "google_review_stars": cfg.google_review_stars,
             "google_review_count": cfg.google_review_count,
@@ -210,7 +271,7 @@ def get_profile_picture():
     """Serve the chatbot profile picture."""
     db = get_db()
     try:
-        cfg = _get_config(db)
+        cfg = _get_config(db, include_picture=True)
         if not cfg.profile_picture:
             raise HTTPException(status_code=404, detail="No profile picture")
         return Response(
@@ -233,7 +294,7 @@ def get_chatbot_config():
         return {
             "enabled": cfg.enabled,
             "bot_name": cfg.bot_name,
-            "has_profile_picture": cfg.profile_picture is not None,
+            "has_profile_picture": _has_profile_picture(db),
             "google_review_link": cfg.google_review_link,
             "google_review_stars": cfg.google_review_stars,
             "google_review_count": cfg.google_review_count,

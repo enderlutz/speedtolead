@@ -76,13 +76,16 @@ export default function ChatbotWidget({ token, leadId }: Props) {
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, botMsg]);
-    } catch {
+    } catch (err: unknown) {
+      const is429 = err instanceof Error && err.message.includes("429");
       setMessages((prev) => [
         ...prev,
         {
           id: `err-${Date.now()}`,
           direction: "assistant",
-          content: "Sorry, I'm having trouble right now. Please try again in a moment.",
+          content: is429
+            ? "You've reached the message limit for now. Please try again in a bit!"
+            : "Sorry, I'm having trouble right now. Please try again in a moment.",
           created_at: new Date().toISOString(),
         },
       ]);
