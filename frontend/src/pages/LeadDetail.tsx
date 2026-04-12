@@ -653,6 +653,9 @@ export default function LeadDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Chatbot Messages */}
+          <ChatbotMessagesCard leadId={id!} />
         </div>
 
         {/* Right column */}
@@ -863,6 +866,100 @@ export default function LeadDetail() {
         />
       )}
     </div>
+  );
+}
+
+
+function ChatbotMessagesCard({ leadId }: { leadId: string }) {
+  const [messages, setMessages] = useState<{ id: string; direction: string; content: string; is_escalated?: boolean; escalation_reason?: string; created_at: string }[]>([]);
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api.getChatbotLeadMessages(leadId)
+      .then((msgs) => { setMessages(msgs); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, [leadId]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleReply = async () => {
+    if (!reply.trim() || sending) return;
+    setSending(true);
+    try {
+      await api.chatbotReply(leadId, reply.trim());
+      setReply("");
+      // Refresh messages
+      const msgs = await api.getChatbotLeadMessages(leadId);
+      setMessages(msgs);
+      toast.success("Reply sent as Amy");
+    } catch {
+      toast.error("Failed to send reply");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <Card id="chatbot">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-amber-600" /> Chatbot Messages
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {messages.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No chatbot conversations yet</p>
+        ) : (
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {messages.map((msg) => (
+              <div key={msg.id}>
+                {msg.is_escalated && (
+                  <div className="flex items-center gap-1 text-[10px] text-amber-600 bg-amber-50 rounded px-2 py-1 mb-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Escalated: {msg.escalation_reason || "Could not answer"}
+                  </div>
+                )}
+                <div className={`rounded-lg px-3 py-2 text-sm max-w-[85%] ${
+                  msg.direction === "user"
+                    ? "bg-muted mr-auto"
+                    : msg.direction === "human"
+                    ? "bg-blue-50 border border-blue-200 ml-auto text-right"
+                    : "bg-amber-50 border border-amber-200 ml-auto text-right"
+                }`}>
+                  <p className="text-xs font-medium text-muted-foreground mb-0.5">
+                    {msg.direction === "user" ? "Customer" : msg.direction === "human" ? "Team (as Amy)" : "Amy"} — {timeAgo(msg.created_at)}
+                  </p>
+                  <p>{msg.content}</p>
+                </div>
+              </div>
+            ))}
+            <div ref={endRef} />
+          </div>
+        )}
+
+        {/* Reply as Amy */}
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+          <input
+            type="text"
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleReply()}
+            placeholder="Reply as Amy..."
+            className="flex-1 px-3 py-1.5 rounded-md border text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <Button size="sm" onClick={handleReply} disabled={!reply.trim() || sending}>
+            <Send className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

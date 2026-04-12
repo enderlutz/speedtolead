@@ -9,6 +9,7 @@ import {
   BarChart3, Database, Send, RefreshCw, Link2,
 } from "lucide-react";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
+import ChatbotSettings from "@/components/ChatbotSettings";
 
 interface PdfTemplateInfo {
   id: string;
@@ -403,6 +404,9 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+
+      {/* Chatbot Settings */}
+      <ChatbotSettings />
     </div>
   );
 }

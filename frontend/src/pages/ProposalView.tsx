@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, type ProposalData } from "@/lib/api";
 import { Download, Phone } from "lucide-react";
+import ChatbotWidget from "@/components/ChatbotWidget";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
@@ -136,6 +137,11 @@ export default function ProposalView() {
           A&T Fence Restoration &middot; Cypress, TX
         </footer>
       </main>
+
+      {/* Chatbot widget */}
+      {token && proposal.lead_id && (
+        <ChatbotWidget token={token} leadId={proposal.lead_id} />
+      )}
     </div>
   );
 }

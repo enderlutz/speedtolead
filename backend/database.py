@@ -315,6 +315,44 @@ class PdfTemplate(Base):
     updated_at = Column(Text, default="")
 
 
+class ChatbotMessage(Base):
+    __tablename__ = "chatbot_messages"
+    __table_args__ = (
+        Index("idx_chatbot_msgs_token", "proposal_token"),
+        Index("idx_chatbot_msgs_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    proposal_token = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=False)
+    direction = Column(Text, default="user")  # user, assistant, human
+    content = Column(Text, default="")
+    is_escalated = Column(Boolean, default=False)
+    escalation_reason = Column(Text, nullable=True)
+    created_at = Column(Text, default="")
+
+
+class ChatbotConfig(Base):
+    __tablename__ = "chatbot_config"
+
+    id = Column(Text, primary_key=True, default="default")
+    enabled = Column(Boolean, default=False)
+    bot_name = Column(Text, default="Amy")
+    profile_picture = Column(LargeBinary, nullable=True)
+    google_review_link = Column(Text, default="")
+    google_review_stars = Column(Float, default=5.0)
+    google_review_count = Column(Integer, default=0)
+    preset_q1 = Column(Text, default="")
+    preset_a1 = Column(Text, default="")
+    preset_q2 = Column(Text, default="")
+    preset_a2 = Column(Text, default="")
+    preset_q3 = Column(Text, default="")
+    preset_a3 = Column(Text, default="")
+    system_prompt = Column(Text, default="")
+    test_only_lead_ids = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 # --- Engine / Session ---
 
 _engine = None

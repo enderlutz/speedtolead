@@ -91,6 +91,43 @@ export interface BreakdownItem {
   qty?: number;
 }
 
+export interface ChatbotMessage {
+  id: string;
+  direction: "user" | "assistant" | "human";
+  content: string;
+  is_escalated?: boolean;
+  escalation_reason?: string;
+  created_at: string;
+}
+
+export interface ChatbotPublicConfig {
+  enabled: boolean;
+  bot_name: string;
+  has_profile_picture: boolean;
+  google_review_link: string;
+  google_review_stars: number;
+  google_review_count: number;
+  preset_questions: ({ question: string; answer: string } | null)[];
+  test_only_lead_ids: string[];
+}
+
+export interface ChatbotConfig {
+  enabled: boolean;
+  bot_name: string;
+  has_profile_picture: boolean;
+  google_review_link: string;
+  google_review_stars: number;
+  google_review_count: number;
+  preset_q1: string;
+  preset_a1: string;
+  preset_q2: string;
+  preset_a2: string;
+  preset_q3: string;
+  preset_a3: string;
+  system_prompt: string;
+  test_only_lead_ids: string;
+}
+
 export interface KPIs {
   leads_this_month: number;
   leads_last_month: number;
@@ -189,6 +226,7 @@ export interface ActivityEvent {
 
 export interface ProposalData {
   token: string;
+  lead_id: string;
   status: string;
   customer_name: string;
   address: string;
@@ -433,4 +471,32 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ field_map }),
     }),
+
+  // --- Chatbot ---
+  getChatbotConfigPublic: () => request<ChatbotPublicConfig>("/api/chatbot/config/public"),
+  getChatbotConfig: () => request<ChatbotConfig>("/api/chatbot/config"),
+  updateChatbotConfig: (config: Partial<ChatbotConfig>) =>
+    request("/api/chatbot/config", { method: "PUT", body: JSON.stringify(config) }),
+  getChatbotProfilePictureUrl: () => `${BASE}/api/chatbot/profile-picture`,
+  uploadChatbotProfilePicture: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = localStorage.getItem("at_token");
+    const res = await fetch(`${BASE}/api/chatbot/profile-picture`, {
+      method: "POST",
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    return res.json();
+  },
+  sendChatbotMessage: (token: string, message: string) =>
+    request<{ response: string; message_id: string; escalated: boolean }>("/api/chatbot/message", {
+      method: "POST",
+      body: JSON.stringify({ token, message }),
+    }),
+  getChatbotMessages: (token: string) => request<ChatbotMessage[]>(`/api/chatbot/messages/${token}`),
+  getChatbotLeadMessages: (leadId: string) => request<ChatbotMessage[]>(`/api/chatbot/lead-messages/${leadId}`),
+  chatbotReply: (leadId: string, message: string) =>
+    request("/api/chatbot/reply", { method: "POST", body: JSON.stringify({ lead_id: leadId, message }) }),
 };

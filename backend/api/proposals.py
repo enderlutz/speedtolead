@@ -49,6 +49,7 @@ def get_proposal(token: str):
         est_dict = est.to_dict()
         return {
             "token": token,
+            "lead_id": lead.id,
             "status": proposal.status,
             "customer_name": lead.contact_name,
             "address": lead.address,
