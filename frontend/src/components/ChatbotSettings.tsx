@@ -182,18 +182,6 @@ export default function ChatbotSettings() {
           })}
         </div>
 
-        {/* System Prompt */}
-        <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">System Prompt (for AI — coming soon)</label>
-          <textarea
-            value={config.system_prompt}
-            onChange={(e) => update("system_prompt", e.target.value)}
-            placeholder="You are Amy, a friendly customer service assistant for A&T Fence Restoration..."
-            className="w-full border rounded-md px-3 py-2 text-sm bg-background resize-none"
-            rows={4}
-          />
-        </div>
-
         {/* Test Lead IDs */}
         <div>
           <label className="text-xs font-medium text-muted-foreground mb-1 block">Test Lead IDs (comma-separated)</label>
