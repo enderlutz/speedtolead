@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Bot, Save, Upload, Star, Loader2 } from "lucide-react";
+import { Bot, Save, Upload, Star } from "lucide-react";
 
 export default function ChatbotSettings() {
   const [config, setConfig] = useState<ChatbotConfig | null>(null);
