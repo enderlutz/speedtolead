@@ -370,6 +370,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  reopenEstimate: (id: string) =>
+    request<EstimateDetail>(`/api/estimates/${id}/reopen`, { method: "POST" }),
   cancelEstimate: (id: string) =>
     request<EstimateDetail>(`/api/estimates/${id}/cancel`, { method: "POST" }),
   requestReview: (id: string) =>

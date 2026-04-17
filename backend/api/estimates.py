@@ -966,6 +966,45 @@ def close_estimate(estimate_id: str, body: CloseBody):
         db.close()
 
 
+@router.post("/estimates/{estimate_id}/reopen")
+def reopen_estimate(estimate_id: str):
+    """Revert a closed estimate back to sent status."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        if est.status != "closed":
+            raise HTTPException(status_code=400, detail="Estimate is not closed")
+
+        est.closed_tier = None
+        est.closed_at = None
+        est.closed_price = None
+        est.closed_actual_sqft = None
+        est.closed_upsell_per_sqft = None
+        est.closed_discounts = None
+        est.closed_upsell_notes = None
+        est.closed_notes = None
+        est.status = "sent"
+
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+        if lead:
+            lead.status = "sent"
+            lead.updated_at = _now()
+
+        db.commit()
+
+        log_event(est.lead_id, "estimate_reopened", "Deal reopened — reverted to sent")
+        return est.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.post("/estimates/{estimate_id}/cancel")
 def cancel_estimate(estimate_id: str):
     """Cancel a sent estimate — reverts to pending, marks proposal cancelled."""
