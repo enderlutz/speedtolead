@@ -78,7 +78,7 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
         rows = (
             db.query(Estimate, Lead)
             .join(Lead, Estimate.lead_id == Lead.id)
-            .filter(Estimate.status == "sent")
+            .filter(Estimate.status.in_(["sent", "closed"]))
             .order_by(Estimate.sent_at.desc())
             .offset(offset)
             .limit(limit)
@@ -146,6 +146,14 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
                 "fence_height": inputs.get("fence_height", ""),
                 "fence_age": inputs.get("fence_age", ""),
                 "priority": inputs.get("_priority", lead.priority),
+                "closed_tier": est_dict.get("closed_tier"),
+                "closed_at": est_dict.get("closed_at"),
+                "closed_price": est_dict.get("closed_price"),
+                "closed_actual_sqft": est_dict.get("closed_actual_sqft"),
+                "closed_upsell_per_sqft": est_dict.get("closed_upsell_per_sqft"),
+                "closed_discounts": est_dict.get("closed_discounts", []),
+                "closed_upsell_notes": est_dict.get("closed_upsell_notes", ""),
+                "closed_notes": est_dict.get("closed_notes", ""),
                 "time_to_send_minutes": time_to_send_mins,
                 "time_to_view_minutes": time_to_view_mins,
                 "proposal_viewed": prop.first_viewed_at is not None if prop else False,
@@ -886,9 +894,21 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
         db.close()
 
 
+class CloseDiscount(BaseModel):
+    amount: float
+    type: str  # "dollar" or "percent"
+    reason: str
+
+
 class CloseBody(BaseModel):
-    tier: str  # essential, signature, legacy
+    tier: str  # essential, signature, legacy, custom
     closed_at: str | None = None
+    closed_price: float | None = None
+    actual_sqft: float | None = None
+    upsell_per_sqft: float | None = None
+    discounts: list[CloseDiscount] = []
+    upsell_notes: str | None = None
+    close_notes: str | None = None
 
 
 @router.post("/estimates/{estimate_id}/close")
@@ -900,8 +920,23 @@ def close_estimate(estimate_id: str, body: CloseBody):
         if not est:
             raise HTTPException(status_code=404, detail="Estimate not found")
 
+        # Determine closed price
+        if body.closed_price is not None:
+            final_price = body.closed_price
+        elif body.tier == "custom":
+            raise HTTPException(status_code=400, detail="Custom tier requires closed_price")
+        else:
+            tiers = est.to_dict()["tiers"]
+            final_price = float(tiers.get(body.tier, 0))
+
         est.closed_tier = body.tier
         est.closed_at = body.closed_at or _now()
+        est.closed_price = final_price
+        est.closed_actual_sqft = body.actual_sqft
+        est.closed_upsell_per_sqft = body.upsell_per_sqft
+        est.closed_discounts = json.dumps([d.model_dump() for d in body.discounts]) if body.discounts else None
+        est.closed_upsell_notes = body.upsell_notes
+        est.closed_notes = body.close_notes
         est.status = "closed"
 
         lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
@@ -917,11 +952,9 @@ def close_estimate(estimate_id: str, body: CloseBody):
 
         db.commit()
 
-        tiers = est.to_dict()["tiers"]
-        revenue = tiers.get(body.tier, 0)
         log_event(est.lead_id, "estimate_closed",
-                  f"Closed: {body.tier.title()} — ${revenue:,.2f}",
-                  {"tier": body.tier, "revenue": revenue})
+                  f"Closed: {body.tier.title()} — ${final_price:,.2f}",
+                  {"tier": body.tier, "revenue": final_price})
 
         return est.to_dict()
     except HTTPException:

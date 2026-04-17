@@ -193,6 +193,12 @@ export interface SentLogEntry {
   priority: string;
   closed_tier: string | null;
   closed_at: string | null;
+  closed_price: number | null;
+  closed_actual_sqft: number | null;
+  closed_upsell_per_sqft: number | null;
+  closed_discounts: { amount: number; type: "dollar" | "percent"; reason: string }[];
+  closed_upsell_notes: string;
+  closed_notes: string;
   time_to_send_minutes: number | null;
   time_to_view_minutes: number | null;
   proposal_viewed: boolean;
@@ -350,10 +356,19 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ items }),
     }),
-  closeEstimate: (id: string, tier: string, closedAt: string) =>
+  closeEstimate: (id: string, data: {
+    tier: string;
+    closed_at: string;
+    closed_price?: number;
+    actual_sqft?: number;
+    upsell_per_sqft?: number;
+    discounts?: { amount: number; type: string; reason: string }[];
+    upsell_notes?: string;
+    close_notes?: string;
+  }) =>
     request<EstimateDetail>(`/api/estimates/${id}/close`, {
       method: "POST",
-      body: JSON.stringify({ tier, closed_at: closedAt }),
+      body: JSON.stringify(data),
     }),
   cancelEstimate: (id: string) =>
     request<EstimateDetail>(`/api/estimates/${id}/cancel`, { method: "POST" }),

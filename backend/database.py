@@ -103,8 +103,14 @@ class Estimate(Base):
     owner_notes = Column(Text, default="")
     created_at = Column(Text, default="")
     sent_at = Column(Text, nullable=True)
-    closed_tier = Column(Text, nullable=True)  # essential, signature, legacy
+    closed_tier = Column(Text, nullable=True)  # essential, signature, legacy, custom
     closed_at = Column(Text, nullable=True)
+    closed_price = Column(Float, nullable=True)
+    closed_actual_sqft = Column(Float, nullable=True)
+    closed_upsell_per_sqft = Column(Float, nullable=True)
+    closed_discounts = Column(Text, nullable=True)  # JSON array
+    closed_upsell_notes = Column(Text, nullable=True)
+    closed_notes = Column(Text, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -125,6 +131,12 @@ class Estimate(Base):
             "sent_at": self.sent_at,
             "closed_tier": self.closed_tier,
             "closed_at": self.closed_at,
+            "closed_price": self.closed_price,
+            "closed_actual_sqft": self.closed_actual_sqft,
+            "closed_upsell_per_sqft": self.closed_upsell_per_sqft,
+            "closed_discounts": _j(self.closed_discounts) if self.closed_discounts else [],
+            "closed_upsell_notes": self.closed_upsell_notes or "",
+            "closed_notes": self.closed_notes or "",
         }
 
 

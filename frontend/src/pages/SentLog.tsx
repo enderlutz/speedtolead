@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Search, FileText, MapPin, Ruler, ChevronDown, ChevronUp, ExternalLink,
-  CheckCircle2, DollarSign, Clock, Eye,
+  CheckCircle2, DollarSign, Clock, Eye, Plus, X,
 } from "lucide-react";
 
 const AGE_LABELS: Record<string, string> = {
@@ -18,6 +18,10 @@ const AGE_LABELS: Record<string, string> = {
   "6_15yr": "6-15 years",
   "15plus": "15+ years",
 };
+
+const DISCOUNT_REASONS = [
+  "Military", "Referral", "Repeat Customer", "Negotiation", "Bundle", "Neighbor",
+] as const;
 
 function formatMins(mins: number | null): string {
   if (mins === null || mins === undefined) return "—";
@@ -33,6 +37,12 @@ const ZONE_COLORS: Record<string, string> = {
   Purple: "bg-purple-100 text-purple-800",
   Outside: "bg-red-100 text-red-800",
 };
+
+function getClosedPrice(e: SentLogEntry): number {
+  if (e.closed_price != null) return e.closed_price;
+  if (e.closed_tier && e.tiers) return e.tiers[e.closed_tier as keyof typeof e.tiers] || 0;
+  return 0;
+}
 
 export default function SentLog() {
   const [entries, setEntries] = useState<SentLogEntry[]>([]);
@@ -58,7 +68,7 @@ export default function SentLog() {
 
   const closedCount = entries.filter((e) => e.closed_tier).length;
   const totalRevenue = entries.reduce((sum, e) => {
-    if (e.closed_tier && e.tiers) return sum + (e.tiers[e.closed_tier as keyof typeof e.tiers] || 0);
+    if (e.closed_tier) return sum + getClosedPrice(e);
     return sum;
   }, 0);
 
@@ -98,25 +108,79 @@ export default function SentLog() {
   );
 }
 
+interface DiscountRow {
+  amount: string;
+  type: "dollar" | "percent";
+  reason: string;
+  customReason: string;
+}
+
 function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
   entry: SentLogEntry; expanded: boolean; onToggle: () => void; onUpdate: () => void;
 }) {
   const [closing, setClosing] = useState(false);
   const [selectedTier, setSelectedTier] = useState<string | null>(entry.closed_tier || null);
   const [closedDate, setClosedDate] = useState(entry.closed_at ? entry.closed_at.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const [closedPrice, setClosedPrice] = useState("");
+  const [actualSqft, setActualSqft] = useState(String(Number(entry.sqft) || 0));
+  const [upsellPerSqft, setUpsellPerSqft] = useState("");
+  const [discounts, setDiscounts] = useState<DiscountRow[]>([]);
+  const [upsellNotes, setUpsellNotes] = useState("");
+  const [closeNotes, setCloseNotes] = useState("");
+
   const sqft = Number(entry.sqft) || 0;
   const linearFt = Number(entry.linear_feet) || 0;
   const height = Number(entry.height) || 0;
   const isClosed = !!entry.closed_tier;
 
+  const handleTierSelect = (tier: string) => {
+    setSelectedTier(tier);
+    if (tier === "custom") {
+      setClosedPrice("");
+    } else {
+      const price = entry.tiers?.[tier as keyof typeof entry.tiers] || 0;
+      setClosedPrice(String(price));
+    }
+  };
+
+  const addDiscount = () => {
+    setDiscounts((prev) => [...prev, { amount: "", type: "dollar", reason: "", customReason: "" }]);
+  };
+
+  const updateDiscount = (i: number, field: keyof DiscountRow, value: string) => {
+    setDiscounts((prev) => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d));
+  };
+
+  const removeDiscount = (i: number) => {
+    setDiscounts((prev) => prev.filter((_, idx) => idx !== i));
+  };
+
   const handleClose = async () => {
-    if (!selectedTier) { toast.error("Select a tier"); return; }
+    if (!selectedTier) { toast.error("Select a package"); return; }
+    const price = parseFloat(closedPrice);
+    if (!price || price <= 0) { toast.error("Enter a valid price"); return; }
     setClosing(true);
     try {
-      await api.closeEstimate(entry.id, selectedTier, closedDate);
-      toast.success(`Marked as closed — ${selectedTier.charAt(0).toUpperCase() + selectedTier.slice(1)}`);
+      await api.closeEstimate(entry.id, {
+        tier: selectedTier,
+        closed_at: closedDate,
+        closed_price: price,
+        actual_sqft: actualSqft ? parseFloat(actualSqft) : undefined,
+        upsell_per_sqft: upsellPerSqft ? parseFloat(upsellPerSqft) : undefined,
+        discounts: discounts
+          .filter((d) => d.amount && (d.reason || d.customReason))
+          .map((d) => ({
+            amount: parseFloat(d.amount),
+            type: d.type,
+            reason: d.reason === "Custom" ? d.customReason : d.reason,
+          })),
+        upsell_notes: upsellNotes || undefined,
+        close_notes: closeNotes || undefined,
+      });
+      const label = selectedTier === "custom" ? "Custom" : selectedTier.charAt(0).toUpperCase() + selectedTier.slice(1);
+      toast.success(`Closed — ${label} — ${formatCurrency(price)}`);
       onUpdate();
-    } catch { toast.error("Failed to close"); }
+    } catch { toast.error("Failed to close deal"); }
     finally { setClosing(false); }
   };
 
@@ -147,7 +211,7 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
             {isClosed ? (
               <div className="text-center">
                 <p className="text-green-600 font-medium capitalize">{entry.closed_tier}</p>
-                <p className="font-bold text-green-700 text-base">{formatCurrency(entry.tiers?.[entry.closed_tier as keyof typeof entry.tiers] || 0)}</p>
+                <p className="font-bold text-green-700 text-base">{formatCurrency(getClosedPrice(entry))}</p>
               </div>
             ) : (
               <>
@@ -166,33 +230,145 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
 
         {expanded && (
           <div className="border-t px-4 py-3 space-y-4 bg-muted/10">
-            {/* Mark as Closed */}
+            {/* Close Deal Form */}
             {!isClosed && (
-              <div className="rounded-lg border-2 border-dashed border-green-300 bg-green-50/50 p-4">
-                <h4 className="text-xs font-semibold text-green-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  <DollarSign className="h-3.5 w-3.5" /> Mark as Closed
+              <div className="rounded-lg border-2 border-dashed border-green-300 bg-green-50/50 p-4 space-y-4">
+                <h4 className="text-xs font-semibold text-green-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <DollarSign className="h-3.5 w-3.5" /> Close This Deal
                 </h4>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {(["essential", "signature", "legacy"] as const).map((tier) => {
-                    const price = entry.tiers?.[tier] || 0;
-                    const isSelected = selectedTier === tier;
-                    return (
-                      <button key={tier} onClick={() => setSelectedTier(tier)}
-                        className={`rounded-lg border-2 p-3 text-center transition-all ${
-                          isSelected ? "border-green-500 bg-green-100 ring-1 ring-green-300" : "border-gray-200 hover:border-green-300"
-                        }`}>
-                        <p className="text-[10px] font-medium capitalize text-muted-foreground">{tier}</p>
-                        <p className="text-sm font-bold">{formatCurrency(price)}</p>
-                      </button>
-                    );
-                  })}
+
+                {/* 1. Package selection */}
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground mb-1.5 block uppercase tracking-wider">1. Select Package</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["essential", "signature", "legacy"] as const).map((tier) => {
+                      const price = entry.tiers?.[tier] || 0;
+                      const isSelected = selectedTier === tier;
+                      return (
+                        <button key={tier} onClick={() => handleTierSelect(tier)}
+                          className={`rounded-lg border-2 p-2.5 text-center transition-all ${
+                            isSelected ? "border-green-500 bg-green-100 ring-1 ring-green-300" : "border-gray-200 hover:border-green-300"
+                          }`}>
+                          <p className="text-[10px] font-medium capitalize text-muted-foreground">{tier}</p>
+                          <p className="text-sm font-bold">{formatCurrency(price)}</p>
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => handleTierSelect("custom")}
+                      className={`rounded-lg border-2 p-2.5 text-center transition-all ${
+                        selectedTier === "custom" ? "border-green-500 bg-green-100 ring-1 ring-green-300" : "border-gray-200 hover:border-green-300 border-dashed"
+                      }`}>
+                      <p className="text-[10px] font-medium text-muted-foreground">Custom</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Type price</p>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-end gap-3">
-                  <div className="flex-1">
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Close Date</label>
+
+                {/* 2. Final Price */}
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground mb-1.5 block uppercase tracking-wider">2. Final Closed Price</label>
+                  <div className="relative max-w-[200px]">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                    <Input type="number" step="0.01" min="0" value={closedPrice}
+                      onChange={(e) => setClosedPrice(e.target.value)}
+                      placeholder="0.00" className="h-8 text-sm pl-7" />
+                  </div>
+                </div>
+
+                {/* 3. Actual Sqft & Upsell */}
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground mb-1.5 block uppercase tracking-wider">3. Actual Sqft & Upsell</label>
+                  <div className="grid grid-cols-2 gap-3 max-w-sm">
+                    <div>
+                      <label className="text-[10px] text-muted-foreground mb-0.5 block">Actual Sqft</label>
+                      <Input type="number" min="0" value={actualSqft}
+                        onChange={(e) => setActualSqft(e.target.value)} className="h-8 text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-muted-foreground mb-0.5 block">Upsell $/sqft</label>
+                      <Input type="number" step="0.01" min="0" value={upsellPerSqft}
+                        onChange={(e) => setUpsellPerSqft(e.target.value)}
+                        placeholder="0.00" className="h-8 text-sm" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Discounts */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">4. Discounts</label>
+                    <Button variant="outline" size="sm" onClick={addDiscount} className="h-6 text-[10px] px-2">
+                      <Plus className="h-3 w-3 mr-0.5" /> Add
+                    </Button>
+                  </div>
+                  {discounts.length === 0 && (
+                    <p className="text-xs text-muted-foreground">No discounts applied</p>
+                  )}
+                  <div className="space-y-2">
+                    {discounts.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="relative w-20">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                            {d.type === "dollar" ? "$" : "%"}
+                          </span>
+                          <Input type="number" step="0.01" min="0" value={d.amount}
+                            onChange={(e) => updateDiscount(i, "amount", e.target.value)}
+                            className="h-7 text-xs pl-5" />
+                        </div>
+                        <div className="flex rounded-md border overflow-hidden h-7">
+                          <button onClick={() => updateDiscount(i, "type", "dollar")}
+                            className={`px-2 text-[10px] font-medium transition-colors ${d.type === "dollar" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                            $
+                          </button>
+                          <button onClick={() => updateDiscount(i, "type", "percent")}
+                            className={`px-2 text-[10px] font-medium transition-colors ${d.type === "percent" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                            %
+                          </button>
+                        </div>
+                        <select value={d.reason}
+                          onChange={(e) => updateDiscount(i, "reason", e.target.value)}
+                          className="h-7 text-xs border rounded-md px-2 bg-background flex-1 min-w-0">
+                          <option value="">Select reason...</option>
+                          {DISCOUNT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                          <option value="Custom">Custom...</option>
+                        </select>
+                        {d.reason === "Custom" && (
+                          <Input value={d.customReason}
+                            onChange={(e) => updateDiscount(i, "customReason", e.target.value)}
+                            placeholder="Reason" className="h-7 text-xs flex-1 min-w-0" />
+                        )}
+                        <button onClick={() => removeDiscount(i)} className="text-red-400 hover:text-red-600 shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5. Notes */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground mb-0.5 block">Upsell Notes</label>
+                    <textarea value={upsellNotes} onChange={(e) => setUpsellNotes(e.target.value)}
+                      placeholder="What was upsold?"
+                      className="w-full border rounded-md px-3 py-1.5 text-xs bg-background resize-none h-16" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground mb-0.5 block">Close Notes</label>
+                    <textarea value={closeNotes} onChange={(e) => setCloseNotes(e.target.value)}
+                      placeholder="General notes..."
+                      className="w-full border rounded-md px-3 py-1.5 text-xs bg-background resize-none h-16" />
+                  </div>
+                </div>
+
+                {/* Footer: date + close button */}
+                <div className="flex items-end gap-3 pt-1">
+                  <div className="flex-1 max-w-[180px]">
+                    <label className="text-[10px] font-medium text-muted-foreground mb-0.5 block">Close Date</label>
                     <Input type="date" value={closedDate} onChange={(e) => setClosedDate(e.target.value)} className="h-8 text-sm" />
                   </div>
-                  <Button onClick={handleClose} disabled={closing || !selectedTier} className="bg-green-600 hover:bg-green-700 text-white h-8">
+                  <Button onClick={handleClose} disabled={closing || !selectedTier || !closedPrice}
+                    className="bg-green-600 hover:bg-green-700 text-white h-8">
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                     {closing ? "Saving..." : "Close Deal"}
                   </Button>
@@ -200,16 +376,40 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
               </div>
             )}
 
-            {/* Closed info */}
+            {/* Closed Deal Info */}
             {isClosed && entry.closed_at && (
-              <div className="rounded-lg bg-green-50 border border-green-200 p-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span className="text-sm font-medium text-green-800">
-                    Closed with <span className="capitalize">{entry.closed_tier}</span> — {formatCurrency(entry.tiers?.[entry.closed_tier as keyof typeof entry.tiers] || 0)}
-                  </span>
+              <div className="rounded-lg bg-green-50 border border-green-200 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-800">
+                      Closed with <span className="capitalize">{entry.closed_tier}</span> — {formatCurrency(getClosedPrice(entry))}
+                    </span>
+                  </div>
+                  <span className="text-xs text-green-600">{formatDateTime(entry.closed_at)}</span>
                 </div>
-                <span className="text-xs text-green-600">{formatDateTime(entry.closed_at)}</span>
+                {/* Extra close details */}
+                {(entry.closed_actual_sqft || entry.closed_upsell_per_sqft || (entry.closed_discounts && entry.closed_discounts.length > 0) || entry.closed_upsell_notes || entry.closed_notes) && (
+                  <div className="text-xs text-green-700 space-y-0.5 pl-6">
+                    {(entry.closed_actual_sqft != null || entry.closed_upsell_per_sqft != null) && (
+                      <p>
+                        {entry.closed_actual_sqft != null && <span>Actual: {entry.closed_actual_sqft.toLocaleString()} sqft</span>}
+                        {entry.closed_actual_sqft != null && entry.closed_upsell_per_sqft != null && <span> | </span>}
+                        {entry.closed_upsell_per_sqft != null && <span>Upsell: ${entry.closed_upsell_per_sqft}/sqft</span>}
+                      </p>
+                    )}
+                    {entry.closed_discounts && entry.closed_discounts.length > 0 && (
+                      <p>Discounts: {entry.closed_discounts.map((d, i) => (
+                        <span key={i}>
+                          {i > 0 && ", "}
+                          {d.type === "dollar" ? `$${d.amount}` : `${d.amount}%`} {d.reason}
+                        </span>
+                      ))}</p>
+                    )}
+                    {entry.closed_upsell_notes && <p>Upsell: {entry.closed_upsell_notes}</p>}
+                    {entry.closed_notes && <p>Notes: {entry.closed_notes}</p>}
+                  </div>
+                )}
               </div>
             )}
 

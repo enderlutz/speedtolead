@@ -81,8 +81,11 @@ def get_kpis():
         )
         revenue = 0.0
         for e in closed_estimates:
-            tiers = json.loads(e.tiers) if isinstance(e.tiers, str) else (e.tiers or {})
-            revenue += float(tiers.get(e.closed_tier, 0))
+            if e.closed_price is not None:
+                revenue += float(e.closed_price)
+            else:
+                tiers = json.loads(e.tiers) if isinstance(e.tiers, str) else (e.tiers or {})
+                revenue += float(tiers.get(e.closed_tier, 0))
 
         # Avg time to estimate (dashboard sync → estimate sent)
         pairs = (
@@ -562,15 +565,18 @@ def get_deal_stats():
             .all()
         )
 
-        tier_counts = {"essential": 0, "signature": 0, "legacy": 0}
-        tier_revenue = {"essential": 0.0, "signature": 0.0, "legacy": 0.0}
+        tier_counts = {"essential": 0, "signature": 0, "legacy": 0, "custom": 0}
+        tier_revenue = {"essential": 0.0, "signature": 0.0, "legacy": 0.0, "custom": 0.0}
         deal_sizes: list[float] = []
 
         for est, lead in closed:
             tier = est.closed_tier
             if tier in tier_counts:
-                tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
-                price = float(tiers.get(tier, 0))
+                if est.closed_price is not None:
+                    price = float(est.closed_price)
+                else:
+                    tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
+                    price = float(tiers.get(tier, 0))
                 tier_counts[tier] += 1
                 tier_revenue[tier] += price
                 if price > 0:
@@ -578,7 +584,7 @@ def get_deal_stats():
 
         total_closed = sum(tier_counts.values())
         tier_breakdown = {}
-        for t in ["essential", "signature", "legacy"]:
+        for t in ["essential", "signature", "legacy", "custom"]:
             tier_breakdown[t] = {
                 "count": tier_counts[t],
                 "pct": round(tier_counts[t] / total_closed * 100, 1) if total_closed > 0 else 0,
