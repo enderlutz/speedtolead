@@ -1,5 +1,5 @@
 """
-Chatbot AI service — Claude Haiku integration for Amy chatbot.
+Chatbot AI service — Claude integration for Amy chatbot.
 Uses prompt caching to minimize cost on repeated context.
 """
 from __future__ import annotations
@@ -31,10 +31,17 @@ RULES:
 - Keep responses SHORT (2-4 sentences max). This is a chat widget, not email.
 - Be conversational and friendly, not formal or salesy
 - If the customer asks about specific pricing, refer to the numbers in their proposal (provided in context)
-- If you genuinely cannot answer a question (scheduling specifics, custom requests, complaints, warranty claims), respond with EXACTLY this prefix: "[ESCALATE]" followed by a brief friendly message saying someone from the team will follow up
+- If you genuinely cannot answer a question (scheduling specifics, custom requests, complaints, warranty claims), give a natural, friendly, slightly vague answer that does NOT reveal you are unsure or need help. Do NOT say "let me check with the team" or "someone will follow up." Just give a warm, helpful-sounding response. Then append the tag [NEEDS_HELP] at the very end of your response.
+- Example: "That's a great question about the timeline! It really depends on a few factors like weather and crew availability. We always try to get projects done as quickly as possible. [NEEDS_HELP]"
 - NEVER make up information about scheduling dates, specific warranty terms, or anything not in your context
 - NEVER mention that you are an AI or chatbot. You are Amy from A&T.
 - Do not use emojis excessively — one per message max, if any
+- NEVER discuss competitors or compare A&T to other companies. If asked, say "I'm focused on what A&T can do for you!"
+- NEVER make scheduling promises or commit to specific dates/times. Say you can help them understand the process but specific scheduling needs to go through the team.
+- NEVER suggest price changes, discounts, or negotiate pricing. The proposal reflects current pricing.
+- If a customer shares sensitive personal information (credit card numbers, SSN, bank details), do NOT repeat it back. Respond with something brief like "For your security, please don't share sensitive info here!" and append [NEEDS_HELP]
+- If a customer is clearly angry, frustrated, or making a complaint, acknowledge their feelings briefly and warmly, then append [NEEDS_HELP]
+- If the conversation goes off-topic (not related to fencing, staining, or restoration), politely redirect: "I'm best with fence-related questions! For anything else, our team is happy to help."
 """
 
 
@@ -72,7 +79,7 @@ def get_ai_response(
     system_prompt: str = "",
 ) -> tuple[str, bool]:
     """
-    Generate a response using Claude Haiku 4.5.
+    Generate a response using Claude Sonnet.
 
     Returns: (response_text, needs_escalation)
     """
@@ -144,10 +151,10 @@ def get_ai_response(
             f"cache_create={getattr(usage, 'cache_creation_input_tokens', 0)}"
         )
 
-        # Check for escalation signal
-        needs_escalation = text.strip().startswith("[ESCALATE]")
+        # Check for silent escalation signal
+        needs_escalation = "[NEEDS_HELP]" in text
         if needs_escalation:
-            text = text.replace("[ESCALATE]", "").strip()
+            text = text.replace("[NEEDS_HELP]", "").strip()
 
         return (text, needs_escalation)
 
@@ -160,10 +167,113 @@ def get_ai_response(
     except Exception as e:
         logger.error(f"Claude API error: {e}")
         return (
-            "Thanks for your question! Let me connect you with our team. "
-            "Someone will follow up shortly.",
+            "Thanks for reaching out! I'll make sure our team gets back to you on this.",
             True,
         )
+
+
+def rephrase_as_amy(alan_input: str, history: list[dict], customer_name: str) -> str:
+    """
+    Takes Alan's raw knowledge/answer and rephrases it in Amy's voice.
+    Uses Sonnet for quality — only fires on admin replies, low volume.
+    Falls back to raw text on any error.
+    """
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        return alan_input
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    rephrase_system = (
+        "You are a rewriting assistant. Take the message from a business owner (Alan) "
+        "and rephrase it as if written by Amy, a friendly customer service assistant for "
+        "A&T Fence Restoration. Keep the same meaning and facts but use Amy's warm, "
+        "conversational tone. Keep it SHORT (2-4 sentences). Do not add information "
+        "that wasn't in Alan's message. Do not use emojis excessively. "
+        "Reply ONLY with the rephrased message, nothing else."
+    )
+
+    # Brief conversation context
+    context_msgs = []
+    for msg in history[-6:]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role in ("assistant", "human"):
+            context_msgs.append({"role": "assistant", "content": content})
+        else:
+            context_msgs.append({"role": "user", "content": content})
+
+    context_msgs.append({
+        "role": "user",
+        "content": f"Rephrase this reply from the business owner for customer {customer_name}:\n\n\"{alan_input}\"",
+    })
+
+    context_msgs = _fix_message_alternation(context_msgs)
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6-20250514",
+            max_tokens=300,
+            system=[{"type": "text", "text": rephrase_system}],
+            messages=context_msgs,
+        )
+        text = response.content[0].text if response.content else alan_input
+        logger.info(f"Rephrase as Amy | customer={customer_name} | tokens={response.usage.output_tokens}")
+        return text.strip()
+    except Exception as e:
+        logger.error(f"Rephrase failed, using raw text: {e}")
+        return alan_input
+
+
+def generate_summary(messages: list[dict]) -> str:
+    """
+    Generate a bullet-point summary of a chatbot conversation.
+    Uses Haiku for cost efficiency — generated on-demand.
+    """
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        return "Summary unavailable (API key not configured)"
+
+    if not messages:
+        return "No messages to summarize."
+
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    conversation_text = ""
+    for msg in messages:
+        role = msg.get("role", "user")
+        speaker = "Customer" if role == "user" else "Amy"
+        conversation_text += f"{speaker}: {msg.get('content', '')}\n"
+
+    summary_system = (
+        "Analyze the following customer service conversation and produce a concise summary "
+        "as bullet points. Include:\n"
+        "- Key customer interests or questions\n"
+        "- Customer concerns or objections\n"
+        "- Unanswered questions (things Amy couldn't fully address)\n"
+        "- Upsell opportunities (signs the customer might want a higher tier or additional services)\n"
+        "- Customer sentiment (positive, neutral, hesitant, negative)\n\n"
+        "Use short, actionable bullet points. Skip any category that doesn't apply. "
+        "Do NOT include a header or introduction — just the bullets."
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            system=[{"type": "text", "text": summary_system}],
+            messages=[{"role": "user", "content": conversation_text}],
+        )
+        text = response.content[0].text if response.content else "Unable to generate summary."
+        logger.info(f"Summary generated | messages={len(messages)} | tokens={response.usage.output_tokens}")
+        return text.strip()
+    except Exception as e:
+        logger.error(f"Summary generation failed: {e}")
+        return "Summary generation failed. Please try again."
 
 
 def _fix_message_alternation(messages: list[dict]) -> list[dict]:
@@ -177,12 +287,10 @@ def _fix_message_alternation(messages: list[dict]) -> list[dict]:
     fixed = [messages[0]]
     for msg in messages[1:]:
         if msg["role"] == fixed[-1]["role"]:
-            # Merge consecutive same-role messages
             fixed[-1]["content"] += "\n" + msg["content"]
         else:
             fixed.append(msg)
 
-    # Must start with "user"
     if fixed and fixed[0]["role"] != "user":
         fixed.insert(0, {"role": "user", "content": "(conversation started)"})
 

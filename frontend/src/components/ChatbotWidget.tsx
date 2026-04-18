@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api, type ChatbotPublicConfig, type ChatbotMessage } from "@/lib/api";
 import { MessageCircle, X, Send, Star, Loader2 } from "lucide-react";
+import { playChatbotResponseSound } from "@/hooks/useNotificationSound";
 
 interface Props {
   token: string;
@@ -65,6 +66,22 @@ export default function ChatbotWidget({ token, leadId }: Props) {
       .catch(() => setLoaded(true));
   }, [open, loaded, token]);
 
+  // Heartbeat — tells backend customer is on the page
+  useEffect(() => {
+    if (!config) return;
+    const sendHeartbeat = () => api.chatbotHeartbeat(token).catch(() => {});
+    sendHeartbeat(); // Initial
+    const interval = setInterval(sendHeartbeat, 20000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") sendHeartbeat();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [config, token]);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -104,6 +121,7 @@ export default function ChatbotWidget({ token, leadId }: Props) {
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, botMsg]);
+      playChatbotResponseSound();
     } catch (err: unknown) {
       const is429 = err instanceof Error && err.message.includes("429");
       setMessages((prev) => [
@@ -293,6 +311,7 @@ export default function ChatbotWidget({ token, leadId }: Props) {
                 value={input}
                 onChange={(e) => { setUserInteracted(true); setInput(e.target.value); }}
                 placeholder="Type a message..."
+                maxLength={500}
                 className="flex-1 px-3 py-2 rounded-full border bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-500"
                 disabled={sending}
                 onFocus={() => setUserInteracted(true)}
@@ -305,6 +324,11 @@ export default function ChatbotWidget({ token, leadId }: Props) {
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
             </form>
+            {input.length > 400 && (
+              <p className={`text-[10px] text-right mt-0.5 pr-1 ${input.length >= 490 ? "text-red-500" : "text-muted-foreground"}`}>
+                {input.length}/500
+              </p>
+            )}
           </div>
         </div>
       )}

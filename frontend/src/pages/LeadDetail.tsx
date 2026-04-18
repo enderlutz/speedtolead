@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 
@@ -875,6 +875,8 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -887,16 +889,27 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const fetchSummary = () => {
+    setLoadingSummary(true);
+    api.getChatbotSummary(leadId)
+      .then((res) => setSummary(res.summary))
+      .catch(() => setSummary("Failed to load summary."))
+      .finally(() => setLoadingSummary(false));
+  };
+
   const handleReply = async () => {
     if (!reply.trim() || sending) return;
     setSending(true);
     try {
-      await api.chatbotReply(leadId, reply.trim());
+      const result = await api.chatbotReply(leadId, reply.trim());
       setReply("");
-      // Refresh messages
       const msgs = await api.getChatbotLeadMessages(leadId);
       setMessages(msgs);
-      toast.success("Reply sent as Amy");
+      if (result.nudge_scheduled) {
+        toast.success("Reply sent as Amy — customer will be nudged in 2 min if they left the page");
+      } else {
+        toast.success("Reply sent as Amy");
+      }
     } catch {
       toast.error("Failed to send reply");
     } finally {
@@ -914,6 +927,28 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/* AI Summary */}
+        {messages.length > 0 && (
+          <div className="mb-3 pb-3 border-b">
+            {summary === null ? (
+              <Button variant="outline" size="sm" onClick={fetchSummary} disabled={loadingSummary} className="w-full">
+                {loadingSummary ? (
+                  <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Generating summary...</>
+                ) : (
+                  <><WandSparkles className="h-3.5 w-3.5 mr-1.5" /> Generate AI Summary</>
+                )}
+              </Button>
+            ) : (
+              <div className="bg-violet-50 border border-violet-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-violet-700 mb-1.5 flex items-center gap-1">
+                  <WandSparkles className="h-3 w-3" /> AI Summary
+                </p>
+                <div className="text-sm text-violet-900 whitespace-pre-line">{summary}</div>
+              </div>
+            )}
+          </div>
+        )}
+
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-4">No chatbot conversations yet</p>
         ) : (
@@ -945,18 +980,23 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
         )}
 
         {/* Reply as Amy */}
-        <div className="flex items-center gap-2 mt-3 pt-3 border-t">
-          <input
-            type="text"
-            value={reply}
-            onChange={(e) => setReply(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleReply()}
-            placeholder="Reply as Amy..."
-            className="flex-1 px-3 py-1.5 rounded-md border text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-          <Button size="sm" onClick={handleReply} disabled={!reply.trim() || sending}>
-            <Send className="h-3.5 w-3.5" />
-          </Button>
+        <div className="mt-3 pt-3 border-t space-y-1.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleReply()}
+              placeholder="Reply as Amy..."
+              className="flex-1 px-3 py-1.5 rounded-md border text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <Button size="sm" onClick={handleReply} disabled={!reply.trim() || sending}>
+              <Send className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground px-1">
+            Tip: Start with "Exact:" to send your message word-for-word as Amy
+          </p>
         </div>
       </CardContent>
     </Card>

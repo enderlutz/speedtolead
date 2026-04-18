@@ -515,5 +515,11 @@ export const api = {
   getChatbotMessages: (token: string) => request<ChatbotMessage[]>(`/api/chatbot/messages/${token}`),
   getChatbotLeadMessages: (leadId: string) => request<ChatbotMessage[]>(`/api/chatbot/lead-messages/${leadId}`),
   chatbotReply: (leadId: string, message: string) =>
-    request("/api/chatbot/reply", { method: "POST", body: JSON.stringify({ lead_id: leadId, message }) }),
+    request<{ id: string; status: string; nudge_scheduled: boolean }>("/api/chatbot/reply", {
+      method: "POST", body: JSON.stringify({ lead_id: leadId, message }),
+    }),
+  getChatbotSummary: (leadId: string) =>
+    request<{ summary: string }>(`/api/chatbot/summary/${leadId}`),
+  chatbotHeartbeat: (token: string) =>
+    request<{ status: string }>(`/api/chatbot/heartbeat/${token}`, { method: "POST" }),
 };

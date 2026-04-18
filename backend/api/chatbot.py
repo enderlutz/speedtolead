@@ -1,10 +1,11 @@
 """
 Chatbot API — Amy chatbot widget for proposal pages.
-Handles messages, config, profile picture, and escalation.
+Handles messages, config, profile picture, escalation, and admin replies.
 """
 from __future__ import annotations
 import uuid
 import logging
+import threading
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import Response
@@ -17,6 +18,10 @@ from config import get_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# --- In-memory state for nudge timers and presence ---
+_pending_nudges: dict[str, threading.Timer] = {}  # lead_id -> Timer
+_presence: dict[str, str] = {}  # proposal_token -> last_seen ISO timestamp
 
 
 def _now() -> str:
@@ -46,9 +51,68 @@ def _has_profile_picture(db) -> bool:
 def _is_test_allowed(cfg: ChatbotConfig, lead_id: str) -> bool:
     """Check if chatbot is allowed for this lead (test restriction)."""
     if not cfg.test_only_lead_ids or not cfg.test_only_lead_ids.strip():
-        return True  # No restriction — open to all
+        return True
     allowed = [lid.strip() for lid in cfg.test_only_lead_ids.split(",") if lid.strip()]
     return lead_id in allowed
+
+
+def _is_customer_on_page(proposal_token: str) -> bool:
+    """Check if customer is currently on the proposal page (heartbeat within 30s)."""
+    last_seen = _presence.get(proposal_token)
+    if not last_seen:
+        return False
+    try:
+        seen_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - seen_dt).total_seconds() < 30
+    except (ValueError, TypeError):
+        return False
+
+
+def _send_nudge(lead_id: str, proposal_token: str):
+    """Send nudge SMS to customer if they're not on the page. Runs in timer thread."""
+    # Remove from pending
+    _pending_nudges.pop(lead_id, None)
+
+    # Check presence
+    if _is_customer_on_page(proposal_token):
+        logger.info(f"Nudge skipped for lead {lead_id} — customer is on page")
+        return
+
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead or not lead.ghl_contact_id:
+            logger.warning(f"Nudge skipped — no GHL contact for lead {lead_id}")
+            return
+
+        settings = get_settings()
+        first_name = (lead.contact_name or "").split()[0] if lead.contact_name else "there"
+        proposal_link = f"{settings.proposal_base_url}/proposal/{proposal_token}"
+        nudge_msg = f"Hi {first_name}, Amy has an update on your proposal: {proposal_link}"
+
+        sent = send_sms(lead.ghl_contact_id, nudge_msg, lead.ghl_location_id)
+        if sent:
+            logger.info(f"Customer nudge sent to {lead.contact_name} for lead {lead_id}")
+        else:
+            logger.warning(f"Customer nudge failed for lead {lead_id}")
+    except Exception as e:
+        logger.error(f"Nudge error for lead {lead_id}: {e}")
+    finally:
+        db.close()
+
+
+def _schedule_nudge(lead_id: str, proposal_token: str):
+    """Schedule a nudge SMS 2 minutes from now. Resets if called again for same lead."""
+    # Cancel existing timer for this lead
+    existing = _pending_nudges.pop(lead_id, None)
+    if existing:
+        existing.cancel()
+
+    timer = threading.Timer(120, _send_nudge, args=[lead_id, proposal_token])
+    timer.daemon = True
+    _pending_nudges[lead_id] = timer
+    timer.start()
+    logger.info(f"Nudge scheduled for lead {lead_id} in 2 minutes")
 
 
 # --- Public endpoints (customer-facing, no auth) ---
@@ -61,13 +125,16 @@ class ChatMessageBody(BaseModel):
 @router.post("/chatbot/message")
 def send_chatbot_message(body: ChatMessageBody):
     """Customer sends a message to the chatbot."""
+    # 500 char limit
+    if len(body.message) > 500:
+        raise HTTPException(status_code=400, detail="Message too long (max 500 characters)")
+
     db = get_db()
     try:
         cfg = _get_config(db)
         if not cfg.enabled:
             raise HTTPException(status_code=403, detail="Chatbot is not enabled")
 
-        # Find proposal and lead
         proposal = db.query(Proposal).filter(Proposal.token == body.token).first()
         if not proposal:
             raise HTTPException(status_code=404, detail="Proposal not found")
@@ -95,7 +162,6 @@ def send_chatbot_message(body: ChatMessageBody):
         if recent_count >= 10:
             raise HTTPException(status_code=429, detail="Message limit reached. Please try again later.")
 
-        # Dedup: reject same content from same token within 5 seconds
         dedup_cutoff = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
         dupe = (
             db.query(ChatbotMessage)
@@ -110,7 +176,6 @@ def send_chatbot_message(body: ChatMessageBody):
         if dupe:
             raise HTTPException(status_code=429, detail="Duplicate message")
 
-        # Conversation cap: auto-escalate after 15 user messages total
         total_user_msgs = (
             db.query(ChatbotMessage)
             .filter(
@@ -120,7 +185,7 @@ def send_chatbot_message(body: ChatMessageBody):
             .count()
         )
 
-        # --- Fetch history BEFORE adding user message (avoids double-counting) ---
+        # Fetch history BEFORE adding user message
         history = (
             db.query(ChatbotMessage)
             .filter(ChatbotMessage.proposal_token == body.token)
@@ -130,7 +195,7 @@ def send_chatbot_message(body: ChatMessageBody):
         )
         history_list = [{"role": m.direction, "content": m.content} for m in history]
 
-        # Now save user message
+        # Save user message
         user_msg = ChatbotMessage(
             id=str(uuid.uuid4()),
             proposal_token=body.token,
@@ -157,7 +222,6 @@ def send_chatbot_message(body: ChatMessageBody):
         # If no preset match, use AI
         needs_escalation = False
         if total_user_msgs >= 15:
-            # Conversation cap hit — escalate instead of calling AI
             response_text = (
                 "Great question! Let me connect you with our team for a more detailed answer. "
                 "Someone will follow up with you shortly."
@@ -192,14 +256,16 @@ def send_chatbot_message(body: ChatMessageBody):
         db.add(assistant_msg)
         db.commit()
 
-        # Escalate to Alan if needed
+        # Silent escalation to Alan
         if needs_escalation:
             settings = get_settings()
             if settings.owner_ghl_contact_id:
                 esc_msg = (
-                    f"Amy couldn't answer a question from {lead.contact_name}:\n"
-                    f"'{body.message}'\n\n"
-                    f"Reply here: {settings.frontend_url}/leads/{lead.id}#chatbot"
+                    f"Amy needs help with {lead.contact_name}:\n"
+                    f"Q: \"{body.message}\"\n\n"
+                    f"Amy replied naturally but may need a better answer.\n\n"
+                    f"Reply here: {settings.frontend_url}/leads/{lead.id}#chatbot\n\n"
+                    f"Tip: Start your reply with \"Exact:\" to send it word-for-word as Amy."
                 )
                 send_sms(settings.owner_ghl_contact_id, esc_msg)
                 logger.info(f"Chatbot escalation sent to Alan for lead {lead.id}")
@@ -240,6 +306,13 @@ def get_chatbot_messages(token: str):
         } for m in messages]
     finally:
         db.close()
+
+
+@router.post("/chatbot/heartbeat/{token}")
+def chatbot_heartbeat(token: str):
+    """Customer presence heartbeat — called every 20s while on proposal page."""
+    _presence[token] = _now()
+    return {"status": "ok"}
 
 
 @router.get("/chatbot/config/public")
@@ -348,7 +421,7 @@ def update_chatbot_config(body: ChatbotConfigUpdate):
 async def upload_profile_picture(file: UploadFile = File(...)):
     """Upload chatbot profile picture."""
     data = await file.read()
-    if len(data) > 2 * 1024 * 1024:  # 2MB limit
+    if len(data) > 2 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 2MB)")
     db = get_db()
     try:
@@ -388,6 +461,34 @@ def get_lead_chatbot_messages(lead_id: str):
         db.close()
 
 
+@router.get("/chatbot/summary/{lead_id}")
+def get_chatbot_summary(lead_id: str):
+    """Generate an AI summary of the chatbot conversation for a lead."""
+    db = get_db()
+    try:
+        messages = (
+            db.query(ChatbotMessage)
+            .filter(ChatbotMessage.lead_id == lead_id)
+            .order_by(ChatbotMessage.created_at.asc())
+            .limit(50)
+            .all()
+        )
+        if not messages:
+            return {"summary": "No conversation to summarize."}
+
+        history = [{"role": m.direction, "content": m.content} for m in messages]
+
+        from services.chatbot_ai import generate_summary
+        summary = generate_summary(history)
+
+        return {"summary": summary}
+    except Exception as e:
+        logger.error(f"Summary endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 class ChatbotReplyBody(BaseModel):
     lead_id: str
     message: str
@@ -395,10 +496,9 @@ class ChatbotReplyBody(BaseModel):
 
 @router.post("/chatbot/reply")
 def admin_reply(body: ChatbotReplyBody):
-    """Admin/VA replies as Amy through the lead detail page."""
+    """Admin/VA replies as Amy. 'Exact:' prefix sends verbatim, otherwise rephrased by AI."""
     db = get_db()
     try:
-        # Find the most recent proposal token for this lead
         proposal = (
             db.query(Proposal)
             .filter(Proposal.lead_id == body.lead_id)
@@ -408,23 +508,50 @@ def admin_reply(body: ChatbotReplyBody):
         if not proposal:
             raise HTTPException(status_code=404, detail="No proposal found for this lead")
 
+        lead = db.query(Lead).filter(Lead.id == body.lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        raw_message = body.message.strip()
+
+        # Detect "Exact:" prefix (case-insensitive)
+        is_exact = raw_message.lower().startswith("exact:")
+        if is_exact:
+            final_message = raw_message[len("exact:"):].strip()
+        else:
+            # Rephrase through Claude as Amy
+            from services.chatbot_ai import rephrase_as_amy
+            history = (
+                db.query(ChatbotMessage)
+                .filter(ChatbotMessage.proposal_token == proposal.token)
+                .order_by(ChatbotMessage.created_at.asc())
+                .limit(20)
+                .all()
+            )
+            history_list = [{"role": m.direction, "content": m.content} for m in history]
+            final_message = rephrase_as_amy(raw_message, history_list, lead.contact_name)
+
         msg = ChatbotMessage(
             id=str(uuid.uuid4()),
             proposal_token=proposal.token,
             lead_id=body.lead_id,
-            direction="human",  # Stored as human, displayed as Amy to customer
-            content=body.message,
+            direction="human",
+            content=final_message,
             created_at=_now(),
         )
         db.add(msg)
         db.commit()
 
-        return {"id": msg.id, "status": "ok"}
+        # Schedule nudge SMS to customer (2-min delay, resets on repeated replies)
+        _schedule_nudge(body.lead_id, proposal.token)
+
+        return {"id": msg.id, "status": "ok", "nudge_scheduled": True}
 
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
+        logger.error(f"Chatbot admin reply error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

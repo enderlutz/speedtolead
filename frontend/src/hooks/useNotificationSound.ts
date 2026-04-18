@@ -88,3 +88,9 @@ export function playUrgentSound() {
   setTimeout(() => playTone(800, 0.08, "square", 0.25), 150);
   setTimeout(() => playTone(1000, 0.12, "square", 0.3), 300);
 }
+
+/** Chatbot Amy responded — soft friendly pop */
+export function playChatbotResponseSound() {
+  playTone(587, 0.1, "sine", 0.2);
+  setTimeout(() => playTone(784, 0.12, "sine", 0.18), 130);
+}
