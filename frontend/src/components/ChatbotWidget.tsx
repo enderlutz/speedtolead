@@ -15,6 +15,7 @@ export default function ChatbotWidget({ token, leadId }: Props) {
   const [sending, setSending] = useState(false);
   const [showPresets, setShowPresets] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [peeked, setPeeked] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load config
@@ -22,7 +23,6 @@ export default function ChatbotWidget({ token, leadId }: Props) {
     api.getChatbotConfigPublic()
       .then((cfg) => {
         if (cfg.enabled && cfg.test_only_lead_ids.length > 0) {
-          // Test mode — only show for specified leads
           if (!cfg.test_only_lead_ids.includes(leadId)) {
             setConfig(null);
             return;
@@ -32,6 +32,26 @@ export default function ChatbotWidget({ token, leadId }: Props) {
       })
       .catch(() => {});
   }, [leadId]);
+
+  // Auto-peek: open for 3 seconds then close
+  useEffect(() => {
+    if (!config || peeked) return;
+    const openTimer = setTimeout(() => {
+      setOpen(true);
+      setPeeked(true);
+    }, 300); // Open almost immediately once config loads
+    return () => clearTimeout(openTimer);
+  }, [config, peeked]);
+
+  useEffect(() => {
+    if (!peeked || !open) return;
+    // Only auto-close if user hasn't interacted
+    if (messages.length > 0 || input) return;
+    const closeTimer = setTimeout(() => {
+      setOpen(false);
+    }, 3000);
+    return () => clearTimeout(closeTimer);
+  }, [peeked, open, messages.length, input]);
 
   // Load message history when opened
   useEffect(() => {
@@ -54,7 +74,6 @@ export default function ChatbotWidget({ token, leadId }: Props) {
     const msg = text || input.trim();
     if (!msg || sending) return;
 
-    // Add user message to UI immediately
     const userMsg: ChatbotMessage = {
       id: `temp-${Date.now()}`,
       direction: "user",
@@ -68,7 +87,6 @@ export default function ChatbotWidget({ token, leadId }: Props) {
 
     try {
       const result = await api.sendChatbotMessage(token, msg);
-      // Add assistant response
       const botMsg: ChatbotMessage = {
         id: result.message_id,
         direction: "assistant",
@@ -98,13 +116,17 @@ export default function ChatbotWidget({ token, leadId }: Props) {
     handleSend(question);
   };
 
+  const handleManualOpen = () => {
+    setPeeked(true); // Cancel auto-peek if user manually interacts
+    setOpen(!open);
+  };
+
   if (!config) return null;
 
   const presets = (config.preset_questions || []).filter(
     (p): p is { question: string; answer: string } => p !== null && !!p.question,
   );
 
-  // Stars component
   const Stars = () => (
     <a
       href={config.google_review_link || "#"}
@@ -120,57 +142,56 @@ export default function ChatbotWidget({ token, leadId }: Props) {
           />
         ))}
       </div>
-      <span className="text-[10px] text-muted-foreground">
+      <span className="text-[10px] text-white/60">
         {config.google_review_count} reviews
       </span>
     </a>
   );
 
+  const ProfilePic = ({ size = "md" }: { size?: "sm" | "md" | "lg" }) => {
+    const sizeClass = size === "lg" ? "h-12 w-12" : size === "md" ? "h-10 w-10" : "h-7 w-7";
+    const textClass = size === "lg" ? "text-xl" : size === "md" ? "text-lg" : "text-xs";
+    if (config.has_profile_picture) {
+      return <img src={api.getChatbotProfilePictureUrl()} alt={config.bot_name} className={`${sizeClass} rounded-full object-cover border-2 border-white/30 shrink-0`} />;
+    }
+    return (
+      <div className={`${sizeClass} rounded-full bg-white/20 flex items-center justify-center shrink-0`}>
+        <span className={`text-white font-bold ${textClass}`}>{config.bot_name[0]}</span>
+      </div>
+    );
+  };
+
   return (
     <>
       {/* Chat window */}
       {open && (
-        <div className="fixed bottom-20 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[360px] bg-background rounded-2xl shadow-2xl border flex flex-col overflow-hidden"
-          style={{ maxHeight: "min(520px, calc(100vh - 120px))" }}>
+        <div
+          className="fixed bottom-24 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[400px] bg-background rounded-2xl shadow-2xl border flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 fade-in duration-300"
+          style={{ maxHeight: "min(560px, calc(100vh - 130px))" }}
+        >
           {/* Header */}
-          <div className="bg-gradient-to-r from-amber-700 to-amber-800 px-4 py-3 flex items-center gap-3">
-            {config.has_profile_picture ? (
-              <img
-                src={api.getChatbotProfilePictureUrl()}
-                alt={config.bot_name}
-                className="h-10 w-10 rounded-full object-cover border-2 border-white/30"
-              />
-            ) : (
-              <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-lg">
-                {config.bot_name[0]}
-              </div>
-            )}
+          <div className="bg-gradient-to-r from-green-800 to-green-700 px-4 py-4 flex items-center gap-3">
+            <ProfilePic size="lg" />
             <div className="flex-1 min-w-0">
-              <p className="text-white font-semibold text-sm">{config.bot_name}</p>
+              <p className="text-white font-semibold text-base">{config.bot_name}</p>
               <Stars />
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="text-white/70 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors"
+              className="text-white/70 hover:text-white p-1.5 rounded-full hover:bg-white/10 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50/50" style={{ minHeight: 200 }}>
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50/50" style={{ minHeight: 220 }}>
             {/* Welcome message */}
             {messages.length === 0 && !sending && (
               <div className="flex gap-2.5">
-                {config.has_profile_picture ? (
-                  <img src={api.getChatbotProfilePictureUrl()} alt="" className="h-7 w-7 rounded-full object-cover shrink-0 mt-0.5" />
-                ) : (
-                  <div className="h-7 w-7 rounded-full bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-                    <span className="text-amber-700 text-xs font-bold">{config.bot_name[0]}</span>
-                  </div>
-                )}
-                <div className="bg-white rounded-xl rounded-tl-sm px-3 py-2 shadow-sm border text-sm">
-                  Hi! I'm {config.bot_name}. How can I help you today?
+                <ProfilePic size="sm" />
+                <div className="bg-white rounded-xl rounded-tl-sm px-3.5 py-2.5 shadow-sm border text-sm leading-relaxed">
+                  Hi! I'm {config.bot_name} from A&T Fence Restoration. How can I help you today?
                 </div>
               </div>
             )}
@@ -182,14 +203,14 @@ export default function ChatbotWidget({ token, leadId }: Props) {
                   <button
                     key={i}
                     onClick={() => handlePresetClick(p.question)}
-                    className="w-full text-left px-3 py-2.5 rounded-xl border bg-white hover:bg-amber-50 hover:border-amber-200 transition-colors text-sm shadow-sm"
+                    className="w-full text-left px-3.5 py-3 rounded-xl border bg-white hover:bg-green-50 hover:border-green-300 transition-colors text-sm shadow-sm"
                   >
                     {p.question}
                   </button>
                 ))}
                 <button
                   onClick={() => { setShowPresets(false); }}
-                  className="w-full text-left px-3 py-2.5 rounded-xl border border-dashed bg-white hover:bg-gray-50 transition-colors text-sm text-muted-foreground"
+                  className="w-full text-left px-3.5 py-3 rounded-xl border border-dashed bg-white hover:bg-gray-50 transition-colors text-sm text-muted-foreground"
                 >
                   Have another question in mind?
                 </button>
@@ -199,19 +220,11 @@ export default function ChatbotWidget({ token, leadId }: Props) {
             {/* Message bubbles */}
             {messages.map((msg) => (
               <div key={msg.id} className={`flex gap-2.5 ${msg.direction === "user" ? "flex-row-reverse" : ""}`}>
-                {msg.direction !== "user" && (
-                  config.has_profile_picture ? (
-                    <img src={api.getChatbotProfilePictureUrl()} alt="" className="h-7 w-7 rounded-full object-cover shrink-0 mt-0.5" />
-                  ) : (
-                    <div className="h-7 w-7 rounded-full bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-amber-700 text-xs font-bold">{config.bot_name[0]}</span>
-                    </div>
-                  )
-                )}
+                {msg.direction !== "user" && <ProfilePic size="sm" />}
                 <div
-                  className={`max-w-[80%] rounded-xl px-3 py-2 text-sm shadow-sm ${
+                  className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm shadow-sm leading-relaxed ${
                     msg.direction === "user"
-                      ? "bg-amber-700 text-white rounded-tr-sm"
+                      ? "bg-green-700 text-white rounded-tr-sm"
                       : "bg-white border rounded-tl-sm"
                   }`}
                 >
@@ -223,10 +236,8 @@ export default function ChatbotWidget({ token, leadId }: Props) {
             {/* Typing indicator */}
             {sending && (
               <div className="flex gap-2.5">
-                <div className="h-7 w-7 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                  <span className="text-amber-700 text-xs font-bold">{config.bot_name[0]}</span>
-                </div>
-                <div className="bg-white border rounded-xl rounded-tl-sm px-4 py-2.5 shadow-sm">
+                <ProfilePic size="sm" />
+                <div className="bg-white border rounded-xl rounded-tl-sm px-4 py-3 shadow-sm">
                   <div className="flex gap-1">
                     <span className="h-2 w-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "0ms" }} />
                     <span className="h-2 w-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -240,7 +251,7 @@ export default function ChatbotWidget({ token, leadId }: Props) {
           </div>
 
           {/* Input area */}
-          <div className="border-t bg-white px-3 py-2.5">
+          <div className="border-t bg-white px-4 py-3">
             <form
               onSubmit={(e) => { e.preventDefault(); handleSend(); }}
               className="flex items-center gap-2"
@@ -250,13 +261,13 @@ export default function ChatbotWidget({ token, leadId }: Props) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Type a message..."
-                className="flex-1 px-3 py-2 rounded-full border bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                className="flex-1 px-4 py-2.5 rounded-full border bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-500"
                 disabled={sending}
               />
               <button
                 type="submit"
                 disabled={!input.trim() || sending}
-                className="h-9 w-9 rounded-full bg-amber-700 text-white flex items-center justify-center hover:bg-amber-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+                className="h-10 w-10 rounded-full bg-green-700 text-white flex items-center justify-center hover:bg-green-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
               >
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </button>
@@ -265,17 +276,25 @@ export default function ChatbotWidget({ token, leadId }: Props) {
         </div>
       )}
 
-      {/* Floating bubble */}
+      {/* Floating bubble — bigger, with profile pic */}
       <button
-        onClick={() => setOpen(!open)}
-        className="fixed bottom-4 right-4 sm:right-6 z-50 h-14 w-14 rounded-full bg-amber-700 text-white shadow-lg hover:bg-amber-800 hover:shadow-xl transition-all flex items-center justify-center"
+        onClick={handleManualOpen}
+        className="fixed bottom-5 right-4 sm:right-6 z-50 group"
       >
-        {open ? (
-          <X className="h-6 w-6" />
-        ) : config.has_profile_picture ? (
-          <img src={api.getChatbotProfilePictureUrl()} alt="" className="h-14 w-14 rounded-full object-cover" />
-        ) : (
-          <MessageCircle className="h-6 w-6" />
+        <div className={`h-16 w-16 rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center ${
+          open ? "bg-green-800 scale-90" : "bg-green-700 hover:bg-green-800 hover:scale-105"
+        }`}>
+          {open ? (
+            <X className="h-7 w-7 text-white" />
+          ) : config.has_profile_picture ? (
+            <img src={api.getChatbotProfilePictureUrl()} alt="" className="h-16 w-16 rounded-full object-cover ring-3 ring-green-700" />
+          ) : (
+            <MessageCircle className="h-7 w-7 text-white" />
+          )}
+        </div>
+        {/* Pulse ring when not open */}
+        {!open && (
+          <span className="absolute inset-0 rounded-full bg-green-600/30 animate-ping pointer-events-none" />
         )}
       </button>
     </>
