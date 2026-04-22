@@ -240,6 +240,7 @@ def send_chatbot_message(body: ChatMessageBody):
                 question=body.message,
                 history=history_list,
                 system_prompt=cfg.system_prompt,
+                inputs=est_dict.get("inputs", {}),
             )
 
         # Save assistant response
