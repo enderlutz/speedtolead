@@ -3,6 +3,16 @@ import { api, type ChatbotPublicConfig, type ChatbotMessage } from "@/lib/api";
 import { MessageCircle, X, Send, Star, Loader2 } from "lucide-react";
 import { playChatbotResponseSound } from "@/hooks/useNotificationSound";
 
+/** Strip markdown formatting that Claude might still produce */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")  // **bold**
+    .replace(/\*(.*?)\*/g, "$1")      // *italic*
+    .replace(/#{1,6}\s/g, "")         // ## headers
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // [link](url)
+    .replace(/`([^`]+)`/g, "$1");     // `code`
+}
+
 interface Props {
   token: string;
   leadId: string;
@@ -278,7 +288,7 @@ export default function ChatbotWidget({ token, leadId }: Props) {
                       : "bg-white border rounded-tl-sm"
                   }`}
                 >
-                  {msg.content}
+                  {stripMarkdown(msg.content)}
                 </div>
               </div>
             ))}
