@@ -494,7 +494,7 @@ def get_ai_response(
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=300,
             system=system_messages,
             messages=messages,
@@ -570,7 +570,7 @@ def rephrase_as_amy(alan_input: str, history: list[dict], customer_name: str) ->
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=300,
             system=[{"type": "text", "text": rephrase_system}],
             messages=context_msgs,
@@ -619,7 +619,7 @@ def generate_summary(messages: list[dict]) -> str:
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=400,
             system=[{"type": "text", "text": summary_system}],
             messages=[{"role": "user", "content": conversation_text}],
