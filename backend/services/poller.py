@@ -329,8 +329,9 @@ def poll_ghl_contacts():
     import time
     settings = get_settings()
     _sync_location(settings.ghl_location_id, settings.ghl_location_1_label)
-    time.sleep(10)
-    _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)
+    # Woodlands disabled — no longer pulling leads from this location
+    # time.sleep(10)
+    # _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)
 
 
 def poll_ghl_messages():
