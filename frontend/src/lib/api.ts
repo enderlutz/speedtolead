@@ -81,6 +81,9 @@ export interface EstimateDetail {
   sent_at: string | null;
   proposal_url?: string;
   proposal_token?: string;
+  precall_done?: boolean;
+  precall_at?: string | null;
+  precall_notes?: string;
 }
 
 export interface BreakdownItem {
