@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, PhoneCall, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 
@@ -660,6 +660,9 @@ export default function LeadDetail() {
 
           {/* Chatbot Messages */}
           <ChatbotMessagesCard leadId={id!} />
+
+          {/* Call Recordings */}
+          <CallRecordingsCard leadId={id!} />
         </div>
 
         {/* Right column */}
@@ -1053,6 +1056,188 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
             Tip: Start with "Exact:" to send your message word-for-word as Amy
           </p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function CallRecordingsCard({ leadId }: { leadId: string }) {
+  const [recordings, setRecordings] = useState<CallRecordingEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const loadCalls = () => {
+    api.getLeadCalls(leadId)
+      .then(setRecordings)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadCalls(); }, [leadId]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      await api.uploadCallRecording(file, leadId);
+      toast.success("Recording uploaded — transcribing and analyzing...");
+      // Poll for results after a delay
+      setTimeout(loadCalls, 5000);
+      setTimeout(loadCalls, 15000);
+      setTimeout(loadCalls, 30000);
+    } catch { toast.error("Upload failed"); }
+    finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const scoreColor = (score: number) => {
+    if (score >= 7) return "text-green-600 bg-green-50";
+    if (score >= 4) return "text-amber-600 bg-amber-50";
+    return "text-red-600 bg-red-50";
+  };
+
+  const formatDuration = (secs: number) => {
+    if (!secs) return "—";
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+            <Mic className="h-4 w-4 text-purple-600" /> Call Recordings
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <Upload className="h-3.5 w-3.5 mr-1" />
+              {uploading ? "Uploading..." : "Upload"}
+            </Button>
+            <input ref={fileRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg" className="hidden" onChange={handleUpload} />
+            <Button variant="outline" size="sm" onClick={loadCalls}>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="h-10 bg-muted rounded animate-pulse" />
+        ) : recordings.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No call recordings yet. Upload one or wait for GHL sync.</p>
+        ) : (
+          <div className="space-y-2">
+            {recordings.map((rec) => {
+              const isExpanded = expandedId === rec.id;
+              const analysis = rec.analysis;
+              const transcript = rec.transcript;
+              return (
+                <div key={rec.id} className="border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : rec.id)}
+                    className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-muted/30 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{timeAgo(rec.created_at)}</span>
+                        <Badge variant="outline" className="text-[10px] capitalize">{rec.call_direction}</Badge>
+                        <span className="text-xs text-muted-foreground">{formatDuration(rec.duration_seconds)}</span>
+                        {rec.status === "pending" && <Badge className="text-[10px] bg-blue-100 text-blue-800">Processing...</Badge>}
+                        {rec.status === "failed" && <Badge className="text-[10px] bg-red-100 text-red-800">Failed</Badge>}
+                      </div>
+                      {analysis && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${scoreColor(analysis.call_score)}`}>
+                            {analysis.call_score}/10
+                          </span>
+                          <span className="text-xs text-muted-foreground capitalize">
+                            Sentiment: {analysis.customer_sentiment}
+                          </span>
+                          <span className="text-xs text-muted-foreground capitalize">
+                            Close: {analysis.close_likelihood}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t px-3 py-3 space-y-3 bg-muted/10">
+                      {/* Analysis */}
+                      {analysis && (
+                        <div className="space-y-2">
+                          <p className="text-sm">{analysis.summary}</p>
+
+                          {analysis.coaching_tips.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-purple-700 mb-1">Coaching Tips</p>
+                              <ul className="space-y-1">
+                                {analysis.coaching_tips.map((tip, i) => (
+                                  <li key={i} className="text-xs text-muted-foreground pl-3 border-l-2 border-purple-200">{tip}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {analysis.objections.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-red-700 mb-1">Objections</p>
+                              <div className="flex flex-wrap gap-1">
+                                {analysis.objections.map((obj, i) => (
+                                  <Badge key={i} variant="outline" className="text-[10px] text-red-700 border-red-200">{obj}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {analysis.key_topics.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {analysis.key_topics.map((topic, i) => (
+                                <Badge key={i} variant="outline" className="text-[10px]">{topic}</Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Transcript */}
+                      {transcript && (
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground mb-1">Transcript</p>
+                          <div className="max-h-[200px] overflow-y-auto rounded border bg-white p-2 space-y-1">
+                            {transcript.segments.map((seg, i) => {
+                              const speaker = transcript.speaker_map[String(seg.speaker)] || `Speaker ${seg.speaker}`;
+                              const isTeam = speaker === "Team";
+                              return (
+                                <p key={i} className="text-xs">
+                                  <span className={`font-medium ${isTeam ? "text-blue-700" : "text-gray-700"}`}>{speaker}:</span>{" "}
+                                  {seg.text}
+                                </p>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {!analysis && !transcript && rec.status === "pending" && (
+                        <p className="text-xs text-muted-foreground text-center py-2">Transcription and analysis in progress...</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

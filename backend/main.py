@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls
 from services.poller import poll_ghl_contacts, poll_ghl_messages
+from services.call_poller import poll_ghl_call_recordings
 from services.nudge import run_nudge_check
 from services.weekly_reminder import run_weekly_reminder
 from services.sms_worker import process_pending_messages
@@ -73,6 +74,17 @@ async def _weekly_reminder_loop():
         await asyncio.sleep(3600)  # Check every hour
 
 
+async def _call_recording_poller_loop():
+    """Background task: check for new GHL call recordings every 5 minutes."""
+    await asyncio.sleep(120)  # Stagger after lead poller
+    while True:
+        try:
+            await asyncio.to_thread(poll_ghl_call_recordings)
+        except Exception as e:
+            logger.error(f"Call recording poller error: {e}")
+        await asyncio.sleep(300)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -84,12 +96,14 @@ async def lifespan(app: FastAPI):
     # msg_poller = asyncio.create_task(_message_poller_loop())
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
+    call_poller = asyncio.create_task(_call_recording_poller_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
     poller.cancel()
     sms_worker.cancel()
     weekly.cancel()
+    call_poller.cancel()
 
 
 app = FastAPI(title="AT-System Lite", lifespan=lifespan)
@@ -128,6 +142,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(pdf_templates.router, prefix="/api")
 app.include_router(fence_ai.router, prefix="/api")
 app.include_router(chatbot.router, prefix="/api")
+app.include_router(calls.router, prefix="/api")
 
 
 @app.get("/health")

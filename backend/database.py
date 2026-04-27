@@ -371,6 +371,111 @@ class ChatbotConfig(Base):
     updated_at = Column(Text, default="")
 
 
+class CallRecording(Base):
+    __tablename__ = "call_recordings"
+    __table_args__ = (
+        Index("idx_call_recordings_lead", "lead_id"),
+        Index("idx_call_recordings_created", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=True)
+    ghl_contact_id = Column(Text, default="")
+    ghl_location_id = Column(Text, default="")
+    ghl_call_id = Column(Text, unique=True, nullable=True)
+    recording_url = Column(Text, default="")
+    recording_data = Column(LargeBinary, nullable=True)
+    duration_seconds = Column(Integer, default=0)
+    call_direction = Column(Text, default="outbound")
+    caller_name = Column(Text, default="")
+    status = Column(Text, default="pending")  # pending, transcribed, analyzed, failed
+    created_at = Column(Text, default="")
+    transcribed_at = Column(Text, nullable=True)
+    analyzed_at = Column(Text, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "ghl_contact_id": self.ghl_contact_id,
+            "duration_seconds": self.duration_seconds,
+            "call_direction": self.call_direction,
+            "caller_name": self.caller_name,
+            "status": self.status,
+            "created_at": self.created_at,
+            "transcribed_at": self.transcribed_at,
+            "analyzed_at": self.analyzed_at,
+            "has_recording": bool(self.recording_url or self.recording_data),
+        }
+
+
+class CallTranscript(Base):
+    __tablename__ = "call_transcripts"
+    __table_args__ = (
+        Index("idx_call_transcripts_recording", "recording_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    recording_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=True)
+    full_text = Column(Text, default="")
+    segments = Column(Text, default="[]")  # JSON: [{speaker, text, start, end}]
+    speaker_map = Column(Text, default="{}")  # JSON: {0: "Alan", 1: "Customer"}
+    confidence = Column(Float, default=0.0)
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "recording_id": self.recording_id,
+            "lead_id": self.lead_id,
+            "full_text": self.full_text,
+            "segments": _j(self.segments) if self.segments else [],
+            "speaker_map": _j(self.speaker_map) if self.speaker_map else {},
+            "confidence": self.confidence,
+            "created_at": self.created_at,
+        }
+
+
+class CallAnalysis(Base):
+    __tablename__ = "call_analyses"
+    __table_args__ = (
+        Index("idx_call_analyses_recording", "recording_id"),
+        Index("idx_call_analyses_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    recording_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=True)
+    summary = Column(Text, default="")
+    coaching_tips = Column(Text, default="[]")  # JSON array
+    sentiment = Column(Text, default="neutral")
+    customer_sentiment = Column(Text, default="neutral")
+    objections = Column(Text, default="[]")  # JSON array
+    key_topics = Column(Text, default="[]")  # JSON array
+    customer_data_extracted = Column(Text, default="{}")  # JSON object
+    call_score = Column(Integer, default=0)  # 1-10
+    close_likelihood = Column(Text, default="unknown")  # high, medium, low, lost
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "recording_id": self.recording_id,
+            "lead_id": self.lead_id,
+            "summary": self.summary,
+            "coaching_tips": _j(self.coaching_tips) if self.coaching_tips else [],
+            "sentiment": self.sentiment,
+            "customer_sentiment": self.customer_sentiment,
+            "objections": _j(self.objections) if self.objections else [],
+            "key_topics": _j(self.key_topics) if self.key_topics else [],
+            "customer_data_extracted": _j(self.customer_data_extracted) if self.customer_data_extracted else {},
+            "call_score": self.call_score,
+            "close_likelihood": self.close_likelihood,
+            "created_at": self.created_at,
+        }
+
+
 # --- Engine / Session ---
 
 _engine = None

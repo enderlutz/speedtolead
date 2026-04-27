@@ -94,6 +94,55 @@ export interface BreakdownItem {
   qty?: number;
 }
 
+// --- Call Recording types ---
+export interface CallRecordingEntry {
+  id: string;
+  lead_id: string | null;
+  contact_name?: string;
+  duration_seconds: number;
+  call_direction: string;
+  caller_name: string;
+  status: string;
+  created_at: string;
+  transcribed_at: string | null;
+  analyzed_at: string | null;
+  has_recording: boolean;
+  transcript?: {
+    id: string;
+    full_text: string;
+    segments: { speaker: number; text: string; start: number; end: number }[];
+    speaker_map: Record<string, string>;
+    confidence: number;
+  } | null;
+  analysis?: {
+    id: string;
+    summary: string;
+    coaching_tips: string[];
+    sentiment: string;
+    customer_sentiment: string;
+    objections: string[];
+    key_topics: string[];
+    customer_data_extracted: Record<string, unknown>;
+    call_score: number;
+    close_likelihood: string;
+  } | null;
+}
+
+export interface CallPatterns {
+  total_calls: number;
+  closed_calls: number;
+  lost_calls: number;
+  avg_score_closed: number;
+  avg_score_lost: number;
+  avg_duration_closed: number;
+  avg_duration_lost: number;
+  top_objections: [string, number][];
+  top_topics_closed: [string, number][];
+  top_coaching_tips: [string, number][];
+  sentiment_closed: Record<string, number>;
+  sentiment_lost: Record<string, number>;
+}
+
 export interface ChatbotMessage {
   id: string;
   direction: "user" | "assistant" | "human";
@@ -534,4 +583,27 @@ export const api = {
     request<{ summary: string }>(`/api/chatbot/summary/${leadId}`),
   chatbotHeartbeat: (token: string) =>
     request<{ status: string }>(`/api/chatbot/heartbeat/${token}`, { method: "POST" }),
+
+  // --- Call Recordings ---
+  getLeadCalls: (leadId: string) => request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}`),
+  getCall: (recordingId: string) => request<CallRecordingEntry>(`/api/calls/${recordingId}`),
+  getAllCalls: (limit = 50, offset = 0) =>
+    request<{ calls: CallRecordingEntry[]; total: number }>(`/api/calls/all?limit=${limit}&offset=${offset}`),
+  getCallPatterns: () => request<CallPatterns>("/api/calls/patterns"),
+  reanalyzeCall: (recordingId: string) =>
+    request<{ status: string }>(`/api/calls/${recordingId}/analyze`, { method: "POST" }),
+  uploadCallRecording: async (file: File, leadId: string, direction = "outbound") => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("lead_id", leadId);
+    formData.append("call_direction", direction);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/calls/upload`, {
+      method: "POST",
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    return res.json() as Promise<{ id: string; status: string }>;
+  },
 };
