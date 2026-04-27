@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Search, FileText, MapPin, Ruler, ChevronDown, ChevronUp, ExternalLink,
-  CheckCircle2, DollarSign, Clock, Eye, Plus, X,
+  CheckCircle2, DollarSign, Clock, Eye, Plus, X, PhoneCall,
 } from "lucide-react";
 
 const AGE_LABELS: Record<string, string> = {
@@ -219,10 +219,18 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
               {isClosed && (
                 <Badge className="text-[10px] bg-green-100 text-green-800 capitalize">{entry.closed_tier}</Badge>
               )}
+              {entry.precall_done ? (
+                <Badge className="text-[10px] bg-amber-100 text-amber-800"><PhoneCall className="h-2.5 w-2.5 mr-0.5 inline" />Pre-call</Badge>
+              ) : (
+                <Badge variant="outline" className="text-[10px] text-muted-foreground">No pre-call</Badge>
+              )}
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{entry.address || "No address"}</span>
               <span className="flex items-center gap-1"><Ruler className="h-3 w-3" />{sqft.toLocaleString()} sqft</span>
+              {entry.precall_done && entry.time_to_call_minutes != null && (
+                <span className="flex items-center gap-1"><PhoneCall className="h-3 w-3" />Called in {formatMins(entry.time_to_call_minutes)}</span>
+              )}
               <span className="flex items-center gap-1"><Clock className="h-3 w-3" />Sent in {formatMins(entry.time_to_send_minutes)}</span>
               <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{entry.proposal_viewed ? `Viewed in ${formatMins(entry.time_to_view_minutes)}` : "Not viewed"}</span>
             </div>

@@ -111,6 +111,9 @@ class Estimate(Base):
     closed_discounts = Column(Text, nullable=True)  # JSON array
     closed_upsell_notes = Column(Text, nullable=True)
     closed_notes = Column(Text, nullable=True)
+    precall_done = Column(Boolean, default=False)
+    precall_at = Column(Text, nullable=True)
+    precall_notes = Column(Text, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -137,6 +140,9 @@ class Estimate(Base):
             "closed_discounts": _j(self.closed_discounts) if self.closed_discounts else [],
             "closed_upsell_notes": self.closed_upsell_notes or "",
             "closed_notes": self.closed_notes or "",
+            "precall_done": self.precall_done or False,
+            "precall_at": self.precall_at,
+            "precall_notes": self.precall_notes or "",
         }
 
 

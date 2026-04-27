@@ -154,6 +154,15 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
                 "closed_discounts": est_dict.get("closed_discounts", []),
                 "closed_upsell_notes": est_dict.get("closed_upsell_notes", ""),
                 "closed_notes": est_dict.get("closed_notes", ""),
+                "precall_done": est_dict.get("precall_done", False),
+                "precall_at": est_dict.get("precall_at"),
+                "precall_notes": est_dict.get("precall_notes", ""),
+                "time_to_call_minutes": (
+                    round((_parse_dt(est.precall_at) - synced_dt).total_seconds() / 60, 1)
+                    if est.precall_at and synced_dt and _parse_dt(est.precall_at)
+                    and (_parse_dt(est.precall_at) - synced_dt).total_seconds() >= 0
+                    else None
+                ),
                 "time_to_send_minutes": time_to_send_mins,
                 "time_to_view_minutes": time_to_view_mins,
                 "proposal_viewed": prop.first_viewed_at is not None if prop else False,
@@ -889,6 +898,35 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
     except Exception as e:
         db.rollback()
         logger.error(f"Save PDF failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class PrecallBody(BaseModel):
+    done: bool
+    notes: str | None = None
+
+
+@router.post("/estimates/{estimate_id}/precall")
+def log_precall(estimate_id: str, body: PrecallBody):
+    """Log whether the VA made a pre-estimate call."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+
+        est.precall_done = body.done
+        est.precall_at = _now() if body.done else None
+        est.precall_notes = body.notes if body.done else None
+        db.commit()
+
+        return est.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

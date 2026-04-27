@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
+  ArrowLeft, MapPin, Phone, PhoneCall, Mail, User, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -158,6 +158,10 @@ export default function LeadDetail() {
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("08:00");
+  const [precallDone, setPrecallDone] = useState(estimate?.precall_done || false);
+  const [precallNotes, setPrecallNotes] = useState(estimate?.precall_notes || "");
+  const [precallSaving, setPrecallSaving] = useState(false);
+  const [precallSaved, setPrecallSaved] = useState(!!estimate?.precall_done);
 
   // Check if it's after 8 PM CST
   const isAfterHours = () => {
@@ -725,6 +729,57 @@ export default function LeadDetail() {
               <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="w-full">
                 <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
               </Button>
+
+              {/* Pre-Estimate Call */}
+              <div className={`rounded-lg border-2 p-4 ${precallSaved ? "border-green-300 bg-green-50/50" : "border-amber-300 bg-amber-50/50"}`}>
+                <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5 ${precallSaved ? "text-green-800" : "text-amber-800"}`}>
+                  <PhoneCall className="h-3.5 w-3.5" /> Pre-Estimate Call
+                  {precallSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-600 ml-auto" />}
+                </h4>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={precallDone}
+                    onChange={(e) => {
+                      setPrecallDone(e.target.checked);
+                      if (!e.target.checked) { setPrecallNotes(""); setPrecallSaved(false); }
+                    }}
+                    className="h-4 w-4 rounded accent-amber-600"
+                  />
+                  <span className="text-sm font-medium">Called the customer</span>
+                </label>
+                {precallDone && (
+                  <div className="mt-3 space-y-2">
+                    <textarea
+                      value={precallNotes}
+                      onChange={(e) => setPrecallNotes(e.target.value)}
+                      placeholder="Quick notes from the call..."
+                      className="w-full border rounded-md px-3 py-1.5 text-sm bg-background resize-none h-16"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        if (!estimate) return;
+                        setPrecallSaving(true);
+                        try {
+                          await api.logPrecall(estimate.id, true, precallNotes || undefined);
+                          setPrecallSaved(true);
+                          toast.success("Pre-call logged");
+                        } catch { toast.error("Failed to save"); }
+                        finally { setPrecallSaving(false); }
+                      }}
+                      disabled={precallSaving}
+                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      <Save className="h-3.5 w-3.5 mr-1" />
+                      {precallSaving ? "Saving..." : precallSaved ? "Saved" : "Save"}
+                    </Button>
+                  </div>
+                )}
+                {!precallDone && !precallSaved && (
+                  <p className="text-xs text-amber-600 mt-2">Did you call the customer before sending the estimate?</p>
+                )}
+              </div>
 
               {/* After-hours warning */}
               {isAfterHours() && !showScheduler && (

@@ -620,6 +620,27 @@ def get_deal_stats():
         view_rate = round(total_viewed / total_sent * 100, 1) if total_sent > 0 else 0
         view_to_close_rate = round(total_closed_from_viewed / total_viewed * 100, 1) if total_viewed > 0 else 0
 
+        # Pre-call vs no-pre-call close rate comparison
+        all_sent = (
+            db.query(Estimate)
+            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]))
+            .join(Lead, Estimate.lead_id == Lead.id)
+            .all()
+        )
+        precall_sent = sum(1 for e in all_sent if e.precall_done)
+        precall_closed = sum(1 for e in all_sent if e.precall_done and e.closed_tier)
+        no_precall_sent = sum(1 for e in all_sent if not e.precall_done)
+        no_precall_closed = sum(1 for e in all_sent if not e.precall_done and e.closed_tier)
+
+        precall_stats = {
+            "precall_sent": precall_sent,
+            "precall_closed": precall_closed,
+            "precall_close_rate": round(precall_closed / precall_sent * 100, 1) if precall_sent > 0 else 0,
+            "no_precall_sent": no_precall_sent,
+            "no_precall_closed": no_precall_closed,
+            "no_precall_close_rate": round(no_precall_closed / no_precall_sent * 100, 1) if no_precall_sent > 0 else 0,
+        }
+
         return {
             "total_closed": total_closed,
             "tier_breakdown": tier_breakdown,
@@ -633,6 +654,7 @@ def get_deal_stats():
             "proposals_sent": total_sent,
             "proposals_viewed": total_viewed,
             "closed_from_viewed": total_closed_from_viewed,
+            "precall": precall_stats,
         }
     finally:
         db.close()

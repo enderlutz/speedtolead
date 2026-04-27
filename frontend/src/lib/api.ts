@@ -199,6 +199,10 @@ export interface SentLogEntry {
   closed_discounts: { amount: number; type: "dollar" | "percent"; reason: string }[];
   closed_upsell_notes: string;
   closed_notes: string;
+  precall_done: boolean;
+  precall_at: string | null;
+  precall_notes: string;
+  time_to_call_minutes: number | null;
   time_to_send_minutes: number | null;
   time_to_view_minutes: number | null;
   proposal_viewed: boolean;
@@ -369,6 +373,11 @@ export const api = {
     request<EstimateDetail>(`/api/estimates/${id}/close`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+  logPrecall: (id: string, done: boolean, notes?: string) =>
+    request<EstimateDetail>(`/api/estimates/${id}/precall`, {
+      method: "POST",
+      body: JSON.stringify({ done, notes }),
     }),
   reopenEstimate: (id: string) =>
     request<EstimateDetail>(`/api/estimates/${id}/reopen`, { method: "POST" }),
