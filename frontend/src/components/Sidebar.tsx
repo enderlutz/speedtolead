@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic } from "lucide-react";
+import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/utils";
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/leads", icon: Users, label: "Leads" },
+  { to: "/old-leads", icon: UsersRound, label: "Old Leads" },
   { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/calls", icon: Mic, label: "Call Coach" },

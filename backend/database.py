@@ -1,8 +1,11 @@
 from __future__ import annotations
 import json
-from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index
+import logging
+from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -25,6 +28,7 @@ class Lead(Base):
         Index("idx_leads_status", "status"),
         Index("idx_leads_kanban_column", "kanban_column"),
         Index("idx_leads_created_at", "created_at"),
+        Index("idx_leads_pipeline_version", "pipeline_version"),
     )
 
     id = Column(Text, primary_key=True)
@@ -40,10 +44,12 @@ class Lead(Base):
     status = Column(Text, default="new")
     kanban_column = Column(Text, default="new_lead")
     priority = Column(Text, default="MEDIUM")
+    pipeline_version = Column(Text, default="v1", nullable=False)
     form_data = Column(Text, default="{}")
     customer_responded = Column(Boolean, default=False)
     customer_response_text = Column(Text, default="")
     ghl_opportunity_id = Column(Text, default="")
+    ghl_pipeline_stage_id = Column(Text, default="")
     is_test = Column(Boolean, default=False)
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
@@ -67,6 +73,8 @@ class Lead(Base):
             "status": self.status,
             "kanban_column": self.kanban_column,
             "priority": self.priority,
+            "pipeline_version": self.pipeline_version or "v1",
+            "ghl_pipeline_stage_id": self.ghl_pipeline_stage_id or "",
             "form_data": _j(self.form_data),
             "customer_responded": bool(self.customer_responded),
             "customer_response_text": self.customer_response_text or "",
@@ -499,7 +507,25 @@ def init_db():
     # Auto-create any missing tables (safe — does nothing for existing tables)
     Base.metadata.create_all(bind=_engine)
 
+    _run_migrations()
+
     _SessionLocal = sessionmaker(bind=_engine)
+
+
+def _run_migrations():
+    """Idempotent ALTER TABLE migrations for columns added after initial schema."""
+    inspector = inspect(_engine)
+    existing = {c["name"] for c in inspector.get_columns("leads")}
+
+    if "pipeline_version" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN pipeline_version TEXT NOT NULL DEFAULT 'v1'"))
+        logger.info("Migration: added leads.pipeline_version (backfilled all rows to 'v1')")
+
+    if "ghl_pipeline_stage_id" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN ghl_pipeline_stage_id TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.ghl_pipeline_stage_id")
 
 
 def get_db() -> Session:

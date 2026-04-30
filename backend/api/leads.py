@@ -12,7 +12,7 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,12 +38,25 @@ class ContactUpdate(BaseModel):
     zip_code: str | None = None
 
 
+class StageUpdate(BaseModel):
+    stage_id: str
+
+
+class ExportToV2(BaseModel):
+    stage_id: str | None = None  # defaults to "New Lead" stage on the new pipeline
+
+
+# New GHL pipeline default landing stage ("New Lead")
+V2_DEFAULT_STAGE_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570"
+
+
 @router.get("/leads")
 def list_leads(
     status: str | None = Query(None),
     kanban_column: str | None = Query(None),
     search: str | None = Query(None),
     location: str | None = Query(None),
+    pipeline_version: str | None = Query(None),
     include_archived: bool = Query(False),
 ):
     db = get_db()
@@ -57,6 +70,8 @@ def list_leads(
             q = q.filter(Lead.kanban_column == kanban_column)
         if location:
             q = q.filter(Lead.location_label == location)
+        if pipeline_version:
+            q = q.filter(Lead.pipeline_version == pipeline_version)
         if search:
             pattern = f"%{search}%"
             q = q.filter(
@@ -171,6 +186,70 @@ def update_kanban_column(lead_id: str, body: ColumnUpdate):
         lead.kanban_column = body.kanban_column
         lead.updated_at = _now()
         db.commit()
+        return lead.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.put("/leads/{lead_id}/stage")
+def update_pipeline_stage(lead_id: str, body: StageUpdate):
+    """Update the v2 pipeline stage for a lead. Pushes back to GHL when the
+    lead has a valid opportunity ID (i.e., was sourced from the new GHL account)."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        lead.ghl_pipeline_stage_id = body.stage_id
+        lead.updated_at = _now()
+        db.commit()
+
+        # Mirror to GHL only if the opportunity belongs to the active account.
+        # Exported v1 leads have ghl_opportunity_id cleared (old account creds dead).
+        if lead.ghl_opportunity_id:
+            try:
+                update_opportunity_stage(lead.ghl_opportunity_id, body.stage_id, lead.ghl_location_id or None)
+            except Exception as e:
+                logger.warning(f"Stage update saved locally but GHL push failed for {lead_id}: {e}")
+
+        log_event(lead_id, "stage_changed", f"Stage → {body.stage_id}")
+        return lead.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/export-to-v2")
+def export_to_v2(lead_id: str, body: ExportToV2):
+    """Move a v1 lead onto the new pipeline. Local-only — does not touch GHL,
+    since the lead's opportunity/contact IDs belong to the old (defunct) account."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if lead.pipeline_version == "v2":
+            raise HTTPException(status_code=400, detail="Lead is already on the new pipeline")
+
+        lead.pipeline_version = "v2"
+        lead.ghl_pipeline_stage_id = body.stage_id or V2_DEFAULT_STAGE_ID
+        # Old-account opportunity ID is invalid in the new account — clear it
+        # so the kanban drag handler doesn't try to push updates to a dead opp.
+        lead.ghl_opportunity_id = ""
+        lead.updated_at = _now()
+        db.commit()
+
+        log_event(lead_id, "exported_to_v2", f"Exported to new pipeline at stage {lead.ghl_pipeline_stage_id}")
         return lead.to_dict()
     except HTTPException:
         raise

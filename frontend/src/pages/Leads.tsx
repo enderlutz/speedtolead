@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore, Wrench, Check, Eye } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore, Wrench, Check, Eye, ArrowRightCircle } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -67,7 +67,7 @@ export default function Leads() {
 
   const loadLeads = useCallback(() => {
     setLoading(true);
-    api.getLeads().then((data) => {
+    api.getLeads({ pipeline_version: "v1" }).then((data) => {
       setLeads(data);
       localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
       // Toast if new leads appeared
@@ -85,7 +85,7 @@ export default function Leads() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
-        api.getLeads().then((data) => {
+        api.getLeads({ pipeline_version: "v1" }).then((data) => {
           setLeads(data);
           localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
           if (data.length > prevCountRef.current && prevCountRef.current > 0) {
@@ -101,7 +101,7 @@ export default function Leads() {
   // Real-time SSE: instant update + sounds for all event types
   useSSE(useCallback((event) => {
     const refresh = () => {
-      api.getLeads().then((data) => {
+      api.getLeads({ pipeline_version: "v1" }).then((data) => {
         setLeads(data);
         localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
         prevCountRef.current = data.length;
@@ -336,7 +336,7 @@ function ArchivedList({ onRestore }: { onRestore: () => void }) {
 
   const loadArchived = useCallback(() => {
     setLoadingArchived(true);
-    api.getArchivedLeads(archiveSearch || undefined)
+    api.getArchivedLeads(archiveSearch || undefined, "v1")
       .then(setArchived)
       .catch(() => toast.error("Failed to load archived leads"))
       .finally(() => setLoadingArchived(false));
@@ -474,6 +474,19 @@ function KanbanColumn({ column, leads, onRefresh }: { column: typeof COLUMNS[num
     } catch { toast.error("Failed to send"); }
   };
 
+  const handleExport = async (e: React.MouseEvent, lead: Lead) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.exportToV2(lead.id);
+      toast.success(`Exported ${lead.contact_name} to new pipeline`);
+      onRefresh();
+    } catch { toast.error("Export failed"); }
+  };
+
+  // Position the Export button to the left of Quick Send (when hot) or Archive (otherwise)
+  const exportRightCls = column.key === "hot_lead" ? "right-[3.25rem]" : "right-7";
+
   return (
     <div ref={setNodeRef} className={`w-[260px] sm:w-72 shrink-0 rounded-lg snap-start ${column.bgCls} ${isOver ? "ring-2 ring-primary/40" : ""} transition-all`}>
       <div className={`px-3 py-2 rounded-t-lg ${column.headerCls} flex items-center gap-2`}>
@@ -494,6 +507,13 @@ function KanbanColumn({ column, leads, onRefresh }: { column: typeof COLUMNS[num
                 <Zap className="h-3 w-3" />
               </button>
             )}
+            <button
+              onClick={(e) => handleExport(e, lead)}
+              className={`absolute top-1.5 ${exportRightCls} p-1 rounded bg-blue-600 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-sm hover:bg-blue-700`}
+              title="Export to new Leads pipeline"
+            >
+              <ArrowRightCircle className="h-3 w-3" />
+            </button>
             <button
               onClick={async (e) => {
                 e.preventDefault();

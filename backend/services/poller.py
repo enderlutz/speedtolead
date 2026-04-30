@@ -19,12 +19,13 @@ logger = logging.getLogger(__name__)
 # Pipeline name to match (case-insensitive)
 TARGET_PIPELINE = "fence staining new automation flow"
 
-# Stages to pull from (case-insensitive) → priority mapping
+# Stages to pull from (case-insensitive) → priority mapping.
+# New GHL pipeline uses "HOT LEAD_SEND ESTIMATE" (underscore). The other 13 stages
+# downstream (Estimate Sent, Closed, etc.) get populated by drag-and-drop on the
+# kanban (which pushes back to GHL via update_opportunity_stage).
 TARGET_STAGES = {
     "new lead": "MEDIUM",
-    "partial reply": "MEDIUM",
-    "hot lead-send estimate": "HOT",
-    "hot lead_send estimate": "HOT",  # alternate separator
+    "hot lead_send estimate": "HOT",
 }
 
 # --- Smart GHL field resolver (value-based, works across locations) ---
@@ -280,8 +281,10 @@ def _sync_location(location_id: str, label: str):
                         status="archived" if already_sent else ("estimated" if low > 0 else "new"),
                         kanban_column="archived" if already_sent else kanban_col,
                         priority=est_priority,
+                        pipeline_version="v2",
                         form_data=json.dumps(form_data),
                         ghl_opportunity_id=opp.get("id", ""),
+                        ghl_pipeline_stage_id=stage_id or "",
                         ghl_created_at=ghl_created,
                         dashboard_synced_at=now,
                         created_at=ghl_created,

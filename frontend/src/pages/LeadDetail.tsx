@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, PhoneCall, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
+import { V2_STAGES } from "./LeadsV2";
 
 const FENCE_HEIGHT_OPTIONS = [
   "Didn't answer", "6ft standard", "6.5ft standard with rot board", "7ft", "8ft", "Not sure",
@@ -306,6 +307,22 @@ export default function LeadDetail() {
       toast.success("Lead restored");
     } catch {
       toast.error("Failed to restore");
+    }
+  };
+
+  const [exportStageId, setExportStageId] = useState<string>(V2_STAGES[0].id);
+  const [exporting, setExporting] = useState(false);
+  const handleExportToV2 = async () => {
+    if (!id) return;
+    setExporting(true);
+    try {
+      await api.exportToV2(id, exportStageId);
+      toast.success("Exported to new pipeline");
+      navigate("/leads");
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -895,6 +912,37 @@ export default function LeadDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Export to new pipeline (v1 leads only) */}
+          {lead.pipeline_version === "v1" && (
+            <Card className="border-blue-200 bg-blue-50/40">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <ArrowRightCircle className="h-4 w-4 text-blue-600" />
+                  Export to New Pipeline
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 pt-0">
+                <p className="text-xs text-muted-foreground">
+                  Move this lead onto the new GHL pipeline. All history (estimates, notes, contact info) is preserved.
+                </p>
+                <select
+                  value={exportStageId}
+                  onChange={(e) => setExportStageId(e.target.value)}
+                  className={selectCls}
+                  disabled={exporting}
+                >
+                  {V2_STAGES.map((s) => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+                <Button onClick={handleExportToV2} disabled={exporting} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                  {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRightCircle className="h-4 w-4 mr-2" />}
+                  Export to "{V2_STAGES.find((s) => s.id === exportStageId)?.shortLabel}"
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Archive */}
           {lead.status === "archived" ? (

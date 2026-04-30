@@ -48,6 +48,8 @@ export interface Lead {
   status: string;
   kanban_column: string;
   priority: string;
+  pipeline_version: "v1" | "v2";
+  ghl_pipeline_stage_id: string;
   form_data: Record<string, string>;
   customer_responded: boolean;
   customer_response_text: string;
@@ -348,9 +350,10 @@ export const api = {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return request<Lead[]>(`/api/leads${qs}`);
   },
-  getArchivedLeads: (search?: string) => {
+  getArchivedLeads: (search?: string, pipeline_version?: string) => {
     const params = new URLSearchParams({ status: "archived" });
     if (search) params.set("search", search);
+    if (pipeline_version) params.set("pipeline_version", pipeline_version);
     return request<Lead[]>(`/api/leads?${params.toString()}`);
   },
   getLead: (id: string) => request<LeadDetail>(`/api/leads/${id}`),
@@ -358,6 +361,16 @@ export const api = {
     request<Lead>(`/api/leads/${id}/column`, {
       method: "PUT",
       body: JSON.stringify({ kanban_column }),
+    }),
+  updateStage: (id: string, stage_id: string) =>
+    request<Lead>(`/api/leads/${id}/stage`, {
+      method: "PUT",
+      body: JSON.stringify({ stage_id }),
+    }),
+  exportToV2: (id: string, stage_id?: string) =>
+    request<Lead>(`/api/leads/${id}/export-to-v2`, {
+      method: "POST",
+      body: JSON.stringify({ stage_id: stage_id || null }),
     }),
   updateFormData: (id: string, form_data: Record<string, unknown>) =>
     request<LeadDetail>(`/api/leads/${id}/form-data`, {

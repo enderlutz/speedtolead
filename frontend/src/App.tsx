@@ -6,6 +6,7 @@ import Sidebar, { MobileHeader } from "@/components/Sidebar";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
+import LeadsV2 from "@/pages/LeadsV2";
 import LeadDetail from "@/pages/LeadDetail";
 import SentLog from "@/pages/SentLog";
 import Analytics from "@/pages/Analytics";
@@ -55,7 +56,8 @@ function AppLayout() {
           <main className="flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/leads" element={<Leads />} />
+              <Route path="/leads" element={<LeadsV2 />} />
+              <Route path="/old-leads" element={<Leads />} />
               <Route path="/leads/:id" element={<LeadDetail />} />
               <Route path="/leads/:id/edit-pdf" element={<EditPdf />} />
               <Route path="/sent-log" element={<SentLog />} />
