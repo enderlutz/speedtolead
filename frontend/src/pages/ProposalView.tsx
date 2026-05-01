@@ -62,7 +62,7 @@ export default function ProposalView() {
         <div className="relative mb-6">
           <div className="h-16 w-16 rounded-full border-4 border-white/10 border-t-amber-400 animate-spin" />
         </div>
-        <h1 className="text-xl font-bold text-white tracking-tight">Revive Fence Staining</h1>
+        <h1 className="text-xl font-bold text-white tracking-tight">{"A&T's Fence Staining"}</h1>
         <p className="text-white/50 text-sm mt-2 animate-pulse">Loading your proposal...</p>
       </div>
     );
@@ -95,7 +95,7 @@ export default function ProposalView() {
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight">Revive Fence Staining</h1>
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight">{"A&T's Fence Staining"}</h1>
               <div className="mt-2">
                 <p className="text-xs text-white/60 font-medium">Sides of fence included in the price</p>
                 <ul className="mt-1 space-y-0.5">
@@ -137,7 +137,7 @@ export default function ProposalView() {
 
         {/* Footer */}
         <footer className="text-center text-xs text-[#1C2235]/30 pb-6 pt-4">
-          Revive Fence Staining &middot; Cypress, TX
+          {"A&T's Fence Staining"} &middot; Cypress, TX
         </footer>
       </main>
 

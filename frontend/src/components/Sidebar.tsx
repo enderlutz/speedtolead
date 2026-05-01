@@ -24,7 +24,7 @@ export function MobileHeader({ onToggle }: { onToggle: () => void }) {
         <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
           <Zap className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">Revive Fence Staining</span>
+        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">{"A&T's Fence Staining"}</span>
       </div>
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
@@ -129,7 +129,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               <Zap className="h-4.5 w-4.5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">Revive Fence Staining</h1>
+              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">{"A&T's Fence Staining"}</h1>
               <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">Fence Restoration</p>
             </div>
           </div>

@@ -251,7 +251,7 @@ export default function ChatbotWidget({ token, leadId }: Props) {
               <div className="flex gap-2">
                 <ProfilePic size="sm" />
                 <div className="bg-white rounded-xl rounded-tl-sm px-3 py-2 shadow-sm border text-sm leading-relaxed">
-                  Hi! I'm {config.bot_name} from Revive Fence Staining. How can I help you today?
+                  Hi! I'm {config.bot_name} from {"A&T's Fence Staining"}. How can I help you today?
                 </div>
               </div>
             )}

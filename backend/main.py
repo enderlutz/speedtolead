@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     call_poller.cancel()
 
 
-app = FastAPI(title="Revive Fence Staining", lifespan=lifespan)
+app = FastAPI(title="A&T's Fence Staining", lifespan=lifespan)
 
 # CORS — explicit origin list (wildcard + credentials is invalid per spec)
 _settings = get_settings()
