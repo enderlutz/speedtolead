@@ -218,6 +218,7 @@ def pending_action():
                 "location_label": lead.location_label,
                 "kanban_column": lead.kanban_column,
                 "priority": lead.priority,
+                "pipeline_version": lead.pipeline_version or "v1",
             })
 
         return results

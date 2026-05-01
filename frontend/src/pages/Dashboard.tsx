@@ -141,6 +141,11 @@ export default function Dashboard() {
                         <p className="text-xs text-muted-foreground truncate">{est.address || "No address"}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {est.pipeline_version === "v1" && (
+                          <Badge className="text-[10px] border-0 bg-yellow-100 text-yellow-800" title="Lead is on the legacy GHL pipeline — export to the new pipeline before sending">
+                            Needs Export
+                          </Badge>
+                        )}
                         <Badge className={`text-[10px] border-0 ${cfg.bg} ${cfg.text}`}>{cfg.label}</Badge>
                         <Badge className={`text-[10px] border ${PRIORITY_CLS[est.priority] || ""}`}>{est.priority}</Badge>
                       </div>

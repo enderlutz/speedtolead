@@ -270,6 +270,7 @@ export interface PendingEstimate extends EstimateDetail {
   location_label: string;
   kanban_column: string;
   priority: string;
+  pipeline_version: "v1" | "v2";
 }
 
 export interface MessageEntry {
