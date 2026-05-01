@@ -664,14 +664,24 @@ export default function LeadDetail() {
                 <CardTitle className="text-sm sm:text-base flex items-center gap-2">
                   <MessageSquare className="h-4 w-4" /> Messages
                 </CardTitle>
-                <Button variant="outline" size="sm" onClick={handleCheckResponse} disabled={checkingResponse}>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={handleCheckResponse}
+                  disabled={checkingResponse || lead.pipeline_version === "v1"}
+                  title={lead.pipeline_version === "v1" ? "Old pipeline — export to load messages" : undefined}
+                >
                   <RefreshCw className={`h-3.5 w-3.5 mr-1 ${checkingResponse ? "animate-spin" : ""}`} />
                   Check
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
-              {messages.length === 0 ? (
+              {lead.pipeline_version === "v1" ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Messages won't load — the old GHL account is no longer reachable.
+                  Export to the new pipeline to enable message sync.
+                </p>
+              ) : messages.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">No messages yet</p>
               ) : (
                 <MessageList messages={messages} />

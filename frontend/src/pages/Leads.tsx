@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, ScanSearch, Archive, ArchiveRestore, Wrench, Check, Eye, ArrowRightCircle } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, Archive, ArchiveRestore, Wrench, Check, Eye, ArrowRightCircle } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -62,7 +62,6 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
   const prevCountRef = useRef(leads.length);
 
   const loadLeads = useCallback(() => {
@@ -217,18 +216,6 @@ export default function Leads() {
           <p className="text-xs text-muted-foreground">{leads.length} total</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={async () => {
-            setScanning(true);
-            try {
-              const result = await api.backfillTags();
-              toast.success(`Scanned ${result.checked} leads — ${result.archived} archived`);
-              loadLeads();
-            } catch { toast.error("Scan failed"); }
-            finally { setScanning(false); }
-          }} disabled={scanning}>
-            <ScanSearch className={`h-4 w-4 mr-1 ${scanning ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">Scan GHL</span>
-          </Button>
           <Button variant="outline" size="sm" onClick={loadLeads} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">Refresh</span>

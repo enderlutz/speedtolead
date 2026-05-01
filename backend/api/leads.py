@@ -567,6 +567,11 @@ def check_response(lead_id: str):
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        if lead.pipeline_version == "v1":
+            raise HTTPException(
+                status_code=400,
+                detail="Messages won't load — the old GHL account is no longer reachable. Export this lead to the new pipeline to enable message sync.",
+            )
 
         if not lead.ghl_contact_id:
             return {"messages": [], "note": "No GHL contact ID"}

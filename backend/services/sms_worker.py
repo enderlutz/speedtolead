@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
-from database import get_db, SmsQueue
+from database import get_db, SmsQueue, Lead
 from services.ghl import send_sms
 from services.activity_log import log_event
 from services.event_bus import publish
@@ -40,6 +40,21 @@ def process_pending_messages():
 
         for msg in pending:
             try:
+                # Skip messages whose lead is on the legacy v1 pipeline — their
+                # ghl_contact_id points at the dead old GHL account, so the send
+                # would fail at the API layer no matter how many times we retry.
+                # Mark them clearly so anyone watching the queue can see they
+                # need an export rather than thinking the worker is broken.
+                lead = db.query(Lead).filter(Lead.id == msg.lead_id).first()
+                if lead and lead.pipeline_version == "v1":
+                    msg.status = "blocked"
+                    msg.error_message = "Lead is on legacy pipeline — export to new pipeline before sending"
+                    db.commit()
+                    logger.info(f"SMS worker: blocked scheduled SMS for v1 lead {msg.lead_id} (needs export)")
+                    log_event(msg.lead_id, "scheduled_sms_blocked",
+                              "Scheduled SMS blocked — lead is on legacy pipeline, export before sending")
+                    continue
+
                 # Rate limit: wait between sends
                 time.sleep(2)
 
