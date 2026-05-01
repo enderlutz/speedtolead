@@ -396,7 +396,9 @@ export default function LeadDetail() {
                         toast.success("Address request sent via SMS");
                       } catch { toast.error("Failed to send"); }
                       finally { setAskingAddress(false); }
-                    }} disabled={askingAddress || lead?.form_data?.address_action === "asked_for_address"}>
+                    }}
+                    disabled={askingAddress || lead?.form_data?.address_action === "asked_for_address" || lead?.pipeline_version === "v1"}
+                    title={lead?.pipeline_version === "v1" ? "Export to new pipeline before sending SMS" : undefined}>
                       <Navigation className="h-3.5 w-3.5 mr-1" />
                       {lead?.form_data?.address_action === "asked_for_address" ? "Asked" : askingAddress ? "Sending..." : "Ask for Address"}
                     </Button>
@@ -409,7 +411,9 @@ export default function LeadDetail() {
                         toast.success("New build SMS sent");
                       } catch { toast.error("Failed to send"); }
                       finally { setAskingNewBuild(false); }
-                    }} disabled={askingNewBuild || lead?.form_data?.address_action === "new_build"}>
+                    }}
+                    disabled={askingNewBuild || lead?.form_data?.address_action === "new_build" || lead?.pipeline_version === "v1"}
+                    title={lead?.pipeline_version === "v1" ? "Export to new pipeline before sending SMS" : undefined}>
                       <MapPin className="h-3.5 w-3.5 mr-1" />
                       {lead?.form_data?.address_action === "new_build" ? "Sent" : askingNewBuild ? "Sending..." : "New Build"}
                     </Button>

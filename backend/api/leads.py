@@ -401,6 +401,11 @@ def ask_for_address(lead_id: str):
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        if lead.pipeline_version == "v1":
+            raise HTTPException(
+                status_code=400,
+                detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
+            )
 
         from config import get_settings
         from services.ghl import send_sms
@@ -455,6 +460,11 @@ def new_build(lead_id: str):
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        if lead.pipeline_version == "v1":
+            raise HTTPException(
+                status_code=400,
+                detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
+            )
 
         from config import get_settings
         from services.ghl import send_sms
