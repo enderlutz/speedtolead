@@ -41,9 +41,9 @@ export default function Login() {
             <Zap className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="font-bold text-white text-base leading-none">AT-System</p>
+            <p className="font-bold text-white text-base leading-none">Fence Revive Co.</p>
             <p className="text-xs mt-0.5" style={{ color: "#8ed1fc" }}>
-              Fence Restoration
+              Dashboard
             </p>
           </div>
         </div>
