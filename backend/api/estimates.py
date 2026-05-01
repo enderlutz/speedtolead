@@ -13,7 +13,11 @@ from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
-from services.ghl import send_sms, add_contact_note, add_contact_tag
+from services.ghl import send_sms, add_contact_note, add_contact_tag, update_opportunity_stage
+
+# New GHL pipeline "ESTIMATE SENT" stage ID — used to advance v2 leads when
+# their estimate is approved + sent.
+V2_ESTIMATE_SENT_STAGE_ID = "dc3600f2-009b-4075-95fa-786823131416"
 
 
 def _parse_dt(iso: str | None):
@@ -29,6 +33,20 @@ from config import get_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _mark_lead_estimate_sent(lead: Lead) -> None:
+    """Update a lead to the 'estimate sent' state on whichever pipeline it lives on.
+    v1 leads use kanban_column; v2 leads also need ghl_pipeline_stage_id, and we
+    push the stage change back to GHL when there's a real opportunity to update."""
+    lead.kanban_column = "estimate_sent"
+    if lead.pipeline_version == "v2":
+        lead.ghl_pipeline_stage_id = V2_ESTIMATE_SENT_STAGE_ID
+        if lead.ghl_opportunity_id:
+            try:
+                update_opportunity_stage(lead.ghl_opportunity_id, V2_ESTIMATE_SENT_STAGE_ID, lead.ghl_location_id or None)
+            except Exception as e:
+                logger.warning(f"Failed to push estimate-sent stage to GHL for {lead.id}: {e}")
 
 
 def _now() -> str:
@@ -322,7 +340,7 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         est.status = "sent"
         est.sent_at = now
         lead.status = "sent"
-        lead.kanban_column = "estimate_sent"
+        _mark_lead_estimate_sent(lead)
         lead.updated_at = now
 
         # Generate PDF if template exists
@@ -853,7 +871,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
             est.status = "sent"
             est.sent_at = now
             lead.status = "sent"
-            lead.kanban_column = "estimate_sent"
+            _mark_lead_estimate_sent(lead)
             lead.updated_at = now
 
             proposal_url = f"{settings.proposal_base_url}/proposal/{token}"

@@ -66,6 +66,58 @@ def get_contact(contact_id: str, location_id: str | None = None) -> dict | None:
         return None
 
 
+def upsert_contact(
+    location_id: str,
+    name: str = "",
+    phone: str = "",
+    email: str = "",
+    address: str = "",
+    zip_code: str = "",
+) -> str | None:
+    """Create-or-update a contact in the given GHL location, deduped by phone/email.
+    Returns the contact ID on success, None on failure.
+    Used during v1→v2 export to register the lead's contact in the new GHL account
+    so that subsequent SMS sends actually reach a known contact."""
+    parts = (name or "").strip().split(maxsplit=1)
+    first = parts[0] if parts else ""
+    last = parts[1] if len(parts) > 1 else ""
+
+    payload: dict = {
+        "locationId": location_id,
+        "firstName": first,
+        "lastName": last,
+        "name": name or "",
+    }
+    if phone:
+        payload["phone"] = phone
+    if email:
+        payload["email"] = email
+    if address:
+        payload["address1"] = address
+    if zip_code:
+        payload["postalCode"] = zip_code
+
+    try:
+        r = _client.post(
+            f"{GHL_BASE}/contacts/upsert",
+            headers=_headers(location_id),
+            json=payload,
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json()
+        # GHL upsert returns either {contact: {id: ...}} or {id: ...} depending on version
+        contact_id = (data.get("contact") or {}).get("id") or data.get("id")
+        if contact_id:
+            logger.info(f"GHL upsert_contact: {name} -> {contact_id}")
+            return contact_id
+        logger.error(f"GHL upsert_contact returned no ID: {data}")
+        return None
+    except Exception as e:
+        logger.error(f"GHL upsert_contact failed for {name} ({phone}/{email}): {e}")
+        return None
+
+
 # --- Messaging (with retry) ---
 
 import time

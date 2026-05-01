@@ -12,7 +12,8 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact
+from config import get_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -231,8 +232,10 @@ def update_pipeline_stage(lead_id: str, body: StageUpdate):
 
 @router.post("/leads/{lead_id}/export-to-v2")
 def export_to_v2(lead_id: str, body: ExportToV2):
-    """Move a v1 lead onto the new pipeline. Local-only — does not touch GHL,
-    since the lead's opportunity/contact IDs belong to the old (defunct) account."""
+    """Move a v1 lead onto the new pipeline. Upserts the contact into the new
+    GHL account so subsequent SMS/notes go to a contact the new account knows
+    about — without this, send_sms would call the new account's API with the
+    old account's contact ID and silently fail."""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -241,6 +244,27 @@ def export_to_v2(lead_id: str, body: ExportToV2):
         if lead.pipeline_version == "v2":
             raise HTTPException(status_code=400, detail="Lead is already on the new pipeline")
 
+        settings = get_settings()
+        new_location_id = settings.ghl_location_id
+        if not new_location_id:
+            raise HTTPException(status_code=500, detail="GHL_LOCATION_ID not configured")
+
+        new_contact_id = upsert_contact(
+            location_id=new_location_id,
+            name=lead.contact_name or "",
+            phone=lead.contact_phone or "",
+            email=lead.contact_email or "",
+            address=lead.address or "",
+            zip_code=lead.zip_code or "",
+        )
+        if not new_contact_id:
+            raise HTTPException(
+                status_code=502,
+                detail="Could not register contact in the new GHL account. Check that the contact has a phone or email, then try again.",
+            )
+
+        lead.ghl_contact_id = new_contact_id
+        lead.ghl_location_id = new_location_id
         lead.pipeline_version = "v2"
         lead.ghl_pipeline_stage_id = body.stage_id or V2_DEFAULT_STAGE_ID
         # Old-account opportunity ID is invalid in the new account — clear it
@@ -249,7 +273,8 @@ def export_to_v2(lead_id: str, body: ExportToV2):
         lead.updated_at = _now()
         db.commit()
 
-        log_event(lead_id, "exported_to_v2", f"Exported to new pipeline at stage {lead.ghl_pipeline_stage_id}")
+        log_event(lead_id, "exported_to_v2",
+                  f"Exported to new pipeline at stage {lead.ghl_pipeline_stage_id}; contact upserted as {new_contact_id}")
         return lead.to_dict()
     except HTTPException:
         raise
