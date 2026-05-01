@@ -9,7 +9,7 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_ANALYSIS_PROMPT = """You are an expert sales coach for a fence staining company (Fence Revive Co., Cypress TX). Analyze this sales call transcript and provide actionable coaching.
+_ANALYSIS_PROMPT = """You are an expert sales coach for a fence staining company (Revive Fence Staining, Cypress TX). Analyze this sales call transcript and provide actionable coaching.
 
 The company offers 3 fence staining packages: Essential Seal (entry), Signature Finish (most popular), and Legacy Finish (premium). They serve the Houston area.
 
