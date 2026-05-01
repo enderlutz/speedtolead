@@ -48,6 +48,7 @@ class Lead(Base):
     form_data = Column(Text, default="{}")
     customer_responded = Column(Boolean, default=False)
     customer_response_text = Column(Text, default="")
+    precall_done = Column(Boolean, default=False)
     ghl_opportunity_id = Column(Text, default="")
     ghl_pipeline_stage_id = Column(Text, default="")
     is_test = Column(Boolean, default=False)
@@ -78,6 +79,7 @@ class Lead(Base):
             "form_data": _j(self.form_data),
             "customer_responded": bool(self.customer_responded),
             "customer_response_text": self.customer_response_text or "",
+            "precall_done": bool(self.precall_done),
             "ghl_opportunity_id": self.ghl_opportunity_id or "",
             "viewed_at": self.viewed_at,
             "proposal_viewed_at": self.proposal_viewed_at,
@@ -526,6 +528,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN ghl_pipeline_stage_id TEXT DEFAULT ''"))
         logger.info("Migration: added leads.ghl_pipeline_stage_id")
+
+    if "precall_done" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN precall_done BOOLEAN DEFAULT FALSE"))
+        logger.info("Migration: added leads.precall_done")
 
 
 def get_db() -> Session:

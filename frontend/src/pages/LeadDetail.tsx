@@ -756,17 +756,34 @@ export default function LeadDetail() {
                   <PhoneCall className="h-3.5 w-3.5" /> Pre-Estimate Call
                   {precallSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-600 ml-auto" />}
                 </h4>
-                <label className="flex items-center gap-3 cursor-pointer">
+                <label className={`flex items-center gap-3 ${precallSaving ? "opacity-50" : "cursor-pointer"}`}>
                   <input
                     type="checkbox"
                     checked={precallDone}
-                    onChange={(e) => {
-                      setPrecallDone(e.target.checked);
-                      if (!e.target.checked) { setPrecallNotes(""); setPrecallSaved(false); }
+                    disabled={precallSaving || !estimate}
+                    onChange={async (e) => {
+                      if (!estimate) return;
+                      const next = e.target.checked;
+                      // Optimistic update
+                      setPrecallDone(next);
+                      setPrecallSaving(true);
+                      try {
+                        await api.logPrecall(estimate.id, next, next ? (precallNotes || undefined) : undefined);
+                        setPrecallSaved(next);
+                        if (!next) setPrecallNotes("");
+                        toast.success(next ? "Pre-call logged" : "Pre-call undone");
+                      } catch {
+                        // Roll back
+                        setPrecallDone(!next);
+                        toast.error("Failed to save");
+                      } finally {
+                        setPrecallSaving(false);
+                      }
                     }}
                     className="h-4 w-4 rounded accent-amber-600"
                   />
                   <span className="text-sm font-medium">Called the customer</span>
+                  {precallSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-auto" />}
                 </label>
                 {precallDone && (
                   <div className="mt-3 space-y-2">
@@ -783,16 +800,15 @@ export default function LeadDetail() {
                         setPrecallSaving(true);
                         try {
                           await api.logPrecall(estimate.id, true, precallNotes || undefined);
-                          setPrecallSaved(true);
-                          toast.success("Pre-call logged");
+                          toast.success("Notes saved");
                         } catch { toast.error("Failed to save"); }
                         finally { setPrecallSaving(false); }
                       }}
                       disabled={precallSaving}
-                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                      variant="outline"
                     >
                       <Save className="h-3.5 w-3.5 mr-1" />
-                      {precallSaving ? "Saving..." : precallSaved ? "Saved" : "Save"}
+                      Save Notes
                     </Button>
                   </div>
                 )}

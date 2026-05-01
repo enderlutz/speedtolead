@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -337,6 +337,11 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
       <div className="flex items-start justify-between gap-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
           {isNew && <Badge className="text-[8px] px-1 py-0 bg-primary text-primary-foreground shrink-0">NEW</Badge>}
+          {lead.precall_done && (
+            <span title="Pre-estimate call made" className="shrink-0">
+              <PhoneCall className="h-3.5 w-3.5 text-green-600" />
+            </span>
+          )}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
         <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>

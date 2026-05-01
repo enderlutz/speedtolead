@@ -920,6 +920,13 @@ def log_precall(estimate_id: str, body: PrecallBody):
         est.precall_done = body.done
         est.precall_at = _now() if body.done else None
         est.precall_notes = body.notes if body.done else None
+
+        # Mirror onto lead so kanban cards can show a "called" indicator without
+        # joining estimates on every list query.
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+        if lead:
+            lead.precall_done = body.done
+
         db.commit()
 
         return est.to_dict()

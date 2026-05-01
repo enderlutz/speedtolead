@@ -53,6 +53,7 @@ export interface Lead {
   form_data: Record<string, string>;
   customer_responded: boolean;
   customer_response_text: string;
+  precall_done: boolean;
   viewed_at: string | null;
   proposal_viewed_at: string | null;
   ghl_created_at: string;
