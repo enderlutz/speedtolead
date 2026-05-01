@@ -488,15 +488,15 @@ export const api = {
     const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
     return request<KPIs>(`/api/analytics/kpis${qs}`);
   },
-  getFunnel: () => request<FunnelData>("/api/analytics/funnel"),
-  getWeeklyCloseRate: () => request<WeeklyCloseRate[]>("/api/analytics/weekly-close-rate"),
-  getByLocation: () => request<LocationStats>("/api/analytics/by-location"),
-  getSpeedMetrics: () => request<Record<string, unknown>>("/api/analytics/speed"),
-  getClosePatterns: () => request<Record<string, unknown>>("/api/analytics/close-patterns"),
-  getCohorts: () => request<Record<string, unknown>[]>("/api/analytics/cohorts"),
-  getRevenueInsights: () => request<Record<string, unknown>>("/api/analytics/revenue-insights"),
-  getDealStats: () => request<Record<string, unknown>>("/api/analytics/deal-stats"),
-  getTimingAnalytics: () => request<Record<string, unknown>>("/api/analytics/timing"),
+  getFunnel: (pv?: string) => request<FunnelData>(`/api/analytics/funnel${pv ? `?pipeline_version=${pv}` : ""}`),
+  getWeeklyCloseRate: (pv?: string) => request<WeeklyCloseRate[]>(`/api/analytics/weekly-close-rate${pv ? `?pipeline_version=${pv}` : ""}`),
+  getByLocation: (pv?: string) => request<LocationStats>(`/api/analytics/by-location${pv ? `?pipeline_version=${pv}` : ""}`),
+  getSpeedMetrics: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/speed${pv ? `?pipeline_version=${pv}` : ""}`),
+  getClosePatterns: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/close-patterns${pv ? `?pipeline_version=${pv}` : ""}`),
+  getCohorts: (pv?: string) => request<Record<string, unknown>[]>(`/api/analytics/cohorts${pv ? `?pipeline_version=${pv}` : ""}`),
+  getRevenueInsights: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/revenue-insights${pv ? `?pipeline_version=${pv}` : ""}`),
+  getDealStats: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/deal-stats${pv ? `?pipeline_version=${pv}` : ""}`),
+  getTimingAnalytics: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/timing${pv ? `?pipeline_version=${pv}` : ""}`),
 
   // AI Fence Estimation
   analyzeFence: (address: string, force?: boolean) =>

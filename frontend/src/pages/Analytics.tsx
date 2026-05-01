@@ -10,6 +10,9 @@ import {
 } from "recharts";
 import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb } from "lucide-react";
 
+type PipelineFilter = "v2" | "v1" | "all";
+const FILTER_KEY = "at_dashboard_pipeline_filter";
+
 export default function Analytics() {
   const [funnel, setFunnel] = useState<FunnelData | null>(null);
   const [weekly, setWeekly] = useState<WeeklyCloseRate[]>([]);
@@ -20,24 +23,43 @@ export default function Analytics() {
   const [revenue, setRevenue] = useState<Record<string, unknown> | null>(null);
   const [dealStats, setDealStats] = useState<Record<string, unknown> | null>(null);
   const [timing, setTiming] = useState<Record<string, unknown> | null>(null);
+  const [filter, setFilter] = useState<PipelineFilter>(() => {
+    const saved = (typeof window !== "undefined" && localStorage.getItem(FILTER_KEY)) as PipelineFilter | null;
+    return saved || "v2";
+  });
 
   useEffect(() => {
-    api.getFunnel().then(setFunnel).catch(console.error);
-    api.getWeeklyCloseRate().then(setWeekly).catch(console.error);
-    api.getByLocation().then(setByLocation).catch(console.error);
-    api.getSpeedMetrics().then(setSpeed).catch(console.error);
-    api.getClosePatterns().then(setPatterns).catch(console.error);
-    api.getCohorts().then(setCohorts).catch(console.error);
-    api.getRevenueInsights().then(setRevenue).catch(console.error);
-    api.getDealStats().then(setDealStats).catch(console.error);
-    api.getTimingAnalytics().then(setTiming).catch(console.error);
-  }, []);
+    const pv = filter === "all" ? undefined : filter;
+    api.getFunnel(pv).then(setFunnel).catch(console.error);
+    api.getWeeklyCloseRate(pv).then(setWeekly).catch(console.error);
+    api.getByLocation(pv).then(setByLocation).catch(console.error);
+    api.getSpeedMetrics(pv).then(setSpeed).catch(console.error);
+    api.getClosePatterns(pv).then(setPatterns).catch(console.error);
+    api.getCohorts(pv).then(setCohorts).catch(console.error);
+    api.getRevenueInsights(pv).then(setRevenue).catch(console.error);
+    api.getDealStats(pv).then(setDealStats).catch(console.error);
+    api.getTimingAnalytics(pv).then(setTiming).catch(console.error);
+  }, [filter]);
+
+  const handleFilterChange = (next: PipelineFilter) => {
+    setFilter(next);
+    localStorage.setItem(FILTER_KEY, next);
+  };
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-xs sm:text-sm text-muted-foreground">Intelligence to double revenue</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Analytics</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">Intelligence to double revenue</p>
+        </div>
+        <Tabs value={filter} onValueChange={(v) => handleFilterChange(v as PipelineFilter)}>
+          <TabsList>
+            <TabsTrigger value="v2">New Leads</TabsTrigger>
+            <TabsTrigger value="v1">Old Leads</TabsTrigger>
+            <TabsTrigger value="all">All</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <Tabs defaultValue="speed">

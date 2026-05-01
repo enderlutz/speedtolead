@@ -138,19 +138,17 @@ def get_kpis(pipeline_version: str | None = Query(None)):
 # ─── Speed Analytics — The 5-minute timer ────────────────────────────────
 
 @router.get("/analytics/speed")
-def get_speed_metrics():
+def get_speed_metrics(pipeline_version: str | None = Query(None)):
     """Per-lead timing: lead arrival → estimate sent. Identifies bottlenecks."""
     db = get_db()
     try:
-        pairs = (
+        pairs = _apply_pipeline_filter(
             db.query(Estimate, Lead)
             .join(Lead, Estimate.lead_id == Lead.id)
             .filter(Estimate.status.in_(["sent", "closed"]))
-            .filter(Lead.is_test.is_(False), Lead.status != "archived")
-            .order_by(Estimate.sent_at.desc())
-            .limit(200)
-            .all()
-        )
+            .filter(Lead.is_test.is_(False), Lead.status != "archived"),
+            pipeline_version,
+        ).order_by(Estimate.sent_at.desc()).limit(200).all()
 
         lead_times = []
         buckets = {"under_5m": 0, "5_15m": 0, "15_60m": 0, "1_4h": 0, "4_24h": 0, "over_24h": 0}
@@ -241,7 +239,7 @@ def get_speed_metrics():
 # ─── Close Pattern Analysis ──────────────────────────────────────────────
 
 @router.get("/analytics/close-patterns")
-def get_close_patterns():
+def get_close_patterns(pipeline_version: str | None = Query(None)):
     """
     Analyze WHY estimates close — find patterns across zone, sqft, age, priority, location, time.
     This is the intelligence engine for doubling revenue.
@@ -384,13 +382,13 @@ def get_close_patterns():
 # ─── Conversion Funnel ───────────────────────────────────────────────────
 
 @router.get("/analytics/funnel")
-def get_funnel():
+def get_funnel(pipeline_version: str | None = Query(None)):
     db = get_db()
     try:
         curr_start, curr_end = _month_range(0)
-        total = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status != "archived").count()
-        estimated = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status.in_(["estimated", "sent", "closed"])).count()
-        sent = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])).count()
+        total = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status != "archived"), pipeline_version).count()
+        estimated = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status.in_(["estimated", "sent", "closed"])), pipeline_version).count()
+        sent = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])), pipeline_version).count()
         viewed = db.query(Proposal).filter(Proposal.created_at >= curr_start, Proposal.status.in_(["viewed"])).count()
 
         return {
@@ -406,14 +404,14 @@ def get_funnel():
 # ─── Location Breakdown ──────────────────────────────────────────────────
 
 @router.get("/analytics/by-location")
-def get_by_location():
+def get_by_location(pipeline_version: str | None = Query(None)):
     db = get_db()
     try:
         curr_start, curr_end = _month_range(0)
         locations = {}
         for label in ["Cypress", "Woodlands"]:
-            leads = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.is_test.is_(False), Lead.status != "archived").count()
-            sent = db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])).count()
+            leads = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.is_test.is_(False), Lead.status != "archived"), pipeline_version).count()
+            sent = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= curr_start, Lead.created_at < curr_end, Lead.location_label == label, Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])), pipeline_version).count()
             locations[label] = {"leads": leads, "sent": sent, "close_rate": round(sent / leads * 100, 1) if leads > 0 else 0}
         return locations
     finally:
@@ -423,7 +421,7 @@ def get_by_location():
 # ─── Weekly Close Rate ───────────────────────────────────────────────────
 
 @router.get("/analytics/weekly-close-rate")
-def get_weekly_close_rate():
+def get_weekly_close_rate(pipeline_version: str | None = Query(None)):
     db = get_db()
     try:
         now = datetime.now(timezone.utc)
@@ -431,8 +429,8 @@ def get_weekly_close_rate():
         for i in range(7, -1, -1):
             ws = now - timedelta(weeks=i + 1)
             we = now - timedelta(weeks=i)
-            leads = db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.is_test.is_(False), Lead.status != "archived").count()
-            sent = db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])).count()
+            leads = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.is_test.is_(False), Lead.status != "archived"), pipeline_version).count()
+            sent = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= ws.isoformat(), Lead.created_at < we.isoformat(), Lead.is_test.is_(False), Lead.status.in_(["sent", "closed"])), pipeline_version).count()
             weeks.append({"week_start": ws.strftime("%b %d"), "leads": leads, "sent": sent, "close_rate": round(sent / leads * 100, 1) if leads > 0 else 0})
         return weeks
     finally:
@@ -442,7 +440,7 @@ def get_weekly_close_rate():
 # ─── Cohort Analysis ─────────────────────────────────────────────────────
 
 @router.get("/analytics/cohorts")
-def get_cohort_analysis():
+def get_cohort_analysis(pipeline_version: str | None = Query(None)):
     """Weekly cohorts: what % of leads from each week eventually got an estimate sent?"""
     db = get_db()
     try:
@@ -454,7 +452,7 @@ def get_cohort_analysis():
             we = now - timedelta(weeks=i)
             start_iso, end_iso = ws.isoformat(), we.isoformat()
 
-            leads = db.query(Lead).filter(Lead.created_at >= start_iso, Lead.created_at < end_iso, Lead.is_test.is_(False), Lead.status != "archived").all()
+            leads = _apply_pipeline_filter(db.query(Lead).filter(Lead.created_at >= start_iso, Lead.created_at < end_iso, Lead.is_test.is_(False), Lead.status != "archived"), pipeline_version).all()
             total = len(leads)
             if total == 0:
                 cohorts.append({"week": ws.strftime("%b %d"), "total": 0, "estimated": 0, "sent": 0, "est_rate": 0, "sent_rate": 0, "avg_response_min": 0})
@@ -493,11 +491,11 @@ def get_cohort_analysis():
 # ─── Revenue Intelligence ────────────────────────────────────────────────
 
 @router.get("/analytics/revenue-insights")
-def get_revenue_insights():
+def get_revenue_insights(pipeline_version: str | None = Query(None)):
     """Actionable insights: where to focus to double revenue."""
     db = get_db()
     try:
-        all_est = db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.estimate_low > 0, Lead.is_test.is_(False), Lead.status != "archived").all()
+        all_est = _apply_pipeline_filter(db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.estimate_low > 0, Lead.is_test.is_(False), Lead.status != "archived"), pipeline_version).all()
 
         total_leads = len(all_est)
         sent_leads = sum(1 for e, _ in all_est if e.status == "sent")
@@ -565,17 +563,17 @@ def get_revenue_insights():
 # ─── Deal Stats — Tier Breakdown, Avg Deal Size, View-to-Close ──────────
 
 @router.get("/analytics/deal-stats")
-def get_deal_stats():
+def get_deal_stats(pipeline_version: str | None = Query(None)):
     """Tier selection breakdown, average deal size, and view-to-close rate."""
     db = get_db()
     try:
         # All closed estimates
-        closed = (
+        closed = _apply_pipeline_filter(
             db.query(Estimate, Lead)
             .join(Lead, Estimate.lead_id == Lead.id)
-            .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None))
-            .all()
-        )
+            .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None)),
+            pipeline_version,
+        ).all()
 
         tier_counts = {"essential": 0, "signature": 0, "legacy": 0, "custom": 0}
         tier_revenue = {"essential": 0.0, "signature": 0.0, "legacy": 0.0, "custom": 0.0}
@@ -610,12 +608,12 @@ def get_deal_stats():
         max_deal = round(max(deal_sizes), 2) if deal_sizes else 0
 
         # View-to-close rate: of proposals that were viewed, how many closed?
-        sent_estimates = (
+        sent_estimates = _apply_pipeline_filter(
             db.query(Estimate)
             .join(Lead, Estimate.lead_id == Lead.id)
-            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]))
-            .all()
-        )
+            .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"])),
+            pipeline_version,
+        ).all()
         sent_ids = [e.id for e in sent_estimates]
         proposals = {}
         if sent_ids:
@@ -633,12 +631,12 @@ def get_deal_stats():
         view_to_close_rate = round(total_closed_from_viewed / total_viewed * 100, 1) if total_viewed > 0 else 0
 
         # Pre-call vs no-pre-call close rate comparison
-        all_sent = (
+        all_sent = _apply_pipeline_filter(
             db.query(Estimate)
             .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]))
-            .join(Lead, Estimate.lead_id == Lead.id)
-            .all()
-        )
+            .join(Lead, Estimate.lead_id == Lead.id),
+            pipeline_version,
+        ).all()
         precall_sent = sum(1 for e in all_sent if e.precall_done)
         precall_closed = sum(1 for e in all_sent if e.precall_done and e.closed_tier)
         no_precall_sent = sum(1 for e in all_sent if not e.precall_done)
@@ -675,16 +673,15 @@ def get_deal_stats():
 # ─── Lead Timing & Proposal Engagement ──────────────────────────────────
 
 @router.get("/analytics/timing")
-def get_timing_analytics():
+def get_timing_analytics(pipeline_version: str | None = Query(None)):
     """When leads come in, when proposals are opened, and response patterns."""
     db = get_db()
     try:
         # All non-test, non-archived leads
-        leads = (
-            db.query(Lead)
-            .filter(Lead.is_test.is_(False), Lead.status != "archived")
-            .all()
-        )
+        leads = _apply_pipeline_filter(
+            db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived"),
+            pipeline_version,
+        ).all()
 
         # --- Lead arrival patterns ---
         leads_by_day = defaultdict(int)
@@ -712,14 +709,14 @@ def get_timing_analytics():
         peak_hour = max(leads_by_hour.items(), key=lambda x: x[1])[0] if leads_by_hour else None
 
         # --- Proposal view patterns ---
-        proposals = (
+        proposals = _apply_pipeline_filter(
             db.query(Proposal, Estimate)
             .options(defer(Proposal.pdf_data))
             .join(Estimate, Proposal.estimate_id == Estimate.id)
             .join(Lead, Proposal.lead_id == Lead.id)
-            .filter(Lead.is_test.is_(False), Proposal.first_viewed_at.isnot(None))
-            .all()
-        )
+            .filter(Lead.is_test.is_(False), Proposal.first_viewed_at.isnot(None)),
+            pipeline_version,
+        ).all()
 
         views_by_day = defaultdict(int)
         views_by_hour = defaultdict(int)
