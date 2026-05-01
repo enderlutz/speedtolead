@@ -128,6 +128,7 @@ class Estimate(Base):
     precall_done = Column(Boolean, default=False)
     precall_at = Column(Text, nullable=True)
     precall_notes = Column(Text, nullable=True)
+    correction_pending = Column(Boolean, default=False)
 
     def to_dict(self) -> dict:
         return {
@@ -157,6 +158,42 @@ class Estimate(Base):
             "precall_done": self.precall_done or False,
             "precall_at": self.precall_at,
             "precall_notes": self.precall_notes or "",
+            "correction_pending": bool(self.correction_pending),
+        }
+
+
+class EstimateCorrectionRequest(Base):
+    """Customer-submitted requests to correct an estimate (e.g., wrong fence sides).
+    Multiple requests per estimate are allowed — each submission is a new row so
+    history is preserved. The parent estimate's correction_pending flag mirrors
+    whether any unresolved request exists."""
+    __tablename__ = "estimate_correction_requests"
+    __table_args__ = (
+        Index("idx_correction_requests_estimate", "estimate_id"),
+        Index("idx_correction_requests_lead", "lead_id"),
+        Index("idx_correction_requests_resolved_at", "resolved_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    estimate_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=False)
+    text = Column(Text, nullable=False)
+    requested_at = Column(Text, nullable=False)
+    resolved_at = Column(Text, nullable=True)
+    resolved_by = Column(Text, nullable=True)
+    escalated_at = Column(Text, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "estimate_id": self.estimate_id,
+            "lead_id": self.lead_id,
+            "text": self.text,
+            "requested_at": self.requested_at,
+            "resolved_at": self.resolved_at,
+            "resolved_by": self.resolved_by,
+            "escalated_at": self.escalated_at,
+            "status": "resolved" if self.resolved_at else "pending",
         }
 
 
@@ -568,6 +605,12 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE proposals ADD COLUMN view_count INTEGER DEFAULT 0"))
             conn.execute(text("UPDATE proposals SET view_count = 1 WHERE first_viewed_at IS NOT NULL"))
         logger.info("Migration: added proposals.view_count (backfilled to 1 for already-viewed proposals)")
+
+    estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
+    if "correction_pending" not in estimate_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE estimates ADD COLUMN correction_pending BOOLEAN DEFAULT FALSE"))
+        logger.info("Migration: added estimates.correction_pending")
 
 
 def get_db() -> Session:

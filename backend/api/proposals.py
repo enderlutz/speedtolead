@@ -10,10 +10,13 @@ from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import defer
 from jose import jwt, JWTError
-from database import get_db, Proposal, ProposalPage, Estimate, Lead
+from pydantic import BaseModel
+from database import get_db, Proposal, ProposalPage, Estimate, Lead, EstimateCorrectionRequest
 from services.activity_log import log_event
 from services.event_bus import publish
+from services.notifications import notify_correction_requested
 from config import get_settings
+import uuid
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -164,6 +167,14 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
             reason = "bot" if is_bot else ("internal" if is_internal else "preview-param")
             logger.debug(f"Proposal {token} view skipped ({reason}): UA={ua[:80]}")
 
+        # Customer's correction-request history (so they can see what they've asked for)
+        correction_requests = (
+            db.query(EstimateCorrectionRequest)
+            .filter(EstimateCorrectionRequest.estimate_id == est.id)
+            .order_by(EstimateCorrectionRequest.requested_at.desc())
+            .all()
+        )
+
         est_dict = est.to_dict()
         lead_dict = lead.to_dict()
         return {
@@ -179,7 +190,75 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
             "has_pdf": (proposal.pdf_page_count or 0) > 0,
             "page_count": proposal.pdf_page_count or 0,
             "created_at": proposal.created_at,
+            "correction_pending": bool(est.correction_pending),
+            "correction_requests": [cr.to_dict() for cr in correction_requests],
         }
+    finally:
+        db.close()
+
+
+class CorrectionRequestBody(BaseModel):
+    text: str
+
+
+@router.post("/proposal/{token}/request-correction")
+def request_correction(token: str, body: CorrectionRequestBody, request: Request):
+    """Customer-facing: submit a request to correct the estimate (e.g., wrong sides).
+    Multiple requests per estimate are allowed — each is appended to the history.
+    Skips bot/internal requests so accidental previews don't trigger alerts."""
+    text_clean = (body.text or "").strip()
+    if not text_clean:
+        raise HTTPException(status_code=400, detail="Please describe what needs to be corrected.")
+    if len(text_clean) > 2000:
+        raise HTTPException(status_code=400, detail="Message is too long (2000 character max).")
+
+    # Skip bots / internal previews — same logic as the view tracker
+    ua = request.headers.get("user-agent", "")
+    if _is_bot_view(ua) or _is_internal_user(request):
+        raise HTTPException(status_code=400, detail="Correction requests can only be submitted by the customer.")
+
+    db = get_db()
+    try:
+        proposal = db.query(Proposal).filter(Proposal.token == token).first()
+        if not proposal:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        est = db.query(Estimate).filter(Estimate.id == proposal.estimate_id).first()
+        lead = db.query(Lead).filter(Lead.id == proposal.lead_id).first()
+        if not est or not lead:
+            raise HTTPException(status_code=404, detail="Proposal data incomplete")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cr = EstimateCorrectionRequest(
+            id=str(uuid.uuid4()),
+            estimate_id=est.id,
+            lead_id=lead.id,
+            text=text_clean,
+            requested_at=now_iso,
+        )
+        db.add(cr)
+        est.correction_pending = True
+        db.commit()
+
+        log_event(lead.id, "correction_requested", f"Customer requested correction: {text_clean[:120]}")
+        publish("correction_requested", {
+            "lead_id": lead.id,
+            "contact_name": lead.contact_name,
+            "text": text_clean,
+            "request_id": cr.id,
+        })
+
+        try:
+            notify_correction_requested(lead.to_dict(), text_clean)
+        except Exception as e:
+            logger.error(f"Failed to send correction notification: {e}")
+
+        return {"status": "ok", "request_id": cr.id, "requested_at": now_iso}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"request_correction failed for {token}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

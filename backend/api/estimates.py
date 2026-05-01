@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
-from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue
+from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
@@ -937,6 +937,80 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
 class PrecallBody(BaseModel):
     done: bool
     notes: str | None = None
+
+
+# ─── Correction Requests ──────────────────────────────────────────────────
+
+# When the user adds a 'Requote Requested' stage in GHL, paste the stage ID
+# here to enable automatic GHL stage moves on submit. Until then, correction
+# requests fire SMS/dashboard alerts but don't touch GHL.
+V2_REQUOTE_REQUESTED_STAGE_ID = ""
+
+
+@router.get("/correction-requests")
+def list_correction_requests(status: str = Query("pending")):
+    """List correction requests. Default returns pending; pass status=resolved
+    or status=all for the others. Used by the dashboard red alert card."""
+    db = get_db()
+    try:
+        q = (
+            db.query(EstimateCorrectionRequest, Lead)
+            .join(Lead, EstimateCorrectionRequest.lead_id == Lead.id)
+        )
+        if status == "pending":
+            q = q.filter(EstimateCorrectionRequest.resolved_at.is_(None))
+        elif status == "resolved":
+            q = q.filter(EstimateCorrectionRequest.resolved_at.isnot(None))
+        rows = q.order_by(EstimateCorrectionRequest.requested_at.desc()).limit(50).all()
+        return [{
+            **cr.to_dict(),
+            "contact_name": lead.contact_name,
+            "contact_phone": lead.contact_phone,
+            "address": lead.address,
+        } for cr, lead in rows]
+    finally:
+        db.close()
+
+
+@router.post("/correction-requests/{request_id}/resolve")
+def resolve_correction_request(request_id: str):
+    """Mark a correction request as resolved. Clears Estimate.correction_pending
+    if there are no other unresolved requests for the same estimate."""
+    db = get_db()
+    try:
+        cr = db.query(EstimateCorrectionRequest).filter(EstimateCorrectionRequest.id == request_id).first()
+        if not cr:
+            raise HTTPException(status_code=404, detail="Correction request not found")
+        if cr.resolved_at:
+            raise HTTPException(status_code=400, detail="Already resolved")
+
+        cr.resolved_at = _now()
+
+        # Clear correction_pending only if no other unresolved requests remain
+        other_pending = (
+            db.query(EstimateCorrectionRequest)
+            .filter(
+                EstimateCorrectionRequest.estimate_id == cr.estimate_id,
+                EstimateCorrectionRequest.id != cr.id,
+                EstimateCorrectionRequest.resolved_at.is_(None),
+            )
+            .count()
+        )
+        if other_pending == 0:
+            est = db.query(Estimate).filter(Estimate.id == cr.estimate_id).first()
+            if est:
+                est.correction_pending = False
+
+        db.commit()
+        log_event(cr.lead_id, "correction_resolved", f"Marked correction request {cr.id} resolved")
+        return cr.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 
 @router.post("/estimates/{estimate_id}/precall")

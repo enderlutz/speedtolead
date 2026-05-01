@@ -102,3 +102,32 @@ def notify_new_lead_red(lead: dict, approval_reason: str):
     if settings.owner_ghl_contact_id:
         ok = send_sms(settings.owner_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_sms", "alan", "red_estimate", msg if ok else f"FAILED: {msg}")
+
+
+def notify_correction_requested(lead: dict, request_text: str):
+    """Customer asked for a correction (e.g., wrong fence sides). Alert the
+    internal team via SMS so someone can reply with a corrected estimate."""
+    settings = get_settings()
+    name = lead.get("contact_name", "Unknown")
+    address = lead.get("address", "No address")
+    lead_id = lead["id"]
+    link = f"{settings.frontend_url}/leads/{lead_id}"
+    snippet = request_text[:140] + ("..." if len(request_text) > 140 else "")
+
+    msg = (
+        f"\U0001F514 Requote requested — {name} at {address}.\n"
+        f"\"{snippet}\"\n"
+        f"Open: {link}"
+    )
+
+    if settings.owner_ghl_contact_id:
+        ok = send_sms(settings.owner_ghl_contact_id, msg)
+        _log_notification(lead_id, "ghl_sms", "alan", "correction_requested", msg if ok else f"FAILED: {msg}")
+
+    if settings.olga_ghl_contact_id:
+        ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
+        _log_notification(lead_id, "ghl_whatsapp", "olga", "correction_requested", msg if ok else f"FAILED: {msg}")
+
+    if settings.fragne_ghl_contact_id:
+        ok = send_sms(settings.fragne_ghl_contact_id, msg)
+        _log_notification(lead_id, "ghl_sms", "fragne", "correction_requested", msg if ok else f"FAILED: {msg}")
