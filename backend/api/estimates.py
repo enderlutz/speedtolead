@@ -333,6 +333,12 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
+        if lead.pipeline_version == "v1":
+            raise HTTPException(
+                status_code=400,
+                detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
+            )
+
         settings = get_settings()
         now = _now()
 
@@ -868,6 +874,11 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
         if body.send:
             if est.status == "sent":
                 raise HTTPException(status_code=400, detail="Already sent")
+            if lead.pipeline_version == "v1":
+                raise HTTPException(
+                    status_code=400,
+                    detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
+                )
             est.status = "sent"
             est.sent_at = now
             lead.status = "sent"

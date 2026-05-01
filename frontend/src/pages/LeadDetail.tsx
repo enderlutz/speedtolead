@@ -817,8 +817,24 @@ export default function LeadDetail() {
                 )}
               </div>
 
+              {/* Send disabled — old pipeline */}
+              {lead.pipeline_version === "v1" && (
+                <div className="rounded-lg border-2 border-red-300 bg-red-50/60 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">Send disabled — old pipeline</p>
+                      <p className="text-xs text-red-700 mt-0.5">
+                        The old GHL account is no longer reachable, so SMS won't deliver to the customer.
+                        Use the <span className="font-semibold">Export to New Pipeline</span> card below first, then send from there.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* After-hours warning */}
-              {isAfterHours() && !showScheduler && (
+              {isAfterHours() && !showScheduler && lead.pipeline_version !== "v1" && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
                   <div className="flex items-start gap-2">
                     <Clock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -867,7 +883,12 @@ export default function LeadDetail() {
               )}
 
               <div className="flex gap-2">
-                <Button onClick={() => handleApprove()} disabled={approving} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+                <Button
+                  onClick={() => handleApprove()}
+                  disabled={approving || lead.pipeline_version === "v1"}
+                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : undefined}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-300"
+                >
                   <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
                   {approving ? "Sending..." : "Send Now"}
                 </Button>
@@ -877,7 +898,8 @@ export default function LeadDetail() {
                     setScheduledDate(getDefaultScheduleDate());
                     setShowScheduler(!showScheduler);
                   }}
-                  disabled={approving}
+                  disabled={approving || lead.pipeline_version === "v1"}
+                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before scheduling" : undefined}
                   className="shrink-0"
                 >
                   <Clock className="h-4 w-4 mr-1" /> Schedule
