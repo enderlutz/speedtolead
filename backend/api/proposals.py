@@ -34,13 +34,13 @@ def _pricing_includes_bullets(form_data: dict) -> list[str]:
 
     bullets: list[str] = []
     if len(inside) == 4:
-        bullets.append("Inside Fences")
+        bullets.append("Inside facing fences")
     elif inside:
-        bullets.append("Inside " + ", ".join(s.replace("Inside ", "") for s in inside))
+        bullets.append("Inside facing " + ", ".join(s.replace("Inside ", "") for s in inside))
     if len(outside) == 4:
-        bullets.append("Outside Fences")
+        bullets.append("Outside facing fences")
     elif outside:
-        bullets.append("Outside " + ", ".join(s.replace("Outside ", "") for s in outside))
+        bullets.append("Outside facing " + ", ".join(s.replace("Outside ", "") for s in outside))
 
     if not bullets:
         bullets.append("Fence staining")

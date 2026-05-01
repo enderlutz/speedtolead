@@ -97,7 +97,7 @@ export default function ProposalView() {
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-bold tracking-tight">Revive Fence Staining</h1>
               <div className="mt-2">
-                <p className="text-[11px] uppercase tracking-widest text-white/50 font-semibold">Price Includes</p>
+                <p className="text-xs text-white/60 font-medium">Sides of fence included in the price</p>
                 <ul className="mt-1 space-y-0.5">
                   {proposal.pricing_includes.map((bullet, i) => (
                     <li key={i} className="text-sm text-white/90 flex items-start gap-2">
