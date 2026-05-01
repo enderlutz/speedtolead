@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, Archive, ArchiveRestore, Wrench, Check, Eye, ArrowRightCircle } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Zap, Clock, Archive, ArchiveRestore, Wrench, Check, Eye, ArrowRightCircle, X as XIcon, Loader2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -62,7 +63,42 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bulkExporting, setBulkExporting] = useState(false);
   const prevCountRef = useRef(leads.length);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const runBulkExport = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkExporting(true);
+    try {
+      const result = await api.bulkExportToV2(ids);
+      const ok = result.succeeded.length;
+      const bad = result.failed.length;
+      if (bad === 0) {
+        toast.success(`Exported ${ok} lead${ok !== 1 ? "s" : ""} to the new pipeline`);
+      } else {
+        toast.warning(`Exported ${ok} of ${result.total}. ${bad} failed (likely missing phone/email).`);
+      }
+      clearSelection();
+      setConfirmOpen(false);
+      loadLeads();
+    } catch {
+      toast.error("Bulk export failed");
+    } finally {
+      setBulkExporting(false);
+    }
+  };
 
   const loadLeads = useCallback(() => {
     setLoading(true);
@@ -228,6 +264,21 @@ export default function Leads() {
         <Input placeholder="Search name, phone, address..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
       </div>
 
+      {/* Bulk action bar — appears when ≥1 lead is selected */}
+      {selectedIds.size > 0 && (
+        <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-3 flex items-center gap-3 sticky top-2 z-10 shadow-sm">
+          <span className="text-sm font-semibold text-blue-900">
+            {selectedIds.size} lead{selectedIds.size !== 1 ? "s" : ""} selected
+          </span>
+          <Button size="sm" onClick={() => setConfirmOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white ml-auto">
+            <ArrowRightCircle className="h-3.5 w-3.5 mr-1" /> Export to New Pipeline
+          </Button>
+          <Button variant="outline" size="sm" onClick={clearSelection}>
+            <XIcon className="h-3.5 w-3.5 mr-1" /> Clear
+          </Button>
+        </div>
+      )}
+
       <Tabs defaultValue="kanban">
         <TabsList>
           <TabsTrigger value="kanban"><LayoutGrid className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Kanban</span></TabsTrigger>
@@ -252,6 +303,18 @@ export default function Leads() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-xs">
+                  <th className="text-left px-3 py-2 font-medium w-8">
+                    <input
+                      type="checkbox"
+                      checked={queue.length > 0 && queue.every((l) => selectedIds.has(l.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedIds(new Set(queue.map((l) => l.id)));
+                        else clearSelection();
+                      }}
+                      className="h-4 w-4 rounded accent-blue-600 cursor-pointer"
+                      title="Select all"
+                    />
+                  </th>
                   <th className="text-left px-3 py-2 font-medium">Name</th>
                   <th className="text-left px-3 py-2 font-medium">Phone</th>
                   <th className="text-left px-3 py-2 font-medium">Address</th>
@@ -263,7 +326,15 @@ export default function Leads() {
               </thead>
               <tbody>
                 {queue.map((lead) => (
-                  <tr key={lead.id} className="border-b hover:bg-muted/30 transition-colors">
+                  <tr key={lead.id} className={`border-b hover:bg-muted/30 transition-colors ${selectedIds.has(lead.id) ? "bg-blue-50/40" : ""}`}>
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(lead.id)}
+                        onChange={() => toggleSelect(lead.id)}
+                        className="h-4 w-4 rounded accent-blue-600 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-3 py-2">
                       <Link to={`/leads/${lead.id}`} className="text-primary hover:underline font-medium text-sm" onMouseEnter={() => prefetchLead(lead.id)}>
                         {lead.contact_name || "Unknown"}
@@ -277,7 +348,7 @@ export default function Leads() {
                     <td className="px-3 py-2 text-muted-foreground text-[10px]">{formatDateTime(lead.created_at)}</td>
                   </tr>
                 ))}
-                {queue.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground text-sm">No leads</td></tr>}
+                {queue.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground text-sm">No leads</td></tr>}
               </tbody>
             </table>
           </div>
@@ -285,21 +356,29 @@ export default function Leads() {
           {/* Mobile card list */}
           <div className="sm:hidden space-y-2">
             {queue.map((lead) => (
-              <Link key={lead.id} to={`/leads/${lead.id}`} className="block rounded-lg border bg-card p-3 active:bg-muted/50 transition-colors">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate">{lead.contact_name || "Unknown"}</p>
-                    <p className="text-xs text-muted-foreground">{lead.contact_phone}</p>
+              <div key={lead.id} className={`flex items-start gap-2 rounded-lg border bg-card p-3 ${selectedIds.has(lead.id) ? "bg-blue-50/40 border-blue-300" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(lead.id)}
+                  onChange={() => toggleSelect(lead.id)}
+                  className="h-4 w-4 rounded accent-blue-600 cursor-pointer mt-0.5 shrink-0"
+                />
+                <Link to={`/leads/${lead.id}`} className="flex-1 active:opacity-70 transition-opacity min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold truncate">{lead.contact_name || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground">{lead.contact_phone}</p>
+                    </div>
+                    <Badge className={`text-[10px] shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
                   </div>
-                  <Badge className={`text-[10px] shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
-                </div>
-                {lead.address && <p className="text-xs text-muted-foreground mt-1 truncate">{lead.address}</p>}
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  <Badge variant="outline" className="text-[10px] py-0">{lead.location_label}</Badge>
-                  <ColumnBadge column={lead.kanban_column as KanbanStatus} />
-                  <span className="text-[10px] text-muted-foreground ml-auto">{timeAgo(lead.created_at)}</span>
-                </div>
-              </Link>
+                  {lead.address && <p className="text-xs text-muted-foreground mt-1 truncate">{lead.address}</p>}
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] py-0">{lead.location_label}</Badge>
+                    <ColumnBadge column={lead.kanban_column as KanbanStatus} />
+                    <span className="text-[10px] text-muted-foreground ml-auto">{timeAgo(lead.created_at)}</span>
+                  </div>
+                </Link>
+              </div>
             ))}
             {queue.length === 0 && <p className="py-8 text-center text-muted-foreground text-sm">No leads</p>}
           </div>
@@ -309,6 +388,28 @@ export default function Leads() {
           <ArchivedList onRestore={loadLeads} />
         </TabsContent>
       </Tabs>
+
+      {/* Bulk export confirmation */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export {selectedIds.size} lead{selectedIds.size !== 1 ? "s" : ""} to the new pipeline?</DialogTitle>
+            <DialogDescription>
+              Each selected lead will be registered as a contact in the new GHL account
+              and moved onto the new pipeline at the "New Lead" stage. All history
+              (estimates, notes, contact info) is preserved.
+              {" "}Leads without a phone or email will be skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={bulkExporting}>Cancel</Button>
+            <Button onClick={runBulkExport} disabled={bulkExporting} className="bg-blue-600 hover:bg-blue-700 text-white">
+              {bulkExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRightCircle className="h-4 w-4 mr-2" />}
+              {bulkExporting ? "Exporting..." : `Export ${selectedIds.size}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -464,6 +565,7 @@ function KanbanColumn({ column, leads, onRefresh }: { column: typeof COLUMNS[num
   const handleExport = async (e: React.MouseEvent, lead: Lead) => {
     e.preventDefault();
     e.stopPropagation();
+    if (!window.confirm(`Export ${lead.contact_name || "this lead"} to the new pipeline? All history is preserved.`)) return;
     try {
       await api.exportToV2(lead.id);
       toast.success(`Exported ${lead.contact_name} to new pipeline`);

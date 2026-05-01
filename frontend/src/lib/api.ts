@@ -374,6 +374,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ stage_id: stage_id || null }),
     }),
+  bulkExportToV2: (lead_ids: string[], stage_id?: string) =>
+    request<{ succeeded: string[]; failed: { lead_id: string; reason: string; name?: string }[]; total: number }>(
+      `/api/leads/export-to-v2/bulk`,
+      { method: "POST", body: JSON.stringify({ lead_ids, stage_id: stage_id || null }) }
+    ),
   updateFormData: (id: string, form_data: Record<string, unknown>) =>
     request<LeadDetail>(`/api/leads/${id}/form-data`, {
       method: "PUT",

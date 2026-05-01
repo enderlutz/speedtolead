@@ -47,6 +47,11 @@ class ExportToV2(BaseModel):
     stage_id: str | None = None  # defaults to "New Lead" stage on the new pipeline
 
 
+class BulkExportToV2(BaseModel):
+    lead_ids: list[str]
+    stage_id: str | None = None
+
+
 # New GHL pipeline default landing stage ("New Lead")
 V2_DEFAULT_STAGE_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570"
 
@@ -223,6 +228,61 @@ def update_pipeline_stage(lead_id: str, body: StageUpdate):
         return lead.to_dict()
     except HTTPException:
         raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/leads/export-to-v2/bulk")
+def bulk_export_to_v2(body: BulkExportToV2):
+    """Export many v1 leads to v2 in one shot. Continues past individual failures
+    and reports per-lead success/failure so the user knows exactly what happened."""
+    db = get_db()
+    settings = get_settings()
+    new_location_id = settings.ghl_location_id
+    if not new_location_id:
+        raise HTTPException(status_code=500, detail="GHL_LOCATION_ID not configured")
+
+    target_stage = body.stage_id or V2_DEFAULT_STAGE_ID
+    succeeded: list[str] = []
+    failed: list[dict] = []
+
+    try:
+        for lead_id in body.lead_ids:
+            lead = db.query(Lead).filter(Lead.id == lead_id).first()
+            if not lead:
+                failed.append({"lead_id": lead_id, "reason": "not found"})
+                continue
+            if lead.pipeline_version == "v2":
+                failed.append({"lead_id": lead_id, "reason": "already on new pipeline"})
+                continue
+
+            new_contact_id = upsert_contact(
+                location_id=new_location_id,
+                name=lead.contact_name or "",
+                phone=lead.contact_phone or "",
+                email=lead.contact_email or "",
+                address=lead.address or "",
+                zip_code=lead.zip_code or "",
+            )
+            if not new_contact_id:
+                failed.append({"lead_id": lead_id, "reason": "GHL upsert failed (missing phone/email?)", "name": lead.contact_name})
+                continue
+
+            lead.ghl_contact_id = new_contact_id
+            lead.ghl_location_id = new_location_id
+            lead.pipeline_version = "v2"
+            lead.ghl_pipeline_stage_id = target_stage
+            lead.ghl_opportunity_id = ""
+            lead.updated_at = _now()
+            db.commit()
+            succeeded.append(lead_id)
+            log_event(lead_id, "exported_to_v2",
+                      f"Bulk-exported to new pipeline at stage {target_stage}; contact upserted as {new_contact_id}")
+
+        return {"succeeded": succeeded, "failed": failed, "total": len(body.lead_ids)}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
