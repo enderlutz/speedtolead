@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -348,6 +348,13 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
       </div>
       {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
       {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
+      {lead.proposal_viewed_at && (
+        <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
+          <Eye className="h-3 w-3" />
+          <span className="font-medium">Viewed</span>
+          <span className="text-emerald-500">{timeAgo(lead.proposal_viewed_at)}</span>
+        </div>
+      )}
       <div className="flex items-center justify-between mt-2">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border bg-muted/30">
