@@ -56,6 +56,8 @@ export interface Lead {
   precall_done: boolean;
   viewed_at: string | null;
   proposal_viewed_at: string | null;
+  proposal_last_viewed_at: string | null;
+  proposal_view_count: number;
   ghl_created_at: string;
   dashboard_synced_at: string;
   created_at: string;

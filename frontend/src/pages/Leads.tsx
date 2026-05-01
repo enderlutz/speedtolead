@@ -724,8 +724,10 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
       {lead.proposal_viewed_at && (
         <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
           <Eye className="h-3 w-3" />
-          <span className="font-medium">Viewed</span>
-          <span className="text-emerald-500">{timeAgo(lead.proposal_viewed_at)}</span>
+          <span className="font-medium">
+            Viewed{lead.proposal_view_count > 1 ? ` ${lead.proposal_view_count}x` : ""}
+          </span>
+          <span className="text-emerald-500">{timeAgo(lead.proposal_last_viewed_at || lead.proposal_viewed_at)}</span>
         </div>
       )}
       <div className="flex items-center justify-between mt-2">

@@ -54,6 +54,8 @@ class Lead(Base):
     is_test = Column(Boolean, default=False)
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
+    proposal_last_viewed_at = Column(Text, nullable=True)
+    proposal_view_count = Column(Integer, default=0)
     ghl_created_at = Column(Text, default="")
     dashboard_synced_at = Column(Text, default="")
     created_at = Column(Text, default="")
@@ -83,6 +85,8 @@ class Lead(Base):
             "ghl_opportunity_id": self.ghl_opportunity_id or "",
             "viewed_at": self.viewed_at,
             "proposal_viewed_at": self.proposal_viewed_at,
+            "proposal_last_viewed_at": self.proposal_last_viewed_at,
+            "proposal_view_count": self.proposal_view_count or 0,
             "ghl_created_at": self.ghl_created_at or self.created_at,
             "dashboard_synced_at": self.dashboard_synced_at or self.created_at,
             "created_at": self.created_at,
@@ -172,6 +176,8 @@ class Proposal(Base):
     pdf_data = Column(LargeBinary, nullable=True)
     pdf_page_count = Column(Integer, default=0)
     first_viewed_at = Column(Text, nullable=True)
+    last_viewed_at = Column(Text, nullable=True)
+    view_count = Column(Integer, default=0)
     created_at = Column(Text, default="")
 
     def to_dict(self) -> dict:
@@ -184,6 +190,8 @@ class Proposal(Base):
             "proposal_version": self.proposal_version,
             "has_pdf": (self.pdf_page_count or 0) > 0,
             "first_viewed_at": self.first_viewed_at,
+            "last_viewed_at": self.last_viewed_at,
+            "view_count": self.view_count or 0,
             "created_at": self.created_at,
         }
 
@@ -533,6 +541,33 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN precall_done BOOLEAN DEFAULT FALSE"))
         logger.info("Migration: added leads.precall_done")
+
+    if "proposal_last_viewed_at" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN proposal_last_viewed_at TEXT"))
+            # Backfill from proposal_viewed_at — existing 'viewed' leads keep their existing timestamp
+            conn.execute(text("UPDATE leads SET proposal_last_viewed_at = proposal_viewed_at WHERE proposal_viewed_at IS NOT NULL"))
+        logger.info("Migration: added leads.proposal_last_viewed_at (backfilled from proposal_viewed_at)")
+
+    if "proposal_view_count" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN proposal_view_count INTEGER DEFAULT 0"))
+            # Existing already-viewed leads count as 1 view (we don't have history for older ones)
+            conn.execute(text("UPDATE leads SET proposal_view_count = 1 WHERE proposal_viewed_at IS NOT NULL"))
+        logger.info("Migration: added leads.proposal_view_count (backfilled to 1 for already-viewed leads)")
+
+    proposal_cols = {c["name"] for c in inspector.get_columns("proposals")}
+    if "last_viewed_at" not in proposal_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE proposals ADD COLUMN last_viewed_at TEXT"))
+            conn.execute(text("UPDATE proposals SET last_viewed_at = first_viewed_at WHERE first_viewed_at IS NOT NULL"))
+        logger.info("Migration: added proposals.last_viewed_at (backfilled from first_viewed_at)")
+
+    if "view_count" not in proposal_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE proposals ADD COLUMN view_count INTEGER DEFAULT 0"))
+            conn.execute(text("UPDATE proposals SET view_count = 1 WHERE first_viewed_at IS NOT NULL"))
+        logger.info("Migration: added proposals.view_count (backfilled to 1 for already-viewed proposals)")
 
 
 def get_db() -> Session:

@@ -6,15 +6,81 @@ from __future__ import annotations
 import logging
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import defer
+from jose import jwt, JWTError
 from database import get_db, Proposal, ProposalPage, Estimate, Lead
 from services.activity_log import log_event
 from services.event_bus import publish
+from config import get_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+# Known link-preview / crawler User-Agent substrings. Apps like iMessage,
+# WhatsApp, Slack, etc. pre-fetch links to render previews — we don't want
+# those pre-fetches counting as customer views.
+_BOT_UA_PATTERNS = [
+    "facebookexternalhit",  # Facebook + iMessage uses this
+    "twitterbot",
+    "slackbot",
+    "whatsapp",
+    "telegrambot",
+    "linkedinbot",
+    "discordbot",
+    "pinterest",
+    "applebot",
+    "googlebot",
+    "bingbot",
+    "duckduckbot",
+    "yandexbot",
+    "baiduspider",
+    "snapchat",
+    "wechat",
+    "skypeuripreview",
+    "embedly",
+    "redditbot",
+    "tumblr",
+    "vkshare",
+    "quora link preview",
+    "showyoubot",
+    "outbrain",
+    "nuzzel",
+    "bitlybot",
+    "headlesschrome",  # Many automated previewers
+    "puppeteer",
+    "playwright",
+    "phantomjs",
+]
+
+
+def _is_bot_view(user_agent: str) -> bool:
+    """Return True if the User-Agent looks like a bot/link-preview crawler."""
+    if not user_agent or not user_agent.strip():
+        return True  # Real browsers always send a UA
+    ua = user_agent.lower()
+    return any(pattern in ua for pattern in _BOT_UA_PATTERNS)
+
+
+def _is_internal_user(request: Request) -> bool:
+    """Return True if the request is from a logged-in dashboard user.
+    Internal previews shouldn't count toward 'customer viewed' tracking."""
+    cookie = request.cookies.get("at_auth")
+    if not cookie:
+        # Also check Authorization header (in case dashboard sends it that way)
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            cookie = auth_header.split(" ", 1)[1]
+    if not cookie:
+        return False
+    try:
+        settings = get_settings()
+        jwt.decode(cookie, settings.auth_secret, algorithms=["HS256"])
+        return True
+    except (JWTError, Exception):
+        return False
 
 
 _INSIDE_ALL = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
@@ -50,8 +116,10 @@ def _pricing_includes_bullets(form_data: dict) -> list[str]:
 
 
 @router.get("/proposal/{token}")
-def get_proposal(token: str):
-    """Public endpoint: get proposal data for customer view."""
+def get_proposal(token: str, request: Request, preview: int = Query(0)):
+    """Public endpoint: get proposal data for customer view.
+    Skips view tracking for: link-preview bots (iMessage, WhatsApp, etc.),
+    logged-in dashboard users (internal preview), and ?preview=1 query param."""
     db = get_db()
     try:
         proposal = db.query(Proposal).options(defer(Proposal.pdf_data)).filter(Proposal.token == token).first()
@@ -64,19 +132,37 @@ def get_proposal(token: str):
         if not est or not lead:
             raise HTTPException(status_code=404, detail="Proposal data incomplete")
 
-        # Mark as viewed on first access
-        if proposal.status == "sent":
+        # Decide whether this view should count
+        ua = request.headers.get("user-agent", "")
+        is_bot = _is_bot_view(ua)
+        is_internal = _is_internal_user(request)
+        is_preview_param = preview == 1
+        skip_tracking = is_bot or is_internal or is_preview_param
+
+        if not skip_tracking:
             now_iso = datetime.now(timezone.utc).isoformat()
-            proposal.status = "viewed"
-            proposal.first_viewed_at = now_iso
-            lead.proposal_viewed_at = now_iso
+            proposal.view_count = (proposal.view_count or 0) + 1
+            proposal.last_viewed_at = now_iso
+            lead.proposal_view_count = proposal.view_count
+            lead.proposal_last_viewed_at = now_iso
+
+            # First-view side effects: status flip, badge, SSE event, activity log
+            if proposal.status == "sent":
+                proposal.status = "viewed"
+                proposal.first_viewed_at = now_iso
+                lead.proposal_viewed_at = now_iso
+                log_event(lead.id, "proposal_viewed", f"Customer opened proposal {token}")
+                publish("proposal_viewed", {
+                    "lead_id": lead.id,
+                    "contact_name": lead.contact_name,
+                    "token": token,
+                })
+
             db.commit()
-            log_event(lead.id, "proposal_viewed", f"Customer opened proposal {token}")
-            publish("proposal_viewed", {
-                "lead_id": lead.id,
-                "contact_name": lead.contact_name,
-                "token": token,
-            })
+        else:
+            # Log skipped views once with the reason — useful for debugging
+            reason = "bot" if is_bot else ("internal" if is_internal else "preview-param")
+            logger.debug(f"Proposal {token} view skipped ({reason}): UA={ua[:80]}")
 
         est_dict = est.to_dict()
         lead_dict = lead.to_dict()
