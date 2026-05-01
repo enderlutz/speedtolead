@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowRight, Zap, CheckCircle2 } from "lucide-react";
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
@@ -23,22 +24,36 @@ const APPROVAL_CLS: Record<string, { bg: string; text: string; label: string }> 
   red: { bg: "bg-red-500/10", text: "text-red-700", label: "Review" },
 };
 
+type PipelineFilter = "v2" | "v1" | "all";
+const FILTER_KEY = "at_dashboard_pipeline_filter";
+
 export default function Dashboard() {
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [recentLeads, setRecentLeads] = useState<Lead[]>([]);
   const [pending, setPending] = useState<PendingEstimate[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [notifCount, setNotifCount] = useState(0);
+  const [filter, setFilter] = useState<PipelineFilter>(() => {
+    const saved = (typeof window !== "undefined" && localStorage.getItem(FILTER_KEY)) as PipelineFilter | null;
+    return saved || "v2";
+  });
 
   const refreshAll = useCallback(() => {
-    api.getKPIs().then(setKpis).catch(console.error);
-    api.getLeads().then((leads) => setRecentLeads(leads.slice(0, 8))).catch(console.error);
-    api.getPendingAction().then(setPending).catch(console.error);
-    api.getRecentActivity(10).then(setActivity).catch(console.error);
+    const apiFilter = filter === "all" ? undefined : filter;
+    const leadsParams = filter === "all" ? undefined : { pipeline_version: filter };
+    api.getKPIs(apiFilter).then(setKpis).catch(console.error);
+    api.getLeads(leadsParams).then((leads) => setRecentLeads(leads.slice(0, 8))).catch(console.error);
+    api.getPendingAction(apiFilter).then(setPending).catch(console.error);
+    api.getRecentActivity(10, apiFilter).then(setActivity).catch(console.error);
     api.getNotificationCount().then((d) => setNotifCount(d.count)).catch(console.error);
-  }, []);
+  }, [filter]);
 
   useEffect(() => { refreshAll(); }, [refreshAll]);
+
+  const handleFilterChange = (next: PipelineFilter) => {
+    setFilter(next);
+    localStorage.setItem(FILTER_KEY, next);
+  };
 
   useSSE(useCallback((event) => {
     if (["new_lead", "estimate_sent", "customer_reply", "proposal_viewed", "nudge_sent"].includes(event.type)) refreshAll();
@@ -53,17 +68,26 @@ export default function Dashboard() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-5 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Track progress toward doubling sales</p>
         </div>
-        {notifCount > 0 && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
-            <Bell className="h-3.5 w-3.5" />
-            {notifCount}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <Tabs value={filter} onValueChange={(v) => handleFilterChange(v as PipelineFilter)}>
+            <TabsList>
+              <TabsTrigger value="v2">New Leads</TabsTrigger>
+              <TabsTrigger value="v1">Old Leads</TabsTrigger>
+              <TabsTrigger value="all">All</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {notifCount > 0 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
+              <Bell className="h-3.5 w-3.5" />
+              {notifCount}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* HOT leads banner */}

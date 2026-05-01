@@ -6,11 +6,18 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Proposal
 
 router = APIRouter()
+
+
+def _apply_pipeline_filter(query, pipeline_version: str | None):
+    """Filter a Lead query by pipeline_version when set. 'all' / None = no filter."""
+    if pipeline_version and pipeline_version in ("v1", "v2"):
+        return query.filter(Lead.pipeline_version == pipeline_version)
+    return query
 
 
 def _month_range(offset: int = 0) -> tuple[str, str]:
@@ -37,7 +44,7 @@ def _parse_dt(iso: str | None) -> datetime | None:
 # ─── KPIs ────────────────────────────────────────────────────────────────
 
 @router.get("/analytics/kpis")
-def get_kpis():
+def get_kpis(pipeline_version: str | None = Query(None)):
     db = get_db()
     try:
         curr_start, curr_end = _month_range(0)
@@ -45,40 +52,45 @@ def get_kpis():
 
         # Exclude test + archived leads from all counts
         base_q = db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived")
+        base_q = _apply_pipeline_filter(base_q, pipeline_version)
 
         curr_leads = base_q.filter(Lead.created_at >= curr_start, Lead.created_at < curr_end).count()
-        prev_leads = db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived", Lead.created_at >= prev_start, Lead.created_at < prev_end).count()
+        prev_leads_q = _apply_pipeline_filter(
+            db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived"),
+            pipeline_version,
+        )
+        prev_leads = prev_leads_q.filter(Lead.created_at >= prev_start, Lead.created_at < prev_end).count()
 
         # Estimates sent — exclude test leads
-        curr_sent = (
+        curr_sent = _apply_pipeline_filter(
             db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
-                    Estimate.sent_at >= curr_start, Estimate.sent_at < curr_end)
-            .count()
-        )
-        prev_sent = (
+                    Estimate.sent_at >= curr_start, Estimate.sent_at < curr_end),
+            pipeline_version,
+        ).count()
+        prev_sent = _apply_pipeline_filter(
             db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
-                    Estimate.sent_at >= prev_start, Estimate.sent_at < prev_end)
-            .count()
-        )
+                    Estimate.sent_at >= prev_start, Estimate.sent_at < prev_end),
+            pipeline_version,
+        ).count()
 
         # Close rate — based on actual closed deals (not just sent)
-        curr_closed = (
+        curr_closed = _apply_pipeline_filter(
             db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None),
-                    Estimate.closed_at >= curr_start, Estimate.closed_at < curr_end)
-            .count()
-        )
+                    Estimate.closed_at >= curr_start, Estimate.closed_at < curr_end),
+            pipeline_version,
+        ).count()
         curr_close_rate = (curr_closed / curr_sent * 100) if curr_sent > 0 else 0
 
         # Revenue — only from actual closed deals
-        closed_estimates = (
+        closed_estimates = _apply_pipeline_filter(
             db.query(Estimate).join(Lead, Estimate.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Estimate.closed_tier.isnot(None),
-                    Estimate.closed_at >= curr_start, Estimate.closed_at < curr_end)
-            .all()
-        )
+                    Estimate.closed_at >= curr_start, Estimate.closed_at < curr_end),
+            pipeline_version,
+        ).all()
         revenue = 0.0
         for e in closed_estimates:
             if e.closed_price is not None:
@@ -88,12 +100,12 @@ def get_kpis():
                 revenue += float(tiers.get(e.closed_tier, 0))
 
         # Avg time to estimate (dashboard sync → estimate sent)
-        pairs = (
+        pairs = _apply_pipeline_filter(
             db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id)
             .filter(Lead.is_test.is_(False), Estimate.status.in_(["sent", "closed"]),
-                    Estimate.sent_at >= curr_start)
-            .all()
-        )
+                    Estimate.sent_at >= curr_start),
+            pipeline_version,
+        ).all()
         total_mins, count = 0, 0
         for est, lead in pairs:
             c = _parse_dt(lead.dashboard_synced_at or lead.created_at)

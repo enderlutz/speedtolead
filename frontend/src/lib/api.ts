@@ -403,7 +403,10 @@ export const api = {
   // Estimates
   getEstimates: () => request<EstimateDetail[]>("/api/estimates"),
   getSentLog: () => request<SentLogEntry[]>("/api/estimates/sent-log"),
-  getPendingAction: () => request<PendingEstimate[]>("/api/estimates/pending-action"),
+  getPendingAction: (pipelineVersion?: string) => {
+    const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
+    return request<PendingEstimate[]>(`/api/estimates/pending-action${qs}`);
+  },
   approveEstimate: (id: string, scheduledSendAt?: string) =>
     request<EstimateDetail & { proposal_url?: string; sms_sent?: boolean; sms_scheduled?: boolean; scheduled_send_at?: string }>(
       `/api/estimates/${id}/approve`,
@@ -475,7 +478,10 @@ export const api = {
   getProposalPageUrl: (token: string, page: number) => `${BASE}/api/proposal/${token}/page/${page}`,
 
   // Analytics
-  getKPIs: () => request<KPIs>("/api/analytics/kpis"),
+  getKPIs: (pipelineVersion?: string) => {
+    const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
+    return request<KPIs>(`/api/analytics/kpis${qs}`);
+  },
   getFunnel: () => request<FunnelData>("/api/analytics/funnel"),
   getWeeklyCloseRate: () => request<WeeklyCloseRate[]>("/api/analytics/weekly-close-rate"),
   getByLocation: () => request<LocationStats>("/api/analytics/by-location"),
@@ -528,8 +534,13 @@ export const api = {
     ),
 
   // Notifications
-  getRecentActivity: (limit?: number) =>
-    request<ActivityEvent[]>(`/api/notifications/recent${limit ? `?limit=${limit}` : ""}`),
+  getRecentActivity: (limit?: number, pipelineVersion?: string) => {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    if (pipelineVersion) params.set("pipeline_version", pipelineVersion);
+    const qs = params.toString();
+    return request<ActivityEvent[]>(`/api/notifications/recent${qs ? `?${qs}` : ""}`);
+  },
   getNotificationCount: () => request<{ count: number }>("/api/notifications/count"),
 
   // Settings

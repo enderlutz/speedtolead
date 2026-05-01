@@ -192,20 +192,21 @@ def sent_log(limit: int = Query(200), offset: int = Query(0)):
 
 
 @router.get("/estimates/pending-action")
-def pending_action():
+def pending_action(pipeline_version: str | None = Query(None)):
     """Estimates that need VA action: green/yellow ready to send, red needing review."""
     db = get_db()
     try:
-        estimates = (
+        q = (
             db.query(Estimate, Lead)
             .join(Lead, Estimate.lead_id == Lead.id)
             .filter(Estimate.status == "pending")
             .filter(Estimate.estimate_low > 0)
             .filter(Lead.is_test.is_(False))
             .filter(Lead.status != "archived")
-            .order_by(Estimate.created_at.desc())
-            .all()
         )
+        if pipeline_version and pipeline_version in ("v1", "v2"):
+            q = q.filter(Lead.pipeline_version == pipeline_version)
+        estimates = q.order_by(Estimate.created_at.desc()).all()
 
         results = []
         for est, lead in estimates:
