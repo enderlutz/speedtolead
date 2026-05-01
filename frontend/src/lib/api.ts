@@ -299,6 +299,7 @@ export interface ProposalData {
   service_type: string;
   tiers: { essential: number; signature: number; legacy: number };
   breakdown: BreakdownItem[];
+  pricing_includes: string[];
   has_pdf: boolean;
   page_count: number;
   created_at: string;

@@ -17,6 +17,36 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+_INSIDE_ALL = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
+_OUTSIDE_ALL = {"Outside Front", "Outside Left", "Outside Back", "Outside Right"}
+
+
+def _pricing_includes_bullets(form_data: dict) -> list[str]:
+    """Per-side pricing-includes lines for the proposal header. Mirrors the
+    PDF's pricing_includes string but as a structured list so the customer
+    page can render each side as its own bullet."""
+    fence_sides = form_data.get("fence_sides", []) if isinstance(form_data, dict) else []
+    if isinstance(fence_sides, str):
+        fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
+
+    inside = [s for s in fence_sides if s in _INSIDE_ALL]
+    outside = [s for s in fence_sides if s in _OUTSIDE_ALL]
+
+    bullets: list[str] = []
+    if len(inside) == 4:
+        bullets.append("Inside Fences")
+    elif inside:
+        bullets.append("Inside " + ", ".join(s.replace("Inside ", "") for s in inside))
+    if len(outside) == 4:
+        bullets.append("Outside Fences")
+    elif outside:
+        bullets.append("Outside " + ", ".join(s.replace("Outside ", "") for s in outside))
+
+    if not bullets:
+        bullets.append("Fence staining")
+    return bullets
+
+
 @router.get("/proposal/{token}")
 def get_proposal(token: str):
     """Public endpoint: get proposal data for customer view."""
@@ -47,6 +77,7 @@ def get_proposal(token: str):
             })
 
         est_dict = est.to_dict()
+        lead_dict = lead.to_dict()
         return {
             "token": token,
             "lead_id": lead.id,
@@ -56,6 +87,7 @@ def get_proposal(token: str):
             "service_type": est.service_type,
             "tiers": est_dict["tiers"],
             "breakdown": est_dict["breakdown"],
+            "pricing_includes": _pricing_includes_bullets(lead_dict.get("form_data", {})),
             "has_pdf": (proposal.pdf_page_count or 0) > 0,
             "page_count": proposal.pdf_page_count or 0,
             "created_at": proposal.created_at,

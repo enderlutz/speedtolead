@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, type ProposalData } from "@/lib/api";
-import { Download, Phone } from "lucide-react";
+import { Phone } from "lucide-react";
 import ChatbotWidget from "@/components/ChatbotWidget";
+
+const SUPPORT_PHONE = "+18323346528";  // 832-334-6528
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
@@ -60,7 +62,7 @@ export default function ProposalView() {
         <div className="relative mb-6">
           <div className="h-16 w-16 rounded-full border-4 border-white/10 border-t-amber-400 animate-spin" />
         </div>
-        <h1 className="text-xl font-bold text-white tracking-tight">A&T Fence Restoration</h1>
+        <h1 className="text-xl font-bold text-white tracking-tight">Fence Revive Co.</h1>
         <p className="text-white/50 text-sm mt-2 animate-pulse">Loading your proposal...</p>
       </div>
     );
@@ -88,30 +90,31 @@ export default function ProposalView() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
-      {/* Header with actions */}
+      {/* Header — brand + price includes + call icon */}
       <header className="bg-[#1C2235] text-white sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4">
-          <h1 className="text-lg sm:text-xl font-bold tracking-tight text-center mb-3">
-            A&T Fence Restoration
-          </h1>
-          <div className="flex gap-2">
-            {proposal.has_pdf && token && (
-              <a
-                href={`${BASE}/api/proposal/${token}/pdf`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-white/30 text-white font-semibold text-xs sm:text-sm py-2.5 px-3 hover:bg-white/10 transition-colors"
-              >
-                <Download className="h-4 w-4 shrink-0" />
-                <span>PDF</span>
-              </a>
-            )}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight">Fence Revive Co.</h1>
+              <div className="mt-2">
+                <p className="text-[11px] uppercase tracking-widest text-white/50 font-semibold">Price Includes</p>
+                <ul className="mt-1 space-y-0.5">
+                  {proposal.pricing_includes.map((bullet, i) => (
+                    <li key={i} className="text-sm text-white/90 flex items-start gap-2">
+                      <span className="text-amber-400 mt-1.5 inline-block h-1 w-1 rounded-full bg-amber-400 shrink-0" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
             <a
-              href="tel:+18326515988"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 text-white font-semibold text-xs sm:text-sm py-2.5 px-3 hover:bg-amber-600 transition-colors shadow-md"
+              href={`tel:${SUPPORT_PHONE}`}
+              aria-label="Call us"
+              title="Call us"
+              className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-full bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-md"
             >
-              <Phone className="h-4 w-4 shrink-0" />
-              <span>Call for Questions/Info</span>
+              <Phone className="h-4 w-4" />
             </a>
           </div>
         </div>
@@ -134,7 +137,7 @@ export default function ProposalView() {
 
         {/* Footer */}
         <footer className="text-center text-xs text-[#1C2235]/30 pb-6 pt-4">
-          A&T Fence Restoration &middot; Cypress, TX
+          Fence Revive Co. &middot; Cypress, TX
         </footer>
       </main>
 
