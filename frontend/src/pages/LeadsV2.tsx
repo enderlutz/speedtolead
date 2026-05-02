@@ -143,6 +143,10 @@ export default function LeadsV2() {
         playProposalViewedSound();
         break;
       }
+      case "lead_updated": {
+        refresh();
+        break;
+      }
     }
   }, []));
 

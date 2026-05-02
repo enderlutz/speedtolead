@@ -184,6 +184,10 @@ export default function Leads() {
         }
         break;
       }
+      case "lead_updated": {
+        refresh();
+        break;
+      }
     }
   }, []));
 

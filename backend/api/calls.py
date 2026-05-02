@@ -123,10 +123,32 @@ async def upload_call_recording(
             created_at=_now(),
         )
         db.add(recording)
+
+        # Auto-flip precall_done on lead + latest estimate so the green phone
+        # icon shows up on the kanban card without the VA having to also tick
+        # the manual checkbox.
+        if not lead.precall_done:
+            lead.precall_done = True
+        latest_estimate = (
+            db.query(Estimate)
+            .filter(Estimate.lead_id == lead_id)
+            .order_by(Estimate.created_at.desc())
+            .first()
+        )
+        if latest_estimate and not latest_estimate.precall_done:
+            latest_estimate.precall_done = True
+            latest_estimate.precall_at = _now()
+
         db.commit()
 
         recording_id = recording.id
         logger.info(f"Call recording uploaded for lead {lead_id}: {recording_id}")
+
+        try:
+            from services.event_bus import publish
+            publish("lead_updated", {"lead_id": lead_id})
+        except Exception:
+            pass
 
         # Trigger pipeline in background thread
         thread = threading.Thread(
