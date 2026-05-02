@@ -15,7 +15,9 @@ from database import get_db, Proposal, ProposalPage, Estimate, Lead, EstimateCor
 from services.activity_log import log_event
 from services.event_bus import publish
 from services.notifications import notify_correction_requested
+from services.ghl import update_opportunity_stage
 from config import get_settings
+from api.estimates import V2_REQUOTE_REQUESTED_STAGE_ID
 import uuid
 
 router = APIRouter()
@@ -251,6 +253,20 @@ def request_correction(token: str, body: CorrectionRequestBody, request: Request
             notify_correction_requested(lead.to_dict(), text_clean)
         except Exception as e:
             logger.error(f"Failed to send correction notification: {e}")
+
+        # Move GHL opportunity to the Requote Requested stage if it's been
+        # configured + the lead has a real opportunity in the new account.
+        if V2_REQUOTE_REQUESTED_STAGE_ID and lead.pipeline_version == "v2" and lead.ghl_opportunity_id:
+            try:
+                update_opportunity_stage(
+                    lead.ghl_opportunity_id,
+                    V2_REQUOTE_REQUESTED_STAGE_ID,
+                    lead.ghl_location_id or None,
+                )
+                lead.ghl_pipeline_stage_id = V2_REQUOTE_REQUESTED_STAGE_ID
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to push Requote Requested stage to GHL: {e}")
 
         return {"status": "ok", "request_id": cr.id, "requested_at": now_iso}
     except HTTPException:

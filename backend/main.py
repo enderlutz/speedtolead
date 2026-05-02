@@ -10,6 +10,7 @@ from config import get_settings
 from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
+from services.correction_escalator import check_escalations
 from services.nudge import run_nudge_check
 from services.weekly_reminder import run_weekly_reminder
 from services.sms_worker import process_pending_messages
@@ -85,6 +86,18 @@ async def _call_recording_poller_loop():
         await asyncio.sleep(300)
 
 
+async def _correction_escalator_loop():
+    """Background task: SMS Alan when a customer correction request has been
+    sitting unresolved for > 24 hours. Checks every 15 minutes."""
+    await asyncio.sleep(180)  # Stagger after other startup tasks
+    while True:
+        try:
+            await asyncio.to_thread(check_escalations)
+        except Exception as e:
+            logger.error(f"Correction escalator error: {e}")
+        await asyncio.sleep(900)  # Every 15 minutes
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -97,6 +110,7 @@ async def lifespan(app: FastAPI):
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     call_poller = asyncio.create_task(_call_recording_poller_loop())
+    correction_escalator = asyncio.create_task(_correction_escalator_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -104,6 +118,7 @@ async def lifespan(app: FastAPI):
     sms_worker.cancel()
     weekly.cancel()
     call_poller.cancel()
+    correction_escalator.cancel()
 
 
 app = FastAPI(title="A&T's Fence Staining", lifespan=lifespan)
