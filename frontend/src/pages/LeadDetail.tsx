@@ -1505,10 +1505,10 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
                           <div className="max-h-[200px] overflow-y-auto rounded border bg-white p-2 space-y-1">
                             {transcript.segments.map((seg, i) => {
                               const speaker = transcript.speaker_map[String(seg.speaker)] || `Speaker ${seg.speaker}`;
-                              const isTeam = speaker === "Team";
+                              const isCustomer = speaker === "Customer";
                               return (
                                 <p key={i} className="text-xs">
-                                  <span className={`font-medium ${isTeam ? "text-blue-700" : "text-gray-700"}`}>{speaker}:</span>{" "}
+                                  <span className={`font-medium ${isCustomer ? "text-gray-700" : "text-blue-700"}`}>{speaker}:</span>{" "}
                                   {seg.text}
                                 </p>
                               );

@@ -654,11 +654,13 @@ export const api = {
   getCallPatterns: () => request<CallPatterns>("/api/calls/patterns"),
   reanalyzeCall: (recordingId: string) =>
     request<{ status: string }>(`/api/calls/${recordingId}/analyze`, { method: "POST" }),
-  uploadCallRecording: async (file: File, leadId: string, direction = "outbound") => {
+  uploadCallRecording: async (file: File, leadId: string, direction = "outbound", recordedBy?: string) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("lead_id", leadId);
     formData.append("call_direction", direction);
+    const name = recordedBy ?? getCurrentUser()?.name ?? "";
+    if (name) formData.append("recorded_by", name);
     const token = getToken();
     const res = await fetch(`${BASE}/api/calls/upload`, {
       method: "POST",

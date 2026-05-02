@@ -80,26 +80,30 @@ def transcribe_recording(audio_data: bytes) -> dict:
         return {"full_text": "", "segments": [], "confidence": 0.0}
 
 
-def build_speaker_map(segments: list[dict], call_direction: str) -> dict:
+def build_speaker_map(segments: list[dict], call_direction: str, team_name: str = "") -> dict:
     """
     Map speaker IDs to names based on call direction.
-    Outbound call: Speaker who talks first is likely Alan/Olga.
+    Outbound call: Speaker who talks first is likely the team member.
     Inbound call: Speaker who talks first is likely the customer.
+
+    `team_name` is the logged-in user who hit Record (in-browser uploads).
+    Falls back to "Team" for polled GHL recordings where no user is attached.
     """
     if not segments:
         return {}
 
+    label = (team_name or "").strip() or "Team"
     first_speaker = segments[0].get("speaker", 0)
 
     if call_direction == "outbound":
         return {
-            str(first_speaker): "Team",
+            str(first_speaker): label,
             str(1 - first_speaker): "Customer",
         }
     else:
         return {
             str(first_speaker): "Customer",
-            str(1 - first_speaker): "Team",
+            str(1 - first_speaker): label,
         }
 
 

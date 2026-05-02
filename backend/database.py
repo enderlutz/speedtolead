@@ -443,6 +443,7 @@ class CallRecording(Base):
     duration_seconds = Column(Integer, default=0)
     call_direction = Column(Text, default="outbound")
     caller_name = Column(Text, default="")
+    recorded_by = Column(Text, default="")  # logged-in user who hit Record (in-browser uploads only)
     status = Column(Text, default="pending")  # pending, transcribed, analyzed, failed
     created_at = Column(Text, default="")
     transcribed_at = Column(Text, nullable=True)
@@ -456,6 +457,7 @@ class CallRecording(Base):
             "duration_seconds": self.duration_seconds,
             "call_direction": self.call_direction,
             "caller_name": self.caller_name,
+            "recorded_by": self.recorded_by or "",
             "status": self.status,
             "created_at": self.created_at,
             "transcribed_at": self.transcribed_at,
@@ -611,6 +613,13 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE estimates ADD COLUMN correction_pending BOOLEAN DEFAULT FALSE"))
         logger.info("Migration: added estimates.correction_pending")
+
+    if inspector.has_table("call_recordings"):
+        call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}
+        if "recorded_by" not in call_rec_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_recordings ADD COLUMN recorded_by TEXT DEFAULT ''"))
+            logger.info("Migration: added call_recordings.recorded_by")
 
 
 def get_db() -> Session:

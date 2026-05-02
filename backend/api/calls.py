@@ -98,6 +98,7 @@ async def upload_call_recording(
     file: UploadFile = File(...),
     lead_id: str = Form(...),
     call_direction: str = Form("outbound"),
+    recorded_by: str = Form(""),
 ):
     """Upload a call recording and trigger transcription + analysis pipeline."""
     data = await file.read()
@@ -119,6 +120,7 @@ async def upload_call_recording(
             duration_seconds=0,  # Will be determined by transcription
             call_direction=call_direction,
             caller_name=lead.contact_name or "",
+            recorded_by=(recorded_by or "").strip(),
             status="pending",
             created_at=_now(),
         )

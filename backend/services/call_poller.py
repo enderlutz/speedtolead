@@ -126,7 +126,11 @@ def process_recording_pipeline(recording_id: str):
             db.commit()
             return
 
-        speaker_map = build_speaker_map(result["segments"], recording.call_direction)
+        speaker_map = build_speaker_map(
+            result["segments"],
+            recording.call_direction,
+            recording.recorded_by or "",
+        )
 
         transcript = CallTranscript(
             id=str(uuid.uuid4()),
