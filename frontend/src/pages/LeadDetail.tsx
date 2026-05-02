@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, PhoneCall, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import { V2_STAGES } from "./LeadsV2";
@@ -1183,17 +1183,67 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [recState, setRecState] = useState<"idle" | "recording" | "uploading" | "done">("idle");
   const [elapsed, setElapsed] = useState(0);
+  const [playingId, setPlayingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadCalls = () => {
     api.getLeadCalls(leadId)
       .then(setRecordings)
       .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  const handleToggleFavorite = async (rec: CallRecordingEntry) => {
+    const next = !rec.is_favorite;
+    setRecordings((prev) => prev.map((r) => (r.id === rec.id ? { ...r, is_favorite: next } : r)));
+    try {
+      await api.setCallFavorite(rec.id, next);
+    } catch {
+      toast.error("Couldn't update favorite");
+      setRecordings((prev) => prev.map((r) => (r.id === rec.id ? { ...r, is_favorite: !next } : r)));
+    }
+  };
+
+  const handleArchive = async (rec: CallRecordingEntry) => {
+    if (!confirm("Archive this recording? The 'called' icon will be removed if no other recordings remain.")) return;
+    try {
+      await api.archiveCall(rec.id);
+      toast.success("Recording archived");
+      loadCalls();
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't archive");
+    }
+  };
+
+  const handleRetry = async (rec: CallRecordingEntry) => {
+    try {
+      await api.retryCallTranscription(rec.id);
+      toast.success("Retrying transcription...");
+      setTimeout(loadCalls, 5000);
+      setTimeout(loadCalls, 15000);
+    } catch {
+      toast.error("Couldn't retry");
+    }
+  };
+
+  const handlePlay = (rec: CallRecordingEntry) => {
+    if (playingId === rec.id) {
+      audioRef.current?.pause();
+      setPlayingId(null);
+      return;
+    }
+    audioRef.current?.pause();
+    const audio = new Audio(api.getCallAudioUrl(rec.id));
+    audio.onended = () => setPlayingId(null);
+    audio.onerror = () => { toast.error("Couldn't play recording"); setPlayingId(null); };
+    audio.play().catch(() => { toast.error("Couldn't play recording"); setPlayingId(null); });
+    audioRef.current = audio;
+    setPlayingId(rec.id);
   };
 
   useEffect(() => { loadCalls(); }, [leadId]);
@@ -1314,6 +1364,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
   useEffect(() => () => {
     stopTimer();
     releaseStream();
+    audioRef.current?.pause();
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.onstop = null;
       try { recorderRef.current.stop(); } catch {}
@@ -1428,19 +1479,31 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
               const isExpanded = expandedId === rec.id;
               const analysis = rec.analysis;
               const transcript = rec.transcript;
+              const isPlaying = playingId === rec.id;
+              const isFailed = rec.status === "failed";
               return (
-                <div key={rec.id} className="border rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : rec.id)}
-                    className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="flex-1 min-w-0">
+                <div key={rec.id} className={`border rounded-lg overflow-hidden ${rec.is_favorite ? "border-amber-300" : ""}`}>
+                  <div className="px-3 py-2.5 flex items-start gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggleFavorite(rec); }}
+                      className="shrink-0 mt-0.5"
+                      title={rec.is_favorite ? "Unstar" : "Star for training"}
+                    >
+                      <Star className={`h-4 w-4 ${rec.is_favorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground hover:text-amber-400"}`} />
+                    </button>
+                    <button
+                      onClick={() => setExpandedId(isExpanded ? null : rec.id)}
+                      className="flex-1 min-w-0 text-left"
+                    >
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium">{timeAgo(rec.created_at)}</span>
                         <Badge variant="outline" className="text-[10px] capitalize">{rec.call_direction}</Badge>
                         <span className="text-xs text-muted-foreground">{formatDuration(rec.duration_seconds)}</span>
+                        {rec.recorded_by && (
+                          <Badge variant="outline" className="text-[10px]">{rec.recorded_by}</Badge>
+                        )}
                         {rec.status === "pending" && <Badge className="text-[10px] bg-blue-100 text-blue-800">Processing...</Badge>}
-                        {rec.status === "failed" && <Badge className="text-[10px] bg-red-100 text-red-800">Failed</Badge>}
+                        {isFailed && <Badge className="text-[10px] bg-red-100 text-red-800">Failed</Badge>}
                       </div>
                       {analysis && (
                         <div className="flex items-center gap-2 mt-1">
@@ -1455,9 +1518,26 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
                           </span>
                         </div>
                       )}
+                    </button>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {rec.has_recording && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handlePlay(rec); }} title={isPlaying ? "Pause" : "Play"}>
+                          {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+                      {isFailed && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); handleRetry(rec); }} title="Retry transcription">
+                          <RotateCw className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600" onClick={(e) => { e.stopPropagation(); handleArchive(rec); }} title="Archive">
+                        <Archive className="h-3.5 w-3.5" />
+                      </Button>
+                      <button onClick={() => setExpandedId(isExpanded ? null : rec.id)} className="h-7 w-7 flex items-center justify-center text-muted-foreground">
+                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
                     </div>
-                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
-                  </button>
+                  </div>
 
                   {isExpanded && (
                     <div className="border-t px-3 py-3 space-y-3 bg-muted/10">
