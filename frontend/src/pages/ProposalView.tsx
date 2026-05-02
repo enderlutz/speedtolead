@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, type ProposalData } from "@/lib/api";
-import { Phone } from "lucide-react";
+import { api, type ProposalData, type CorrectionRequest } from "@/lib/api";
+import { Phone, X, CheckCircle2 } from "lucide-react";
 import ChatbotWidget from "@/components/ChatbotWidget";
 
 const SUPPORT_PHONE = "+18323346528";  // 832-334-6528
+
+function formatDateShort(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch {
+    return iso;
+  }
+}
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
@@ -45,6 +53,11 @@ export default function ProposalView() {
   const [proposal, setProposal] = useState<ProposalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionText, setCorrectionText] = useState("");
+  const [submittingCorrection, setSubmittingCorrection] = useState(false);
+  const [correctionSubmitted, setCorrectionSubmitted] = useState(false);
+  const [correctionError, setCorrectionError] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -55,6 +68,37 @@ export default function ProposalView() {
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [token]);
+
+  const submitCorrection = async () => {
+    if (!token) return;
+    const trimmed = correctionText.trim();
+    if (!trimmed) {
+      setCorrectionError("Please describe what needs to be corrected.");
+      return;
+    }
+    setSubmittingCorrection(true);
+    setCorrectionError("");
+    try {
+      await api.requestProposalCorrection(token, trimmed);
+      setCorrectionSubmitted(true);
+      // Refresh the proposal so the new request shows in the history
+      const fresh = await api.getProposal(token);
+      setProposal(fresh);
+      setCorrectionText("");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Something went wrong. Please try again.";
+      setCorrectionError(msg.replace(/^\d+:\s*/, ""));
+    } finally {
+      setSubmittingCorrection(false);
+    }
+  };
+
+  const closeCorrectionModal = () => {
+    setCorrectionOpen(false);
+    setCorrectionSubmitted(false);
+    setCorrectionError("");
+    setCorrectionText("");
+  };
 
   if (loading) {
     return (
@@ -106,6 +150,13 @@ export default function ProposalView() {
                     </li>
                   ))}
                 </ul>
+                <button
+                  type="button"
+                  onClick={() => setCorrectionOpen(true)}
+                  className="mt-2 text-xs text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
+                >
+                  These sides don't look right
+                </button>
               </div>
             </div>
             <a
@@ -121,6 +172,16 @@ export default function ProposalView() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 sm:py-8 space-y-4">
+        {/* Pending requote banner */}
+        {proposal.correction_pending && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-800">
+              We received your correction request and we'll send you an updated quote shortly.
+            </p>
+          </div>
+        )}
+
         {/* PDF page images */}
         {pageCount > 0 && token && (
           <div className="space-y-4">
@@ -135,11 +196,91 @@ export default function ProposalView() {
           </div>
         )}
 
+        {/* Correction request history */}
+        {proposal.correction_requests.length > 0 && (
+          <div className="rounded-lg border bg-white p-4 space-y-2">
+            <p className="text-sm font-semibold text-[#1C2235]">Your correction requests</p>
+            <ul className="space-y-2">
+              {proposal.correction_requests.map((cr: CorrectionRequest) => (
+                <li key={cr.id} className="border-l-2 border-amber-300 pl-3">
+                  <p className="text-xs text-muted-foreground">
+                    {formatDateShort(cr.requested_at)}
+                    {cr.resolved_at && <span className="ml-2 text-emerald-600">· Resolved</span>}
+                  </p>
+                  <p className="text-sm text-[#1C2235] mt-0.5">{cr.text}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Footer */}
         <footer className="text-center text-xs text-[#1C2235]/30 pb-6 pt-4">
           {"A&T's Fence Staining"} &middot; Cypress, TX
         </footer>
       </main>
+
+      {/* Correction request modal */}
+      {correctionOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={closeCorrectionModal}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="text-base font-semibold text-[#1C2235]">
+                {correctionSubmitted ? "Got it!" : "Request a side change"}
+              </h2>
+              <button onClick={closeCorrectionModal} className="text-muted-foreground hover:text-[#1C2235]" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {correctionSubmitted ? (
+              <>
+                <p className="text-sm text-[#1C2235]/80">
+                  We'll review and send you an updated quote shortly. You can submit another correction at any time.
+                </p>
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={closeCorrectionModal}
+                    className="px-4 py-2 rounded-lg bg-[#1C2235] text-white text-sm font-medium hover:bg-[#1C2235]/90 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <textarea
+                  value={correctionText}
+                  onChange={(e) => setCorrectionText(e.target.value)}
+                  placeholder="Tell us which sides you actually want stained"
+                  className="w-full border rounded-lg px-3 py-2 text-sm h-28 resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  disabled={submittingCorrection}
+                  maxLength={2000}
+                />
+                {correctionError && (
+                  <p className="text-xs text-red-600">{correctionError}</p>
+                )}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    onClick={closeCorrectionModal}
+                    disabled={submittingCorrection}
+                    className="px-4 py-2 rounded-lg border text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitCorrection}
+                    disabled={submittingCorrection || !correctionText.trim()}
+                    className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors disabled:opacity-50"
+                  >
+                    {submittingCorrection ? "Submitting..." : "Submit"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Chatbot widget */}
       {token && proposal.lead_id && (

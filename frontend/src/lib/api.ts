@@ -305,6 +305,23 @@ export interface ProposalData {
   has_pdf: boolean;
   page_count: number;
   created_at: string;
+  correction_pending: boolean;
+  correction_requests: CorrectionRequest[];
+}
+
+export interface CorrectionRequest {
+  id: string;
+  estimate_id: string;
+  lead_id: string;
+  text: string;
+  requested_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  escalated_at: string | null;
+  status: "pending" | "resolved";
+  contact_name?: string;
+  contact_phone?: string;
+  address?: string;
 }
 
 export interface QuickApproveInfo {
@@ -484,6 +501,17 @@ export const api = {
   getProposal: (token: string) => request<ProposalData>(`/api/proposal/${token}`),
   getProposalPdfUrl: (token: string) => `${BASE}/api/proposal/${token}/pdf`,
   getProposalPageUrl: (token: string, page: number) => `${BASE}/api/proposal/${token}/page/${page}`,
+  requestProposalCorrection: (token: string, text: string) =>
+    request<{ status: string; request_id: string; requested_at: string }>(
+      `/api/proposal/${token}/request-correction`,
+      { method: "POST", body: JSON.stringify({ text }) }
+    ),
+
+  // Correction requests (internal dashboard)
+  listCorrectionRequests: (status: "pending" | "resolved" | "all" = "pending") =>
+    request<CorrectionRequest[]>(`/api/correction-requests?status=${status}`),
+  resolveCorrectionRequest: (id: string) =>
+    request<CorrectionRequest>(`/api/correction-requests/${id}/resolve`, { method: "POST" }),
 
   // Analytics
   getKPIs: (pipelineVersion?: string) => {
