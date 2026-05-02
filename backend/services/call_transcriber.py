@@ -82,29 +82,38 @@ def transcribe_recording(audio_data: bytes) -> dict:
 
 def build_speaker_map(segments: list[dict], call_direction: str, team_name: str = "") -> dict:
     """
-    Map speaker IDs to names based on call direction.
-    Outbound call: Speaker who talks first is likely the team member.
-    Inbound call: Speaker who talks first is likely the customer.
+    Map speaker IDs to names based on call direction. Handles N speakers
+    (e.g., customer + spouse + sales rep) — anyone who isn't the team is
+    labeled "Customer". Use of multiple non-team speakers becomes "Customer A",
+    "Customer B" etc. so the analyzer can tell them apart.
 
-    `team_name` is the logged-in user who hit Record (in-browser uploads).
-    Falls back to "Team" for polled GHL recordings where no user is attached.
+    Outbound call: speaker who talks first is the team member.
+    Inbound call: speaker who talks first is the customer.
+
+    `team_name` is the logged-in user who hit Record. Falls back to "Team" for
+    polled GHL recordings where no user is attached.
     """
     if not segments:
         return {}
 
     label = (team_name or "").strip() or "Team"
-    first_speaker = segments[0].get("speaker", 0)
+    speaker_ids: list[str] = []
+    for seg in segments:
+        sid = str(seg.get("speaker", 0))
+        if sid not in speaker_ids:
+            speaker_ids.append(sid)
 
-    if call_direction == "outbound":
-        return {
-            str(first_speaker): label,
-            str(1 - first_speaker): "Customer",
-        }
+    first = speaker_ids[0]
+    team_id = first if call_direction == "outbound" else (speaker_ids[1] if len(speaker_ids) > 1 else first)
+
+    customer_ids = [s for s in speaker_ids if s != team_id]
+    speaker_map = {team_id: label}
+    if len(customer_ids) == 1:
+        speaker_map[customer_ids[0]] = "Customer"
     else:
-        return {
-            str(first_speaker): "Customer",
-            str(1 - first_speaker): label,
-        }
+        for i, sid in enumerate(customer_ids):
+            speaker_map[sid] = f"Customer {chr(ord('A') + i)}"
+    return speaker_map
 
 
 def format_transcript_for_display(segments: list[dict], speaker_map: dict) -> str:

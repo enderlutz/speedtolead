@@ -8,11 +8,14 @@ import logging
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Response
+from sqlalchemy import func
+from pydantic import BaseModel
 from database import (
     get_db, CallRecording, CallTranscript, CallAnalysis,
     Lead, Estimate,
 )
+from api.auth import get_current_user, require_admin
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,17 +35,14 @@ def _parse_dt(s: str | None):
 
 
 @router.get("/calls/lead/{lead_id}")
-def get_lead_calls(lead_id: str):
+def get_lead_calls(lead_id: str, include_archived: bool = False):
     """Get all call recordings for a lead with transcripts and analyses."""
     db = get_db()
     try:
-        recordings = (
-            db.query(CallRecording)
-            .filter(CallRecording.lead_id == lead_id)
-            .order_by(CallRecording.created_at.desc())
-            .limit(50)
-            .all()
-        )
+        q = db.query(CallRecording).filter(CallRecording.lead_id == lead_id)
+        if not include_archived:
+            q = q.filter(CallRecording.is_archived.is_(False) | CallRecording.is_archived.is_(None))
+        recordings = q.order_by(CallRecording.created_at.desc()).limit(50).all()
 
         results = []
         for rec in recordings:
@@ -274,17 +274,27 @@ def _run_analysis_only(recording_id: str):
 
 
 @router.get("/calls/all")
-def get_all_calls(limit: int = 50, offset: int = 0):
-    """Get all call recordings with analyses for the Calls page."""
+def get_all_calls(
+    limit: int = 50,
+    offset: int = 0,
+    archived: bool = False,
+    favorites_only: bool = False,
+):
+    """Get all call recordings with analyses for the Calls page.
+    By default returns active (non-archived) recordings. Set archived=true
+    to fetch the archive view."""
     db = get_db()
     try:
-        recordings = (
-            db.query(CallRecording)
-            .order_by(CallRecording.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        q = db.query(CallRecording)
+        if archived:
+            q = q.filter(CallRecording.is_archived.is_(True))
+        else:
+            q = q.filter(CallRecording.is_archived.is_(False) | CallRecording.is_archived.is_(None))
+        if favorites_only:
+            q = q.filter(CallRecording.is_favorite.is_(True))
+
+        total = q.count()
+        recordings = q.order_by(CallRecording.created_at.desc()).offset(offset).limit(limit).all()
 
         results = []
         for rec in recordings:
@@ -297,6 +307,16 @@ def get_all_calls(limit: int = 50, offset: int = 0):
             else:
                 entry["contact_name"] = rec.caller_name or ""
 
+            # Transcript preview (first ~140 chars)
+            transcript = db.query(CallTranscript).filter(
+                CallTranscript.recording_id == rec.id
+            ).first()
+            if transcript and transcript.full_text:
+                snippet = transcript.full_text.strip().replace("\n", " ")
+                entry["transcript_preview"] = snippet[:140] + ("..." if len(snippet) > 140 else "")
+            else:
+                entry["transcript_preview"] = ""
+
             # Attach analysis summary (not full transcript to keep response light)
             analysis = db.query(CallAnalysis).filter(
                 CallAnalysis.recording_id == rec.id
@@ -305,9 +325,224 @@ def get_all_calls(limit: int = 50, offset: int = 0):
 
             results.append(entry)
 
-        total = db.query(CallRecording).count()
-
         return {"calls": results, "total": total}
+    finally:
+        db.close()
+
+
+@router.get("/calls/storage")
+def get_storage_stats():
+    """Total bytes used by call recording blobs + count. Used to show a
+    storage-bloat warning on the Call Coach page."""
+    db = get_db()
+    try:
+        total_bytes = db.query(func.coalesce(func.sum(func.length(CallRecording.recording_data)), 0)).scalar() or 0
+        active_count = db.query(CallRecording).filter(
+            CallRecording.is_archived.is_(False) | CallRecording.is_archived.is_(None)
+        ).count()
+        archived_count = db.query(CallRecording).filter(CallRecording.is_archived.is_(True)).count()
+        return {
+            "total_bytes": int(total_bytes),
+            "active_count": active_count,
+            "archived_count": archived_count,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/calls/{recording_id}/audio")
+def stream_audio(recording_id: str):
+    """Stream the raw audio bytes for playback in the browser."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec or not rec.recording_data:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        # Best-effort content type — browsers handle webm/mp4/ogg/wav fine
+        return Response(content=rec.recording_data, media_type="audio/webm")
+    finally:
+        db.close()
+
+
+def _refresh_precall_for_lead(db, lead_id: str) -> None:
+    """After archive/un-archive, recompute whether the lead has any active
+    recordings. Mirror that onto lead.precall_done + latest estimate so the
+    'called' icon reflects reality."""
+    if not lead_id:
+        return
+    has_active = (
+        db.query(CallRecording)
+        .filter(
+            CallRecording.lead_id == lead_id,
+            (CallRecording.is_archived.is_(False) | CallRecording.is_archived.is_(None)),
+        )
+        .first()
+    )
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        return
+    desired = bool(has_active)
+    if lead.precall_done != desired:
+        lead.precall_done = desired
+    latest_estimate = (
+        db.query(Estimate)
+        .filter(Estimate.lead_id == lead_id)
+        .order_by(Estimate.created_at.desc())
+        .first()
+    )
+    if latest_estimate and latest_estimate.precall_done != desired:
+        latest_estimate.precall_done = desired
+        latest_estimate.precall_at = _now() if desired else None
+
+
+@router.post("/calls/{recording_id}/archive")
+def archive_recording(recording_id: str, user: dict = Depends(get_current_user)):
+    """Soft-delete a recording. Used when a call didn't connect (no answer)
+    or was otherwise unwanted. Un-flips the lead's 'called' icon if no other
+    active recordings remain. Anyone can archive; admins can still view via
+    the Archived tab."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        if rec.status == "pending":
+            raise HTTPException(status_code=400, detail="Recording is still being transcribed — try again in a moment")
+
+        rec.is_archived = True
+        rec.archived_at = _now()
+        lead_id = rec.lead_id
+        _refresh_precall_for_lead(db, lead_id)
+        db.commit()
+
+        try:
+            from services.event_bus import publish
+            if lead_id:
+                publish("lead_updated", {"lead_id": lead_id})
+        except Exception:
+            pass
+
+        return {"status": "archived"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/calls/{recording_id}/unarchive")
+def unarchive_recording(recording_id: str, user: dict = Depends(get_current_user)):
+    """Restore an archived recording back to the active list. Re-flips the
+    lead's 'called' icon."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+        rec.is_archived = False
+        rec.archived_at = None
+        lead_id = rec.lead_id
+        _refresh_precall_for_lead(db, lead_id)
+        db.commit()
+
+        try:
+            from services.event_bus import publish
+            if lead_id:
+                publish("lead_updated", {"lead_id": lead_id})
+        except Exception:
+            pass
+
+        return {"status": "active"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class FavoriteBody(BaseModel):
+    favorite: bool
+
+
+@router.post("/calls/{recording_id}/favorite")
+def set_favorite(recording_id: str, body: FavoriteBody, user: dict = Depends(get_current_user)):
+    """Star or unstar a recording for training/reference."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        rec.is_favorite = bool(body.favorite)
+        db.commit()
+        return {"is_favorite": rec.is_favorite}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.delete("/calls/{recording_id}")
+def hard_delete_recording(recording_id: str, user: dict = Depends(require_admin)):
+    """Permanent deletion — admin-only, only allowed on already-archived
+    recordings. Removes the audio bytes, transcript, and analysis."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        if not rec.is_archived:
+            raise HTTPException(status_code=400, detail="Archive the recording before permanently deleting")
+
+        db.query(CallTranscript).filter(CallTranscript.recording_id == recording_id).delete()
+        db.query(CallAnalysis).filter(CallAnalysis.recording_id == recording_id).delete()
+        db.delete(rec)
+        db.commit()
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/calls/{recording_id}/retry")
+def retry_transcription(recording_id: str, user: dict = Depends(get_current_user)):
+    """Re-run transcription + analysis on a failed recording. Clears any
+    partial transcript/analysis first."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        if not rec.recording_data:
+            raise HTTPException(status_code=400, detail="No audio data — cannot retry")
+
+        db.query(CallTranscript).filter(CallTranscript.recording_id == recording_id).delete()
+        db.query(CallAnalysis).filter(CallAnalysis.recording_id == recording_id).delete()
+        rec.status = "pending"
+        rec.transcribed_at = None
+        rec.analyzed_at = None
+        db.commit()
+
+        thread = threading.Thread(target=_run_pipeline, args=[recording_id], daemon=True)
+        thread.start()
+
+        return {"status": "processing"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 

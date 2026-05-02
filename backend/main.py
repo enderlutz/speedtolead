@@ -109,7 +109,9 @@ async def lifespan(app: FastAPI):
     # msg_poller = asyncio.create_task(_message_poller_loop())
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
-    call_poller = asyncio.create_task(_call_recording_poller_loop())
+    # Call recording poller disabled — recordings now happen exclusively
+    # in-browser via the dashboard, no longer pulling from GHL
+    # call_poller = asyncio.create_task(_call_recording_poller_loop())
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
@@ -117,7 +119,6 @@ async def lifespan(app: FastAPI):
     poller.cancel()
     sms_worker.cancel()
     weekly.cancel()
-    call_poller.cancel()
     correction_escalator.cancel()
 
 
