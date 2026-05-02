@@ -107,7 +107,12 @@ export interface CallRecordingEntry {
   duration_seconds: number;
   call_direction: string;
   caller_name: string;
+  recorded_by?: string;
   status: string;
+  is_archived?: boolean;
+  archived_at?: string | null;
+  is_favorite?: boolean;
+  transcript_preview?: string;
   created_at: string;
   transcribed_at: string | null;
   analyzed_at: string | null;
@@ -647,13 +652,37 @@ export const api = {
     request<{ status: string }>(`/api/chatbot/heartbeat/${token}`, { method: "POST" }),
 
   // --- Call Recordings ---
-  getLeadCalls: (leadId: string) => request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}`),
+  getLeadCalls: (leadId: string, includeArchived = false) =>
+    request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}?include_archived=${includeArchived}`),
   getCall: (recordingId: string) => request<CallRecordingEntry>(`/api/calls/${recordingId}`),
-  getAllCalls: (limit = 50, offset = 0) =>
-    request<{ calls: CallRecordingEntry[]; total: number }>(`/api/calls/all?limit=${limit}&offset=${offset}`),
+  getAllCalls: (opts: { limit?: number; offset?: number; archived?: boolean; favoritesOnly?: boolean } = {}) => {
+    const { limit = 50, offset = 0, archived = false, favoritesOnly = false } = opts;
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+      archived: String(archived),
+      favorites_only: String(favoritesOnly),
+    });
+    return request<{ calls: CallRecordingEntry[]; total: number }>(`/api/calls/all?${params}`);
+  },
+  getCallStorage: () => request<{ total_bytes: number; active_count: number; archived_count: number }>("/api/calls/storage"),
+  getCallAudioUrl: (recordingId: string) => `${BASE}/api/calls/${recordingId}/audio`,
   getCallPatterns: () => request<CallPatterns>("/api/calls/patterns"),
   reanalyzeCall: (recordingId: string) =>
     request<{ status: string }>(`/api/calls/${recordingId}/analyze`, { method: "POST" }),
+  archiveCall: (recordingId: string) =>
+    request<{ status: string }>(`/api/calls/${recordingId}/archive`, { method: "POST" }),
+  unarchiveCall: (recordingId: string) =>
+    request<{ status: string }>(`/api/calls/${recordingId}/unarchive`, { method: "POST" }),
+  setCallFavorite: (recordingId: string, favorite: boolean) =>
+    request<{ is_favorite: boolean }>(`/api/calls/${recordingId}/favorite`, {
+      method: "POST",
+      body: JSON.stringify({ favorite }),
+    }),
+  hardDeleteCall: (recordingId: string) =>
+    request<{ status: string }>(`/api/calls/${recordingId}`, { method: "DELETE" }),
+  retryCallTranscription: (recordingId: string) =>
+    request<{ status: string }>(`/api/calls/${recordingId}/retry`, { method: "POST" }),
   uploadCallRecording: async (file: File, leadId: string, direction = "outbound", recordedBy?: string) => {
     const formData = new FormData();
     formData.append("file", file);
