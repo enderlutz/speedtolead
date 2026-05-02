@@ -1162,12 +1162,32 @@ function ChatbotMessagesCard({ leadId }: { leadId: string }) {
 }
 
 
+function pickRecorderMime(): { mime: string; ext: string } {
+  const candidates: { mime: string; ext: string }[] = [
+    { mime: "audio/webm;codecs=opus", ext: "webm" },
+    { mime: "audio/webm", ext: "webm" },
+    { mime: "audio/mp4", ext: "m4a" },
+    { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" },
+    { mime: "audio/ogg;codecs=opus", ext: "ogg" },
+  ];
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c.mime)) return c;
+  }
+  return { mime: "", ext: "webm" };
+}
+
 function CallRecordingsCard({ leadId }: { leadId: string }) {
   const [recordings, setRecordings] = useState<CallRecordingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [recState, setRecState] = useState<"idle" | "recording" | "uploading" | "done">("idle");
+  const [elapsed, setElapsed] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   const loadCalls = () => {
     api.getLeadCalls(leadId)
@@ -1177,6 +1197,134 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
   };
 
   useEffect(() => { loadCalls(); }, [leadId]);
+
+  // Warn before tab close while recording
+  useEffect(() => {
+    if (recState !== "recording") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Recording in progress — leaving will lose it.";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [recState]);
+
+  const stopTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const releaseStream = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  };
+
+  const triggerUpload = async (file: File) => {
+    try {
+      await api.uploadCallRecording(file, leadId);
+      toast.success("Recording uploaded — transcribing and analyzing...");
+      setTimeout(loadCalls, 5000);
+      setTimeout(loadCalls, 15000);
+      setTimeout(loadCalls, 30000);
+    } catch {
+      toast.error("Upload failed");
+      throw new Error("upload failed");
+    }
+  };
+
+  const handleStartRecording = async () => {
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      toast.error("Recording not supported in this browser");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const { mime, ext } = pickRecorderMime();
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stopTimer();
+        releaseStream();
+        const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size === 0) {
+          setRecState("idle");
+          setElapsed(0);
+          return;
+        }
+        setRecState("uploading");
+        const filename = `call-${Date.now()}.${ext}`;
+        const file = new File([blob], filename, { type: blob.type });
+        try {
+          await triggerUpload(file);
+          setRecState("done");
+          setTimeout(() => { setRecState("idle"); setElapsed(0); }, 3000);
+        } catch {
+          setRecState("idle");
+          setElapsed(0);
+        }
+      };
+
+      recorder.start();
+      setElapsed(0);
+      setRecState("recording");
+      timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
+    } catch (err: any) {
+      const msg = err?.name === "NotAllowedError"
+        ? "Microphone permission denied"
+        : "Could not start recording";
+      toast.error(msg);
+      releaseStream();
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
+    }
+  };
+
+  const handleCancelRecording = () => {
+    chunksRef.current = [];
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      // Detach onstop so cancellation doesn't trigger upload
+      recorderRef.current.onstop = () => {
+        stopTimer();
+        releaseStream();
+      };
+      recorderRef.current.stop();
+    } else {
+      stopTimer();
+      releaseStream();
+    }
+    setRecState("idle");
+    setElapsed(0);
+  };
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    stopTimer();
+    releaseStream();
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.onstop = null;
+      try { recorderRef.current.stop(); } catch {}
+    }
+  }, []);
+
+  const fmtElapsed = (s: number) => {
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${r.toString().padStart(2, "0")}`;
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1212,12 +1360,48 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <Mic className="h-4 w-4 text-purple-600" /> Call Recordings
           </CardTitle>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <div className="flex gap-2 flex-wrap">
+            {recState === "idle" && (
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={handleStartRecording}
+                title="Put your phone on speakerphone first, then start"
+              >
+                <Mic className="h-3.5 w-3.5 mr-1" />
+                Record Call
+              </Button>
+            )}
+            {recState === "recording" && (
+              <>
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-red-50 border border-red-200">
+                  <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
+                  <span className="text-xs font-mono font-semibold text-red-700">{fmtElapsed(elapsed)}</span>
+                </div>
+                <Button variant="default" size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={handleStopRecording}>
+                  Stop
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCancelRecording}>
+                  Cancel
+                </Button>
+              </>
+            )}
+            {recState === "uploading" && (
+              <div className="flex items-center gap-2 px-2.5 py-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading...
+              </div>
+            )}
+            {recState === "done" && (
+              <div className="flex items-center gap-2 px-2.5 py-1 text-xs text-green-700">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Saved
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading || recState !== "idle"}>
               <Upload className="h-3.5 w-3.5 mr-1" />
               {uploading ? "Uploading..." : "Upload"}
             </Button>
@@ -1227,6 +1411,11 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
             </Button>
           </div>
         </div>
+        {recState === "idle" && (
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Put your phone on speakerphone next to your mic, then hit Record. Stop when the call ends — it'll auto-upload.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         {loading ? (
