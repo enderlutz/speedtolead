@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type FC } from "react";
 import { Link } from "react-router-dom";
 import { api, type Lead } from "@/lib/api";
 import { timeAgo, formatDateTime } from "@/lib/utils";
@@ -9,12 +9,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, Archive, Zap } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
 } from "@dnd-kit/core";
 import { leadDetailCache } from "./Leads";
+
+// Stage ID that means "ESTIMATE SENT" — used to switch the elapsed timer
+// from red (still waiting) to green (already sent).
+const STAGE_ESTIMATE_SENT = "dc3600f2-009b-4075-95fa-786823131416";
+const STAGE_HOT_LEAD = "616087fa-4144-454e-b3d3-ff3669cb9461";
 
 function prefetchLead(id: string) {
   if (leadDetailCache.has(id)) return;
@@ -229,7 +234,7 @@ export default function LeadsV2() {
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
               {V2_STAGES.map((stage) => (
-                <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} />
+                <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} onRefresh={loadLeads} />
               ))}
             </div>
             <DragOverlay>{draggedLead ? <LeadCard lead={draggedLead} isDragging /> : null}</DragOverlay>
@@ -294,8 +299,32 @@ export default function LeadsV2() {
   );
 }
 
-function KanbanColumn({ stage, leads }: { stage: StageDef; leads: Lead[] }) {
+function KanbanColumn({ stage, leads, onRefresh }: { stage: StageDef; leads: Lead[]; onRefresh: () => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
+
+  const handleQuickSend = async (e: React.MouseEvent, lead: Lead) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const detail = await api.getLead(lead.id);
+      const est = detail.estimates?.[0];
+      if (!est) { toast.error("No estimate found"); return; }
+      await api.approveEstimate(est.id);
+      toast.success(`Sent to ${lead.contact_name}!`);
+      onRefresh();
+    } catch { toast.error("Failed to send"); }
+  };
+
+  const handleArchive = async (e: React.MouseEvent, lead: Lead) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.archiveLead(lead.id);
+      toast.success(`Archived ${lead.contact_name}`);
+      onRefresh();
+    } catch { toast.error("Failed to archive"); }
+  };
+
   return (
     <div ref={setNodeRef} className={`w-[260px] sm:w-72 shrink-0 rounded-lg snap-start ${stage.bgCls} ${isOver ? "ring-2 ring-primary/40" : ""} transition-all`}>
       <div className={`px-3 py-2 rounded-t-lg ${stage.headerCls} flex items-center gap-2`}>
@@ -306,32 +335,93 @@ function KanbanColumn({ stage, leads }: { stage: StageDef; leads: Lead[] }) {
       </div>
       <div className="p-1.5 space-y-1.5 min-h-[80px]">
         {leads.map((lead) => (
-          <DraggableCard key={lead.id} lead={lead} />
+          <DraggableCard key={lead.id} lead={lead}>
+            {stage.id === STAGE_HOT_LEAD && (
+              <button
+                onClick={(e) => handleQuickSend(e, lead)}
+                className="absolute top-1.5 right-7 p-1 rounded bg-green-600 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-sm hover:bg-green-700"
+                title="Send Now"
+              >
+                <Zap className="h-3 w-3" />
+              </button>
+            )}
+            <button
+              onClick={(e) => handleArchive(e, lead)}
+              className="absolute top-1.5 right-1.5 p-1 rounded bg-gray-500 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-sm hover:bg-gray-600"
+              title="Archive"
+            >
+              <Archive className="h-3 w-3" />
+            </button>
+          </DraggableCard>
         ))}
       </div>
     </div>
   );
 }
 
-function DraggableCard({ lead }: { lead: Lead }) {
+function DraggableCard({ lead, children }: { lead: Lead; children?: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id });
   const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined;
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={`relative group ${isDragging ? "opacity-30" : ""}`}>
       <LeadCard lead={lead} />
+      {children}
     </div>
   );
 }
 
+const ElapsedTimer: FC<{ since: string; stoppedAt?: string | null }> = ({ since, stoppedAt }) => {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (stoppedAt) return;
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, [stoppedAt]);
+
+  const end = stoppedAt ? new Date(stoppedAt).getTime() : Date.now();
+  const ms = end - new Date(since).getTime();
+  const mins = Math.floor(ms / 60_000);
+  const isCritical = !stoppedAt && mins >= 120;
+
+  let text: string;
+  if (mins < 60) text = `${mins}m`;
+  else {
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) text = `${hrs}h ${mins % 60}m`;
+    else { const days = Math.floor(hrs / 24); text = `${days}d ${hrs % 24}h`; }
+  }
+
+  return (
+    <span className={`font-mono font-bold ${isCritical ? "animate-pulse" : ""}`}>
+      {text}
+    </span>
+  );
+};
+
 function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
   const isNew = !lead.viewed_at;
+  const fd = lead.form_data || {};
+  const addons = String(fd.additional_services || "").trim();
+  const hasAddons = !!addons && addons.toLowerCase() !== "none" && addons.toLowerCase() !== "no";
+  const addonsHandled = Boolean(fd.addons_handled);
+  const isSent = lead.ghl_pipeline_stage_id === STAGE_ESTIMATE_SENT;
+
+  const handleMarkAddon = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.updateFormData(lead.id, { addons_handled: !addonsHandled });
+      toast.success(addonsHandled ? "Add-on unmarked" : "Add-on marked as handled");
+    } catch { toast.error("Failed"); }
+  };
+
   return (
     <Link
       to={`/leads/${lead.id}`}
       onMouseEnter={() => prefetchLead(lead.id)}
-      className={`block rounded-md bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab border ${
+      className={`block rounded-md bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab ${
         isDragging ? "shadow-lg ring-2 ring-primary/20 rotate-1" : ""
-      } ${isNew ? "ring-1 ring-primary/20" : ""}`}
+      } ${hasAddons && !addonsHandled ? "border-2 border-amber-400" : "border"} ${isNew ? "ring-1 ring-primary/20" : ""}`}
       onClick={(e) => isDragging && e.preventDefault()}
     >
       <div className="flex items-start justify-between gap-1.5">
@@ -342,12 +432,31 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
               <PhoneCall className="h-3.5 w-3.5 text-green-600" />
             </span>
           )}
+          {hasAddons && (
+            <span title={addons} className="shrink-0">
+              <Wrench className={`h-3.5 w-3.5 ${addonsHandled ? "text-green-500" : "text-amber-500"}`} />
+            </span>
+          )}
+          {fd.address_action === "asked_for_address" && (
+            <Badge className="text-[7px] px-1 py-0 bg-purple-100 text-purple-700 shrink-0">Asked for Address</Badge>
+          )}
+          {fd.address_action === "new_build" && (
+            <Badge className="text-[7px] px-1 py-0 bg-orange-100 text-orange-700 shrink-0">New Build</Badge>
+          )}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
         <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
       </div>
       {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
       {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
+      {hasAddons && (
+        <div className="flex items-center gap-1 mt-0.5">
+          <p className={`text-[10px] truncate flex-1 ${addonsHandled ? "text-green-600 line-through" : "text-amber-700"}`}>{addons}</p>
+          <button onClick={handleMarkAddon} className={`p-0.5 rounded ${addonsHandled ? "text-green-500" : "text-muted-foreground hover:text-green-500"}`} title={addonsHandled ? "Unmark" : "Mark as handled"}>
+            <Check className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       {lead.proposal_viewed_at && (
         <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
           <Eye className="h-3 w-3" />
@@ -359,9 +468,13 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
       )}
       <div className="flex items-center justify-between mt-2">
         <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
-        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md border bg-muted/30">
-          <Clock className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground">{timeAgo(lead.dashboard_synced_at || lead.created_at)}</span>
+        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
+          isSent ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+        }`}>
+          <Clock className={`h-3 w-3 ${isSent ? "text-green-500" : "text-red-500"}`} />
+          <span className={`text-[11px] ${isSent ? "text-green-600" : "text-red-600"}`}>
+            <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={isSent ? lead.updated_at : null} />
+          </span>
         </div>
       </div>
     </Link>
