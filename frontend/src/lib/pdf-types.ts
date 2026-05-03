@@ -43,10 +43,10 @@ export const PRESET_FIELD_LABELS: Record<string, string> = {
 export const PRESET_FIELD_COLORS: Record<string, string> = {
   customer_name: "#000000",
   essential_price: "#65351f",
-  signature_price: "#65351f",
+  signature_price: "#f1c341",
   legacy_price: "#e3a742",
   essential_monthly: "#65351f",
-  signature_monthly: "#65351f",
+  signature_monthly: "#f1c341",
   legacy_monthly: "#e3a742",
   pricing_includes: "#e6c68a",
   date: "#000000",
