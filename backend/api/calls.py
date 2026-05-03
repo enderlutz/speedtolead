@@ -4,6 +4,7 @@ Call recordings API — upload, transcribe, analyze, and browse call recordings.
 from __future__ import annotations
 import uuid
 import json
+import time
 import logging
 import threading
 from collections import defaultdict
@@ -330,10 +331,21 @@ def get_all_calls(
         db.close()
 
 
+_STORAGE_CACHE: dict = {"value": None, "ts": 0.0}
+_STORAGE_TTL_SECONDS = 60
+
+
 @router.get("/calls/storage")
 def get_storage_stats():
-    """Total bytes used by call recording blobs + count. Used to show a
-    storage-bloat warning on the Call Coach page."""
+    """Total bytes used by call recording blobs + count. Cached for 60s
+    because summing func.length() over bytea forces Postgres to read every
+    TOAST'd audio blob — slow query that we don't want running on every
+    Call Coach page load."""
+    now = time.time()
+    cached = _STORAGE_CACHE["value"]
+    if cached is not None and (now - _STORAGE_CACHE["ts"]) < _STORAGE_TTL_SECONDS:
+        return cached
+
     db = get_db()
     try:
         total_bytes = db.query(func.coalesce(func.sum(func.length(CallRecording.recording_data)), 0)).scalar() or 0
@@ -341,11 +353,14 @@ def get_storage_stats():
             CallRecording.is_archived.is_(False) | CallRecording.is_archived.is_(None)
         ).count()
         archived_count = db.query(CallRecording).filter(CallRecording.is_archived.is_(True)).count()
-        return {
+        result = {
             "total_bytes": int(total_bytes),
             "active_count": active_count,
             "archived_count": archived_count,
         }
+        _STORAGE_CACHE["value"] = result
+        _STORAGE_CACHE["ts"] = now
+        return result
     finally:
         db.close()
 

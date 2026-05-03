@@ -98,12 +98,30 @@ async def _correction_escalator_loop():
         await asyncio.sleep(900)  # Every 15 minutes
 
 
+async def _async_db_init():
+    """Run DB init + seed in a background thread so lifespan doesn't block
+    uvicorn from serving /health. If Supabase is briefly unreachable, we
+    retry instead of crashing the container at boot. Endpoints that need DB
+    will fail fast (per request) until init succeeds — but /health stays
+    responsive so Railway's healthcheck passes."""
+    delay = 2
+    for attempt in range(1, 7):
+        try:
+            await asyncio.to_thread(init_db)
+            await asyncio.to_thread(auth.seed_default_users)
+            await asyncio.to_thread(auth.seed_fragned_user)
+            logger.info("Database initialized")
+            return
+        except Exception as e:
+            logger.error(f"DB init attempt {attempt} failed: {e}")
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+    logger.error("DB init giving up after 6 attempts — endpoints will keep retrying via get_db()")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    auth.seed_default_users()
-    auth.seed_fragned_user()
-    logger.info("Database initialized")
+    init_task = asyncio.create_task(_async_db_init())
     poller = asyncio.create_task(_poller_loop())
     # Message poller disabled — was consuming GHL rate limit and blocking lead poller
     # msg_poller = asyncio.create_task(_message_poller_loop())
@@ -116,6 +134,7 @@ async def lifespan(app: FastAPI):
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
+    init_task.cancel()
     poller.cancel()
     sms_worker.cancel()
     weekly.cancel()
