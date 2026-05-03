@@ -54,13 +54,16 @@ def _now() -> str:
 
 
 def _format_price(amount: float, include_financing: bool) -> str:
-    if include_financing:
-        return f"${amount:,.2f} or ${amount / 21:,.2f}/mo"
+    # Monthly/financing display retired — proposal + PDF show the upfront
+    # price only. include_financing kept on the signature so existing call
+    # sites don't break, but it no longer changes the output.
+    del include_financing
     return f"${amount:,.2f}"
 
 
 def _format_monthly_label(include_financing: bool) -> str:
-    return "for 21 mos" if include_financing else ""
+    del include_financing
+    return ""
 
 
 class ApproveBody(BaseModel):
