@@ -154,10 +154,14 @@ def _find_pipeline_and_stages(location_id: str) -> tuple[str | None, dict[str, s
         if TARGET_PIPELINE in name:
             pipeline_id = p.get("id", "")
             stages = p.get("stages", [])
-            stage_map: dict[str, str] = {}  # stage_name_lower -> stage_id
+            # Return ALL stages so existing leads get their stage re-synced
+            # no matter where they currently sit in the pipeline. The
+            # create-new-lead branch downstream still gates on TARGET_STAGES
+            # so we don't accidentally pull Closed Lost into the dashboard.
+            stage_map: dict[str, str] = {}
             for s in stages:
                 sname = (s.get("name") or "").lower().strip()
-                if any(t in sname for t in TARGET_STAGES):
+                if sname:
                     stage_map[sname] = s.get("id", "")
             return pipeline_id, stage_map
     return None, {}
@@ -197,6 +201,7 @@ def _sync_location(location_id: str, label: str):
 
         for stage_name, stage_id in stage_map.items():
             opps = get_opportunities(location_id, pipeline_id, stage_id if stage_id else None)
+            is_target_stage = any(t in stage_name for t in TARGET_STAGES)
             priority = TARGET_STAGES.get(stage_name, "MEDIUM")
             logger.info(f"Poller: {label} stage '{stage_name}' returned {len(opps)} opportunities")
 
@@ -221,7 +226,13 @@ def _sync_location(location_id: str, label: str):
                                 publish("lead_updated", {"lead_id": existing.id})
                             except Exception:
                                 pass
-                            logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id}")
+                            logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id} ({stage_name})")
+                        continue
+
+                    # New opportunity — only create a lead if it's currently
+                    # in one of the intake stages. Skip Closed / Lost / etc.
+                    # so we don't backfill historical noise.
+                    if not is_target_stage:
                         continue
 
                     # Fetch full contact to get custom fields + details
