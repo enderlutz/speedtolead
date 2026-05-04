@@ -659,6 +659,11 @@ export const api = {
 
   getDeclineReasonPresets: () =>
     request<{ key: string; label: string }[]>("/api/leads/decline-reason-presets"),
+  backfillDashboardLinkNotes: (pipelineVersion = "v2") =>
+    request<{ total: number; succeeded: number; failed: number; skipped: number }>(
+      `/api/leads/backfill-dashboard-link-notes?pipeline_version=${pipelineVersion}`,
+      { method: "POST" },
+    ),
   setDeclineReasons: (leadId: string, reasons: string[], otherText: string) =>
     request<{ status: string; reasons: string[] }>(`/api/leads/${leadId}/decline-reasons`, {
       method: "POST",

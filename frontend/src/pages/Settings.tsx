@@ -132,6 +132,9 @@ export default function Settings() {
         Settings
       </h1>
 
+      {/* GHL Maintenance */}
+      <BackfillDashboardLinksCard />
+
       {/* PDF Template */}
       <Card>
         <CardHeader className="pb-3">
@@ -408,5 +411,52 @@ export default function Settings() {
       {/* Chatbot Settings */}
       <ChatbotSettings />
     </div>
+  );
+}
+
+
+function BackfillDashboardLinksCard() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ total: number; succeeded: number; failed: number; skipped: number } | null>(null);
+
+  const handleRun = async () => {
+    if (!confirm("Pin a Dashboard link note to every v2 lead's GHL contact that doesn't have one yet? This is idempotent — safe to re-run.")) return;
+    setRunning(true);
+    try {
+      const r = await api.backfillDashboardLinkNotes("v2");
+      setResult(r);
+      toast.success(`Backfill complete: ${r.succeeded} added, ${r.skipped} skipped, ${r.failed} failed`);
+    } catch {
+      toast.error("Backfill failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <Link2 className="h-4 w-4" /> GHL Dashboard Links Backfill
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Pins a "Dashboard link: ..." note to the GHL contact for every v2 lead that doesn't already have one. New leads going forward already get this automatically — this button is for catching up the leads that existed before the feature.
+        </p>
+        <Button onClick={handleRun} disabled={running} size="sm">
+          <RefreshCw className={`h-4 w-4 mr-2 ${running ? "animate-spin" : ""}`} />
+          {running ? "Backfilling..." : "Run Backfill"}
+        </Button>
+        {result && (
+          <div className="text-xs space-y-0.5 rounded border bg-muted/30 p-2">
+            <p>Total v2 leads scanned: <span className="font-semibold">{result.total}</span></p>
+            <p>Notes added: <span className="font-semibold text-green-700">{result.succeeded}</span></p>
+            <p>Already had a link: <span className="font-semibold">{result.skipped}</span></p>
+            {result.failed > 0 && <p>Failed: <span className="font-semibold text-red-700">{result.failed}</span></p>}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

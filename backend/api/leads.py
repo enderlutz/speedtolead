@@ -733,6 +733,64 @@ def get_decline_reason_presets():
     return [{"key": k, "label": v} for k, v in DECLINE_REASON_PRESETS.items()]
 
 
+@router.post("/leads/backfill-dashboard-link-notes")
+def backfill_dashboard_link_notes(
+    pipeline_version: str = Query("v2"),
+    user: dict = Depends(get_current_user),
+):
+    """One-shot backfill: pin a Dashboard hyperlink note to the GHL contact
+    for every lead that doesn't have one yet. Idempotent — leads with the
+    `_dashboard_link_pinned` flag in form_data are skipped, so re-running
+    won't create duplicates."""
+    del user  # auth only
+    settings = get_settings()
+    db = get_db()
+    try:
+        q = db.query(Lead).filter(
+            Lead.pipeline_version == pipeline_version,
+            Lead.ghl_contact_id != "",
+            Lead.ghl_contact_id.isnot(None),
+        )
+        leads = q.all()
+
+        succeeded = 0
+        failed = 0
+        skipped = 0
+        for lead in leads:
+            fd = lead.to_dict()["form_data"]
+            if fd.get("_dashboard_link_pinned"):
+                skipped += 1
+                continue
+            link = f"{settings.frontend_url}/leads/{lead.id}"
+            try:
+                note_id = add_contact_note(
+                    lead.ghl_contact_id,
+                    f"Dashboard link: {link}",
+                    lead.ghl_location_id or None,
+                )
+                if note_id:
+                    fd["_dashboard_link_pinned"] = True
+                    fd["_dashboard_link_note_id"] = note_id
+                    lead.form_data = json.dumps(fd)
+                    db.commit()
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.warning(f"Backfill note failed for lead {lead.id}: {e}")
+                db.rollback()
+                failed += 1
+
+        return {
+            "total": len(leads),
+            "succeeded": succeeded,
+            "failed": failed,
+            "skipped": skipped,
+        }
+    finally:
+        db.close()
+
+
 class ClearBadgeBody(BaseModel):
     badge: str  # "asked_for_address" | "new_build" | "not_confident"
 

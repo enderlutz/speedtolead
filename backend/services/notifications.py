@@ -64,12 +64,29 @@ def notify_new_lead(lead: dict):
 
     # Pin a dashboard link on the GHL contact so the team has a one-click
     # jump from GHL into our system. Best-effort — failures don't block.
+    # Tracks _dashboard_link_pinned in form_data so the one-shot backfill
+    # endpoint stays idempotent for any lead that came through this path.
     contact_id = lead.get("ghl_contact_id") or ""
     location_id = lead.get("ghl_location_id") or None
     if contact_id:
         note_body = f"Dashboard link: {link}"
         try:
-            add_contact_note(contact_id, note_body, location_id)
+            note_id = add_contact_note(contact_id, note_body, location_id)
+            if note_id:
+                from database import Lead
+                import json
+                _db = get_db()
+                try:
+                    row = _db.query(Lead).filter(Lead.id == lead_id).first()
+                    if row:
+                        fd_raw = row.form_data
+                        fd_dict = json.loads(fd_raw) if isinstance(fd_raw, str) and fd_raw else (fd_raw or {})
+                        fd_dict["_dashboard_link_pinned"] = True
+                        fd_dict["_dashboard_link_note_id"] = note_id
+                        row.form_data = json.dumps(fd_dict)
+                        _db.commit()
+                finally:
+                    _db.close()
         except Exception as e:
             logger.warning(f"Dashboard-link GHL note failed for lead {lead_id}: {e}")
 
