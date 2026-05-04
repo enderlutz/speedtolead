@@ -797,6 +797,8 @@ def backfill_dashboard_link_notes(
             Lead.pipeline_version == pipeline_version,
             Lead.ghl_contact_id != "",
             Lead.ghl_contact_id.isnot(None),
+            Lead.is_test.is_(False),
+            Lead.status != "archived",
         )
         leads = q.all()
 
