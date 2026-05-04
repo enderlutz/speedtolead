@@ -182,6 +182,18 @@ export default function LeadDetail() {
   const [precallSaving, setPrecallSaving] = useState(false);
   const [precallSaved, setPrecallSaved] = useState(!!estimate?.precall_done);
 
+  // Sync precall fields when the estimate finishes loading. The useState
+  // initializers above only fire on first render — at that point the lead
+  // is still loading so the saved precall_notes never make it into state,
+  // and the textarea shows blank instead of the previously-saved note.
+  const estimateId = estimate?.id;
+  useEffect(() => {
+    if (!estimate) return;
+    setPrecallDone(estimate.precall_done || false);
+    setPrecallNotes(estimate.precall_notes || "");
+    setPrecallSaved(!!estimate.precall_done);
+  }, [estimateId, estimate?.precall_done, estimate?.precall_notes]);
+
   // Check if it's after 8 PM CST
   const isAfterHours = () => {
     const now = new Date();
