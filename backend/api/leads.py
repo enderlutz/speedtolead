@@ -12,7 +12,7 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note
 from api.auth import get_current_user
 from config import get_settings
 
@@ -29,19 +29,28 @@ def _format_note_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%B %d, %Y %-I:%M%p").replace("AM", "am").replace("PM", "pm")
 
 
-def _add_badge_note(lead: Lead, badge_label: str, va_name: str, extra: str = "") -> None:
-    """Append a GHL contact note recording a VA badge action.
-    Best-effort — failures are logged, never raised, since GHL note errors
-    shouldn't break the user's action."""
+def _add_badge_note(lead: Lead, badge_label: str, va_name: str, extra: str = "") -> str | None:
+    """Append a GHL contact note recording a VA badge action. Returns the
+    GHL note ID so the caller can store it on the lead and delete the note
+    later if the badge is cleared. Best-effort — failures never raise."""
     if not lead.ghl_contact_id:
-        return
+        return None
     body = f"{badge_label} — {va_name or 'Team'}, {_format_note_timestamp()}"
     if extra:
         body = f"{body}. {extra}"
     try:
-        add_contact_note(lead.ghl_contact_id, body, lead.ghl_location_id or None)
+        return add_contact_note(lead.ghl_contact_id, body, lead.ghl_location_id or None)
     except Exception as e:
         logger.warning(f"Badge GHL note failed for lead {lead.id}: {e}")
+        return None
+
+
+def _store_badge_note_id(form_data: dict, badge: str, note_id: str | None) -> None:
+    """Stash the GHL note ID alongside the badge so we can delete the right
+    note when the badge is cleared. Lives in form_data so no schema migration
+    is needed; underscore prefix marks it as system-managed."""
+    if note_id:
+        form_data[f"_{badge}_note_id"] = note_id
 
 
 class ColumnUpdate(BaseModel):
@@ -448,7 +457,11 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
         if confidence_became_low:
             confidence_note = merged.get("confidence_note", "")
             extra = f"Reason: {confidence_note}" if confidence_note else ""
-            _add_badge_note(lead, "Not Confident", user.get("name", "Team"), extra)
+            note_id = _add_badge_note(lead, "Not Confident", user.get("name", "Team"), extra)
+            if note_id:
+                _store_badge_note_id(merged, "not_confident", note_id)
+                lead.form_data = json.dumps(merged)
+                db.commit()
 
         # Notify Alan if VA is not confident
         if "not confident" in approval_reason.lower():
@@ -529,7 +542,11 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
         db.commit()
 
         log_event(lead_id, "address_requested", f"Address request SMS sent to {lead.contact_name}")
-        _add_badge_note(lead, "Asked for Address", user.get("name", "Team"))
+        note_id = _add_badge_note(lead, "Asked for Address", user.get("name", "Team"))
+        if note_id:
+            _store_badge_note_id(existing_fd, "asked_for_address", note_id)
+            lead.form_data = json.dumps(existing_fd)
+            db.commit()
 
         return {"status": "ok", "sms_sent": sms_sent}
 
@@ -588,7 +605,11 @@ def new_build(lead_id: str, user: dict = Depends(get_current_user)):
         db.commit()
 
         log_event(lead_id, "new_build", f"New build SMS sent to {lead.contact_name}")
-        _add_badge_note(lead, "New Build", user.get("name", "Team"))
+        note_id = _add_badge_note(lead, "New Build", user.get("name", "Team"))
+        if note_id:
+            _store_badge_note_id(existing_fd, "new_build", note_id)
+            lead.form_data = json.dumps(existing_fd)
+            db.commit()
 
         return {"status": "ok", "sms_sent": sms_sent}
 
@@ -614,8 +635,11 @@ _BADGE_LABELS = {
 
 @router.post("/leads/{lead_id}/clear-badge")
 def clear_badge(lead_id: str, body: ClearBadgeBody, user: dict = Depends(get_current_user)):
-    """Remove a badge from the lead. Logs a 'Removed: ...' note in GHL so
-    history is preserved even after the badge is gone."""
+    """Remove a badge from the lead. Also deletes the corresponding note
+    from GHL so the contact history matches the dashboard. (Older badges
+    set before note-ID tracking landed will silently leave the GHL note
+    behind — there's no way to identify which one to delete.)"""
+    del user  # only here to enforce auth
     if body.badge not in _BADGE_LABELS:
         raise HTTPException(status_code=400, detail="Unknown badge")
 
@@ -628,7 +652,6 @@ def clear_badge(lead_id: str, body: ClearBadgeBody, user: dict = Depends(get_cur
         existing_fd = lead.to_dict()["form_data"]
         if body.badge in ("asked_for_address", "new_build"):
             if existing_fd.get("address_action") != body.badge:
-                # Already cleared — no-op, but still 200 so UI can stay simple
                 return {"status": "ok", "noop": True}
             existing_fd["address_action"] = ""
         else:  # not_confident
@@ -636,11 +659,18 @@ def clear_badge(lead_id: str, body: ClearBadgeBody, user: dict = Depends(get_cur
                 return {"status": "ok", "noop": True}
             existing_fd["confidence"] = "100"
 
+        # Delete the GHL note we created when the badge was set
+        note_id_key = f"_{body.badge}_note_id"
+        ghl_note_id = existing_fd.pop(note_id_key, None)
+        if ghl_note_id and lead.ghl_contact_id:
+            try:
+                delete_contact_note(lead.ghl_contact_id, ghl_note_id, lead.ghl_location_id or None)
+            except Exception as e:
+                logger.warning(f"GHL note delete failed for lead {lead.id}: {e}")
+
         lead.form_data = json.dumps(existing_fd)
         lead.updated_at = _now()
         db.commit()
-
-        _add_badge_note(lead, f"Removed: {_BADGE_LABELS[body.badge]}", user.get("name", "Team"))
 
         try:
             from services.event_bus import publish

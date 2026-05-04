@@ -174,9 +174,10 @@ def send_whatsapp(contact_id: str, message: str, location_id: str | None = None)
 
 # --- Contact notes ---
 
-def add_contact_note(contact_id: str, body: str, location_id: str | None = None) -> bool:
-    """Add a note to a GHL contact."""
-    settings = get_settings()
+def add_contact_note(contact_id: str, body: str, location_id: str | None = None) -> str | None:
+    """Add a note to a GHL contact. Returns the new note's ID on success, None on failure.
+    (Used by callers that may need to delete the note later — e.g., when a
+    badge is removed from the dashboard.)"""
     try:
         payload = {"body": body, "contactId": contact_id}
         r = _client.post(
@@ -185,10 +186,30 @@ def add_contact_note(contact_id: str, body: str, location_id: str | None = None)
             json=payload, timeout=10,
         )
         r.raise_for_status()
-        logger.info(f"GHL note added to contact {contact_id}")
-        return True
+        data = r.json() or {}
+        note_id = (data.get("note") or {}).get("id") or data.get("id")
+        logger.info(f"GHL note added to contact {contact_id} (note_id={note_id})")
+        return note_id
     except Exception as e:
         logger.error(f"GHL add_contact_note failed: {e}")
+        return None
+
+
+def delete_contact_note(contact_id: str, note_id: str, location_id: str | None = None) -> bool:
+    """Delete a note from a GHL contact."""
+    if not contact_id or not note_id:
+        return False
+    try:
+        r = _client.delete(
+            f"{GHL_BASE}/contacts/{contact_id}/notes/{note_id}",
+            headers=_headers(location_id),
+            timeout=10,
+        )
+        r.raise_for_status()
+        logger.info(f"GHL note {note_id} deleted from contact {contact_id}")
+        return True
+    except Exception as e:
+        logger.error(f"GHL delete_contact_note failed: {e}")
         return False
 
 
