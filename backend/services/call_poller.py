@@ -165,13 +165,30 @@ def process_recording_pipeline(recording_id: str):
         from services.call_transcriber import format_transcript_for_display
         labeled_text = format_transcript_for_display(result["segments"], speaker_map)
 
-        analysis_result = analyze_call(labeled_text, lead_context)
+        # Pull the active coaching profile + recent reviews so the analyzer
+        # can calibrate its evaluation to how Alan actually coaches.
+        profile_text = None
+        recent_reviews = []
+        try:
+            from services.coaching_profile import get_active_profile, fetch_recent_reviews
+            profile = get_active_profile(db)
+            profile_text = profile.profile_text if profile else None
+            recent_reviews = fetch_recent_reviews(db, limit=5, exclude_recording_id=recording_id)
+        except Exception as e:
+            logger.warning(f"Coaching calibration fetch failed (analysis will run without it): {e}")
+
+        analysis_result = analyze_call(labeled_text, lead_context, profile_text, recent_reviews)
 
         analysis = CallAnalysis(
             id=str(uuid.uuid4()),
             recording_id=recording_id,
             lead_id=recording.lead_id,
             summary=analysis_result["summary"],
+            summary_one_line=analysis_result.get("summary_one_line", ""),
+            stage_evaluation=json.dumps(analysis_result.get("stage_evaluation", [])),
+            boundary_violations=json.dumps(analysis_result.get("boundary_violations", [])),
+            what_went_well=analysis_result.get("what_went_well", ""),
+            next_action=analysis_result.get("next_action", ""),
             coaching_tips=json.dumps(analysis_result["coaching_tips"]),
             sentiment=analysis_result["sentiment"],
             customer_sentiment=analysis_result["customer_sentiment"],

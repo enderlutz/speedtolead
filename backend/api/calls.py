@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, R
 from sqlalchemy import func
 from pydantic import BaseModel
 from database import (
-    get_db, CallRecording, CallTranscript, CallAnalysis,
+    get_db, CallRecording, CallTranscript, CallAnalysis, CallReview,
     Lead, Estimate,
 )
 from api.auth import get_current_user, require_admin
@@ -246,13 +246,28 @@ def _run_analysis_only(recording_id: str):
         speaker_map = json.loads(transcript.speaker_map) if transcript.speaker_map else {}
         labeled_text = format_transcript_for_display(segments, speaker_map)
 
-        result = analyze_call(labeled_text, lead_context)
+        profile_text = None
+        recent_reviews = []
+        try:
+            from services.coaching_profile import get_active_profile, fetch_recent_reviews
+            profile = get_active_profile(db)
+            profile_text = profile.profile_text if profile else None
+            recent_reviews = fetch_recent_reviews(db, limit=5, exclude_recording_id=recording_id)
+        except Exception as e:
+            logger.warning(f"Coaching calibration fetch failed (re-analysis will run without it): {e}")
+
+        result = analyze_call(labeled_text, lead_context, profile_text, recent_reviews)
 
         analysis = CallAnalysis(
             id=str(uuid.uuid4()),
             recording_id=recording_id,
             lead_id=rec.lead_id,
             summary=result["summary"],
+            summary_one_line=result.get("summary_one_line", ""),
+            stage_evaluation=json.dumps(result.get("stage_evaluation", [])),
+            boundary_violations=json.dumps(result.get("boundary_violations", [])),
+            what_went_well=result.get("what_went_well", ""),
+            next_action=result.get("next_action", ""),
             coaching_tips=json.dumps(result["coaching_tips"]),
             sentiment=result["sentiment"],
             customer_sentiment=result["customer_sentiment"],
@@ -637,5 +652,157 @@ def get_call_patterns():
     except Exception as e:
         logger.error(f"Pattern analysis error: {e}")
         return {"total_calls": 0, "error": str(e)}
+    finally:
+        db.close()
+
+
+# ─── Call Reviews — admin coaching feedback on a recorded call ──────────
+
+@router.get("/calls/{recording_id}/reviews")
+def list_call_reviews(recording_id: str, user: dict = Depends(get_current_user)):
+    """Anyone authenticated can read reviews — Olga needs to see hers."""
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(CallReview)
+            .filter(CallReview.recording_id == recording_id)
+            .order_by(CallReview.created_at.asc())
+            .all()
+        )
+        return [r.to_dict() for r in rows]
+    finally:
+        db.close()
+
+
+@router.post("/calls/{recording_id}/reviews")
+async def create_call_review(
+    recording_id: str,
+    text: str = Form(""),
+    audio: UploadFile | None = File(None),
+    user: dict = Depends(require_admin),
+):
+    """Admin-only. Accepts either a typed `text` body, or an uploaded `audio`
+    blob, or both. If audio is provided and text is empty, we transcribe the
+    audio via Deepgram and use that as the text body. Audio is stored so
+    Olga can listen to Alan's actual voice if she prefers."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+        audio_bytes: bytes | None = None
+        audio_mime = ""
+        if audio is not None:
+            audio_bytes = await audio.read()
+            if len(audio_bytes) > 25 * 1024 * 1024:  # 25MB cap on review audio
+                raise HTTPException(status_code=400, detail="Audio too large (max 25MB)")
+            audio_mime = audio.content_type or "audio/webm"
+
+        final_text = text.strip()
+        if not final_text and audio_bytes:
+            try:
+                from services.call_transcriber import transcribe_recording
+                result = transcribe_recording(audio_bytes)
+                final_text = (result.get("full_text") or "").strip()
+            except Exception as e:
+                logger.error(f"Review transcription failed: {e}")
+
+        if not final_text:
+            raise HTTPException(status_code=400, detail="Review needs either text or audio (audio failed to transcribe)")
+
+        review = CallReview(
+            id=str(uuid.uuid4()),
+            recording_id=recording_id,
+            lead_id=rec.lead_id,
+            reviewer_user_id=user.get("sub", ""),
+            reviewer_name=user.get("name", "Admin"),
+            text=final_text,
+            audio_data=audio_bytes,
+            audio_mime=audio_mime,
+            created_at=_now(),
+        )
+        db.add(review)
+        db.commit()
+
+        # Notify Olga in the background — never block on it
+        try:
+            lead_name = ""
+            if rec.lead_id:
+                lead = db.query(Lead).filter(Lead.id == rec.lead_id).first()
+                lead_name = (lead.contact_name if lead else "") or "the lead"
+            else:
+                lead_name = rec.caller_name or "the lead"
+            from services.notifications import notify_call_review
+            threading.Thread(
+                target=notify_call_review,
+                args=[rec.lead_id or "", lead_name, review.reviewer_name, final_text],
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning(f"Review SMS dispatch failed: {e}")
+
+        # Self-learning: trigger a profile regen if enough new reviews have
+        # accumulated since the last snapshot. Background — non-blocking.
+        try:
+            from services.coaching_profile import maybe_regenerate_profile_async
+            maybe_regenerate_profile_async()
+        except Exception as e:
+            logger.warning(f"Coaching profile auto-regen dispatch failed: {e}")
+
+        return review.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Create review failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("/calls/coaching-profile")
+def get_coaching_profile(user: dict = Depends(get_current_user)):
+    """The current self-learning coaching profile distilled from all of
+    Alan's reviews. Returns null if no reviews have been written yet."""
+    del user
+    db = get_db()
+    try:
+        from services.coaching_profile import get_active_profile
+        profile = get_active_profile(db)
+        return profile.to_dict() if profile else None
+    finally:
+        db.close()
+
+
+@router.post("/calls/coaching-profile/regenerate")
+def regenerate_coaching_profile(user: dict = Depends(require_admin)):
+    """Force a fresh profile regen now (instead of waiting for the auto
+    threshold). Admin-only."""
+    db = get_db()
+    try:
+        from services.coaching_profile import generate_coaching_profile
+        profile = generate_coaching_profile(db, generated_by=user.get("name", "Admin"))
+        if not profile:
+            raise HTTPException(status_code=400, detail="No reviews to learn from yet, or generation failed")
+        return profile.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("/calls/reviews/{review_id}/audio")
+def stream_review_audio(review_id: str):
+    """Stream the reviewer's voice clip for browser playback."""
+    db = get_db()
+    try:
+        rev = db.query(CallReview).filter(CallReview.id == review_id).first()
+        if not rev or not rev.audio_data:
+            raise HTTPException(status_code=404, detail="Review audio not found")
+        return Response(content=rev.audio_data, media_type=rev.audio_mime or "audio/webm")
     finally:
         db.close()

@@ -511,14 +511,19 @@ class CallAnalysis(Base):
     recording_id = Column(Text, nullable=False)
     lead_id = Column(Text, nullable=True)
     summary = Column(Text, default="")
-    coaching_tips = Column(Text, default="[]")  # JSON array
+    summary_one_line = Column(Text, default="")
+    stage_evaluation = Column(Text, default="[]")   # JSON array — per-stage rubric evaluation
+    boundary_violations = Column(Text, default="[]")  # JSON array — price quoted, date committed, etc.
+    what_went_well = Column(Text, default="")
+    next_action = Column(Text, default="")           # the ONE actionable thing for next call
+    coaching_tips = Column(Text, default="[]")  # JSON array — kept for backward compat
     sentiment = Column(Text, default="neutral")
     customer_sentiment = Column(Text, default="neutral")
     objections = Column(Text, default="[]")  # JSON array
     key_topics = Column(Text, default="[]")  # JSON array
     customer_data_extracted = Column(Text, default="{}")  # JSON object
     call_score = Column(Integer, default=0)  # 1-10
-    close_likelihood = Column(Text, default="unknown")  # high, medium, low, lost
+    close_likelihood = Column(Text, default="unknown")  # intake_complete | needs_followup | off_script
     created_at = Column(Text, default="")
 
     def to_dict(self) -> dict:
@@ -527,6 +532,11 @@ class CallAnalysis(Base):
             "recording_id": self.recording_id,
             "lead_id": self.lead_id,
             "summary": self.summary,
+            "summary_one_line": self.summary_one_line or "",
+            "stage_evaluation": _j(self.stage_evaluation) if self.stage_evaluation else [],
+            "boundary_violations": _j(self.boundary_violations) if self.boundary_violations else [],
+            "what_went_well": self.what_went_well or "",
+            "next_action": self.next_action or "",
             "coaching_tips": _j(self.coaching_tips) if self.coaching_tips else [],
             "sentiment": self.sentiment,
             "customer_sentiment": self.customer_sentiment,
@@ -535,6 +545,65 @@ class CallAnalysis(Base):
             "customer_data_extracted": _j(self.customer_data_extracted) if self.customer_data_extracted else {},
             "call_score": self.call_score,
             "close_likelihood": self.close_likelihood,
+            "created_at": self.created_at,
+        }
+
+
+class CoachingProfile(Base):
+    """Self-learning summary of how leadership (Alan + admins) coaches the
+    VA — distilled from CallReview rows by Claude. Append-only history;
+    the latest row is the active profile injected into call analyses."""
+    __tablename__ = "coaching_profiles"
+    __table_args__ = (
+        Index("idx_coaching_profiles_created", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    profile_text = Column(Text, default="")
+    reviews_count_at_gen = Column(Integer, default=0)  # how many reviews existed when this was generated
+    generated_by = Column(Text, default="system")      # "system" (auto) or admin display name
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "profile_text": self.profile_text or "",
+            "reviews_count_at_gen": self.reviews_count_at_gen or 0,
+            "generated_by": self.generated_by or "system",
+            "created_at": self.created_at,
+        }
+
+
+class CallReview(Base):
+    """Admin (e.g., Alan) leaves coaching feedback on a recorded call. Olga
+    is notified and can read or listen back. Append-only — multiple reviews
+    per call preserved as a coaching history."""
+    __tablename__ = "call_reviews"
+    __table_args__ = (
+        Index("idx_call_reviews_recording", "recording_id"),
+        Index("idx_call_reviews_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    recording_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=True)
+    reviewer_user_id = Column(Text, default="")  # JWT sub
+    reviewer_name = Column(Text, default="")
+    text = Column(Text, default="")  # final transcript-or-typed body
+    audio_data = Column(LargeBinary, nullable=True)  # only set if reviewer spoke
+    audio_mime = Column(Text, default="")  # e.g. "audio/webm"
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "recording_id": self.recording_id,
+            "lead_id": self.lead_id,
+            "reviewer_user_id": self.reviewer_user_id,
+            "reviewer_name": self.reviewer_name,
+            "text": self.text or "",
+            "has_audio": bool(self.audio_data),
+            "audio_mime": self.audio_mime or "",
             "created_at": self.created_at,
         }
 
@@ -619,6 +688,20 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE estimates ADD COLUMN correction_pending BOOLEAN DEFAULT FALSE"))
         logger.info("Migration: added estimates.correction_pending")
+
+    if inspector.has_table("call_analyses"):
+        ca_cols = {c["name"] for c in inspector.get_columns("call_analyses")}
+        for new_col, ddl in [
+            ("summary_one_line", "ALTER TABLE call_analyses ADD COLUMN summary_one_line TEXT DEFAULT ''"),
+            ("stage_evaluation", "ALTER TABLE call_analyses ADD COLUMN stage_evaluation TEXT DEFAULT '[]'"),
+            ("boundary_violations", "ALTER TABLE call_analyses ADD COLUMN boundary_violations TEXT DEFAULT '[]'"),
+            ("what_went_well", "ALTER TABLE call_analyses ADD COLUMN what_went_well TEXT DEFAULT ''"),
+            ("next_action", "ALTER TABLE call_analyses ADD COLUMN next_action TEXT DEFAULT ''"),
+        ]:
+            if new_col not in ca_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added call_analyses.{new_col}")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

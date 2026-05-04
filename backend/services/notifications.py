@@ -115,6 +115,22 @@ def notify_estimate_sent(lead: dict, tiers: dict):
         _log_notification(lead_id, "ghl_whatsapp", "olga", "estimate_sent", msg if ok else f"FAILED: {msg}")
 
 
+def notify_call_review(lead_id: str, lead_name: str, reviewer_name: str, snippet: str):
+    """SMS Olga that a new coaching review is waiting on one of her calls."""
+    settings = get_settings()
+    if not settings.olga_ghl_contact_id:
+        logger.warning("notify_call_review: OLGA_GHL_CONTACT_ID not set, skipping SMS")
+        return
+    snip = snippet[:120] + ("..." if len(snippet) > 120 else "")
+    msg = (
+        f"New call review from {reviewer_name} on {lead_name}'s call:\n"
+        f"\"{snip}\"\n"
+        f"Open: {settings.frontend_url}/calls"
+    )
+    ok = send_sms(settings.olga_ghl_contact_id, msg)
+    _log_notification(lead_id, "ghl_sms", "olga", "call_review", msg if ok else f"FAILED: {msg}")
+
+
 def notify_new_lead_red(lead: dict, approval_reason: str):
     """Alert Alan that a RED estimate needs his review."""
     settings = get_settings()
