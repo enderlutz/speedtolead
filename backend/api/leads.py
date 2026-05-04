@@ -622,6 +622,117 @@ def new_build(lead_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
+DECLINE_REASON_PRESETS = {
+    "too_expensive": "Too Expensive / Over Budget",
+    "competitor": "Went with a Competitor",
+    "diy": "Decided to DIY",
+    "postponed": "Postponed (Try Again Later)",
+    "ghosted": "Customer Ghosted After Estimate",
+    "not_interested": "No Longer Interested",
+    "bad_timing": "Bad Timing (Weather, Season)",
+    "unclear": "Reason Unclear / Customer Didn't Say",
+    "other": "Other",
+}
+
+
+class DeclineReasonsBody(BaseModel):
+    reasons: list[str]  # preset keys, in rank order (index 0 = top reason)
+    other_text: str = ""
+
+
+@router.post("/leads/{lead_id}/decline-reasons")
+def set_decline_reasons(lead_id: str, body: DeclineReasonsBody, user: dict = Depends(get_current_user)):
+    """Capture WHY a deal was lost. Multi-select with rank order. The first
+    reason in the list is the primary; subsequent are secondary/tertiary.
+    Writes a contextual GHL note for owner-side history."""
+    # Validate reasons
+    for r in body.reasons:
+        if r not in DECLINE_REASON_PRESETS:
+            raise HTTPException(status_code=400, detail=f"Unknown reason: {r}")
+    if "other" in body.reasons and not body.other_text.strip():
+        raise HTTPException(status_code=400, detail="Please describe the 'Other' reason")
+
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        existing_fd = lead.to_dict()["form_data"]
+        existing_fd["decline_reasons"] = body.reasons
+        existing_fd["decline_other_text"] = body.other_text.strip() if "other" in body.reasons else ""
+        existing_fd["declined_at"] = _now()
+        existing_fd.pop("decline_skipped", None)
+
+        # Compose the GHL note: numbered rank order
+        labeled = []
+        for i, r in enumerate(body.reasons, 1):
+            label = DECLINE_REASON_PRESETS[r]
+            if r == "other" and body.other_text.strip():
+                label = f"Other: {body.other_text.strip()}"
+            labeled.append(f"{i}) {label}")
+        note_body = f"Declined: {' | '.join(labeled)} — {user.get('name', 'Team')}, {_format_note_timestamp()}"
+
+        old_note_id = existing_fd.pop("_decline_reasons_note_id", None)
+        if old_note_id and lead.ghl_contact_id:
+            try:
+                delete_contact_note(lead.ghl_contact_id, old_note_id, lead.ghl_location_id or None)
+            except Exception:
+                pass
+
+        if lead.ghl_contact_id:
+            try:
+                new_note_id = add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)
+                if new_note_id:
+                    existing_fd["_decline_reasons_note_id"] = new_note_id
+            except Exception as e:
+                logger.warning(f"Decline-reasons GHL note failed for lead {lead.id}: {e}")
+
+        lead.form_data = json.dumps(existing_fd)
+        lead.updated_at = _now()
+        db.commit()
+
+        try:
+            from services.event_bus import publish
+            publish("lead_updated", {"lead_id": lead.id})
+        except Exception:
+            pass
+
+        return {"status": "ok", "reasons": body.reasons}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/decline-skipped")
+def skip_decline_reasons(lead_id: str, user: dict = Depends(get_current_user)):
+    """Mark the decline-reasons modal as skipped so the auto-popup doesn't
+    nag the VA every time they open the lead. Manual button stays available."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        existing_fd = lead.to_dict()["form_data"]
+        existing_fd["decline_skipped"] = True
+        lead.form_data = json.dumps(existing_fd)
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+@router.get("/leads/decline-reason-presets")
+def get_decline_reason_presets():
+    """Frontend uses this to render the dropdown without hardcoding labels."""
+    return [{"key": k, "label": v} for k, v in DECLINE_REASON_PRESETS.items()]
+
+
 class ClearBadgeBody(BaseModel):
     badge: str  # "asked_for_address" | "new_build" | "not_confident"
 

@@ -822,3 +822,67 @@ def _generate_insights(total: int, sent: int, capture_rate: float, missed: list,
         insights.append(f"Only capturing {capture_rate}% of potential revenue. The gap represents ${round((100 - capture_rate) / 100 * (sent * 1000), 0):,.0f}+ in missed revenue this month.")
 
     return insights
+
+
+# ─── Decline Reasons — why deals are lost ───────────────────────────────
+
+@router.get("/analytics/decline-reasons")
+def get_decline_reasons(pipeline_version: str | None = Query(None), days: int = 90):
+    """Aggregate decline reasons across leads. Returns counts per reason
+    plus the underlying leads for click-through to a customer profile.
+    Each reason on a lead counts once regardless of its rank."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    db = get_db()
+    try:
+        from api.leads import DECLINE_REASON_PRESETS
+
+        leads_q = _apply_pipeline_filter(
+            db.query(Lead).filter(Lead.is_test.is_(False)),
+            pipeline_version,
+        )
+        leads = leads_q.all()
+
+        counts: dict[str, int] = {k: 0 for k in DECLINE_REASON_PRESETS.keys()}
+        leads_by_reason: dict[str, list[dict]] = {k: [] for k in DECLINE_REASON_PRESETS.keys()}
+        total_declined = 0
+
+        for lead in leads:
+            fd = json.loads(lead.form_data) if isinstance(lead.form_data, str) and lead.form_data else (lead.form_data or {})
+            reasons = fd.get("decline_reasons") or []
+            if not isinstance(reasons, list) or not reasons:
+                continue
+            declined_at = fd.get("declined_at") or lead.updated_at or ""
+            if declined_at and declined_at < cutoff:
+                continue
+
+            total_declined += 1
+            row = {
+                "lead_id": lead.id,
+                "contact_name": lead.contact_name or "Unknown",
+                "address": lead.address or "",
+                "declined_at": declined_at,
+                "rank": None,
+                "other_text": fd.get("decline_other_text") or "",
+            }
+            for i, r in enumerate(reasons):
+                if r in counts:
+                    counts[r] += 1
+                    leads_by_reason[r].append({**row, "rank": i + 1})
+
+        breakdown = []
+        for k, label in DECLINE_REASON_PRESETS.items():
+            breakdown.append({
+                "key": k,
+                "label": label,
+                "count": counts[k],
+                "leads": leads_by_reason[k],
+            })
+        breakdown.sort(key=lambda x: -x["count"])
+
+        return {
+            "total_declined": total_declined,
+            "days": days,
+            "breakdown": breakdown,
+        }
+    finally:
+        db.close()
