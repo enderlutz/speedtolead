@@ -229,11 +229,10 @@ def _sync_location(location_id: str, label: str):
                             logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id} ({stage_name})")
                         continue
 
-                    # New opportunity — only create a lead if it's currently
-                    # in one of the intake stages. Skip Closed / Lost / etc.
-                    # so we don't backfill historical noise.
-                    if not is_target_stage:
-                        continue
+                    # New opportunity — create the lead regardless of stage
+                    # to maintain a true 1:1 mirror with GHL. Notifications
+                    # are gated below so backfilled historical leads from
+                    # non-intake stages don't spam the team.
 
                     # Fetch full contact to get custom fields + details
                     contact = get_contact(contact_id, location_id)
@@ -332,9 +331,11 @@ def _sync_location(location_id: str, label: str):
                     db.commit()
                     new_count += 1
 
-                    if not already_sent:
+                    if is_target_stage and not already_sent:
                         logger.info(f"Poller: new lead {lead_id} from {label}/{stage_name}: {name}")
                         notify_new_lead(lead.to_dict())
+                    else:
+                        logger.info(f"Poller: backfilled lead {lead_id} from {label}/{stage_name}: {name} (no notify — non-intake stage)")
 
                 except Exception as e:
                     db.rollback()

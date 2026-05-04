@@ -12,7 +12,7 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity
 from api.auth import get_current_user
 from config import get_settings
 
@@ -731,6 +731,52 @@ def skip_decline_reasons(lead_id: str, user: dict = Depends(get_current_user)):
 def get_decline_reason_presets():
     """Frontend uses this to render the dropdown without hardcoding labels."""
     return [{"key": k, "label": v} for k, v in DECLINE_REASON_PRESETS.items()]
+
+
+@router.post("/leads/{lead_id}/resync-stage")
+def resync_stage_from_ghl(lead_id: str, user: dict = Depends(get_current_user)):
+    """One-shot manual stage re-sync. Fetches the lead's current opportunity
+    directly from GHL and overwrites our ghl_pipeline_stage_id. Useful when
+    the 60s poller missed a transition (rate limit, transient error, etc.)."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.ghl_opportunity_id:
+            raise HTTPException(status_code=400, detail="Lead has no GHL opportunity ID — can't fetch from GHL")
+
+        opp = get_opportunity(lead.ghl_opportunity_id, lead.ghl_location_id or None)
+        if not opp:
+            raise HTTPException(status_code=502, detail="GHL didn't return the opportunity. The contact or opportunity may have been deleted in GHL.")
+
+        ghl_stage_id = opp.get("pipelineStageId") or opp.get("stage_id") or ""
+        if not ghl_stage_id:
+            raise HTTPException(status_code=502, detail="GHL opportunity has no pipelineStageId in the response")
+
+        old_stage = lead.ghl_pipeline_stage_id
+        if old_stage == ghl_stage_id:
+            return {"status": "ok", "changed": False, "stage_id": ghl_stage_id}
+
+        lead.ghl_pipeline_stage_id = ghl_stage_id
+        lead.updated_at = _now()
+        db.commit()
+
+        try:
+            from services.event_bus import publish
+            publish("lead_updated", {"lead_id": lead.id})
+        except Exception:
+            pass
+
+        return {"status": "ok", "changed": True, "stage_id": ghl_stage_id, "previous_stage_id": old_stage}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 
 @router.post("/leads/backfill-dashboard-link-notes")

@@ -79,6 +79,7 @@ export default function LeadDetail() {
   const [askingAddress, setAskingAddress] = useState(false);
   const [askingNewBuild, setAskingNewBuild] = useState(false);
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
+  const [resyncing, setResyncing] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -384,14 +385,43 @@ export default function LeadDetail() {
             ) : null}
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setDeclineModalOpen(true)}
-          className="shrink-0"
-        >
-          {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? "Edit Decline Reasons" : "Capture Decline Reasons"}
-        </Button>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {lead.pipeline_version === "v2" && lead.ghl_opportunity_id && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setResyncing(true);
+                try {
+                  const r = await api.resyncStageFromGHL(lead.id);
+                  if (r.changed) {
+                    toast.success("Stage re-synced from GHL");
+                    const data = await api.getLead(id!);
+                    setLead(data);
+                  } else {
+                    toast.info("Already in sync with GHL");
+                  }
+                } catch (e: any) {
+                  toast.error(e?.message || "Couldn't sync from GHL");
+                } finally {
+                  setResyncing(false);
+                }
+              }}
+              disabled={resyncing}
+              title="Pull this lead's current stage straight from GHL"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${resyncing ? "animate-spin" : ""}`} />
+              Sync from GHL
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDeclineModalOpen(true)}
+          >
+            {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? "Edit Decline Reasons" : "Capture Decline Reasons"}
+          </Button>
+        </div>
       </div>
 
       {/* Mobile: approval status */}

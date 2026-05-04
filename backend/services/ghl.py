@@ -282,6 +282,25 @@ def get_pipelines(location_id: str) -> list[dict]:
         return []
 
 
+def get_opportunity(opportunity_id: str, location_id: str | None = None) -> dict | None:
+    """Fetch a single opportunity from GHL by ID. Used for one-shot stage
+    re-sync when the regular poller missed a stage transition."""
+    if not opportunity_id:
+        return None
+    try:
+        r = _client.get(
+            f"{GHL_BASE}/opportunities/{opportunity_id}",
+            headers=_headers(location_id),
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json() or {}
+        return data.get("opportunity") or data
+    except Exception as e:
+        logger.error(f"GHL get_opportunity({opportunity_id}) failed: {e}")
+        return None
+
+
 def update_opportunity_stage(opportunity_id: str, stage_id: str, location_id: str | None = None) -> bool:
     """Move a GHL opportunity to a different pipeline stage."""
     try:

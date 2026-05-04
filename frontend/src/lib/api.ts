@@ -50,6 +50,7 @@ export interface Lead {
   priority: string;
   pipeline_version: "v1" | "v2";
   ghl_pipeline_stage_id: string;
+  ghl_opportunity_id: string;
   form_data: Record<string, string>;
   customer_responded: boolean;
   customer_response_text: string;
@@ -662,6 +663,11 @@ export const api = {
   backfillDashboardLinkNotes: (pipelineVersion = "v2") =>
     request<{ total: number; succeeded: number; failed: number; skipped: number }>(
       `/api/leads/backfill-dashboard-link-notes?pipeline_version=${pipelineVersion}`,
+      { method: "POST" },
+    ),
+  resyncStageFromGHL: (leadId: string) =>
+    request<{ status: string; changed: boolean; stage_id: string; previous_stage_id?: string }>(
+      `/api/leads/${leadId}/resync-stage`,
       { method: "POST" },
     ),
   setDeclineReasons: (leadId: string, reasons: string[], otherText: string) =>
