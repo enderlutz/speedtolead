@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timezone
 from config import get_settings
 from database import get_db, NotificationLog
-from services.ghl import send_sms, send_whatsapp
+from services.ghl import send_sms, send_whatsapp, add_contact_note
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,9 @@ def _log_notification(lead_id: str, channel: str, recipient: str, event: str, de
 
 
 def notify_new_lead(lead: dict):
-    """Notify Alan (SMS) and Olga (WhatsApp) about a new lead."""
+    """Notify Alan (SMS) and Olga (WhatsApp) about a new lead, and pin a
+    dashboard hyperlink to the GHL contact's notes so the team can jump
+    from GHL to our system in one click."""
     settings = get_settings()
     name = lead.get("contact_name", "Unknown")
     address = lead.get("address", "No address")
@@ -59,6 +61,17 @@ def notify_new_lead(lead: dict):
     if settings.fragne_ghl_contact_id:
         ok = send_sms(settings.fragne_ghl_contact_id, msg)
         _log_notification(lead_id, "ghl_sms", "fragne", "new_lead", msg if ok else f"FAILED: {msg}")
+
+    # Pin a dashboard link on the GHL contact so the team has a one-click
+    # jump from GHL into our system. Best-effort — failures don't block.
+    contact_id = lead.get("ghl_contact_id") or ""
+    location_id = lead.get("ghl_location_id") or None
+    if contact_id:
+        note_body = f"Dashboard link: {link}"
+        try:
+            add_contact_note(contact_id, note_body, location_id)
+        except Exception as e:
+            logger.warning(f"Dashboard-link GHL note failed for lead {lead_id}: {e}")
 
 
 def notify_estimate_sent(lead: dict, tiers: dict):
