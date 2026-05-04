@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type CallRecordingEntry, type CallPatterns, getCurrentUser } from "@/lib/api";
+import { api, type CallRecordingEntry, type CallPatterns, type CallReview, getCurrentUser } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
   Mic, PhoneCall, TrendingUp, TrendingDown, BarChart3,
   ChevronDown, ChevronUp, ExternalLink, RefreshCw, Star, Archive,
   ArchiveRestore, Trash2, Play, Pause, AlertTriangle, RotateCw, Search, User,
+  MessageSquare, Volume2, Loader2, Sparkles,
 } from "lucide-react";
 
 type Tab = "active" | "archived";
@@ -41,6 +42,7 @@ export default function Calls() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const isAdmin = getCurrentUser()?.role === "admin";
+  const [reviewCall, setReviewCall] = useState<CallRecordingEntry | null>(null);
 
   const loadCalls = () => {
     api.getAllCalls({ limit: 100, archived: tab === "archived", favoritesOnly })
@@ -203,6 +205,9 @@ export default function Calls() {
       </div>
 
       {storageBanner}
+
+      <CoachingProfilePanel isAdmin={isAdmin} />
+
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b">
@@ -406,6 +411,15 @@ export default function Calls() {
                             <RotateCw className="h-3.5 w-3.5" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+                          onClick={(e) => { e.stopPropagation(); setReviewCall(rec); }}
+                          title={isAdmin ? "Leave a coaching review" : "View coaching reviews"}
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </Button>
                         {rec.lead_id && (
                           <Link to={`/leads/${rec.lead_id}`} onClick={(e) => e.stopPropagation()} title="Open lead">
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -457,28 +471,9 @@ export default function Calls() {
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t px-3 py-3 space-y-2 bg-muted/10">
+                      <div className="border-t px-3 py-3 space-y-3 bg-muted/10">
                         {analysis ? (
-                          <>
-                            <p className="text-sm">{analysis.summary}</p>
-                            {analysis.coaching_tips.length > 0 && (
-                              <div>
-                                <p className="text-xs font-semibold text-purple-700 mb-1">Coaching</p>
-                                <ul className="space-y-1">
-                                  {analysis.coaching_tips.map((tip, i) => (
-                                    <li key={i} className="text-xs text-muted-foreground pl-3 border-l-2 border-purple-200">{tip}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {analysis.objections.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {analysis.objections.map((obj, i) => (
-                                  <Badge key={i} variant="outline" className="text-[10px] text-red-700 border-red-200">{obj}</Badge>
-                                ))}
-                              </div>
-                            )}
-                          </>
+                          <CallCoachAnalysis analysis={analysis} />
                         ) : isFailed ? (
                           <p className="text-xs text-muted-foreground">
                             Transcription failed. Hit the retry icon to run it again.
@@ -522,6 +517,478 @@ export default function Calls() {
           </CardContent>
         </Card>
       )}
+
+      {reviewCall && (
+        <CallReviewModal
+          recording={reviewCall}
+          isAdmin={isAdmin}
+          onClose={() => setReviewCall(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+
+function CoachingProfilePanel({ isAdmin }: { isAdmin: boolean }) {
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof api.getCoachingProfile>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = () => {
+    api.getCoachingProfile().then((p) => setProfile(p)).catch(() => {}).finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    try {
+      const p = await api.regenerateCoachingProfile();
+      setProfile(p);
+      toast.success("Coaching profile regenerated");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't regenerate");
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  if (loading) return null;
+  if (!profile) {
+    if (!isAdmin) return null;
+    return (
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="pt-4 flex items-start gap-3">
+          <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+          <div className="text-sm flex-1">
+            <p className="font-medium">Self-learning coach</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Once you leave coaching reviews on a few calls, Claude will distill them into a profile of how you teach Olga and apply it to every future call analysis. No reviews yet — leave a few from any call's <MessageSquare className="inline h-3 w-3" /> button.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-primary/30 bg-primary/5">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" /> What Claude has learned from your reviews
+          </CardTitle>
+          <div className="flex items-center gap-1">
+            <Badge variant="outline" className="text-[10px]">{profile.reviews_count_at_gen} review{profile.reviews_count_at_gen === 1 ? "" : "s"}</Badge>
+            {isAdmin && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={handleRegenerate} disabled={regenerating}>
+                <RefreshCw className={`h-3 w-3 mr-1 ${regenerating ? "animate-spin" : ""}`} />
+                Regenerate
+              </Button>
+            )}
+            <button onClick={() => setExpanded((v) => !v)} className="text-muted-foreground hover:text-foreground p-1">
+              {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Last regenerated {timeAgo(profile.created_at)} · auto-updates every 5 new reviews
+        </p>
+      </CardHeader>
+      {expanded && (
+        <CardContent className="text-xs whitespace-pre-wrap text-foreground/80 leading-relaxed">
+          {profile.profile_text}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+
+type CallAnalysisData = NonNullable<CallRecordingEntry["analysis"]>;
+
+export function CallCoachAnalysis({ analysis }: { analysis: CallAnalysisData }) {
+  const stages = analysis.stage_evaluation || [];
+  const violations = analysis.boundary_violations || [];
+  const hasStructured = stages.length > 0 || violations.length > 0 || analysis.next_action;
+
+  if (!hasStructured) {
+    // Older analyses (pre-rubric) — fall back to the legacy rendering.
+    return (
+      <div className="space-y-2">
+        <p className="text-sm">{analysis.summary}</p>
+        {analysis.coaching_tips?.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-purple-700 mb-1">Coaching</p>
+            <ul className="space-y-1">
+              {analysis.coaching_tips.map((tip, i) => (
+                <li key={i} className="text-xs text-muted-foreground pl-3 border-l-2 border-purple-200">{tip}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <p className="text-[10px] text-muted-foreground italic">Re-analyze for stage-by-stage evaluation against the call coach rubric.</p>
+      </div>
+    );
+  }
+
+  const statusIcon = (s: string) => {
+    if (s === "passed") return <span className="text-green-600">✓</span>;
+    if (s === "skipped_okay") return <span className="text-muted-foreground">○</span>;
+    if (s === "missed") return <span className="text-red-600">✗</span>;
+    return <span className="text-muted-foreground">·</span>;
+  };
+
+  return (
+    <div className="space-y-3">
+      {analysis.summary_one_line && (
+        <p className="text-sm font-medium">{analysis.summary_one_line}</p>
+      )}
+      {analysis.summary && analysis.summary !== analysis.summary_one_line && (
+        <p className="text-xs text-muted-foreground">{analysis.summary}</p>
+      )}
+
+      {analysis.next_action && (
+        <div className="rounded border-l-4 border-primary bg-primary/5 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">One thing for next call</p>
+          <p className="text-sm mt-0.5">{analysis.next_action}</p>
+        </div>
+      )}
+
+      {analysis.what_went_well && (
+        <div className="rounded border-l-4 border-green-500 bg-green-50/50 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-green-700">What went well</p>
+          <p className="text-sm mt-0.5">{analysis.what_went_well}</p>
+        </div>
+      )}
+
+      {violations.length > 0 && (
+        <div className="rounded border-l-4 border-red-500 bg-red-50/50 px-3 py-2 space-y-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-red-700">Boundary violations</p>
+          {violations.map((v, i) => (
+            <div key={i} className="text-xs">
+              <Badge variant="outline" className="text-[9px] mr-1 border-red-200 text-red-700 capitalize">{v.type.replace(/_/g, " ")}</Badge>
+              <span className="text-muted-foreground">"{v.evidence}"</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {stages.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Stage-by-stage</p>
+          <div className="space-y-1">
+            {stages.map((s, i) => (
+              <div key={i} className="text-xs flex items-start gap-2 px-2 py-1 rounded hover:bg-muted/30">
+                <span className="shrink-0 font-mono">{statusIcon(s.status)}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">{s.stage}</p>
+                  {s.evidence && <p className="text-muted-foreground italic truncate">"{s.evidence}"</p>}
+                  {s.feedback && <p className="text-amber-700 mt-0.5">{s.feedback}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function pickRecorderMime(): { mime: string; ext: string } {
+  const candidates: { mime: string; ext: string }[] = [
+    { mime: "audio/webm;codecs=opus", ext: "webm" },
+    { mime: "audio/webm", ext: "webm" },
+    { mime: "audio/mp4", ext: "m4a" },
+    { mime: "audio/ogg;codecs=opus", ext: "ogg" },
+  ];
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c.mime)) return c;
+  }
+  return { mime: "", ext: "webm" };
+}
+
+function CallReviewModal({
+  recording, isAdmin, onClose,
+}: {
+  recording: CallRecordingEntry;
+  isAdmin: boolean;
+  onClose: () => void;
+}) {
+  const [reviews, setReviews] = useState<CallReview[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<"type" | "speak">("type");
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [recState, setRecState] = useState<"idle" | "recording" | "uploading">("idle");
+  const [elapsed, setElapsed] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioExt, setAudioExt] = useState("webm");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const ttsRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [ttsId, setTtsId] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getCallReviews(recording.id).then(setReviews).catch(() => {}).finally(() => setLoading(false));
+    return () => {
+      audioPlayerRef.current?.pause();
+      window.speechSynthesis.cancel();
+      stopRecording(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording.id]);
+
+  const stopTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  function stopRecording(produceBlob: boolean) {
+    stopTimer();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      if (!produceBlob) recorderRef.current.onstop = null;
+      try { recorderRef.current.stop(); } catch { /* */ }
+    }
+  }
+
+  const handleStartRecording = async () => {
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      toast.error("Recording not supported in this browser");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const { mime, ext } = pickRecorderMime();
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      setAudioExt(ext);
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stopTimer();
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        const blob = new Blob(chunksRef.current, { type: mime || "audio/webm" });
+        chunksRef.current = [];
+        if (blob.size > 0) setAudioBlob(blob);
+        setRecState("idle");
+      };
+
+      recorder.start();
+      setElapsed(0);
+      setAudioBlob(null);
+      setRecState("recording");
+      timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
+    } catch (err: any) {
+      toast.error(err?.name === "NotAllowedError" ? "Microphone permission denied" : "Could not start recording");
+    }
+  };
+
+  const handleStopRecording = () => stopRecording(true);
+
+  const handleDiscardAudio = () => {
+    setAudioBlob(null);
+    setElapsed(0);
+  };
+
+  const handleSubmit = async () => {
+    const trimmed = text.trim();
+    if (!trimmed && !audioBlob) {
+      toast.error("Type a review or record one");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const created = await api.createCallReview(
+        recording.id,
+        trimmed,
+        audioBlob ?? undefined,
+        `review.${audioExt}`,
+      );
+      setReviews((prev) => [...prev, created]);
+      setText("");
+      setAudioBlob(null);
+      setElapsed(0);
+      toast.success("Review sent — Olga has been notified");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't save review");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleListenAudio = (rev: CallReview) => {
+    if (playingId === rev.id) {
+      audioPlayerRef.current?.pause();
+      setPlayingId(null);
+      return;
+    }
+    audioPlayerRef.current?.pause();
+    window.speechSynthesis.cancel();
+    setTtsId(null);
+    const audio = new Audio(api.getReviewAudioUrl(rev.id));
+    audio.onended = () => setPlayingId(null);
+    audio.onerror = () => { toast.error("Couldn't play audio"); setPlayingId(null); };
+    audio.play().catch(() => { toast.error("Couldn't play audio"); setPlayingId(null); });
+    audioPlayerRef.current = audio;
+    setPlayingId(rev.id);
+  };
+
+  const handleListenTts = (rev: CallReview) => {
+    if (ttsId === rev.id) {
+      window.speechSynthesis.cancel();
+      setTtsId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    audioPlayerRef.current?.pause();
+    setPlayingId(null);
+    const u = new SpeechSynthesisUtterance(rev.text);
+    u.onend = () => setTtsId(null);
+    u.onerror = () => setTtsId(null);
+    ttsRef.current = u;
+    window.speechSynthesis.speak(u);
+    setTtsId(rev.id);
+  };
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-primary" /> Coaching Reviews
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Call with {recording.contact_name || recording.caller_name || "Unknown"} · {timeAgo(recording.created_at)}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {loading ? (
+            <div className="h-16 bg-muted rounded animate-pulse" />
+          ) : reviews.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No reviews yet{isAdmin ? " — leave the first one below" : ""}.
+            </p>
+          ) : (
+            reviews.map((rev) => (
+              <div key={rev.id} className="border rounded-lg p-3 space-y-2 bg-muted/20">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-semibold">{rev.reviewer_name || "Admin"}</span>
+                  <span className="text-muted-foreground">{formatDateTime(rev.created_at)}</span>
+                </div>
+                <p className="text-sm whitespace-pre-wrap">{rev.text}</p>
+                <div className="flex items-center gap-2">
+                  {rev.has_audio && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => handleListenAudio(rev)}
+                    >
+                      {playingId === rev.id ? <Pause className="h-3 w-3 mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                      {playingId === rev.id ? "Pause" : "Listen (voice)"}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handleListenTts(rev)}
+                  >
+                    <Volume2 className="h-3 w-3 mr-1" />
+                    {ttsId === rev.id ? "Stop" : "Read aloud"}
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {isAdmin && (
+          <div className="p-4 border-t space-y-3 bg-muted/10">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground">New review:</span>
+              <button
+                onClick={() => setMode("type")}
+                className={`text-xs px-2 py-1 rounded border ${mode === "type" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+              >Type</button>
+              <button
+                onClick={() => setMode("speak")}
+                className={`text-xs px-2 py-1 rounded border ${mode === "speak" ? "bg-primary text-primary-foreground border-primary" : "border-border"}`}
+              >Speak</button>
+            </div>
+
+            {mode === "type" ? (
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Coaching feedback for Olga..."
+                className="w-full border rounded-md px-3 py-2 text-sm bg-background h-24 resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            ) : (
+              <div className="space-y-2">
+                {recState === "idle" && !audioBlob && (
+                  <Button onClick={handleStartRecording} variant="outline" size="sm" className="bg-red-600 hover:bg-red-700 text-white border-red-600">
+                    <Mic className="h-3.5 w-3.5 mr-1" /> Start Recording
+                  </Button>
+                )}
+                {recState === "recording" && (
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
+                    <span className="text-xs font-mono font-semibold text-red-700">{fmt(elapsed)}</span>
+                    <Button onClick={handleStopRecording} variant="outline" size="sm" className="bg-red-600 hover:bg-red-700 text-white border-red-600">Stop</Button>
+                  </div>
+                )}
+                {audioBlob && recState === "idle" && (
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-green-100 text-green-800 text-xs">Recorded · {fmt(elapsed)}</Badge>
+                    <Button onClick={handleDiscardAudio} variant="outline" size="sm" className="text-xs">Discard</Button>
+                  </div>
+                )}
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Optional — typed notes alongside the recording. If empty, we'll transcribe your voice via Deepgram."
+                  className="w-full border rounded-md px-3 py-2 text-xs bg-background h-16 resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+              <Button size="sm" onClick={handleSubmit} disabled={submitting}>
+                {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                {submitting ? "Sending..." : "Send to Olga"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {!isAdmin && (
+          <div className="p-3 border-t text-xs text-muted-foreground text-center">
+            Read-only view — only admins can leave reviews.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

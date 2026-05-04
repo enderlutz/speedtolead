@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import { V2_STAGES } from "./LeadsV2";
+import { CallCoachAnalysis } from "./Calls";
 
 const FENCE_HEIGHT_OPTIONS = [
   "Didn't answer", "6ft standard", "6.5ft standard with rot board", "7ft", "8ft", "Not sure",
@@ -1629,41 +1630,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
                   {isExpanded && (
                     <div className="border-t px-3 py-3 space-y-3 bg-muted/10">
                       {/* Analysis */}
-                      {analysis && (
-                        <div className="space-y-2">
-                          <p className="text-sm">{analysis.summary}</p>
-
-                          {analysis.coaching_tips.length > 0 && (
-                            <div>
-                              <p className="text-xs font-semibold text-purple-700 mb-1">Coaching Tips</p>
-                              <ul className="space-y-1">
-                                {analysis.coaching_tips.map((tip, i) => (
-                                  <li key={i} className="text-xs text-muted-foreground pl-3 border-l-2 border-purple-200">{tip}</li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {analysis.objections.length > 0 && (
-                            <div>
-                              <p className="text-xs font-semibold text-red-700 mb-1">Objections</p>
-                              <div className="flex flex-wrap gap-1">
-                                {analysis.objections.map((obj, i) => (
-                                  <Badge key={i} variant="outline" className="text-[10px] text-red-700 border-red-200">{obj}</Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {analysis.key_topics.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {analysis.key_topics.map((topic, i) => (
-                                <Badge key={i} variant="outline" className="text-[10px]">{topic}</Badge>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {analysis && <CallCoachAnalysis analysis={analysis} />}
 
                       {/* Transcript */}
                       {transcript && (

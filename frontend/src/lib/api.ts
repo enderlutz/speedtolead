@@ -128,6 +128,11 @@ export interface CallRecordingEntry {
   analysis?: {
     id: string;
     summary: string;
+    summary_one_line?: string;
+    stage_evaluation?: { stage: string; status: "passed" | "missed" | "skipped_okay"; evidence: string; feedback?: string }[];
+    boundary_violations?: { type: string; evidence: string; severity: "high" | "medium" | "low" }[];
+    what_went_well?: string;
+    next_action?: string;
     coaching_tips: string[];
     sentiment: string;
     customer_sentiment: string;
@@ -137,6 +142,18 @@ export interface CallRecordingEntry {
     call_score: number;
     close_likelihood: string;
   } | null;
+}
+
+export interface CallReview {
+  id: string;
+  recording_id: string;
+  lead_id: string | null;
+  reviewer_user_id: string;
+  reviewer_name: string;
+  text: string;
+  has_audio: boolean;
+  audio_mime: string;
+  created_at: string;
 }
 
 export interface CallPatterns {
@@ -719,6 +736,31 @@ export const api = {
     request<{ status: string }>(`/api/calls/${recordingId}`, { method: "DELETE" }),
   retryCallTranscription: (recordingId: string) =>
     request<{ status: string }>(`/api/calls/${recordingId}/retry`, { method: "POST" }),
+  getCallReviews: (recordingId: string) =>
+    request<CallReview[]>(`/api/calls/${recordingId}/reviews`),
+  createCallReview: async (recordingId: string, text: string, audio?: Blob, audioFilename = "review.webm") => {
+    const formData = new FormData();
+    formData.append("text", text);
+    if (audio) formData.append("audio", audio, audioFilename);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/calls/${recordingId}/reviews`, {
+      method: "POST",
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Review failed");
+    return res.json() as Promise<CallReview>;
+  },
+  getReviewAudioUrl: (reviewId: string) => `${BASE}/api/calls/reviews/${reviewId}/audio`,
+  getCoachingProfile: () =>
+    request<{ id: string; profile_text: string; reviews_count_at_gen: number; generated_by: string; created_at: string } | null>(
+      "/api/calls/coaching-profile",
+    ),
+  regenerateCoachingProfile: () =>
+    request<{ id: string; profile_text: string; reviews_count_at_gen: number; generated_by: string; created_at: string }>(
+      "/api/calls/coaching-profile/regenerate",
+      { method: "POST" },
+    ),
   uploadCallRecording: async (file: File, leadId: string, direction = "outbound", recordedBy?: string) => {
     const formData = new FormData();
     formData.append("file", file);
