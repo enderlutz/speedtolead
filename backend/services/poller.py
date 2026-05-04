@@ -208,9 +208,20 @@ def _sync_location(location_id: str, label: str):
                         logger.warning(f"Poller: skipping opp with no contact_id: {opp.get('id', '?')}")
                         continue
 
-                    # Skip if already in our system
+                    # Existing lead — keep stage in sync with GHL (GHL is the
+                    # system-of-record on stage moves). No re-creation.
                     existing = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
                     if existing:
+                        if stage_id and existing.ghl_pipeline_stage_id != stage_id:
+                            existing.ghl_pipeline_stage_id = stage_id
+                            existing.updated_at = _now()
+                            db.commit()
+                            try:
+                                from services.event_bus import publish
+                                publish("lead_updated", {"lead_id": existing.id})
+                            except Exception:
+                                pass
+                            logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id}")
                         continue
 
                     # Fetch full contact to get custom fields + details
