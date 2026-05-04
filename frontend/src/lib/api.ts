@@ -657,6 +657,25 @@ export const api = {
       body: JSON.stringify({ badge }),
     }),
 
+  getDeclineReasonPresets: () =>
+    request<{ key: string; label: string }[]>("/api/leads/decline-reason-presets"),
+  setDeclineReasons: (leadId: string, reasons: string[], otherText: string) =>
+    request<{ status: string; reasons: string[] }>(`/api/leads/${leadId}/decline-reasons`, {
+      method: "POST",
+      body: JSON.stringify({ reasons, other_text: otherText }),
+    }),
+  skipDeclineReasons: (leadId: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/decline-skipped`, { method: "POST" }),
+  getDeclineReasonsAnalytics: (days = 90, pipelineVersion?: string) => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (pipelineVersion) params.set("pipeline_version", pipelineVersion);
+    return request<{
+      total_declined: number;
+      days: number;
+      breakdown: { key: string; label: string; count: number; leads: { lead_id: string; contact_name: string; address: string; declined_at: string; rank: number | null; other_text: string }[] }[];
+    }>(`/api/analytics/decline-reasons?${params}`);
+  },
+
   // --- Call Recordings ---
   getLeadCalls: (leadId: string, includeArchived = false) =>
     request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}?include_archived=${includeArchived}`),

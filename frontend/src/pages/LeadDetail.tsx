@@ -43,6 +43,8 @@ const APPROVAL_CONFIG = {
 
 const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 
+const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
+
 export default function LeadDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -76,6 +78,7 @@ export default function LeadDetail() {
   const [includeFinancing, setIncludeFinancing] = useState(true);
   const [askingAddress, setAskingAddress] = useState(false);
   const [askingNewBuild, setAskingNewBuild] = useState(false);
+  const [declineModalOpen, setDeclineModalOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -106,6 +109,20 @@ export default function LeadDetail() {
       setMilitaryDiscount(Boolean(fd.military_discount));
       setConfidenceNote(fd.confidence_note || "");
       setIncludeFinancing(String(fd.include_financing ?? "true") !== "false");
+
+      // Auto-open the decline-reasons modal once when a lead lands in
+      // DECLINED ESTIMATE without any reasons captured yet, unless the VA
+      // has already skipped it. The manual "Capture decline reasons" button
+      // stays available regardless.
+      const fdAny = fd as Record<string, unknown>;
+      const reasonsArr = (fdAny.decline_reasons as string[] | undefined) || [];
+      if (
+        data.ghl_pipeline_stage_id === STAGE_DECLINED &&
+        reasonsArr.length === 0 &&
+        !fdAny.decline_skipped
+      ) {
+        setDeclineModalOpen(true);
+      }
     }).catch(() => toast.error("Failed to load lead")).finally(() => setLoading(false));
   }, [id]);
 
@@ -354,14 +371,27 @@ export default function LeadDetail() {
         <Link to="/leads" className="text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-lg sm:text-2xl font-semibold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <Badge variant="outline" className="text-xs">{lead.location_label}</Badge>
             <Badge variant="outline" className="text-xs capitalize">{lead.status}</Badge>
             {lead.customer_responded && <Badge className="text-xs bg-blue-100 text-blue-800">Responded</Badge>}
+            {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? (
+              <Badge className="text-xs bg-slate-200 text-slate-700">
+                Declined ({(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length} reason{(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length === 1 ? "" : "s"})
+              </Badge>
+            ) : null}
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setDeclineModalOpen(true)}
+          className="shrink-0"
+        >
+          {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? "Edit Decline Reasons" : "Capture Decline Reasons"}
+        </Button>
       </div>
 
       {/* Mobile: approval status */}
@@ -1018,6 +1048,21 @@ export default function LeadDetail() {
           estimate={estimate}
           fenceSides={fenceSides}
           onSent={async () => {
+            const data = await api.getLead(id!);
+            setLead(data);
+          }}
+        />
+      )}
+
+      {/* Decline Reasons Modal */}
+      {lead && (
+        <DeclineReasonsModal
+          open={declineModalOpen}
+          onOpenChange={setDeclineModalOpen}
+          leadId={lead.id}
+          existingReasons={(((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons) as string[] | undefined) || []}
+          existingOtherText={String((lead.form_data as Record<string, unknown> | undefined)?.decline_other_text || "")}
+          onSaved={async () => {
             const data = await api.getLead(id!);
             setLead(data);
           }}
@@ -1825,6 +1870,143 @@ function MessageList({ messages }: { messages: MessageEntry[] }) {
         </div>
       ))}
       <div ref={endRef} />
+    </div>
+  );
+}
+
+
+function DeclineReasonsModal({
+  open, onOpenChange, leadId, existingReasons, existingOtherText, onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  leadId: string;
+  existingReasons: string[];
+  existingOtherText: string;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [presets, setPresets] = useState<{ key: string; label: string }[]>([]);
+  const [selected, setSelected] = useState<string[]>(existingReasons);
+  const [otherText, setOtherText] = useState(existingOtherText);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.getDeclineReasonPresets().then(setPresets).catch(() => {});
+    setSelected(existingReasons);
+    setOtherText(existingOtherText);
+  }, [open, existingReasons, existingOtherText]);
+
+  const toggle = (key: string) => {
+    setSelected((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
+  };
+
+  const move = (idx: number, dir: -1 | 1) => {
+    const next = [...selected];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= next.length) return;
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    setSelected(next);
+  };
+
+  const handleSave = async () => {
+    if (selected.length === 0) {
+      toast.error("Pick at least one reason");
+      return;
+    }
+    if (selected.includes("other") && !otherText.trim()) {
+      toast.error("Please describe the 'Other' reason");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.setDeclineReasons(leadId, selected, otherText);
+      toast.success("Decline reasons saved");
+      await onSaved();
+      onOpenChange(false);
+    } catch {
+      toast.error("Couldn't save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    try {
+      await api.skipDeclineReasons(leadId);
+      onOpenChange(false);
+    } catch { /* silent */ }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => onOpenChange(false)}>
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b">
+          <h2 className="text-lg font-semibold">Why did this customer decline?</h2>
+          <p className="text-xs text-muted-foreground mt-1">Pick all that apply. The order matters — drag the most important reason to the top.</p>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {/* Selected (in rank order) */}
+          {selected.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-muted-foreground">Selected (rank order)</p>
+              {selected.map((key, i) => {
+                const preset = presets.find((p) => p.key === key);
+                return (
+                  <div key={key} className="flex items-center gap-2 p-2 rounded border bg-muted/30">
+                    <span className="text-xs font-bold w-5 text-center text-muted-foreground">{i + 1}</span>
+                    <span className="text-sm flex-1">{preset?.label || key}</span>
+                    <button onClick={() => move(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30 px-1" title="Move up">↑</button>
+                    <button onClick={() => move(i, 1)} disabled={i === selected.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30 px-1" title="Move down">↓</button>
+                    <button onClick={() => toggle(key)} className="text-muted-foreground hover:text-red-600 px-1" title="Remove">×</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Available presets */}
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-muted-foreground">Reasons</p>
+            {presets.map((p) => {
+              const checked = selected.includes(p.key);
+              return (
+                <label key={p.key} className={`flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-muted/50 ${checked ? "opacity-50" : ""}`}>
+                  <input type="checkbox" checked={checked} onChange={() => toggle(p.key)} />
+                  <span className="text-sm">{p.label}</span>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Other text */}
+          {selected.includes("other") && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground">Describe the "Other" reason</label>
+              <textarea
+                value={otherText}
+                onChange={(e) => setOtherText(e.target.value)}
+                placeholder="What did the customer say?"
+                className="w-full mt-1 border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                rows={3}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={handleSkip}>Skip for now</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
