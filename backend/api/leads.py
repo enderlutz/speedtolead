@@ -788,6 +788,7 @@ def backfill_dashboard_link_notes(
     for every lead that doesn't have one yet. Idempotent — leads with the
     `_dashboard_link_pinned` flag in form_data are skipped, so re-running
     won't create duplicates."""
+    import time as _time
     del user  # auth only
     settings = get_settings()
     db = get_db()
@@ -802,11 +803,17 @@ def backfill_dashboard_link_notes(
         succeeded = 0
         failed = 0
         skipped = 0
+        first = True
         for lead in leads:
             fd = lead.to_dict()["form_data"]
             if fd.get("_dashboard_link_pinned"):
                 skipped += 1
                 continue
+            # Throttle to stay well under GHL's ~100 req / 10s rate limit.
+            # add_contact_note also retries on 429 internally as a safety net.
+            if not first:
+                _time.sleep(0.25)
+            first = False
             link = f"{settings.frontend_url}/leads/{lead.id}"
             try:
                 note_id = add_contact_note(

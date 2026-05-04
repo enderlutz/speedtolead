@@ -187,21 +187,30 @@ def add_contact_note(contact_id: str, body: str, location_id: str | None = None)
     if not user_id:
         logger.error("GHL_DEFAULT_USER_ID is not set — notes API requires a userId. Set it in env to your GHL user UUID (find in GHL → My Profile).")
         return None
-    try:
-        payload = {"body": body, "userId": user_id}
-        r = _client.post(
-            f"{GHL_BASE}/contacts/{contact_id}/notes",
-            headers=_headers(location_id),
-            json=payload, timeout=10,
-        )
-        r.raise_for_status()
-        data = r.json() or {}
-        note_id = (data.get("note") or {}).get("id") or data.get("id")
-        logger.info(f"GHL note added to contact {contact_id} (note_id={note_id})")
-        return note_id
-    except Exception as e:
-        logger.error(f"GHL add_contact_note failed: {e}")
-        return None
+    payload = {"body": body, "userId": user_id}
+    url = f"{GHL_BASE}/contacts/{contact_id}/notes"
+    headers = _headers(location_id)
+    # Up to 3 attempts with exponential backoff on 429 (GHL rate limits at
+    # ~100 req / 10s per location — bulk note writes can blow past that).
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            r = _client.post(url, headers=headers, json=payload, timeout=10)
+            if r.status_code == 429 and attempt < 2:
+                import time as _time
+                logger.warning(f"GHL note rate-limited for {contact_id}, retrying in {delay}s (attempt {attempt + 1}/3)")
+                _time.sleep(delay)
+                delay *= 2
+                continue
+            r.raise_for_status()
+            data = r.json() or {}
+            note_id = (data.get("note") or {}).get("id") or data.get("id")
+            logger.info(f"GHL note added to contact {contact_id} (note_id={note_id})")
+            return note_id
+        except Exception as e:
+            logger.error(f"GHL add_contact_note failed: {e}")
+            return None
+    return None
 
 
 def delete_contact_note(contact_id: str, note_id: str, location_id: str | None = None) -> bool:
