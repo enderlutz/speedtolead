@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     ghl_pipeline_id: str = ""
     ghl_pipeline_id_2: str = ""
 
+    # GHL user ID — required by POST /contacts/{id}/notes (every note must
+    # be attributed to a real GHL user). Find yours in GHL → My Profile.
+    ghl_default_user_id: str = ""
+
     # Anthropic (Claude API for AI fence measurement + chatbot)
     anthropic_api_key: str = ""
 

@@ -177,9 +177,18 @@ def send_whatsapp(contact_id: str, message: str, location_id: str | None = None)
 def add_contact_note(contact_id: str, body: str, location_id: str | None = None) -> str | None:
     """Add a note to a GHL contact. Returns the new note's ID on success, None on failure.
     (Used by callers that may need to delete the note later — e.g., when a
-    badge is removed from the dashboard.)"""
+    badge is removed from the dashboard.)
+
+    GHL's notes endpoint requires a userId so the note is attributed to a
+    real user in the workspace. Set GHL_DEFAULT_USER_ID in env to your GHL
+    user UUID — without it, every note write 422s."""
+    settings = get_settings()
+    user_id = settings.ghl_default_user_id
+    if not user_id:
+        logger.error("GHL_DEFAULT_USER_ID is not set — notes API requires a userId. Set it in env to your GHL user UUID (find in GHL → My Profile).")
+        return None
     try:
-        payload = {"body": body, "contactId": contact_id}
+        payload = {"body": body, "userId": user_id}
         r = _client.post(
             f"{GHL_BASE}/contacts/{contact_id}/notes",
             headers=_headers(location_id),
