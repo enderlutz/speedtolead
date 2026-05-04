@@ -6,13 +6,14 @@ import uuid
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note
+from api.auth import get_current_user
 from config import get_settings
 
 router = APIRouter()
@@ -21,6 +22,26 @@ logger = logging.getLogger(__name__)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _format_note_timestamp() -> str:
+    """Friendly timestamp for GHL notes — central time, e.g. 'May 3, 2026 4:15pm'."""
+    return datetime.now(timezone.utc).strftime("%B %d, %Y %-I:%M%p").replace("AM", "am").replace("PM", "pm")
+
+
+def _add_badge_note(lead: Lead, badge_label: str, va_name: str, extra: str = "") -> None:
+    """Append a GHL contact note recording a VA badge action.
+    Best-effort — failures are logged, never raised, since GHL note errors
+    shouldn't break the user's action."""
+    if not lead.ghl_contact_id:
+        return
+    body = f"{badge_label} — {va_name or 'Team'}, {_format_note_timestamp()}"
+    if extra:
+        body = f"{body}. {extra}"
+    try:
+        add_contact_note(lead.ghl_contact_id, body, lead.ghl_location_id or None)
+    except Exception as e:
+        logger.warning(f"Badge GHL note failed for lead {lead.id}: {e}")
 
 
 class ColumnUpdate(BaseModel):
@@ -346,7 +367,7 @@ def export_to_v2(lead_id: str, body: ExportToV2):
 
 
 @router.put("/leads/{lead_id}/form-data")
-def update_form_data(lead_id: str, body: FormDataUpdate):
+def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(get_current_user)):
     """Update lead form data and recalculate estimate."""
     db = get_db()
     try:
@@ -356,7 +377,10 @@ def update_form_data(lead_id: str, body: FormDataUpdate):
 
         # Merge form data
         existing_fd = lead.to_dict()["form_data"]
+        prev_confidence = str(existing_fd.get("confidence", ""))
         merged = {**existing_fd, **body.form_data}
+        new_confidence = str(merged.get("confidence", ""))
+        confidence_became_low = (new_confidence == "60" and prev_confidence != "60")
 
         zip_code = body.form_data.get("zip_code") or lead.zip_code or ""
 
@@ -421,6 +445,11 @@ def update_form_data(lead_id: str, body: FormDataUpdate):
                   f"Recalculated: ${low:.0f} | {approval_status}",
                   {"tiers": meta.get("tiers", {}), "approval_status": approval_status})
 
+        if confidence_became_low:
+            confidence_note = merged.get("confidence_note", "")
+            extra = f"Reason: {confidence_note}" if confidence_note else ""
+            _add_badge_note(lead, "Not Confident", user.get("name", "Team"), extra)
+
         # Notify Alan if VA is not confident
         if "not confident" in approval_reason.lower():
             try:
@@ -454,7 +483,7 @@ def update_form_data(lead_id: str, body: FormDataUpdate):
 
 
 @router.post("/leads/{lead_id}/ask-address")
-def ask_for_address(lead_id: str):
+def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
     """Send SMS to customer asking for address, notify Alan, move to no_address column."""
     db = get_db()
     try:
@@ -500,6 +529,7 @@ def ask_for_address(lead_id: str):
         db.commit()
 
         log_event(lead_id, "address_requested", f"Address request SMS sent to {lead.contact_name}")
+        _add_badge_note(lead, "Asked for Address", user.get("name", "Team"))
 
         return {"status": "ok", "sms_sent": sms_sent}
 
@@ -513,7 +543,7 @@ def ask_for_address(lead_id: str):
 
 
 @router.post("/leads/{lead_id}/new-build")
-def new_build(lead_id: str):
+def new_build(lead_id: str, user: dict = Depends(get_current_user)):
     """Send SMS for new build (can't measure from satellite), notify Alan."""
     db = get_db()
     try:
@@ -558,9 +588,67 @@ def new_build(lead_id: str):
         db.commit()
 
         log_event(lead_id, "new_build", f"New build SMS sent to {lead.contact_name}")
+        _add_badge_note(lead, "New Build", user.get("name", "Team"))
 
         return {"status": "ok", "sms_sent": sms_sent}
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class ClearBadgeBody(BaseModel):
+    badge: str  # "asked_for_address" | "new_build" | "not_confident"
+
+
+_BADGE_LABELS = {
+    "asked_for_address": "Asked for Address",
+    "new_build": "New Build",
+    "not_confident": "Not Confident",
+}
+
+
+@router.post("/leads/{lead_id}/clear-badge")
+def clear_badge(lead_id: str, body: ClearBadgeBody, user: dict = Depends(get_current_user)):
+    """Remove a badge from the lead. Logs a 'Removed: ...' note in GHL so
+    history is preserved even after the badge is gone."""
+    if body.badge not in _BADGE_LABELS:
+        raise HTTPException(status_code=400, detail="Unknown badge")
+
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        existing_fd = lead.to_dict()["form_data"]
+        if body.badge in ("asked_for_address", "new_build"):
+            if existing_fd.get("address_action") != body.badge:
+                # Already cleared — no-op, but still 200 so UI can stay simple
+                return {"status": "ok", "noop": True}
+            existing_fd["address_action"] = ""
+        else:  # not_confident
+            if str(existing_fd.get("confidence", "")) != "60":
+                return {"status": "ok", "noop": True}
+            existing_fd["confidence"] = "100"
+
+        lead.form_data = json.dumps(existing_fd)
+        lead.updated_at = _now()
+        db.commit()
+
+        _add_badge_note(lead, f"Removed: {_BADGE_LABELS[body.badge]}", user.get("name", "Team"))
+
+        try:
+            from services.event_bus import publish
+            publish("lead_updated", {"lead_id": lead.id})
+        except Exception:
+            pass
+
+        return {"status": "ok"}
     except HTTPException:
         raise
     except Exception as e:
