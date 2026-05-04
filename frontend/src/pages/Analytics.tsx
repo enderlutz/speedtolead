@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type FunnelData, type WeeklyCloseRate, type LocationStats } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, timeAgo } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,7 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend,
 } from "recharts";
-import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb } from "lucide-react";
+import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb, ThumbsDown, ChevronDown, ChevronUp } from "lucide-react";
 
 type PipelineFilter = "v2" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
@@ -23,6 +24,8 @@ export default function Analytics() {
   const [revenue, setRevenue] = useState<Record<string, unknown> | null>(null);
   const [dealStats, setDealStats] = useState<Record<string, unknown> | null>(null);
   const [timing, setTiming] = useState<Record<string, unknown> | null>(null);
+  const [declineReasons, setDeclineReasons] = useState<Awaited<ReturnType<typeof api.getDeclineReasonsAnalytics>> | null>(null);
+  const [expandedReason, setExpandedReason] = useState<string | null>(null);
   const [filter, setFilter] = useState<PipelineFilter>(() => {
     const saved = (typeof window !== "undefined" && localStorage.getItem(FILTER_KEY)) as PipelineFilter | null;
     return saved || "v2";
@@ -39,6 +42,7 @@ export default function Analytics() {
     api.getRevenueInsights(pv).then(setRevenue).catch(console.error);
     api.getDealStats(pv).then(setDealStats).catch(console.error);
     api.getTimingAnalytics(pv).then(setTiming).catch(console.error);
+    api.getDeclineReasonsAnalytics(90, pv).then(setDeclineReasons).catch(console.error);
   }, [filter]);
 
   const handleFilterChange = (next: PipelineFilter) => {
@@ -197,6 +201,61 @@ export default function Analytics() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Decline Reasons */}
+              {declineReasons && declineReasons.total_declined > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <ThumbsDown className="h-4 w-4 text-red-600" /> Decline Reasons (last {declineReasons.days} days)
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">{declineReasons.total_declined} declined deals — click a reason to see who.</p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {declineReasons.breakdown.filter((b) => b.count > 0).map((b) => {
+                        const pct = declineReasons.total_declined > 0 ? Math.round((b.count / declineReasons.total_declined) * 100) : 0;
+                        const isExpanded = expandedReason === b.key;
+                        return (
+                          <div key={b.key} className="border rounded-md overflow-hidden">
+                            <button
+                              onClick={() => setExpandedReason(isExpanded ? null : b.key)}
+                              className="w-full px-3 py-2 flex items-center gap-3 hover:bg-muted/30 text-left"
+                            >
+                              <span className="text-sm font-medium flex-1">{b.label}</span>
+                              <div className="w-32 bg-muted rounded-full h-2">
+                                <div className="bg-red-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-xs text-muted-foreground w-10 text-right">{pct}%</span>
+                              <Badge variant="outline" className="text-xs w-12 justify-center">{b.count}</Badge>
+                              {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                            </button>
+                            {isExpanded && (
+                              <div className="border-t bg-muted/10 px-3 py-2 space-y-1">
+                                {b.leads.map((l) => (
+                                  <Link
+                                    key={`${l.lead_id}-${l.rank}`}
+                                    to={`/leads/${l.lead_id}`}
+                                    className="flex items-center gap-2 text-xs hover:bg-background rounded px-2 py-1.5"
+                                  >
+                                    <span className="font-bold text-muted-foreground w-5">#{l.rank}</span>
+                                    <span className="font-medium truncate flex-1">{l.contact_name}</span>
+                                    <span className="text-muted-foreground truncate hidden sm:inline">{l.address}</span>
+                                    <span className="text-muted-foreground shrink-0">{timeAgo(l.declined_at)}</span>
+                                    {l.other_text && b.key === "other" && (
+                                      <span className="text-muted-foreground italic truncate max-w-[200px]" title={l.other_text}>"{l.other_text}"</span>
+                                    )}
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </>
           ) : <Loading />}
         </TabsContent>
