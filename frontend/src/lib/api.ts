@@ -651,6 +651,12 @@ export const api = {
   chatbotHeartbeat: (token: string) =>
     request<{ status: string }>(`/api/chatbot/heartbeat/${token}`, { method: "POST" }),
 
+  clearLeadBadge: (leadId: string, badge: "asked_for_address" | "new_build" | "not_confident") =>
+    request<{ status: string }>(`/api/leads/${leadId}/clear-badge`, {
+      method: "POST",
+      body: JSON.stringify({ badge }),
+    }),
+
   // --- Call Recordings ---
   getLeadCalls: (leadId: string, includeArchived = false) =>
     request<CallRecordingEntry[]>(`/api/calls/lead/${leadId}?include_archived=${includeArchived}`),

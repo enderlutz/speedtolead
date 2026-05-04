@@ -419,6 +419,20 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
     } catch { toast.error("Failed"); }
   };
 
+  const handleClearBadge = async (
+    e: React.MouseEvent,
+    badge: "asked_for_address" | "new_build" | "not_confident",
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.clearLeadBadge(lead.id, badge);
+      toast.success("Badge removed");
+    } catch { toast.error("Couldn't remove badge"); }
+  };
+
+  const isNotConfident = String(fd.confidence ?? "") === "60";
+
   return (
     <Link
       to={`/leads/${lead.id}`}
@@ -442,10 +456,40 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
             </span>
           )}
           {fd.address_action === "asked_for_address" && (
-            <Badge className="text-[7px] px-1 py-0 bg-purple-100 text-purple-700 shrink-0">Asked for Address</Badge>
+            <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-purple-100 text-purple-700 shrink-0 flex items-center gap-0.5">
+              Asked for Address
+              <button
+                onClick={(e) => handleClearBadge(e, "asked_for_address")}
+                className="hover:bg-purple-200 rounded px-0.5"
+                title="Remove badge"
+              >
+                ×
+              </button>
+            </Badge>
           )}
           {fd.address_action === "new_build" && (
-            <Badge className="text-[7px] px-1 py-0 bg-orange-100 text-orange-700 shrink-0">New Build</Badge>
+            <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-orange-100 text-orange-700 shrink-0 flex items-center gap-0.5">
+              New Build
+              <button
+                onClick={(e) => handleClearBadge(e, "new_build")}
+                className="hover:bg-orange-200 rounded px-0.5"
+                title="Remove badge"
+              >
+                ×
+              </button>
+            </Badge>
+          )}
+          {isNotConfident && (
+            <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-red-100 text-red-700 shrink-0 flex items-center gap-0.5">
+              Not Confident
+              <button
+                onClick={(e) => handleClearBadge(e, "not_confident")}
+                className="hover:bg-red-200 rounded px-0.5"
+                title="Remove badge"
+              >
+                ×
+              </button>
+            </Badge>
           )}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
