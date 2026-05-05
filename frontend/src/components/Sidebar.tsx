@@ -1,17 +1,18 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic } from "lucide-react";
+import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic, HardHat } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
-const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string }[] = [
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToRole?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/leads", icon: Users, label: "Leads" },
   { to: "/old-leads", icon: UsersRound, label: "Old Leads" },
   { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/calls", icon: Mic, label: "Call Coach" },
+  { to: "/crew", icon: HardHat, label: "Crew", restrictToRole: "admin" },
   { to: "/pricing", icon: DollarSign, label: "Pricing" },
   { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings" },
@@ -141,7 +142,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1">
           <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-3 mb-2">Menu</p>
-          {NAV_ITEMS.filter(item => !item.restrictTo || getCurrentUser()?.sub === item.restrictTo).map(({ to, icon: Icon, label }) => (
+          {NAV_ITEMS.filter(item => {
+            const u = getCurrentUser();
+            if (item.restrictTo && u?.sub !== item.restrictTo) return false;
+            if (item.restrictToRole && u?.role !== item.restrictToRole) return false;
+            return true;
+          }).map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}

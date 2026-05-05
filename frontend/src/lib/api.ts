@@ -777,4 +777,170 @@ export const api = {
     if (!res.ok) throw new Error("Upload failed");
     return res.json() as Promise<{ id: string; status: string }>;
   },
+
+  // --- Crew (admin-only) ---
+  listCrew: (rangeKey: "this_week" | "last_week" | "month" | "ytd" = "this_week", includeInactive = false) => {
+    const params = new URLSearchParams({ range: rangeKey, include_inactive: String(includeInactive) });
+    return request<{
+      range: string; start: string; end: string;
+      employees: (Employee & { range_totals: RangeTotals; lifetime: LifetimeTotals })[];
+    }>(`/api/crew/employees?${params}`);
+  },
+  getEmployee: (id: string) =>
+    request<Employee & { this_week: RangeTotals; last_week: RangeTotals; month: RangeTotals; ytd: RangeTotals; lifetime: LifetimeTotals }>(
+      `/api/crew/employees/${id}`,
+    ),
+  createEmployee: (body: EmployeeBody) =>
+    request<Employee>("/api/crew/employees", { method: "POST", body: JSON.stringify(body) }),
+  updateEmployee: (id: string, body: EmployeeBody) =>
+    request<Employee>(`/api/crew/employees/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  setEmployeeStatus: (id: string, status: "active" | "inactive") =>
+    request<Employee>(`/api/crew/employees/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+  uploadW9: async (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/crew/employees/${id}/w9`, {
+      method: "POST",
+      body: formData,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "W9 upload failed");
+    return res.json() as Promise<Employee>;
+  },
+  getW9Url: (id: string) => `${BASE}/api/crew/employees/${id}/w9`,
+  listTimeEntries: (employeeId: string, year?: number) => {
+    const qs = year ? `?year=${year}` : "";
+    return request<TimeEntry[]>(`/api/crew/employees/${employeeId}/time-entries${qs}`);
+  },
+  createTimeEntry: (body: TimeEntryBody) =>
+    request<TimeEntry>("/api/crew/time-entries", { method: "POST", body: JSON.stringify(body) }),
+  updateTimeEntry: (id: string, body: Partial<TimeEntryBody>) =>
+    request<TimeEntry>(`/api/crew/time-entries/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteTimeEntry: (id: string) =>
+    request<{ status: string }>(`/api/crew/time-entries/${id}`, { method: "DELETE" }),
+  listPayments: (employeeId: string, year?: number) => {
+    const qs = year ? `?year=${year}` : "";
+    return request<Payment[]>(`/api/crew/employees/${employeeId}/payments${qs}`);
+  },
+  createPayment: (body: PaymentBody) =>
+    request<Payment>("/api/crew/payments", { method: "POST", body: JSON.stringify(body) }),
+  updatePayment: (id: string, body: PaymentBody) =>
+    request<Payment>(`/api/crew/payments/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deletePayment: (id: string) =>
+    request<{ status: string }>(`/api/crew/payments/${id}`, { method: "DELETE" }),
+  getCrewSummary: () =>
+    request<{ active_count: number; total_unpaid_balance: number; w9_missing_count: number; w9_missing_30d_count: number }>("/api/crew/summary"),
+  getEmployeeYtdExportUrl: (id: string, year?: number) =>
+    `${BASE}/api/crew/employees/${id}/export${year ? `?year=${year}` : ""}`,
+  getRosterExportUrl: () => `${BASE}/api/crew/export-roster`,
 };
+
+
+// --- Crew types (defined after the api object since it references them) ---
+
+export interface Employee {
+  id: string;
+  first_name: string;
+  last_name: string;
+  display_name: string;
+  role: string;
+  pay_type: "hourly" | "daily" | "per_job" | "salary";
+  pay_rate: number;
+  phone: string;
+  email: string;
+  address: string;
+  start_date: string;
+  status: "active" | "inactive";
+  w9_uploaded: boolean;
+  w9_file_name: string;
+  w9_uploaded_at: string | null;
+  w9_missing: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeeBody {
+  first_name: string;
+  last_name: string;
+  display_name?: string;
+  role?: string;
+  pay_type?: "hourly" | "daily" | "per_job" | "salary";
+  pay_rate: number;
+  phone?: string;
+  email?: string;
+  address?: string;
+  start_date?: string;
+  status?: "active" | "inactive";
+  notes?: string;
+}
+
+export interface RangeTotals {
+  hours: number;
+  earned: number;
+  paid: number;
+  wage_paid: number;
+  reimbursement_paid: number;
+  bonus_paid: number;
+  balance: number;
+}
+
+export interface LifetimeTotals {
+  lifetime_earned: number;
+  lifetime_paid: number;
+  unpaid_balance: number;
+}
+
+export interface TimeEntry {
+  id: string;
+  employee_id: string;
+  work_date: string;
+  hours: number;
+  rate_at_entry: number;
+  earnings: number;
+  job_reference: string;
+  notes: string;
+  created_at: string;
+  created_by: string;
+}
+
+export interface TimeEntryBody {
+  employee_id: string;
+  work_date: string;
+  hours: number;
+  job_reference?: string;
+  notes?: string;
+}
+
+export type PaymentMethod = "cash" | "zelle" | "check" | "venmo" | "cashapp" | "other";
+
+export interface Payment {
+  id: string;
+  employee_id: string;
+  payment_date: string;
+  wage_amount: number;
+  reimbursement_amount: number;
+  reimbursement_note: string;
+  bonus_amount: number;
+  bonus_note: string;
+  total_paid: number;
+  payment_method: PaymentMethod;
+  payment_method_other: string;
+  notes: string;
+  created_at: string;
+  created_by: string;
+}
+
+export interface PaymentBody {
+  employee_id: string;
+  payment_date: string;
+  wage_amount: number;
+  reimbursement_amount: number;
+  reimbursement_note: string;
+  bonus_amount: number;
+  bonus_note: string;
+  payment_method: PaymentMethod;
+  payment_method_other: string;
+  notes: string;
+}

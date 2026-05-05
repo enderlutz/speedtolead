@@ -17,6 +17,8 @@ import ProposalView from "@/pages/ProposalView";
 import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
+import Crew from "@/pages/Crew";
+import CrewEmployee from "@/pages/CrewEmployee";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -63,6 +65,8 @@ function AppLayout() {
               <Route path="/sent-log" element={<SentLog />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/calls" element={<Calls />} />
+              <Route path="/crew" element={<Crew />} />
+              <Route path="/crew/:id" element={<CrewEmployee />} />
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/ai-fence" element={<AiFenceEstimation />} />
               <Route path="/settings" element={<Settings />} />
