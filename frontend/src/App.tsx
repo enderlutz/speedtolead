@@ -20,7 +20,6 @@ import Calls from "@/pages/Calls";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
-import { EstimateDelayBlocker } from "@/components/EstimateDelay";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -59,13 +58,8 @@ function AppLayout() {
     );
   }
 
-  // Blocker only shows for staff (admin/va) — workers don't see lead-management alerts.
-  const u = getCurrentUser();
-  const showDelayBlocker = u?.role === "admin" || u?.role === "va";
-
   return (
     <RequireAuth>
-      {showDelayBlocker && <EstimateDelayBlocker />}
       <div className="flex h-dvh bg-background overflow-hidden">
         <Sidebar open={sidebarOpen} onClose={closeSidebar} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
