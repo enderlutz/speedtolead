@@ -68,30 +68,12 @@ def get_lead_calls(lead_id: str, include_archived: bool = False):
         db.close()
 
 
-@router.get("/calls/{recording_id}")
-def get_call(recording_id: str):
-    """Get a single call recording with transcript and analysis."""
-    db = get_db()
-    try:
-        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
-        if not rec:
-            raise HTTPException(status_code=404, detail="Recording not found")
-
-        entry = rec.to_dict()
-
-        transcript = db.query(CallTranscript).filter(
-            CallTranscript.recording_id == rec.id
-        ).first()
-        entry["transcript"] = transcript.to_dict() if transcript else None
-
-        analysis = db.query(CallAnalysis).filter(
-            CallAnalysis.recording_id == rec.id
-        ).first()
-        entry["analysis"] = analysis.to_dict() if analysis else None
-
-        return entry
-    finally:
-        db.close()
+# NOTE: The bare GET /calls/{recording_id} route is defined at the BOTTOM
+# of this file. FastAPI matches routes in declaration order, so any literal
+# path like /calls/all, /calls/storage, /calls/coaching-profile must be
+# declared before the catch-all {recording_id} route — otherwise FastAPI
+# routes those literal paths to the catch-all and 404s because no recording
+# has that ID.
 
 
 @router.post("/calls/upload")
@@ -804,5 +786,34 @@ def stream_review_audio(review_id: str):
         if not rev or not rev.audio_data:
             raise HTTPException(status_code=404, detail="Review audio not found")
         return Response(content=rev.audio_data, media_type=rev.audio_mime or "audio/webm")
+    finally:
+        db.close()
+
+
+# Catch-all single-recording fetch — MUST stay last so it doesn't shadow the
+# literal-path routes above (/calls/all, /calls/storage, /calls/patterns,
+# /calls/coaching-profile, /calls/reviews/...).
+@router.get("/calls/{recording_id}")
+def get_call(recording_id: str):
+    """Get a single call recording with transcript and analysis."""
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+        entry = rec.to_dict()
+
+        transcript = db.query(CallTranscript).filter(
+            CallTranscript.recording_id == rec.id
+        ).first()
+        entry["transcript"] = transcript.to_dict() if transcript else None
+
+        analysis = db.query(CallAnalysis).filter(
+            CallAnalysis.recording_id == rec.id
+        ).first()
+        entry["analysis"] = analysis.to_dict() if analysis else None
+
+        return entry
     finally:
         db.close()
