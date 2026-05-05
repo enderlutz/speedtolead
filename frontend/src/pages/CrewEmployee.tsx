@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Pencil, Upload, FileText, Clock, DollarSign, Plus, Trash2, Download, ChevronDown, ChevronUp,
+  ArrowLeft, Pencil, Upload, FileText, Clock, DollarSign, Plus, Trash2, Download, ChevronDown, ChevronUp, KeyRound,
 } from "lucide-react";
 import { LogHoursModal, RecordPaymentModal, AddEmployeeModal } from "@/components/CrewModals";
 
@@ -392,6 +392,9 @@ export default function CrewEmployee() {
         )}
       </Card>
 
+      <WorkerLoginCard employeeId={emp.id} />
+
+
       {showLogHours && (
         <LogHoursModal
           employees={[emp]}
@@ -471,5 +474,149 @@ function YearSummary({ timeEntries, payments, year, w9Uploaded }: {
         </p>
       )}
     </div>
+  );
+}
+
+
+function WorkerLoginCard({ employeeId }: { employeeId: string }) {
+  const [status, setStatus] = useState<{ has_login: boolean; username?: string } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const refresh = useCallback(() => {
+    api.getWorkerLogin(employeeId)
+      .then(setStatus)
+      .catch(() => setStatus({ has_login: false }));
+  }, [employeeId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const startEdit = () => {
+    setUsername(status?.username || "");
+    setPassword("");
+    setShowForm(true);
+  };
+
+  const save = async () => {
+    if (!username.trim() || username.trim().length < 3) {
+      toast.error("Username must be at least 3 characters");
+      return;
+    }
+    if (!status?.has_login && password.length < 6) {
+      toast.error("Password (6+ chars) required when creating a login");
+      return;
+    }
+    if (status?.has_login && password && password.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.upsertWorkerLogin(employeeId, {
+        username: username.trim().toLowerCase(),
+        password: password || undefined,
+      });
+      toast.success(status?.has_login ? "Login updated" : "Worker login created");
+      setShowForm(false);
+      setPassword("");
+      refresh();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to save login");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revoke = async () => {
+    if (!confirm("Revoke this worker's login? They will no longer be able to sign in.")) return;
+    try {
+      await api.revokeWorkerLogin(employeeId);
+      toast.success("Login revoked");
+      setShowForm(false);
+      refresh();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to revoke");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-muted-foreground" /> Worker Login
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!status ? (
+          <p className="text-xs text-muted-foreground">Loading…</p>
+        ) : !status.has_login ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              No login yet. Create one so this employee can sign in to see their assigned jobs on the Calendar.
+            </p>
+            {!showForm ? (
+              <Button size="sm" variant="outline" onClick={startEdit}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Create login
+              </Button>
+            ) : null}
+          </>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Active</Badge>
+            <span className="font-mono">{status.username}</span>
+            {!showForm && (
+              <div className="ml-auto flex gap-1.5">
+                <Button size="sm" variant="ghost" onClick={startEdit}>
+                  <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                </Button>
+                <Button size="sm" variant="ghost" className="text-red-600" onClick={revoke}>
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Revoke
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {showForm && (
+          <div className="space-y-2 border-t pt-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Username</label>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. miguel"
+                className="mt-1 text-sm"
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">
+                {status?.has_login ? "New password (leave blank to keep current)" : "Password"}
+              </label>
+              <Input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="6+ characters"
+                className="mt-1 text-sm font-mono"
+                autoComplete="off"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Shown in plain text once so you can text it to them. Not retrievable later.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowForm(false); setPassword(""); }}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

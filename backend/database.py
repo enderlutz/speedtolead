@@ -331,7 +331,8 @@ class User(Base):
     username = Column(Text, unique=True, nullable=False)
     display_name = Column(Text, default="")
     password_hash = Column(Text, nullable=False)
-    role = Column(Text, default="va")  # admin, va
+    role = Column(Text, default="va")  # admin, va, worker
+    employee_id = Column(Text, nullable=True, default="")  # set when role == "worker", links to Employee row
     created_at = Column(Text, default="")
 
 
@@ -751,6 +752,158 @@ class Payment(Base):
         }
 
 
+class ScheduledJob(Base):
+    """One scheduled fence-staining job. Created when admin/VA hits "Schedule"
+    on a closed lead. Mirrored to Google Calendar via google_event_id."""
+    __tablename__ = "scheduled_jobs"
+    __table_args__ = (
+        Index("idx_scheduled_jobs_lead", "lead_id"),
+        Index("idx_scheduled_jobs_date", "job_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    job_date = Column(Text, nullable=False)               # YYYY-MM-DD, Central Time
+    arrival_time = Column(Text, default="07:30")          # HH:MM, default 7:30 AM
+    estimated_duration_hours = Column(Numeric(10, 2), default=0)
+    package_tier = Column(Text, default="")               # essential | signature | legacy | custom
+    closed_price = Column(Numeric(10, 2), default=0)
+    color_choice = Column(Text, default="")               # stain color (free text + dropdown)
+    needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
+    gallons_estimate = Column(Numeric(10, 2), default=0)  # sqft / 175 default; editable
+    address = Column(Text, default="")                    # snapshot from lead at schedule time
+    zip_code = Column(Text, default="")                   # for weather lookup
+    customer_email = Column(Text, default="")             # invite recipient
+    customer_phone = Column(Text, default="")
+    customer_name = Column(Text, default="")
+    job_description = Column(Text, default="")            # what employees see
+    admin_notes = Column(Text, default="")                # admin-only, not on customer invite
+    google_event_id = Column(Text, default="")            # Calendar event id for updates/deletes
+    customer_invited = Column(Boolean, default=False)
+    customer_thank_you_sent = Column(Boolean, default=False)
+    status = Column(Text, default="scheduled")            # scheduled | in_progress | completed | cancelled
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self, *, role: str = "admin") -> dict:
+        """Role-aware serialization. Workers don't see price/package/admin_notes."""
+        base = {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "job_date": self.job_date,
+            "arrival_time": self.arrival_time or "07:30",
+            "estimated_duration_hours": float(self.estimated_duration_hours or 0),
+            "address": self.address or "",
+            "zip_code": self.zip_code or "",
+            "customer_name": self.customer_name or "",
+            "color_choice": self.color_choice or "",
+            "needs_test_spots": bool(self.needs_test_spots),
+            "gallons_estimate": float(self.gallons_estimate or 0),
+            "job_description": self.job_description or "",
+            "status": self.status or "scheduled",
+            "google_event_id": self.google_event_id or "",
+        }
+        if role == "worker":
+            return base  # workers see only what's needed to do the job
+        # admin / va get everything
+        base.update({
+            "package_tier": self.package_tier or "",
+            "closed_price": float(self.closed_price or 0),
+            "customer_email": self.customer_email or "",
+            "customer_phone": self.customer_phone or "",
+            "admin_notes": self.admin_notes or "",
+            "customer_invited": bool(self.customer_invited),
+            "customer_thank_you_sent": bool(self.customer_thank_you_sent),
+            "created_at": self.created_at,
+            "created_by": self.created_by or "",
+            "updated_at": self.updated_at,
+        })
+        return base
+
+
+class JobAssignment(Base):
+    """Many-to-many: which workers are assigned to which scheduled job.
+    Workers' calendar view filters on this table."""
+    __tablename__ = "job_assignments"
+    __table_args__ = (
+        Index("idx_job_assignments_job", "scheduled_job_id"),
+        Index("idx_job_assignments_employee", "employee_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    scheduled_job_id = Column(Text, nullable=False)
+    employee_id = Column(Text, nullable=False)
+    notified_at = Column(Text, nullable=True)             # SMS-on-assignment timestamp
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "scheduled_job_id": self.scheduled_job_id,
+            "employee_id": self.employee_id,
+            "notified_at": self.notified_at,
+            "created_at": self.created_at,
+        }
+
+
+class EstimateDelay(Base):
+    """One row per lead that has gone 24h+ without an estimate. Drives the
+    blocking modal + kanban badge + Alan SMS. Resolved when an estimate is
+    sent OR when status flips to non-pending."""
+    __tablename__ = "estimate_delays"
+    __table_args__ = (
+        Index("idx_estimate_delays_lead", "lead_id"),
+        Index("idx_estimate_delays_resolved", "resolved_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False, unique=True)
+    detected_at = Column(Text, nullable=False)            # when 24h threshold tripped
+    reason_code = Column(Text, default="")                # dropdown value
+    reason_other_text = Column(Text, default="")          # free text when reason_code == "other"
+    reason_added_at = Column(Text, nullable=True)
+    reason_added_by = Column(Text, default="")
+    alan_notified_at = Column(Text, nullable=True)        # SMS sent on detect
+    alan_reason_notified_at = Column(Text, nullable=True) # SMS sent when reason filled in
+    resolved_at = Column(Text, nullable=True)             # estimate sent OR badge manually removed
+    resolved_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "detected_at": self.detected_at,
+            "reason_code": self.reason_code or "",
+            "reason_other_text": self.reason_other_text or "",
+            "reason_added_at": self.reason_added_at,
+            "reason_added_by": self.reason_added_by or "",
+            "alan_notified_at": self.alan_notified_at,
+            "alan_reason_notified_at": self.alan_reason_notified_at,
+            "resolved_at": self.resolved_at,
+            "resolved_by": self.resolved_by or "",
+            "created_at": self.created_at,
+            "is_resolved": bool(self.resolved_at),
+        }
+
+
+class GoogleOAuthToken(Base):
+    """Single-row table holding Alan's Google Calendar OAuth tokens.
+    One calendar for all jobs (per spec). Refresh token persists; access
+    token is short-lived and refreshed on demand."""
+    __tablename__ = "google_oauth_tokens"
+
+    id = Column(Text, primary_key=True)                   # always "alan" — single-row pattern
+    refresh_token = Column(Text, nullable=False)
+    access_token = Column(Text, default="")
+    access_token_expires_at = Column(Text, default="")    # ISO8601
+    calendar_id = Column(Text, default="primary")         # "primary" or specific cal id
+    connected_email = Column(Text, default="")            # which Google account is linked
+    connected_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 # --- Engine / Session ---
 
 _engine = None
@@ -864,6 +1017,13 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE call_recordings ADD COLUMN is_favorite BOOLEAN DEFAULT FALSE"))
             logger.info("Migration: added call_recordings.is_favorite")
+
+    if inspector.has_table("users"):
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "employee_id" not in user_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN employee_id TEXT DEFAULT ''"))
+            logger.info("Migration: added users.employee_id (links worker logins to Employee rows)")
 
 
 def get_db() -> Session:

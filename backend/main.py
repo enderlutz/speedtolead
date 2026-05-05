@@ -141,7 +141,7 @@ async def lifespan(app: FastAPI):
     correction_escalator.cancel()
 
 
-app = FastAPI(title="A&T's Fence Staining", lifespan=lifespan)
+app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)
 
 # CORS — explicit origin list (wildcard + credentials is invalid per spec)
 _settings = get_settings()

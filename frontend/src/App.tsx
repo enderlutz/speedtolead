@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { isAuthenticated } from "@/lib/api";
+import { isAuthenticated, getCurrentUser } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
@@ -26,6 +26,25 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
   return <>{children}</>;
+}
+
+// Workers see only /calendar — any other URL bounces back.
+function StaffOnly({ children }: { children: React.ReactNode }) {
+  const u = getCurrentUser();
+  if (u?.role === "worker") return <Navigate to="/calendar" replace />;
+  return <>{children}</>;
+}
+
+// Placeholder — full Google-Calendar-style page lands in Phase 2.
+function CalendarPlaceholder() {
+  return (
+    <div className="p-6 max-w-2xl">
+      <h1 className="text-xl font-semibold tracking-tight">Calendar</h1>
+      <p className="text-sm text-muted-foreground mt-2">
+        Full scheduling calendar is coming soon. Once jobs are scheduled, they'll appear here.
+      </p>
+    </div>
+  );
 }
 
 function AppLayout() {
@@ -57,19 +76,20 @@ function AppLayout() {
           <MobileHeader onToggle={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto">
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/leads" element={<LeadsV2 />} />
-              <Route path="/old-leads" element={<Leads />} />
-              <Route path="/leads/:id" element={<LeadDetail />} />
-              <Route path="/leads/:id/edit-pdf" element={<EditPdf />} />
-              <Route path="/sent-log" element={<SentLog />} />
-              <Route path="/analytics" element={<Analytics />} />
-              <Route path="/calls" element={<Calls />} />
-              <Route path="/crew" element={<Crew />} />
-              <Route path="/crew/:id" element={<CrewEmployee />} />
-              <Route path="/pricing" element={<Pricing />} />
-              <Route path="/ai-fence" element={<AiFenceEstimation />} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/" element={<StaffOnly><Dashboard /></StaffOnly>} />
+              <Route path="/leads" element={<StaffOnly><LeadsV2 /></StaffOnly>} />
+              <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
+              <Route path="/leads/:id" element={<StaffOnly><LeadDetail /></StaffOnly>} />
+              <Route path="/leads/:id/edit-pdf" element={<StaffOnly><EditPdf /></StaffOnly>} />
+              <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
+              <Route path="/analytics" element={<StaffOnly><Analytics /></StaffOnly>} />
+              <Route path="/calls" element={<StaffOnly><Calls /></StaffOnly>} />
+              <Route path="/crew" element={<StaffOnly><Crew /></StaffOnly>} />
+              <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
+              <Route path="/calendar" element={<CalendarPlaceholder />} />
+              <Route path="/pricing" element={<StaffOnly><Pricing /></StaffOnly>} />
+              <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
+              <Route path="/settings" element={<StaffOnly><Settings /></StaffOnly>} />
             </Routes>
           </main>
         </div>

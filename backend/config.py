@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # be attributed to a real GHL user). Find yours in GHL → My Profile.
     ghl_default_user_id: str = ""
 
+    # Google Calendar OAuth (Alan's calendar — single account, all jobs)
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_redirect_uri: str = ""  # e.g., https://api.../api/google/callback
+
     # Anthropic (Claude API for AI fence measurement + chatbot)
     anthropic_api_key: str = ""
 

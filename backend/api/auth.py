@@ -28,6 +28,7 @@ def make_token(user: User) -> str:
         "sub": user.username,
         "name": user.display_name,
         "role": user.role,
+        "employee_id": user.employee_id or "",
         "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS),
     }
     return jwt.encode(payload, settings.auth_secret, algorithm=SECRET_ALGORITHM)
@@ -47,6 +48,13 @@ def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
 def require_admin(user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def require_staff(user: dict = Depends(get_current_user)):
+    """Admin or VA — used to wall workers off from internal-only endpoints."""
+    if user.get("role") not in ("admin", "va"):
+        raise HTTPException(status_code=403, detail="Staff access required")
     return user
 
 
@@ -71,6 +79,7 @@ def login(body: LoginRequest):
                 "username": user.username,
                 "name": user.display_name,
                 "role": user.role,
+                "employee_id": user.employee_id or "",
             },
         }
     finally:

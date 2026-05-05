@@ -43,7 +43,7 @@ def _count_reviews(db: Session) -> int:
     return db.query(CallReview).count()
 
 
-_PROFILE_PROMPT = """You are summarizing how the owner of A&T's Fence Staining (Alan) and his admins coach their VA (Olga) on her lead intake calls. Below is every coaching review they have left on Olga's recorded calls over time.
+_PROFILE_PROMPT = """You are summarizing how the owner of Sterling Fence Staining (Alan) and his admins coach their VA (Olga) on her lead intake calls. Below is every coaching review they have left on Olga's recorded calls over time.
 
 Your job: distill these reviews into a coaching profile that an AI Call Coach can use as calibration when evaluating future calls. The AI Call Coach already has a static rubric (the call script + boundary rules). Your profile is the LIVING overlay — Alan's actual style, recurring themes, and pet peeves.
 

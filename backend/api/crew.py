@@ -12,7 +12,8 @@ from decimal import Decimal
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import func
-from database import get_db, Employee, TimeEntry, Payment
+import bcrypt
+from database import get_db, Employee, TimeEntry, Payment, User
 from api.auth import require_admin
 
 router = APIRouter()
@@ -747,3 +748,90 @@ def export_roster(user: dict = Depends(require_admin)):
         return _csv_response(rows, "crew-roster.csv")
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Worker login provisioning — admin sets username/password for an employee so
+# they can log into the dashboard's Calendar page (only). One User row per
+# employee, linked via User.employee_id.
+# ---------------------------------------------------------------------------
+
+class WorkerLoginBody(BaseModel):
+    username: str
+    password: str | None = None  # required on create; optional on update (rotates if set)
+
+
+@router.get("/crew/employees/{employee_id}/login")
+def get_worker_login(employee_id: str, user: dict = Depends(require_admin)):
+    del user
+    db = get_db()
+    try:
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        if not emp:
+            raise HTTPException(404, "Employee not found")
+        u = db.query(User).filter(User.employee_id == employee_id).first()
+        if not u:
+            return {"has_login": False}
+        return {"has_login": True, "username": u.username, "created_at": u.created_at}
+    finally:
+        db.close()
+
+
+@router.post("/crew/employees/{employee_id}/login")
+def upsert_worker_login(employee_id: str, body: WorkerLoginBody, user: dict = Depends(require_admin)):
+    del user
+    username = (body.username or "").strip().lower()
+    if not username or len(username) < 3:
+        raise HTTPException(400, "Username must be at least 3 characters")
+    db = get_db()
+    try:
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        if not emp:
+            raise HTTPException(404, "Employee not found")
+        existing = db.query(User).filter(User.employee_id == employee_id).first()
+        # Username collision check (excluding the row we may be editing)
+        clash = db.query(User).filter(User.username == username).first()
+        if clash and (not existing or clash.id != existing.id):
+            raise HTTPException(409, "Username is already taken")
+        if existing:
+            existing.username = username
+            if body.password:
+                if len(body.password) < 6:
+                    raise HTTPException(400, "Password must be at least 6 characters")
+                existing.password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+            db.commit()
+            return {"status": "updated", "username": existing.username}
+        # Create — password required
+        if not body.password or len(body.password) < 6:
+            raise HTTPException(400, "Password (6+ chars) required when creating a new login")
+        now = datetime.now(timezone.utc).isoformat()
+        new_user = User(
+            id=str(uuid.uuid4()),
+            username=username,
+            display_name=emp.display_name or f"{emp.first_name} {emp.last_name}".strip(),
+            password_hash=bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(),
+            role="worker",
+            employee_id=employee_id,
+            created_at=now,
+        )
+        db.add(new_user)
+        db.commit()
+        return {"status": "created", "username": new_user.username}
+    finally:
+        db.close()
+
+
+@router.delete("/crew/employees/{employee_id}/login")
+def revoke_worker_login(employee_id: str, user: dict = Depends(require_admin)):
+    del user
+    db = get_db()
+    try:
+        u = db.query(User).filter(User.employee_id == employee_id).first()
+        if not u:
+            raise HTTPException(404, "No login exists for this employee")
+        db.delete(u)
+        db.commit()
+        return {"status": "revoked"}
+    finally:
+        db.close()
+

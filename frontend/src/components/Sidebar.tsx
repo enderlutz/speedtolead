@@ -1,18 +1,22 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic, HardHat } from "lucide-react";
+import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic, HardHat, Calendar } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
-const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToRole?: string }[] = [
+// `allowedRoles` (if set) restricts visibility to listed roles. Items without
+// it are visible to admin + va but hidden from workers — workers only see
+// items that explicitly include "worker" in allowedRoles.
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; allowedRoles?: string[] }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/leads", icon: Users, label: "Leads" },
   { to: "/old-leads", icon: UsersRound, label: "Old Leads" },
   { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/calls", icon: Mic, label: "Call Coach" },
-  { to: "/crew", icon: HardHat, label: "Crew", restrictToRole: "admin" },
+  { to: "/crew", icon: HardHat, label: "Crew", allowedRoles: ["admin"] },
+  { to: "/calendar", icon: Calendar, label: "Calendar", allowedRoles: ["admin", "va", "worker"] },
   { to: "/pricing", icon: DollarSign, label: "Pricing" },
   { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings" },
@@ -25,7 +29,7 @@ export function MobileHeader({ onToggle }: { onToggle: () => void }) {
         <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
           <Zap className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">{"A&T's Fence Staining"}</span>
+        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">{"Sterling Fence Staining"}</span>
       </div>
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
@@ -130,7 +134,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               <Zap className="h-4.5 w-4.5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">{"A&T's Fence Staining"}</h1>
+              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">{"Sterling Fence Staining"}</h1>
               <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">Fence Restoration</p>
             </div>
           </div>
@@ -145,7 +149,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           {NAV_ITEMS.filter(item => {
             const u = getCurrentUser();
             if (item.restrictTo && u?.sub !== item.restrictTo) return false;
-            if (item.restrictToRole && u?.role !== item.restrictToRole) return false;
+            if (item.allowedRoles) {
+              if (!u?.role || !item.allowedRoles.includes(u.role)) return false;
+            } else {
+              // Default: admin + va only (workers must use allowedRoles to see)
+              if (u?.role === "worker") return false;
+            }
             return true;
           }).map(({ to, icon: Icon, label }) => (
             <NavLink

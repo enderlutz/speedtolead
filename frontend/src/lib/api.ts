@@ -16,7 +16,7 @@ export function clearToken() {
   document.cookie = "at_auth=; max-age=0; path=/";
 }
 
-export function getCurrentUser(): { sub: string; name: string; role: string } | null {
+export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string } | null {
   const token = getToken();
   if (!token) return null;
   try {
@@ -388,7 +388,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
-  getMe: () => request<{ sub: string; name: string; role: string }>("/api/auth/me"),
+  getMe: () => request<{ sub: string; name: string; role: string; employee_id?: string }>("/api/auth/me"),
 
   // Leads
   getLeads: (params?: Record<string, string>) => {
@@ -834,6 +834,17 @@ export const api = {
   getEmployeeYtdExportUrl: (id: string, year?: number) =>
     `${BASE}/api/crew/employees/${id}/export${year ? `?year=${year}` : ""}`,
   getRosterExportUrl: () => `${BASE}/api/crew/export-roster`,
+
+  // Worker login provisioning
+  getWorkerLogin: (employeeId: string) =>
+    request<{ has_login: boolean; username?: string; created_at?: string }>(`/api/crew/employees/${employeeId}/login`),
+  upsertWorkerLogin: (employeeId: string, body: { username: string; password?: string }) =>
+    request<{ status: string; username: string }>(
+      `/api/crew/employees/${employeeId}/login`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  revokeWorkerLogin: (employeeId: string) =>
+    request<{ status: string }>(`/api/crew/employees/${employeeId}/login`, { method: "DELETE" }),
 };
 
 

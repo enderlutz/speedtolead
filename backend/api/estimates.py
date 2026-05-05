@@ -448,7 +448,7 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
             first_name = lead.contact_name.split()[0] if lead.contact_name else "there"
             customer_msg = (
                 f"Here it is!\n"
-                f"A&T's Fence Staining - Your Estimate\n\n"
+                f"Sterling Fence Staining - Your Estimate\n\n"
                 f"{proposal_url}"
             )
 
@@ -899,7 +899,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
                 customer_msg = (
                     f"Here it is!\n"
-                    f"A&T's Fence Staining - Your Estimate\n\n"
+                    f"Sterling Fence Staining - Your Estimate\n\n"
                     f"{proposal_url}"
                 )
                 sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)

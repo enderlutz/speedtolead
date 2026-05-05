@@ -320,19 +320,66 @@ def get_opportunity(opportunity_id: str, location_id: str | None = None) -> dict
 
 
 def update_opportunity_stage(opportunity_id: str, stage_id: str, location_id: str | None = None) -> bool:
-    """Move a GHL opportunity to a different pipeline stage."""
-    try:
-        r = _client.put(
-            f"{GHL_BASE}/opportunities/{opportunity_id}",
-            headers=_headers(location_id),
-            json={"pipelineStageId": stage_id},
-            timeout=10,
-        )
-        r.raise_for_status()
-        return True
-    except Exception as e:
-        logger.error(f"GHL update_opportunity_stage failed: {e}")
+    """Move a GHL opportunity to a different pipeline stage. Used by the
+    1:1 mirror — when a card is dragged on our kanban, push the change
+    back to GHL. 429-retried so a flurry of drags doesn't fail silently."""
+    if not opportunity_id or not stage_id:
         return False
+    url = f"{GHL_BASE}/opportunities/{opportunity_id}"
+    payload = {"pipelineStageId": stage_id}
+    headers = _headers(location_id)
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            r = _client.put(url, headers=headers, json=payload, timeout=10)
+            if r.status_code == 429 and attempt < 2:
+                import time as _time
+                logger.warning(f"GHL stage push rate-limited for {opportunity_id}, retrying in {delay}s (attempt {attempt + 1}/3)")
+                _time.sleep(delay)
+                delay *= 2
+                continue
+            r.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"GHL update_opportunity_stage failed: {e}")
+            return False
+    return False
+
+
+def update_contact_custom_fields(
+    contact_id: str,
+    fields: dict[str, str | int | float],
+    location_id: str | None = None,
+) -> bool:
+    """Push a dict of {ghl_field_id: value} to a GHL contact's custom fields.
+    Used to mirror estimate-input edits (zip / fence height / fence age /
+    previously stained / timeline) back to GHL. 429-retried."""
+    if not contact_id or not fields:
+        return False
+    url = f"{GHL_BASE}/contacts/{contact_id}"
+    payload = {
+        "customFields": [{"id": fid, "field_value": str(val)} for fid, val in fields.items() if fid],
+    }
+    if not payload["customFields"]:
+        return False
+    headers = _headers(location_id)
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            r = _client.put(url, headers=headers, json=payload, timeout=10)
+            if r.status_code == 429 and attempt < 2:
+                import time as _time
+                logger.warning(f"GHL custom-field push rate-limited for {contact_id}, retrying in {delay}s")
+                _time.sleep(delay)
+                delay *= 2
+                continue
+            r.raise_for_status()
+            logger.info(f"GHL custom fields updated for contact {contact_id}: {list(fields.keys())}")
+            return True
+        except Exception as e:
+            logger.error(f"GHL update_contact_custom_fields failed: {e}")
+            return False
+    return False
 
 
 def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None = None) -> list[dict]:
