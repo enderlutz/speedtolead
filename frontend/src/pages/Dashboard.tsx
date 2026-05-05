@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api, type KPIs, type Lead, type PendingEstimate, type ActivityEvent, type CorrectionRequest } from "@/lib/api";
+import { api, type KPIs, type Lead, type PendingEstimate, type ActivityEvent, type CorrectionRequest, getCurrentUser } from "@/lib/api";
 import { formatCurrency, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowRight, Zap, CheckCircle2, AlertCircle } from "lucide-react";
+import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowRight, Zap, CheckCircle2, AlertCircle, HardHat } from "lucide-react";
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
 
@@ -36,6 +36,8 @@ export default function Dashboard() {
   const [notifCount, setNotifCount] = useState(0);
   const [corrections, setCorrections] = useState<CorrectionRequest[]>([]);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [crewSummary, setCrewSummary] = useState<{ active_count: number; total_unpaid_balance: number; w9_missing_count: number; w9_missing_30d_count: number } | null>(null);
+  const isAdmin = getCurrentUser()?.role === "admin";
   const [filter, setFilter] = useState<PipelineFilter>(() => {
     const saved = (typeof window !== "undefined" && localStorage.getItem(FILTER_KEY)) as PipelineFilter | null;
     return saved || "v2";
@@ -50,6 +52,9 @@ export default function Dashboard() {
     api.getRecentActivity(10, apiFilter).then(setActivity).catch(console.error);
     api.getNotificationCount().then((d) => setNotifCount(d.count)).catch(console.error);
     api.listCorrectionRequests("pending").then(setCorrections).catch(console.error);
+    if (isAdmin) {
+      api.getCrewSummary().then(setCrewSummary).catch(() => {});
+    }
   }, [filter]);
 
   useEffect(() => { refreshAll(); }, [refreshAll]);
@@ -187,6 +192,15 @@ export default function Dashboard() {
         <GradientKPI icon={TrendingUp} title="Close Rate" value={kpis?.close_rate != null ? `${kpis.close_rate}%` : "—"} gradient="from-violet-500 to-violet-600" />
         <GradientKPI icon={DollarSign} title="Closed Revenue" value={kpis?.revenue_pipeline != null ? formatCurrency(kpis.revenue_pipeline) : "—"} gradient="from-amber-500 to-orange-500" />
         <GradientKPI icon={Clock} title="Avg Time to Est." value={kpis?.avg_response_minutes != null ? `${kpis.avg_response_minutes}m` : "—"} gradient="from-cyan-500 to-cyan-600" />
+        {isAdmin && crewSummary && (
+          <GradientKPI
+            icon={HardHat}
+            title="Unpaid Crew Owed"
+            value={formatCurrency(crewSummary.total_unpaid_balance)}
+            gradient={crewSummary.total_unpaid_balance > 0 ? "from-rose-500 to-rose-600" : "from-slate-400 to-slate-500"}
+            href="/crew"
+          />
+        )}
         <Card className="border-0 shadow-sm bg-card">
           <CardContent className="pt-4 pb-3 px-4">
             <div className="flex items-center justify-between mb-2">
@@ -317,11 +331,11 @@ export default function Dashboard() {
   );
 }
 
-function GradientKPI({ icon: Icon, title, value, change, gradient }: {
-  icon: React.ElementType; title: string; value: string | number; change?: number; gradient: string;
+function GradientKPI({ icon: Icon, title, value, change, gradient, href }: {
+  icon: React.ElementType; title: string; value: string | number; change?: number; gradient: string; href?: string;
 }) {
-  return (
-    <Card className="border-0 shadow-sm overflow-hidden">
+  const content = (
+    <Card className={`border-0 shadow-sm overflow-hidden ${href ? "hover:shadow-md transition-shadow cursor-pointer" : ""}`}>
       <CardContent className="pt-4 pb-3 px-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">{title}</p>
@@ -338,4 +352,5 @@ function GradientKPI({ icon: Icon, title, value, change, gradient }: {
       </CardContent>
     </Card>
   );
+  return href ? <Link to={href}>{content}</Link> : content;
 }
