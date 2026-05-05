@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
 from services.correction_escalator import check_escalations
@@ -98,6 +98,27 @@ async def _correction_escalator_loop():
         await asyncio.sleep(900)  # Every 15 minutes
 
 
+async def _estimate_delay_loop():
+    """Background task: detect leads that have crossed 24h without an estimate
+    and auto-resolve any whose estimates have since gone out. Every 10 min."""
+    from api.estimate_delays import detect_and_record_delays, auto_resolve_delays
+    from database import get_db as _get_db
+    await asyncio.sleep(240)  # Stagger after other startup tasks
+    while True:
+        try:
+            def _tick():
+                db = _get_db()
+                try:
+                    detect_and_record_delays(db)
+                    auto_resolve_delays(db)
+                finally:
+                    db.close()
+            await asyncio.to_thread(_tick)
+        except Exception as e:
+            logger.error(f"Estimate delay detector error: {e}")
+        await asyncio.sleep(600)  # Every 10 minutes
+
+
 async def _async_db_init():
     """Run DB init + seed in a background thread so lifespan doesn't block
     uvicorn from serving /health. If Supabase is briefly unreachable, we
@@ -131,6 +152,7 @@ async def lifespan(app: FastAPI):
     # in-browser via the dashboard, no longer pulling from GHL
     # call_poller = asyncio.create_task(_call_recording_poller_loop())
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
+    delay_detector = asyncio.create_task(_estimate_delay_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -139,6 +161,7 @@ async def lifespan(app: FastAPI):
     sms_worker.cancel()
     weekly.cancel()
     correction_escalator.cancel()
+    delay_detector.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)
@@ -179,6 +202,8 @@ app.include_router(fence_ai.router, prefix="/api")
 app.include_router(chatbot.router, prefix="/api")
 app.include_router(calls.router, prefix="/api")
 app.include_router(crew.router, prefix="/api")
+app.include_router(scheduling.router, prefix="/api")
+app.include_router(estimate_delays.router, prefix="/api")
 
 
 @app.get("/health")

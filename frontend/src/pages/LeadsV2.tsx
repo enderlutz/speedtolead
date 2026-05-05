@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, Archive, Zap } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, Archive, Zap, CalendarPlus } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -78,7 +78,27 @@ export default function LeadsV2() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [delays, setDelays] = useState<Record<string, { reason: string }>>({});
   const prevCountRef = useRef(leads.length);
+
+  // 24h delay reasons keyed by lead_id, fetched once and refreshed every 60s
+  useEffect(() => {
+    const load = () => {
+      api.listOpenDelays().then((r) => {
+        const map: Record<string, { reason: string }> = {};
+        for (const d of r.delays) {
+          let reason = d.reason_code
+            ? (d.reason_code === "other" ? d.reason_other_text : d.reason_code.replace(/_/g, " "))
+            : "Reason not yet logged";
+          map[d.lead_id] = { reason };
+        }
+        setDelays(map);
+      }).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   const loadLeads = useCallback(() => {
     setLoading(true);
@@ -201,7 +221,13 @@ export default function LeadsV2() {
     if (!lead || lead.ghl_pipeline_stage_id === newStageId) return;
     setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ghl_pipeline_stage_id: newStageId } : l)));
     try {
-      await api.updateStage(leadId, newStageId);
+      const r = await api.updateStage(leadId, newStageId);
+      if (r.ghl_sync_status === "deferred_rate_limit") {
+        toast.warning("GHL rate limit — sync deferred. Will retry on next change. Nothing to do on your end.");
+      } else if (r.ghl_sync_status === "failed") {
+        toast.warning("Saved locally — GHL sync failed. Will retry on next change.");
+      }
+      // synced + skipped_no_opportunity: no toast (default happy path)
     } catch {
       toast.error("Failed to move lead");
       loadLeads();
@@ -238,7 +264,7 @@ export default function LeadsV2() {
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
               {V2_STAGES.map((stage) => (
-                <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} onRefresh={loadLeads} />
+                <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} onRefresh={loadLeads} delays={delays} />
               ))}
             </div>
             <DragOverlay>{draggedLead ? <LeadCard lead={draggedLead} isDragging /> : null}</DragOverlay>
@@ -303,7 +329,7 @@ export default function LeadsV2() {
   );
 }
 
-function KanbanColumn({ stage, leads, onRefresh }: { stage: StageDef; leads: Lead[]; onRefresh: () => void }) {
+function KanbanColumn({ stage, leads, onRefresh, delays }: { stage: StageDef; leads: Lead[]; onRefresh: () => void; delays: Record<string, { reason: string }> }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
 
   const handleQuickSend = async (e: React.MouseEvent, lead: Lead) => {
@@ -339,7 +365,7 @@ function KanbanColumn({ stage, leads, onRefresh }: { stage: StageDef; leads: Lea
       </div>
       <div className="p-1.5 space-y-1.5 min-h-[80px]">
         {leads.map((lead) => (
-          <DraggableCard key={lead.id} lead={lead}>
+          <DraggableCard key={lead.id} lead={lead} delayInfo={delays[lead.id]}>
             {stage.id === STAGE_HOT_LEAD && (
               <button
                 onClick={(e) => handleQuickSend(e, lead)}
@@ -363,12 +389,12 @@ function KanbanColumn({ stage, leads, onRefresh }: { stage: StageDef; leads: Lea
   );
 }
 
-function DraggableCard({ lead, children }: { lead: Lead; children?: React.ReactNode }) {
+function DraggableCard({ lead, delayInfo, children }: { lead: Lead; delayInfo?: { reason: string }; children?: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: lead.id });
   const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined;
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={`relative group ${isDragging ? "opacity-30" : ""}`}>
-      <LeadCard lead={lead} />
+      <LeadCard lead={lead} delayInfo={delayInfo} />
       {children}
     </div>
   );
@@ -402,7 +428,7 @@ const ElapsedTimer: FC<{ since: string; stoppedAt?: string | null }> = ({ since,
   );
 };
 
-function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
+function LeadCard({ lead, isDragging, delayInfo }: { lead: Lead; isDragging?: boolean; delayInfo?: { reason: string } }) {
   const isNew = !lead.viewed_at;
   const fd = lead.form_data || {};
   const addons = String(fd.additional_services || "").trim();
@@ -479,6 +505,14 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
               </button>
             </Badge>
           )}
+          {delayInfo && (
+            <Badge
+              className="text-[7px] pl-1 pr-1 py-0 bg-red-600 text-white shrink-0 flex items-center gap-0.5 animate-pulse cursor-help"
+              title={`24h+ no estimate: ${delayInfo.reason}`}
+            >
+              ⏰ 24h+
+            </Badge>
+          )}
           {isNotConfident && (
             <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-red-100 text-red-700 shrink-0 flex items-center gap-0.5">
               Not Confident
@@ -515,7 +549,17 @@ function LeadCard({ lead, isDragging }: { lead: Lead; isDragging?: boolean }) {
         </div>
       )}
       <div className="flex items-center justify-between mt-2">
-        <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
+        <div className="flex items-center gap-1">
+          <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
+          <button
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/leads/${lead.id}?schedule=1`; }}
+            className="text-[9px] px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 flex items-center gap-0.5"
+            title="Schedule a job for this lead"
+          >
+            <CalendarPlus className="h-2.5 w-2.5" />
+            Schedule
+          </button>
+        </div>
         <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
           isSent ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
         }`}>

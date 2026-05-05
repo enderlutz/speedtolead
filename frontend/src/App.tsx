@@ -19,6 +19,8 @@ import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
+import CalendarPage from "@/pages/Calendar";
+import { EstimateDelayBlocker } from "@/components/EstimateDelay";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -35,17 +37,6 @@ function StaffOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Placeholder — full Google-Calendar-style page lands in Phase 2.
-function CalendarPlaceholder() {
-  return (
-    <div className="p-6 max-w-2xl">
-      <h1 className="text-xl font-semibold tracking-tight">Calendar</h1>
-      <p className="text-sm text-muted-foreground mt-2">
-        Full scheduling calendar is coming soon. Once jobs are scheduled, they'll appear here.
-      </p>
-    </div>
-  );
-}
 
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -68,8 +59,13 @@ function AppLayout() {
     );
   }
 
+  // Blocker only shows for staff (admin/va) — workers don't see lead-management alerts.
+  const u = getCurrentUser();
+  const showDelayBlocker = u?.role === "admin" || u?.role === "va";
+
   return (
     <RequireAuth>
+      {showDelayBlocker && <EstimateDelayBlocker />}
       <div className="flex h-dvh bg-background overflow-hidden">
         <Sidebar open={sidebarOpen} onClose={closeSidebar} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -86,7 +82,7 @@ function AppLayout() {
               <Route path="/calls" element={<StaffOnly><Calls /></StaffOnly>} />
               <Route path="/crew" element={<StaffOnly><Crew /></StaffOnly>} />
               <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
-              <Route path="/calendar" element={<CalendarPlaceholder />} />
+              <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/pricing" element={<StaffOnly><Pricing /></StaffOnly>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<StaffOnly><Settings /></StaffOnly>} />

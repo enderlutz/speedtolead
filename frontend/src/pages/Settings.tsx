@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { api } from "@/lib/api";
+import { api, getCurrentUser } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
@@ -134,6 +135,9 @@ export default function Settings() {
 
       {/* GHL Maintenance */}
       <BackfillDashboardLinksCard />
+
+      {/* Google Calendar OAuth */}
+      <GoogleCalendarCard />
 
       {/* PDF Template */}
       <Card>
@@ -454,6 +458,95 @@ function BackfillDashboardLinksCard() {
             <p>Notes added: <span className="font-semibold text-green-700">{result.succeeded}</span></p>
             <p>Already had a link: <span className="font-semibold">{result.skipped}</span></p>
             {result.failed > 0 && <p>Failed: <span className="font-semibold text-red-700">{result.failed}</span></p>}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function GoogleCalendarCard() {
+  const user = getCurrentUser();
+  const isAdmin = user?.role === "admin";
+  const [status, setStatus] = useState<{ connected: boolean; email?: string; connected_at?: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(() => {
+    api.getGoogleStatus().then(setStatus).catch(() => setStatus({ connected: false }));
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Surface OAuth callback result from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google_connected")) {
+      toast.success(`Connected as ${params.get("google_connected")}`);
+      window.history.replaceState({}, "", window.location.pathname);
+      refresh();
+    } else if (params.get("google_error")) {
+      toast.error(`Google connect failed: ${params.get("google_error")}`);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [refresh]);
+
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const r = await api.getGoogleAuthUrl();
+      window.location.href = r.url;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start Google auth");
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!confirm("Disconnect Google Calendar? Future jobs won't auto-sync to your calendar or send invites.")) return;
+    try {
+      await api.disconnectGoogle();
+      toast.success("Disconnected");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to disconnect");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          📅 Google Calendar
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Link Alan's Google account so scheduled jobs auto-sync to his calendar and customers receive Google Calendar invites.
+        </p>
+        {!status ? (
+          <p className="text-xs text-muted-foreground">Loading…</p>
+        ) : status.connected ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Connected</Badge>
+            <span className="text-sm">{status.email || "(unknown account)"}</span>
+            {isAdmin && (
+              <Button size="sm" variant="outline" className="ml-auto text-red-600" onClick={disconnect}>
+                Disconnect
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-[10px]">Not connected</Badge>
+            {isAdmin && (
+              <Button size="sm" onClick={connect} disabled={busy}>
+                {busy ? "Redirecting…" : "Connect Google"}
+              </Button>
+            )}
+            {!isAdmin && (
+              <span className="text-xs text-muted-foreground">Only Alan can connect Google.</span>
+            )}
           </div>
         )}
       </CardContent>

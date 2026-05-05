@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
@@ -14,6 +14,8 @@ import {
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
+import ScheduleJobModal from "@/components/ScheduleJobModal";
+import { LeadDelayPanel } from "@/components/EstimateDelay";
 import { V2_STAGES } from "./LeadsV2";
 import { CallCoachAnalysis } from "./Calls";
 
@@ -49,6 +51,7 @@ const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 export default function LeadDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [urlParams] = useSearchParams();
   const [lead, setLead] = useState<LeadDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -178,6 +181,17 @@ export default function LeadDetail() {
   const [showScheduler, setShowScheduler] = useState(false);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("08:00");
+  const [showScheduleJob, setShowScheduleJob] = useState(false);
+  const [existingScheduledJob, setExistingScheduledJob] = useState<import("@/lib/api").ScheduledJob | null>(null);
+
+  useEffect(() => {
+    if (urlParams.get("schedule") === "1" && lead) {
+      api.listScheduledJobs({})
+        .then((r) => setExistingScheduledJob(r.jobs.find((j) => j.lead_id === lead.id) || null))
+        .catch(() => setExistingScheduledJob(null))
+        .finally(() => setShowScheduleJob(true));
+    }
+  }, [urlParams, lead]);
   const [precallDone, setPrecallDone] = useState(estimate?.precall_done || false);
   const [precallNotes, setPrecallNotes] = useState(estimate?.precall_notes || "");
   const [precallSaving, setPrecallSaving] = useState(false);
@@ -434,8 +448,41 @@ export default function LeadDetail() {
           >
             {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? "Edit Decline Reasons" : "Capture Decline Reasons"}
           </Button>
+          <Button
+            size="sm"
+            onClick={async () => {
+              try {
+                const r = await api.listScheduledJobs({});
+                const existing = r.jobs.find((j) => j.lead_id === lead.id) || null;
+                setExistingScheduledJob(existing);
+              } catch {
+                setExistingScheduledJob(null);
+              }
+              setShowScheduleJob(true);
+            }}
+          >
+            <Calendar className="h-3.5 w-3.5 mr-1" />
+            Schedule Job
+          </Button>
         </div>
       </div>
+
+      {showScheduleJob && (
+        <ScheduleJobModal
+          lead={lead}
+          existing={existingScheduledJob}
+          onClose={() => { setShowScheduleJob(false); setExistingScheduledJob(null); }}
+          onSaved={() => {
+            setShowScheduleJob(false);
+            setExistingScheduledJob(null);
+            api.getLead(id!).then(setLead).catch(() => {});
+            toast.success("Schedule saved");
+          }}
+        />
+      )}
+
+      {/* 24h delay panel — only renders if a delay row exists for this lead */}
+      <LeadDelayPanel leadId={lead.id} />
 
       {/* Mobile: approval status */}
       {approvalCfg && (

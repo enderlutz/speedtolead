@@ -9,10 +9,42 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Message, Proposal
+from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields
+
+
+# Estimate-input fields that get mirrored to GHL on every lead save.
+# `our_field_name` (left) must match what's set in the GHL Field Mapping
+# settings UI. If a mapping is missing, that field silently stays in our DB
+# only — admin can map it from Settings later.
+SYNC_FIELDS_TO_GHL = ("zip_code", "fence_height", "fence_age", "previously_stained", "service_timeline")
+
+
+def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:
+    """Push the estimate-input fields back to GHL custom fields after a
+    dashboard save. Best-effort — never fails the save itself."""
+    if not lead.ghl_contact_id:
+        return
+    try:
+        mappings = db.query(GhlFieldMapping).filter(
+            GhlFieldMapping.our_field_name.in_(SYNC_FIELDS_TO_GHL)
+        ).all()
+        if not mappings:
+            return
+        push: dict[str, str] = {}
+        for m in mappings:
+            if not m.our_field_name or not m.ghl_field_id:
+                continue
+            v = form_data.get(m.our_field_name)
+            if v is None or v == "":
+                continue
+            push[m.ghl_field_id] = str(v)
+        if push:
+            update_contact_custom_fields(lead.ghl_contact_id, push, location_id=lead.ghl_location_id or None)
+    except Exception as e:
+        logger.warning(f"GHL custom-field push for {lead.id} failed (non-fatal): {e}")
 from api.auth import get_current_user
 from config import get_settings
 
@@ -235,7 +267,8 @@ def update_kanban_column(lead_id: str, body: ColumnUpdate):
 @router.put("/leads/{lead_id}/stage")
 def update_pipeline_stage(lead_id: str, body: StageUpdate):
     """Update the v2 pipeline stage for a lead. Pushes back to GHL when the
-    lead has a valid opportunity ID (i.e., was sourced from the new GHL account)."""
+    lead has a valid opportunity ID (i.e., was sourced from the new GHL account).
+    Returns ghl_sync_status so the UI can surface rate-limit retries."""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -248,14 +281,21 @@ def update_pipeline_stage(lead_id: str, body: StageUpdate):
 
         # Mirror to GHL only if the opportunity belongs to the active account.
         # Exported v1 leads have ghl_opportunity_id cleared (old account creds dead).
+        ghl_sync_status: str = "skipped_no_opportunity"
         if lead.ghl_opportunity_id:
             try:
-                update_opportunity_stage(lead.ghl_opportunity_id, body.stage_id, lead.ghl_location_id or None)
+                ok = update_opportunity_stage(lead.ghl_opportunity_id, body.stage_id, lead.ghl_location_id or None)
+                ghl_sync_status = "synced" if ok else "deferred_rate_limit"
+                if not ok:
+                    logger.warning(f"GHL stage push for {lead_id} failed after retries — local saved, GHL will lag")
             except Exception as e:
+                ghl_sync_status = "failed"
                 logger.warning(f"Stage update saved locally but GHL push failed for {lead_id}: {e}")
 
         log_event(lead_id, "stage_changed", f"Stage → {body.stage_id}")
-        return lead.to_dict()
+        out = lead.to_dict()
+        out["ghl_sync_status"] = ghl_sync_status
+        return out
     except HTTPException:
         raise
     except Exception as e:
@@ -449,6 +489,9 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
             db.add(estimate)
 
         db.commit()
+
+        # Phase 4: mirror estimate-input fields back to GHL custom fields
+        _push_estimate_inputs_to_ghl(db, lead, merged)
 
         log_event(lead_id, "estimate_recalculated",
                   f"Recalculated: ${low:.0f} | {approval_status}",

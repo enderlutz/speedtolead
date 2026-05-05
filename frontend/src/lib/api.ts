@@ -408,7 +408,7 @@ export const api = {
       body: JSON.stringify({ kanban_column }),
     }),
   updateStage: (id: string, stage_id: string) =>
-    request<Lead>(`/api/leads/${id}/stage`, {
+    request<Lead & { ghl_sync_status?: "synced" | "deferred_rate_limit" | "failed" | "skipped_no_opportunity" }>(`/api/leads/${id}/stage`, {
       method: "PUT",
       body: JSON.stringify({ stage_id }),
     }),
@@ -845,7 +845,153 @@ export const api = {
     ),
   revokeWorkerLogin: (employeeId: string) =>
     request<{ status: string }>(`/api/crew/employees/${employeeId}/login`, { method: "DELETE" }),
+
+  // Scheduling
+  createScheduledJob: (body: ScheduleJobBody) =>
+    request<ScheduledJob>("/api/schedule/jobs", { method: "POST", body: JSON.stringify(body) }),
+  listScheduledJobs: (params: { start?: string; end?: string; employee_id?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.start) qs.set("start", params.start);
+    if (params.end) qs.set("end", params.end);
+    if (params.employee_id) qs.set("employee_id", params.employee_id);
+    return request<{ jobs: ScheduledJob[] }>(`/api/schedule/jobs${qs.toString() ? "?" + qs : ""}`);
+  },
+  getScheduledJob: (id: string) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${id}`),
+  updateScheduledJob: (id: string, body: UpdateJobBody) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteScheduledJob: (id: string) =>
+    request<{ status: string }>(`/api/schedule/jobs/${id}`, { method: "DELETE" }),
+
+  // Google OAuth
+  getGoogleAuthUrl: () => request<{ url: string }>("/api/google/auth-url"),
+  getGoogleStatus: () => request<{ connected: boolean; email?: string; calendar_id?: string; connected_at?: string }>("/api/google/status"),
+  disconnectGoogle: () => request<{ status: string }>("/api/google/disconnect", { method: "POST" }),
+
+  // Weather
+  getWeather: (zip: string) => request<WeatherForecast>(`/api/weather/${encodeURIComponent(zip)}`),
+
+  // Estimate delays (24h alert)
+  listOpenDelays: () =>
+    request<{ delays: EstimateDelayRow[]; preset_reasons: string[] }>("/api/estimate-delays/open"),
+  getLeadDelay: (leadId: string) =>
+    request<{ delay: EstimateDelayRow | null; preset_reasons?: string[] }>(`/api/leads/${leadId}/estimate-delay`),
+  setDelayReason: (leadId: string, body: { reason_code: string; reason_other_text?: string }) =>
+    request<EstimateDelayRow>(
+      `/api/leads/${leadId}/estimate-delay/reason`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  clearDelayBadge: (leadId: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/estimate-delay/clear`, { method: "POST" }),
 };
+
+
+// --- Scheduling types ---
+
+export interface ScheduleJobBody {
+  lead_id: string;
+  job_date: string;
+  arrival_time?: string;
+  estimated_duration_hours?: number;
+  package_tier?: string;
+  closed_price?: number;
+  color_choice?: string;
+  needs_test_spots?: boolean;
+  gallons_estimate?: number;
+  address?: string;
+  zip_code?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  customer_name?: string;
+  job_description?: string;
+  admin_notes?: string;
+  employee_ids?: string[];
+  send_thank_you?: boolean;
+  send_calendar_invite?: boolean;
+}
+
+export interface UpdateJobBody {
+  job_date?: string;
+  arrival_time?: string;
+  estimated_duration_hours?: number;
+  package_tier?: string;
+  closed_price?: number;
+  color_choice?: string;
+  needs_test_spots?: boolean;
+  gallons_estimate?: number;
+  address?: string;
+  zip_code?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  customer_name?: string;
+  job_description?: string;
+  admin_notes?: string;
+  employee_ids?: string[];
+  status?: string;
+}
+
+export interface ScheduledJob {
+  id: string;
+  lead_id: string;
+  job_date: string;
+  arrival_time: string;
+  estimated_duration_hours: number;
+  address: string;
+  zip_code: string;
+  customer_name: string;
+  color_choice: string;
+  needs_test_spots: boolean;
+  gallons_estimate: number;
+  job_description: string;
+  status: string;
+  google_event_id: string;
+  // Admin/VA only
+  package_tier?: string;
+  closed_price?: number;
+  customer_email?: string;
+  customer_phone?: string;
+  admin_notes?: string;
+  customer_invited?: boolean;
+  customer_thank_you_sent?: boolean;
+  created_at?: string;
+  created_by?: string;
+  updated_at?: string;
+  assigned_employee_ids?: string[];
+}
+
+export interface WeatherDay {
+  date: string;
+  high_f: number | null;
+  low_f: number | null;
+  precip_in: number;
+  precip_chance_pct: number | null;
+  summary: string;
+}
+
+export interface WeatherForecast {
+  zip_code: string;
+  days: WeatherDay[];
+  accurate_through: string;
+  note: string;
+}
+
+export interface EstimateDelayRow {
+  id: string;
+  lead_id: string;
+  detected_at: string;
+  reason_code: string;
+  reason_other_text: string;
+  reason_added_at: string | null;
+  reason_added_by: string;
+  alan_notified_at: string | null;
+  alan_reason_notified_at: string | null;
+  resolved_at: string | null;
+  resolved_by: string;
+  created_at: string;
+  is_resolved: boolean;
+  lead_name?: string;
+  lead_phone?: string;
+}
 
 
 // --- Crew types (defined after the api object since it references them) ---
