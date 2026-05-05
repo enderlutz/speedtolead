@@ -608,6 +608,149 @@ class CallReview(Base):
         }
 
 
+# --- Crew (employees + time + payments) ---
+# Owner-walled financial tracking for 1099 subcontractors. All currency stored
+# as Numeric(10,2) (decimal under the hood) — never float, never integer cents.
+# Dates that represent "the day" (work_date, payment_date, start_date) are
+# stored as Text in YYYY-MM-DD format and interpreted as Central Time in the UI.
+
+from sqlalchemy import Numeric
+
+
+class Employee(Base):
+    """1099 subcontractor / crew member. Soft-deleted via status flip; never
+    hard-deleted so historical time entries + payments remain joinable."""
+    __tablename__ = "employees"
+    __table_args__ = (
+        Index("idx_employees_status", "status"),
+    )
+
+    id = Column(Text, primary_key=True)
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text, nullable=False)
+    display_name = Column(Text, default="")
+    role = Column(Text, default="")
+    pay_type = Column(Text, default="hourly")        # hourly | daily | per_job | salary (V1: hourly only)
+    pay_rate = Column(Numeric(10, 2), nullable=False, default=0)
+    phone = Column(Text, default="")
+    email = Column(Text, default="")
+    address = Column(Text, default="")
+    start_date = Column(Text, default="")            # YYYY-MM-DD
+    status = Column(Text, default="active")          # active | inactive
+    w9_file_data = Column(LargeBinary, nullable=True)  # blob storage matches call recordings precedent
+    w9_file_name = Column(Text, default="")
+    w9_file_mime = Column(Text, default="")
+    w9_uploaded_at = Column(Text, nullable=True)
+    notes = Column(Text, default="")
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self, include_balance: bool = False) -> dict:
+        return {
+            "id": self.id,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "display_name": self.display_name or f"{self.first_name} {self.last_name}".strip(),
+            "role": self.role or "",
+            "pay_type": self.pay_type or "hourly",
+            "pay_rate": float(self.pay_rate or 0),
+            "phone": self.phone or "",
+            "email": self.email or "",
+            "address": self.address or "",
+            "start_date": self.start_date or "",
+            "status": self.status or "active",
+            "w9_uploaded": bool(self.w9_file_data),
+            "w9_file_name": self.w9_file_name or "",
+            "w9_uploaded_at": self.w9_uploaded_at,
+            "w9_missing": (not bool(self.w9_file_data)) and (self.status == "active"),
+            "notes": self.notes or "",
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+class TimeEntry(Base):
+    """One day of work for one employee. Earnings snapshot the rate at
+    entry-time so future rate changes don't drift historical balances."""
+    __tablename__ = "time_entries"
+    __table_args__ = (
+        Index("idx_time_entries_employee", "employee_id"),
+        Index("idx_time_entries_work_date", "work_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    employee_id = Column(Text, nullable=False)
+    work_date = Column(Text, nullable=False)         # YYYY-MM-DD, Central Time
+    hours = Column(Numeric(10, 2), nullable=False, default=0)
+    rate_at_entry = Column(Numeric(10, 2), nullable=False, default=0)
+    earnings = Column(Numeric(10, 2), nullable=False, default=0)
+    job_reference = Column(Text, default="")
+    notes = Column(Text, default="")
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "employee_id": self.employee_id,
+            "work_date": self.work_date,
+            "hours": float(self.hours or 0),
+            "rate_at_entry": float(self.rate_at_entry or 0),
+            "earnings": float(self.earnings or 0),
+            "job_reference": self.job_reference or "",
+            "notes": self.notes or "",
+            "created_at": self.created_at,
+            "created_by": self.created_by or "",
+        }
+
+
+class Payment(Base):
+    """One disbursement to one employee. Three split components — wages
+    (against earned), reimbursements (gas/supplies), bonuses/tips — all
+    counting toward the 1099 total per Alan's direction (non-accountable
+    reimbursement plan, no receipts)."""
+    __tablename__ = "payments"
+    __table_args__ = (
+        Index("idx_payments_employee", "employee_id"),
+        Index("idx_payments_payment_date", "payment_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    employee_id = Column(Text, nullable=False)
+    payment_date = Column(Text, nullable=False)      # YYYY-MM-DD, Central Time
+    wage_amount = Column(Numeric(10, 2), nullable=False, default=0)
+    reimbursement_amount = Column(Numeric(10, 2), default=0)
+    reimbursement_note = Column(Text, default="")
+    bonus_amount = Column(Numeric(10, 2), default=0)
+    bonus_note = Column(Text, default="")
+    payment_method = Column(Text, nullable=False)    # cash | zelle | check | venmo | cashapp | other
+    payment_method_other = Column(Text, default="")  # required if payment_method == "other"
+    notes = Column(Text, default="")
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        wage = float(self.wage_amount or 0)
+        reimb = float(self.reimbursement_amount or 0)
+        bonus = float(self.bonus_amount or 0)
+        return {
+            "id": self.id,
+            "employee_id": self.employee_id,
+            "payment_date": self.payment_date,
+            "wage_amount": wage,
+            "reimbursement_amount": reimb,
+            "reimbursement_note": self.reimbursement_note or "",
+            "bonus_amount": bonus,
+            "bonus_note": self.bonus_note or "",
+            "total_paid": round(wage + reimb + bonus, 2),
+            "payment_method": self.payment_method or "cash",
+            "payment_method_other": self.payment_method_other or "",
+            "notes": self.notes or "",
+            "created_at": self.created_at,
+            "created_by": self.created_by or "",
+        }
+
+
 # --- Engine / Session ---
 
 _engine = None
