@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { api, type Employee, type EmployeeBody, type PaymentMethod } from "@/lib/api";
+import { api, type Employee, type EmployeeBody, type PaymentMethod, type TimeEntry, type Payment } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -186,25 +186,27 @@ export function AddEmployeeModal({
 const LAST_USED_EMPLOYEE_KEY = "crew_last_employee_id";
 
 export function LogHoursModal({
-  employees, defaultEmployeeId, onClose, onSaved,
+  employees, defaultEmployeeId, existing, onClose, onSaved,
 }: {
   employees: Employee[];
   defaultEmployeeId?: string;
+  existing?: TimeEntry;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const initialEmp = useMemo(() => {
+    if (existing) return existing.employee_id;
     if (defaultEmployeeId && employees.find((e) => e.id === defaultEmployeeId)) return defaultEmployeeId;
     const last = typeof window !== "undefined" ? localStorage.getItem(LAST_USED_EMPLOYEE_KEY) : null;
     if (last && employees.find((e) => e.id === last)) return last;
     return employees[0]?.id || "";
-  }, [defaultEmployeeId, employees]);
+  }, [existing, defaultEmployeeId, employees]);
 
   const [employeeId, setEmployeeId] = useState(initialEmp);
-  const [workDate, setWorkDate] = useState(todayCentralISO());
-  const [hours, setHours] = useState("");
-  const [jobRef, setJobRef] = useState("");
-  const [notes, setNotes] = useState("");
+  const [workDate, setWorkDate] = useState(existing?.work_date || todayCentralISO());
+  const [hours, setHours] = useState(existing ? String(existing.hours) : "");
+  const [jobRef, setJobRef] = useState(existing?.job_reference || "");
+  const [notes, setNotes] = useState(existing?.notes || "");
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -214,15 +216,25 @@ export function LogHoursModal({
     if (!h || h <= 0 || h > 24) { toast.error("Hours must be between 0 and 24"); return; }
     setSaving(true);
     try {
-      await api.createTimeEntry({
-        employee_id: employeeId,
-        work_date: workDate,
-        hours: h,
-        job_reference: jobRef.trim(),
-        notes: notes.trim(),
-      });
-      localStorage.setItem(LAST_USED_EMPLOYEE_KEY, employeeId);
-      toast.success("Hours logged");
+      if (existing) {
+        await api.updateTimeEntry(existing.id, {
+          work_date: workDate,
+          hours: h,
+          job_reference: jobRef.trim(),
+          notes: notes.trim(),
+        });
+        toast.success("Time entry updated");
+      } else {
+        await api.createTimeEntry({
+          employee_id: employeeId,
+          work_date: workDate,
+          hours: h,
+          job_reference: jobRef.trim(),
+          notes: notes.trim(),
+        });
+        localStorage.setItem(LAST_USED_EMPLOYEE_KEY, employeeId);
+        toast.success("Hours logged");
+      }
       onSaved();
     } catch (e: any) {
       toast.error(e?.message || "Save failed");
@@ -233,21 +245,27 @@ export function LogHoursModal({
 
   return (
     <ModalShell
-      title="Log Hours"
+      title={existing ? "Edit Time Entry" : "Log Hours"}
       onClose={onClose}
       footer={
         <>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
-            Submit
+            {existing ? "Save Changes" : "Submit"}
           </Button>
         </>
       }
     >
       <div>
         <label className={labelCls}>Employee</label>
-        <select className={selectCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+        <select
+          className={selectCls}
+          value={employeeId}
+          onChange={(e) => setEmployeeId(e.target.value)}
+          disabled={!!existing}
+          title={existing ? "Can't reassign — delete and re-add to move" : ""}
+        >
           {employees.map((e) => (
             <option key={e.id} value={e.id}>{e.display_name || `${e.first_name} ${e.last_name}`} (${e.pay_rate.toFixed(2)}/hr)</option>
           ))}
@@ -263,6 +281,9 @@ export function LogHoursModal({
           <Input type="number" step="0.25" min="0" max="24" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="e.g. 8.5" />
         </div>
       </div>
+      {existing && (
+        <p className="text-[10px] text-muted-foreground">Rate stays at ${existing.rate_at_entry.toFixed(2)}/hr (snapshot from when this was logged). Earnings recompute automatically.</p>
+      )}
       <div>
         <label className={labelCls}>Job Reference (optional)</label>
         <Input value={jobRef} onChange={(e) => setJobRef(e.target.value)} placeholder="Customer name, address, or notes" />
@@ -292,32 +313,34 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 ];
 
 export function RecordPaymentModal({
-  employees, defaultEmployeeId, onClose, onSaved,
+  employees, defaultEmployeeId, existing, onClose, onSaved,
 }: {
   employees: Employee[];
   defaultEmployeeId?: string;
+  existing?: Payment;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const initialEmp = useMemo(() => {
+    if (existing) return existing.employee_id;
     if (defaultEmployeeId && employees.find((e) => e.id === defaultEmployeeId)) return defaultEmployeeId;
     const last = typeof window !== "undefined" ? localStorage.getItem(LAST_USED_EMPLOYEE_KEY) : null;
     if (last && employees.find((e) => e.id === last)) return last;
     return employees[0]?.id || "";
-  }, [defaultEmployeeId, employees]);
+  }, [existing, defaultEmployeeId, employees]);
 
   const [employeeId, setEmployeeId] = useState(initialEmp);
-  const [paymentDate, setPaymentDate] = useState(todayCentralISO());
-  const [wage, setWage] = useState("");
-  const [reimb, setReimb] = useState("");
-  const [reimbNote, setReimbNote] = useState("");
-  const [bonus, setBonus] = useState("");
-  const [bonusNote, setBonusNote] = useState("");
-  const [method, setMethod] = useState<PaymentMethod>("cash");
-  const [methodOther, setMethodOther] = useState("");
-  const [notes, setNotes] = useState("");
-  const [showReimb, setShowReimb] = useState(false);
-  const [showBonus, setShowBonus] = useState(false);
+  const [paymentDate, setPaymentDate] = useState(existing?.payment_date || todayCentralISO());
+  const [wage, setWage] = useState(existing && existing.wage_amount > 0 ? String(existing.wage_amount) : "");
+  const [reimb, setReimb] = useState(existing && existing.reimbursement_amount > 0 ? String(existing.reimbursement_amount) : "");
+  const [reimbNote, setReimbNote] = useState(existing?.reimbursement_note || "");
+  const [bonus, setBonus] = useState(existing && existing.bonus_amount > 0 ? String(existing.bonus_amount) : "");
+  const [bonusNote, setBonusNote] = useState(existing?.bonus_note || "");
+  const [method, setMethod] = useState<PaymentMethod>(existing?.payment_method || "cash");
+  const [methodOther, setMethodOther] = useState(existing?.payment_method_other || "");
+  const [notes, setNotes] = useState(existing?.notes || "");
+  const [showReimb, setShowReimb] = useState(!!existing && existing.reimbursement_amount > 0);
+  const [showBonus, setShowBonus] = useState(!!existing && existing.bonus_amount > 0);
   const [saving, setSaving] = useState(false);
 
   const wageN = parseFloat(wage) || 0;
@@ -331,7 +354,7 @@ export function RecordPaymentModal({
     if (method === "other" && !methodOther.trim()) { toast.error("Specify the payment method"); return; }
     setSaving(true);
     try {
-      await api.createPayment({
+      const body = {
         employee_id: employeeId,
         payment_date: paymentDate,
         wage_amount: wageN,
@@ -342,9 +365,15 @@ export function RecordPaymentModal({
         payment_method: method,
         payment_method_other: methodOther.trim(),
         notes: notes.trim(),
-      });
-      localStorage.setItem(LAST_USED_EMPLOYEE_KEY, employeeId);
-      toast.success("Payment recorded");
+      };
+      if (existing) {
+        await api.updatePayment(existing.id, body);
+        toast.success("Payment updated");
+      } else {
+        await api.createPayment(body);
+        localStorage.setItem(LAST_USED_EMPLOYEE_KEY, employeeId);
+        toast.success("Payment recorded");
+      }
       onSaved();
     } catch (e: any) {
       toast.error(e?.message || "Save failed");
@@ -355,21 +384,27 @@ export function RecordPaymentModal({
 
   return (
     <ModalShell
-      title="Record Payment"
+      title={existing ? "Edit Payment" : "Record Payment"}
       onClose={onClose}
       footer={
         <>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={handleSave} disabled={saving}>
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
-            Record (${total.toFixed(2)})
+            {existing ? `Save Changes ($${total.toFixed(2)})` : `Record ($${total.toFixed(2)})`}
           </Button>
         </>
       }
     >
       <div>
         <label className={labelCls}>Employee</label>
-        <select className={selectCls} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+        <select
+          className={selectCls}
+          value={employeeId}
+          onChange={(e) => setEmployeeId(e.target.value)}
+          disabled={!!existing}
+          title={existing ? "Can't reassign — delete and re-add to move" : ""}
+        >
           {employees.map((e) => (
             <option key={e.id} value={e.id}>{e.display_name || `${e.first_name} ${e.last_name}`}</option>
           ))}

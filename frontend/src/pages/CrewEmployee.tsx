@@ -29,6 +29,8 @@ export default function CrewEmployee() {
   const [showLogHours, setShowLogHours] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [show1099, setShow1099] = useState(false);
   const [taxYear, setTaxYear] = useState<number>(new Date().getFullYear());
   const [yearTimeEntries, setYearTimeEntries] = useState<TimeEntry[]>([]);
@@ -297,8 +299,11 @@ export default function CrewEmployee() {
                       {t.job_reference && t.notes && <span> · </span>}
                       {t.notes && <span className="italic">{t.notes}</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-right">
-                      <button onClick={() => handleDeleteTime(t)} className="text-muted-foreground hover:text-red-600 p-1">
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      <button onClick={() => setEditingTimeEntry(t)} className="text-muted-foreground hover:text-primary p-1" title="Edit">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => handleDeleteTime(t)} className="text-muted-foreground hover:text-red-600 p-1" title="Delete">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </td>
@@ -347,8 +352,11 @@ export default function CrewEmployee() {
                       {p.payment_method === "other" ? `Other (${p.payment_method_other})` : p.payment_method}
                     </td>
                     <td className="px-2 py-1.5 text-xs text-muted-foreground italic">{p.notes}</td>
-                    <td className="px-2 py-1.5 text-right">
-                      <button onClick={() => handleDeletePayment(p)} className="text-muted-foreground hover:text-red-600 p-1">
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      <button onClick={() => setEditingPayment(p)} className="text-muted-foreground hover:text-primary p-1" title="Edit">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => handleDeletePayment(p)} className="text-muted-foreground hover:text-red-600 p-1" title="Delete">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </td>
@@ -405,6 +413,22 @@ export default function CrewEmployee() {
           existing={emp}
           onClose={() => setShowEdit(false)}
           onSaved={() => { setShowEdit(false); load(); }}
+        />
+      )}
+      {editingTimeEntry && (
+        <LogHoursModal
+          employees={[emp]}
+          existing={editingTimeEntry}
+          onClose={() => setEditingTimeEntry(null)}
+          onSaved={() => { setEditingTimeEntry(null); load(); }}
+        />
+      )}
+      {editingPayment && (
+        <RecordPaymentModal
+          employees={[emp]}
+          existing={editingPayment}
+          onClose={() => setEditingPayment(null)}
+          onSaved={() => { setEditingPayment(null); load(); }}
         />
       )}
     </div>
