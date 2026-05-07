@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, type Employee, type RangeTotals, type LifetimeTotals, type TimeEntry, type Payment, getCurrentUser } from "@/lib/api";
+import { api, type Employee, type RangeTotals, type LifetimeTotals, type TimeEntry, type Payment, type ReimbursementRow, getCurrentUser } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Pencil, Upload, FileText, Clock, DollarSign, Plus, Trash2, Download, ChevronDown, ChevronUp, KeyRound,
+  ArrowLeft, Pencil, Upload, FileText, Clock, DollarSign, Plus, Trash2, Download, ChevronDown, ChevronUp, KeyRound, Receipt, Image as ImageIcon, Check, X,
 } from "lucide-react";
 import { LogHoursModal, RecordPaymentModal, AddEmployeeModal } from "@/components/CrewModals";
+import ReimbursementForm from "@/components/ReimbursementForm";
 
 type EmployeeFull = Employee & { this_week: RangeTotals; last_week: RangeTotals; month: RangeTotals; ytd: RangeTotals; lifetime: LifetimeTotals };
 type SummaryRange = "this_week" | "ytd";
@@ -35,6 +36,8 @@ export default function CrewEmployee() {
   const [taxYear, setTaxYear] = useState<number>(new Date().getFullYear());
   const [yearTimeEntries, setYearTimeEntries] = useState<TimeEntry[]>([]);
   const [yearPayments, setYearPayments] = useState<Payment[]>([]);
+  const [reimbursements, setReimbursements] = useState<ReimbursementRow[]>([]);
+  const [showReimb, setShowReimb] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -43,8 +46,9 @@ export default function CrewEmployee() {
       api.getEmployee(id),
       api.listTimeEntries(id),
       api.listPayments(id),
+      api.listReimbursements({ employee_id: id }),
     ])
-      .then(([e, t, p]) => { setEmp(e); setTimeEntries(t); setPayments(p); })
+      .then(([e, t, p, r]) => { setEmp(e); setTimeEntries(t); setPayments(p); setReimbursements(r.reimbursements); })
       .catch(() => toast.error("Failed to load employee"))
       .finally(() => setLoading(false));
   }, [id]);
@@ -123,6 +127,17 @@ export default function CrewEmployee() {
   const handleDeletePayment = async (p: Payment) => {
     if (!confirm(`Delete payment of $${p.total_paid.toFixed(2)} on ${p.payment_date}?`)) return;
     try { await api.deletePayment(p.id); toast.success("Deleted"); load(); }
+    catch { toast.error("Delete failed"); }
+  };
+
+  const handleSetReimbStatus = async (r: ReimbursementRow, status: "approved" | "rejected") => {
+    try { await api.updateReimbursement(r.id, { status }); toast.success(`Marked ${status}`); load(); }
+    catch (e: any) { toast.error(e?.message || "Failed"); }
+  };
+
+  const handleDeleteReimb = async (r: ReimbursementRow) => {
+    if (!confirm(`Delete reimbursement of $${r.amount.toFixed(2)} on ${r.expense_date}?`)) return;
+    try { await api.deleteReimbursement(r.id); toast.success("Deleted"); load(); }
     catch { toast.error("Delete failed"); }
   };
 
@@ -315,6 +330,89 @@ export default function CrewEmployee() {
         </CardContent>
       </Card>
 
+      {/* Reimbursements */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Receipt className="h-4 w-4 text-primary" /> Reimbursements
+              {reimbursements.some((r) => r.status === "pending") && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-bold">
+                  {reimbursements.filter((r) => r.status === "pending").length} pending
+                </span>
+              )}
+            </CardTitle>
+            <Button size="sm" onClick={() => setShowReimb(true)}><Plus className="h-3.5 w-3.5 mr-1" /> Add Reimbursement</Button>
+          </div>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          {reimbursements.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No reimbursements yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground border-b">
+                  <th className="px-2 py-1.5">Date</th>
+                  <th className="px-2 py-1.5">Customer</th>
+                  <th className="px-2 py-1.5">Description</th>
+                  <th className="px-2 py-1.5 text-right">Amount</th>
+                  <th className="px-2 py-1.5">Status</th>
+                  <th className="px-2 py-1.5">Receipt</th>
+                  <th className="px-2 py-1.5"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {reimbursements.map((r) => (
+                  <tr key={r.id} className="border-b hover:bg-muted/30">
+                    <td className="px-2 py-1.5 font-mono text-xs">{r.expense_date}</td>
+                    <td className="px-2 py-1.5 truncate max-w-[140px]">{r.customer_name || "—"}</td>
+                    <td className="px-2 py-1.5 truncate max-w-[240px] whitespace-pre-wrap text-xs">
+                      {r.description || <span className="text-muted-foreground italic">—</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-semibold">{formatCurrency(r.amount)}</td>
+                    <td className="px-2 py-1.5">
+                      {r.status === "approved" ? (
+                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Approved</Badge>
+                      ) : r.status === "rejected" ? (
+                        <Badge className="bg-red-100 text-red-800 text-[10px]">Rejected</Badge>
+                      ) : (
+                        <Badge className="bg-amber-100 text-amber-800 text-[10px]">Pending</Badge>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {r.receipt_uploaded ? (
+                        <a href={api.getReceiptUrl(r.id)} target="_blank" rel="noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                          <ImageIcon className="h-3.5 w-3.5" /> View
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      <div className="inline-flex gap-0.5">
+                        {r.status === "pending" && (
+                          <>
+                            <button onClick={() => handleSetReimbStatus(r, "approved")} title="Approve" className="text-emerald-600 hover:text-emerald-800 p-1">
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => handleSetReimbStatus(r, "rejected")} title="Reject" className="text-red-500 hover:text-red-700 p-1">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                        <button onClick={() => handleDeleteReimb(r)} className="text-muted-foreground hover:text-red-600 p-1" title="Delete">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Payments */}
       <Card>
         <CardHeader className="pb-2">
@@ -432,6 +530,15 @@ export default function CrewEmployee() {
           existing={editingPayment}
           onClose={() => setEditingPayment(null)}
           onSaved={() => { setEditingPayment(null); load(); }}
+        />
+      )}
+      {showReimb && (
+        <ReimbursementForm
+          asModal
+          employeeId={emp.id}
+          employeeName={emp.display_name || `${emp.first_name} ${emp.last_name}`}
+          onClose={() => setShowReimb(false)}
+          onSaved={() => { setShowReimb(false); load(); }}
         />
       )}
     </div>

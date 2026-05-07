@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import {
   Search, Plus, Trash2, AlertTriangle, Receipt, Image as ImageIcon, Check, X,
 } from "lucide-react";
+import ReimbursementForm from "@/components/ReimbursementForm";
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 
@@ -378,9 +379,15 @@ export default function DailyLogTab({ employees, initialEmployeeId, initialDate,
           {showReimbForm && (
             <ReimbursementForm
               employeeId={employeeId}
+              employeeName={
+                employees.find((e) => e.id === employeeId)?.display_name
+                  || (employees.find((e) => e.id === employeeId)
+                    ? `${employees.find((e) => e.id === employeeId)!.first_name} ${employees.find((e) => e.id === employeeId)!.last_name}`
+                    : "")
+              }
               defaultLeadId={pickedLeadId}
+              defaultLeadName={pickedCustomerLabel}
               defaultDate={date}
-              allCustomers={allCustomers}
               onClose={() => setShowReimbForm(false)}
               onSaved={() => { setShowReimbForm(false); loadAll(); }}
             />
@@ -450,91 +457,6 @@ function AllocationRow({
         </button>
       </td>
     </tr>
-  );
-}
-
-
-function ReimbursementForm({
-  employeeId, defaultLeadId, defaultDate, allCustomers, onClose, onSaved,
-}: {
-  employeeId: string;
-  defaultLeadId: string;
-  defaultDate: string;
-  allCustomers: SearchableCustomer[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [leadId, setLeadId] = useState(defaultLeadId || "");
-  const [expenseDate, setExpenseDate] = useState(defaultDate || todayCentralISO());
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
-  const [notes, setNotes] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const submit = async () => {
-    if (!leadId) { toast.error("Pick a customer"); return; }
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) { toast.error("Amount must be > 0"); return; }
-    if (!file) { toast.error("Receipt photo is required"); return; }
-    setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append("employee_id", employeeId);
-      fd.append("lead_id", leadId);
-      fd.append("expense_date", expenseDate);
-      fd.append("amount", String(amt));
-      fd.append("description", description);
-      fd.append("notes", notes);
-      fd.append("receipt", file);
-      await api.uploadReimbursement(fd);
-      toast.success("Reimbursement submitted (pending admin confirmation)");
-      onSaved();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to submit");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="border rounded-lg p-3 space-y-3 bg-muted/20">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground">Customer</label>
-          <select value={leadId} onChange={(e) => setLeadId(e.target.value)} className={`${inputCls} mt-1`}>
-            <option value="">— pick —</option>
-            {allCustomers.map((c) => (
-              <option key={c.lead_id} value={c.lead_id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground">Date paid</label>
-          <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground">Amount ($)</label>
-          <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className="mt-1" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground">Description</label>
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What was bought" className="mt-1" />
-        </div>
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground">Notes (optional)</label>
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything Alan should know" className="mt-1" />
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground">Receipt photo (required)</label>
-        <Input type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} className="mt-1" />
-      </div>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button onClick={submit} disabled={saving}>{saving ? "Uploading…" : "Submit"}</Button>
-      </div>
-    </div>
   );
 }
 

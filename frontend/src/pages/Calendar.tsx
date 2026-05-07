@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { api, getCurrentUser, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead } from "@/lib/api";
+import { api, getCurrentUser, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt } from "lucide-react";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
+import ReimbursementForm from "@/components/ReimbursementForm";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -68,6 +69,8 @@ export default function Calendar() {
   const [activeJobLead, setActiveJobLead] = useState<Lead | null>(null);
   const [editJob, setEditJob] = useState<ScheduledJob | null>(null);
   const [weatherByZip, setWeatherByZip] = useState<Record<string, WeatherForecast>>({});
+  const [reimbJob, setReimbJob] = useState<ScheduledJob | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
 
   const weeks = useMemo(() => monthMatrix(year, monthIdx), [year, monthIdx]);
   const monthStart = weeks[0][0].toISOString().slice(0, 10);
@@ -82,6 +85,14 @@ export default function Calendar() {
   }, [monthStart, monthEnd]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Crew roster — needed for reimbursement form (employee name lookup,
+  // pre-selecting the assigned worker). Admin-only call; workers won't render
+  // the reimbursement entry point anyway.
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.listCrew("this_week", false).then((r) => setEmployees(r.employees)).catch(() => {});
+  }, [isAdmin]);
 
   // Weather: fetch forecast for distinct ZIPs across this month's jobs
   useEffect(() => {
@@ -269,6 +280,10 @@ export default function Calendar() {
             if (assigned.length === 1) params.set("employee_id", assigned[0]);
             window.location.href = `/crew?${params.toString()}`;
           } : undefined}
+          onReimburse={!showAsWorker && isAdmin ? () => {
+            setReimbJob(activeJob);
+            closeJob();
+          } : undefined}
           onDelete={!showAsWorker && isAdmin ? async () => {
             if (!confirm("Cancel this job? The Google event will also be deleted and customer notified.")) return;
             try {
@@ -299,6 +314,34 @@ export default function Calendar() {
           onError={() => { toast.error("Couldn't load lead for editing"); setEditJob(null); }}
         />
       )}
+
+      {reimbJob && (() => {
+        // Pre-select the lone assigned worker; if 0 or many, fall back to
+        // the first active employee so the form still has an employeeId.
+        const assignedIds = reimbJob.assigned_employee_ids || [];
+        const candidate = assignedIds.length === 1
+          ? employees.find((e) => e.id === assignedIds[0])
+          : null;
+        const fallback = employees.find((e) => e.status === "active") || employees[0];
+        const emp = candidate || fallback;
+        if (!emp) {
+          toast.error("Add an employee on the Crew page first");
+          setReimbJob(null);
+          return null;
+        }
+        return (
+          <ReimbursementForm
+            asModal
+            employeeId={emp.id}
+            employeeName={emp.display_name || `${emp.first_name} ${emp.last_name}`}
+            defaultLeadId={reimbJob.lead_id}
+            defaultLeadName={reimbJob.customer_name || ""}
+            defaultDate={reimbJob.job_date}
+            onClose={() => setReimbJob(null)}
+            onSaved={() => { setReimbJob(null); toast.success("Reimbursement saved"); }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -331,7 +374,7 @@ function DayWeatherChip({ zips, byZip, iso }: { zips: string[]; byZip: Record<st
 }
 
 function JobDetailModal({
-  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime,
+  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
@@ -340,6 +383,7 @@ function JobDetailModal({
   onEdit?: () => void;
   onDelete?: () => void;
   onLogTime?: () => void;
+  onReimburse?: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -412,9 +456,14 @@ function JobDetailModal({
             </>
           )}
         </div>
-        {(onEdit || onDelete || onLogTime) && (
-          <div className="p-3 border-t flex justify-end gap-2">
+        {(onEdit || onDelete || onLogTime || onReimburse) && (
+          <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
             {onDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={onDelete}>Cancel job</Button>}
+            {onReimburse && (
+              <Button variant="outline" size="sm" onClick={onReimburse}>
+                <Receipt className="h-3.5 w-3.5 mr-1" /> Reimburse
+              </Button>
+            )}
             {onLogTime && <Button variant="outline" size="sm" onClick={onLogTime}>Log time</Button>}
             {onEdit && <Button size="sm" onClick={onEdit}>Edit</Button>}
           </div>
