@@ -10,6 +10,7 @@ import { HardHat, Plus, Clock, DollarSign, AlertTriangle, Download, FileText, Ey
 import { LogHoursModal, RecordPaymentModal, AddEmployeeModal } from "@/components/CrewModals";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DailyLogTab from "@/components/DailyLogTab";
+import ReimbursementInbox from "@/components/ReimbursementInbox";
 import { useSearchParams } from "react-router-dom";
 
 type RangeKey = "this_week" | "last_week" | "month" | "ytd";
@@ -27,7 +28,8 @@ export default function Crew() {
   const user = getCurrentUser();
   const [urlParams] = useSearchParams();
   // Calendar quick-log deep links here as /crew?tab=log&employee_id=...&date=...&lead_id=...
-  const initialTab = urlParams.get("tab") === "log" ? "log" : "roster";
+  const tabParam = urlParams.get("tab");
+  const initialTab = tabParam === "log" ? "log" : tabParam === "reimbursements" ? "reimbursements" : "roster";
   const initialEmployeeId = urlParams.get("employee_id") || undefined;
   const initialDate = urlParams.get("date") || undefined;
   const initialLeadId = urlParams.get("lead_id") || undefined;
@@ -40,6 +42,7 @@ export default function Crew() {
   const [showLogHours, setShowLogHours] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [w9Banner, setW9Banner] = useState<{ count: number; missing30d: number } | null>(null);
+  const [pendingReimbursements, setPendingReimbursements] = useState(0);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -56,6 +59,18 @@ export default function Crew() {
   }, [range, includeInactive]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Live pending-reimbursement count for the tab badge
+  useEffect(() => {
+    const fetchCount = () => {
+      api.listReimbursements({ status: "pending" })
+        .then((r) => setPendingReimbursements(r.reimbursements.length))
+        .catch(() => {});
+    };
+    fetchCount();
+    const t = setInterval(fetchCount, 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   // Owner-walled route — render nothing for non-admins (in case the sidebar is bypassed)
   if (user?.role !== "admin") {
@@ -108,6 +123,14 @@ export default function Crew() {
         <TabsList>
           <TabsTrigger value="roster">Roster</TabsTrigger>
           <TabsTrigger value="log">Daily Log</TabsTrigger>
+          <TabsTrigger value="reimbursements">
+            Reimbursements
+            {pendingReimbursements > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[10px] font-bold">
+                {pendingReimbursements}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="roster" className="space-y-4 mt-3">
@@ -231,6 +254,10 @@ export default function Crew() {
             initialDate={initialDate}
             initialLeadId={initialLeadId}
           />
+        </TabsContent>
+
+        <TabsContent value="reimbursements" className="mt-3">
+          <ReimbursementInbox />
         </TabsContent>
       </Tabs>
 
