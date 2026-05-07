@@ -92,6 +92,11 @@ class ColumnUpdate(BaseModel):
 
 class FormDataUpdate(BaseModel):
     form_data: dict
+    # When set, recalc targets this specific estimate instead of "the latest
+    # pending one." Used by the multi-estimate switcher on the lead detail
+    # page so editing an old estimate doesn't accidentally hit a different
+    # row. Estimate must belong to this lead and not be cancelled.
+    estimate_id: str | None = None
 
 
 class ContactUpdate(BaseModel):
@@ -460,13 +465,30 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
         if body.form_data.get("address"):
             lead.address = body.form_data["address"]
 
-        # Update or create estimate
-        estimate = (
-            db.query(Estimate)
-            .filter(Estimate.lead_id == lead_id, Estimate.status == "pending")
-            .order_by(Estimate.created_at.desc())
-            .first()
-        )
+        # Update or create estimate. With multi-estimate support, the caller
+        # can pin to a specific estimate via body.estimate_id; otherwise we
+        # fall back to the legacy "latest pending or create new" path.
+        estimate = None
+        if body.estimate_id:
+            estimate = (
+                db.query(Estimate)
+                .filter(Estimate.id == body.estimate_id, Estimate.lead_id == lead_id)
+                .first()
+            )
+            if not estimate:
+                raise HTTPException(status_code=404, detail="Estimate not found on this lead")
+            if estimate.status == "sent":
+                raise HTTPException(
+                    status_code=400,
+                    detail="This estimate has already been sent. Cancel it first or click '+ New Estimate' to start a fresh one.",
+                )
+        else:
+            estimate = (
+                db.query(Estimate)
+                .filter(Estimate.lead_id == lead_id, Estimate.status == "pending")
+                .order_by(Estimate.created_at.desc())
+                .first()
+            )
 
         now = _now()
         if estimate:
@@ -540,6 +562,75 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to update form data for {lead_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+# ─── Multi-estimate: create another pending estimate on a lead ─────────
+# Used when the same customer wants multiple quotes — different houses,
+# different fence configs, etc. Clones inputs from the latest estimate
+# (sent or pending) so the VA doesn't have to re-enter everything.
+
+@router.post("/leads/{lead_id}/estimates/new")
+def create_new_estimate(lead_id: str, user: dict = Depends(get_current_user)):
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        # Clone inputs from the most recent estimate so the VA can tweak from
+        # there, rather than starting blank. Falls back to lead.form_data if
+        # there are no prior estimates.
+        latest = (
+            db.query(Estimate)
+            .filter(Estimate.lead_id == lead_id)
+            .order_by(Estimate.created_at.desc())
+            .first()
+        )
+
+        if latest:
+            seed_inputs = latest.inputs or "{}"
+            seed_breakdown = latest.breakdown or "[]"
+            seed_low = latest.estimate_low or 0.0
+            seed_high = latest.estimate_high or 0.0
+            seed_tiers = latest.tiers or "{}"
+            seed_approval_status = latest.approval_status or "red"
+            seed_approval_reason = latest.approval_reason or ""
+        else:
+            # Bootstrap from the lead's form_data
+            seed_inputs = lead.form_data or "{}"
+            seed_breakdown = "[]"
+            seed_low = 0.0
+            seed_high = 0.0
+            seed_tiers = "{}"
+            seed_approval_status = "red"
+            seed_approval_reason = "No prior estimate to clone from"
+
+        new = Estimate(
+            id=str(uuid.uuid4()),
+            lead_id=lead_id,
+            service_type=lead.service_type,
+            status="pending",
+            inputs=seed_inputs,
+            breakdown=seed_breakdown,
+            estimate_low=seed_low,
+            estimate_high=seed_high,
+            tiers=seed_tiers,
+            approval_status=seed_approval_status,
+            approval_reason=seed_approval_reason,
+            created_at=_now(),
+        )
+        db.add(new)
+        db.commit()
+        log_event(lead_id, "estimate_created", "New estimate slot created (multi-estimate)")
+        return new.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()

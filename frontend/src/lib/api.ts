@@ -432,11 +432,16 @@ export const api = {
       `/api/leads/export-to-v2/bulk`,
       { method: "POST", body: JSON.stringify({ lead_ids, stage_id: stage_id || null }) }
     ),
-  updateFormData: (id: string, form_data: Record<string, unknown>) =>
+  updateFormData: (id: string, form_data: Record<string, unknown>, estimate_id?: string) =>
     request<LeadDetail>(`/api/leads/${id}/form-data`, {
       method: "PUT",
-      body: JSON.stringify({ form_data }),
+      body: JSON.stringify(estimate_id ? { form_data, estimate_id } : { form_data }),
     }),
+  /** Create a new pending Estimate on this lead (multi-estimate flow). Inputs
+   * are seeded from the most-recent estimate so the VA tweaks instead of
+   * starts blank. */
+  createNewEstimate: (leadId: string) =>
+    request<EstimateDetail>(`/api/leads/${leadId}/estimates/new`, { method: "POST" }),
   updateContact: (id: string, data: Record<string, string>) =>
     request<Lead>(`/api/leads/${id}/contact`, {
       method: "PUT",

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
@@ -87,6 +87,9 @@ export default function LeadDetail() {
   const [askingNewBuild, setAskingNewBuild] = useState(false);
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
   const [resyncing, setResyncing] = useState(false);
+  // Multi-estimate switcher — null means "auto-pick the latest editable one"
+  const [selectedEstimateId, setSelectedEstimateId] = useState<string | null>(null);
+  const [creatingNewEstimate, setCreatingNewEstimate] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -152,32 +155,115 @@ export default function LeadDetail() {
     }
   }, [id]));
 
-  const estimate: EstimateDetail | undefined = lead?.estimates?.[0];
+  // Sorted newest-first for the switcher tabs.
+  const sortedEstimates: EstimateDetail[] = useMemo(() => {
+    if (!lead?.estimates?.length) return [];
+    return [...lead.estimates].sort((a, b) => {
+      // Pending first, then by created_at desc
+      if (a.status === "pending" && b.status !== "pending") return -1;
+      if (b.status === "pending" && a.status !== "pending") return 1;
+      return (b.created_at || "").localeCompare(a.created_at || "");
+    });
+  }, [lead?.estimates]);
+
+  // Picks the currently-displayed estimate. Null selectedEstimateId means
+  // "auto-pick the most recent editable one" (latest pending → fallback to
+  // first overall). Once the user clicks a tab we honor their pick.
+  const estimate: EstimateDetail | undefined = useMemo(() => {
+    if (!sortedEstimates.length) return undefined;
+    if (selectedEstimateId) {
+      const found = sortedEstimates.find((e) => e.id === selectedEstimateId);
+      if (found) return found;
+    }
+    return sortedEstimates.find((e) => e.status === "pending") || sortedEstimates[0];
+  }, [sortedEstimates, selectedEstimateId]);
+
+  // Repopulate form fields when the user switches to a different estimate
+  // (so the inputs match what's actually in that estimate). The initial-load
+  // effect populates from lead.form_data on first render — this effect only
+  // fires on subsequent estimate changes.
+  const lastLoadedEstimateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!estimate) return;
+    if (lastLoadedEstimateRef.current === null) {
+      // First time we see the estimate, the initial-load effect already
+      // populated from form_data (which mirrors the latest estimate's inputs).
+      lastLoadedEstimateRef.current = estimate.id;
+      return;
+    }
+    if (lastLoadedEstimateRef.current === estimate.id) return;
+    lastLoadedEstimateRef.current = estimate.id;
+    const inputs = (estimate.inputs || {}) as Record<string, unknown>;
+    setLinearFeet(String(inputs.linear_feet ?? ""));
+    setFenceHeight(String(inputs.fence_height ?? "Didn't answer"));
+    setFenceAge(String(inputs.fence_age ?? "Didn't answer"));
+    setPreviouslyStained(String(inputs.previously_stained ?? "Didn't answer"));
+    setTimeline(String(inputs.service_timeline ?? ""));
+    setConfidencePct(String(inputs.confident_pct ?? "100"));
+    setZipCode(String(inputs.zip_code ?? ""));
+    const rawSides = inputs.fence_sides;
+    setFenceSides(
+      Array.isArray(rawSides)
+        ? rawSides as string[]
+        : rawSides
+          ? String(rawSides).split(",").map((s) => s.trim()).filter(Boolean)
+          : [],
+    );
+    setAdditionalServices(String(inputs.additional_services ?? ""));
+    setMilitaryDiscount(Boolean(inputs.military_discount));
+    setConfidenceNote(String(inputs.confidence_note ?? ""));
+    setIncludeFinancing(String(inputs.include_financing ?? "true") !== "false");
+  }, [estimate]);
 
   const handleSaveRecalculate = async () => {
     if (!id) return;
     setSaving(true);
     try {
-      const result = await api.updateFormData(id, {
-        linear_feet: linearFeet,
-        fence_height: fenceHeight,
-        fence_age: fenceAge,
-        previously_stained: previouslyStained,
-        service_timeline: timeline,
-        confident_pct: confidencePct,
-        zip_code: zipCode,
-        fence_sides: fenceSides,
-        additional_services: additionalServices,
-        military_discount: militaryDiscount,
-        confidence_note: confidenceNote,
-        include_financing: includeFinancing,
-      });
-      setLead((prev) => (prev ? { ...prev, ...result, estimates: result.estimate ? [result.estimate] : prev.estimates } : prev));
+      const result = await api.updateFormData(
+        id,
+        {
+          linear_feet: linearFeet,
+          fence_height: fenceHeight,
+          fence_age: fenceAge,
+          previously_stained: previouslyStained,
+          service_timeline: timeline,
+          confident_pct: confidencePct,
+          zip_code: zipCode,
+          fence_sides: fenceSides,
+          additional_services: additionalServices,
+          military_discount: militaryDiscount,
+          confidence_note: confidenceNote,
+          include_financing: includeFinancing,
+        },
+        estimate?.id,
+      );
+      // Refetch the full lead so all estimates are up-to-date — we no longer
+      // overwrite estimates with [result.estimate] because that would erase
+      // other estimates in the multi-estimate view.
+      const fresh = await api.getLead(id);
+      setLead(fresh);
+      void result;
       toast.success("Estimate recalculated");
-    } catch {
-      toast.error("Failed to recalculate");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to recalculate");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateNewEstimate = async () => {
+    if (!id) return;
+    setCreatingNewEstimate(true);
+    try {
+      const fresh_estimate = await api.createNewEstimate(id);
+      const fresh = await api.getLead(id);
+      setLead(fresh);
+      setSelectedEstimateId(fresh_estimate.id);
+      toast.success("New estimate created — adjust inputs and recalculate");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create estimate");
+    } finally {
+      setCreatingNewEstimate(false);
     }
   };
 
@@ -835,11 +921,89 @@ export default function LeadDetail() {
             </div>
           )}
 
+          {/* Estimate switcher — only renders when there are multiple estimates
+              on this lead. Lets the VA edit/view different estimates for the
+              same customer (e.g. quotes for different houses). */}
+          {sortedEstimates.length > 1 && (
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold text-muted-foreground">Estimates on this lead</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={handleCreateNewEstimate}
+                    disabled={creatingNewEstimate}
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    {creatingNewEstimate ? "Creating…" : "New Estimate"}
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sortedEstimates.map((e, i) => {
+                    const isSel = e.id === estimate?.id;
+                    const num = sortedEstimates.length - i;
+                    const sigPrice = e.tiers?.signature || 0;
+                    return (
+                      <button
+                        key={e.id}
+                        onClick={() => setSelectedEstimateId(e.id)}
+                        className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
+                          isSel
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border hover:bg-muted/50"
+                        }`}
+                        title={e.label || `Estimate #${num}`}
+                      >
+                        <span className="font-semibold">#{num}</span>
+                        {e.label && <span className="ml-1">· {e.label.length > 18 ? e.label.slice(0, 18) + "…" : e.label}</span>}
+                        {!e.label && sigPrice > 0 && (
+                          <span className="ml-1 opacity-80">· {formatCurrency(sigPrice)}</span>
+                        )}
+                        <span className={`ml-1 text-[9px] uppercase tracking-wide ${
+                          isSel ? "opacity-90" : e.status === "sent" ? "text-emerald-600" : e.status === "pending" ? "text-amber-600" : "text-muted-foreground"
+                        }`}>
+                          {e.status === "sent" ? "Sent" : e.status === "pending" ? "Pending" : e.status}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* "+ New Estimate" — also available when there's only one estimate
+              (or none). Shown as a small action above the tier prices card. */}
+          {sortedEstimates.length <= 1 && lead?.estimates && (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={handleCreateNewEstimate}
+                disabled={creatingNewEstimate}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                {creatingNewEstimate ? "Creating…" : "New Estimate (different house?)"}
+              </Button>
+            </div>
+          )}
+
           {/* Tier prices */}
           {estimate && estimate.tiers && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm sm:text-base">Estimate</CardTitle>
+                <CardTitle className="text-sm sm:text-base">
+                  Estimate
+                  {sortedEstimates.length > 1 && estimate && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      #{sortedEstimates.length - sortedEstimates.findIndex((e) => e.id === estimate.id)}
+                      {estimate.label && ` · ${estimate.label}`}
+                    </span>
+                  )}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {(["essential", "signature", "legacy"] as const).map((tier) => {
