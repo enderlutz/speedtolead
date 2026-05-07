@@ -105,10 +105,20 @@ export default function EstimateHistoryCard({ leadId, refreshKey = 0 }: Props) {
                   <span className="text-xs text-muted-foreground">
                     Sent {fmtDate(it.sent_at || it.created_at)}
                   </span>
-                  <span className="ml-auto text-sm font-semibold">
-                    {formatCurrency(tiers.signature || it.estimate_low || 0)}
-                    <span className="text-[10px] text-muted-foreground ml-1">(signature)</span>
-                  </span>
+                </div>
+                <div className="px-3 py-2 grid grid-cols-3 gap-2 border-b text-xs">
+                  <div className="rounded bg-muted/30 px-2 py-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Essential</p>
+                    <p className="font-semibold text-sm">{formatCurrency(tiers.essential || 0)}</p>
+                  </div>
+                  <div className="rounded bg-primary/5 border border-primary/20 px-2 py-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-primary">Signature</p>
+                    <p className="font-semibold text-sm">{formatCurrency(tiers.signature || 0)}</p>
+                  </div>
+                  <div className="rounded bg-muted/30 px-2 py-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Legacy</p>
+                    <p className="font-semibold text-sm">{formatCurrency(tiers.legacy || 0)}</p>
+                  </div>
                 </div>
 
                 {/* Label row */}

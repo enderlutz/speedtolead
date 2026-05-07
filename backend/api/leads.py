@@ -777,9 +777,13 @@ def skip_decline_reasons(lead_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
-@router.get("/leads/decline-reason-presets")
+# NOTE: deliberately NOT under /leads/{...}. The dynamic /leads/{lead_id}
+# route is declared earlier in this file and will swallow any /leads/<x>
+# request, returning 404 "Lead not found" — which is what was breaking the
+# decline-reasons modal (empty preset list, so the picker looked blank).
+@router.get("/lead-decline-reason-presets")
 def get_decline_reason_presets():
-    """Frontend uses this to render the dropdown without hardcoding labels."""
+    """Frontend uses this to render the picker without hardcoding labels."""
     return [{"key": k, "label": v} for k, v in DECLINE_REASON_PRESETS.items()]
 
 

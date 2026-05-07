@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  ArrowLeft, MapPin, Phone, PhoneCall, Mail, User, Calculator, RefreshCw,
+  ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -195,22 +195,8 @@ export default function LeadDetail() {
         .finally(() => setShowScheduleJob(true));
     }
   }, [urlParams, lead]);
-  const [precallDone, setPrecallDone] = useState(estimate?.precall_done || false);
-  const [precallNotes, setPrecallNotes] = useState(estimate?.precall_notes || "");
-  const [precallSaving, setPrecallSaving] = useState(false);
-  const [precallSaved, setPrecallSaved] = useState(!!estimate?.precall_done);
-
-  // Sync precall fields when the estimate finishes loading. The useState
-  // initializers above only fire on first render — at that point the lead
-  // is still loading so the saved precall_notes never make it into state,
-  // and the textarea shows blank instead of the previously-saved note.
-  const estimateId = estimate?.id;
-  useEffect(() => {
-    if (!estimate) return;
-    setPrecallDone(estimate.precall_done || false);
-    setPrecallNotes(estimate.precall_notes || "");
-    setPrecallSaved(!!estimate.precall_done);
-  }, [estimateId, estimate?.precall_done, estimate?.precall_notes]);
+  // Pre-estimate call state removed — section was cut from the UI per spec.
+  // Backend Estimate.precall_* fields are still preserved for historical data.
 
   // Check if it's after 8 PM CST
   const isAfterHours = () => {
@@ -910,72 +896,9 @@ export default function LeadDetail() {
                 <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
               </Button>
 
-              {/* Pre-Estimate Call */}
-              <div className={`rounded-lg border-2 p-4 ${precallSaved ? "border-green-300 bg-green-50/50" : "border-amber-300 bg-amber-50/50"}`}>
-                <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5 ${precallSaved ? "text-green-800" : "text-amber-800"}`}>
-                  <PhoneCall className="h-3.5 w-3.5" /> Pre-Estimate Call
-                  {precallSaved && <CheckCircle2 className="h-3.5 w-3.5 text-green-600 ml-auto" />}
-                </h4>
-                <label className={`flex items-center gap-3 ${precallSaving ? "opacity-50" : "cursor-pointer"}`}>
-                  <input
-                    type="checkbox"
-                    checked={precallDone}
-                    disabled={precallSaving || !estimate}
-                    onChange={async (e) => {
-                      if (!estimate) return;
-                      const next = e.target.checked;
-                      // Optimistic update
-                      setPrecallDone(next);
-                      setPrecallSaving(true);
-                      try {
-                        await api.logPrecall(estimate.id, next, next ? (precallNotes || undefined) : undefined);
-                        setPrecallSaved(next);
-                        if (!next) setPrecallNotes("");
-                        toast.success(next ? "Pre-call logged" : "Pre-call undone");
-                      } catch {
-                        // Roll back
-                        setPrecallDone(!next);
-                        toast.error("Failed to save");
-                      } finally {
-                        setPrecallSaving(false);
-                      }
-                    }}
-                    className="h-4 w-4 rounded accent-amber-600"
-                  />
-                  <span className="text-sm font-medium">Called the customer</span>
-                  {precallSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground ml-auto" />}
-                </label>
-                {precallDone && (
-                  <div className="mt-3 space-y-2">
-                    <textarea
-                      value={precallNotes}
-                      onChange={(e) => setPrecallNotes(e.target.value)}
-                      placeholder="Quick notes from the call..."
-                      className="w-full border rounded-md px-3 py-1.5 text-sm bg-background resize-none h-16"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={async () => {
-                        if (!estimate) return;
-                        setPrecallSaving(true);
-                        try {
-                          await api.logPrecall(estimate.id, true, precallNotes || undefined);
-                          toast.success("Notes saved");
-                        } catch { toast.error("Failed to save"); }
-                        finally { setPrecallSaving(false); }
-                      }}
-                      disabled={precallSaving}
-                      variant="outline"
-                    >
-                      <Save className="h-3.5 w-3.5 mr-1" />
-                      Save Notes
-                    </Button>
-                  </div>
-                )}
-                {!precallDone && !precallSaved && (
-                  <p className="text-xs text-amber-600 mt-2">Did you call the customer before sending the estimate?</p>
-                )}
-              </div>
+              {/* Pre-estimate call section removed per spec — VAs no longer
+                  required to log a pre-call before sending. Backend
+                  Estimate.precall_* fields stay in place for historical data. */}
 
               {/* Send disabled — old pipeline */}
               {lead.pipeline_version === "v1" && (
