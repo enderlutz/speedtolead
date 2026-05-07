@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus, Home, Hammer, AlertTriangle } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -438,6 +438,33 @@ function LeadCard({ lead, isDragging, delayInfo }: { lead: Lead; isDragging?: bo
   };
 
   const isNotConfident = String(fd.confidence ?? "") === "60";
+  const askedForAddress = fd.address_action === "asked_for_address";
+  const isNewBuild = fd.address_action === "new_build";
+  const hasStatus = askedForAddress || isNewBuild || !!delayInfo || isNotConfident;
+
+  // Most-urgent state becomes a left-edge color bar so it's visible even
+  // when the user is scanning across columns. 24h+ wins over Not Confident.
+  const urgentLeftBar = delayInfo
+    ? "border-l-4 border-l-red-500"
+    : isNotConfident
+      ? "border-l-4 border-l-amber-500"
+      : "";
+  const baseBorder = hasAddons && !addonsHandled
+    ? "border-2 border-amber-400"
+    : "border";
+
+  // Click-to-clear icons get a confirm so a stray hover-click can't wipe the
+  // badge — same defensive logic as removing the kanban quick-send buttons.
+  const handleClearBadgeWithConfirm = (
+    e: React.MouseEvent,
+    badge: "asked_for_address" | "new_build" | "not_confident",
+    label: string,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(`Remove "${label}" badge from ${lead.contact_name || "this lead"}?`)) return;
+    handleClearBadge(e, badge);
+  };
 
   return (
     <Link
@@ -445,76 +472,77 @@ function LeadCard({ lead, isDragging, delayInfo }: { lead: Lead; isDragging?: bo
       onMouseEnter={() => prefetchLead(lead.id)}
       className={`block rounded-md bg-card p-2.5 shadow-sm active:shadow-none transition-shadow cursor-grab ${
         isDragging ? "shadow-lg ring-2 ring-primary/20 rotate-1" : ""
-      } ${hasAddons && !addonsHandled ? "border-2 border-amber-400" : "border"} ${isNew ? "ring-1 ring-primary/20" : ""}`}
+      } ${baseBorder} ${urgentLeftBar} ${isNew ? "ring-1 ring-primary/20" : ""}`}
       onClick={(e) => isDragging && e.preventDefault()}
     >
-      <div className="flex items-start justify-between gap-1.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          {isNew && <Badge className="text-[8px] px-1 py-0 bg-primary text-primary-foreground shrink-0">NEW</Badge>}
-          {lead.precall_done && (
-            <span title="Pre-estimate call made" className="shrink-0">
-              <PhoneCall className="h-3.5 w-3.5 text-green-600" />
-            </span>
-          )}
-          {hasAddons && (
-            <span title={addons} className="shrink-0">
-              <Wrench className={`h-3.5 w-3.5 ${addonsHandled ? "text-green-500" : "text-amber-500"}`} />
-            </span>
-          )}
-          {fd.address_action === "asked_for_address" && (
-            <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-purple-100 text-purple-700 shrink-0 flex items-center gap-0.5">
-              Asked for Address
-              <button
-                onClick={(e) => handleClearBadge(e, "asked_for_address")}
-                className="hover:bg-purple-200 rounded px-0.5"
-                title="Remove badge"
-              >
-                ×
-              </button>
-            </Badge>
-          )}
-          {fd.address_action === "new_build" && (
-            <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-orange-100 text-orange-700 shrink-0 flex items-center gap-0.5">
-              New Build
-              <button
-                onClick={(e) => handleClearBadge(e, "new_build")}
-                className="hover:bg-orange-200 rounded px-0.5"
-                title="Remove badge"
-              >
-                ×
-              </button>
-            </Badge>
-          )}
-          {delayInfo && (
-            <Badge
-              className="text-[7px] pl-1 pr-1 py-0 bg-red-600 text-white shrink-0 flex items-center gap-0.5 animate-pulse cursor-help"
-              title={`24h+ no estimate: ${delayInfo.reason}`}
-            >
-              ⏰ 24h+
-            </Badge>
-          )}
-          {isNotConfident && (
-            <Badge className="text-[7px] pl-1 pr-0.5 py-0 bg-red-100 text-red-700 shrink-0 flex items-center gap-0.5">
-              Not Confident
-              <button
-                onClick={(e) => handleClearBadge(e, "not_confident")}
-                className="hover:bg-red-200 rounded px-0.5"
-                title="Remove badge"
-              >
-                ×
-              </button>
-            </Badge>
-          )}
-          <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
-        </div>
-        {timelineLabel(lead) && (
-          <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`} title={lead.priority}>{timelineLabel(lead)}</Badge>
+      {/* Row 1: name (full width) + small inline informational icons.
+          Phone + address removed per spec — admin can see them on the
+          Lead Detail page. */}
+      <div className="flex items-center gap-1.5">
+        <p className="text-sm font-semibold leading-tight flex-1 truncate">
+          {lead.contact_name || "Unknown"}
+        </p>
+        {isNew && (
+          <Badge className="text-[8px] px-1 py-0 bg-primary text-primary-foreground shrink-0">NEW</Badge>
+        )}
+        {lead.precall_done && (
+          <span title="Pre-estimate call made" className="shrink-0">
+            <PhoneCall className="h-3 w-3 text-green-600" />
+          </span>
+        )}
+        {hasAddons && (
+          <span title={addons} className="shrink-0">
+            <Wrench className={`h-3 w-3 ${addonsHandled ? "text-green-500" : "text-amber-500"}`} />
+          </span>
         )}
       </div>
-      {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
-      {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
+
+      {/* Row 2: status icon strip — only renders when the lead has at least
+          one status. Each icon shows the full label on hover; click to
+          remove (with confirm). The 24h+ pulse stays since it's the
+          loudest signal. */}
+      {hasStatus && (
+        <div className="flex items-center gap-1 mt-1.5">
+          {askedForAddress && (
+            <button
+              onClick={(e) => handleClearBadgeWithConfirm(e, "asked_for_address", "Asked for Address")}
+              className="h-5 w-5 rounded-full bg-purple-100 hover:bg-purple-200 flex items-center justify-center shrink-0"
+              title="Asked for Address — click to remove"
+            >
+              <Home className="h-3 w-3 text-purple-700" />
+            </button>
+          )}
+          {isNewBuild && (
+            <button
+              onClick={(e) => handleClearBadgeWithConfirm(e, "new_build", "New Build")}
+              className="h-5 w-5 rounded-full bg-orange-100 hover:bg-orange-200 flex items-center justify-center shrink-0"
+              title="New Build — click to remove"
+            >
+              <Hammer className="h-3 w-3 text-orange-700" />
+            </button>
+          )}
+          {delayInfo && (
+            <span
+              className="h-5 w-5 rounded-full bg-red-600 flex items-center justify-center shrink-0 animate-pulse cursor-help"
+              title={`24h+ no estimate: ${delayInfo.reason}`}
+            >
+              <Clock className="h-3 w-3 text-white" />
+            </span>
+          )}
+          {isNotConfident && (
+            <button
+              onClick={(e) => handleClearBadgeWithConfirm(e, "not_confident", "Not Confident")}
+              className="h-5 w-5 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center shrink-0"
+              title="Not Confident — click to remove"
+            >
+              <AlertTriangle className="h-3 w-3 text-red-700" />
+            </button>
+          )}
+        </div>
+      )}
+
       {hasAddons && (
-        <div className="flex items-center gap-1 mt-0.5">
+        <div className="flex items-center gap-1 mt-1">
           <p className={`text-[10px] truncate flex-1 ${addonsHandled ? "text-green-600 line-through" : "text-amber-700"}`}>{addons}</p>
           <button onClick={handleMarkAddon} className={`p-0.5 rounded ${addonsHandled ? "text-green-500" : "text-muted-foreground hover:text-green-500"}`} title={addonsHandled ? "Unmark" : "Mark as handled"}>
             <Check className="h-3 w-3" />
@@ -530,25 +558,39 @@ function LeadCard({ lead, isDragging, delayInfo }: { lead: Lead; isDragging?: bo
           <span className="text-emerald-500">{timeAgo(lead.proposal_last_viewed_at || lead.proposal_viewed_at)}</span>
         </div>
       )}
-      <div className="flex items-center justify-between mt-2">
-        <div className="flex items-center gap-1">
-          <Badge variant="outline" className="text-[9px] py-0">{lead.location_label}</Badge>
+
+      {/* Footer: city · Schedule · timeline · time-elapsed.
+          Timeline lives down here now (not at the top right) — it's
+          customer-provided info, not an urgent status. */}
+      <div className="flex items-center justify-between mt-2 gap-1">
+        <div className="flex items-center gap-1 min-w-0">
+          <Badge variant="outline" className="text-[9px] py-0 shrink-0">{lead.location_label}</Badge>
           <button
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/leads/${lead.id}?schedule=1`; }}
-            className="text-[9px] px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 flex items-center gap-0.5"
+            className="text-[9px] px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 flex items-center gap-0.5 shrink-0"
             title="Schedule a job for this lead"
           >
             <CalendarPlus className="h-2.5 w-2.5" />
             Schedule
           </button>
         </div>
-        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
-          isSent ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
-        }`}>
-          <Clock className={`h-3 w-3 ${isSent ? "text-green-500" : "text-red-500"}`} />
-          <span className={`text-[11px] ${isSent ? "text-green-600" : "text-red-600"}`}>
-            <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={isSent ? lead.updated_at : null} />
-          </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {timelineLabel(lead) && (
+            <Badge
+              className={`text-[9px] px-1 py-0 border ${PRIORITY_CLS[lead.priority] || ""}`}
+              title={lead.priority}
+            >
+              {timelineLabel(lead)}
+            </Badge>
+          )}
+          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
+            isSent ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+          }`}>
+            <Clock className={`h-3 w-3 ${isSent ? "text-green-500" : "text-red-500"}`} />
+            <span className={`text-[11px] ${isSent ? "text-green-600" : "text-red-600"}`}>
+              <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={isSent ? lead.updated_at : null} />
+            </span>
+          </div>
         </div>
       </div>
     </Link>
