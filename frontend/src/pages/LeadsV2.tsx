@@ -559,39 +559,39 @@ function LeadCard({ lead, isDragging, delayInfo }: { lead: Lead; isDragging?: bo
         </div>
       )}
 
-      {/* Footer: city · Schedule · timeline · time-elapsed.
-          Timeline lives down here now (not at the top right) — it's
-          customer-provided info, not an urgent status. */}
-      <div className="flex items-center justify-between mt-2 gap-1">
-        <div className="flex items-center gap-1 min-w-0">
-          <Badge variant="outline" className="text-[9px] py-0 shrink-0">{lead.location_label}</Badge>
-          <button
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/leads/${lead.id}?schedule=1`; }}
-            className="text-[9px] px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 flex items-center gap-0.5 shrink-0"
-            title="Schedule a job for this lead"
+      {/* Footer — split into two rows so nothing gets squeezed:
+          • Row 1 (right-aligned): timeline + time-elapsed.
+          • Row 2 (left-aligned):  city + Schedule.
+          Timeline lives down here (not at the top) — it's customer-
+          provided context, not an urgent status. */}
+      <div className="flex items-center justify-end gap-1 mt-2 flex-wrap">
+        {timelineLabel(lead) && (
+          <Badge
+            className={`text-[9px] px-1 py-0 border ${PRIORITY_CLS[lead.priority] || ""}`}
+            title={lead.priority}
           >
-            <CalendarPlus className="h-2.5 w-2.5" />
-            Schedule
-          </button>
+            {timelineLabel(lead)}
+          </Badge>
+        )}
+        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
+          isSent ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+        }`}>
+          <Clock className={`h-3 w-3 ${isSent ? "text-green-500" : "text-red-500"}`} />
+          <span className={`text-[11px] ${isSent ? "text-green-600" : "text-red-600"}`}>
+            <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={isSent ? lead.updated_at : null} />
+          </span>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {timelineLabel(lead) && (
-            <Badge
-              className={`text-[9px] px-1 py-0 border ${PRIORITY_CLS[lead.priority] || ""}`}
-              title={lead.priority}
-            >
-              {timelineLabel(lead)}
-            </Badge>
-          )}
-          <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${
-            isSent ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
-          }`}>
-            <Clock className={`h-3 w-3 ${isSent ? "text-green-500" : "text-red-500"}`} />
-            <span className={`text-[11px] ${isSent ? "text-green-600" : "text-red-600"}`}>
-              <ElapsedTimer since={lead.dashboard_synced_at || lead.created_at} stoppedAt={isSent ? lead.updated_at : null} />
-            </span>
-          </div>
-        </div>
+      </div>
+      <div className="flex items-center gap-1 mt-1.5">
+        <Badge variant="outline" className="text-[9px] py-0 shrink-0">{lead.location_label}</Badge>
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/leads/${lead.id}?schedule=1`; }}
+          className="text-[9px] px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 flex items-center gap-0.5 shrink-0"
+          title="Schedule a job for this lead"
+        >
+          <CalendarPlus className="h-2.5 w-2.5" />
+          Schedule
+        </button>
       </div>
     </Link>
   );
