@@ -10,13 +10,13 @@ import { formatCurrency } from "@/lib/utils";
 // items that explicitly include "worker" in allowedRoles.
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; allowedRoles?: string[] }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/leads", icon: Users, label: "Leads" },
-  { to: "/old-leads", icon: UsersRound, label: "Old Leads" },
+  { to: "/leads", icon: Users, label: "Sterling Leads" },
+  { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },
   { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" },
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/calls", icon: Mic, label: "Call Coach" },
-  { to: "/crew", icon: HardHat, label: "Crew", allowedRoles: ["admin"] },
-  { to: "/calendar", icon: Calendar, label: "Calendar", allowedRoles: ["admin", "va", "worker"] },
+  { to: "/crew", icon: HardHat, label: "Payroll", allowedRoles: ["admin"] },
+  { to: "/calendar", icon: Calendar, label: "Job Calendar", allowedRoles: ["admin", "va", "worker"] },
   { to: "/pricing", icon: DollarSign, label: "Pricing" },
   { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings" },
