@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { X, Loader2 } from "lucide-react";
+import CustomerSearchPicker from "@/components/CustomerSearchPicker";
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 const selectCls = inputCls;
@@ -286,7 +287,14 @@ export function LogHoursModal({
       )}
       <div>
         <label className={labelCls}>Job Reference (optional)</label>
-        <Input value={jobRef} onChange={(e) => setJobRef(e.target.value)} placeholder="Customer name, address, or notes" />
+        <CustomerSearchPicker
+          employeeId={employeeId}
+          initialValue={jobRef}
+          onChange={({ text }) => setJobRef(text)}
+          placeholder="Search customer name (or type freeform)"
+          hint="Pick a customer from the list, or just type — both save."
+          className="mt-1"
+        />
       </div>
       <div>
         <label className={labelCls}>Notes (optional)</label>
