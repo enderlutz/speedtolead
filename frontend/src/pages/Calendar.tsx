@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { api, getCurrentUser, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee } from "@/lib/api";
+import { api, getCurrentUser, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee, type GoogleEvent } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -71,6 +71,10 @@ export default function Calendar() {
   const [weatherByZip, setWeatherByZip] = useState<Record<string, WeatherForecast>>({});
   const [reimbJob, setReimbJob] = useState<ScheduledJob | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Events Alan booked directly in Google Calendar (read-only — to edit, he
+  // opens them in Google).
+  const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
+  const [activeGoogleEvent, setActiveGoogleEvent] = useState<GoogleEvent | null>(null);
 
   const weeks = useMemo(() => monthMatrix(year, monthIdx), [year, monthIdx]);
   const monthStart = weeks[0][0].toISOString().slice(0, 10);
@@ -82,6 +86,12 @@ export default function Calendar() {
       .then((r) => setJobs(r.jobs))
       .catch(() => toast.error("Failed to load calendar"))
       .finally(() => setLoading(false));
+    // Pull Alan's Google Calendar events for the same window. Silent on
+    // failure — empty list is the expected outcome when Google isn't
+    // connected and we don't want to spam errors.
+    api.getGoogleEvents(monthStart, monthEnd)
+      .then((r) => setGoogleEvents(r.events))
+      .catch(() => setGoogleEvents([]));
   }, [monthStart, monthEnd]);
 
   useEffect(() => { load(); }, [load]);
@@ -113,6 +123,22 @@ export default function Calendar() {
     });
     return map;
   }, [jobs]);
+
+  // Drop Google events that we already render as ScheduledJob (we created
+  // them via the dashboard's create_event flow — they're already in `jobs`).
+  // Whatever's left was created directly in Alan's Google Calendar.
+  const externalEventsByDate = useMemo(() => {
+    const ourGoogleIds = new Set(jobs.map((j) => j.google_event_id).filter(Boolean));
+    const map: Record<string, GoogleEvent[]> = {};
+    for (const ev of googleEvents) {
+      if (ev.google_event_id && ourGoogleIds.has(ev.google_event_id)) continue;
+      const dateKey = ev.start ? ev.start.slice(0, 10) : "";
+      if (!dateKey) continue;
+      if (!map[dateKey]) map[dateKey] = [];
+      map[dateKey].push(ev);
+    }
+    return map;
+  }, [googleEvents, jobs]);
 
   // Worker view (whether actual or admin preview): hide internal data
   const showAsWorker = isWorker || (isAdmin && previewAsWorker);
@@ -237,6 +263,27 @@ export default function Calendar() {
                               </button>
                             );
                           })}
+                          {/* Events Alan booked directly in Google Calendar.
+                              Rendered with a dashed left border + Google blue
+                              so admin/VAs can tell them apart from in-app
+                              jobs at a glance. Click → opens in GCal. */}
+                          {(externalEventsByDate[iso] || []).map((ev) => {
+                            const startTime = ev.all_day
+                              ? "all day"
+                              : (ev.start.slice(11, 16) || "");
+                            return (
+                              <button
+                                key={ev.google_event_id}
+                                onClick={() => setActiveGoogleEvent(ev)}
+                                className="text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1 border-l-4 border-l-blue-500 bg-blue-50/70 border-dashed"
+                                title={`${ev.summary} · from Google Calendar`}
+                              >
+                                <span className="font-mono text-muted-foreground">{startTime}</span>
+                                <span className="truncate">{ev.summary}</span>
+                                <span className="ml-auto text-[8px] uppercase tracking-wide text-blue-700 font-bold shrink-0">G</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -253,6 +300,7 @@ export default function Calendar() {
         <span className="font-semibold">Service:</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-yellow-400" /> Fence staining</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-red-400" /> Pressure washing</span>
+        <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-blue-500" /> From Google Calendar</span>
         {!showAsWorker && (
           <>
             <span className="font-semibold ml-3">Package:</span>
@@ -342,6 +390,75 @@ export default function Calendar() {
           />
         );
       })()}
+
+      {activeGoogleEvent && (
+        <GoogleEventModal
+          event={activeGoogleEvent}
+          onClose={() => setActiveGoogleEvent(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function GoogleEventModal({ event, onClose }: { event: GoogleEvent; onClose: () => void }) {
+  const fmtTime = (s: string): string => {
+    if (!s) return "—";
+    if (event.all_day) return s.slice(0, 10);
+    const d = new Date(s);
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center justify-between">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide bg-blue-500 text-white px-1.5 py-0.5 rounded font-bold">Google Calendar</span>
+            <span className="truncate">{event.summary || "Event"}</span>
+          </h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3 text-sm">
+          <div className="flex items-center gap-2">
+            <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>
+              {fmtTime(event.start)}
+              {event.end && !event.all_day && ` → ${fmtTime(event.end)}`}
+            </span>
+          </div>
+          {event.location && (
+            <div className="flex items-start gap-2">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
+              <a
+                href={`https://maps.google.com/?q=${encodeURIComponent(event.location)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                {event.location}
+              </a>
+            </div>
+          )}
+          {event.description && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Notes</p>
+              <p className="whitespace-pre-wrap text-xs">{event.description}</p>
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground italic">
+            This event lives in Google Calendar — to edit, open it there.
+          </p>
+        </div>
+        <div className="p-3 border-t flex justify-end gap-2">
+          {event.html_link && (
+            <a href={event.html_link} target="_blank" rel="noreferrer">
+              <Button size="sm">Open in Google</Button>
+            </a>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

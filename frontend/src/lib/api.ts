@@ -929,6 +929,10 @@ export const api = {
   getGoogleAuthUrl: () => request<{ url: string }>("/api/google/auth-url"),
   getGoogleStatus: () => request<{ connected: boolean; email?: string; calendar_id?: string; connected_at?: string }>("/api/google/status"),
   disconnectGoogle: () => request<{ status: string }>("/api/google/disconnect", { method: "POST" }),
+  /** Read Alan's Google Calendar events for the given date range. Returns
+   * an empty array when Google isn't connected so the caller doesn't crash. */
+  getGoogleEvents: (start: string, end: string) =>
+    request<{ events: GoogleEvent[] }>(`/api/google/events?start=${start}&end=${end}`),
 
   // Weather
   getWeather: (zip: string) => request<WeatherForecast>(`/api/weather/${encodeURIComponent(zip)}`),
@@ -1035,6 +1039,21 @@ export interface UpdateJobBody {
   admin_notes?: string;
   employee_ids?: string[];
   status?: string;
+}
+
+/** An event read from Alan's Google Calendar — purely informational, not
+ * editable in our app. Used to show jobs Alan booked on his phone alongside
+ * the ones scheduled in the dashboard. */
+export interface GoogleEvent {
+  google_event_id: string;
+  summary: string;
+  description: string;
+  location: string;
+  start: string;       // RFC 3339 timestamp OR YYYY-MM-DD for all-day
+  end: string;
+  all_day: boolean;
+  html_link: string;   // Open this to edit in Google Calendar
+  status: string;
 }
 
 export interface ScheduledJob {

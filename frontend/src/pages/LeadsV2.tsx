@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, Archive, Zap, CalendarPlus } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, Archive, CalendarPlus } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -19,7 +19,7 @@ import { leadDetailCache } from "./Leads";
 // Stage ID that means "ESTIMATE SENT" — used to switch the elapsed timer
 // from red (still waiting) to green (already sent).
 const STAGE_ESTIMATE_SENT = "dc3600f2-009b-4075-95fa-786823131416";
-const STAGE_HOT_LEAD = "616087fa-4144-454e-b3d3-ff3669cb9461";
+// STAGE_HOT_LEAD constant removed along with the lightning-bolt quick-send button.
 
 function prefetchLead(id: string) {
   if (leadDetailCache.has(id)) return;
@@ -344,18 +344,9 @@ export default function LeadsV2() {
 function KanbanColumn({ stage, leads, onRefresh, delays }: { stage: StageDef; leads: Lead[]; onRefresh: () => void; delays: Record<string, { reason: string }> }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
 
-  const handleQuickSend = async (e: React.MouseEvent, lead: Lead) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      const detail = await api.getLead(lead.id);
-      const est = detail.estimates?.[0];
-      if (!est) { toast.error("No estimate found"); return; }
-      await api.approveEstimate(est.id);
-      toast.success(`Sent to ${lead.contact_name}!`);
-      onRefresh();
-    } catch { toast.error("Failed to send"); }
-  };
+  // handleQuickSend (lightning-bolt button) was removed — too easy to send
+  // an estimate by accident from the kanban. Use the Lead Detail page's
+  // Approve & Send flow, which has confirmation + scheduling options.
 
   const handleArchive = async (e: React.MouseEvent, lead: Lead) => {
     e.preventDefault();
@@ -378,15 +369,6 @@ function KanbanColumn({ stage, leads, onRefresh, delays }: { stage: StageDef; le
       <div className="p-1.5 space-y-1.5 min-h-[80px]">
         {leads.map((lead) => (
           <DraggableCard key={lead.id} lead={lead} delayInfo={delays[lead.id]}>
-            {stage.id === STAGE_HOT_LEAD && (
-              <button
-                onClick={(e) => handleQuickSend(e, lead)}
-                className="absolute top-1.5 right-7 p-1 rounded bg-green-600 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-sm hover:bg-green-700"
-                title="Send Now"
-              >
-                <Zap className="h-3 w-3" />
-              </button>
-            )}
             <button
               onClick={(e) => handleArchive(e, lead)}
               className="absolute top-1.5 right-1.5 p-1 rounded bg-gray-500 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-sm hover:bg-gray-600"

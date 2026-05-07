@@ -9,7 +9,7 @@ import logging
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Response
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Response, Request
 from sqlalchemy import func
 from pydantic import BaseModel
 from database import (
@@ -363,15 +363,58 @@ def get_storage_stats():
 
 
 @router.get("/calls/{recording_id}/audio")
-def stream_audio(recording_id: str):
-    """Stream the raw audio bytes for playback in the browser."""
+def stream_audio(recording_id: str, request: Request):
+    """Stream the raw audio bytes for playback in the browser. Honors HTTP
+    Range requests so the <audio> element can seek (scrub the timeline)
+    without downloading the whole file first."""
     db = get_db()
     try:
         rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
         if not rec or not rec.recording_data:
             raise HTTPException(status_code=404, detail="Recording not found")
-        # Best-effort content type — browsers handle webm/mp4/ogg/wav fine
-        return Response(content=rec.recording_data, media_type="audio/webm")
+
+        data = rec.recording_data
+        total = len(data)
+        media_type = "audio/webm"  # browsers handle webm/mp4/ogg/wav fine
+
+        range_header = request.headers.get("range") or request.headers.get("Range")
+        if range_header and range_header.startswith("bytes="):
+            try:
+                spec = range_header.replace("bytes=", "", 1).strip()
+                start_str, _, end_str = spec.partition("-")
+                start = int(start_str) if start_str else 0
+                end = int(end_str) if end_str else total - 1
+                if end >= total:
+                    end = total - 1
+                if start < 0 or start > end or start >= total:
+                    return Response(status_code=416, headers={"Content-Range": f"bytes */{total}"})
+                chunk = data[start : end + 1]
+                return Response(
+                    content=chunk,
+                    status_code=206,
+                    media_type=media_type,
+                    headers={
+                        "Content-Range": f"bytes {start}-{end}/{total}",
+                        "Accept-Ranges": "bytes",
+                        "Content-Length": str(len(chunk)),
+                        "Cache-Control": "private, max-age=600",
+                    },
+                )
+            except ValueError:
+                # Malformed Range header — fall through to full body
+                pass
+
+        # No (or unparsable) Range header → serve the whole file but still
+        # advertise byte-range support so the next request can seek.
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(total),
+                "Cache-Control": "private, max-age=600",
+            },
+        )
     finally:
         db.close()
 

@@ -20,7 +20,7 @@ import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import { V2_STAGES } from "./LeadsV2";
-import { CallCoachAnalysis } from "./Calls";
+import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
 const FENCE_HEIGHT_OPTIONS = [
   "Didn't answer", "6ft standard", "6.5ft standard with rot board", "7ft", "8ft", "Not sure",
@@ -1794,31 +1794,25 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
 
                   {isExpanded && (
                     <div className="border-t px-3 py-3 space-y-3 bg-muted/10">
-                      {/* Analysis */}
-                      {analysis && <CallCoachAnalysis analysis={analysis} />}
-
-                      {/* Transcript */}
-                      {transcript && (
-                        <div>
-                          <p className="text-xs font-semibold text-muted-foreground mb-1">Transcript</p>
-                          <div className="max-h-[200px] overflow-y-auto rounded border bg-white p-2 space-y-1">
-                            {transcript.segments.map((seg, i) => {
-                              const speaker = transcript.speaker_map[String(seg.speaker)] || `Speaker ${seg.speaker}`;
-                              const isCustomer = speaker === "Customer";
-                              return (
-                                <p key={i} className="text-xs">
-                                  <span className={`font-medium ${isCustomer ? "text-gray-700" : "text-blue-700"}`}>{speaker}:</span>{" "}
-                                  {seg.text}
-                                </p>
-                              );
-                            })}
-                          </div>
-                        </div>
+                      {rec.has_recording && (
+                        <SyncedTranscriptPlayer
+                          recordingId={rec.id}
+                          segments={transcript?.segments || []}
+                          speakerMap={transcript?.speaker_map || {}}
+                          initialNotes={rec.notes || ""}
+                        />
                       )}
-
-                      {!analysis && !transcript && rec.status === "pending" && (
-                        <p className="text-xs text-muted-foreground text-center py-2">Transcription and analysis in progress...</p>
+                      {!rec.has_recording && rec.status === "pending" && (
+                        <p className="text-xs text-muted-foreground text-center py-2">Transcription in progress…</p>
                       )}
+                      {!rec.has_recording && isFailed && (
+                        <p className="text-xs text-muted-foreground text-center py-2">
+                          Transcription failed. Hit the retry icon to run it again.
+                        </p>
+                      )}
+                      {/* Scoring/coaching analysis hidden for now to match the
+                          Call Coach page. Re-enable when scoring comes back. */}
+                      {/* {analysis && <CallCoachAnalysis analysis={analysis} />} */}
                     </div>
                   )}
                 </div>

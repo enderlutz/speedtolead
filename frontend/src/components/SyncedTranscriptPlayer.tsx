@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Play, Pause, SkipBack, SkipForward, Save, FileText, MessageSquare } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Save, FileText, MessageSquare, Mic, MicOff } from "lucide-react";
 
 type Segment = { speaker: number; text: string; start: number; end: number };
 
@@ -52,6 +52,15 @@ export default function SyncedTranscriptPlayer({
   const [notes, setNotes] = useState(initialNotes);
   const [savedNotes, setSavedNotes] = useState(initialNotes);
   const [savingNotes, setSavingNotes] = useState(false);
+
+  // Speech-to-text dictation (Web Speech API — Chrome + Safari + iOS).
+  // The recognizer is created lazily because Firefox doesn't ship it.
+  type SR = { start: () => void; stop: () => void; onresult: ((ev: unknown) => void) | null; onend: (() => void) | null; onerror: ((ev: unknown) => void) | null; continuous: boolean; interimResults: boolean; lang: string };
+  const recognitionRef = useRef<SR | null>(null);
+  const [dictating, setDictating] = useState(false);
+  const dictationBaseRef = useRef<string>("");
+  const speechAvailable = typeof window !== "undefined"
+    && (("SpeechRecognition" in window) || ("webkitSpeechRecognition" in window));
 
   const audioUrl = api.getCallAudioUrl(recordingId);
 
@@ -146,6 +155,65 @@ export default function SyncedTranscriptPlayer({
 
   const speakerName = (id: number): string => speakerMap?.[String(id)] || `Speaker ${id + 1}`;
   const notesDirty = notes !== savedNotes;
+
+  const startDictation = () => {
+    if (!speechAvailable) {
+      toast.error("Voice typing isn't supported in this browser. Try Chrome or Safari.");
+      return;
+    }
+    const Ctor = (window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR })
+      .SpeechRecognition || (window as unknown as { webkitSpeechRecognition?: new () => SR }).webkitSpeechRecognition;
+    if (!Ctor) {
+      toast.error("Voice typing not available.");
+      return;
+    }
+    const r = new Ctor();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = "en-US";
+    dictationBaseRef.current = notes ? notes.replace(/\s*$/, "") + (notes ? " " : "") : "";
+    r.onresult = (ev: unknown) => {
+      const e = ev as { results: { isFinal: boolean; 0: { transcript: string } }[] };
+      let finalText = "";
+      let interimText = "";
+      for (let i = 0; i < e.results.length; i++) {
+        const seg = e.results[i];
+        if (seg.isFinal) finalText += seg[0].transcript + " ";
+        else interimText += seg[0].transcript;
+      }
+      setNotes((dictationBaseRef.current + finalText + interimText).trimStart());
+      // After a final segment lands, advance the base so the next interim
+      // doesn't overwrite it.
+      if (finalText) {
+        dictationBaseRef.current = (dictationBaseRef.current + finalText);
+      }
+    };
+    r.onend = () => {
+      setDictating(false);
+      recognitionRef.current = null;
+    };
+    r.onerror = (ev: unknown) => {
+      const e = ev as { error?: string };
+      if (e.error && e.error !== "no-speech" && e.error !== "aborted") {
+        toast.error(`Voice error: ${e.error}`);
+      }
+      setDictating(false);
+      recognitionRef.current = null;
+    };
+    recognitionRef.current = r;
+    setDictating(true);
+    try { r.start(); } catch { /* already running */ }
+  };
+
+  const stopDictation = () => {
+    recognitionRef.current?.stop();
+    setDictating(false);
+  };
+
+  // Stop dictation when component unmounts
+  useEffect(() => {
+    return () => { recognitionRef.current?.stop(); };
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -259,24 +327,38 @@ export default function SyncedTranscriptPlayer({
           <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
             <MessageSquare className="h-3.5 w-3.5" /> Call notes
           </label>
-          <Button
-            size="sm"
-            variant={notesDirty ? "default" : "outline"}
-            onClick={saveNotes}
-            disabled={!notesDirty || savingNotes}
-            className="h-7 text-xs"
-          >
-            <Save className="h-3 w-3 mr-1" />
-            {savingNotes ? "Saving…" : notesDirty ? "Save" : "Saved"}
-          </Button>
+          <div className="flex items-center gap-1">
+            {speechAvailable && (
+              <Button
+                size="sm"
+                variant={dictating ? "default" : "outline"}
+                onClick={dictating ? stopDictation : startDictation}
+                className={`h-7 text-xs ${dictating ? "bg-red-600 hover:bg-red-700 text-white animate-pulse" : ""}`}
+                title={dictating ? "Stop voice typing" : "Voice type — speak and we'll transcribe"}
+              >
+                {dictating ? <MicOff className="h-3 w-3 mr-1" /> : <Mic className="h-3 w-3 mr-1" />}
+                {dictating ? "Listening…" : "Voice"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={notesDirty ? "default" : "outline"}
+              onClick={saveNotes}
+              disabled={!notesDirty || savingNotes}
+              className="h-7 text-xs"
+            >
+              <Save className="h-3 w-3 mr-1" />
+              {savingNotes ? "Saving…" : notesDirty ? "Save" : "Saved"}
+            </Button>
+          </div>
         </div>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={saveNotes}
-          placeholder="Anything worth remembering — what the customer asked for, follow-ups, surprises…"
+          placeholder={dictating ? "Listening — speak now…" : "Anything worth remembering — what the customer asked for, follow-ups, surprises…"}
           rows={3}
-          className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+          className={`w-full text-sm border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y ${dictating ? "border-red-300 ring-1 ring-red-200" : "border-input"}`}
         />
       </div>
     </div>

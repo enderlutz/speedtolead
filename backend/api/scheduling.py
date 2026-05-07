@@ -471,6 +471,25 @@ def google_oauth_callback(code: str = Query(...)):
         db.close()
 
 
+@router.get("/google/events")
+def google_events(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_staff)):
+    """Pull events directly from Alan's Google Calendar for the given range
+    (YYYY-MM-DD, treated as inclusive). Used by the Calendar page so jobs
+    Alan books on the fly via Google show up in the dashboard alongside
+    jobs scheduled here. Returns an empty list when Google isn't connected
+    rather than failing — keeps the page from breaking."""
+    del user
+    db = get_db()
+    try:
+        # Convert YYYY-MM-DD to RFC 3339. Google wants UTC, so use 00:00 → 24:00 UTC.
+        time_min = f"{start}T00:00:00Z"
+        time_max = f"{end}T23:59:59Z"
+        events = google_calendar.list_events(db, time_min=time_min, time_max=time_max)
+        return {"events": events}
+    finally:
+        db.close()
+
+
 @router.get("/google/status")
 def google_status(user: dict = Depends(require_staff)):
     del user

@@ -304,3 +304,61 @@ def delete_event(db: Session, event_id: str) -> bool:
     except Exception as e:
         logger.error(f"Google Calendar delete_event failed: {e}")
         return False
+
+
+def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
+    """Pull Alan's calendar events between time_min and time_max (RFC 3339
+    timestamps, e.g. 2026-05-01T00:00:00Z). Returns a flat list of dicts,
+    one per event. Recurring events are expanded into their instances so the
+    UI doesn't need to know how to interpret recurrence rules.
+
+    Used by the Calendar page to show jobs Alan booked directly in Google
+    Calendar (on-the-go) alongside the ones scheduled in the dashboard.
+    Returns an empty list (not an exception) when not connected — keeps the
+    page render stable."""
+    try:
+        access = _get_access_token(db)
+    except Exception as e:
+        logger.info(f"Google Calendar list_events skipped: {e}")
+        return []
+
+    cal_id = _calendar_id(db)
+    try:
+        r = _client.get(
+            f"{CALENDAR_BASE}/calendars/{cal_id}/events",
+            headers={"Authorization": f"Bearer {access}"},
+            params={
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": "250",
+            },
+        )
+        if r.status_code != 200:
+            logger.warning(f"GCal list_events HTTP {r.status_code}: {r.text[:200]}")
+            return []
+        items = r.json().get("items", [])
+        out = []
+        for it in items:
+            start = it.get("start", {}) or {}
+            end = it.get("end", {}) or {}
+            # All-day events use {date}, timed use {dateTime}. Normalize.
+            start_iso = start.get("dateTime") or start.get("date") or ""
+            end_iso = end.get("dateTime") or end.get("date") or ""
+            all_day = not start.get("dateTime")
+            out.append({
+                "google_event_id": it.get("id", ""),
+                "summary": it.get("summary", "(no title)"),
+                "description": it.get("description", "") or "",
+                "location": it.get("location", "") or "",
+                "start": start_iso,
+                "end": end_iso,
+                "all_day": all_day,
+                "html_link": it.get("htmlLink", ""),
+                "status": it.get("status", "confirmed"),
+            })
+        return out
+    except Exception as e:
+        logger.warning(f"GCal list_events failed: {e}")
+        return []
