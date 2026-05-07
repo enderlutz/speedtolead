@@ -8,6 +8,9 @@ import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import { HardHat, Plus, Clock, DollarSign, AlertTriangle, Download, FileText, Eye } from "lucide-react";
 import { LogHoursModal, RecordPaymentModal, AddEmployeeModal } from "@/components/CrewModals";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import DailyLogTab from "@/components/DailyLogTab";
+import { useSearchParams } from "react-router-dom";
 
 type RangeKey = "this_week" | "last_week" | "month" | "ytd";
 const RANGE_LABELS: Record<RangeKey, string> = {
@@ -22,6 +25,12 @@ type EmployeeRow = Employee & { range_totals: RangeTotals; lifetime: LifetimeTot
 export default function Crew() {
   const navigate = useNavigate();
   const user = getCurrentUser();
+  const [urlParams] = useSearchParams();
+  // Calendar quick-log deep links here as /crew?tab=log&employee_id=...&date=...&lead_id=...
+  const initialTab = urlParams.get("tab") === "log" ? "log" : "roster";
+  const initialEmployeeId = urlParams.get("employee_id") || undefined;
+  const initialDate = urlParams.get("date") || undefined;
+  const initialLeadId = urlParams.get("lead_id") || undefined;
   const [range, setRange] = useState<RangeKey>("this_week");
   const [includeInactive, setIncludeInactive] = useState(false);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
@@ -95,6 +104,13 @@ export default function Crew() {
         </div>
       )}
 
+      <Tabs defaultValue={initialTab}>
+        <TabsList>
+          <TabsTrigger value="roster">Roster</TabsTrigger>
+          <TabsTrigger value="log">Daily Log</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="roster" className="space-y-4 mt-3">
       <div className="flex items-center gap-2 flex-wrap border-b">
         {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
           <button
@@ -206,6 +222,17 @@ export default function Crew() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="log" className="mt-3">
+          <DailyLogTab
+            employees={employees.filter((e) => e.status === "active")}
+            initialEmployeeId={initialEmployeeId}
+            initialDate={initialDate}
+            initialLeadId={initialLeadId}
+          />
+        </TabsContent>
+      </Tabs>
 
       {showAdd && (
         <AddEmployeeModal

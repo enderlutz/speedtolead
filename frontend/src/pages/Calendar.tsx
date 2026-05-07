@@ -244,6 +244,14 @@ export default function Calendar() {
           weather={weatherByZip[activeJob.zip_code]?.days.find((d) => d.date === activeJob.job_date)}
           onClose={closeJob}
           onEdit={!showAsWorker ? () => { setEditJob(activeJob); closeJob(); } : undefined}
+          onLogTime={!showAsWorker && isAdmin ? () => {
+            // Deep link to Crew → Daily Log with this job pre-selected. If
+            // there's exactly one assigned worker, pre-pick them too.
+            const params = new URLSearchParams({ tab: "log", lead_id: activeJob.lead_id, date: activeJob.job_date });
+            const assigned = activeJob.assigned_employee_ids || [];
+            if (assigned.length === 1) params.set("employee_id", assigned[0]);
+            window.location.href = `/crew?${params.toString()}`;
+          } : undefined}
           onDelete={!showAsWorker && isAdmin ? async () => {
             if (!confirm("Cancel this job? The Google event will also be deleted and customer notified.")) return;
             try {
@@ -306,7 +314,7 @@ function DayWeatherChip({ zips, byZip, iso }: { zips: string[]; byZip: Record<st
 }
 
 function JobDetailModal({
-  job, showAsWorker, weather, onClose, onEdit, onDelete,
+  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
@@ -314,6 +322,7 @@ function JobDetailModal({
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onLogTime?: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -386,9 +395,10 @@ function JobDetailModal({
             </>
           )}
         </div>
-        {(onEdit || onDelete) && (
+        {(onEdit || onDelete || onLogTime) && (
           <div className="p-3 border-t flex justify-end gap-2">
             {onDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={onDelete}>Cancel job</Button>}
+            {onLogTime && <Button variant="outline" size="sm" onClick={onLogTime}>Log time</Button>}
             {onEdit && <Button size="sm" onClick={onEdit}>Edit</Button>}
           </div>
         )}
