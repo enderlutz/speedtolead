@@ -12,6 +12,7 @@ import {
   Search, Plus, Trash2, AlertTriangle, Receipt, Image as ImageIcon, Check, X,
 } from "lucide-react";
 import ReimbursementForm from "@/components/ReimbursementForm";
+import HoursPie from "@/components/HoursPie";
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 
@@ -318,6 +319,27 @@ export default function DailyLogTab({ employees, initialEmployeeId, initialDate,
           </CardContent>
         </Card>
       )}
+
+      {/* Day breakdown pie — splits the day's hours by customer */}
+      {day && day.allocations.length > 0 && (() => {
+        const byCustomer = new Map<string, number>();
+        for (const a of day.allocations) {
+          byCustomer.set(a.customer_name, (byCustomer.get(a.customer_name) || 0) + a.hours);
+        }
+        const slices = Array.from(byCustomer.entries())
+          .map(([name, hours]) => ({ name, hours }))
+          .sort((a, b) => b.hours - a.hours);
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Day breakdown by customer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <HoursPie data={slices} centerSubtitle={date} height={220} />
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Existing allocations for this day */}
       <Card>

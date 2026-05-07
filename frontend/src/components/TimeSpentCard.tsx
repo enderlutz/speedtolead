@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import { Clock, Receipt, ChevronDown, ChevronUp, Image as ImageIcon } from "lucide-react";
+import HoursPie from "@/components/HoursPie";
 
 type AllocRow = TaskAllocationRow & { employee_name: string };
 type ReimbRow = ReimbursementRow & { employee_name: string };
@@ -72,17 +73,24 @@ export default function TimeSpentCard({ leadId }: Props) {
             </p>
           ) : (
             <>
-              {/* Job-total breakdown (across all employees) */}
+              {/* Job-total breakdown (across all employees) — pie + numerical grid */}
               {taskBreakdown.length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold text-muted-foreground mb-1.5">Total job breakdown</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {taskBreakdown.map(([task, hrs]) => (
-                      <div key={task} className="rounded border bg-muted/20 p-2">
-                        <p className="text-[11px] text-muted-foreground capitalize">{task}</p>
-                        <p className="text-sm font-semibold">{hrs.toFixed(1)}h</p>
-                      </div>
-                    ))}
+                  <p className="text-xs font-semibold text-muted-foreground mb-1.5">Total job breakdown by task</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+                    <HoursPie
+                      data={taskBreakdown.map(([name, hours]) => ({ name, hours }))}
+                      centerSubtitle="job total"
+                      height={220}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      {taskBreakdown.map(([task, hrs]) => (
+                        <div key={task} className="rounded border bg-muted/20 p-2">
+                          <p className="text-[11px] text-muted-foreground capitalize">{task}</p>
+                          <p className="text-sm font-semibold">{hrs.toFixed(1)}h</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
