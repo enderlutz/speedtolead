@@ -888,6 +888,100 @@ class EstimateDelay(Base):
         }
 
 
+class TaskAllocation(Base):
+    """Sub-record of a TimeEntry — explains HOW a day's hours got spent.
+    One day total (TimeEntry) may have many TaskAllocations: e.g., for
+    Miguel on 2026-05-06 (8h total) → 1h driving (Customer A), 3.5h
+    staining (Customer A), 1h driving (Customer B), 2h staining (Customer
+    B), 0.5h cleanup (Customer B). Sum of allocations should equal the
+    parent TimeEntry.hours; if not, UI shows a reconciliation warning.
+
+    Per spec, admin enters all of these (no worker self-input yet)."""
+    __tablename__ = "task_allocations"
+    __table_args__ = (
+        Index("idx_task_allocations_time_entry", "time_entry_id"),
+        Index("idx_task_allocations_lead", "lead_id"),
+        Index("idx_task_allocations_employee_date", "employee_id", "work_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    employee_id = Column(Text, nullable=False)
+    time_entry_id = Column(Text, nullable=False)         # FK to TimeEntry
+    work_date = Column(Text, nullable=False)             # denormalized for query speed
+    lead_id = Column(Text, nullable=False)               # which customer
+    task_name = Column(Text, nullable=False)             # free-form, autocomplete from past entries
+    hours = Column(Numeric(10, 2), nullable=False, default=0)
+    notes = Column(Text, default="")
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "employee_id": self.employee_id,
+            "time_entry_id": self.time_entry_id,
+            "work_date": self.work_date,
+            "lead_id": self.lead_id,
+            "task_name": self.task_name,
+            "hours": float(self.hours or 0),
+            "notes": self.notes or "",
+            "created_at": self.created_at,
+            "created_by": self.created_by or "",
+            "updated_at": self.updated_at,
+        }
+
+
+class Reimbursement(Base):
+    """Out-of-pocket expense an employee paid for that didn't go through
+    the admin's card. Receipt photo required (LargeBinary blob). Tied to
+    a customer's lead so it shows up on the Lead Detail "Time Spent" tab.
+    Status is admin's pending/approved confirmation."""
+    __tablename__ = "reimbursements"
+    __table_args__ = (
+        Index("idx_reimbursements_employee", "employee_id"),
+        Index("idx_reimbursements_lead", "lead_id"),
+        Index("idx_reimbursements_status", "status"),
+    )
+
+    id = Column(Text, primary_key=True)
+    employee_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=False)
+    expense_date = Column(Text, nullable=False)          # YYYY-MM-DD, when employee paid
+    amount = Column(Numeric(10, 2), nullable=False, default=0)
+    description = Column(Text, default="")               # e.g., "extra stain, paint roller"
+    receipt_data = Column(LargeBinary, nullable=True)    # photo blob (W9 pattern)
+    receipt_filename = Column(Text, default="")
+    receipt_mime = Column(Text, default="")
+    status = Column(Text, default="pending")             # pending | approved | rejected
+    notes = Column(Text, default="")
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    approved_at = Column(Text, nullable=True)
+    approved_by = Column(Text, default="")
+
+    def to_dict(self, include_receipt: bool = False) -> dict:
+        out = {
+            "id": self.id,
+            "employee_id": self.employee_id,
+            "lead_id": self.lead_id,
+            "expense_date": self.expense_date,
+            "amount": float(self.amount or 0),
+            "description": self.description or "",
+            "receipt_uploaded": bool(self.receipt_data),
+            "receipt_filename": self.receipt_filename or "",
+            "status": self.status or "pending",
+            "notes": self.notes or "",
+            "created_at": self.created_at,
+            "created_by": self.created_by or "",
+            "approved_at": self.approved_at,
+            "approved_by": self.approved_by or "",
+        }
+        if include_receipt:
+            out["receipt_mime"] = self.receipt_mime or ""
+        return out
+
+
 class GoogleOAuthToken(Base):
     """Single-row table holding Alan's Google Calendar OAuth tokens.
     One calendar for all jobs (per spec). Refresh token persists; access

@@ -871,6 +871,51 @@ export const api = {
   // Weather
   getWeather: (zip: string) => request<WeatherForecast>(`/api/weather/${encodeURIComponent(zip)}`),
 
+  // Time logs (TaskAllocations + Reimbursements)
+  getCustomersToLog: (employeeId: string) =>
+    request<{ unlogged: UnloggedJob[]; all_customers: SearchableCustomer[] }>(
+      `/api/time-logs/customers-to-log?employee_id=${encodeURIComponent(employeeId)}`,
+    ),
+  getDayLog: (employeeId: string, workDate: string) =>
+    request<DayLog>(`/api/time-logs/employees/${employeeId}/day?work_date=${encodeURIComponent(workDate)}`),
+  createAllocation: (body: AllocationBody) =>
+    request<TaskAllocationRow>("/api/time-logs/allocations", { method: "POST", body: JSON.stringify(body) }),
+  updateAllocation: (id: string, body: Partial<AllocationBody>) =>
+    request<TaskAllocationRow>(`/api/time-logs/allocations/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteAllocation: (id: string) =>
+    request<{ status: string }>(`/api/time-logs/allocations/${id}`, { method: "DELETE" }),
+  listTaskNames: () =>
+    request<{ names: { name: string; count: number }[] }>("/api/time-logs/task-names"),
+  uploadReimbursement: async (form: FormData) => {
+    const res = await fetch(`${BASE}/api/time-logs/reimbursements`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken()}` },
+      body: form,
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Failed to upload reimbursement");
+    return res.json() as Promise<ReimbursementRow>;
+  },
+  listReimbursements: (params: { employee_id?: string; lead_id?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.employee_id) qs.set("employee_id", params.employee_id);
+    if (params.lead_id) qs.set("lead_id", params.lead_id);
+    if (params.status) qs.set("status", params.status);
+    return request<{ reimbursements: ReimbursementRow[] }>(`/api/time-logs/reimbursements${qs.toString() ? "?" + qs : ""}`);
+  },
+  updateReimbursement: (id: string, body: { amount?: number; description?: string; notes?: string; status?: "pending" | "approved" | "rejected" }) =>
+    request<ReimbursementRow>(`/api/time-logs/reimbursements/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteReimbursement: (id: string) =>
+    request<{ status: string }>(`/api/time-logs/reimbursements/${id}`, { method: "DELETE" }),
+  getReceiptUrl: (id: string) => `${BASE}/api/time-logs/reimbursements/${id}/receipt`,
+  getLeadTimeLogs: (leadId: string) =>
+    request<{
+      allocations: (TaskAllocationRow & { employee_name: string })[];
+      reimbursements: (ReimbursementRow & { employee_name: string })[];
+      total_hours: number;
+      total_reimbursements: number;
+      pending_reimbursements: number;
+    }>(`/api/leads/${leadId}/time-logs`),
+
   // Estimate delays (24h alert)
   listOpenDelays: () =>
     request<{ delays: EstimateDelayRow[]; preset_reasons: string[] }>("/api/estimate-delays/open"),
@@ -973,6 +1018,72 @@ export interface WeatherForecast {
   days: WeatherDay[];
   accurate_through: string;
   note: string;
+}
+
+export interface UnloggedJob {
+  scheduled_job_id: string;
+  lead_id: string;
+  job_date: string;
+  customer_name: string;
+  address: string;
+}
+
+export interface SearchableCustomer {
+  lead_id: string;
+  name: string;
+  address: string;
+}
+
+export interface AllocationBody {
+  employee_id: string;
+  work_date: string;
+  lead_id: string;
+  task_name: string;
+  hours: number;
+  notes?: string;
+}
+
+export interface TaskAllocationRow {
+  id: string;
+  employee_id: string;
+  time_entry_id: string;
+  work_date: string;
+  lead_id: string;
+  task_name: string;
+  hours: number;
+  notes: string;
+  customer_name?: string;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+}
+
+export interface ReimbursementRow {
+  id: string;
+  employee_id: string;
+  lead_id: string;
+  expense_date: string;
+  amount: number;
+  description: string;
+  receipt_uploaded: boolean;
+  receipt_filename: string;
+  status: "pending" | "approved" | "rejected";
+  notes: string;
+  created_at: string;
+  created_by: string;
+  approved_at: string | null;
+  approved_by: string;
+  employee_name?: string;
+  customer_name?: string;
+}
+
+export interface DayLog {
+  employee: Employee;
+  time_entry: TimeEntry | null;
+  allocations: (TaskAllocationRow & { customer_name: string })[];
+  allocated_total: number;
+  day_total: number;
+  mismatch: number;
 }
 
 export interface EstimateDelayRow {
