@@ -34,6 +34,37 @@ PRESET_REASONS = [
     "other",
 ]
 
+# Pipeline stages at-or-after "ESTIMATE SENT". A lead in any of these is no
+# longer a candidate for the 24h-no-estimate badge — either the estimate
+# already went out, or the team has decided not to pursue one (declined,
+# nurture, cold). Mirrors the order of V2_STAGES in LeadsV2.tsx; if the
+# pipeline is reorganized, this list needs to be updated alongside.
+POST_ESTIMATE_STAGE_IDS = {
+    "dc3600f2-009b-4075-95fa-786823131416",  # ESTIMATE SENT
+    "3ed8e7e3-6852-469c-bb72-effc1b6df76c",  # ESTIMATE_FOLLOW UP LATER
+    "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b",  # RESPONDED TO ESTIMATE
+    "147bd53b-3848-449d-b7c2-7a2cfad2a5f5",  # Top Priority-Responded to Estimate
+    "f207a600-81c9-4150-941c-e977ea876929",  # DECLINED ESTIMATE
+    "bbebbdac-0011-4253-9ed7-65522bafde02",  # DEAL CLOSED & NOT SCHEDULED
+    "3eed5964-573f-445e-a181-1ee28068f066",  # CLOSED & SCHEDULED
+    "c77b052f-845c-47e9-bba2-4cdba35a94d0",  # COMPLETED JOB-HAPPY CUSTOMER
+    "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc",  # COMPLETED JOB-UNHAPPY CUSTOMER
+    "d836628c-3094-4a63-b95a-8a5358d251d0",  # LONG TERM NURTURE
+    "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01",  # Responded to long term nurture
+    "0ca2e2a6-2990-4a5b-8ace-608393e39b5a",  # Cold Leads
+}
+
+
+def _is_post_estimate_stage(lead: Lead) -> bool:
+    """True if the lead is in (or past) the ESTIMATE SENT pipeline stage,
+    or on the legacy v1 pipeline's post-estimate kanban columns."""
+    if lead.ghl_pipeline_stage_id and lead.ghl_pipeline_stage_id in POST_ESTIMATE_STAGE_IDS:
+        return True
+    # v1 fallback — legacy column-name based gating
+    if (lead.kanban_column or "") in ("estimate_sent", "archived", "closed_won", "closed_lost"):
+        return True
+    return False
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -41,8 +72,11 @@ def _now() -> str:
 
 def _is_lead_delayed(lead: Lead, db) -> bool:
     """A lead is delayed if it's been 24h since creation AND no estimate
-    has been sent. Once estimate goes out (status sent), it's resolved."""
+    has been sent AND the lead hasn't moved past the ESTIMATE SENT pipeline
+    stage. Once any of those become true, the badge clears."""
     if not lead.created_at:
+        return False
+    if _is_post_estimate_stage(lead):
         return False
     try:
         created = datetime.fromisoformat(lead.created_at.replace("Z", "+00:00"))
@@ -103,8 +137,9 @@ def detect_and_record_delays(db) -> int:
 
 
 def auto_resolve_delays(db) -> int:
-    """If an estimate has now been sent (or lead is archived), resolve the
-    open delay row so badges/modals disappear. Runs alongside detection."""
+    """If an estimate has now been sent, the lead is archived, or the lead
+    has moved into the ESTIMATE SENT stage (or any later stage), resolve
+    the open delay row so badges/modals disappear. Runs alongside detection."""
     open_delays = db.query(EstimateDelay).filter(EstimateDelay.resolved_at.is_(None)).all()
     resolved = 0
     for d in open_delays:
@@ -115,6 +150,11 @@ def auto_resolve_delays(db) -> int:
             resolved += 1
             continue
         if lead.status in ("archived", "completed"):
+            d.resolved_at = _now()
+            d.resolved_by = "system"
+            resolved += 1
+            continue
+        if _is_post_estimate_stage(lead):
             d.resolved_at = _now()
             d.resolved_by = "system"
             resolved += 1
@@ -165,10 +205,13 @@ def list_open_delays(user: dict = Depends(get_current_user)):
 
 @router.get("/leads/{lead_id}/estimate-delay")
 def get_lead_delay(lead_id: str, user: dict = Depends(get_current_user)):
-    """One-shot lookup for the lead detail page badge."""
+    """One-shot lookup for the lead detail page badge. Auto-resolves first so
+    a stale row doesn't keep the inline panel showing after the lead has
+    moved into ESTIMATE SENT (or beyond)."""
     del user
     db = get_db()
     try:
+        auto_resolve_delays(db)
         d = db.query(EstimateDelay).filter(EstimateDelay.lead_id == lead_id).first()
         if not d:
             return {"delay": None}
