@@ -16,6 +16,7 @@ import {
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
+import TimeSpentCard from "@/components/TimeSpentCard";
 import { V2_STAGES } from "./LeadsV2";
 import { CallCoachAnalysis } from "./Calls";
 
@@ -483,6 +484,10 @@ export default function LeadDetail() {
 
       {/* 24h delay panel — only renders if a delay row exists for this lead */}
       <LeadDelayPanel leadId={lead.id} />
+
+      {/* Time Spent card — collapsed by default; shows worker breakdown +
+          job-total breakdown + reimbursements */}
+      <TimeSpentCard leadId={lead.id} />
 
       {/* Mobile: approval status */}
       {approvalCfg && (

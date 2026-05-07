@@ -16,6 +16,16 @@ const PACKAGE_COLORS: Record<string, string> = {
   custom: "bg-slate-500",
 };
 
+// Per spec — calendar chip color matches Alan's Google Calendar:
+// fence_staining = yellow border, power_washing = red border. All current
+// leads are fence_staining; this future-proofs for when power washing
+// leads start flowing in.
+const SERVICE_BORDER: Record<string, string> = {
+  fence_staining: "border-l-4 border-l-yellow-400 bg-yellow-50",
+  power_washing: "border-l-4 border-l-red-400 bg-red-50",
+};
+const DEFAULT_SERVICE_BORDER = "border-l-4 border-l-yellow-400 bg-yellow-50";
+
 const todayISO = (): string => {
   const t = new Date();
   return t.toISOString().slice(0, 10);
@@ -199,21 +209,23 @@ export default function Calendar() {
                           />
                         </div>
                         <div className="flex flex-col gap-0.5">
-                          {dayJobs.map((j) => (
-                            <button
-                              key={j.id}
-                              onClick={() => openJob(j)}
-                              className="text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1"
-                              style={{ background: "rgb(243 244 246)" }}
-                              title={`${j.customer_name} · ${j.arrival_time}`}
-                            >
-                              {!showAsWorker && j.package_tier && (
-                                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} />
-                              )}
-                              <span className="font-mono text-muted-foreground">{j.arrival_time}</span>
-                              <span className="truncate">{j.customer_name || "Job"}</span>
-                            </button>
-                          ))}
+                          {dayJobs.map((j) => {
+                            const borderCls = SERVICE_BORDER[j.service_type || "fence_staining"] || DEFAULT_SERVICE_BORDER;
+                            return (
+                              <button
+                                key={j.id}
+                                onClick={() => openJob(j)}
+                                className={`text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
+                                title={`${j.customer_name} · ${j.arrival_time}${j.service_type ? ` · ${j.service_type.replace("_", " ")}` : ""}`}
+                              >
+                                {!showAsWorker && j.package_tier && (
+                                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
+                                )}
+                                <span className="font-mono text-muted-foreground">{j.arrival_time}</span>
+                                <span className="truncate">{j.customer_name || "Job"}</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -225,16 +237,21 @@ export default function Calendar() {
         </CardContent>
       </Card>
 
-      {/* Legend (admin only) */}
-      {!showAsWorker && (
-        <div className="flex items-center gap-4 text-[11px] text-muted-foreground flex-wrap">
-          <span className="font-semibold">Package:</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Essential</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />Signature</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-purple-500" />Legacy</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-500" />Custom</span>
-        </div>
-      )}
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-[11px] text-muted-foreground flex-wrap">
+        <span className="font-semibold">Service:</span>
+        <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-yellow-400" /> Fence staining</span>
+        <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-red-400" /> Pressure washing</span>
+        {!showAsWorker && (
+          <>
+            <span className="font-semibold ml-3">Package:</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Essential</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" />Signature</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-purple-500" />Legacy</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-500" />Custom</span>
+          </>
+        )}
+      </div>
 
       {/* Job detail panel */}
       {activeJob && (

@@ -990,6 +990,7 @@ export interface ScheduledJob {
   job_description: string;
   status: string;
   google_event_id: string;
+  service_type?: string;  // "fence_staining" | "power_washing" — drives calendar chip color
   // Admin/VA only
   package_tier?: string;
   closed_price?: number;

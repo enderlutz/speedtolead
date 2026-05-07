@@ -318,11 +318,18 @@ def list_scheduled_jobs(
         jobs = q.order_by(ScheduledJob.job_date.asc(), ScheduledJob.arrival_time.asc()).all()
 
         out = []
+        # Cache lead service_type to avoid N+1 queries
+        lead_ids = {j.lead_id for j in jobs}
+        service_by_lead: dict[str, str] = {}
+        if lead_ids:
+            for l in db.query(Lead).filter(Lead.id.in_(lead_ids)).all():
+                service_by_lead[l.id] = l.service_type or "fence_staining"
         for j in jobs:
             row = j.to_dict(role=role)
             # Attach assignments (worker view: only own; admin/va: all)
             assigns = db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
             row["assigned_employee_ids"] = [a.employee_id for a in assigns]
+            row["service_type"] = service_by_lead.get(j.lead_id, "fence_staining")
             out.append(row)
         return {"jobs": out}
     finally:
