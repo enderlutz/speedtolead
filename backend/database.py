@@ -467,6 +467,7 @@ class CallRecording(Base):
     is_archived = Column(Boolean, default=False)  # soft-delete: hidden from default views, admins can still see
     archived_at = Column(Text, nullable=True)
     is_favorite = Column(Boolean, default=False)  # starred for training/reference
+    notes = Column(Text, default="")               # freeform admin notes — manual context
     created_at = Column(Text, default="")
     transcribed_at = Column(Text, nullable=True)
     analyzed_at = Column(Text, nullable=True)
@@ -484,6 +485,7 @@ class CallRecording(Base):
             "is_archived": bool(self.is_archived),
             "archived_at": self.archived_at,
             "is_favorite": bool(self.is_favorite),
+            "notes": self.notes or "",
             "created_at": self.created_at,
             "transcribed_at": self.transcribed_at,
             "analyzed_at": self.analyzed_at,
@@ -1147,6 +1149,10 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE call_recordings ADD COLUMN is_favorite BOOLEAN DEFAULT FALSE"))
             logger.info("Migration: added call_recordings.is_favorite")
+        if "notes" not in call_rec_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_recordings ADD COLUMN notes TEXT DEFAULT ''"))
+            logger.info("Migration: added call_recordings.notes")
 
     if inspector.has_table("users"):
         user_cols = {c["name"] for c in inspector.get_columns("users")}

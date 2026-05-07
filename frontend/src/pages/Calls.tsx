@@ -8,11 +8,12 @@ import { Input } from "@/components/ui/input";
 import { timeAgo, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  Mic, PhoneCall, TrendingUp, TrendingDown, BarChart3,
+  Mic, PhoneCall,
   ChevronDown, ChevronUp, ExternalLink, RefreshCw, Star, Archive,
   ArchiveRestore, Trash2, Play, Pause, AlertTriangle, RotateCw, Search, User,
   MessageSquare, Volume2, Loader2, Sparkles,
 } from "lucide-react";
+import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
 type Tab = "active" | "archived";
 type ScoreFilter = "all" | "green" | "amber" | "red";
@@ -37,7 +38,9 @@ export default function Calls() {
   const [tab, setTab] = useState<Tab>("active");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [search, setSearch] = useState("");
-  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>("all");
+  // Scoring is on hold — keep the state slot at "all" so the filter useMemo
+  // is a no-op without ripping it out.
+  const [scoreFilter] = useState<ScoreFilter>("all");
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -60,12 +63,6 @@ export default function Calls() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [tab, favoritesOnly]);
-
-  const scoreColor = (score: number) => {
-    if (score >= 7) return "text-green-600 bg-green-50";
-    if (score >= 4) return "text-amber-600 bg-amber-50";
-    return "text-red-600 bg-red-50";
-  };
 
   const scoreBucket = (score: number): ScoreFilter => {
     if (score >= 7) return "green";
@@ -229,58 +226,20 @@ export default function Calls() {
         </button>
       </div>
 
-      {/* Pattern comparison — active tab only */}
+      {/* Pattern comparison + Top Coaching Tips — hidden for now per spec. We
+          only surface "what customers ask about" (the Common Customer Questions
+          card below) until the scoring feature is reinstated. Avg-duration is
+          tied into the same KPI tiles, so it goes with the rest. */}
+      {/*
       {tab === "active" && patterns && patterns.total_calls > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Card className="border-green-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2 text-green-700">
-                <TrendingUp className="h-4 w-4" /> Closed Deals ({patterns.closed_calls})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><p className="text-xs text-muted-foreground">Avg Score</p><p className="text-lg font-bold text-green-700">{patterns.avg_score_closed}/10</p></div>
-                <div><p className="text-xs text-muted-foreground">Avg Duration</p><p className="text-lg font-bold">{patterns.avg_duration_closed}m</p></div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-red-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2 text-red-700">
-                <TrendingDown className="h-4 w-4" /> Lost Deals ({patterns.lost_calls})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><p className="text-xs text-muted-foreground">Avg Score</p><p className="text-lg font-bold text-red-700">{patterns.avg_score_lost}/10</p></div>
-                <div><p className="text-xs text-muted-foreground">Avg Duration</p><p className="text-lg font-bold">{patterns.avg_duration_lost}m</p></div>
-              </div>
-            </CardContent>
-          </Card>
+          ...
         </div>
       )}
-
       {tab === "active" && patterns && patterns.top_coaching_tips.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-purple-600" /> Top Coaching Tips (recurring)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {patterns.top_coaching_tips.slice(0, 6).map(([tip, count], i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <span className="text-xs font-bold text-purple-600 w-5 shrink-0">{i + 1}.</span>
-                  <p className="text-sm flex-1">{tip}</p>
-                  <Badge variant="outline" className="text-[10px] shrink-0">{count}x</Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <Card>...Top Coaching Tips...</Card>
       )}
+      */}
 
       {/* Filters + list */}
       <Card>
@@ -312,19 +271,7 @@ export default function Calls() {
               <Star className={`h-3.5 w-3.5 mr-1 ${favoritesOnly ? "fill-current" : ""}`} />
               Favorites
             </Button>
-            <div className="flex gap-1">
-              {(["all", "green", "amber", "red"] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setScoreFilter(s)}
-                  className={`text-xs px-2 py-1 rounded border ${
-                    scoreFilter === s ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted/50"
-                  }`}
-                >
-                  {s === "all" ? "All scores" : s === "green" ? "7-10" : s === "amber" ? "4-6" : "0-3"}
-                </button>
-              ))}
-            </div>
+            {/* Score filter chips hidden — scoring on hold. */}
           </div>
         </CardHeader>
         <CardContent>
@@ -375,13 +322,11 @@ export default function Calls() {
                           {isPending && <Badge className="text-[10px] bg-blue-100 text-blue-800">Processing...</Badge>}
                           {isFailed && <Badge className="text-[10px] bg-red-100 text-red-800">Failed</Badge>}
                         </div>
-                        {analysis && (
+                        {/* Score chip + close-likelihood hidden — scoring feature on hold.
+                            Customer sentiment is still useful so we keep it. */}
+                        {analysis && analysis.customer_sentiment && (
                           <div className="flex items-center gap-2 mt-1">
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${scoreColor(analysis.call_score)}`}>
-                              {analysis.call_score}/10
-                            </span>
                             <span className="text-xs text-muted-foreground capitalize">{analysis.customer_sentiment}</span>
-                            <Badge variant="outline" className="text-[10px] capitalize">{analysis.close_likelihood}</Badge>
                           </div>
                         )}
                         {rec.transcript_preview && (
@@ -472,15 +417,25 @@ export default function Calls() {
 
                     {isExpanded && (
                       <div className="border-t px-3 py-3 space-y-3 bg-muted/10">
-                        {analysis ? (
-                          <CallCoachAnalysis analysis={analysis} />
-                        ) : isFailed ? (
+                        {rec.has_recording && (
+                          <SyncedTranscriptPlayer
+                            recordingId={rec.id}
+                            segments={rec.transcript?.segments || []}
+                            speakerMap={rec.transcript?.speaker_map || {}}
+                            initialNotes={rec.notes || ""}
+                          />
+                        )}
+                        {!rec.has_recording && isFailed && (
                           <p className="text-xs text-muted-foreground">
                             Transcription failed. Hit the retry icon to run it again.
                           </p>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">Still processing — analysis appears when transcription finishes.</p>
                         )}
+                        {!rec.has_recording && !isFailed && !analysis && (
+                          <p className="text-xs text-muted-foreground">Still processing — playback + transcript appear when ready.</p>
+                        )}
+                        {/* Scoring/coaching analysis hidden for now — pattern recognition lives
+                            in the "Common Customer Questions" card below the list. */}
+                        {/* {analysis && <CallCoachAnalysis analysis={analysis} />} */}
                       </div>
                     )}
                   </div>
@@ -491,12 +446,13 @@ export default function Calls() {
         </CardContent>
       </Card>
 
-      {/* Common objections — keep the original aggregate card */}
+      {/* Common questions/objections — pattern recognition across all calls.
+          Highlights what customers keep asking about so we can preempt them. */}
       {tab === "active" && patterns && patterns.top_objections.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <PhoneCall className="h-4 w-4 text-red-600" /> Common Objections
+              <PhoneCall className="h-4 w-4 text-red-600" /> Common Customer Questions
             </CardTitle>
           </CardHeader>
           <CardContent>

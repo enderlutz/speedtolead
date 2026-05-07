@@ -501,6 +501,31 @@ def set_favorite(recording_id: str, body: FavoriteBody, user: dict = Depends(get
         db.close()
 
 
+class NotesBody(BaseModel):
+    notes: str
+
+
+@router.put("/calls/{recording_id}/notes")
+def update_notes(recording_id: str, body: NotesBody, user: dict = Depends(get_current_user)):
+    """Save freeform admin notes on a call recording."""
+    del user
+    db = get_db()
+    try:
+        rec = db.query(CallRecording).filter(CallRecording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        rec.notes = (body.notes or "").strip()
+        db.commit()
+        return {"notes": rec.notes}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.delete("/calls/{recording_id}")
 def hard_delete_recording(recording_id: str, user: dict = Depends(require_admin)):
     """Permanent deletion — admin-only, only allowed on already-archived

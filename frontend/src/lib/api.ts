@@ -122,6 +122,7 @@ export interface CallRecordingEntry {
   is_archived?: boolean;
   archived_at?: string | null;
   is_favorite?: boolean;
+  notes?: string;
   transcript_preview?: string;
   created_at: string;
   transcribed_at: string | null;
@@ -782,6 +783,11 @@ export const api = {
     request<{ is_favorite: boolean }>(`/api/calls/${recordingId}/favorite`, {
       method: "POST",
       body: JSON.stringify({ favorite }),
+    }),
+  setCallNotes: (recordingId: string, notes: string) =>
+    request<{ notes: string }>(`/api/calls/${recordingId}/notes`, {
+      method: "PUT",
+      body: JSON.stringify({ notes }),
     }),
   hardDeleteCall: (recordingId: string) =>
     request<{ status: string }>(`/api/calls/${recordingId}`, { method: "DELETE" }),
