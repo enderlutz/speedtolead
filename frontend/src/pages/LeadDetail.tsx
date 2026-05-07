@@ -17,6 +17,8 @@ import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
+import MeasurementCard from "@/components/MeasurementCard";
+import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import { V2_STAGES } from "./LeadsV2";
 import { CallCoachAnalysis } from "./Calls";
 
@@ -489,6 +491,19 @@ export default function LeadDetail() {
           job-total breakdown + reimbursements */}
       <TimeSpentCard leadId={lead.id} />
 
+      {/* Measurement screenshot — VA's Google Maps screenshot for admin review */}
+      <MeasurementCard
+        leadId={lead.id}
+        hasMeasurement={!!lead.measurement_uploaded}
+        uploadedAt={lead.measurement_uploaded_at}
+        uploadedBy={lead.measurement_uploaded_by}
+        filename={lead.measurement_filename}
+        onChange={() => {
+          // Re-fetch the lead to refresh measurement metadata
+          api.getLead(lead.id).then(setLead).catch(() => {});
+        }}
+      />
+
       {/* Mobile: approval status */}
       {approvalCfg && (
         <div className={`rounded-lg border p-3 sm:p-4 lg:hidden ${approvalCfg.cls}`}>
@@ -862,6 +877,12 @@ export default function LeadDetail() {
                     </div>
                   );
                 })}
+                {fenceSides.length > 0 && (
+                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                    <span className="font-semibold text-muted-foreground">Sides included:</span>{" "}
+                    <span className="font-medium">{fenceSides.join(", ")}</span>
+                  </div>
+                )}
                 {estimate.breakdown.length > 0 && (
                   <BreakdownEditor
                     estimateId={estimate.id}
@@ -1089,6 +1110,11 @@ export default function LeadDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Estimate history — every estimate sent to this customer with
+              freeform local label + input snapshot. Hides itself when the
+              lead has no sent estimates yet. */}
+          <EstimateHistoryCard leadId={lead.id} refreshKey={lead.estimates?.length || 0} />
 
           {/* Export to new pipeline (v1 leads only) */}
           {lead.pipeline_version === "v1" && (

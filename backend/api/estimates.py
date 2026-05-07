@@ -477,12 +477,37 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'} with proposal link: {proposal_url}",
                           {"token": token, "signature_price": sig_price, "sms_sent": sms_sent})
 
-        # Add GHL contact note with all 3 tier prices
+        # Add GHL contact note with all 3 tier prices.
+        # Includes:
+        #   - Sequential estimate number per lead ("Estimate #1", "#2"…)
+        #   - Sides included (so GHL has a record of what was quoted)
         if lead.ghl_contact_id:
+            # Count estimates sent for this lead BEFORE this one. We just set
+            # est.status="sent" above, so "sent" rows now include this one too
+            # and the count is naturally the right ordinal.
+            estimate_number = (
+                db.query(Estimate)
+                .filter(
+                    Estimate.lead_id == lead.id,
+                    Estimate.status.in_(["sent", "closed"]),
+                )
+                .count()
+            )
+
+            fd_note = lead.to_dict().get("form_data", {}) or {}
+            sides_raw = fd_note.get("fence_sides", [])
+            if isinstance(sides_raw, str):
+                sides_list = [s.strip() for s in sides_raw.split(",") if s.strip()]
+            else:
+                sides_list = list(sides_raw or [])
+            sides_text = _build_pricing_includes(sides_list, fd_note)
+
+            header = f"Estimate #{estimate_number} sent" if estimate_number > 1 else "Estimate sent"
             note_body = (
-                f"Estimate sent — Essential: ${tiers_dict.get('essential', 0):,.0f} | "
+                f"{header} — Essential: ${tiers_dict.get('essential', 0):,.0f} | "
                 f"Signature: ${tiers_dict.get('signature', 0):,.0f} | "
                 f"Legacy: ${tiers_dict.get('legacy', 0):,.0f}\n"
+                f"Sides included: {sides_text}\n"
                 f"Proposal: {proposal_url}"
             )
             add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)

@@ -63,6 +63,10 @@ export interface Lead {
   dashboard_synced_at: string;
   created_at: string;
   updated_at: string;
+  measurement_uploaded?: boolean;
+  measurement_filename?: string;
+  measurement_uploaded_at?: string | null;
+  measurement_uploaded_by?: string;
 }
 
 export interface LeadDetail extends Lead {
@@ -90,6 +94,11 @@ export interface EstimateDetail {
   precall_done?: boolean;
   precall_at?: string | null;
   precall_notes?: string;
+  label?: string;
+}
+
+export interface EstimateHistoryItem extends EstimateDetail {
+  estimate_number: number;
 }
 
 export interface BreakdownItem {
@@ -504,6 +513,48 @@ export const api = {
   requestReview: (id: string) =>
     request<{ status: string; approval_token: string }>(`/api/estimates/${id}/request-review`, { method: "POST" }),
   getEstimatePdfUrl: (id: string) => `${BASE}/api/estimates/${id}/pdf`,
+
+  // Estimate history (sent estimates only) + freeform local label
+  getEstimateHistory: (leadId: string) =>
+    request<{ history: EstimateHistoryItem[] }>(`/api/leads/${leadId}/estimate-history`),
+  updateEstimateLabel: (id: string, label: string) =>
+    request<EstimateDetail>(`/api/estimates/${id}/label`, {
+      method: "PUT",
+      body: JSON.stringify({ label }),
+    }),
+
+  // Measurement screenshot (Google Maps) — single image per lead
+  uploadMeasurement: async (leadId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/measurement`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Measurement upload failed");
+    return res.json() as Promise<{
+      measurement_uploaded: boolean;
+      measurement_filename: string;
+      measurement_uploaded_at: string;
+      measurement_uploaded_by: string;
+    }>;
+  },
+  deleteMeasurement: (leadId: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/measurement`, { method: "DELETE" }),
+  /** Fetch the measurement image with auth and return an object URL the
+   * caller is responsible for revoking. Returns null when there's no image
+   * (or auth fails). */
+  fetchMeasurementBlobUrl: async (leadId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/measurement`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+
   previewEstimatePdf: (id: string, fieldOverrides?: Record<string, unknown>, extraFields?: Record<string, unknown>[]) =>
     request<{ pages: { page_num: number; image_data: string }[] }>(`/api/estimates/${id}/preview-pdf`, {
       method: "POST",

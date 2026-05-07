@@ -6,7 +6,8 @@ import uuid
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping
@@ -129,7 +130,8 @@ def list_leads(
 ):
     db = get_db()
     try:
-        q = db.query(Lead)
+        # Defer the screenshot blob — to_dict() only flags whether it exists.
+        q = db.query(Lead).options(defer(Lead.measurement_image_data))
         if status:
             q = q.filter(Lead.status == status)
         elif not include_archived:
@@ -158,7 +160,12 @@ def list_leads(
 def get_lead(lead_id: str):
     db = get_db()
     try:
-        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        lead = (
+            db.query(Lead)
+            .options(defer(Lead.measurement_image_data))
+            .filter(Lead.id == lead_id)
+            .first()
+        )
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -1135,5 +1142,135 @@ def backfill_tags():
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+# ─── Measurement screenshot (Google Maps) ────────────────────────────────
+# Single image per lead, uploaded by the VA after measuring on Google Maps.
+# Re-uploading replaces the prior image; delete clears it.
+
+MAX_MEASUREMENT_BYTES = 15 * 1024 * 1024  # 15 MB
+
+
+@router.post("/leads/{lead_id}/measurement")
+async def upload_measurement(
+    lead_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    data = await file.read()
+    if len(data) > MAX_MEASUREMENT_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 15MB)")
+    if not file.content_type or not (
+        file.content_type.startswith("image/") or file.content_type == "application/pdf"
+    ):
+        raise HTTPException(status_code=400, detail="Only image or PDF files are allowed")
+
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead.measurement_image_data = data
+        lead.measurement_filename = file.filename or "measurement"
+        lead.measurement_mime = file.content_type or "image/png"
+        lead.measurement_uploaded_at = _now()
+        lead.measurement_uploaded_by = (user or {}).get("username") or ""
+        lead.updated_at = _now()
+        db.commit()
+        log_event(lead.id, "measurement_uploaded", f"Measurement screenshot uploaded by {lead.measurement_uploaded_by or 'unknown'}", {})
+        return {
+            "measurement_uploaded": True,
+            "measurement_filename": lead.measurement_filename,
+            "measurement_uploaded_at": lead.measurement_uploaded_at,
+            "measurement_uploaded_by": lead.measurement_uploaded_by,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/measurement")
+def get_measurement(lead_id: str, user: dict = Depends(get_current_user)):
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead or not lead.measurement_image_data:
+            raise HTTPException(status_code=404, detail="No measurement on file")
+        return Response(
+            content=lead.measurement_image_data,
+            media_type=lead.measurement_mime or "image/png",
+            headers={
+                "Content-Disposition": f'inline; filename="{lead.measurement_filename or "measurement.png"}"',
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.delete("/leads/{lead_id}/measurement")
+def delete_measurement(lead_id: str, user: dict = Depends(get_current_user)):
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead.measurement_image_data = None
+        lead.measurement_filename = ""
+        lead.measurement_mime = ""
+        lead.measurement_uploaded_at = None
+        lead.measurement_uploaded_by = ""
+        lead.updated_at = _now()
+        db.commit()
+        log_event(lead.id, "measurement_deleted", f"Measurement screenshot deleted by {(user or {}).get('username') or 'unknown'}", {})
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+# ─── Estimate history (sent estimates only, with editable label) ─────────
+# Drives the "Estimate History" card on the lead detail page. Returns every
+# estimate actually sent to the customer, oldest-first, with the input
+# snapshot we already store on each Estimate row. Numbering is positional —
+# Estimate #1 is the first one sent.
+
+@router.get("/leads/{lead_id}/estimate-history")
+def get_estimate_history(lead_id: str, user: dict = Depends(get_current_user)):
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(Estimate)
+            .filter(Estimate.lead_id == lead_id, Estimate.status.in_(["sent", "closed"]))
+            .order_by(Estimate.sent_at.asc().nullslast(), Estimate.created_at.asc())
+            .all()
+        )
+        out = []
+        for i, e in enumerate(rows, start=1):
+            d = e.to_dict()
+            d["estimate_number"] = i
+            out.append(d)
+        return {"history": out}
+    finally:
+        db.close()
+
+
+class EstimateLabelBody(BaseModel):
+    label: str
+
+
+@router.put("/estimates/{estimate_id}/label")
+def update_estimate_label(estimate_id: str, body: EstimateLabelBody, user: dict = Depends(get_current_user)):
+    """Local-only annotation. Never pushed to GHL."""
+    del user
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        est.label = (body.label or "").strip()
+        db.commit()
+        return est.to_dict()
     finally:
         db.close()

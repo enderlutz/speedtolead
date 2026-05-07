@@ -61,6 +61,14 @@ class Lead(Base):
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
+    # Single Google-Maps measurement screenshot uploaded by the VA for admin
+    # review. Single image at a time — re-upload replaces it; delete clears it.
+    measurement_image_data = Column(LargeBinary, nullable=True)
+    measurement_filename = Column(Text, default="")
+    measurement_mime = Column(Text, default="")
+    measurement_uploaded_at = Column(Text, nullable=True)
+    measurement_uploaded_by = Column(Text, default="")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -91,6 +99,10 @@ class Lead(Base):
             "dashboard_synced_at": self.dashboard_synced_at or self.created_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "measurement_uploaded": self.measurement_image_data is not None,
+            "measurement_filename": self.measurement_filename or "",
+            "measurement_uploaded_at": self.measurement_uploaded_at,
+            "measurement_uploaded_by": self.measurement_uploaded_by or "",
         }
 
 
@@ -130,6 +142,11 @@ class Estimate(Base):
     precall_notes = Column(Text, nullable=True)
     correction_pending = Column(Boolean, default=False)
 
+    # Free-form label the VA can attach to a sent estimate to identify it in
+    # the lead's history (e.g. "v1 — 6ft cedar", "after Olga discount").
+    # Local-only annotation; never pushed to GHL.
+    label = Column(Text, default="")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -159,6 +176,7 @@ class Estimate(Base):
             "precall_at": self.precall_at,
             "precall_notes": self.precall_notes or "",
             "correction_pending": bool(self.correction_pending),
+            "label": self.label or "",
         }
 
 
@@ -1073,11 +1091,29 @@ def _run_migrations():
             conn.execute(text("UPDATE proposals SET view_count = 1 WHERE first_viewed_at IS NOT NULL"))
         logger.info("Migration: added proposals.view_count (backfilled to 1 for already-viewed proposals)")
 
+    # Google-Maps measurement screenshot fields on leads (single image,
+    # replaceable). BYTEA on Postgres, BLOB on SQLite.
+    if "measurement_image_data" not in existing:
+        blob_type = "BYTEA" if _engine.dialect.name == "postgresql" else "BLOB"
+        with _engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE leads ADD COLUMN measurement_image_data {blob_type}"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN measurement_filename TEXT DEFAULT ''"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN measurement_mime TEXT DEFAULT ''"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN measurement_uploaded_at TEXT"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN measurement_uploaded_by TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.measurement_* fields")
+
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE estimates ADD COLUMN correction_pending BOOLEAN DEFAULT FALSE"))
         logger.info("Migration: added estimates.correction_pending")
+
+    # Per-estimate freeform label (local-only — never pushed to GHL)
+    if "label" not in estimate_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE estimates ADD COLUMN label TEXT DEFAULT ''"))
+        logger.info("Migration: added estimates.label")
 
     if inspector.has_table("call_analyses"):
         ca_cols = {c["name"] for c in inspector.get_columns("call_analyses")}

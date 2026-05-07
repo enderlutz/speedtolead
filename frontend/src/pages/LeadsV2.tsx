@@ -73,6 +73,16 @@ const PRIORITY_CLS: Record<string, string> = {
   LOW: "bg-gray-100 text-gray-600 border-gray-200",
 };
 
+// Show the actual timeline string the customer chose ("As soon as possible",
+// "Within 2 weeks"…) instead of the abstract HOT/HIGH/MEDIUM/LOW bucket. The
+// bucket is still used for color + sort order. Falls back to the bucket label
+// when the lead has no service_timeline (legacy / manual leads).
+function timelineLabel(lead: Lead): string {
+  const fd = (lead.form_data || {}) as Record<string, unknown>;
+  const t = String(fd.service_timeline || "").trim();
+  return t || lead.priority;
+}
+
 export default function LeadsV2() {
   const [leads, setLeads] = useState<Lead[]>(getCachedLeads);
   const [search, setSearch] = useState("");
@@ -295,7 +305,7 @@ export default function LeadsV2() {
                     <td className="px-3 py-2 text-muted-foreground text-xs">{lead.contact_phone}</td>
                     <td className="px-3 py-2 text-muted-foreground text-xs max-w-[180px] truncate">{lead.address || "—"}</td>
                     <td className="px-3 py-2"><StageBadge stageId={lead.ghl_pipeline_stage_id} /></td>
-                    <td className="px-3 py-2"><Badge className={`text-[10px] py-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge></td>
+                    <td className="px-3 py-2"><Badge className={`text-[10px] py-0 border ${PRIORITY_CLS[lead.priority] || ""}`} title={lead.priority}>{timelineLabel(lead)}</Badge></td>
                     <td className="px-3 py-2 text-muted-foreground text-[10px]">{formatDateTime(lead.created_at)}</td>
                   </tr>
                 ))}
@@ -312,7 +322,7 @@ export default function LeadsV2() {
                     <p className="text-sm font-semibold truncate">{lead.contact_name || "Unknown"}</p>
                     <p className="text-xs text-muted-foreground">{lead.contact_phone}</p>
                   </div>
-                  <Badge className={`text-[10px] shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
+                  <Badge className={`text-[10px] shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`} title={lead.priority}>{timelineLabel(lead)}</Badge>
                 </div>
                 {lead.address && <p className="text-xs text-muted-foreground mt-1 truncate">{lead.address}</p>}
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -527,7 +537,7 @@ function LeadCard({ lead, isDragging, delayInfo }: { lead: Lead; isDragging?: bo
           )}
           <p className="text-[13px] font-medium leading-tight truncate">{lead.contact_name || "Unknown"}</p>
         </div>
-        <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`}>{lead.priority}</Badge>
+        <Badge className={`text-[9px] px-1 py-0 shrink-0 border ${PRIORITY_CLS[lead.priority] || ""}`} title={lead.priority}>{timelineLabel(lead)}</Badge>
       </div>
       {lead.contact_phone && <p className="text-[11px] text-muted-foreground mt-0.5">{lead.contact_phone}</p>}
       {lead.address && <p className="text-[11px] text-muted-foreground truncate">{lead.address}</p>}
