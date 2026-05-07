@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, Archive, CalendarPlus } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -274,7 +274,7 @@ export default function LeadsV2() {
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
               {V2_STAGES.map((stage) => (
-                <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} onRefresh={loadLeads} delays={delays} />
+                <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} delays={delays} />
               ))}
             </div>
             <DragOverlay>{draggedLead ? <LeadCard lead={draggedLead} isDragging /> : null}</DragOverlay>
@@ -341,22 +341,16 @@ export default function LeadsV2() {
   );
 }
 
-function KanbanColumn({ stage, leads, onRefresh, delays }: { stage: StageDef; leads: Lead[]; onRefresh: () => void; delays: Record<string, { reason: string }> }) {
+function KanbanColumn({ stage, leads, delays }: { stage: StageDef; leads: Lead[]; delays: Record<string, { reason: string }> }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
 
   // handleQuickSend (lightning-bolt button) was removed — too easy to send
   // an estimate by accident from the kanban. Use the Lead Detail page's
   // Approve & Send flow, which has confirmation + scheduling options.
 
-  const handleArchive = async (e: React.MouseEvent, lead: Lead) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      await api.archiveLead(lead.id);
-      toast.success(`Archived ${lead.contact_name}`);
-      onRefresh();
-    } catch { toast.error("Failed to archive"); }
-  };
+  // Archive hover button removed alongside the lightning-bolt quick-send.
+  // Both were too easy to trigger by accident from the kanban. Archive lives
+  // on the Lead Detail page now (with confirmation).
 
   return (
     <div ref={setNodeRef} className={`w-[260px] sm:w-72 shrink-0 rounded-lg snap-start ${stage.bgCls} ${isOver ? "ring-2 ring-primary/40" : ""} transition-all`}>
@@ -368,15 +362,7 @@ function KanbanColumn({ stage, leads, onRefresh, delays }: { stage: StageDef; le
       </div>
       <div className="p-1.5 space-y-1.5 min-h-[80px]">
         {leads.map((lead) => (
-          <DraggableCard key={lead.id} lead={lead} delayInfo={delays[lead.id]}>
-            <button
-              onClick={(e) => handleArchive(e, lead)}
-              className="absolute top-1.5 right-1.5 p-1 rounded bg-gray-500 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-sm hover:bg-gray-600"
-              title="Archive"
-            >
-              <Archive className="h-3 w-3" />
-            </button>
-          </DraggableCard>
+          <DraggableCard key={lead.id} lead={lead} delayInfo={delays[lead.id]} />
         ))}
       </div>
     </div>

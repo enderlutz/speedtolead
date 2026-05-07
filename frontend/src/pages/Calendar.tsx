@@ -96,6 +96,21 @@ export default function Calendar() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Background refresh — picks up jobs Alan booked on his phone via Google
+  // Calendar without the team having to reload the page. 30 minutes is
+  // intentional: this isn't time-critical, and Alan's phone activity isn't
+  // every-minute volume. The visibility check skips ticks while the tab is
+  // backgrounded so we're not burning Google quota for nothing.
+  useEffect(() => {
+    const REFRESH_MS = 30 * 60 * 1000;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      load();
+    };
+    const t = setInterval(tick, REFRESH_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
   // Crew roster — needed for reimbursement form (employee name lookup,
   // pre-selecting the assigned worker). Admin-only call; workers won't render
   // the reimbursement entry point anyway.
