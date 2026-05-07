@@ -144,6 +144,10 @@ def list_open_delays(user: dict = Depends(get_current_user)):
     del user
     db = get_db()
     try:
+        # Resolve any whose estimate has since been sent before listing — the
+        # background loop only ticks every 10 min, so without this the red 24h+
+        # badge would linger on the kanban after a VA hits Approve & Send.
+        auto_resolve_delays(db)
         rows = db.query(EstimateDelay).filter(EstimateDelay.resolved_at.is_(None)).all()
         # Hydrate with lead names
         out = []
