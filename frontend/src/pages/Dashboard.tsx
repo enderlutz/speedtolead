@@ -202,7 +202,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {wrappedOpen && (
+      {/* Wrapped is owner-only — both triggers (auto-popup + preview buttons)
+          already gate on isAdmin, but the mount checks it too in case any
+          future code path sets wrappedOpen. */}
+      {wrappedOpen && isAdmin && (
         <WrappedModal
           cadence={wrappedOpen.cadence}
           period={wrappedOpen.period}
