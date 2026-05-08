@@ -1003,7 +1003,8 @@ export const api = {
     );
   },
 
-  // Wrapped (CEO digest)
+  // Wrapped (CEO digest) — cached. Reads hit cache; force=true triggers
+  // a regenerate (re-spends Claude tokens).
   getWeeklyWrapped: (weekEnd?: string) => {
     const qs = weekEnd ? `?week_end=${encodeURIComponent(weekEnd)}` : "";
     return request<WrappedDigest>(`/api/wrapped/weekly${qs}`);
@@ -1011,6 +1012,14 @@ export const api = {
   getMonthlyWrapped: (month?: string) => {
     const qs = month ? `?month=${encodeURIComponent(month)}` : "";
     return request<WrappedDigest>(`/api/wrapped/monthly${qs}`);
+  },
+  regenerateWeeklyWrapped: (weekEnd?: string) => {
+    const qs = weekEnd ? `?week_end=${encodeURIComponent(weekEnd)}` : "";
+    return request<WrappedDigest>(`/api/wrapped/weekly/regenerate${qs}`, { method: "POST" });
+  },
+  regenerateMonthlyWrapped: (month?: string) => {
+    const qs = month ? `?month=${encodeURIComponent(month)}` : "";
+    return request<WrappedDigest>(`/api/wrapped/monthly/regenerate${qs}`, { method: "POST" });
   },
 
   // Weather
@@ -1526,6 +1535,31 @@ export interface WrappedDigest {
   busiest_day: { date: string; jobs: number } | null;
   top_tier: { name: string; count: number } | null;
   anomalies: { type: string; severity: "warn" | "info"; title: string; detail: string }[];
+
+  // V2 additions
+  score?: { value: number; grade: string; reason: string };
+  bottleneck?: {
+    stage_key: string;
+    stage_label: string;
+    severity: "low" | "medium" | "high";
+    stuck_count: number;
+    evidence: string;
+    stuck_leads: { lead_id: string; name: string; address: string; days_stuck: number; phone: string }[];
+  } | null;
+  briefing?: {
+    opening: string;
+    situation: string;
+    watch: string;
+    profanity_used: boolean;
+    generated_at: string;
+  };
+  recommended_action?: {
+    text: string;
+    button_label: string;
+    link: string | null;
+  };
+  changelog?: { sha: string; subject: string; date: string }[];
+  _from_cache?: boolean;
 }
 
 export interface OverheadEntry {

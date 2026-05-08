@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, type WrappedDigest } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import {
   X, Loader2, TrendingUp, TrendingDown, Trophy, Flame, Crown, Sparkles,
   AlertTriangle, DollarSign, Calendar as CalendarIcon,
   Megaphone, Zap, ChevronRight, ChevronLeft, PartyPopper,
+  Award, Target, Wrench, MessageSquare, Rocket, RefreshCw,
 } from "lucide-react";
 
 interface Props {
@@ -23,31 +25,50 @@ interface Props {
  * tapping advances immediately. The popup is mounted by Dashboard with
  * popup-on-first-load + manual preview button. */
 export default function WrappedModal({ cadence, period, onClose }: Props) {
+  const navigate = useNavigate();
   const [digest, setDigest] = useState<WrappedDigest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
   const [step, setStep] = useState(0);
 
-  useEffect(() => {
+  const fetchDigest = (force: boolean) => {
     setLoading(true);
-    const fetcher = cadence === "weekly"
-      ? api.getWeeklyWrapped(period)
-      : api.getMonthlyWrapped(period);
-    fetcher.then(setDigest).catch(() => toast.error("Failed to load wrap")).finally(() => setLoading(false));
-  }, [cadence, period]);
+    const fetcher = force
+      ? (cadence === "weekly" ? api.regenerateWeeklyWrapped(period) : api.regenerateMonthlyWrapped(period))
+      : (cadence === "weekly" ? api.getWeeklyWrapped(period) : api.getMonthlyWrapped(period));
+    return fetcher
+      .then((d) => { setDigest(d); setStep(0); })
+      .catch(() => toast.error("Failed to load wrap"))
+      .finally(() => setLoading(false));
+  };
 
-  // Build the slide list dynamically — only include slides that have data.
+  useEffect(() => { fetchDigest(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [cadence, period]);
+
+  // Slide list — Score first (after intro) since it's the headline.
+  // Briefing + Action sit late so the deterministic stats prime the read.
   const slides = (() => {
     if (!digest) return [];
     const arr: { node: React.ReactNode; key: string }[] = [
       { key: "intro", node: <IntroSlide digest={digest} /> },
-      { key: "revenue", node: <RevenueSlide digest={digest} /> },
-      { key: "leads", node: <LeadsSlide digest={digest} /> },
     ];
+    if (digest.score) arr.push({ key: "score", node: <ScoreSlide digest={digest} /> });
+    arr.push({ key: "revenue", node: <RevenueSlide digest={digest} /> });
+    arr.push({ key: "leads", node: <LeadsSlide digest={digest} /> });
     if (digest.top_employee) arr.push({ key: "crew", node: <CrewSlide digest={digest} /> });
     if (digest.top_source && digest.top_source.count > 0) arr.push({ key: "source", node: <SourceSlide digest={digest} /> });
     if (digest.biggest_deal) arr.push({ key: "biggest", node: <BiggestDealSlide digest={digest} /> });
     if (digest.most_profitable_job) arr.push({ key: "profit", node: <ProfitSlide digest={digest} /> });
     if (digest.busiest_day) arr.push({ key: "busy", node: <BusiestSlide digest={digest} /> });
+    if (digest.bottleneck) arr.push({ key: "bottleneck", node: <BottleneckSlide digest={digest} onOpen={(link) => { onClose(); navigate(link); }} /> });
+    if (digest.briefing && (digest.briefing.opening || digest.briefing.situation)) {
+      arr.push({ key: "briefing", node: <BriefingSlide digest={digest} /> });
+    }
+    if (digest.recommended_action && digest.recommended_action.text) {
+      arr.push({ key: "action", node: <ActionSlide digest={digest} onOpen={(link) => { onClose(); if (link) navigate(link); }} /> });
+    }
+    if (digest.changelog && digest.changelog.length > 0) {
+      arr.push({ key: "shipped", node: <ChangelogSlide digest={digest} /> });
+    }
     if (digest.anomalies.length > 0) arr.push({ key: "watchout", node: <AnomaliesSlide digest={digest} /> });
     arr.push({ key: "outro", node: <OutroSlide digest={digest} /> });
     return arr;
@@ -94,10 +115,29 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
           <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase">
             <Sparkles className="h-3.5 w-3.5" />
             {cadence === "weekly" ? "Week Wrapped" : "Month Wrapped"}
+            {digest?._from_cache && (
+              <span className="text-[8px] font-normal text-white/50 normal-case tracking-normal">cached</span>
+            )}
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white p-1" aria-label="Close">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={async () => {
+                if (regenerating) return;
+                if (!confirm("Regenerate the wrap? This re-runs Claude (small token cost).")) return;
+                setRegenerating(true);
+                try { await fetchDigest(true); toast.success("Wrap regenerated"); }
+                finally { setRegenerating(false); }
+              }}
+              className="text-white/60 hover:text-white p-1"
+              title="Regenerate (re-runs Claude)"
+              aria-label="Regenerate"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${regenerating ? "animate-spin" : ""}`} />
+            </button>
+            <button onClick={onClose} className="text-white/80 hover:text-white p-1" aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Slide content */}
@@ -147,13 +187,17 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
 function gradientFor(step: number): string {
   const palettes = [
     "linear-gradient(135deg, #1e1b4b 0%, #4c1d95 50%, #7c3aed 100%)",  // intro: deep purple
+    "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)",  // score: graphite
     "linear-gradient(135deg, #064e3b 0%, #047857 50%, #10b981 100%)",  // revenue: green
     "linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)",                // leads: blue
     "linear-gradient(135deg, #7c2d12 0%, #ea580c 100%)",                // crew: orange
     "linear-gradient(135deg, #831843 0%, #ec4899 100%)",                // source: pink
     "linear-gradient(135deg, #581c87 0%, #c026d3 100%)",                // biggest: magenta
     "linear-gradient(135deg, #064e3b 0%, #059669 50%, #f59e0b 100%)",   // profit: green→gold
-    "linear-gradient(135deg, #312e81 0%, #6366f1 100%)",                // busiest: indigo
+    "linear-gradient(135deg, #78350f 0%, #b45309 50%, #f59e0b 100%)",   // bottleneck: dark amber
+    "linear-gradient(135deg, #0c0a09 0%, #1c1917 50%, #292524 100%)",   // briefing: near-black hedge fund
+    "linear-gradient(135deg, #052e16 0%, #14532d 50%, #16a34a 100%)",   // action: action green
+    "linear-gradient(135deg, #1e293b 0%, #475569 100%)",                // changelog: slate
     "linear-gradient(135deg, #7f1d1d 0%, #b91c1c 100%)",                // anomalies: red
     "linear-gradient(135deg, #1e1b4b 0%, #be185d 50%, #f59e0b 100%)",   // outro: triumph
   ];
@@ -290,6 +334,129 @@ function ProfitSlide({ digest }: { digest: WrappedDigest }) {
         </div>
       </div>
       <p className="text-xs text-white/80">{j.margin_pct.toFixed(0)}% margin</p>
+    </div>
+  );
+}
+
+function ScoreSlide({ digest }: { digest: WrappedDigest }) {
+  const s = digest.score!;
+  const tone = s.value >= 80 ? "from-emerald-300 to-emerald-100"
+    : s.value >= 65 ? "from-amber-200 to-amber-50"
+    : "from-rose-300 to-rose-100";
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
+      <Award className="h-10 w-10 text-white/85" />
+      <p className="text-[10px] uppercase tracking-[0.3em] text-white/70 font-bold">Week Grade</p>
+      <p className={`text-[8rem] sm:text-[9rem] font-black leading-none tracking-tighter bg-gradient-to-b ${tone} bg-clip-text text-transparent`}>
+        {s.grade}
+      </p>
+      <p className="text-2xl font-black tracking-tight">{s.value} <span className="text-base text-white/60 font-bold">/ 100</span></p>
+      <p className="text-xs text-white/85 max-w-xs leading-relaxed">{s.reason}</p>
+    </div>
+  );
+}
+
+function BottleneckSlide({ digest, onOpen }: { digest: WrappedDigest; onOpen: (link: string) => void }) {
+  const b = digest.bottleneck!;
+  const sevColor = b.severity === "high" ? "bg-red-500/30 text-red-50 border-red-300/40"
+    : b.severity === "medium" ? "bg-orange-500/30 text-orange-50 border-orange-300/40"
+    : "bg-yellow-500/30 text-yellow-50 border-yellow-300/40";
+  return (
+    <div className="h-full flex flex-col gap-3 px-1">
+      <div className="flex items-center justify-between">
+        <Target className="h-7 w-7 text-white/85" />
+        <span className={`text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full border ${sevColor}`}>
+          {b.severity} severity
+        </span>
+      </div>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-white/70 font-bold">Bottleneck</p>
+      <h2 className="text-3xl font-black tracking-tight">{b.stage_label}</h2>
+      <p className="text-xs text-white/85">{b.evidence}</p>
+      <div className="space-y-1.5 mt-1 max-h-[35vh] overflow-y-auto">
+        {b.stuck_leads.slice(0, 5).map((sl) => (
+          <div key={sl.lead_id} className="bg-white/15 backdrop-blur-sm rounded-lg p-2 border border-white/20 flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold truncate">{sl.name}</p>
+              <p className="text-[10px] text-white/70 truncate">{sl.address || sl.phone || "—"}</p>
+            </div>
+            <span className="text-[10px] font-mono uppercase tracking-wider bg-black/30 px-1.5 py-0.5 rounded">
+              {sl.days_stuck}d
+            </span>
+          </div>
+        ))}
+      </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        className="mt-auto w-full"
+        onClick={() => onOpen(`/leads?column=${b.stage_key}`)}
+      >
+        Open these leads <ChevronRight className="h-3.5 w-3.5 ml-1" />
+      </Button>
+    </div>
+  );
+}
+
+function BriefingSlide({ digest }: { digest: WrappedDigest }) {
+  const b = digest.briefing!;
+  return (
+    <div className="h-full flex flex-col gap-3 px-1">
+      <div className="flex items-center gap-2">
+        <MessageSquare className="h-7 w-7 text-white/85" />
+        {b.profanity_used && (
+          <span className="text-[9px] uppercase tracking-widest font-bold bg-emerald-500/40 text-emerald-50 border border-emerald-300/40 px-1.5 py-0.5 rounded">
+            spicy
+          </span>
+        )}
+      </div>
+      <p className="text-[10px] uppercase tracking-[0.3em] text-white/70 font-bold">Briefing</p>
+      {b.opening && (
+        <p className="text-xl sm:text-2xl font-black tracking-tight leading-tight">{b.opening}</p>
+      )}
+      {b.situation && (
+        <p className="text-sm text-white/90 leading-relaxed">{b.situation}</p>
+      )}
+      {b.watch && (
+        <div className="mt-auto bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+          <p className="text-[10px] uppercase tracking-widest text-white/70 font-bold mb-1">Watch next week</p>
+          <p className="text-xs text-white/90">{b.watch}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionSlide({ digest, onOpen }: { digest: WrappedDigest; onOpen: (link: string | null) => void }) {
+  const a = digest.recommended_action!;
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-5 px-2 text-center">
+      <Rocket className="h-10 w-10 text-white/85" />
+      <p className="text-[10px] uppercase tracking-[0.3em] text-white/70 font-bold">Do this week</p>
+      <p className="text-xl sm:text-2xl font-black tracking-tight leading-tight">{a.text}</p>
+      {a.link && (
+        <Button size="lg" variant="secondary" onClick={() => onOpen(a.link)} className="mt-2">
+          {a.button_label} <ChevronRight className="h-4 w-4 ml-1" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ChangelogSlide({ digest }: { digest: WrappedDigest }) {
+  const entries = digest.changelog || [];
+  return (
+    <div className="h-full flex flex-col gap-3 px-1">
+      <Wrench className="h-7 w-7 text-white/85" />
+      <p className="text-[10px] uppercase tracking-[0.3em] text-white/70 font-bold">What shipped</p>
+      <h2 className="text-2xl font-black tracking-tight">New in your dashboard</h2>
+      <div className="space-y-1.5 mt-1 flex-1 overflow-y-auto">
+        {entries.map((c) => (
+          <div key={c.sha} className="bg-white/10 backdrop-blur-sm rounded-md p-2 border border-white/15">
+            <p className="text-xs text-white/95 leading-snug">{c.subject}</p>
+            <p className="text-[9px] text-white/50 mt-0.5 font-mono">{c.date} · {c.sha}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

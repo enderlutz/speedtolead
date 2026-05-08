@@ -91,6 +91,15 @@ def run_wrapped_dispatcher():
     if weekday == 5 and 8 <= hour <= 10:
         period_key = f"wrapped_sms:weekly:{today.isoformat()}"
         if not _already_sent(period_key):
+            # Warm the cache (computes digest + invokes Claude) BEFORE we
+            # send the SMS — that way Alan taps the link and the popup
+            # paints instantly with no Claude latency on the page.
+            try:
+                from api.wrapped import warm_weekly_cache
+                warm_weekly_cache(today)
+            except Exception as e:
+                logger.warning(f"Wrapped weekly cache warm failed (non-fatal): {e}")
+
             msg = (
                 "Hey Alan — your week is wrapped! 🎉\n\n"
                 f"Open {dashboard_link} for the breakdown — revenue, top crew, biggest deal, and what to watch for next week."
@@ -104,6 +113,12 @@ def run_wrapped_dispatcher():
     if today == _last_day_of_month(today) and 18 <= hour <= 21:
         period_key = f"wrapped_sms:monthly:{today.strftime('%Y-%m')}"
         if not _already_sent(period_key):
+            try:
+                from api.wrapped import warm_monthly_cache
+                warm_monthly_cache(today.year, today.month)
+            except Exception as e:
+                logger.warning(f"Wrapped monthly cache warm failed (non-fatal): {e}")
+
             msg = (
                 f"Hey Alan — {today.strftime('%B')} is in the books! 📊\n\n"
                 f"Your month-in-review is ready: {dashboard_link}\n"

@@ -1069,6 +1069,28 @@ class GoogleOAuthToken(Base):
     updated_at = Column(Text, default="")
 
 
+class WrappedCache(Base):
+    """One row per generated Wrapped digest (weekly or monthly). The full
+    Claude-narrated payload is stored as JSON so subsequent reads are free
+    — no Claude API call when admin re-opens the same week's wrap.
+
+    id is `<cadence>:<period_key>` — e.g. "weekly:2026-05-09" (Saturday end
+    date) or "monthly:2026-05". Idempotent — if the dispatcher fires a
+    second time we just update generated_at."""
+    __tablename__ = "wrapped_cache"
+    __table_args__ = (
+        Index("idx_wrapped_cache_period", "cadence", "period_key"),
+    )
+
+    id = Column(Text, primary_key=True)
+    cadence = Column(Text, nullable=False)              # "weekly" | "monthly"
+    period_key = Column(Text, nullable=False)           # YYYY-MM-DD (week_end) or YYYY-MM
+    payload_json = Column(Text, nullable=False)         # full digest incl. Claude narrative
+    claude_input_tokens = Column(Integer, default=0)
+    claude_output_tokens = Column(Integer, default=0)
+    generated_at = Column(Text, nullable=False)
+
+
 class QuickBooksToken(Base):
     """Single-row OAuth token for the connected Intuit QuickBooks Online
     company. Mirrors the GoogleOAuthToken pattern. Tokens get refreshed
@@ -1303,6 +1325,20 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE task_allocations ADD COLUMN flat_pay_amount NUMERIC(10,2) DEFAULT 0"))
             logger.info("Migration: added task_allocations.flat_pay_amount")
+
+    # WrappedCache table — Base.metadata.create_all() above handles initial
+    # creation, but if the table existed in an older shape we'd add columns
+    # here. Currently no incremental columns to add.
+    if inspector.has_table("wrapped_cache"):
+        wc_cols = {c["name"] for c in inspector.get_columns("wrapped_cache")}
+        for new_col, ddl in [
+            ("claude_input_tokens", "ALTER TABLE wrapped_cache ADD COLUMN claude_input_tokens INTEGER DEFAULT 0"),
+            ("claude_output_tokens", "ALTER TABLE wrapped_cache ADD COLUMN claude_output_tokens INTEGER DEFAULT 0"),
+        ]:
+            if new_col not in wc_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added wrapped_cache.{new_col}")
 
 
 def get_db() -> Session:
