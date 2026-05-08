@@ -1031,11 +1031,17 @@ def init_db():
 
     engine_kwargs: dict = {"echo": False}
 
-    engine_kwargs["pool_size"] = 3
-    engine_kwargs["max_overflow"] = 5
+    # Pool sized to handle bursting from multiple browser tabs (each polls
+    # /reimbursements + /estimate-delays/open every 60s) plus background
+    # loops (estimate-delay tick, scheduling/sms tick) without queueing.
+    # 10 + 20 = 30 max — well under Supabase's per-tier connection limit
+    # (60 free / 200 paid) and far above the prior 3+5=8 which was hitting
+    # QueuePool timeouts and cascading 500s through CORS.
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
     engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 60  # Recycle connections every 60s to avoid stale SSL
-    engine_kwargs["pool_timeout"] = 10
+    engine_kwargs["pool_recycle"] = 300  # 5-min recycle is plenty for SSL freshness
+    engine_kwargs["pool_timeout"] = 15   # 15s — still fail-fast, but tolerates a short burst
     _engine = create_engine(db_url, **engine_kwargs)
 
     # Auto-create any missing tables (safe — does nothing for existing tables)
