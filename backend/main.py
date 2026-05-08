@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
 from services.correction_escalator import check_escalations
@@ -223,6 +223,7 @@ app.include_router(time_logs.router, prefix="/api")
 app.include_router(accounting.router, prefix="/api")
 app.include_router(quickbooks.router, prefix="/api")
 app.include_router(wrapped.router, prefix="/api")
+app.include_router(sops.router, prefix="/api")
 
 
 @app.get("/health")

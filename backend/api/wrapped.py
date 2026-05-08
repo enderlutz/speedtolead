@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database import (
     get_db, Lead, Estimate, ScheduledJob, TaskAllocation, TimeEntry,
-    Reimbursement, Employee, WrappedCache,
+    Reimbursement, Employee, WrappedCache, SopRun,
 )
 from api.auth import require_admin
 from api.accounting import _allocation_cost, _job_revenue
@@ -457,6 +457,34 @@ def _compute_digest(start: date_cls, end: date_cls, prev_start: date_cls, prev_e
         tier_count = Counter((c.closed_tier or "custom") for c in closed_estimates)
         top_tier = tier_count.most_common(1)[0] if tier_count else (None, 0)
 
+        # SOP completion stats — for jobs in the period that have a run
+        # attached, what % of required steps were completed?
+        job_ids = [j.id for j in jobs]
+        sop_runs_in_period = (
+            db.query(SopRun).filter(SopRun.scheduled_job_id.in_(job_ids)).all()
+            if job_ids else []
+        )
+        sop_total_jobs_with_run = len(sop_runs_in_period)
+        sop_completed_runs = sum(1 for r in sop_runs_in_period if (r.status or "") == "completed")
+        sop_completion_pct = (
+            round((sop_completed_runs / sop_total_jobs_with_run * 100), 1)
+            if sop_total_jobs_with_run > 0 else 0.0
+        )
+        # Skipped-step heatmap: which steps did workers skip the most?
+        skip_counter: Counter = Counter()
+        for r in sop_runs_in_period:
+            try:
+                steps = json.loads(r.steps_json or "[]")
+            except json.JSONDecodeError:
+                continue
+            for s in steps:
+                if s.get("required") and not s.get("completed"):
+                    skip_counter[s.get("title") or "(untitled)"] += 1
+        top_skipped = [
+            {"title": title, "count": cnt}
+            for title, cnt in skip_counter.most_common(3)
+        ]
+
         anomalies = []
         if outstanding_total > 0:
             anomalies.append({
@@ -464,6 +492,17 @@ def _compute_digest(start: date_cls, end: date_cls, prev_start: date_cls, prev_e
                 "severity": "warn",
                 "title": f"${outstanding_total:,.0f} owed by customers",
                 "detail": f"{len(outstanding)} job(s) not paid yet — Mark Paid or send a QuickBooks invoice.",
+            })
+        # SOP miss anomaly — only fires if 3+ jobs had a run AND completion < 80%
+        if sop_total_jobs_with_run >= 3 and sop_completion_pct < 80:
+            anomalies.append({
+                "type": "sop_skip_rate",
+                "severity": "warn",
+                "title": f"{sop_completion_pct}% SOP completion",
+                "detail": (
+                    f"Only {sop_completed_runs} of {sop_total_jobs_with_run} jobs had every required step done."
+                    + (f" Most-skipped: {top_skipped[0]['title']}." if top_skipped else "")
+                ),
             })
         if revenue == 0 and len(new_leads) > 0:
             anomalies.append({
@@ -507,6 +546,12 @@ def _compute_digest(start: date_cls, end: date_cls, prev_start: date_cls, prev_e
             "anomalies": anomalies,
             "bottleneck": bottleneck,
             "changelog": changelog,
+            "sop": {
+                "jobs_with_run": sop_total_jobs_with_run,
+                "completed_runs": sop_completed_runs,
+                "completion_pct": sop_completion_pct,
+                "top_skipped": top_skipped,
+            },
         }
 
         digest["score"] = _compute_score(digest)

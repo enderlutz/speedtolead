@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, E
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import ReimbursementForm from "@/components/ReimbursementForm";
 import MarkPaidModal from "@/components/MarkPaidModal";
+import SopChecklistPanel from "@/components/SopChecklistPanel";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -676,6 +677,11 @@ function JobDetailModal({
               )}
             </>
           )}
+
+          {/* SOP checklist — visible to admin AND worker. Worker view is
+              interactive (start/check/note/photo/help). Admin view shows
+              the same UI for read + override. */}
+          <SopChecklistPanel scheduledJobId={job.id} asWorker={showAsWorker} />
         </div>
         {(onEdit || onDelete || onLogTime || onReimburse || onViewPL || onMarkPaid || onGenerateInvoice) && (
           <div className="p-3 border-t flex justify-end gap-2 flex-wrap">

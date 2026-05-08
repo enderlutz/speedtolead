@@ -258,6 +258,15 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         # Push to GHL: move to CLOSED & SCHEDULED
         _push_lead_to_scheduled_stage(lead)
 
+        # Auto-attach the default SOP template (if any) for this service type.
+        # Returns None silently when no template is configured yet — the
+        # worker's job detail will show an empty-state placeholder.
+        try:
+            from api.sops import attach_default_run
+            attach_default_run(db, job)
+        except Exception as e:
+            logger.warning(f"SOP auto-attach failed (non-fatal): {e}")
+
         db.commit()
         db.refresh(job)
 

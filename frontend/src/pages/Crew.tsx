@@ -11,6 +11,7 @@ import { LogHoursModal, RecordPaymentModal, AddEmployeeModal } from "@/component
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DailyLogTab from "@/components/DailyLogTab";
 import ReimbursementInbox from "@/components/ReimbursementInbox";
+import SopTemplatesList from "@/components/SopTemplatesList";
 import { useSearchParams } from "react-router-dom";
 
 type RangeKey = "this_week" | "last_week" | "month" | "ytd";
@@ -131,6 +132,7 @@ export default function Crew() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="sops">SOPs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="roster" className="space-y-4 mt-3">
@@ -258,6 +260,10 @@ export default function Crew() {
 
         <TabsContent value="reimbursements" className="mt-3">
           <ReimbursementInbox />
+        </TabsContent>
+
+        <TabsContent value="sops" className="mt-3">
+          <SopTemplatesList />
         </TabsContent>
       </Tabs>
 

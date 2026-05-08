@@ -1069,6 +1069,171 @@ class GoogleOAuthToken(Base):
     updated_at = Column(Text, default="")
 
 
+class SopTemplate(Base):
+    """Standard Operating Procedure template — the master checklist for a
+    service type. Edited rarely by admin; reused on every scheduled job.
+    Snapshotted into a SopRun at job-create time so future template edits
+    don't rewrite history."""
+    __tablename__ = "sop_templates"
+    __table_args__ = (
+        Index("idx_sop_templates_service", "service_type"),
+        Index("idx_sop_templates_default", "service_type", "is_default"),
+    )
+
+    id = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    service_type = Column(Text, nullable=False, default="fence_staining")
+    description = Column(Text, default="")
+    is_default = Column(Boolean, default=False)        # the auto-attach pick for this service
+    active = Column(Boolean, default=True)             # soft-disable without deleting
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "service_type": self.service_type or "fence_staining",
+            "description": self.description or "",
+            "is_default": bool(self.is_default),
+            "active": bool(self.active),
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+            "created_by": self.created_by or "",
+        }
+
+
+class SopTemplateStep(Base):
+    """One step in an SOP template. Workers tick these off (via the
+    snapshotted copy on the run, not this row directly). Step order is
+    explicit (order_index) — template editor reorders by updating it."""
+    __tablename__ = "sop_template_steps"
+    __table_args__ = (
+        Index("idx_sop_steps_template", "sop_template_id"),
+        Index("idx_sop_steps_order", "sop_template_id", "order_index"),
+    )
+
+    id = Column(Text, primary_key=True)
+    sop_template_id = Column(Text, nullable=False)
+    order_index = Column(Integer, default=0)
+    title = Column(Text, nullable=False)
+    description = Column(Text, default="")             # optional context for the worker
+    required = Column(Boolean, default=True)
+    # 5 buckets: pre-arrival | setup | execution | cleanup | wrap-up
+    category = Column(Text, default="execution")
+    photo_required = Column(Boolean, default=False)    # worker must attach a photo to mark complete
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "sop_template_id": self.sop_template_id,
+            "order_index": self.order_index or 0,
+            "title": self.title,
+            "description": self.description or "",
+            "required": bool(self.required),
+            "category": self.category or "execution",
+            "photo_required": bool(self.photo_required),
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+        }
+
+
+class SopRun(Base):
+    """One instance of an SOP template attached to one ScheduledJob. The
+    template's steps are snapshotted into steps_json at attach time —
+    later edits to the parent template don't mutate this run.
+
+    steps_json shape:
+      [{
+        "step_id": "<uuid from template>",
+        "order_index": 0,
+        "title": "Pre-arrival call",
+        "description": "...",
+        "required": true,
+        "category": "pre-arrival",
+        "photo_required": false,
+        "completed": false,
+        "completed_at": null,
+        "completed_by": null,
+        "note": "",
+        "photo_id": null,
+        "help_requested_at": null,
+        "help_requested_by": null,
+        "help_note": ""
+      }, ...]
+    """
+    __tablename__ = "sop_runs"
+    __table_args__ = (
+        Index("idx_sop_runs_job", "scheduled_job_id"),
+        Index("idx_sop_runs_template", "sop_template_id"),
+        Index("idx_sop_runs_status", "status"),
+    )
+
+    id = Column(Text, primary_key=True)
+    scheduled_job_id = Column(Text, nullable=False, unique=True)  # one run per job
+    sop_template_id = Column(Text, nullable=False)
+    template_name_snapshot = Column(Text, default="")
+    steps_json = Column(Text, nullable=False, default="[]")
+    status = Column(Text, default="pending")           # pending | in_progress | completed
+    started_at = Column(Text, nullable=True)
+    started_by = Column(Text, default="")
+    completed_at = Column(Text, nullable=True)
+    snapshot_at = Column(Text, default="")
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        steps = _j(self.steps_json) if self.steps_json else []
+        if not isinstance(steps, list):
+            steps = []
+        total = len(steps)
+        required_total = sum(1 for s in steps if s.get("required"))
+        completed_count = sum(1 for s in steps if s.get("completed"))
+        required_completed = sum(1 for s in steps if s.get("required") and s.get("completed"))
+        return {
+            "id": self.id,
+            "scheduled_job_id": self.scheduled_job_id,
+            "sop_template_id": self.sop_template_id,
+            "template_name_snapshot": self.template_name_snapshot or "",
+            "steps": steps,
+            "status": self.status or "pending",
+            "started_at": self.started_at,
+            "started_by": self.started_by or "",
+            "completed_at": self.completed_at,
+            "snapshot_at": self.snapshot_at or "",
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+            # Useful aggregates so the frontend doesn't recompute them
+            "total_steps": total,
+            "completed_steps": completed_count,
+            "required_total": required_total,
+            "required_completed": required_completed,
+            "completion_pct": round((completed_count / total * 100), 1) if total > 0 else 0.0,
+        }
+
+
+class SopRunPhoto(Base):
+    """Optional photo attached to a step on a SopRun. Photo IDs in
+    steps_json point here. Stored as LargeBinary blob, same pattern as
+    measurement images and reimbursement receipts."""
+    __tablename__ = "sop_run_photos"
+    __table_args__ = (
+        Index("idx_sop_run_photos_run", "sop_run_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    sop_run_id = Column(Text, nullable=False)
+    step_id = Column(Text, nullable=False)             # the step_id within steps_json
+    photo_data = Column(LargeBinary, nullable=True)
+    filename = Column(Text, default="")
+    mime = Column(Text, default="")
+    uploaded_at = Column(Text, default="")
+    uploaded_by = Column(Text, default="")
+
+
 class WrappedCache(Base):
     """One row per generated Wrapped digest (weekly or monthly). The full
     Claude-narrated payload is stored as JSON so subsequent reads are free

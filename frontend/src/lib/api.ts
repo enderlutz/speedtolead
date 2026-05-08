@@ -1003,6 +1003,96 @@ export const api = {
     );
   },
 
+  // SOPs (Standard Operating Procedures)
+  listSopTemplates: (params: { service_type?: string; include_inactive?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.service_type) qs.set("service_type", params.service_type);
+    if (params.include_inactive) qs.set("include_inactive", "true");
+    return request<{ templates: SopTemplate[] }>(`/api/sops/templates${qs.toString() ? "?" + qs.toString() : ""}`);
+  },
+  getSopTemplate: (id: string) =>
+    request<SopTemplate & { steps: SopTemplateStep[] }>(`/api/sops/templates/${id}`),
+  createSopTemplate: (body: SopTemplateBody) =>
+    request<SopTemplate & { steps: SopTemplateStep[] }>("/api/sops/templates", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateSopTemplate: (id: string, body: SopTemplateBody) =>
+    request<SopTemplate & { steps: SopTemplateStep[] }>(`/api/sops/templates/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteSopTemplate: (id: string) =>
+    request<{ status: string }>(`/api/sops/templates/${id}`, { method: "DELETE" }),
+  addSopStep: (templateId: string, body: SopStepBody) =>
+    request<SopTemplateStep>(`/api/sops/templates/${templateId}/steps`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateSopStep: (stepId: string, body: SopStepBody) =>
+    request<SopTemplateStep>(`/api/sops/steps/${stepId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteSopStep: (stepId: string) =>
+    request<{ status: string }>(`/api/sops/steps/${stepId}`, { method: "DELETE" }),
+  reorderSopSteps: (templateId: string, step_ids: string[]) =>
+    request<{ status: string }>(`/api/sops/templates/${templateId}/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ step_ids }),
+    }),
+  backfillSopRuns: () =>
+    request<{ attached: number; skipped_no_template: number; total_jobs: number }>(
+      "/api/sops/backfill", { method: "POST" }
+    ),
+
+  /** Worker (or admin) loads the SOP run for a specific job. Returns
+   * `{ run: null }` when no template is configured for the job's service yet. */
+  getSopRunByJob: (scheduledJobId: string) =>
+    request<{ run: SopRun | null }>(`/api/sops/runs/by-job/${scheduledJobId}`),
+  startSopRun: (runId: string) =>
+    request<SopRun>(`/api/sops/runs/${runId}/start`, { method: "POST" }),
+  checkSopStep: (runId: string, stepId: string, completed: boolean, note: string = "") =>
+    request<SopRun>(`/api/sops/runs/${runId}/steps/${stepId}/check`, {
+      method: "PUT",
+      body: JSON.stringify({ completed, note }),
+    }),
+  setSopStepNote: (runId: string, stepId: string, note: string) =>
+    request<SopRun>(`/api/sops/runs/${runId}/steps/${stepId}/note`, {
+      method: "PUT",
+      body: JSON.stringify({ note }),
+    }),
+  requestSopStepHelp: (runId: string, stepId: string, helpNote: string) =>
+    request<SopRun>(`/api/sops/runs/${runId}/steps/${stepId}/help`, {
+      method: "POST",
+      body: JSON.stringify({ help_note: helpNote }),
+    }),
+  uploadSopStepPhoto: async (runId: string, stepId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/sops/runs/${runId}/steps/${stepId}/photo`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    return res.json() as Promise<SopRun>;
+  },
+  deleteSopStepPhoto: (runId: string, stepId: string) =>
+    request<SopRun>(`/api/sops/runs/${runId}/steps/${stepId}/photo`, { method: "DELETE" }),
+  getSopStepPhotoUrl: (runId: string, stepId: string) =>
+    `${BASE}/api/sops/runs/${runId}/steps/${stepId}/photo`,
+  /** Fetch the photo with auth and return a blob URL the caller revokes. */
+  fetchSopStepPhotoBlobUrl: async (runId: string, stepId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/sops/runs/${runId}/steps/${stepId}/photo`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+
   // Wrapped (CEO digest) — cached. Reads hit cache; force=true triggers
   // a regenerate (re-spends Claude tokens).
   getWeeklyWrapped: (weekEnd?: string) => {
@@ -1577,4 +1667,98 @@ export interface OverheadBody {
   description: string;
   monthly_amount: number;
   active: boolean;
+}
+
+// --- SOPs ---
+
+export type SopCategory = "pre-arrival" | "setup" | "execution" | "cleanup" | "wrap-up";
+
+export const SOP_CATEGORIES: { key: SopCategory; label: string; emoji: string }[] = [
+  { key: "pre-arrival", label: "Pre-arrival", emoji: "📞" },
+  { key: "setup", label: "Setup", emoji: "🛠️" },
+  { key: "execution", label: "Execution", emoji: "🎨" },
+  { key: "cleanup", label: "Cleanup", emoji: "🧹" },
+  { key: "wrap-up", label: "Wrap-up", emoji: "✅" },
+];
+
+export interface SopTemplate {
+  id: string;
+  name: string;
+  service_type: string;
+  description: string;
+  is_default: boolean;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+}
+
+export interface SopTemplateStep {
+  id: string;
+  sop_template_id: string;
+  order_index: number;
+  title: string;
+  description: string;
+  required: boolean;
+  category: SopCategory;
+  photo_required: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SopTemplateBody {
+  name: string;
+  service_type?: string;
+  description?: string;
+  is_default?: boolean;
+  active?: boolean;
+}
+
+export interface SopStepBody {
+  title: string;
+  description?: string;
+  required?: boolean;
+  category?: SopCategory;
+  photo_required?: boolean;
+  order_index?: number | null;
+}
+
+/** A snapshotted step on a SopRun — has the template-step fields PLUS
+ * the worker's progress + per-step note + photo + help-request state. */
+export interface SopRunStep {
+  step_id: string;
+  order_index: number;
+  title: string;
+  description: string;
+  required: boolean;
+  category: SopCategory;
+  photo_required: boolean;
+  completed: boolean;
+  completed_at: string | null;
+  completed_by: string | null;
+  note: string;
+  photo_id: string | null;
+  help_requested_at: string | null;
+  help_requested_by: string | null;
+  help_note: string;
+}
+
+export interface SopRun {
+  id: string;
+  scheduled_job_id: string;
+  sop_template_id: string;
+  template_name_snapshot: string;
+  steps: SopRunStep[];
+  status: "pending" | "in_progress" | "completed";
+  started_at: string | null;
+  started_by: string;
+  completed_at: string | null;
+  snapshot_at: string;
+  created_at: string;
+  updated_at: string;
+  total_steps: number;
+  completed_steps: number;
+  required_total: number;
+  required_completed: number;
+  completion_pct: number;
 }
