@@ -105,6 +105,7 @@ class ContactUpdate(BaseModel):
     contact_email: str | None = None
     address: str | None = None
     zip_code: str | None = None
+    lead_source: str | None = None    # ad | referral | google_my_business | repeat_customer | other
 
 
 class StageUpdate(BaseModel):
@@ -1075,6 +1076,11 @@ def update_contact(lead_id: str, body: ContactUpdate):
             lead.address = body.address
         if body.zip_code is not None:
             lead.zip_code = body.zip_code
+        if body.lead_source is not None:
+            valid = ("ad", "referral", "google_my_business", "repeat_customer", "yard_sign", "other")
+            if body.lead_source not in valid:
+                raise HTTPException(status_code=400, detail=f"lead_source must be one of {valid}")
+            lead.lead_source = body.lead_source
 
         lead.updated_at = _now()
         db.commit()

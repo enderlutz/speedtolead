@@ -27,7 +27,7 @@ from sqlalchemy import func
 
 from database import (
     get_db, OverheadEntry, ScheduledJob, Estimate, Lead,
-    TaskAllocation, TimeEntry, Reimbursement,
+    TaskAllocation, TimeEntry, Reimbursement, Employee,
 )
 from api.auth import require_admin
 
@@ -94,11 +94,22 @@ def _job_revenue(job: ScheduledJob, db) -> float:
     return float(est.closed_price or 0) if est else 0.0
 
 
+def _allocation_cost(alloc: TaskAllocation, te: TimeEntry) -> float:
+    """Cost of one TaskAllocation. flat_pay_amount > 0 means
+    pay-for-performance (admin agreed to pay a fixed dollar for that
+    allocation regardless of hours); otherwise fall back to the legacy
+    hourly model: hours × rate_at_entry (rate snapshot preserves history)."""
+    flat = float(alloc.flat_pay_amount or 0)
+    if flat > 0:
+        return round(flat, 2)
+    return round(float(alloc.hours or 0) * float(te.rate_at_entry or 0), 2)
+
+
 def _labor_cost_for_lead(db, lead_id: str, start_date: str, end_date: str) -> float:
-    """Sum of (allocation.hours × time_entry.rate_at_entry) for all
-    TaskAllocation rows on this lead within the period. Joins to TimeEntry
-    for the rate snapshot so old entries keep their historical rate even
-    if the employee's current pay_rate has changed."""
+    """Sum of per-allocation cost for all TaskAllocation rows on this lead
+    within the period. Joins to TimeEntry for the rate snapshot so hourly
+    allocations keep their historical rate even if the employee's pay_rate
+    has changed."""
     rows = (
         db.query(TaskAllocation, TimeEntry)
         .join(TimeEntry, TaskAllocation.time_entry_id == TimeEntry.id)
@@ -109,10 +120,23 @@ def _labor_cost_for_lead(db, lead_id: str, start_date: str, end_date: str) -> fl
         )
         .all()
     )
-    total = 0.0
-    for alloc, te in rows:
-        total += float(alloc.hours or 0) * float(te.rate_at_entry or 0)
-    return round(total, 2)
+    return round(sum(_allocation_cost(alloc, te) for alloc, te in rows), 2)
+
+
+def _materials_cost_for_lead(db, lead_id: str, start_date: str, end_date: str) -> float:
+    """Materials are stored on the ScheduledJob row (admin enters once after
+    the crew finishes). One lead can have multiple jobs (multi-house),
+    so sum across all jobs in the period for this lead."""
+    rows = (
+        db.query(ScheduledJob)
+        .filter(
+            ScheduledJob.lead_id == lead_id,
+            ScheduledJob.job_date >= start_date,
+            ScheduledJob.job_date <= end_date,
+        )
+        .all()
+    )
+    return round(sum(float(j.materials_cost or 0) for j in rows), 2)
 
 
 def _reimbursement_cost_for_lead(db, lead_id: str, start_date: str, end_date: str) -> float:
@@ -150,10 +174,15 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
         revenue = 0.0
         labor_cost = 0.0
         reimb_cost = 0.0
+        materials_cost = 0.0
+        outstanding_revenue = 0.0  # contracted but not yet collected
         for j in jobs:
             revenue += _job_revenue(j, db)
             labor_cost += _labor_cost_for_lead(db, j.lead_id, start, end)
             reimb_cost += _reimbursement_cost_for_lead(db, j.lead_id, start, end)
+            materials_cost += float(j.materials_cost or 0)
+            if (j.payment_status or "unpaid") == "unpaid":
+                outstanding_revenue += float(j.closed_price or 0)
 
         # If period is "all", figure out the span so overhead is sensible.
         if period == "all" and jobs:
@@ -176,7 +205,7 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
         overhead_monthly = float(overhead_monthly)
         overhead_cost = round(overhead_monthly * months, 2)
 
-        gross_profit = round(revenue - labor_cost - reimb_cost, 2)
+        gross_profit = round(revenue - labor_cost - reimb_cost - materials_cost, 2)
         net_profit = round(gross_profit - overhead_cost, 2)
         gross_margin_pct = round((gross_profit / revenue * 100), 1) if revenue > 0 else 0.0
         net_margin_pct = round((net_profit / revenue * 100), 1) if revenue > 0 else 0.0
@@ -190,6 +219,8 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
             "revenue": round(revenue, 2),
             "labor_cost": round(labor_cost, 2),
             "reimbursement_cost": round(reimb_cost, 2),
+            "materials_cost": round(materials_cost, 2),
+            "outstanding_revenue": round(outstanding_revenue, 2),
             "overhead_monthly": overhead_monthly,
             "overhead_cost": overhead_cost,
             "gross_profit": gross_profit,
@@ -223,7 +254,8 @@ def list_job_profitability(period: str = Query("this_month"), user: dict = Depen
             revenue = _job_revenue(j, db)
             labor = _labor_cost_for_lead(db, j.lead_id, start, end)
             reimb = _reimbursement_cost_for_lead(db, j.lead_id, start, end)
-            profit = round(revenue - labor - reimb, 2)
+            materials = float(j.materials_cost or 0)
+            profit = round(revenue - labor - reimb - materials, 2)
             margin = round((profit / revenue * 100), 1) if revenue > 0 else 0.0
             # Customer name: prefer the scheduled job snapshot, fallback to lead
             customer_name = j.customer_name or ""
@@ -241,10 +273,144 @@ def list_job_profitability(period: str = Query("this_month"), user: dict = Depen
                 "revenue": round(revenue, 2),
                 "labor_cost": labor,
                 "reimbursement_cost": reimb,
+                "materials_cost": round(materials, 2),
                 "profit": profit,
                 "margin_pct": margin,
+                "payment_status": j.payment_status or "unpaid",
+                "amount_collected": float(j.amount_collected or 0),
             })
         return {"jobs": out, "period": period, "start": start, "end": end}
+    finally:
+        db.close()
+
+
+# ─── Outstanding (unpaid) jobs ───────────────────────────────────────────
+
+@router.get("/accounting/outstanding")
+def list_outstanding(user: dict = Depends(require_admin)):
+    """Jobs that have completed (or are scheduled) but the customer has not
+    paid yet. Drives the AR widget on the Accounting page so Alan sees who
+    owes money at a glance."""
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(ScheduledJob)
+            .filter(ScheduledJob.payment_status == "unpaid")
+            .filter(ScheduledJob.closed_price > 0)
+            .order_by(ScheduledJob.job_date.asc())
+            .all()
+        )
+        out = []
+        for j in rows:
+            out.append({
+                "scheduled_job_id": j.id,
+                "lead_id": j.lead_id,
+                "customer_name": j.customer_name or "",
+                "customer_phone": j.customer_phone or "",
+                "job_date": j.job_date,
+                "address": j.address or "",
+                "amount_due": float(j.closed_price or 0),
+                "payment_status": j.payment_status or "unpaid",
+                "qb_invoice_status": j.qb_invoice_status or "",
+                "qb_invoice_url": j.qb_invoice_url or "",
+                "status": j.status or "scheduled",
+            })
+        total = round(sum(r["amount_due"] for r in out), 2)
+        return {"jobs": out, "total_outstanding": total}
+    finally:
+        db.close()
+
+
+# ─── Per-employee revenue + labor ────────────────────────────────────────
+
+@router.get("/accounting/employee-revenue")
+def employee_revenue(period: str = Query("this_month"), user: dict = Depends(require_admin)):
+    """Per-employee breakdown of labor cost paid + share of job revenue
+    they touched. Powers the pie chart and Operations analytics view.
+
+    For each employee: pay = sum of allocation cost across the period.
+    Revenue-touched per employee = Σ over each job they worked on of
+    (their labor cost on that job ÷ total labor on that job × job revenue).
+    That's the "your share of revenue earned" view — fair when multiple
+    employees worked the same job and each gets credit proportional to
+    their cost contribution."""
+    del user
+    db = get_db()
+    try:
+        start, end, _ = _period_bounds(period)
+
+        # Pull all allocations + their TimeEntry rate snapshot in one go
+        rows = (
+            db.query(TaskAllocation, TimeEntry)
+            .join(TimeEntry, TaskAllocation.time_entry_id == TimeEntry.id)
+            .filter(
+                TaskAllocation.work_date >= start,
+                TaskAllocation.work_date <= end,
+            )
+            .all()
+        )
+        # cost-per-allocation, grouped by (employee, lead)
+        emp_lead_cost: dict[tuple[str, str], float] = {}
+        emp_total_cost: dict[str, float] = {}
+        emp_total_hours: dict[str, float] = {}
+        lead_total_cost: dict[str, float] = {}
+        for alloc, te in rows:
+            cost = _allocation_cost(alloc, te)
+            key = (alloc.employee_id, alloc.lead_id)
+            emp_lead_cost[key] = emp_lead_cost.get(key, 0.0) + cost
+            emp_total_cost[alloc.employee_id] = emp_total_cost.get(alloc.employee_id, 0.0) + cost
+            emp_total_hours[alloc.employee_id] = emp_total_hours.get(alloc.employee_id, 0.0) + float(alloc.hours or 0)
+            lead_total_cost[alloc.lead_id] = lead_total_cost.get(alloc.lead_id, 0.0) + cost
+
+        # Revenue per lead (sum over jobs in the period for that lead)
+        jobs = (
+            db.query(ScheduledJob)
+            .filter(ScheduledJob.job_date >= start, ScheduledJob.job_date <= end)
+            .all()
+        )
+        lead_revenue: dict[str, float] = {}
+        for j in jobs:
+            lead_revenue[j.lead_id] = lead_revenue.get(j.lead_id, 0.0) + _job_revenue(j, db)
+
+        # Build per-employee rows
+        emp_revenue_share: dict[str, float] = {}
+        for (emp_id, lead_id), cost in emp_lead_cost.items():
+            total_lead_cost = lead_total_cost.get(lead_id, 0.0)
+            rev = lead_revenue.get(lead_id, 0.0)
+            if total_lead_cost > 0 and rev > 0:
+                share = (cost / total_lead_cost) * rev
+            else:
+                share = 0.0
+            emp_revenue_share[emp_id] = emp_revenue_share.get(emp_id, 0.0) + share
+
+        # Look up employee names
+        emp_ids = set(emp_total_cost.keys())
+        names: dict[str, str] = {}
+        if emp_ids:
+            for e in db.query(Employee).filter(Employee.id.in_(list(emp_ids))).all():
+                names[e.id] = e.display_name or f"{e.first_name} {e.last_name}".strip()
+
+        out = []
+        total_company_revenue = round(sum(lead_revenue.values()), 2)
+        for emp_id in sorted(emp_total_cost.keys(), key=lambda i: -emp_total_cost.get(i, 0)):
+            paid = round(emp_total_cost[emp_id], 2)
+            rev_share = round(emp_revenue_share.get(emp_id, 0.0), 2)
+            out.append({
+                "employee_id": emp_id,
+                "name": names.get(emp_id, "(unknown)"),
+                "labor_cost": paid,
+                "hours": round(emp_total_hours.get(emp_id, 0.0), 2),
+                "revenue_share": rev_share,
+                "pay_pct_of_revenue": round((paid / rev_share * 100), 1) if rev_share > 0 else 0.0,
+            })
+        return {
+            "period": period,
+            "start": start,
+            "end": end,
+            "total_company_revenue": total_company_revenue,
+            "employees": out,
+        }
     finally:
         db.close()
 

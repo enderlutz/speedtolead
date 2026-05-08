@@ -7,12 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
 from services.correction_escalator import check_escalations
 from services.nudge import run_nudge_check
 from services.weekly_reminder import run_weekly_reminder
+from services.wrapped_dispatcher import run_wrapped_dispatcher
 from services.sms_worker import process_pending_messages
 from services.event_bus import subscribe
 
@@ -73,6 +74,18 @@ async def _weekly_reminder_loop():
         except Exception as e:
             logger.error(f"Weekly reminder error: {e}")
         await asyncio.sleep(3600)  # Check every hour
+
+
+async def _wrapped_dispatcher_loop():
+    """Background task: hourly tick that fires Saturday-morning weekly
+    Wrapped SMS + last-day-of-month monthly Wrapped SMS to Alan."""
+    await asyncio.sleep(120)
+    while True:
+        try:
+            await asyncio.to_thread(run_wrapped_dispatcher)
+        except Exception as e:
+            logger.error(f"Wrapped dispatcher error: {e}")
+        await asyncio.sleep(3600)
 
 
 async def _call_recording_poller_loop():
@@ -148,6 +161,7 @@ async def lifespan(app: FastAPI):
     # msg_poller = asyncio.create_task(_message_poller_loop())
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
+    wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     # Call recording poller disabled — recordings now happen exclusively
     # in-browser via the dashboard, no longer pulling from GHL
     # call_poller = asyncio.create_task(_call_recording_poller_loop())
@@ -160,6 +174,7 @@ async def lifespan(app: FastAPI):
     poller.cancel()
     sms_worker.cancel()
     weekly.cancel()
+    wrapped_loop.cancel()
     correction_escalator.cancel()
     delay_detector.cancel()
 
@@ -206,6 +221,8 @@ app.include_router(scheduling.router, prefix="/api")
 app.include_router(estimate_delays.router, prefix="/api")
 app.include_router(time_logs.router, prefix="/api")
 app.include_router(accounting.router, prefix="/api")
+app.include_router(quickbooks.router, prefix="/api")
+app.include_router(wrapped.router, prefix="/api")
 
 
 @app.get("/health")

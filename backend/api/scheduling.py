@@ -52,6 +52,8 @@ class ScheduleJobBody(BaseModel):
     customer_name: str = ""
     job_description: str = ""
     admin_notes: str = ""
+    materials_cost: float = 0
+    materials_notes: str = ""
     employee_ids: list[str] = []
     send_thank_you: bool = True
     send_calendar_invite: bool = True
@@ -73,8 +75,18 @@ class UpdateJobBody(BaseModel):
     customer_name: str | None = None
     job_description: str | None = None
     admin_notes: str | None = None
+    materials_cost: float | None = None
+    materials_notes: str | None = None
     employee_ids: list[str] | None = None
     status: str | None = None
+
+
+class MarkPaidBody(BaseModel):
+    """Body for the manual Mark Paid action on a scheduled job."""
+    payment_status: str                 # paid | bnpl_financed | unpaid
+    amount_collected: float = 0
+    payment_method: str = ""            # cash | zelle | check | quickbooks_invoice | …
+    bnpl_vendor: str = ""               # only meaningful when payment_status == bnpl_financed
 
 
 class GoogleCallbackBody(BaseModel):
@@ -219,6 +231,8 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             customer_name=customer_name,
             job_description=body.job_description,
             admin_notes=body.admin_notes,
+            materials_cost=body.materials_cost or 0,
+            materials_notes=body.materials_notes or "",
             status="scheduled",
             created_at=_now(),
             created_by=user.get("name", ""),
@@ -374,7 +388,8 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
             "job_date", "arrival_time", "estimated_duration_hours", "package_tier",
             "closed_price", "color_choice", "needs_test_spots", "gallons_estimate",
             "address", "zip_code", "customer_email", "customer_phone",
-            "customer_name", "job_description", "admin_notes", "status",
+            "customer_name", "job_description", "admin_notes",
+            "materials_cost", "materials_notes", "status",
         ):
             v = getattr(body, field)
             if v is not None:
@@ -409,6 +424,41 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
             except Exception as e:
                 logger.warning(f"Google update_event non-fatal failure: {e}")
 
+        db.refresh(j)
+        return j.to_dict(role="admin")
+    finally:
+        db.close()
+
+
+@router.post("/schedule/jobs/{job_id}/mark-paid")
+def mark_scheduled_job_paid(job_id: str, body: MarkPaidBody, user: dict = Depends(require_staff)):
+    """Manual payment status update. Used when admin collects cash/Zelle/check
+    on-site (no QuickBooks invoice involved). The QuickBooks flow has its own
+    webhook that flips the same fields automatically."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        valid = ("paid", "bnpl_financed", "unpaid")
+        if body.payment_status not in valid:
+            raise HTTPException(400, f"payment_status must be one of {valid}")
+
+        j.payment_status = body.payment_status
+        j.amount_collected = body.amount_collected or 0
+        j.payment_method = body.payment_method or ""
+        j.bnpl_vendor = body.bnpl_vendor or ""
+        if body.payment_status in ("paid", "bnpl_financed"):
+            j.paid_at = _now()
+            j.paid_marked_by = user.get("name", "")
+            # Mark job completed too, since payment usually means the job is done
+            if j.status == "scheduled":
+                j.status = "completed"
+        else:
+            j.paid_at = None
+            j.paid_marked_by = ""
+        j.updated_at = _now()
+        db.commit()
         db.refresh(j)
         return j.to_dict(role="admin")
     finally:

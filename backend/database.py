@@ -69,6 +69,11 @@ class Lead(Base):
     measurement_uploaded_at = Column(Text, nullable=True)
     measurement_uploaded_by = Column(Text, default="")
 
+    # Marketing attribution. Default to "ad" because virtually all leads come
+    # from paid ads; admin can override on the lead detail page if it's a
+    # referral / GMB / repeat customer.
+    lead_source = Column(Text, default="ad")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -103,6 +108,7 @@ class Lead(Base):
             "measurement_filename": self.measurement_filename or "",
             "measurement_uploaded_at": self.measurement_uploaded_at,
             "measurement_uploaded_by": self.measurement_uploaded_by or "",
+            "lead_source": self.lead_source or "ad",
         }
 
 
@@ -802,6 +808,29 @@ class ScheduledJob(Base):
     customer_invited = Column(Boolean, default=False)
     customer_thank_you_sent = Column(Boolean, default=False)
     status = Column(Text, default="scheduled")            # scheduled | in_progress | completed | cancelled
+    # Materials (stain, sealer, brushes, etc.) consumed on the job. Single
+    # number entered by admin after the crew finishes. Drops directly out of
+    # gross profit so per-job margins reflect real material spend.
+    materials_cost = Column(Numeric(10, 2), default=0)
+    materials_notes = Column(Text, default="")
+    # Payment tracking. Customer pays in full at the job site (cash, Zelle,
+    # check, etc.) OR finances via BNPL. payment_status: unpaid | paid |
+    # bnpl_financed. amount_collected lets us track partials (deposit + final).
+    payment_status = Column(Text, default="unpaid")
+    amount_collected = Column(Numeric(10, 2), default=0)
+    payment_method = Column(Text, default="")             # cash | zelle | check | quickbooks_invoice | …
+    bnpl_vendor = Column(Text, default="")                # "Wisetack", "Affirm", etc — only when status=bnpl_financed
+    paid_at = Column(Text, nullable=True)
+    paid_marked_by = Column(Text, default="")
+    # QuickBooks linkage — set when admin generates an invoice via QB. Once
+    # the invoice is paid (webhook), payment_status flips to "paid" and
+    # amount_collected is filled in from the QB sales receipt.
+    qb_invoice_id = Column(Text, default="")
+    qb_invoice_url = Column(Text, default="")             # public link admin can SMS to customer
+    qb_invoice_status = Column(Text, default="")          # draft | sent | viewed | paid | void
+    qb_invoice_amount = Column(Numeric(10, 2), default=0)
+    qb_invoice_sent_at = Column(Text, nullable=True)
+    qb_invoice_paid_at = Column(Text, nullable=True)
     created_at = Column(Text, default="")
     created_by = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -835,6 +864,20 @@ class ScheduledJob(Base):
             "admin_notes": self.admin_notes or "",
             "customer_invited": bool(self.customer_invited),
             "customer_thank_you_sent": bool(self.customer_thank_you_sent),
+            "materials_cost": float(self.materials_cost or 0),
+            "materials_notes": self.materials_notes or "",
+            "payment_status": self.payment_status or "unpaid",
+            "amount_collected": float(self.amount_collected or 0),
+            "payment_method": self.payment_method or "",
+            "bnpl_vendor": self.bnpl_vendor or "",
+            "paid_at": self.paid_at,
+            "paid_marked_by": self.paid_marked_by or "",
+            "qb_invoice_id": self.qb_invoice_id or "",
+            "qb_invoice_url": self.qb_invoice_url or "",
+            "qb_invoice_status": self.qb_invoice_status or "",
+            "qb_invoice_amount": float(self.qb_invoice_amount or 0),
+            "qb_invoice_sent_at": self.qb_invoice_sent_at,
+            "qb_invoice_paid_at": self.qb_invoice_paid_at,
             "created_at": self.created_at,
             "created_by": self.created_by or "",
             "updated_at": self.updated_at,
@@ -932,6 +975,13 @@ class TaskAllocation(Base):
     task_name = Column(Text, nullable=False)             # free-form, autocomplete from past entries
     hours = Column(Numeric(10, 2), nullable=False, default=0)
     notes = Column(Text, default="")
+    # Pay-for-performance override. When > 0, this allocation costs the
+    # company `flat_pay_amount` regardless of hours × rate. Lets admin pay a
+    # fixed dollar amount for a job (e.g., "you get $400 for staining the
+    # Mendez fence") instead of paying hourly. The hourly fallback is the
+    # cleanest backward-compat path: existing allocations have flat_pay = 0
+    # and continue to be costed as hours × rate_at_entry.
+    flat_pay_amount = Column(Numeric(10, 2), default=0)
     created_at = Column(Text, default="")
     created_by = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -946,6 +996,7 @@ class TaskAllocation(Base):
             "task_name": self.task_name,
             "hours": float(self.hours or 0),
             "notes": self.notes or "",
+            "flat_pay_amount": float(self.flat_pay_amount or 0),
             "created_at": self.created_at,
             "created_by": self.created_by or "",
             "updated_at": self.updated_at,
@@ -1014,6 +1065,25 @@ class GoogleOAuthToken(Base):
     access_token_expires_at = Column(Text, default="")    # ISO8601
     calendar_id = Column(Text, default="primary")         # "primary" or specific cal id
     connected_email = Column(Text, default="")            # which Google account is linked
+    connected_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
+class QuickBooksToken(Base):
+    """Single-row OAuth token for the connected Intuit QuickBooks Online
+    company. Mirrors the GoogleOAuthToken pattern. Tokens get refreshed
+    on demand; we keep `realm_id` (the QB company id) since every QB API
+    call needs it as a path component."""
+    __tablename__ = "quickbooks_tokens"
+
+    id = Column(Text, primary_key=True)                    # always "default"
+    realm_id = Column(Text, default="")                    # QB company id
+    refresh_token = Column(Text, nullable=False)
+    access_token = Column(Text, default="")
+    access_token_expires_at = Column(Text, default="")     # ISO8601
+    refresh_token_expires_at = Column(Text, default="")    # ISO8601 (~100 days)
+    company_name = Column(Text, default="")
+    environment = Column(Text, default="sandbox")          # sandbox | production
     connected_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -1193,6 +1263,46 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN employee_id TEXT DEFAULT ''"))
             logger.info("Migration: added users.employee_id (links worker logins to Employee rows)")
+
+    # leads.lead_source — marketing attribution. Default "ad" since virtually
+    # all incoming leads are paid ads; admin overrides on lead detail.
+    if "lead_source" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN lead_source TEXT DEFAULT 'ad'"))
+            conn.execute(text("UPDATE leads SET lead_source = 'ad' WHERE lead_source IS NULL OR lead_source = ''"))
+        logger.info("Migration: added leads.lead_source (backfilled to 'ad')")
+
+    # ScheduledJob: materials_cost, payment fields, QuickBooks invoice link
+    if inspector.has_table("scheduled_jobs"):
+        sj_cols = {c["name"] for c in inspector.get_columns("scheduled_jobs")}
+        for new_col, ddl in [
+            ("materials_cost", "ALTER TABLE scheduled_jobs ADD COLUMN materials_cost NUMERIC(10,2) DEFAULT 0"),
+            ("materials_notes", "ALTER TABLE scheduled_jobs ADD COLUMN materials_notes TEXT DEFAULT ''"),
+            ("payment_status", "ALTER TABLE scheduled_jobs ADD COLUMN payment_status TEXT DEFAULT 'unpaid'"),
+            ("amount_collected", "ALTER TABLE scheduled_jobs ADD COLUMN amount_collected NUMERIC(10,2) DEFAULT 0"),
+            ("payment_method", "ALTER TABLE scheduled_jobs ADD COLUMN payment_method TEXT DEFAULT ''"),
+            ("bnpl_vendor", "ALTER TABLE scheduled_jobs ADD COLUMN bnpl_vendor TEXT DEFAULT ''"),
+            ("paid_at", "ALTER TABLE scheduled_jobs ADD COLUMN paid_at TEXT"),
+            ("paid_marked_by", "ALTER TABLE scheduled_jobs ADD COLUMN paid_marked_by TEXT DEFAULT ''"),
+            ("qb_invoice_id", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_id TEXT DEFAULT ''"),
+            ("qb_invoice_url", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_url TEXT DEFAULT ''"),
+            ("qb_invoice_status", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_status TEXT DEFAULT ''"),
+            ("qb_invoice_amount", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_amount NUMERIC(10,2) DEFAULT 0"),
+            ("qb_invoice_sent_at", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_sent_at TEXT"),
+            ("qb_invoice_paid_at", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_paid_at TEXT"),
+        ]:
+            if new_col not in sj_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added scheduled_jobs.{new_col}")
+
+    # TaskAllocation.flat_pay_amount — pay-for-performance override
+    if inspector.has_table("task_allocations"):
+        ta_cols = {c["name"] for c in inspector.get_columns("task_allocations")}
+        if "flat_pay_amount" not in ta_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE task_allocations ADD COLUMN flat_pay_amount NUMERIC(10,2) DEFAULT 0"))
+            logger.info("Migration: added task_allocations.flat_pay_amount")
 
 
 def get_db() -> Session:

@@ -886,3 +886,104 @@ def get_decline_reasons(pipeline_version: str | None = Query(None), days: int = 
         }
     finally:
         db.close()
+
+
+# ─── Marketing source attribution ────────────────────────────────────────
+
+_SOURCE_LABELS: dict[str, str] = {
+    "ad": "Ads",
+    "referral": "Referral",
+    "google_my_business": "Google Business",
+    "repeat_customer": "Repeat customer",
+    "yard_sign": "Yard sign",
+    "other": "Other",
+}
+
+
+@router.get("/analytics/lead-sources")
+def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90):
+    """Breakdown of leads by `lead_source` for the last N days. Returns
+    counts + close rate + revenue per source so the team can see what
+    actually pays back. Each row also lists up to 10 representative leads
+    so the Ops analytics view can drill in."""
+    db = get_db()
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        q = db.query(Lead).filter(Lead.created_at >= since)
+        q = _apply_pipeline_filter(q, pipeline_version)
+        leads = q.all()
+
+        # Pre-pull all closed estimates for these leads in one go
+        lead_ids = [l.id for l in leads]
+        revenue_by_lead: dict[str, float] = {}
+        sent_lead_ids: set[str] = set()
+        closed_lead_ids: set[str] = set()
+        if lead_ids:
+            # Sent
+            sent_estimates = (
+                db.query(Estimate.lead_id)
+                .filter(Estimate.lead_id.in_(lead_ids), Estimate.sent_at.isnot(None))
+                .all()
+            )
+            sent_lead_ids = {row[0] for row in sent_estimates}
+            # Closed
+            closed_estimates = (
+                db.query(Estimate.lead_id, Estimate.closed_price)
+                .filter(Estimate.lead_id.in_(lead_ids), Estimate.closed_at.isnot(None))
+                .all()
+            )
+            for lid, price in closed_estimates:
+                closed_lead_ids.add(lid)
+                if price:
+                    revenue_by_lead[lid] = revenue_by_lead.get(lid, 0.0) + float(price)
+
+        buckets: dict[str, dict] = {}
+        for l in leads:
+            src = (l.lead_source or "ad").strip() or "ad"
+            if src not in buckets:
+                buckets[src] = {
+                    "key": src,
+                    "label": _SOURCE_LABELS.get(src, src.replace("_", " ").title()),
+                    "leads": 0,
+                    "sent": 0,
+                    "closed": 0,
+                    "revenue": 0.0,
+                    "examples": [],
+                }
+            b = buckets[src]
+            b["leads"] += 1
+            if l.id in sent_lead_ids:
+                b["sent"] += 1
+            if l.id in closed_lead_ids:
+                b["closed"] += 1
+            b["revenue"] += revenue_by_lead.get(l.id, 0.0)
+            if len(b["examples"]) < 10:
+                b["examples"].append({
+                    "lead_id": l.id,
+                    "contact_name": l.contact_name or "",
+                    "address": l.address or "",
+                    "created_at": l.created_at,
+                })
+
+        total_leads = sum(b["leads"] for b in buckets.values())
+        total_revenue = round(sum(b["revenue"] for b in buckets.values()), 2)
+        out = []
+        for src, b in buckets.items():
+            close_rate = round((b["closed"] / b["leads"] * 100), 1) if b["leads"] > 0 else 0.0
+            send_rate = round((b["sent"] / b["leads"] * 100), 1) if b["leads"] > 0 else 0.0
+            out.append({
+                **b,
+                "revenue": round(b["revenue"], 2),
+                "close_rate": close_rate,
+                "send_rate": send_rate,
+                "share_pct": round((b["leads"] / total_leads * 100), 1) if total_leads > 0 else 0.0,
+            })
+        out.sort(key=lambda r: -r["leads"])
+        return {
+            "days": days,
+            "total_leads": total_leads,
+            "total_revenue": total_revenue,
+            "sources": out,
+        }
+    finally:
+        db.close()

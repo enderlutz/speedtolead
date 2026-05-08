@@ -53,6 +53,10 @@ class AllocationBody(BaseModel):
     task_name: str
     hours: float
     notes: str = ""
+    # Pay-for-performance override. > 0 means "this allocation costs the
+    # company exactly this dollar amount, ignoring hours × rate." Default 0
+    # = legacy hourly behavior.
+    flat_pay_amount: float = 0
 
 
 class AllocationUpdate(BaseModel):
@@ -60,6 +64,7 @@ class AllocationUpdate(BaseModel):
     task_name: str | None = None
     hours: float | None = None
     notes: str | None = None
+    flat_pay_amount: float | None = None
 
 
 class ReimbursementUpdate(BaseModel):
@@ -241,6 +246,7 @@ def create_allocation(body: AllocationBody, user: dict = Depends(require_admin))
             task_name=body.task_name.strip(),
             hours=body.hours,
             notes=body.notes,
+            flat_pay_amount=max(0, body.flat_pay_amount or 0),
             created_at=_now(),
             created_by=user.get("name", ""),
             updated_at=_now(),
@@ -275,6 +281,8 @@ def update_allocation(allocation_id: str, body: AllocationUpdate, user: dict = D
             a.hours = body.hours
         if body.notes is not None:
             a.notes = body.notes
+        if body.flat_pay_amount is not None:
+            a.flat_pay_amount = max(0, body.flat_pay_amount)
         a.updated_at = _now()
         db.commit()
         db.refresh(a)
