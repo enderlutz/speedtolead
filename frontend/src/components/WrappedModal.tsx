@@ -87,7 +87,10 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="relative w-full max-w-md aspect-[9/14] sm:aspect-[9/13] rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+        // Portrait story aesthetic kept (Spotify-style), but sized up so it
+        // actually fills the screen on desktop. On phones the aspect-ratio
+        // floor keeps it from getting awkwardly stretched.
+        className="relative w-full max-w-md sm:max-w-lg lg:max-w-xl h-[92vh] max-h-[920px] min-h-[560px] rounded-2xl overflow-hidden shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: gradientFor(step),
