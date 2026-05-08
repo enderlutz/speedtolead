@@ -73,8 +73,8 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
           transition: "background 0.6s ease",
         }}
       >
-        {/* Progress bars (Spotify style) */}
-        <div className="flex gap-1 px-3 pt-3">
+        {/* Progress bars (Spotify style) — z-20 so tap zones don't eat clicks here. */}
+        <div className="flex gap-1 px-3 pt-3 relative z-20">
           {slides.map((_, i) => (
             <div key={i} className="h-1 flex-1 bg-white/20 rounded-full overflow-hidden">
               <div
@@ -88,13 +88,14 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
           ))}
         </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 text-white/90">
+        {/* Header — z-20 so the X button isn't covered by the right-side
+            "next" tap zone below. */}
+        <div className="flex items-center justify-between px-4 py-2 text-white/90 relative z-20">
           <div className="flex items-center gap-2 text-xs font-bold tracking-widest uppercase">
             <Sparkles className="h-3.5 w-3.5" />
             {cadence === "weekly" ? "Week Wrapped" : "Month Wrapped"}
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white p-1">
+          <button onClick={onClose} className="text-white/80 hover:text-white p-1" aria-label="Close">
             <X className="h-4 w-4" />
           </button>
         </div>
