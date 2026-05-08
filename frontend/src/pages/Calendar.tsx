@@ -279,23 +279,32 @@ export default function Calendar() {
                             );
                           })}
                           {/* Events Alan booked directly in Google Calendar.
-                              Rendered with a dashed left border + Google blue
-                              so admin/VAs can tell them apart from in-app
-                              jobs at a glance. Click → opens in GCal. */}
+                              Backend only forwards banana (yellow → fence)
+                              and tomato (red → pressure washing) events,
+                              so we render with the same border colors as
+                              our in-app jobs. The "G" badge keeps them
+                              visually distinguishable as external events
+                              that have to be edited in Google. */}
                           {(externalEventsByDate[iso] || []).map((ev) => {
                             const startTime = ev.all_day
                               ? "all day"
                               : (ev.start.slice(11, 16) || "");
+                            const borderCls = SERVICE_BORDER[ev.service_type] || DEFAULT_SERVICE_BORDER;
                             return (
                               <button
                                 key={ev.google_event_id}
                                 onClick={() => setActiveGoogleEvent(ev)}
-                                className="text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1 border-l-4 border-l-blue-500 bg-blue-50/70 border-dashed"
-                                title={`${ev.summary} · from Google Calendar`}
+                                className={`text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
+                                title={`${ev.summary} · from Google Calendar (${ev.service_type.replace("_", " ")})`}
                               >
                                 <span className="font-mono text-muted-foreground">{startTime}</span>
                                 <span className="truncate">{ev.summary}</span>
-                                <span className="ml-auto text-[8px] uppercase tracking-wide text-blue-700 font-bold shrink-0">G</span>
+                                <span
+                                  className="ml-auto text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
+                                  title="From Google Calendar — tap to open"
+                                >
+                                  G
+                                </span>
                               </button>
                             );
                           })}
@@ -315,7 +324,10 @@ export default function Calendar() {
         <span className="font-semibold">Service:</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-yellow-400" /> Fence staining</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-red-400" /> Pressure washing</span>
-        <span className="flex items-center gap-1"><span className="h-2.5 w-1 rounded-sm bg-blue-500" /> From Google Calendar</span>
+        <span className="flex items-center gap-1">
+          <span className="text-[8px] uppercase tracking-wide font-bold px-1 rounded bg-background border">G</span>
+          From Google Calendar (banana/tomato events)
+        </span>
         {!showAsWorker && (
           <>
             <span className="font-semibold ml-3">Package:</span>

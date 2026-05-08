@@ -1043,7 +1043,9 @@ export interface UpdateJobBody {
 
 /** An event read from Alan's Google Calendar — purely informational, not
  * editable in our app. Used to show jobs Alan booked on his phone alongside
- * the ones scheduled in the dashboard. */
+ * the ones scheduled in the dashboard. Only Banana (yellow → fence) and
+ * Tomato (red → pressure washing) events come through; the backend filters
+ * out everything else. */
 export interface GoogleEvent {
   google_event_id: string;
   summary: string;
@@ -1054,6 +1056,8 @@ export interface GoogleEvent {
   all_day: boolean;
   html_link: string;   // Open this to edit in Google Calendar
   status: string;
+  color_id: string;            // "5" = banana, "11" = tomato
+  service_type: string;        // "fence_staining" | "power_washing"
 }
 
 export interface ScheduledJob {

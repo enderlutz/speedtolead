@@ -306,11 +306,30 @@ def delete_event(db: Session, event_id: str) -> bool:
         return False
 
 
+# Google Calendar's named colorIds used to identify which events are jobs.
+# Per spec, only banana (yellow → fence staining) and tomato (red → pressure
+# washing) events are pulled into the dashboard. Everything else (personal
+# events, meetings, etc.) is filtered out.
+# Reference: https://developers.google.com/calendar/api/v3/reference/colors
+GCAL_COLOR_BANANA = "5"   # yellow → fence staining job
+GCAL_COLOR_TOMATO = "11"  # red    → pressure washing job
+JOB_COLOR_IDS = {GCAL_COLOR_BANANA, GCAL_COLOR_TOMATO}
+SERVICE_TYPE_BY_COLOR = {
+    GCAL_COLOR_BANANA: "fence_staining",
+    GCAL_COLOR_TOMATO: "power_washing",
+}
+
+
 def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
     """Pull Alan's calendar events between time_min and time_max (RFC 3339
     timestamps, e.g. 2026-05-01T00:00:00Z). Returns a flat list of dicts,
     one per event. Recurring events are expanded into their instances so the
     UI doesn't need to know how to interpret recurrence rules.
+
+    Only events colored Banana (yellow) or Tomato (red) are returned —
+    Alan's convention is that those two colors mean "job" on his calendar.
+    Lavender lunches, gray reminders, etc. are dropped so the dashboard
+    only shows actionable work.
 
     Used by the Calendar page to show jobs Alan booked directly in Google
     Calendar (on-the-go) alongside the ones scheduled in the dashboard.
@@ -341,6 +360,9 @@ def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
         items = r.json().get("items", [])
         out = []
         for it in items:
+            color_id = str(it.get("colorId") or "")
+            if color_id not in JOB_COLOR_IDS:
+                continue  # skip non-job-colored events per spec
             start = it.get("start", {}) or {}
             end = it.get("end", {}) or {}
             # All-day events use {date}, timed use {dateTime}. Normalize.
@@ -357,6 +379,8 @@ def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
                 "all_day": all_day,
                 "html_link": it.get("htmlLink", ""),
                 "status": it.get("status", "confirmed"),
+                "color_id": color_id,
+                "service_type": SERVICE_TYPE_BY_COLOR.get(color_id, "fence_staining"),
             })
         return out
     except Exception as e:
