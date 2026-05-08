@@ -8,9 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowRight, Zap, CheckCircle2, AlertCircle, HardHat } from "lucide-react";
+import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowRight, Zap, CheckCircle2, AlertCircle, HardHat, Sparkles, PartyPopper } from "lucide-react";
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
+import WrappedModal from "@/components/WrappedModal";
 
 const PRIORITY_CLS: Record<string, string> = {
   HOT: "bg-red-500/10 text-red-600 border-red-200",
@@ -43,6 +44,12 @@ export default function Dashboard() {
     return saved || "v2";
   });
 
+  // Wrapped popup state. Two flavors: weekly (Saturdays) + monthly (last day
+  // of the month). Auto-pops once per period on first dashboard load. The
+  // "Preview" buttons let admin re-open at any time without resetting the
+  // popup's seen-flag.
+  const [wrappedOpen, setWrappedOpen] = useState<null | { cadence: "weekly" | "monthly"; period?: string; manual: boolean }>(null);
+
   const refreshAll = useCallback(() => {
     const apiFilter = filter === "all" ? undefined : filter;
     const leadsParams = filter === "all" ? undefined : { pipeline_version: filter };
@@ -58,6 +65,59 @@ export default function Dashboard() {
   }, [filter]);
 
   useEffect(() => { refreshAll(); }, [refreshAll]);
+
+  // Auto-pop the Wrapped digest. Two triggers:
+  //   - Weekly: any time it's Saturday and we haven't shown it for this
+  //     week's Saturday key yet (localStorage flag).
+  //   - Monthly: any time it's the last day of the current month and we
+  //     haven't shown it for this YYYY-MM yet.
+  // First-ever wrap: spec says today's wrap (2026-05-08) should pop the
+  // FIRST time admin opens the dashboard, regardless of weekday. We honor
+  // that by treating the seed key as unseen until first load.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const now = new Date();
+    const isSaturday = now.getDay() === 6;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const isLastDayOfMonth = now.getDate() === lastDay;
+
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const saturday = new Date(now);
+    saturday.setDate(saturday.getDate() + (6 - saturday.getDay()));
+    const weekKey = saturday.toISOString().slice(0, 10);
+
+    // First-time seed: if user has never seen ANY wrap, treat today as the
+    // initial pop. Per spec — "Pop today's wrap (May 8) the first time."
+    const everSeen = localStorage.getItem("at_wrapped_ever_seen");
+
+    // Monthly takes precedence on its day (heavier reveal)
+    if (isLastDayOfMonth) {
+      const seenMonthly = localStorage.getItem(`at_wrapped_monthly_seen_${monthKey}`);
+      if (!seenMonthly) {
+        setWrappedOpen({ cadence: "monthly", period: monthKey, manual: false });
+        return;
+      }
+    }
+    if (isSaturday || !everSeen) {
+      const seenWeekly = localStorage.getItem(`at_wrapped_weekly_seen_${weekKey}`);
+      if (!seenWeekly) {
+        setWrappedOpen({ cadence: "weekly", period: weekKey, manual: false });
+      }
+    }
+  }, [isAdmin]);
+
+  /** Marks the auto-pop as "seen" so it doesn't re-fire next page load.
+   * Manual previews don't write the flag — admin can re-preview anytime. */
+  const closeWrapped = () => {
+    if (wrappedOpen && !wrappedOpen.manual) {
+      localStorage.setItem("at_wrapped_ever_seen", "1");
+      const key = wrappedOpen.cadence === "weekly"
+        ? `at_wrapped_weekly_seen_${wrappedOpen.period || ""}`
+        : `at_wrapped_monthly_seen_${wrappedOpen.period || ""}`;
+      if (wrappedOpen.period) localStorage.setItem(key, "1");
+    }
+    setWrappedOpen(null);
+  };
 
   const handleResolveCorrection = async (id: string) => {
     setResolvingId(id);
@@ -104,7 +164,28 @@ export default function Dashboard() {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Track progress toward doubling sales</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAdmin && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setWrappedOpen({ cadence: "weekly", manual: true })}
+                className="bg-gradient-to-r from-fuchsia-500/10 to-amber-400/10 border-fuchsia-200 hover:from-fuchsia-500/20 hover:to-amber-400/20"
+                title="Preview this week's wrap"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1" /> Week wrap
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setWrappedOpen({ cadence: "monthly", manual: true })}
+                title="Preview this month's wrap"
+              >
+                <PartyPopper className="h-3.5 w-3.5 mr-1" /> Month wrap
+              </Button>
+            </>
+          )}
           <Tabs value={filter} onValueChange={(v) => handleFilterChange(v as PipelineFilter)}>
             <TabsList>
               <TabsTrigger value="v2">New Leads</TabsTrigger>
@@ -120,6 +201,14 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {wrappedOpen && (
+        <WrappedModal
+          cadence={wrappedOpen.cadence}
+          period={wrappedOpen.period}
+          onClose={closeWrapped}
+        />
+      )}
 
       {/* Requote requests — top priority alert */}
       {corrections.length > 0 && (

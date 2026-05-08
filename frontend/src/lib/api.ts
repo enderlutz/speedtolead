@@ -67,7 +67,19 @@ export interface Lead {
   measurement_filename?: string;
   measurement_uploaded_at?: string | null;
   measurement_uploaded_by?: string;
+  lead_source?: LeadSource;
 }
+
+export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
+
+export const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
+  { value: "ad", label: "Ad (Facebook / Google / etc.)" },
+  { value: "referral", label: "Referral" },
+  { value: "google_my_business", label: "Google Business" },
+  { value: "repeat_customer", label: "Repeat customer" },
+  { value: "yard_sign", label: "Yard sign" },
+  { value: "other", label: "Other" },
+];
 
 export interface LeadDetail extends Lead {
   estimates: EstimateDetail[];
@@ -941,6 +953,12 @@ export const api = {
     request<{ jobs: JobProfitabilityRow[]; period: string; start: string; end: string }>(
       `/api/accounting/jobs?period=${encodeURIComponent(period)}`,
     ),
+  getOutstanding: () =>
+    request<{ jobs: OutstandingJob[]; total_outstanding: number }>("/api/accounting/outstanding"),
+  getEmployeeRevenue: (period: string) =>
+    request<{ period: string; start: string; end: string; total_company_revenue: number; employees: EmployeeRevenueRow[] }>(
+      `/api/accounting/employee-revenue?period=${encodeURIComponent(period)}`,
+    ),
   listOverhead: () => request<{ entries: OverheadEntry[] }>("/api/accounting/overhead"),
   createOverhead: (body: OverheadBody) =>
     request<OverheadEntry>("/api/accounting/overhead", { method: "POST", body: JSON.stringify(body) }),
@@ -948,6 +966,52 @@ export const api = {
     request<OverheadEntry>(`/api/accounting/overhead/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteOverhead: (id: string) =>
     request<{ status: string }>(`/api/accounting/overhead/${id}`, { method: "DELETE" }),
+
+  // Mark Paid (manual payment entry)
+  markScheduledJobPaid: (jobId: string, body: MarkPaidBody) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${jobId}/mark-paid`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  // QuickBooks
+  getQuickBooksStatus: () => request<QuickBooksStatus>("/api/quickbooks/status"),
+  getQuickBooksAuthUrl: () => request<{ url: string; mode: string; note?: string }>("/api/quickbooks/auth-url"),
+  disconnectQuickBooks: () => request<{ status: string }>("/api/quickbooks/disconnect", { method: "POST" }),
+  generateInvoice: (jobId: string, body: { amount: number; description?: string; due_in_days?: number; line_items?: { description: string; qty: number; rate: number }[] }) =>
+    request<GenerateInvoiceResult>(`/api/quickbooks/jobs/${jobId}/generate-invoice`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  sendInvoiceSms: (jobId: string) =>
+    request<{ status: string; to_phone: string }>(`/api/quickbooks/jobs/${jobId}/send-invoice-sms`, {
+      method: "POST",
+    }),
+  /** Mock-mode helper: pretend Intuit just told us a payment came in. */
+  triggerMockQbPayment: (qbInvoiceId: string, amount: number) =>
+    request<{ status: string; marked_paid?: string; reason?: string }>("/api/quickbooks/webhook", {
+      method: "POST",
+      body: JSON.stringify({ qb_invoice_id: qbInvoiceId, amount }),
+    }),
+
+  // Marketing source analytics
+  getLeadSources: (days: number = 90, pipelineVersion?: string) => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (pipelineVersion) params.set("pipeline_version", pipelineVersion);
+    return request<{ days: number; total_leads: number; total_revenue: number; sources: LeadSourceRow[] }>(
+      `/api/analytics/lead-sources?${params.toString()}`,
+    );
+  },
+
+  // Wrapped (CEO digest)
+  getWeeklyWrapped: (weekEnd?: string) => {
+    const qs = weekEnd ? `?week_end=${encodeURIComponent(weekEnd)}` : "";
+    return request<WrappedDigest>(`/api/wrapped/weekly${qs}`);
+  },
+  getMonthlyWrapped: (month?: string) => {
+    const qs = month ? `?month=${encodeURIComponent(month)}` : "";
+    return request<WrappedDigest>(`/api/wrapped/monthly${qs}`);
+  },
 
   // Weather
   getWeather: (zip: string) => request<WeatherForecast>(`/api/weather/${encodeURIComponent(zip)}`),
@@ -1031,6 +1095,8 @@ export interface ScheduleJobBody {
   customer_name?: string;
   job_description?: string;
   admin_notes?: string;
+  materials_cost?: number;
+  materials_notes?: string;
   employee_ids?: string[];
   send_thank_you?: boolean;
   send_calendar_invite?: boolean;
@@ -1052,8 +1118,19 @@ export interface UpdateJobBody {
   customer_name?: string;
   job_description?: string;
   admin_notes?: string;
+  materials_cost?: number;
+  materials_notes?: string;
   employee_ids?: string[];
   status?: string;
+}
+
+export type PaymentStatus = "unpaid" | "paid" | "bnpl_financed";
+
+export interface MarkPaidBody {
+  payment_status: PaymentStatus;
+  amount_collected?: number;
+  payment_method?: string;
+  bnpl_vendor?: string;
 }
 
 /** An event read from Alan's Google Calendar — purely informational, not
@@ -1097,6 +1174,20 @@ export interface ScheduledJob {
   customer_email?: string;
   customer_phone?: string;
   admin_notes?: string;
+  materials_cost?: number;
+  materials_notes?: string;
+  payment_status?: PaymentStatus;
+  amount_collected?: number;
+  payment_method?: string;
+  bnpl_vendor?: string;
+  paid_at?: string | null;
+  paid_marked_by?: string;
+  qb_invoice_id?: string;
+  qb_invoice_url?: string;
+  qb_invoice_status?: string;
+  qb_invoice_amount?: number;
+  qb_invoice_sent_at?: string | null;
+  qb_invoice_paid_at?: string | null;
   customer_invited?: boolean;
   customer_thank_you_sent?: boolean;
   created_at?: string;
@@ -1142,6 +1233,8 @@ export interface AllocationBody {
   task_name: string;
   hours: number;
   notes?: string;
+  /** Pay-for-performance override. > 0 = fixed-pay allocation; 0 = hourly. */
+  flat_pay_amount?: number;
 }
 
 export interface TaskAllocationRow {
@@ -1153,6 +1246,7 @@ export interface TaskAllocationRow {
   task_name: string;
   hours: number;
   notes: string;
+  flat_pay_amount?: number;
   customer_name?: string;
   created_at: string;
   created_by: string;
@@ -1325,6 +1419,8 @@ export interface AccountingSummary {
   revenue: number;
   labor_cost: number;
   reimbursement_cost: number;
+  materials_cost: number;
+  outstanding_revenue: number;
   overhead_monthly: number;
   overhead_cost: number;
   gross_profit: number;
@@ -1344,8 +1440,92 @@ export interface JobProfitabilityRow {
   revenue: number;
   labor_cost: number;
   reimbursement_cost: number;
+  materials_cost: number;
   profit: number;
   margin_pct: number;
+  payment_status: PaymentStatus;
+  amount_collected: number;
+}
+
+export interface OutstandingJob {
+  scheduled_job_id: string;
+  lead_id: string;
+  customer_name: string;
+  customer_phone: string;
+  job_date: string;
+  address: string;
+  amount_due: number;
+  payment_status: PaymentStatus;
+  qb_invoice_status: string;
+  qb_invoice_url: string;
+  status: string;
+}
+
+export interface EmployeeRevenueRow {
+  employee_id: string;
+  name: string;
+  labor_cost: number;
+  hours: number;
+  revenue_share: number;
+  pay_pct_of_revenue: number;
+}
+
+export interface LeadSourceRow {
+  key: string;
+  label: string;
+  leads: number;
+  sent: number;
+  closed: number;
+  revenue: number;
+  examples: { lead_id: string; contact_name: string; address: string; created_at: string }[];
+  close_rate: number;
+  send_rate: number;
+  share_pct: number;
+}
+
+export interface QuickBooksStatus {
+  mode: "mock" | "live";
+  connected: boolean;
+  company_name: string;
+  environment: string;
+  connected_at: string;
+  ready_to_test: boolean;
+}
+
+export interface GenerateInvoiceResult {
+  mode: "mock" | "live";
+  invoice_id: string;
+  invoice_url: string;
+  amount: number;
+  status: string;
+  job: ScheduledJob;
+}
+
+export interface WrappedDigest {
+  cadence: "weekly" | "monthly";
+  label: string;
+  start: string;
+  end: string;
+  week_end?: string;
+  month?: string;
+  revenue: number;
+  revenue_change_pct: number | null;
+  prev_revenue: number;
+  new_leads: number;
+  new_leads_change_pct: number | null;
+  estimates_sent: number;
+  close_rate: number;
+  jobs_completed: number;
+  jobs_scheduled: number;
+  outstanding_total: number;
+  outstanding_count: number;
+  top_source: { key: string; count: number };
+  top_employee: { name: string; labor_cost: number; hours: number } | null;
+  most_profitable_job: { lead_id: string; scheduled_job_id: string; customer_name: string; revenue: number; profit: number; margin_pct: number; job_date: string } | null;
+  biggest_deal: { lead_id: string; customer_name: string; amount: number; tier: string; closed_at: string | null } | null;
+  busiest_day: { date: string; jobs: number } | null;
+  top_tier: { name: string; count: number } | null;
+  anomalies: { type: string; severity: "warn" | "info"; title: string; detail: string }[];
 }
 
 export interface OverheadEntry {

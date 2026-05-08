@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type FunnelData, type WeeklyCloseRate, type LocationStats } from "@/lib/api";
+import { api, type FunnelData, type WeeklyCloseRate, type LocationStats, type LeadSourceRow, type EmployeeRevenueRow, type JobProfitabilityRow } from "@/lib/api";
 import { formatCurrency, timeAgo } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend,
+  LineChart, Line, Legend, PieChart, Pie, Cell,
 } from "recharts";
-import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb, ThumbsDown, ChevronDown, ChevronUp } from "lucide-react";
+import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb, ThumbsDown, ChevronDown, ChevronUp, Megaphone, Users as UsersIcon, Wrench } from "lucide-react";
 
 type PipelineFilter = "v2" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
@@ -65,6 +65,22 @@ export default function Analytics() {
           </TabsList>
         </Tabs>
       </div>
+
+      {/* Top-level: Sales (the existing funnel/speed/patterns view) vs.
+          Operations (revenue per employee, marketing source attribution,
+          materials trend). Keeps two audiences distinct without forcing a
+          new page. */}
+      <Tabs defaultValue="sales">
+        <TabsList>
+          <TabsTrigger value="sales"><TrendingUp className="h-3.5 w-3.5 mr-1" /> Sales</TabsTrigger>
+          <TabsTrigger value="operations"><Wrench className="h-3.5 w-3.5 mr-1" /> Operations</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="operations" className="mt-4">
+          <OperationsAnalytics filter={filter} />
+        </TabsContent>
+
+        <TabsContent value="sales" className="mt-4">
 
       <Tabs defaultValue="speed">
         <TabsList className="flex-wrap h-auto gap-1">
@@ -654,9 +670,229 @@ export default function Analytics() {
           </div>
         </TabsContent>
       </Tabs>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
+
+
+// ─── Operations Analytics ────────────────────────────────────────────────
+
+const OPS_PERIODS = [
+  { key: "this_month", label: "This month" },
+  { key: "last_month", label: "Last month" },
+  { key: "ytd", label: "YTD" },
+  { key: "all", label: "All time" },
+] as const;
+type OpsPeriod = typeof OPS_PERIODS[number]["key"];
+
+const PIE_COLORS = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#84cc16", "#f43f5e", "#0ea5e9", "#a855f7"];
+
+function OperationsAnalytics({ filter }: { filter: PipelineFilter }) {
+  const [period, setPeriod] = useState<OpsPeriod>("this_month");
+  const [employees, setEmployees] = useState<EmployeeRevenueRow[]>([]);
+  const [companyRevenue, setCompanyRevenue] = useState(0);
+  const [sources, setSources] = useState<LeadSourceRow[]>([]);
+  const [sourceTotalRevenue, setSourceTotalRevenue] = useState(0);
+  const [jobs, setJobs] = useState<JobProfitabilityRow[]>([]);
+
+  useEffect(() => {
+    api.getEmployeeRevenue(period).then((r) => {
+      setEmployees(r.employees);
+      setCompanyRevenue(r.total_company_revenue);
+    }).catch(() => {});
+    api.getJobProfitability(period).then((r) => setJobs(r.jobs)).catch(() => {});
+  }, [period]);
+
+  useEffect(() => {
+    const pv = filter === "all" ? undefined : filter;
+    api.getLeadSources(90, pv).then((r) => {
+      setSources(r.sources);
+      setSourceTotalRevenue(r.total_revenue);
+    }).catch(() => {});
+  }, [filter]);
+
+  // Pie data: each employee's revenue share. Filter zeros so the pie is readable.
+  const empPieData = employees
+    .filter((e) => e.revenue_share > 0)
+    .map((e) => ({ name: e.name, value: e.revenue_share }));
+
+  // Materials trend: per-job materials with date
+  const materialsByDate = jobs
+    .filter((j) => (j.materials_cost || 0) > 0)
+    .sort((a, b) => a.job_date.localeCompare(b.job_date))
+    .map((j) => ({ date: j.job_date, materials: j.materials_cost, revenue: j.revenue }));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs text-muted-foreground">
+          Internal-flow analytics: revenue per crew member, marketing source breakdown, and per-job materials cost.
+        </p>
+        <div className="inline-flex border rounded-md text-xs">
+          {OPS_PERIODS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className={`px-2.5 py-1 border-r last:border-r-0 ${
+                period === p.key ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Per-employee revenue pie + table */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <UsersIcon className="h-4 w-4 text-primary" /> Revenue per crew member
+              {companyRevenue > 0 && <span className="text-xs font-normal text-muted-foreground">· {formatCurrency(companyRevenue)} total</span>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {employees.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No labor logged for this period yet.</p>
+            ) : (
+              <>
+                {empPieData.length > 0 && (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie data={empPieData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                        {empPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+                <table className="w-full text-xs mt-2">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b">
+                      <th className="px-1 py-1 font-medium">Crew</th>
+                      <th className="px-1 py-1 font-medium text-right">Hours</th>
+                      <th className="px-1 py-1 font-medium text-right">Paid</th>
+                      <th className="px-1 py-1 font-medium text-right">Rev share</th>
+                      <th className="px-1 py-1 font-medium text-right">Pay/Rev</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.map((e) => (
+                      <tr key={e.employee_id} className="border-b">
+                        <td className="px-1 py-1.5 font-medium truncate max-w-[140px]">{e.name}</td>
+                        <td className="px-1 py-1.5 text-right">{e.hours.toFixed(1)}</td>
+                        <td className="px-1 py-1.5 text-right">{formatCurrency(e.labor_cost)}</td>
+                        <td className="px-1 py-1.5 text-right">{formatCurrency(e.revenue_share)}</td>
+                        <td className={`px-1 py-1.5 text-right ${e.pay_pct_of_revenue > 60 ? "text-amber-700" : "text-muted-foreground"}`}>
+                          {e.pay_pct_of_revenue > 0 ? `${e.pay_pct_of_revenue.toFixed(0)}%` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Rev share = each crew member's % of labor cost on a job × that job's revenue. Pay/Rev = labor cost ÷ revenue share — high = expensive, low = profitable.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Marketing source breakdown */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Megaphone className="h-4 w-4 text-primary" /> Marketing source (last 90 days)
+              {sourceTotalRevenue > 0 && <span className="text-xs font-normal text-muted-foreground">· {formatCurrency(sourceTotalRevenue)} closed</span>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sources.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No leads in the window.</p>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={sources}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                    <YAxis yAxisId="leads" tick={{ fontSize: 10 }} />
+                    <YAxis yAxisId="rev" orientation="right" tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar yAxisId="leads" dataKey="leads" fill="#2563eb" name="Leads" />
+                    <Bar yAxisId="rev" dataKey="revenue" fill="#10b981" name="Revenue ($)" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <table className="w-full text-xs mt-2">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b">
+                      <th className="px-1 py-1 font-medium">Source</th>
+                      <th className="px-1 py-1 font-medium text-right">Leads</th>
+                      <th className="px-1 py-1 font-medium text-right">Sent</th>
+                      <th className="px-1 py-1 font-medium text-right">Closed</th>
+                      <th className="px-1 py-1 font-medium text-right">Close %</th>
+                      <th className="px-1 py-1 font-medium text-right">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sources.map((s) => (
+                      <tr key={s.key} className="border-b">
+                        <td className="px-1 py-1.5 font-medium">{s.label}</td>
+                        <td className="px-1 py-1.5 text-right">{s.leads}</td>
+                        <td className="px-1 py-1.5 text-right">{s.sent}</td>
+                        <td className="px-1 py-1.5 text-right">{s.closed}</td>
+                        <td className={`px-1 py-1.5 text-right ${s.close_rate >= 30 ? "text-emerald-700" : s.close_rate >= 15 ? "text-amber-700" : "text-muted-foreground"}`}>
+                          {s.leads > 0 ? `${s.close_rate.toFixed(0)}%` : "—"}
+                        </td>
+                        <td className="px-1 py-1.5 text-right font-medium">{formatCurrency(s.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Default source on any new lead is "Ad". Update on the lead detail page if it came from somewhere else.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Materials trend */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-primary" /> Materials cost per job
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {materialsByDate.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No materials logged yet. Edit a scheduled job on the Calendar to enter materials cost.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={materialsByDate}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="materials" stroke="#f59e0b" name="Materials ($)" />
+                <Line type="monotone" dataKey="revenue" stroke="#10b981" name="Revenue ($)" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 
 // --- Shared components ---
 

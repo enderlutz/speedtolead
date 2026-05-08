@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -69,7 +70,10 @@ export default function LeadDetail() {
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactAddress, setContactAddress] = useState("");
+  const [leadSource, setLeadSource] = useState<string>("ad");
   const [messages, setMessages] = useState<MessageEntry[]>([]);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(() => urlParams.get("invoice") === "1");
+  const [latestScheduledJob, setLatestScheduledJob] = useState<ScheduledJob | null>(null);
 
   const [linearFeet, setLinearFeet] = useState("");
   const [fenceHeight, setFenceHeight] = useState("");
@@ -105,6 +109,7 @@ export default function LeadDetail() {
       setContactPhone(data.contact_phone || "");
       setContactEmail(data.contact_email || "");
       setContactAddress(data.address || "");
+      setLeadSource(data.lead_source || "ad");
       // Estimator fields
       const fd = data.form_data || {};
       setLinearFeet(fd.linear_feet || "");
@@ -135,6 +140,19 @@ export default function LeadDetail() {
         setDeclineModalOpen(true);
       }
     }).catch(() => toast.error("Failed to load lead")).finally(() => setLoading(false));
+  }, [id]);
+
+  // Pull the most recent ScheduledJob for this lead — Generate Invoice
+  // targets a specific scheduled job (revenue is tracked there). If a lead
+  // hasn't been scheduled yet, the Generate Invoice button is hidden.
+  useEffect(() => {
+    if (!id) return;
+    api.listScheduledJobs({}).then((r) => {
+      const mine = r.jobs.filter((j) => j.lead_id === id);
+      if (mine.length === 0) { setLatestScheduledJob(null); return; }
+      mine.sort((a, b) => (b.job_date || "").localeCompare(a.job_date || ""));
+      setLatestScheduledJob(mine[0]);
+    }).catch(() => {});
   }, [id]);
 
   // Real-time: update if customer replies or views proposal for THIS lead
@@ -380,6 +398,7 @@ export default function LeadDetail() {
         contact_phone: contactPhone,
         contact_email: contactEmail,
         address: contactAddress,
+        lead_source: leadSource,
       });
       setLead((prev) => (prev ? { ...prev, ...updated } : prev));
       setEditingContact(false);
@@ -388,6 +407,22 @@ export default function LeadDetail() {
       toast.error("Failed to save contact info");
     } finally {
       setSavingContact(false);
+    }
+  };
+
+  /** Inline source-only update (no full edit modal needed). Fired when admin
+   * picks a different option from the lead-source dropdown. */
+  const handleSaveLeadSource = async (next: LeadSource) => {
+    if (!id) return;
+    const prev = leadSource;
+    setLeadSource(next);
+    try {
+      const updated = await api.updateContact(id, { lead_source: next });
+      setLead((p) => (p ? { ...p, ...updated } : p));
+      toast.success("Source updated");
+    } catch {
+      setLeadSource(prev);
+      toast.error("Failed to save source");
     }
   };
 
@@ -662,6 +697,18 @@ export default function LeadDetail() {
                     <label className="text-xs font-medium text-muted-foreground mb-1 block">Address</label>
                     <Input value={contactAddress} onChange={(e) => setContactAddress(e.target.value)} />
                   </div>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Lead source</label>
+                    <select
+                      value={leadSource}
+                      onChange={(e) => setLeadSource(e.target.value)}
+                      className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
+                    >
+                      {LEAD_SOURCE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -686,6 +733,37 @@ export default function LeadDetail() {
                       </a>
                     )}
                   </div>
+                  {/* Inline source picker — fires save on change so admin doesn't have to enter Edit mode for this one field */}
+                  <div className="flex items-center gap-2 col-span-1 sm:col-span-2 pt-1 border-t mt-1">
+                    <span className="text-xs font-medium text-muted-foreground">Source:</span>
+                    <select
+                      value={leadSource}
+                      onChange={(e) => handleSaveLeadSource(e.target.value as LeadSource)}
+                      className="text-xs border border-input rounded-md px-2 py-1 bg-background"
+                    >
+                      {LEAD_SOURCE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-muted-foreground italic ml-auto">Default = Ad. Update if this came from a different channel.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Generate Invoice — only when there's a scheduled job and it's not paid */}
+              {latestScheduledJob && latestScheduledJob.payment_status !== "paid" && (
+                <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
+                  <Button size="sm" onClick={() => setInvoiceModalOpen(true)}>
+                    {latestScheduledJob.qb_invoice_id ? "Update Invoice" : "Generate Invoice"}
+                  </Button>
+                  {latestScheduledJob.qb_invoice_url && (
+                    <a href={latestScheduledJob.qb_invoice_url} target="_blank" rel="noreferrer" className="text-xs text-blue-700 hover:underline">
+                      View {latestScheduledJob.qb_invoice_status || "invoice"}
+                    </a>
+                  )}
+                  <span className="text-[11px] text-muted-foreground italic ml-auto">
+                    Send a QuickBooks invoice link by SMS — auto-marks paid when the customer pays.
+                  </span>
                 </div>
               )}
             </CardContent>
@@ -1273,6 +1351,19 @@ export default function LeadDetail() {
           onSaved={async () => {
             const data = await api.getLead(id!);
             setLead(data);
+          }}
+        />
+      )}
+
+      {/* Generate Invoice modal */}
+      {invoiceModalOpen && latestScheduledJob && lead && (
+        <GenerateInvoiceModal
+          job={latestScheduledJob}
+          lead={lead}
+          onClose={() => setInvoiceModalOpen(false)}
+          onSaved={(updatedJob) => {
+            setLatestScheduledJob(updatedJob);
+            setInvoiceModalOpen(false);
           }}
         />
       )}

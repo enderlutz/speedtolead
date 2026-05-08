@@ -55,6 +55,8 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [customerPhone, setCustomerPhone] = useState(existing?.customer_phone || lead.contact_phone || "");
   const [jobDescription, setJobDescription] = useState(existing?.job_description || "");
   const [adminNotes, setAdminNotes] = useState(existing?.admin_notes || "");
+  const [materialsCost, setMaterialsCost] = useState(String(existing?.materials_cost || 0));
+  const [materialsNotes, setMaterialsNotes] = useState(existing?.materials_notes || "");
   const [assignedIds, setAssignedIds] = useState<string[]>(existing?.assigned_employee_ids || []);
   const [sendInvite, setSendInvite] = useState(true);
   const [sendThankYou, setSendThankYou] = useState(true);
@@ -97,6 +99,8 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           customer_name: customerName,
           job_description: jobDescription,
           admin_notes: adminNotes,
+          materials_cost: parseFloat(materialsCost) || 0,
+          materials_notes: materialsNotes,
           employee_ids: assignedIds,
         });
         toast.success("Job updated");
@@ -118,6 +122,8 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           customer_name: customerName,
           job_description: jobDescription,
           admin_notes: adminNotes,
+          materials_cost: parseFloat(materialsCost) || 0,
+          materials_notes: materialsNotes,
           employee_ids: assignedIds,
           send_thank_you: sendThankYou,
           send_calendar_invite: sendInvite,
@@ -221,6 +227,37 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
                 className={`${inputCls} mt-1 resize-none`}
               />
             </div>
+          </section>
+
+          {/* Materials cost — drops directly out of gross profit on Accounting */}
+          <section>
+            <h3 className="text-sm font-semibold mb-2">Materials</h3>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className={labelCls}>Materials Cost ($)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={materialsCost}
+                  onChange={(e) => setMaterialsCost(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className={labelCls}>Materials Notes</label>
+                <Input
+                  value={materialsNotes}
+                  onChange={(e) => setMaterialsNotes(e.target.value)}
+                  placeholder="e.g. 8 gal Cabot dark oak, 1 stripper"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Stain, sealer, brushes, etc. — what you spent on this job. Lowers margin on the Accounting page.
+            </p>
           </section>
 
           {/* Customer */}

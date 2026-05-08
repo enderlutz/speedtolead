@@ -4,6 +4,7 @@ import {
   api, getCurrentUser,
   type AccountingSummary, type JobProfitabilityRow,
   type OverheadEntry, type OverheadBody,
+  type OutstandingJob, type QuickBooksStatus,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  DollarSign, TrendingUp, Plus, Trash2, Pencil, Check, X, Calculator, Receipt, Users as UsersIcon, FileText,
+  DollarSign, TrendingUp, Plus, Trash2, Pencil, Check, X, Calculator, Receipt, Users as UsersIcon, FileText, AlertCircle, Wrench,
 } from "lucide-react";
 
 type Period = "this_month" | "last_month" | "ytd" | "all";
@@ -34,6 +35,8 @@ export default function Accounting() {
   const [summary, setSummary] = useState<AccountingSummary | null>(null);
   const [jobs, setJobs] = useState<JobProfitabilityRow[]>([]);
   const [overhead, setOverhead] = useState<OverheadEntry[]>([]);
+  const [outstanding, setOutstanding] = useState<{ jobs: OutstandingJob[]; total_outstanding: number }>({ jobs: [], total_outstanding: 0 });
+  const [qbStatus, setQbStatus] = useState<QuickBooksStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
@@ -42,6 +45,8 @@ export default function Accounting() {
       api.getAccountingSummary(period).then(setSummary).catch(() => setSummary(null)),
       api.getJobProfitability(period).then((r) => setJobs(r.jobs)).catch(() => setJobs([])),
       api.listOverhead().then((r) => setOverhead(r.entries)).catch(() => setOverhead([])),
+      api.getOutstanding().then(setOutstanding).catch(() => setOutstanding({ jobs: [], total_outstanding: 0 })),
+      api.getQuickBooksStatus().then(setQbStatus).catch(() => setQbStatus(null)),
     ]).finally(() => setLoading(false));
   }, [period]);
 
@@ -102,6 +107,9 @@ export default function Accounting() {
       {/* KPI cards */}
       <KpiGrid summary={summary} loading={loading} />
 
+      {/* Outstanding (unpaid) jobs */}
+      <OutstandingCard data={outstanding} onChange={load} />
+
       {/* Overhead manager */}
       <OverheadCard
         entries={overhead}
@@ -134,9 +142,11 @@ export default function Accounting() {
                   <th className="px-2 py-1.5 font-medium">Service</th>
                   <th className="px-2 py-1.5 font-medium text-right">Revenue</th>
                   <th className="px-2 py-1.5 font-medium text-right">Labor</th>
+                  <th className="px-2 py-1.5 font-medium text-right">Materials</th>
                   <th className="px-2 py-1.5 font-medium text-right">Reimb.</th>
                   <th className="px-2 py-1.5 font-medium text-right">Profit</th>
                   <th className="px-2 py-1.5 font-medium text-right">Margin</th>
+                  <th className="px-2 py-1.5 font-medium text-center">Paid?</th>
                 </tr>
               </thead>
               <tbody>
@@ -159,6 +169,7 @@ export default function Accounting() {
                       </td>
                       <td className="px-2 py-2 text-right font-medium">{formatCurrency(j.revenue)}</td>
                       <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(j.labor_cost)}</td>
+                      <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(j.materials_cost || 0)}</td>
                       <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(j.reimbursement_cost)}</td>
                       <td className={`px-2 py-2 text-right font-semibold ${
                         j.profit < 0 ? "text-red-600" : j.profit > 0 ? "text-emerald-700" : "text-muted-foreground"
@@ -166,6 +177,15 @@ export default function Accounting() {
                       <td className={`px-2 py-2 text-right text-xs ${
                         j.margin_pct < 20 ? "text-red-600" : j.margin_pct < 40 ? "text-amber-700" : "text-emerald-700"
                       }`}>{j.revenue > 0 ? `${j.margin_pct.toFixed(0)}%` : "—"}</td>
+                      <td className="px-2 py-2 text-center">
+                        {j.payment_status === "paid" ? (
+                          <span className="text-[10px] uppercase tracking-wide bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">PAID</span>
+                        ) : j.payment_status === "bnpl_financed" ? (
+                          <span className="text-[10px] uppercase tracking-wide bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-bold">BNPL</span>
+                        ) : (
+                          <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">UNPAID</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -175,8 +195,10 @@ export default function Accounting() {
                   <td colSpan={3} className="px-2 py-2 text-right text-xs text-muted-foreground">Totals</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + j.revenue, 0))}</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + j.labor_cost, 0))}</td>
+                  <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + (j.materials_cost || 0), 0))}</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + j.reimbursement_cost, 0))}</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + j.profit, 0))}</td>
+                  <td className="px-2 py-2"></td>
                   <td className="px-2 py-2"></td>
                 </tr>
               </tfoot>
@@ -189,16 +211,151 @@ export default function Accounting() {
         </CardContent>
       </Card>
 
-      {/* QuickBooks placeholder */}
+      {/* QuickBooks status */}
+      <QuickBooksStatusCard status={qbStatus} onChange={load} />
+    </div>
+  );
+}
+
+
+function QuickBooksStatusCard({ status, onChange }: { status: QuickBooksStatus | null; onChange: () => void }) {
+  if (!status) {
+    return (
       <Card className="border-dashed">
-        <CardContent className="pt-4 flex items-center gap-3 flex-wrap text-sm">
-          <span className="text-xs uppercase tracking-wide font-bold bg-muted px-2 py-1 rounded">Coming soon</span>
-          <span className="text-muted-foreground">
-            QuickBooks Online sync — push closed jobs as Sales Receipts and pull payments back into the dashboard.
-          </span>
+        <CardContent className="pt-4 text-xs text-muted-foreground">QuickBooks status loading…</CardContent>
+      </Card>
+    );
+  }
+  const connected = status.connected;
+  const isMock = status.mode === "mock";
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <FileText className="h-4 w-4 text-primary" />
+          QuickBooks Online
+          {isMock && <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">TEST MODE</span>}
+          {!isMock && connected && <span className="text-[10px] uppercase tracking-wide bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">LIVE</span>}
+          {!isMock && !connected && <span className="text-[10px] uppercase tracking-wide bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-bold">DISCONNECTED</span>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm space-y-2">
+        {isMock ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Backend is in <span className="font-mono">mock</span> mode — Generate Invoice on a lead returns a believable
+              fake hosted URL so you can exercise the full flow tonight without real Intuit credentials. Flip
+              <span className="font-mono"> QB_MODE=live</span> + add <span className="font-mono">QB_CLIENT_ID</span> /
+              <span className="font-mono"> QB_CLIENT_SECRET</span> when Alan has the Intuit Developer app set up.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              On any unpaid job, the Mock Payment button on the Calendar's Mark Paid flow simulates the customer paying
+              the invoice — flips status to PAID, fills amount_collected, and the dashboard reflects revenue immediately.
+            </p>
+          </>
+        ) : connected ? (
+          <>
+            <p className="text-xs">
+              Connected to <span className="font-medium">{status.company_name || "QuickBooks company"}</span>
+              {status.connected_at && ` · since ${status.connected_at.slice(0, 10)}`}.
+            </p>
+            <Button variant="outline" size="sm" onClick={async () => {
+              if (!confirm("Disconnect QuickBooks? Generate Invoice will stop working until you reconnect.")) return;
+              try {
+                await api.disconnectQuickBooks();
+                toast.success("Disconnected");
+                onChange();
+              } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+            }}>Disconnect</Button>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Not connected. Click below to authorize Sterling Fence Staining's QuickBooks Online company —
+              after that, "Generate Invoice" on any lead will create real QB invoices and SMS the link to the customer.
+            </p>
+            <Button size="sm" onClick={async () => {
+              try {
+                const r = await api.getQuickBooksAuthUrl();
+                window.location.href = r.url;
+              } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+            }}>Connect QuickBooks</Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function OutstandingCard({ data }: { data: { jobs: OutstandingJob[]; total_outstanding: number }; onChange: () => void }) {
+  if (data.jobs.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-emerald-600" /> Accounts Receivable
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs text-muted-foreground">
+          No outstanding payments — every job is paid up. 🎉
         </CardContent>
       </Card>
-    </div>
+    );
+  }
+  return (
+    <Card className="border-amber-200">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          Accounts Receivable
+          <span className="text-xs font-normal text-muted-foreground">
+            · {formatCurrency(data.total_outstanding)} owed across {data.jobs.length} job{data.jobs.length === 1 ? "" : "s"}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground border-b">
+              <th className="px-2 py-1.5 font-medium">Date</th>
+              <th className="px-2 py-1.5 font-medium">Customer</th>
+              <th className="px-2 py-1.5 font-medium">Address</th>
+              <th className="px-2 py-1.5 font-medium text-right">Amount due</th>
+              <th className="px-2 py-1.5 font-medium">Invoice</th>
+              <th className="px-2 py-1.5"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.jobs.map((j) => (
+              <tr key={j.scheduled_job_id} className="border-b">
+                <td className="px-2 py-2 font-mono text-xs">{j.job_date}</td>
+                <td className="px-2 py-2 font-medium">{j.customer_name}</td>
+                <td className="px-2 py-2 text-xs text-muted-foreground truncate max-w-[260px]">{j.address}</td>
+                <td className="px-2 py-2 text-right font-semibold">{formatCurrency(j.amount_due)}</td>
+                <td className="px-2 py-2 text-xs">
+                  {j.qb_invoice_url ? (
+                    <a href={j.qb_invoice_url} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
+                      {j.qb_invoice_status || "view"}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="px-2 py-2 text-right">
+                  <Button variant="ghost" size="sm" onClick={() => window.location.assign(`/leads/${j.lead_id}?invoice=1`)}>
+                    Open lead
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Cash flow heads-up — these are jobs you've contracted but haven't been paid for yet. Open the lead to generate a QuickBooks invoice or mark paid manually.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -228,7 +385,7 @@ function KpiGrid({ summary, loading }: { summary: AccountingSummary | null; load
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {tile("Revenue", formatCurrency(summary.revenue),
           `${summary.jobs_count} job${summary.jobs_count === 1 ? "" : "s"}`,
           "text-foreground",
@@ -237,6 +394,10 @@ function KpiGrid({ summary, loading }: { summary: AccountingSummary | null; load
           summary.revenue > 0 ? `${(summary.labor_cost / summary.revenue * 100).toFixed(0)}% of rev` : "—",
           "text-muted-foreground",
           <UsersIcon className="h-3.5 w-3.5 text-muted-foreground" />)}
+        {tile("Materials", formatCurrency(summary.materials_cost || 0),
+          summary.revenue > 0 ? `${((summary.materials_cost || 0) / summary.revenue * 100).toFixed(0)}% of rev` : "—",
+          "text-muted-foreground",
+          <Wrench className="h-3.5 w-3.5 text-muted-foreground" />)}
         {tile("Reimbursements", formatCurrency(summary.reimbursement_cost),
           summary.revenue > 0 ? `${(summary.reimbursement_cost / summary.revenue * 100).toFixed(0)}% of rev` : "—",
           "text-muted-foreground",
@@ -255,9 +416,10 @@ function KpiGrid({ summary, loading }: { summary: AccountingSummary | null; load
           `${fmtPct(summary.net_margin_pct)} margin · after overhead`,
           profitColor,
           <TrendingUp className={`h-3.5 w-3.5 ${profitColor}`} />)}
-        {tile("Cost ratios", "—",
-          `Labor + Reimb = ${formatCurrency(summary.labor_cost + summary.reimbursement_cost)}`,
-          "text-muted-foreground")}
+        {tile("Outstanding A/R", formatCurrency(summary.outstanding_revenue || 0),
+          (summary.outstanding_revenue || 0) > 0 ? "Customers still owe you this" : "All paid up",
+          (summary.outstanding_revenue || 0) > 0 ? "text-amber-700" : "text-emerald-700",
+          <AlertCircle className={`h-3.5 w-3.5 ${(summary.outstanding_revenue || 0) > 0 ? "text-amber-600" : "text-emerald-600"}`} />)}
       </div>
     </>
   );

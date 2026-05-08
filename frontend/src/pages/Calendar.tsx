@@ -4,9 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText } from "lucide-react";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import ReimbursementForm from "@/components/ReimbursementForm";
+import MarkPaidModal from "@/components/MarkPaidModal";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -70,6 +71,7 @@ export default function Calendar() {
   const [editJob, setEditJob] = useState<ScheduledJob | null>(null);
   const [weatherByZip, setWeatherByZip] = useState<Record<string, WeatherForecast>>({});
   const [reimbJob, setReimbJob] = useState<ScheduledJob | null>(null);
+  const [paidJob, setPaidJob] = useState<ScheduledJob | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   // Events Alan booked directly in Google Calendar (read-only — to edit, he
   // opens them in Google).
@@ -359,6 +361,15 @@ export default function Calendar() {
             setReimbJob(activeJob);
             closeJob();
           } : undefined}
+          onMarkPaid={!showAsWorker && isAdmin ? () => {
+            setPaidJob(activeJob);
+            closeJob();
+          } : undefined}
+          onGenerateInvoice={!showAsWorker && isAdmin ? () => {
+            // Generate Invoice lives on the lead detail page so admin can review
+            // line items + customer info first. Just deep-link with a flag.
+            window.location.href = `/leads/${activeJob.lead_id}?invoice=1`;
+          } : undefined}
           onViewPL={!showAsWorker && isAdmin ? () => {
             // Jump to Accounting and scroll to this job's row in the P&L table.
             window.location.href = `/accounting?job=${activeJob.id}`;
@@ -426,6 +437,14 @@ export default function Calendar() {
         <GoogleEventModal
           event={activeGoogleEvent}
           onClose={() => setActiveGoogleEvent(null)}
+        />
+      )}
+
+      {paidJob && (
+        <MarkPaidModal
+          job={paidJob}
+          onClose={() => setPaidJob(null)}
+          onSaved={() => { setPaidJob(null); load(); }}
         />
       )}
     </div>
@@ -522,7 +541,7 @@ function DayWeatherChip({ zips, byZip, iso }: { zips: string[]; byZip: Record<st
 }
 
 function JobDetailModal({
-  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL,
+  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
@@ -533,7 +552,15 @@ function JobDetailModal({
   onLogTime?: () => void;
   onReimburse?: () => void;
   onViewPL?: () => void;
+  onMarkPaid?: () => void;
+  onGenerateInvoice?: () => void;
 }) {
+  const paymentStatus = job.payment_status || "unpaid";
+  const paymentBadge = paymentStatus === "paid"
+    ? { cls: "bg-emerald-100 text-emerald-800 border border-emerald-200", icon: <CheckCircle2 className="h-3 w-3" />, label: "PAID" }
+    : paymentStatus === "bnpl_financed"
+      ? { cls: "bg-purple-100 text-purple-800 border border-purple-200", icon: <DollarSign className="h-3 w-3" />, label: "BNPL FINANCED" }
+      : { cls: "bg-amber-100 text-amber-800 border border-amber-200", icon: <DollarSign className="h-3 w-3" />, label: "UNPAID" };
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-background rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
@@ -590,6 +617,51 @@ function JobDetailModal({
               {(job.closed_price || 0) > 0 && (
                 <p><span className="text-muted-foreground">Closed price:</span> ${job.closed_price?.toFixed(2)}</p>
               )}
+              {(job.materials_cost || 0) > 0 && (
+                <p>
+                  <span className="text-muted-foreground">Materials:</span> ${job.materials_cost?.toFixed(2)}
+                  {job.materials_notes && <span className="text-xs text-muted-foreground ml-1">— {job.materials_notes}</span>}
+                </p>
+              )}
+
+              {/* Payment status — always show admin/va */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded font-bold ${paymentBadge.cls}`}>
+                  {paymentBadge.icon} {paymentBadge.label}
+                </span>
+                {(job.amount_collected || 0) > 0 && (
+                  <span className="text-xs text-muted-foreground">${job.amount_collected?.toFixed(2)} collected</span>
+                )}
+                {job.payment_method && (
+                  <span className="text-xs text-muted-foreground">via {job.payment_method.replace(/_/g, " ")}</span>
+                )}
+                {job.bnpl_vendor && (
+                  <span className="text-xs text-muted-foreground">({job.bnpl_vendor})</span>
+                )}
+              </div>
+
+              {/* QuickBooks invoice link */}
+              {job.qb_invoice_url && (
+                <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs">
+                  <p className="font-semibold text-blue-900 mb-1 flex items-center gap-1">
+                    <FileText className="h-3 w-3" /> QuickBooks Invoice
+                    {job.qb_invoice_status && (
+                      <span className="ml-auto text-[10px] uppercase tracking-wide bg-blue-100 px-1.5 py-0.5 rounded">
+                        {job.qb_invoice_status}
+                      </span>
+                    )}
+                  </p>
+                  <a
+                    href={job.qb_invoice_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 hover:underline break-all"
+                  >
+                    {job.qb_invoice_url}
+                  </a>
+                </div>
+              )}
+
               {job.customer_email && (
                 <p><span className="text-muted-foreground">Customer email:</span> {job.customer_email}</p>
               )}
@@ -605,7 +677,7 @@ function JobDetailModal({
             </>
           )}
         </div>
-        {(onEdit || onDelete || onLogTime || onReimburse || onViewPL) && (
+        {(onEdit || onDelete || onLogTime || onReimburse || onViewPL || onMarkPaid || onGenerateInvoice) && (
           <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
             {onDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={onDelete}>Cancel job</Button>}
             {onViewPL && (
@@ -616,6 +688,16 @@ function JobDetailModal({
             {onReimburse && (
               <Button variant="outline" size="sm" onClick={onReimburse}>
                 <Receipt className="h-3.5 w-3.5 mr-1" /> Reimburse
+              </Button>
+            )}
+            {onGenerateInvoice && paymentStatus !== "paid" && (
+              <Button variant="outline" size="sm" onClick={onGenerateInvoice} title="Generate a QuickBooks invoice and SMS the link to the customer">
+                <FileText className="h-3.5 w-3.5 mr-1" /> Invoice
+              </Button>
+            )}
+            {onMarkPaid && paymentStatus !== "paid" && (
+              <Button variant="outline" size="sm" className="text-emerald-700 border-emerald-200" onClick={onMarkPaid}>
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark Paid
               </Button>
             )}
             {onLogTime && <Button variant="outline" size="sm" onClick={onLogTime}>Log time</Button>}
