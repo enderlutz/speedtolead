@@ -20,6 +20,7 @@ import Calls from "@/pages/Calls";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
+import Accounting from "@/pages/Accounting";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -76,6 +77,7 @@ function AppLayout() {
               <Route path="/calls" element={<StaffOnly><Calls /></StaffOnly>} />
               <Route path="/crew" element={<StaffOnly><Crew /></StaffOnly>} />
               <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
+              <Route path="/accounting" element={<StaffOnly><Accounting /></StaffOnly>} />
               <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/pricing" element={<StaffOnly><Pricing /></StaffOnly>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />

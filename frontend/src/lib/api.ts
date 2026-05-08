@@ -934,6 +934,21 @@ export const api = {
   getGoogleEvents: (start: string, end: string) =>
     request<{ events: GoogleEvent[] }>(`/api/google/events?start=${start}&end=${end}`),
 
+  // Accounting
+  getAccountingSummary: (period: string) =>
+    request<AccountingSummary>(`/api/accounting/summary?period=${encodeURIComponent(period)}`),
+  getJobProfitability: (period: string) =>
+    request<{ jobs: JobProfitabilityRow[]; period: string; start: string; end: string }>(
+      `/api/accounting/jobs?period=${encodeURIComponent(period)}`,
+    ),
+  listOverhead: () => request<{ entries: OverheadEntry[] }>("/api/accounting/overhead"),
+  createOverhead: (body: OverheadBody) =>
+    request<OverheadEntry>("/api/accounting/overhead", { method: "POST", body: JSON.stringify(body) }),
+  updateOverhead: (id: string, body: OverheadBody) =>
+    request<OverheadEntry>(`/api/accounting/overhead/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteOverhead: (id: string) =>
+    request<{ status: string }>(`/api/accounting/overhead/${id}`, { method: "DELETE" }),
+
   // Weather
   getWeather: (zip: string) => request<WeatherForecast>(`/api/weather/${encodeURIComponent(zip)}`),
 
@@ -1297,4 +1312,55 @@ export interface PaymentBody {
   payment_method: PaymentMethod;
   payment_method_other: string;
   notes: string;
+}
+
+// --- Accounting ---
+
+export interface AccountingSummary {
+  period: string;
+  start: string;
+  end: string;
+  months_in_period: number;
+  jobs_count: number;
+  revenue: number;
+  labor_cost: number;
+  reimbursement_cost: number;
+  overhead_monthly: number;
+  overhead_cost: number;
+  gross_profit: number;
+  net_profit: number;
+  gross_margin_pct: number;
+  net_margin_pct: number;
+}
+
+export interface JobProfitabilityRow {
+  scheduled_job_id: string;
+  lead_id: string;
+  customer_name: string;
+  job_date: string;
+  service_type: string;
+  package_tier: string;
+  address: string;
+  revenue: number;
+  labor_cost: number;
+  reimbursement_cost: number;
+  profit: number;
+  margin_pct: number;
+}
+
+export interface OverheadEntry {
+  id: string;
+  category: string;
+  description: string;
+  monthly_amount: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OverheadBody {
+  category: string;
+  description: string;
+  monthly_amount: number;
+  active: boolean;
 }

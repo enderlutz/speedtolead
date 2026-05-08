@@ -1018,6 +1018,33 @@ class GoogleOAuthToken(Base):
     updated_at = Column(Text, default="")
 
 
+class OverheadEntry(Base):
+    """Recurring monthly overhead — rent, insurance, fuel, software, etc.
+    Used by the Accounting page to compute margins and net profit. Each row
+    represents one ongoing cost; the per-month total is the sum of all
+    active entries' monthly_amount."""
+    __tablename__ = "overhead_entries"
+
+    id = Column(Text, primary_key=True)
+    category = Column(Text, default="")        # "Rent", "Insurance", "Fuel", "Software"…
+    description = Column(Text, default="")     # freeform — "Office on Cypress Pkwy"
+    monthly_amount = Column(Numeric(10, 2), nullable=False, default=0)
+    active = Column(Boolean, default=True)     # toggle off without deleting (history preserved)
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "category": self.category or "",
+            "description": self.description or "",
+            "monthly_amount": float(self.monthly_amount or 0),
+            "active": bool(self.active),
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+        }
+
+
 # --- Engine / Session ---
 
 _engine = None

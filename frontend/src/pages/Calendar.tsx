@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator } from "lucide-react";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import ReimbursementForm from "@/components/ReimbursementForm";
 
@@ -359,6 +359,10 @@ export default function Calendar() {
             setReimbJob(activeJob);
             closeJob();
           } : undefined}
+          onViewPL={!showAsWorker && isAdmin ? () => {
+            // Jump to Accounting and scroll to this job's row in the P&L table.
+            window.location.href = `/accounting?job=${activeJob.id}`;
+          } : undefined}
           onDelete={!showAsWorker && isAdmin ? async () => {
             if (!confirm("Cancel this job? The Google event will also be deleted and customer notified.")) return;
             try {
@@ -518,7 +522,7 @@ function DayWeatherChip({ zips, byZip, iso }: { zips: string[]; byZip: Record<st
 }
 
 function JobDetailModal({
-  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse,
+  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
@@ -528,6 +532,7 @@ function JobDetailModal({
   onDelete?: () => void;
   onLogTime?: () => void;
   onReimburse?: () => void;
+  onViewPL?: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -600,9 +605,14 @@ function JobDetailModal({
             </>
           )}
         </div>
-        {(onEdit || onDelete || onLogTime || onReimburse) && (
+        {(onEdit || onDelete || onLogTime || onReimburse || onViewPL) && (
           <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
             {onDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={onDelete}>Cancel job</Button>}
+            {onViewPL && (
+              <Button variant="outline" size="sm" onClick={onViewPL} title="See revenue, labor, reimbursements, and margin for this job">
+                <Calculator className="h-3.5 w-3.5 mr-1" /> P&amp;L
+              </Button>
+            )}
             {onReimburse && (
               <Button variant="outline" size="sm" onClick={onReimburse}>
                 <Receipt className="h-3.5 w-3.5 mr-1" /> Reimburse
