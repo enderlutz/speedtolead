@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import {
   api, type SopTemplate, type SopTemplateStep, type SopCategory,
   SOP_CATEGORIES, type SopStepBody,
+  type SopReferenceItem, type SopBranch,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, ArrowUp, ArrowDown, Plus, Trash2, Camera, Star, Loader2, ListChecks, Save, Pencil } from "lucide-react";
+import { X, ArrowUp, ArrowDown, Plus, Trash2, Camera, Star, Loader2, ListChecks, Save, Pencil, Info, GitBranch } from "lucide-react";
 
 const SERVICE_TYPES = [
   { value: "fence_staining", label: "Fence Staining" },
@@ -42,6 +43,8 @@ export default function SopTemplateEditor({ initialTemplateId, onClose, onSaved 
   const [description, setDescription] = useState("");
   const [isDefault, setIsDefault] = useState(true);
   const [active, setActive] = useState(true);
+  const [referenceData, setReferenceData] = useState<SopReferenceItem[]>([]);
+  const [branches, setBranches] = useState<SopBranch[]>([]);
 
   const load = (id: string) => {
     setLoading(true);
@@ -53,6 +56,8 @@ export default function SopTemplateEditor({ initialTemplateId, onClose, onSaved 
       setDescription(data.description);
       setIsDefault(data.is_default);
       setActive(data.active);
+      setReferenceData(data.reference_data || []);
+      setBranches(data.branches || []);
     }).catch(() => toast.error("Failed to load template")).finally(() => setLoading(false));
   };
 
@@ -64,18 +69,19 @@ export default function SopTemplateEditor({ initialTemplateId, onClose, onSaved 
     if (!name.trim()) { toast.error("Name required"); return; }
     setSavingMeta(true);
     try {
+      const body = {
+        name, service_type: serviceType, description, is_default: isDefault, active,
+        reference_data: referenceData.filter((r) => r.label.trim() || r.value.trim()),
+        branches: branches.filter((b) => b.key.trim() && b.label.trim()),
+      };
       if (!templateId) {
-        const created = await api.createSopTemplate({
-          name, service_type: serviceType, description, is_default: isDefault, active,
-        });
+        const created = await api.createSopTemplate(body);
         setTemplateId(created.id);
         setTpl(created);
         setSteps(created.steps);
         toast.success("Template created — now add steps");
       } else {
-        const updated = await api.updateSopTemplate(templateId, {
-          name, service_type: serviceType, description, is_default: isDefault, active,
-        });
+        const updated = await api.updateSopTemplate(templateId, body);
         setTpl(updated);
         setSteps(updated.steps);
         toast.success("Saved");
@@ -215,6 +221,100 @@ export default function SopTemplateEditor({ initialTemplateId, onClose, onSaved 
                 )}
               </section>
 
+              {/* Reference data card — Min Temp / Spray Tips / etc */}
+              <section className="space-y-2 border-b pb-4">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+                  <Info className="h-3.5 w-3.5" /> Reference Card
+                  <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                    Job-spec data shown above the checklist on the worker view (Min Temp, Spray Tips, etc.)
+                  </span>
+                </h3>
+                <div className="space-y-1.5">
+                  {referenceData.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">No reference items. Click "Add" to put a value on the worker's job card.</p>
+                  )}
+                  {referenceData.map((item, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-2 items-center">
+                      <Input
+                        placeholder="Label (e.g. Min Temp)"
+                        value={item.label}
+                        onChange={(e) => setReferenceData((prev) => prev.map((r, idx) => idx === i ? { ...r, label: e.target.value } : r))}
+                        className="h-8 text-xs"
+                      />
+                      <Input
+                        placeholder="Value (e.g. 40°F)"
+                        value={item.value}
+                        onChange={(e) => setReferenceData((prev) => prev.map((r, idx) => idx === i ? { ...r, value: e.target.value } : r))}
+                        className="h-8 text-xs"
+                      />
+                      <button
+                        onClick={() => setReferenceData((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="text-muted-foreground hover:text-red-600 p-1"
+                        title="Remove"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => setReferenceData((prev) => [...prev, { label: "", value: "" }])}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add reference item
+                </Button>
+              </section>
+
+              {/* Branches editor — wash-method picker / mutually-exclusive workflows */}
+              <section className="space-y-2 border-b pb-4">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
+                  <GitBranch className="h-3.5 w-3.5" /> Branches
+                  <span className="text-[10px] font-normal normal-case text-muted-foreground">
+                    Mutually-exclusive paths (e.g. Bleach Wash vs Power Wash). Worker picks one per job.
+                  </span>
+                </h3>
+                <div className="space-y-1.5">
+                  {branches.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">No branches — every step shows on every job. Add a branch if you have alternative methods (e.g. bleach vs pressure-wash).</p>
+                  )}
+                  {branches.map((b, i) => (
+                    <div key={i} className="grid grid-cols-[110px_1fr_1fr_auto] gap-2 items-center">
+                      <Input
+                        placeholder="key"
+                        value={b.key}
+                        onChange={(e) => setBranches((prev) => prev.map((br, idx) => idx === i ? { ...br, key: e.target.value.replace(/[^a-z0-9_]/gi, "_").toLowerCase() } : br))}
+                        className="h-8 text-xs font-mono"
+                      />
+                      <Input
+                        placeholder="Label (e.g. Bleach / Chemical)"
+                        value={b.label}
+                        onChange={(e) => setBranches((prev) => prev.map((br, idx) => idx === i ? { ...br, label: e.target.value } : br))}
+                        className="h-8 text-xs"
+                      />
+                      <Input
+                        placeholder="Subtitle (e.g. Pump sprayer)"
+                        value={b.subtitle || ""}
+                        onChange={(e) => setBranches((prev) => prev.map((br, idx) => idx === i ? { ...br, subtitle: e.target.value } : br))}
+                        className="h-8 text-xs"
+                      />
+                      <button
+                        onClick={() => setBranches((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="text-muted-foreground hover:text-red-600 p-1"
+                        title="Remove"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => setBranches((prev) => [...prev, { key: "", label: "", subtitle: "" }])}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add branch
+                </Button>
+              </section>
+
               {/* Steps grouped by category */}
               {templateId && SOP_CATEGORIES.map((cat) => {
                 const inBucket = steps.filter((s) => s.category === cat.key)
@@ -267,6 +367,7 @@ export default function SopTemplateEditor({ initialTemplateId, onClose, onSaved 
         <StepEditModal
           initial={editingStep}
           defaultCategory={creatingInCategory || "execution"}
+          branches={branches}
           onClose={() => { setEditingStep(null); setCreatingInCategory(null); }}
           onSubmit={async (body) => {
             if (editingStep) await updateStep(editingStep.id, body);
@@ -307,8 +408,12 @@ function StepRow({
           <span className="text-sm font-medium truncate">{step.title}</span>
           {step.required && <span className="text-[10px] uppercase tracking-wider bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">required</span>}
           {step.photo_required && <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold"><Camera className="h-2.5 w-2.5" /> photo</span>}
+          {step.branch_key && <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">branch · {step.branch_key}</span>}
         </div>
-        {step.description && <p className="text-[11px] text-muted-foreground truncate mt-0.5">{step.description}</p>}
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {step.section_name && <span className="text-[10px] text-muted-foreground italic truncate">§ {step.section_name}</span>}
+          {step.description && <p className="text-[11px] text-muted-foreground truncate">{step.description}</p>}
+        </div>
       </div>
       <button onClick={onEdit} className="p-1.5 text-muted-foreground hover:text-primary opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition" title="Edit">
         <Pencil className="h-3.5 w-3.5" />
@@ -322,10 +427,11 @@ function StepRow({
 
 
 function StepEditModal({
-  initial, defaultCategory, onClose, onSubmit,
+  initial, defaultCategory, branches, onClose, onSubmit,
 }: {
   initial: SopTemplateStep | null;
   defaultCategory: SopCategory;
+  branches: SopBranch[];
   onClose: () => void;
   onSubmit: (body: SopStepBody) => Promise<void>;
 }) {
@@ -334,6 +440,8 @@ function StepEditModal({
   const [required, setRequired] = useState(initial?.required ?? true);
   const [photoRequired, setPhotoRequired] = useState(initial?.photo_required ?? false);
   const [category, setCategory] = useState<SopCategory>(initial?.category || defaultCategory);
+  const [sectionName, setSectionName] = useState(initial?.section_name || "");
+  const [branchKey, setBranchKey] = useState(initial?.branch_key || "");
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -346,6 +454,8 @@ function StepEditModal({
         required,
         photo_required: photoRequired,
         category,
+        section_name: sectionName.trim(),
+        branch_key: branchKey.trim(),
       });
     } finally {
       setSaving(false);
@@ -354,7 +464,7 @@ function StepEditModal({
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-background rounded-lg shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b flex items-center justify-between">
           <h3 className="text-base font-semibold">{initial ? "Edit Step" : "Add Step"}</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1"><X className="h-4 w-4" /></button>
@@ -371,11 +481,24 @@ function StepEditModal({
               placeholder="What does done look like? Any gotchas?" />
           </div>
           <div>
-            <label className={labelCls}>Category</label>
+            <label className={labelCls}>Section name <span className="text-muted-foreground/60 normal-case font-normal">(visual heading on the worker view — e.g. "Bleach / Chemical Wash")</span></label>
+            <Input value={sectionName} onChange={(e) => setSectionName(e.target.value)} placeholder="(blank = use category label)" className="mt-1" />
+          </div>
+          <div>
+            <label className={labelCls}>Category <span className="text-muted-foreground/60 normal-case font-normal">(used for analytics + grouping)</span></label>
             <select value={category} onChange={(e) => setCategory(e.target.value as SopCategory)} className={`${inputCls} mt-1`}>
               {SOP_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.emoji} {c.label}</option>)}
             </select>
           </div>
+          {branches.length > 0 && (
+            <div>
+              <label className={labelCls}>Branch <span className="text-muted-foreground/60 normal-case font-normal">(only show this step when the worker picks the matching method)</span></label>
+              <select value={branchKey} onChange={(e) => setBranchKey(e.target.value)} className={`${inputCls} mt-1`}>
+                <option value="">— Always show —</option>
+                {branches.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+              </select>
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, ListChecks, Star, Pencil, Trash2, RefreshCw, Loader2 } from "lucide-react";
+import { Plus, ListChecks, Star, Pencil, Trash2, RefreshCw, Loader2, Download } from "lucide-react";
 import SopTemplateEditor from "@/components/SopTemplateEditor";
 
 const SERVICE_LABEL: Record<string, string> = {
@@ -21,6 +21,7 @@ export default function SopTemplatesList() {
   const [loading, setLoading] = useState(true);
   const [editorOpen, setEditorOpen] = useState<{ id: string | null } | null>(null);
   const [backfilling, setBackfilling] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -40,6 +41,21 @@ export default function SopTemplatesList() {
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
+  const importCrewClock = async () => {
+    if (!confirm("Import the CrewClock Fence Staining template? Creates a new template marked as default with 23 steps, reference card, and the bleach-vs-power-wash branch picker.")) return;
+    setImporting(true);
+    try {
+      const r = await api.importCrewClockTemplate();
+      if (r.status === "exists") toast.info(r.message);
+      else toast.success(`${r.message} (${r.step_count} steps)`);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -66,7 +82,13 @@ export default function SopTemplatesList() {
               · the master checklists workers tick off on each job
             </span>
           </CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {templates.length === 0 && (
+              <Button variant="outline" size="sm" onClick={importCrewClock} disabled={importing}>
+                {importing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-1" />}
+                Import CrewClock template
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={backfill} disabled={backfilling || templates.length === 0}>
               {backfilling ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
               Apply to existing jobs
@@ -91,9 +113,16 @@ export default function SopTemplatesList() {
                 Create your first checklist — workers will see it on every scheduled job they're assigned to.
               </p>
             </div>
-            <Button size="sm" onClick={() => setEditorOpen({ id: null })}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> Create first template
-            </Button>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <Button size="sm" variant="default" onClick={importCrewClock} disabled={importing}>
+                {importing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-1" />}
+                Import CrewClock template
+              </Button>
+              <span className="text-xs text-muted-foreground">or</span>
+              <Button size="sm" variant="outline" onClick={() => setEditorOpen({ id: null })}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Create from scratch
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">

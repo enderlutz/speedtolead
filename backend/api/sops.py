@@ -48,12 +48,26 @@ def _now() -> str:
 
 # ─── Pydantic bodies ─────────────────────────────────────────────────────
 
+class ReferenceDataItem(BaseModel):
+    label: str
+    value: str
+
+
+class BranchItem(BaseModel):
+    key: str
+    label: str
+    subtitle: str = ""
+    icon: str = ""        # lucide icon name, optional
+
+
 class TemplateBody(BaseModel):
     name: str
     service_type: str = "fence_staining"
     description: str = ""
     is_default: bool = False
     active: bool = True
+    reference_data: list[ReferenceDataItem] | None = None  # None = leave existing
+    branches: list[BranchItem] | None = None               # None = leave existing
 
 
 class StepBody(BaseModel):
@@ -61,8 +75,14 @@ class StepBody(BaseModel):
     description: str = ""
     required: bool = True
     category: str = "execution"
+    section_name: str = ""
+    branch_key: str = ""
     photo_required: bool = False
     order_index: int | None = None  # if None, append to end
+
+
+class SelectBranchBody(BaseModel):
+    branch_key: str    # empty string clears the selection
 
 
 class StepReorderBody(BaseModel):
@@ -96,6 +116,7 @@ def _serialize_template_steps(db, template_id: str) -> list[dict]:
 
 def _build_run_snapshot(template: SopTemplate, steps: list[dict]) -> list[dict]:
     """Convert template-step rows into the run's frozen snapshot shape."""
+    del template
     out: list[dict] = []
     for s in steps:
         out.append({
@@ -105,6 +126,8 @@ def _build_run_snapshot(template: SopTemplate, steps: list[dict]) -> list[dict]:
             "description": s["description"],
             "required": s["required"],
             "category": s["category"],
+            "section_name": s.get("section_name", ""),
+            "branch_key": s.get("branch_key", ""),
             "photo_required": s["photo_required"],
             "completed": False,
             "completed_at": None,
@@ -147,6 +170,9 @@ def attach_default_run(db, scheduled_job: ScheduledJob) -> SopRun | None:
         scheduled_job_id=scheduled_job.id,
         sop_template_id=tpl.id,
         template_name_snapshot=tpl.name,
+        reference_data_snapshot=tpl.reference_data or "[]",
+        branches_snapshot=tpl.branches or "[]",
+        selected_branch="",
         steps_json=json.dumps(snapshot),
         status="pending",
         snapshot_at=_now(),
@@ -254,8 +280,6 @@ def create_template(body: TemplateBody, user: dict = Depends(require_admin)):
         raise HTTPException(400, "Template name required")
     db = get_db()
     try:
-        # If this is being marked default, demote any existing default for
-        # this service so there's exactly one.
         if body.is_default:
             db.query(SopTemplate).filter(
                 SopTemplate.service_type == body.service_type,
@@ -268,6 +292,8 @@ def create_template(body: TemplateBody, user: dict = Depends(require_admin)):
             description=body.description or "",
             is_default=body.is_default,
             active=body.active,
+            reference_data=json.dumps([r.model_dump() for r in body.reference_data]) if body.reference_data is not None else "[]",
+            branches=json.dumps([b.model_dump() for b in body.branches]) if body.branches is not None else "[]",
             created_at=_now(),
             updated_at=_now(),
             created_by=user.get("name", ""),
@@ -304,6 +330,10 @@ def update_template(template_id: str, body: TemplateBody, user: dict = Depends(r
         tpl.description = body.description or ""
         tpl.is_default = body.is_default
         tpl.active = body.active
+        if body.reference_data is not None:
+            tpl.reference_data = json.dumps([r.model_dump() for r in body.reference_data])
+        if body.branches is not None:
+            tpl.branches = json.dumps([b.model_dump() for b in body.branches])
         tpl.updated_at = _now()
         db.commit()
         db.refresh(tpl)
@@ -367,6 +397,8 @@ def add_step(template_id: str, body: StepBody, user: dict = Depends(require_admi
             description=body.description or "",
             required=body.required,
             category=body.category,
+            section_name=body.section_name or "",
+            branch_key=body.branch_key or "",
             photo_required=body.photo_required,
             created_at=_now(),
             updated_at=_now(),
@@ -396,6 +428,8 @@ def update_step(step_id: str, body: StepBody, user: dict = Depends(require_admin
         step.description = body.description or ""
         step.required = body.required
         step.category = body.category
+        step.section_name = body.section_name or ""
+        step.branch_key = body.branch_key or ""
         step.photo_required = body.photo_required
         if body.order_index is not None:
             step.order_index = body.order_index
@@ -483,6 +517,36 @@ def get_run_by_job(scheduled_job_id: str, user: dict = Depends(get_current_user)
             if run:
                 db.commit()
         return {"run": run.to_dict() if run else None}
+    finally:
+        db.close()
+
+
+@router.post("/sops/runs/{run_id}/select-branch")
+def select_branch(run_id: str, body: SelectBranchBody, user: dict = Depends(get_current_user)):
+    """Worker picks which branch (e.g. bleach vs power-wash) applies to
+    this job. Steps belonging to other branches stay hidden in their
+    view + don't count against completion. Empty body.branch_key clears
+    the selection."""
+    db = get_db()
+    try:
+        run = db.query(SopRun).filter(SopRun.id == run_id).first()
+        if not run:
+            raise HTTPException(404, "Run not found")
+        if not _can_access_run(user, run, db):
+            raise HTTPException(403, "Not assigned to this job")
+        # Validate against snapshotted branches list
+        try:
+            available = json.loads(run.branches_snapshot or "[]")
+        except json.JSONDecodeError:
+            available = []
+        valid_keys = {b.get("key") for b in available if isinstance(b, dict)}
+        if body.branch_key and body.branch_key not in valid_keys:
+            raise HTTPException(400, f"branch_key must be one of {sorted(valid_keys)} or empty")
+        run.selected_branch = body.branch_key or ""
+        run.updated_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run.to_dict()
     finally:
         db.close()
 
@@ -771,6 +835,136 @@ def backfill_runs(user: dict = Depends(require_admin)):
             "attached": attached,
             "skipped_no_template": skipped_no_template,
             "total_jobs": len(jobs),
+        }
+    finally:
+        db.close()
+
+
+# ─── One-click import: seed CrewClock's Fence Staining template ─────────
+
+# Snapshot of the user's existing CrewClock SOP — the 23-step Fence
+# Staining checklist. Categorized into our 5 buckets while preserving
+# the original section names and the bleach-vs-power-wash branch on the
+# wash steps. Power-wash branch steps are stubbed (1 placeholder) since
+# the user only shared the bleach branch — admin can fill the rest in
+# the editor.
+_CREWCLOCK_REFERENCE_DATA = [
+    {"label": "Min Temp", "value": "40°F"},
+    {"label": "Max Temp", "value": "90°F"},
+    {"label": "Dry After Wash", "value": "1 hr / touch"},
+    {"label": "Spray Tips", "value": "515 / 415 / 315"},
+]
+
+_CREWCLOCK_BRANCHES = [
+    {"key": "bleach", "label": "Bleach / Chemical", "subtitle": "Pump sprayer", "icon": "Droplets"},
+    {"key": "power_wash", "label": "Power Washing", "subtitle": "Pressure washer", "icon": "Zap"},
+]
+
+# Each tuple: (section_name, category, branch_key, title, required, photo_required)
+_CREWCLOCK_STEPS: list[tuple[str, str, str, str, bool, bool]] = [
+    # Pre Inspection
+    ("Pre Inspection", "pre-arrival", "", "Take photos and note scope of work, obstacles, and damaged boards. Walk the full fence line — look for rot, loose nails, and gaps.", True, True),
+    ("Pre Inspection", "pre-arrival", "", "Find power outlets and plan where the stainer goes.", False, False),
+    # Site Prep & Drop Cloths
+    ("Site Prep & Drop Cloths", "setup", "", "Lay drop cloths along the fence line to protect landscaping and concrete.", False, False),
+    # Masking
+    ("Masking", "setup", "", "Tape off around ALL hinges on gates — cover every hinge completely so no stain gets on the hardware.", True, False),
+    ("Masking", "setup", "", "Tape off latches, locks, and any other gate hardware.", True, False),
+    ("Masking", "setup", "", "Mask off house siding, brick, stucco, or any surface touching the fence that should not be stained.", True, False),
+    ("Masking", "setup", "", "Shield the house very well — use extra plastic sheeting or paper along the house wall near the fence line to prevent overspray.", True, False),
+    ("Masking", "setup", "", "Use an Exacto knife to cut tape precisely around tight areas, corners, and hardware edges for a clean line.", True, False),
+    ("Masking", "setup", "", "Cover any AC units, electrical boxes, or fixtures near the fence line.", False, False),
+    ("Masking", "setup", "", "Double-check all masking before starting wash or stain — walk the full fence line one more time.", True, False),
+    # Bleach / Chemical Wash branch
+    ("Bleach / Chemical Wash", "execution", "bleach", "Pre-wet all plants, grass, and landscaping near the fence line to protect from chemical runoff.", True, False),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Mix bleach/SH solution to appropriate strength for wood cleaning (typically 1-3% SH).", True, False),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Apply bleach with pump sprayer.", True, False),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Allow 5-10 minute dwell time. Do not let solution dry on the wood — re-apply if needed.", True, False),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Allow fence to dry completely before staining (check dry time based on weather).", True, False),
+    # Power Washing branch — stub so admin can flesh out
+    ("Power Washing", "execution", "power_wash", "Set pressure washer to appropriate PSI for wood (typically 1500-2000 PSI). Add steps in the editor.", True, False),
+    # Staining
+    ("Staining", "execution", "", "Mix stain thoroughly before loading sprayer.", True, False),
+    ("Staining", "execution", "", "Apply stain evenly using airless sprayer, working in sections.", True, False),
+    ("Staining", "execution", "", "Back-brush any drips or puddles immediately.", True, False),
+    ("Staining", "execution", "", "Apply second coat if needed per product specs.", True, False),
+    # Cleanup
+    ("Cleanup", "cleanup", "", "Remove all drop cloths and masking.", True, False),
+    ("Cleanup", "cleanup", "", "Clean all equipment and flush sprayer lines.", True, False),
+    ("Cleanup", "cleanup", "", "Take final photos of completed work.", True, True),
+    ("Cleanup", "wrap-up", "", "Notify customer that job is complete.", False, False),
+]
+
+
+@router.post("/sops/import/crewclock")
+def import_crewclock_template(user: dict = Depends(require_admin)):
+    """Idempotent one-click import of the user's existing CrewClock Fence
+    Staining template. Creates a new SopTemplate marked default for
+    fence_staining (demoting any existing default), with reference data,
+    branches, and 23 categorized steps.
+
+    Re-running checks for an existing template named "Fence Staining SOP"
+    and refuses to clobber it — admin must delete first if they want a
+    fresh import."""
+    db = get_db()
+    try:
+        # Refuse to overwrite an existing import
+        existing = (
+            db.query(SopTemplate)
+            .filter(SopTemplate.name == "Fence Staining SOP", SopTemplate.service_type == "fence_staining")
+            .first()
+        )
+        if existing:
+            return {
+                "status": "exists",
+                "template_id": existing.id,
+                "message": "A 'Fence Staining SOP' template already exists. Delete it first if you want to re-import.",
+            }
+
+        # Demote any other defaults for fence_staining
+        db.query(SopTemplate).filter(
+            SopTemplate.service_type == "fence_staining",
+            SopTemplate.is_default.is_(True),
+        ).update({SopTemplate.is_default: False})
+
+        tpl = SopTemplate(
+            id=str(uuid.uuid4()),
+            name="Fence Staining SOP",
+            service_type="fence_staining",
+            description="Imported from CrewClock — 23-step process covering pre-inspection through cleanup. Includes a Bleach/Chemical vs Power-Wash method picker.",
+            is_default=True,
+            active=True,
+            reference_data=json.dumps(_CREWCLOCK_REFERENCE_DATA),
+            branches=json.dumps(_CREWCLOCK_BRANCHES),
+            created_at=_now(),
+            updated_at=_now(),
+            created_by=user.get("name", ""),
+        )
+        db.add(tpl)
+        db.flush()
+
+        for idx, (section, category, branch, title, required, photo_required) in enumerate(_CREWCLOCK_STEPS):
+            db.add(SopTemplateStep(
+                id=str(uuid.uuid4()),
+                sop_template_id=tpl.id,
+                order_index=idx,
+                title=title,
+                description="",
+                required=required,
+                category=category,
+                section_name=section,
+                branch_key=branch,
+                photo_required=photo_required,
+                created_at=_now(),
+                updated_at=_now(),
+            ))
+        db.commit()
+        db.refresh(tpl)
+        return {
+            "status": "imported",
+            "template_id": tpl.id,
+            "step_count": len(_CREWCLOCK_STEPS),
+            "message": "Imported. Click 'Apply to existing jobs' if you want it attached to scheduled jobs that pre-dated this import.",
         }
     finally:
         db.close()

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   ListChecks, Camera, MessageSquare, AlertCircle, Loader2,
   Check, Trash2, ChevronDown, ChevronUp, HelpCircle, ImageIcon,
+  Info, Droplets, Zap, GitBranch,
 } from "lucide-react";
 
 interface Props {
@@ -98,7 +99,29 @@ export default function SopChecklistPanel({ scheduledJobId, asWorker }: Props) {
     );
   }
 
-  const helpFlagged = run.steps.filter((s) => s.help_requested_at && !s.completed).length;
+  // Filter to visible steps (branch-aware) and group by section_name
+  // (when set) or category bucket otherwise. Sections render in the
+  // order their first step appears so admin-defined ordering wins.
+  const branchHidesStep = (step: SopRunStep): boolean => {
+    if (!step.branch_key) return false;
+    if (!run.selected_branch) return true;       // no choice yet → hide branched
+    return step.branch_key !== run.selected_branch;
+  };
+  const visibleSteps = run.steps.filter((s) => !branchHidesStep(s));
+  const groups = groupBySection(visibleSteps);
+
+  const helpFlagged = visibleSteps.filter((s) => s.help_requested_at && !s.completed).length;
+  const needsMethodPick = run.branches.length > 0 && !run.selected_branch;
+
+  const pickBranch = async (branchKey: string) => {
+    try {
+      const updated = await api.selectSopBranch(run.id, branchKey);
+      refresh(updated);
+      toast.success(`Method set: ${run.branches.find((b) => b.key === branchKey)?.label || branchKey}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to set method");
+    }
+  };
 
   return (
     <div className="border-t pt-3 mt-3 space-y-2.5">
@@ -126,6 +149,66 @@ export default function SopChecklistPanel({ scheduledJobId, asWorker }: Props) {
         </div>
       </div>
 
+      {/* Reference card — Min Temp / Spray Tips / etc. */}
+      {run.reference_data.length > 0 && (
+        <div className="bg-muted/40 border rounded-lg p-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-1.5">
+            <Info className="h-2.5 w-2.5" /> Job Reference
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {run.reference_data.map((r, i) => (
+              <div key={i} className="bg-background rounded px-2 py-1.5">
+                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{r.label}</p>
+                <p className="text-sm font-bold">{r.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Method picker — only when template has branches AND none picked */}
+      {needsMethodPick && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1 mb-2">
+            <GitBranch className="h-2.5 w-2.5" /> Pick the method for this job
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {run.branches.map((b) => {
+              const Icon = b.icon === "Droplets" ? Droplets : b.icon === "Zap" ? Zap : GitBranch;
+              return (
+                <button
+                  key={b.key}
+                  onClick={() => pickBranch(b.key)}
+                  className="border-2 rounded-lg p-2 text-center hover:border-primary hover:bg-primary/5 transition"
+                >
+                  <Icon className="h-5 w-5 text-primary mx-auto mb-1" />
+                  <p className="text-xs font-bold">{b.label}</p>
+                  {b.subtitle && <p className="text-[10px] text-muted-foreground">{b.subtitle}</p>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Selected method indicator (with switch button) */}
+      {run.selected_branch && (
+        <div className="flex items-center justify-between text-xs bg-primary/5 border border-primary/20 rounded px-2 py-1">
+          <span className="flex items-center gap-1 text-primary font-semibold">
+            <GitBranch className="h-3 w-3" />
+            Method: {run.branches.find((b) => b.key === run.selected_branch)?.label || run.selected_branch}
+          </span>
+          {asWorker && run.status !== "completed" && (
+            <button
+              onClick={() => pickBranch("")}
+              className="text-[10px] text-primary hover:underline"
+            >
+              switch
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Progress bar */}
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
         <div
@@ -136,40 +219,38 @@ export default function SopChecklistPanel({ scheduledJobId, asWorker }: Props) {
         />
       </div>
 
-      {asWorker && run.status === "pending" && (
+      {asWorker && run.status === "pending" && !needsMethodPick && (
         <Button size="sm" onClick={startRun} className="w-full">
           Start job
         </Button>
       )}
 
-      {/* Steps grouped by category */}
+      {/* Steps grouped by section_name (preferred) or category bucket */}
       <div className="space-y-2.5">
-        {SOP_CATEGORIES.map((cat) => {
-          const inBucket = run.steps
-            .filter((s) => s.category === cat.key)
-            .sort((a, b) => a.order_index - b.order_index);
-          if (inBucket.length === 0) return null;
-          return (
-            <div key={cat.key} className="space-y-1">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                <span>{cat.emoji}</span> {cat.label}
-              </p>
-              {inBucket.map((step) => (
-                <StepCard
-                  key={step.step_id}
-                  step={step}
-                  runId={run.id}
-                  expanded={expandedStep === step.step_id}
-                  onToggleExpand={() => setExpandedStep((id) => id === step.step_id ? null : step.step_id)}
-                  onCheck={(checked) => toggleStep(step, checked)}
-                  onUpdate={refresh}
-                  asWorker={asWorker}
-                  canEdit={asWorker || isAdmin}
-                />
-              ))}
-            </div>
-          );
-        })}
+        {groups.map((group) => (
+          <div key={group.heading} className="space-y-1">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              {group.emoji && <span>{group.emoji}</span>}
+              {group.heading}
+              <span className="font-normal normal-case text-muted-foreground/70 ml-auto">
+                {group.steps.filter((s) => s.completed).length}/{group.steps.length}
+              </span>
+            </p>
+            {group.steps.map((step) => (
+              <StepCard
+                key={step.step_id}
+                step={step}
+                runId={run.id}
+                expanded={expandedStep === step.step_id}
+                onToggleExpand={() => setExpandedStep((id) => id === step.step_id ? null : step.step_id)}
+                onCheck={(checked) => toggleStep(step, checked)}
+                onUpdate={refresh}
+                asWorker={asWorker}
+                canEdit={asWorker || isAdmin}
+              />
+            ))}
+          </div>
+        ))}
       </div>
 
       {run.status === "completed" && (
@@ -179,6 +260,32 @@ export default function SopChecklistPanel({ scheduledJobId, asWorker }: Props) {
       )}
     </div>
   );
+}
+
+
+/** Group steps preferring section_name (CrewClock-style "Bleach / Chemical
+ * Wash") and falling back to the 5-bucket category. Section order = order
+ * of first occurrence so admin's step ordering wins. */
+function groupBySection(steps: SopRunStep[]): { heading: string; emoji: string; steps: SopRunStep[] }[] {
+  const sorted = [...steps].sort((a, b) => a.order_index - b.order_index);
+  const out: { heading: string; emoji: string; steps: SopRunStep[] }[] = [];
+  const indexByHeading = new Map<string, number>();
+
+  for (const s of sorted) {
+    const heading = s.section_name?.trim()
+      || (SOP_CATEGORIES.find((c) => c.key === s.category)?.label || s.category);
+    const emoji = s.section_name
+      ? ""  // custom sections get no emoji — keep clean
+      : (SOP_CATEGORIES.find((c) => c.key === s.category)?.emoji || "");
+    const idx = indexByHeading.get(heading);
+    if (idx !== undefined) {
+      out[idx].steps.push(s);
+    } else {
+      indexByHeading.set(heading, out.length);
+      out.push({ heading, emoji, steps: [s] });
+    }
+  }
+  return out;
 }
 
 

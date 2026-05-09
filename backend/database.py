@@ -1086,6 +1086,16 @@ class SopTemplate(Base):
     description = Column(Text, default="")
     is_default = Column(Boolean, default=False)        # the auto-attach pick for this service
     active = Column(Boolean, default=True)             # soft-disable without deleting
+    # Reference card shown above the checklist on the worker view —
+    # job-spec data the crew should glance at (Min Temp, Spray Tips, Dry
+    # Time, etc.). JSON list of {label, value} pairs.
+    reference_data = Column(Text, default="[]")
+    # Branching options. When non-empty, the worker picks one before
+    # starting the run; only steps whose branch_key matches (or is empty)
+    # are shown. Used for things like "Bleach / Chemical" vs "Power
+    # Washing" — different workflows on the same job type. JSON list of
+    # {key, label, subtitle, icon} objects.
+    branches = Column(Text, default="[]")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
     created_by = Column(Text, default="")
@@ -1098,6 +1108,8 @@ class SopTemplate(Base):
             "description": self.description or "",
             "is_default": bool(self.is_default),
             "active": bool(self.active),
+            "reference_data": _j(self.reference_data) if self.reference_data else [],
+            "branches": _j(self.branches) if self.branches else [],
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
             "created_by": self.created_by or "",
@@ -1122,6 +1134,15 @@ class SopTemplateStep(Base):
     required = Column(Boolean, default=True)
     # 5 buckets: pre-arrival | setup | execution | cleanup | wrap-up
     category = Column(Text, default="execution")
+    # Free-text section heading shown to the worker (e.g. "Bleach /
+    # Chemical Wash"). Multiple steps with the same section_name render
+    # together as one collapsible group. Empty string falls back to
+    # category-based grouping.
+    section_name = Column(Text, default="")
+    # Branch this step belongs to (matches a key in the parent template's
+    # `branches` JSON). Empty string = always show. Used for the
+    # bleach-vs-power-wash style mutually-exclusive workflows.
+    branch_key = Column(Text, default="")
     photo_required = Column(Boolean, default=False)    # worker must attach a photo to mark complete
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -1135,6 +1156,8 @@ class SopTemplateStep(Base):
             "description": self.description or "",
             "required": bool(self.required),
             "category": self.category or "execution",
+            "section_name": self.section_name or "",
+            "branch_key": self.branch_key or "",
             "photo_required": bool(self.photo_required),
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
@@ -1176,6 +1199,15 @@ class SopRun(Base):
     scheduled_job_id = Column(Text, nullable=False, unique=True)  # one run per job
     sop_template_id = Column(Text, nullable=False)
     template_name_snapshot = Column(Text, default="")
+    # Snapshotted reference data + branches so historical runs render
+    # exactly as they did at attach time even if the parent template gets
+    # rewritten later.
+    reference_data_snapshot = Column(Text, default="[]")
+    branches_snapshot = Column(Text, default="[]")
+    # Which branch the worker picked at run-start (empty = no branch
+    # picked yet OR template has no branches). Steps with a branch_key
+    # that doesn't match this are hidden in the worker's view.
+    selected_branch = Column(Text, default="")
     steps_json = Column(Text, nullable=False, default="[]")
     status = Column(Text, default="pending")           # pending | in_progress | completed
     started_at = Column(Text, nullable=True)
@@ -1189,15 +1221,33 @@ class SopRun(Base):
         steps = _j(self.steps_json) if self.steps_json else []
         if not isinstance(steps, list):
             steps = []
-        total = len(steps)
-        required_total = sum(1 for s in steps if s.get("required"))
-        completed_count = sum(1 for s in steps if s.get("completed"))
-        required_completed = sum(1 for s in steps if s.get("required") and s.get("completed"))
+        # Aggregates computed against VISIBLE steps only — steps from a
+        # branch the worker didn't pick shouldn't count against completion.
+        selected = (self.selected_branch or "").strip()
+
+        def _is_visible(s: dict) -> bool:
+            bk = (s.get("branch_key") or "").strip()
+            if not bk:
+                return True
+            if not selected:
+                # No branch picked yet — hide branched steps entirely so the
+                # worker isn't graded against work that hasn't been chosen.
+                return False
+            return bk == selected
+
+        visible = [s for s in steps if _is_visible(s)]
+        total = len(visible)
+        required_total = sum(1 for s in visible if s.get("required"))
+        completed_count = sum(1 for s in visible if s.get("completed"))
+        required_completed = sum(1 for s in visible if s.get("required") and s.get("completed"))
         return {
             "id": self.id,
             "scheduled_job_id": self.scheduled_job_id,
             "sop_template_id": self.sop_template_id,
             "template_name_snapshot": self.template_name_snapshot or "",
+            "reference_data": _j(self.reference_data_snapshot) if self.reference_data_snapshot else [],
+            "branches": _j(self.branches_snapshot) if self.branches_snapshot else [],
+            "selected_branch": selected,
             "steps": steps,
             "status": self.status or "pending",
             "started_at": self.started_at,
@@ -1517,6 +1567,41 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE task_allocations ADD COLUMN flat_pay_amount NUMERIC(10,2) DEFAULT 0"))
             logger.info("Migration: added task_allocations.flat_pay_amount")
+
+    # SOP V2 columns — section labels, branching, reference data
+    if inspector.has_table("sop_templates"):
+        st_cols = {c["name"] for c in inspector.get_columns("sop_templates")}
+        for new_col, ddl in [
+            ("reference_data", "ALTER TABLE sop_templates ADD COLUMN reference_data TEXT DEFAULT '[]'"),
+            ("branches", "ALTER TABLE sop_templates ADD COLUMN branches TEXT DEFAULT '[]'"),
+        ]:
+            if new_col not in st_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added sop_templates.{new_col}")
+
+    if inspector.has_table("sop_template_steps"):
+        sts_cols = {c["name"] for c in inspector.get_columns("sop_template_steps")}
+        for new_col, ddl in [
+            ("section_name", "ALTER TABLE sop_template_steps ADD COLUMN section_name TEXT DEFAULT ''"),
+            ("branch_key", "ALTER TABLE sop_template_steps ADD COLUMN branch_key TEXT DEFAULT ''"),
+        ]:
+            if new_col not in sts_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added sop_template_steps.{new_col}")
+
+    if inspector.has_table("sop_runs"):
+        sr_cols = {c["name"] for c in inspector.get_columns("sop_runs")}
+        for new_col, ddl in [
+            ("reference_data_snapshot", "ALTER TABLE sop_runs ADD COLUMN reference_data_snapshot TEXT DEFAULT '[]'"),
+            ("branches_snapshot", "ALTER TABLE sop_runs ADD COLUMN branches_snapshot TEXT DEFAULT '[]'"),
+            ("selected_branch", "ALTER TABLE sop_runs ADD COLUMN selected_branch TEXT DEFAULT ''"),
+        ]:
+            if new_col not in sr_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added sop_runs.{new_col}")
 
     # WrappedCache table — Base.metadata.create_all() above handles initial
     # creation, but if the table existed in an older shape we'd add columns

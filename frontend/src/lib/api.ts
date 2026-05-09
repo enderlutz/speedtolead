@@ -1045,6 +1045,18 @@ export const api = {
     request<{ attached: number; skipped_no_template: number; total_jobs: number }>(
       "/api/sops/backfill", { method: "POST" }
     ),
+  /** One-click import of the CrewClock Fence Staining template (23 steps,
+   * reference data, bleach-vs-power-wash branch). Idempotent — refuses
+   * to overwrite an existing template named "Fence Staining SOP". */
+  importCrewClockTemplate: () =>
+    request<{ status: "imported" | "exists"; template_id: string; step_count?: number; message: string }>(
+      "/api/sops/import/crewclock", { method: "POST" }
+    ),
+  selectSopBranch: (runId: string, branchKey: string) =>
+    request<SopRun>(`/api/sops/runs/${runId}/select-branch`, {
+      method: "POST",
+      body: JSON.stringify({ branch_key: branchKey }),
+    }),
 
   /** Worker (or admin) loads the SOP run for a specific job. Returns
    * `{ run: null }` when no template is configured for the job's service yet. */
@@ -1698,6 +1710,18 @@ export const SOP_CATEGORIES: { key: SopCategory; label: string; emoji: string }[
   { key: "wrap-up", label: "Wrap-up", emoji: "✅" },
 ];
 
+export interface SopReferenceItem {
+  label: string;
+  value: string;
+}
+
+export interface SopBranch {
+  key: string;
+  label: string;
+  subtitle?: string;
+  icon?: string;
+}
+
 export interface SopTemplate {
   id: string;
   name: string;
@@ -1705,6 +1729,8 @@ export interface SopTemplate {
   description: string;
   is_default: boolean;
   active: boolean;
+  reference_data: SopReferenceItem[];
+  branches: SopBranch[];
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -1718,6 +1744,12 @@ export interface SopTemplateStep {
   description: string;
   required: boolean;
   category: SopCategory;
+  /** Free-text section heading shown on the worker view (e.g. "Bleach
+   * / Chemical Wash"). When empty, falls back to the category label. */
+  section_name: string;
+  /** Branch this step belongs to. Empty = always show. Otherwise must
+   * match a key in the parent template's `branches` list. */
+  branch_key: string;
   photo_required: boolean;
   created_at: string;
   updated_at: string;
@@ -1729,6 +1761,8 @@ export interface SopTemplateBody {
   description?: string;
   is_default?: boolean;
   active?: boolean;
+  reference_data?: SopReferenceItem[];
+  branches?: SopBranch[];
 }
 
 export interface SopStepBody {
@@ -1736,6 +1770,8 @@ export interface SopStepBody {
   description?: string;
   required?: boolean;
   category?: SopCategory;
+  section_name?: string;
+  branch_key?: string;
   photo_required?: boolean;
   order_index?: number | null;
 }
@@ -1749,6 +1785,8 @@ export interface SopRunStep {
   description: string;
   required: boolean;
   category: SopCategory;
+  section_name: string;
+  branch_key: string;
   photo_required: boolean;
   completed: boolean;
   completed_at: string | null;
@@ -1765,6 +1803,9 @@ export interface SopRun {
   scheduled_job_id: string;
   sop_template_id: string;
   template_name_snapshot: string;
+  reference_data: SopReferenceItem[];
+  branches: SopBranch[];
+  selected_branch: string;
   steps: SopRunStep[];
   status: "pending" | "in_progress" | "completed";
   started_at: string | null;
