@@ -1315,17 +1315,20 @@ def init_db():
 
     engine_kwargs: dict = {"echo": False}
 
-    # Pool sized to handle bursting from multiple browser tabs (each polls
-    # /reimbursements + /estimate-delays/open every 60s) plus background
-    # loops (estimate-delay tick, scheduling/sms tick) without queueing.
-    # 10 + 20 = 30 max — well under Supabase's per-tier connection limit
-    # (60 free / 200 paid) and far above the prior 3+5=8 which was hitting
-    # QueuePool timeouts and cascading 500s through CORS.
-    engine_kwargs["pool_size"] = 10
-    engine_kwargs["max_overflow"] = 20
+    # Supabase's session-mode pooler caps total connections at 15 per
+    # project. With 6 background loops + 30+ endpoints all opening
+    # sessions, the previous 10+20=30 ceiling saturated Supabase and
+    # spiraled into 500s. Cut to 5+8=13 max — leaves 2 connections
+    # headroom for migrations / one-off queries.
+    #
+    # Long-term fix: switch DATABASE_URL to Supabase's TRANSACTION-mode
+    # pooler (port 6543 instead of 5432). That has a ~500-client limit
+    # and is the recommended pool for serverless/web workloads.
+    engine_kwargs["pool_size"] = 5
+    engine_kwargs["max_overflow"] = 8
     engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 300  # 5-min recycle is plenty for SSL freshness
-    engine_kwargs["pool_timeout"] = 15   # 15s — still fail-fast, but tolerates a short burst
+    engine_kwargs["pool_recycle"] = 120   # turn idle connections over fast so we free up Supabase slots
+    engine_kwargs["pool_timeout"] = 20    # tolerate a short burst rather than 500ing immediately
     _engine = create_engine(db_url, **engine_kwargs)
 
     # Auto-create any missing tables (safe — does nothing for existing tables)
