@@ -21,6 +21,8 @@ import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import Accounting from "@/pages/Accounting";
+import Eula from "@/pages/Eula";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -47,7 +49,8 @@ function AppLayout() {
   const isPublic =
     location.pathname === "/login" ||
     location.pathname.startsWith("/proposal/") ||
-    location.pathname.startsWith("/approve/");
+    location.pathname.startsWith("/approve/") ||
+    location.pathname.startsWith("/legal/");
 
   if (isPublic) {
     return (
@@ -55,6 +58,8 @@ function AppLayout() {
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalView />} />
         <Route path="/approve/:token" element={<QuickApprove />} />
+        <Route path="/legal/eula" element={<Eula />} />
+        <Route path="/legal/privacy" element={<PrivacyPolicy />} />
       </Routes>
     );
   }
