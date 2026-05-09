@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   api, type SopTemplate, type SopTemplateStep, type SopCategory,
-  SOP_CATEGORIES, type SopStepBody,
+  SOP_CATEGORIES, type SopStepBody, type SopStepKind, type SopMultiselectConfig,
   type SopReferenceItem, type SopBranch,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, ArrowUp, ArrowDown, Plus, Trash2, Camera, Star, Loader2, ListChecks, Save, Pencil, Info, GitBranch } from "lucide-react";
+import { X, ArrowUp, ArrowDown, Plus, Trash2, Camera, Star, Loader2, ListChecks, Save, Pencil, Info, GitBranch, MessageSquare, Bell } from "lucide-react";
 
 const SERVICE_TYPES = [
   { value: "fence_staining", label: "Fence Staining" },
@@ -407,7 +407,16 @@ function StepRow({
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-sm font-medium truncate">{step.title}</span>
           {step.required && <span className="text-[10px] uppercase tracking-wider bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">required</span>}
-          {step.photo_required && <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold"><Camera className="h-2.5 w-2.5" /> photo</span>}
+          {step.kind === "multiselect_alert" && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">
+              <Bell className="h-2.5 w-2.5" /> alert
+            </span>
+          )}
+          {step.kind === "checkbox" && step.photo_min_count > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">
+              <Camera className="h-2.5 w-2.5" /> {step.photo_min_count > 1 ? `${step.photo_min_count} photos` : "photo"}
+            </span>
+          )}
           {step.branch_key && <span className="inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wider bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">branch · {step.branch_key}</span>}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5">
@@ -438,21 +447,44 @@ function StepEditModal({
   const [title, setTitle] = useState(initial?.title || "");
   const [description, setDescription] = useState(initial?.description || "");
   const [required, setRequired] = useState(initial?.required ?? true);
-  const [photoRequired, setPhotoRequired] = useState(initial?.photo_required ?? false);
   const [category, setCategory] = useState<SopCategory>(initial?.category || defaultCategory);
   const [sectionName, setSectionName] = useState(initial?.section_name || "");
   const [branchKey, setBranchKey] = useState(initial?.branch_key || "");
+  const [kind, setKind] = useState<SopStepKind>(initial?.kind || "checkbox");
+  const [photoMinCount, setPhotoMinCount] = useState<number>(initial?.photo_min_count ?? 0);
+  // Multiselect config — options as a textarea (one per line) + alert template
+  const initialMs = (initial?.config as SopMultiselectConfig) || {};
+  const [optionsText, setOptionsText] = useState(
+    Array.isArray(initialMs.options) ? initialMs.options.join("\n") : "",
+  );
+  const [alertText, setAlertText] = useState(
+    initialMs.alert_text || "Upsell heads-up at {{customer_name}} ({{address}}) — {{selected}} look dirty. {{lead_url}}"
+  );
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     if (!title.trim()) { toast.error("Step title required"); return; }
+    if (kind === "multiselect_alert") {
+      const opts = optionsText.split("\n").map((s) => s.trim()).filter(Boolean);
+      if (opts.length === 0) { toast.error("Add at least one option"); return; }
+    }
     setSaving(true);
     try {
+      const config: SopMultiselectConfig | Record<string, unknown> =
+        kind === "multiselect_alert"
+          ? {
+              options: optionsText.split("\n").map((s) => s.trim()).filter(Boolean),
+              alert_text: alertText.trim(),
+            }
+          : {};
       await onSubmit({
         title: title.trim(),
         description,
         required,
-        photo_required: photoRequired,
+        photo_required: photoMinCount > 0,
+        photo_min_count: Math.max(0, photoMinCount),
+        kind,
+        config,
         category,
         section_name: sectionName.trim(),
         branch_key: branchKey.trim(),
@@ -499,16 +531,89 @@ function StepEditModal({
               </select>
             </div>
           )}
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
-              Required to complete the job
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={photoRequired} onChange={(e) => setPhotoRequired(e.target.checked)} />
-              <Camera className="h-3.5 w-3.5 text-blue-600" /> Worker must attach a photo
-            </label>
+
+          <div>
+            <label className={labelCls}>Step kind</label>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => setKind("checkbox")}
+                className={`border rounded-lg p-2 text-left text-xs ${
+                  kind === "checkbox" ? "border-primary bg-primary/5" : "border-input"
+                }`}
+              >
+                <div className="font-bold flex items-center gap-1"><MessageSquare className="h-3 w-3" /> Checkbox</div>
+                <p className="text-muted-foreground mt-0.5">Worker ticks to mark done. Optional notes + photos.</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setKind("multiselect_alert")}
+                className={`border rounded-lg p-2 text-left text-xs ${
+                  kind === "multiselect_alert" ? "border-primary bg-primary/5" : "border-input"
+                }`}
+              >
+                <div className="font-bold flex items-center gap-1"><Bell className="h-3 w-3" /> Multiselect alert</div>
+                <p className="text-muted-foreground mt-0.5">Worker picks from options. Selecting any SMS-es Alan with the items + a lead link.</p>
+              </button>
+            </div>
           </div>
+
+          {kind === "checkbox" && (
+            <div className="grid grid-cols-2 gap-2 items-end">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+                Required to complete the job
+              </label>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                  <Camera className="h-3 w-3 text-blue-600" /> Min photos
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={photoMinCount}
+                  onChange={(e) => setPhotoMinCount(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="mt-1 h-8 text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  0 = no photo. 1 = single. 2+ = multi-photo gallery.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {kind === "multiselect_alert" && (
+            <>
+              <div>
+                <label className={labelCls}>Options <span className="text-muted-foreground/60 normal-case font-normal">(one per line)</span></label>
+                <textarea
+                  value={optionsText}
+                  onChange={(e) => setOptionsText(e.target.value)}
+                  rows={4}
+                  className={`${inputCls} mt-1 resize-none font-mono text-xs`}
+                  placeholder={"Windows\nPool deck\nDriveway\nGutters"}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>SMS to Alan when any selected</label>
+                <textarea
+                  value={alertText}
+                  onChange={(e) => setAlertText(e.target.value)}
+                  rows={3}
+                  className={`${inputCls} mt-1 resize-none text-xs`}
+                  placeholder="Upsell heads-up at {{customer_name}} ({{address}}) — {{selected}} look dirty. {{lead_url}}"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Available variables: <code className="px-1 bg-muted rounded">{`{{customer_name}}`}</code> · <code className="px-1 bg-muted rounded">{`{{customer_phone}}`}</code> · <code className="px-1 bg-muted rounded">{`{{address}}`}</code> · <code className="px-1 bg-muted rounded">{`{{selected}}`}</code> · <code className="px-1 bg-muted rounded">{`{{lead_url}}`}</code>
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+                Required to complete the job
+              </label>
+            </>
+          )}
         </div>
         <div className="p-3 border-t flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>

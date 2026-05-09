@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -31,9 +31,11 @@ from sqlalchemy import or_
 
 from database import (
     get_db, SopTemplate, SopTemplateStep, SopRun, SopRunPhoto,
-    ScheduledJob, Lead, Employee,
+    ScheduledJob, Lead, Employee, TimeEntry, TaskAllocation,
 )
 from api.auth import require_admin, require_staff, get_current_user
+from config import get_settings
+from services import ghl as ghl_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -78,7 +80,23 @@ class StepBody(BaseModel):
     section_name: str = ""
     branch_key: str = ""
     photo_required: bool = False
+    photo_min_count: int = 0
+    kind: str = "checkbox"               # checkbox | multiselect_alert
+    config: dict | None = None           # kind-specific config; None = leave existing
     order_index: int | None = None  # if None, append to end
+
+
+class MultiselectSubmitBody(BaseModel):
+    """Worker submits the answer to a multiselect_alert step."""
+    selected_options: list[str]          # may be empty if "none of the above"
+
+
+class LogHoursBody(BaseModel):
+    """Worker logs their hours from inside the SOP panel for the parent
+    job. Hours land as a TaskAllocation tied to the lead."""
+    hours: float
+    task_name: str = "Fence staining"
+    notes: str = ""
 
 
 class SelectBranchBody(BaseModel):
@@ -129,11 +147,25 @@ def _build_run_snapshot(template: SopTemplate, steps: list[dict]) -> list[dict]:
             "section_name": s.get("section_name", ""),
             "branch_key": s.get("branch_key", ""),
             "photo_required": s["photo_required"],
+            # SOP V3 — multi-photo + alternative kinds. Snapshotting these
+            # fields freezes the worker's experience to whatever the
+            # template said at attach time, even if admin edits later.
+            "photo_min_count": int(s.get("photo_min_count") or 0),
+            "kind": s.get("kind") or "checkbox",
+            "config": s.get("config") or {},
             "completed": False,
             "completed_at": None,
             "completed_by": None,
             "note": "",
+            # photo_id stays for legacy single-photo back-compat — points
+            # to the most-recently-uploaded photo. Frontend on V3 fetches
+            # the full photo list via /sops/runs/{id}/steps/{id}/photos.
             "photo_id": None,
+            # multiselect_alert state. None = unanswered. [] = answered
+            # with no selections (allowed). [...] = answered with picks.
+            "selected_options": None,
+            "submitted_at": None,
+            "submitted_by": None,
             "help_requested_at": None,
             "help_requested_by": None,
             "help_note": "",
@@ -399,7 +431,10 @@ def add_step(template_id: str, body: StepBody, user: dict = Depends(require_admi
             category=body.category,
             section_name=body.section_name or "",
             branch_key=body.branch_key or "",
-            photo_required=body.photo_required,
+            photo_required=body.photo_required or (body.photo_min_count or 0) > 0,
+            photo_min_count=max(0, body.photo_min_count or 0),
+            kind=body.kind or "checkbox",
+            config_json=json.dumps(body.config or {}),
             created_at=_now(),
             updated_at=_now(),
         )
@@ -430,7 +465,11 @@ def update_step(step_id: str, body: StepBody, user: dict = Depends(require_admin
         step.category = body.category
         step.section_name = body.section_name or ""
         step.branch_key = body.branch_key or ""
-        step.photo_required = body.photo_required
+        step.photo_min_count = max(0, body.photo_min_count or 0)
+        step.photo_required = body.photo_required or step.photo_min_count > 0
+        step.kind = body.kind or "checkbox"
+        if body.config is not None:
+            step.config_json = json.dumps(body.config)
         if body.order_index is not None:
             step.order_index = body.order_index
         step.updated_at = _now()
@@ -573,9 +612,25 @@ def start_run(run_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
+def _photo_count_for_step(db, run_id: str, step_id: str) -> int:
+    return (
+        db.query(SopRunPhoto)
+        .filter(SopRunPhoto.sop_run_id == run_id, SopRunPhoto.step_id == step_id)
+        .count()
+    )
+
+
 @router.put("/sops/runs/{run_id}/steps/{step_id}/check")
 def check_step(run_id: str, step_id: str, body: StepCheckBody, user: dict = Depends(get_current_user)):
-    """Toggle a step. Workers can check AND uncheck per spec."""
+    """Toggle a step. Workers can check AND uncheck per spec.
+
+    Completion gates by step kind:
+      - checkbox: requires photo_min_count photos (if > 0) before completion.
+        photo_required (legacy boolean) maps to min_count >= 1.
+      - multiselect_alert: blocks here — must be completed via the
+        /multiselect endpoint, not the checkbox toggle. Returns 400 if
+        called for that kind.
+    """
     db = get_db()
     try:
         run = db.query(SopRun).filter(SopRun.id == run_id).first()
@@ -591,9 +646,23 @@ def check_step(run_id: str, step_id: str, body: StepCheckBody, user: dict = Depe
         found = False
         for s in steps:
             if s.get("step_id") == step_id:
-                # Photo gate: if photo_required, can't mark complete without one
-                if body.completed and s.get("photo_required") and not s.get("photo_id"):
-                    raise HTTPException(400, "This step requires a photo before it can be marked complete")
+                kind = s.get("kind") or "checkbox"
+                if kind != "checkbox":
+                    raise HTTPException(400, f"Step kind '{kind}' must be completed via its own endpoint, not /check")
+
+                if body.completed:
+                    # Photo gate: enforce min count when set, else fall back
+                    # to legacy "1 photo if photo_required" behavior.
+                    min_required = max(int(s.get("photo_min_count") or 0),
+                                       1 if s.get("photo_required") else 0)
+                    if min_required > 0:
+                        actual = _photo_count_for_step(db, run_id, step_id)
+                        if actual < min_required:
+                            raise HTTPException(
+                                400,
+                                f"This step requires {min_required} photo(s) — only {actual} attached.",
+                            )
+
                 s["completed"] = bool(body.completed)
                 if body.completed:
                     s["completed_at"] = _now()
@@ -685,6 +754,205 @@ def request_help(run_id: str, step_id: str, body: StepHelpBody, user: dict = Dep
         db.close()
 
 
+# ─── Multiselect-alert step ──────────────────────────────────────────────
+
+def _format_multiselect_sms(template: str, ctx: dict) -> str:
+    """Tiny {{var}} substitution for the alert template. Variables we
+    inject: customer_name, customer_phone, address, lead_url,
+    selected (comma-separated)."""
+    out = template or ""
+    for k, v in ctx.items():
+        out = out.replace("{{" + k + "}}", str(v))
+    return out
+
+
+@router.post("/sops/runs/{run_id}/steps/{step_id}/multiselect")
+def submit_multiselect(
+    run_id: str,
+    step_id: str,
+    body: MultiselectSubmitBody,
+    user: dict = Depends(get_current_user),
+):
+    """Worker submits the answer to a multiselect_alert step. If any
+    options are selected, fires an SMS to Alan via GHL with the items
+    + a deep link to the lead. Empty selection (`none of the above`)
+    is allowed and just marks the step complete without alerting."""
+    db = get_db()
+    try:
+        run = db.query(SopRun).filter(SopRun.id == run_id).first()
+        if not run:
+            raise HTTPException(404, "Run not found")
+        if not _can_access_run(user, run, db):
+            raise HTTPException(403, "Not assigned to this job")
+
+        try:
+            steps = json.loads(run.steps_json or "[]")
+        except json.JSONDecodeError:
+            steps = []
+        target = next((s for s in steps if s.get("step_id") == step_id), None)
+        if target is None:
+            raise HTTPException(404, "Step not found in this run")
+        if (target.get("kind") or "checkbox") != "multiselect_alert":
+            raise HTTPException(400, "Step is not a multiselect_alert kind")
+
+        # Validate selections against config
+        cfg = target.get("config") or {}
+        valid_options = cfg.get("options") or []
+        valid_set = {str(o).strip() for o in valid_options}
+        clean = [str(o).strip() for o in (body.selected_options or []) if str(o).strip() in valid_set]
+
+        target["selected_options"] = clean
+        target["submitted_at"] = _now()
+        target["submitted_by"] = user.get("name", "")
+        target["completed"] = True
+        target["completed_at"] = _now()
+        target["completed_by"] = user.get("name", "")
+
+        # Fire SMS to Alan if anything was flagged. Best-effort — failures
+        # log but don't roll back the submission (we don't want the worker
+        # blocked because GHL is hiccupping).
+        sms_sent = False
+        sms_skipped_reason: str | None = None
+        if clean:
+            settings = get_settings()
+            owner_id = settings.owner_ghl_contact_id
+            if not owner_id:
+                sms_skipped_reason = "no owner_ghl_contact_id configured"
+            else:
+                # Look up the lead for context + the dashboard link
+                job = db.query(ScheduledJob).filter(ScheduledJob.id == run.scheduled_job_id).first()
+                lead = db.query(Lead).filter(Lead.id == job.lead_id).first() if job else None
+                frontend_url = (settings.frontend_url or "").rstrip("/")
+                lead_url = f"{frontend_url}/leads/{lead.id}" if (lead and frontend_url) else ""
+                ctx = {
+                    "customer_name": lead.contact_name if lead else "",
+                    "customer_phone": lead.contact_phone if lead else "",
+                    "address": (job.address if job else "") or (lead.address if lead else ""),
+                    "lead_url": lead_url,
+                    "selected": ", ".join(clean),
+                }
+                tpl = cfg.get("alert_text") or (
+                    "Upsell heads-up at {{customer_name}} — looks dirty: {{selected}}. {{lead_url}}"
+                )
+                msg = _format_multiselect_sms(tpl, ctx)
+                try:
+                    ok = ghl_service.send_sms(owner_id, msg)
+                    sms_sent = bool(ok)
+                except Exception as e:
+                    logger.warning(f"Multiselect alert SMS failed (non-fatal): {e}")
+                    sms_skipped_reason = str(e)
+
+        run.steps_json = json.dumps(steps)
+        _recompute_run_status(run)
+        run.updated_at = _now()
+        db.commit()
+        db.refresh(run)
+
+        out = run.to_dict()
+        out["_alert"] = {
+            "selected": clean,
+            "sms_sent": sms_sent,
+            "skipped_reason": sms_skipped_reason,
+        }
+        return out
+    finally:
+        db.close()
+
+
+# ─── Worker hours logging ───────────────────────────────────────────────
+
+@router.post("/sops/runs/{run_id}/log-hours")
+def log_hours(run_id: str, body: LogHoursBody, user: dict = Depends(get_current_user)):
+    """Worker logs their hours from inside the SOP panel. Creates (or
+    appends to) today's TimeEntry for them and adds a TaskAllocation
+    against this job's lead. Mirrors what /api/time-logs/allocations
+    does, but doesn't require the worker to know the lead_id or
+    employee_id — both are inferred from the run."""
+    if body.hours <= 0:
+        raise HTTPException(400, "hours must be > 0")
+    db = get_db()
+    try:
+        run = db.query(SopRun).filter(SopRun.id == run_id).first()
+        if not run:
+            raise HTTPException(404, "Run not found")
+        if not _can_access_run(user, run, db):
+            raise HTTPException(403, "Not assigned to this job")
+        job = db.query(ScheduledJob).filter(ScheduledJob.id == run.scheduled_job_id).first()
+        if not job:
+            raise HTTPException(404, "Scheduled job not found")
+
+        # Resolve worker → employee. For role=worker, the user has
+        # employee_id. For admins logging on a worker's behalf, we'd need
+        # an explicit employee_id arg — out of V1 scope; admins should
+        # use the existing Crew → Daily Log flow.
+        employee_id = user.get("employee_id")
+        if not employee_id:
+            raise HTTPException(
+                400,
+                "Only crew members with linked employee accounts can log hours here. "
+                "Admin: use Crew → Daily Log.",
+            )
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        if not emp:
+            raise HTTPException(404, "Employee not found")
+
+        # Today's date in Central — matches the rest of the time-logs flow
+        today = (
+            datetime.now(timezone.utc) + timedelta(hours=-5 if 3 <= datetime.now(timezone.utc).month <= 10 else -6)
+        ).date().isoformat()
+
+        # Reuse or create today's TimeEntry for this employee
+        te = (
+            db.query(TimeEntry)
+            .filter(TimeEntry.employee_id == employee_id, TimeEntry.work_date == today)
+            .first()
+        )
+        if not te:
+            te = TimeEntry(
+                id=str(uuid.uuid4()),
+                employee_id=employee_id,
+                work_date=today,
+                hours=body.hours,
+                rate_at_entry=float(emp.pay_rate or 0),
+                earnings=float(emp.pay_rate or 0) * body.hours,
+                job_reference=job.customer_name or job.address or "",
+                notes=body.notes or "",
+                created_at=_now(),
+                created_by=user.get("name", ""),
+            )
+            db.add(te)
+            db.flush()
+        else:
+            new_hours = float(te.hours or 0) + body.hours
+            te.hours = new_hours
+            te.earnings = float(te.rate_at_entry or 0) * new_hours
+
+        alloc = TaskAllocation(
+            id=str(uuid.uuid4()),
+            employee_id=employee_id,
+            time_entry_id=te.id,
+            work_date=today,
+            lead_id=job.lead_id,
+            task_name=(body.task_name or "Fence staining").strip(),
+            hours=body.hours,
+            notes=body.notes or "",
+            created_at=_now(),
+            created_by=user.get("name", ""),
+            updated_at=_now(),
+        )
+        db.add(alloc)
+        db.commit()
+        return {
+            "status": "ok",
+            "hours_logged": body.hours,
+            "today_total_hours": float(te.hours or 0),
+            "allocation_id": alloc.id,
+            "time_entry_id": te.id,
+        }
+    finally:
+        db.close()
+
+
 # ─── Photos ──────────────────────────────────────────────────────────────
 
 @router.post("/sops/runs/{run_id}/steps/{step_id}/photo")
@@ -692,11 +960,17 @@ async def upload_step_photo(
     run_id: str,
     step_id: str,
     file: UploadFile = File(...),
+    photo_kind: str = Form("general"),
     user: dict = Depends(get_current_user),
 ):
-    """Attach a photo to a step. Stored as a blob in SopRunPhoto. The
-    step's photo_id in steps_json is updated to point here. Re-upload
-    replaces the previous photo (the old row is deleted)."""
+    """Attach a photo to a step. Stored as a blob in SopRunPhoto.
+
+    Behavior depends on the step's photo_min_count:
+      - <= 1 (single-photo step): re-upload REPLACES the previous photo
+        (legacy behavior — keeps a clean single image per step)
+      - >= 2 (multi-photo step): re-upload APPENDS to the gallery — the
+        worker can post all 5 before-shots without losing any
+    """
     db = get_db()
     try:
         run = db.query(SopRun).filter(SopRun.id == run_id).first()
@@ -722,12 +996,15 @@ async def upload_step_photo(
         if target is None:
             raise HTTPException(404, "Step not found in this run")
 
-        # Replace existing photo if there is one
-        prev_photo_id = target.get("photo_id")
-        if prev_photo_id:
-            old = db.query(SopRunPhoto).filter(SopRunPhoto.id == prev_photo_id).first()
-            if old:
-                db.delete(old)
+        # Single-photo step (back-compat): replace previous photo. Multi-photo
+        # step: append, leave existing rows alone.
+        is_multi = int(target.get("photo_min_count") or 0) > 1
+        if not is_multi:
+            prev_photo_id = target.get("photo_id")
+            if prev_photo_id:
+                old = db.query(SopRunPhoto).filter(SopRunPhoto.id == prev_photo_id).first()
+                if old:
+                    db.delete(old)
 
         photo = SopRunPhoto(
             id=str(uuid.uuid4()),
@@ -736,12 +1013,115 @@ async def upload_step_photo(
             photo_data=data,
             filename=file.filename or "photo",
             mime=mime,
+            photo_kind=(photo_kind or "general").strip().lower() or "general",
             uploaded_at=_now(),
             uploaded_by=user.get("name", ""),
         )
         db.add(photo)
         db.flush()
+        # Most-recent-photo pointer for legacy back-compat
         target["photo_id"] = photo.id
+        run.steps_json = json.dumps(steps)
+        run.updated_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run.to_dict()
+    finally:
+        db.close()
+
+
+@router.get("/sops/runs/{run_id}/steps/{step_id}/photos")
+def list_step_photos(run_id: str, step_id: str, user: dict = Depends(get_current_user)):
+    """Return metadata for every photo attached to this step. Frontend
+    uses this to render the multi-photo gallery."""
+    db = get_db()
+    try:
+        run = db.query(SopRun).filter(SopRun.id == run_id).first()
+        if not run:
+            raise HTTPException(404, "Run not found")
+        if not _can_access_run(user, run, db):
+            raise HTTPException(403, "Not assigned to this job")
+        rows = (
+            db.query(SopRunPhoto)
+            .filter(SopRunPhoto.sop_run_id == run_id, SopRunPhoto.step_id == step_id)
+            .order_by(SopRunPhoto.uploaded_at.asc())
+            .all()
+        )
+        return {
+            "photos": [
+                {
+                    "id": p.id,
+                    "filename": p.filename or "",
+                    "mime": p.mime or "image/jpeg",
+                    "photo_kind": p.photo_kind or "general",
+                    "uploaded_at": p.uploaded_at or "",
+                    "uploaded_by": p.uploaded_by or "",
+                }
+                for p in rows
+            ],
+        }
+    finally:
+        db.close()
+
+
+@router.get("/sops/runs/{run_id}/photos/{photo_id}")
+def get_run_photo_by_id(run_id: str, photo_id: str, user: dict = Depends(get_current_user)):
+    """Fetch a specific photo by its ID — multi-photo gallery items load
+    via this endpoint (the legacy /steps/{id}/photo only returned the
+    `photo_id` pointer, not arbitrary photos in the gallery)."""
+    db = get_db()
+    try:
+        run = db.query(SopRun).filter(SopRun.id == run_id).first()
+        if not run:
+            raise HTTPException(404, "Run not found")
+        if not _can_access_run(user, run, db):
+            raise HTTPException(403, "Not assigned to this job")
+        photo = db.query(SopRunPhoto).filter(
+            SopRunPhoto.id == photo_id, SopRunPhoto.sop_run_id == run_id
+        ).first()
+        if not photo or not photo.photo_data:
+            raise HTTPException(404, "Photo not found")
+        return Response(content=photo.photo_data, media_type=photo.mime or "image/jpeg")
+    finally:
+        db.close()
+
+
+@router.delete("/sops/runs/{run_id}/photos/{photo_id}")
+def delete_run_photo_by_id(run_id: str, photo_id: str, user: dict = Depends(get_current_user)):
+    """Delete a specific photo from the gallery. If the deleted photo was
+    the step's `photo_id` pointer, repoint to the next-most-recent
+    surviving photo (or null)."""
+    db = get_db()
+    try:
+        run = db.query(SopRun).filter(SopRun.id == run_id).first()
+        if not run:
+            raise HTTPException(404, "Run not found")
+        if not _can_access_run(user, run, db):
+            raise HTTPException(403, "Not assigned to this job")
+        photo = db.query(SopRunPhoto).filter(
+            SopRunPhoto.id == photo_id, SopRunPhoto.sop_run_id == run_id
+        ).first()
+        if not photo:
+            raise HTTPException(404, "Photo not found")
+        step_id = photo.step_id
+        db.delete(photo)
+        db.flush()
+
+        # Repoint legacy photo_id if needed
+        try:
+            steps = json.loads(run.steps_json or "[]")
+        except json.JSONDecodeError:
+            steps = []
+        for s in steps:
+            if s.get("step_id") == step_id and s.get("photo_id") == photo_id:
+                surviving = (
+                    db.query(SopRunPhoto)
+                    .filter(SopRunPhoto.sop_run_id == run_id, SopRunPhoto.step_id == step_id)
+                    .order_by(SopRunPhoto.uploaded_at.desc())
+                    .first()
+                )
+                s["photo_id"] = surviving.id if surviving else None
+                break
         run.steps_json = json.dumps(steps)
         run.updated_at = _now()
         db.commit()
@@ -860,39 +1240,46 @@ _CREWCLOCK_BRANCHES = [
     {"key": "power_wash", "label": "Power Washing", "subtitle": "Pressure washer", "icon": "Zap"},
 ]
 
-# Each tuple: (section_name, category, branch_key, title, required, photo_required)
-_CREWCLOCK_STEPS: list[tuple[str, str, str, str, bool, bool]] = [
-    # Pre Inspection
-    ("Pre Inspection", "pre-arrival", "", "Take photos and note scope of work, obstacles, and damaged boards. Walk the full fence line — look for rot, loose nails, and gaps.", True, True),
-    ("Pre Inspection", "pre-arrival", "", "Find power outlets and plan where the stainer goes.", False, False),
+# Each tuple: (section_name, category, branch_key, title, required,
+#              photo_min_count, kind, config). kind defaults to checkbox;
+#              config is the kind-specific JSON blob (empty for checkbox).
+_CREWCLOCK_STEPS: list[tuple[str, str, str, str, bool, int, str, dict]] = [
+    # Pre Inspection — initial photos + walk-through
+    ("Pre Inspection", "pre-arrival", "", "Take BEFORE photos and note scope of work, obstacles, and damaged boards. Walk the full fence line — look for rot, loose nails, and gaps. Minimum 5 photos.", True, 5, "checkbox", {}),
+    ("Pre Inspection", "pre-arrival", "", "Find power outlets and plan where the stainer goes.", False, 0, "checkbox", {}),
     # Site Prep & Drop Cloths
-    ("Site Prep & Drop Cloths", "setup", "", "Lay drop cloths along the fence line to protect landscaping and concrete.", False, False),
+    ("Site Prep & Drop Cloths", "setup", "", "Lay drop cloths along the fence line to protect landscaping and concrete.", False, 0, "checkbox", {}),
     # Masking
-    ("Masking", "setup", "", "Tape off around ALL hinges on gates — cover every hinge completely so no stain gets on the hardware.", True, False),
-    ("Masking", "setup", "", "Tape off latches, locks, and any other gate hardware.", True, False),
-    ("Masking", "setup", "", "Mask off house siding, brick, stucco, or any surface touching the fence that should not be stained.", True, False),
-    ("Masking", "setup", "", "Shield the house very well — use extra plastic sheeting or paper along the house wall near the fence line to prevent overspray.", True, False),
-    ("Masking", "setup", "", "Use an Exacto knife to cut tape precisely around tight areas, corners, and hardware edges for a clean line.", True, False),
-    ("Masking", "setup", "", "Cover any AC units, electrical boxes, or fixtures near the fence line.", False, False),
-    ("Masking", "setup", "", "Double-check all masking before starting wash or stain — walk the full fence line one more time.", True, False),
+    ("Masking", "setup", "", "Tape off around ALL hinges on gates — cover every hinge completely so no stain gets on the hardware.", True, 0, "checkbox", {}),
+    ("Masking", "setup", "", "Tape off latches, locks, and any other gate hardware.", True, 0, "checkbox", {}),
+    ("Masking", "setup", "", "Mask off house siding, brick, stucco, or any surface touching the fence that should not be stained.", True, 0, "checkbox", {}),
+    ("Masking", "setup", "", "Shield the house very well — use extra plastic sheeting or paper along the house wall near the fence line to prevent overspray.", True, 0, "checkbox", {}),
+    ("Masking", "setup", "", "Use an Exacto knife to cut tape precisely around tight areas, corners, and hardware edges for a clean line.", True, 0, "checkbox", {}),
+    ("Masking", "setup", "", "Cover any AC units, electrical boxes, or fixtures near the fence line.", False, 0, "checkbox", {}),
+    ("Masking", "setup", "", "Double-check all masking before starting wash or stain — walk the full fence line one more time.", True, 0, "checkbox", {}),
     # Bleach / Chemical Wash branch
-    ("Bleach / Chemical Wash", "execution", "bleach", "Pre-wet all plants, grass, and landscaping near the fence line to protect from chemical runoff.", True, False),
-    ("Bleach / Chemical Wash", "execution", "bleach", "Mix bleach/SH solution to appropriate strength for wood cleaning (typically 1-3% SH).", True, False),
-    ("Bleach / Chemical Wash", "execution", "bleach", "Apply bleach with pump sprayer.", True, False),
-    ("Bleach / Chemical Wash", "execution", "bleach", "Allow 5-10 minute dwell time. Do not let solution dry on the wood — re-apply if needed.", True, False),
-    ("Bleach / Chemical Wash", "execution", "bleach", "Allow fence to dry completely before staining (check dry time based on weather).", True, False),
-    # Power Washing branch — stub so admin can flesh out
-    ("Power Washing", "execution", "power_wash", "Set pressure washer to appropriate PSI for wood (typically 1500-2000 PSI). Add steps in the editor.", True, False),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Pre-wet all plants, grass, and landscaping near the fence line to protect from chemical runoff.", True, 0, "checkbox", {}),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Mix bleach/SH solution to appropriate strength for wood cleaning (typically 1-3% SH).", True, 0, "checkbox", {}),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Apply bleach with pump sprayer.", True, 0, "checkbox", {}),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Allow 5-10 minute dwell time. Do not let solution dry on the wood — re-apply if needed.", True, 0, "checkbox", {}),
+    ("Bleach / Chemical Wash", "execution", "bleach", "Allow fence to dry completely before staining (check dry time based on weather).", True, 0, "checkbox", {}),
+    # Power Washing branch — stub
+    ("Power Washing", "execution", "power_wash", "Set pressure washer to appropriate PSI for wood (typically 1500-2000 PSI). Add steps in the editor.", True, 0, "checkbox", {}),
     # Staining
-    ("Staining", "execution", "", "Mix stain thoroughly before loading sprayer.", True, False),
-    ("Staining", "execution", "", "Apply stain evenly using airless sprayer, working in sections.", True, False),
-    ("Staining", "execution", "", "Back-brush any drips or puddles immediately.", True, False),
-    ("Staining", "execution", "", "Apply second coat if needed per product specs.", True, False),
+    ("Staining", "execution", "", "Mix stain thoroughly before loading sprayer.", True, 0, "checkbox", {}),
+    ("Staining", "execution", "", "Apply stain evenly using airless sprayer, working in sections.", True, 0, "checkbox", {}),
+    ("Staining", "execution", "", "Back-brush any drips or puddles immediately.", True, 0, "checkbox", {}),
+    ("Staining", "execution", "", "Apply second coat if needed per product specs.", True, 0, "checkbox", {}),
     # Cleanup
-    ("Cleanup", "cleanup", "", "Remove all drop cloths and masking.", True, False),
-    ("Cleanup", "cleanup", "", "Clean all equipment and flush sprayer lines.", True, False),
-    ("Cleanup", "cleanup", "", "Take final photos of completed work.", True, True),
-    ("Cleanup", "wrap-up", "", "Notify customer that job is complete.", False, False),
+    ("Cleanup", "cleanup", "", "Remove all drop cloths and masking.", True, 0, "checkbox", {}),
+    ("Cleanup", "cleanup", "", "Clean all equipment and flush sprayer lines.", True, 0, "checkbox", {}),
+    ("Cleanup", "cleanup", "", "Take AFTER photos of completed work. Minimum 5 photos.", True, 5, "checkbox", {}),
+    # Multiselect alert — upsell-detection. Selecting any option SMS-es Alan.
+    ("Cleanup", "cleanup", "", "Look around the property — anything else dirty we could quote?", True, 0, "multiselect_alert", {
+        "options": ["Windows", "Pool deck", "Driveway", "Gutters"],
+        "alert_text": "Upsell heads-up at {{customer_name}} ({{address}}) — {{selected}} look dirty. Lead: {{lead_url}}",
+    }),
+    ("Cleanup", "wrap-up", "", "Notify customer that job is complete.", False, 0, "checkbox", {}),
 ]
 
 
@@ -943,7 +1330,7 @@ def import_crewclock_template(user: dict = Depends(require_admin)):
         db.add(tpl)
         db.flush()
 
-        for idx, (section, category, branch, title, required, photo_required) in enumerate(_CREWCLOCK_STEPS):
+        for idx, (section, category, branch, title, required, photo_min, kind, config) in enumerate(_CREWCLOCK_STEPS):
             db.add(SopTemplateStep(
                 id=str(uuid.uuid4()),
                 sop_template_id=tpl.id,
@@ -954,7 +1341,10 @@ def import_crewclock_template(user: dict = Depends(require_admin)):
                 category=category,
                 section_name=section,
                 branch_key=branch,
-                photo_required=photo_required,
+                photo_required=photo_min > 0,
+                photo_min_count=photo_min,
+                kind=kind,
+                config_json=json.dumps(config),
                 created_at=_now(),
                 updated_at=_now(),
             ))

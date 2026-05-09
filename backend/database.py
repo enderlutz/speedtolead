@@ -1143,7 +1143,24 @@ class SopTemplateStep(Base):
     # `branches` JSON). Empty string = always show. Used for the
     # bleach-vs-power-wash style mutually-exclusive workflows.
     branch_key = Column(Text, default="")
-    photo_required = Column(Boolean, default=False)    # worker must attach a photo to mark complete
+    photo_required = Column(Boolean, default=False)    # legacy single-photo gate, retained for back-compat
+    # SOP V3: multi-photo + alternative step kinds.
+    # photo_min_count > 0 means the worker must attach at least N photos
+    # before the step can be checked off. When > 1 it implicitly enables
+    # the multi-photo gallery UI on the worker's view.
+    photo_min_count = Column(Integer, default=0)
+    # Step kind. Default "checkbox" preserves the existing behavior. Other
+    # kinds drive different worker UI + completion logic:
+    #   - "checkbox": tick-to-complete, optional notes/photos (existing)
+    #   - "multiselect_alert": worker picks from N options. If any are
+    #     selected on submit, an SMS fires to Alan via GHL with the
+    #     selected items + a link to the lead. Used for the "anything
+    #     else dirty in the house?" upsell-detection flow.
+    kind = Column(Text, default="checkbox")
+    # Free-form per-kind configuration (JSON). For multiselect_alert:
+    #   {"options": ["Windows", "Pool deck", ...],
+    #    "alert_text": "House inspection at {{customer_name}} — dirty: {{selected}}. {{lead_url}}"}
+    config_json = Column(Text, default="{}")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -1159,6 +1176,9 @@ class SopTemplateStep(Base):
             "section_name": self.section_name or "",
             "branch_key": self.branch_key or "",
             "photo_required": bool(self.photo_required),
+            "photo_min_count": int(self.photo_min_count or 0),
+            "kind": self.kind or "checkbox",
+            "config": _j(self.config_json) if self.config_json else {},
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
         }
@@ -1280,6 +1300,10 @@ class SopRunPhoto(Base):
     photo_data = Column(LargeBinary, nullable=True)
     filename = Column(Text, default="")
     mime = Column(Text, default="")
+    # Optional tag — "before" / "after" / "general". Currently informational
+    # (we count by sop_run_id+step_id, not by kind). Future-friendly so we
+    # can split a single step's photos into "before" and "after" buckets.
+    photo_kind = Column(Text, default="general")
     uploaded_at = Column(Text, default="")
     uploaded_by = Column(Text, default="")
 
@@ -1585,11 +1609,42 @@ def _run_migrations():
         for new_col, ddl in [
             ("section_name", "ALTER TABLE sop_template_steps ADD COLUMN section_name TEXT DEFAULT ''"),
             ("branch_key", "ALTER TABLE sop_template_steps ADD COLUMN branch_key TEXT DEFAULT ''"),
+            ("photo_min_count", "ALTER TABLE sop_template_steps ADD COLUMN photo_min_count INTEGER DEFAULT 0"),
+            ("kind", "ALTER TABLE sop_template_steps ADD COLUMN kind TEXT DEFAULT 'checkbox'"),
+            ("config_json", "ALTER TABLE sop_template_steps ADD COLUMN config_json TEXT DEFAULT '{}'"),
         ]:
             if new_col not in sts_cols:
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added sop_template_steps.{new_col}")
+        # Backfill photo_min_count from existing photo_required boolean so
+        # already-published templates keep working without admin re-saving.
+        if "photo_min_count" in sts_cols or True:  # always run; UPDATE is a no-op if values match
+            try:
+                with _engine.begin() as conn:
+                    conn.execute(text(
+                        "UPDATE sop_template_steps SET photo_min_count = 1 "
+                        "WHERE (photo_min_count IS NULL OR photo_min_count = 0) "
+                        "AND photo_required IS TRUE"
+                    ))
+            except Exception:
+                # SQLite uses 1/0 for booleans; tolerate the syntax difference
+                try:
+                    with _engine.begin() as conn:
+                        conn.execute(text(
+                            "UPDATE sop_template_steps SET photo_min_count = 1 "
+                            "WHERE (photo_min_count IS NULL OR photo_min_count = 0) "
+                            "AND photo_required = 1"
+                        ))
+                except Exception as e:
+                    logger.warning(f"photo_min_count backfill skipped: {e}")
+
+    if inspector.has_table("sop_run_photos"):
+        srp_cols = {c["name"] for c in inspector.get_columns("sop_run_photos")}
+        if "photo_kind" not in srp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE sop_run_photos ADD COLUMN photo_kind TEXT DEFAULT 'general'"))
+            logger.info("Migration: added sop_run_photos.photo_kind")
 
     if inspector.has_table("sop_runs"):
         sr_cols = {c["name"] for c in inspector.get_columns("sop_runs")}

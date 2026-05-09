@@ -1105,6 +1105,34 @@ export const api = {
     return URL.createObjectURL(await res.blob());
   },
 
+  // SOP V3 — multi-photo + multiselect_alert + worker hours-logging
+  listSopStepPhotos: (runId: string, stepId: string) =>
+    request<{ photos: SopRunPhotoMeta[] }>(`/api/sops/runs/${runId}/steps/${stepId}/photos`),
+  fetchSopRunPhotoBlobUrl: async (runId: string, photoId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/sops/runs/${runId}/photos/${photoId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteSopRunPhoto: (runId: string, photoId: string) =>
+    request<SopRun>(`/api/sops/runs/${runId}/photos/${photoId}`, { method: "DELETE" }),
+  submitSopMultiselect: (runId: string, stepId: string, selectedOptions: string[]) =>
+    request<SopRun & { _alert?: { selected: string[]; sms_sent: boolean; skipped_reason?: string | null } }>(
+      `/api/sops/runs/${runId}/steps/${stepId}/multiselect`, {
+        method: "POST",
+        body: JSON.stringify({ selected_options: selectedOptions }),
+      },
+    ),
+  logSopHours: (runId: string, body: { hours: number; task_name?: string; notes?: string }) =>
+    request<{ status: string; hours_logged: number; today_total_hours: number; allocation_id: string; time_entry_id: string }>(
+      `/api/sops/runs/${runId}/log-hours`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
   // Call Script (single-row, admin-edited)
   getCallScript: () => request<CallScript>("/api/call-script"),
   updateCallScript: (content: string) =>
@@ -1736,6 +1764,13 @@ export interface SopTemplate {
   created_by: string;
 }
 
+export type SopStepKind = "checkbox" | "multiselect_alert";
+
+export interface SopMultiselectConfig {
+  options?: string[];
+  alert_text?: string;
+}
+
 export interface SopTemplateStep {
   id: string;
   sop_template_id: string;
@@ -1750,7 +1785,16 @@ export interface SopTemplateStep {
   /** Branch this step belongs to. Empty = always show. Otherwise must
    * match a key in the parent template's `branches` list. */
   branch_key: string;
+  /** Legacy single-photo gate. photo_min_count is the source of truth
+   * on V3. */
   photo_required: boolean;
+  /** Worker must attach at least N photos before this step can be
+   * checked off. 0 = no photo gate. > 1 enables the multi-photo gallery. */
+  photo_min_count: number;
+  /** Step kind. "checkbox" is the default; "multiselect_alert" shows
+   * an option list and SMS-es Alan when any are selected. */
+  kind: SopStepKind;
+  config: SopMultiselectConfig | Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -1773,6 +1817,9 @@ export interface SopStepBody {
   section_name?: string;
   branch_key?: string;
   photo_required?: boolean;
+  photo_min_count?: number;
+  kind?: SopStepKind;
+  config?: SopMultiselectConfig | Record<string, unknown> | null;
   order_index?: number | null;
 }
 
@@ -1788,14 +1835,33 @@ export interface SopRunStep {
   section_name: string;
   branch_key: string;
   photo_required: boolean;
+  photo_min_count: number;
+  kind: SopStepKind;
+  config: SopMultiselectConfig | Record<string, unknown>;
   completed: boolean;
   completed_at: string | null;
   completed_by: string | null;
   note: string;
+  /** Legacy pointer to the most-recent uploaded photo. Multi-photo
+   * gallery uses listSopStepPhotos() to enumerate all of them. */
   photo_id: string | null;
+  /** multiselect_alert state: null = unanswered, [] = answered "none",
+   * [...] = answered with picks. */
+  selected_options: string[] | null;
+  submitted_at: string | null;
+  submitted_by: string | null;
   help_requested_at: string | null;
   help_requested_by: string | null;
   help_note: string;
+}
+
+export interface SopRunPhotoMeta {
+  id: string;
+  filename: string;
+  mime: string;
+  photo_kind: string;
+  uploaded_at: string;
+  uploaded_by: string;
 }
 
 export interface SopRun {
