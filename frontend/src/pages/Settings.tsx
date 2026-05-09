@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import ChatbotSettings from "@/components/ChatbotSettings";
+import CallScriptSettings from "@/components/CallScriptSettings";
 
 interface PdfTemplateInfo {
   id: string;
@@ -135,6 +136,9 @@ export default function Settings() {
 
       {/* GHL Maintenance */}
       <BackfillDashboardLinksCard />
+
+      {/* Call Script — VA's reading panel on Lead Detail pulls from here */}
+      <CallScriptSettings />
 
       {/* Google Calendar OAuth */}
       <GoogleCalendarCard />

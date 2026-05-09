@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
+import CallScriptPanel from "@/components/CallScriptPanel";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -504,6 +505,10 @@ export default function LeadDetail() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-5xl">
+      {/* Sticky call script panel — auto-fills from this lead. Persistent
+          open/closed state so the VA's choice survives navigation. */}
+      <CallScriptPanel lead={lead} estimate={estimate} />
+
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/leads" className="text-muted-foreground hover:text-foreground transition-colors">

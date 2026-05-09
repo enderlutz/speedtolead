@@ -1093,6 +1093,14 @@ export const api = {
     return URL.createObjectURL(await res.blob());
   },
 
+  // Call Script (single-row, admin-edited)
+  getCallScript: () => request<CallScript>("/api/call-script"),
+  updateCallScript: (content: string) =>
+    request<CallScript>("/api/call-script", {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+
   // Wrapped (CEO digest) — cached. Reads hit cache; force=true triggers
   // a regenerate (re-spends Claude tokens).
   getWeeklyWrapped: (weekEnd?: string) => {
@@ -1667,6 +1675,15 @@ export interface OverheadBody {
   description: string;
   monthly_amount: number;
   active: boolean;
+}
+
+// --- Call Script ---
+
+export interface CallScript {
+  id: string;
+  content: string;
+  updated_at: string;
+  updated_by: string;
 }
 
 // --- SOPs ---

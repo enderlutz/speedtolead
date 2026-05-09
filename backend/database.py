@@ -1234,6 +1234,30 @@ class SopRunPhoto(Base):
     uploaded_by = Column(Text, default="")
 
 
+class CallScript(Base):
+    """Single-row table holding the company's master call script. The VA's
+    sticky panel on Lead Detail renders this template with {{var}}
+    substitutions + {{#if X}}{{/if}} conditional blocks against the lead's
+    data. Admin edits via Settings → Call Script.
+
+    Single-row pattern (id always = 'default') matches GoogleOAuthToken,
+    QuickBooksToken, ChatbotConfig in this codebase."""
+    __tablename__ = "call_scripts"
+
+    id = Column(Text, primary_key=True)              # always "default"
+    content = Column(Text, nullable=False, default="")
+    updated_at = Column(Text, default="")
+    updated_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "content": self.content or "",
+            "updated_at": self.updated_at or "",
+            "updated_by": self.updated_by or "",
+        }
+
+
 class WrappedCache(Base):
     """One row per generated Wrapped digest (weekly or monthly). The full
     Claude-narrated payload is stored as JSON so subsequent reads are free
