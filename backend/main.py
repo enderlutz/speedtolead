@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
 from services.correction_escalator import check_escalations
@@ -132,6 +132,20 @@ async def _estimate_delay_loop():
         await asyncio.sleep(600)  # Every 10 minutes
 
 
+async def _followup_engine_loop():
+    """Background task: advance due follow-up runs every 5 minutes.
+    Master-toggle gated — exits fast when off. Staggered startup so it
+    doesn't dogpile with the lead poller on first boot."""
+    from services.followup_engine import tick as followup_tick
+    await asyncio.sleep(300)  # 5 min after boot — let other loops settle first
+    while True:
+        try:
+            await asyncio.to_thread(followup_tick)
+        except Exception as e:
+            logger.error(f"Follow-up engine tick error: {e}")
+        await asyncio.sleep(300)  # Every 5 minutes
+
+
 async def _async_db_init():
     """Run DB init + seed in a background thread so lifespan doesn't block
     uvicorn from serving /health. If Supabase is briefly unreachable, we
@@ -144,6 +158,11 @@ async def _async_db_init():
             await asyncio.to_thread(init_db)
             await asyncio.to_thread(auth.seed_default_users)
             await asyncio.to_thread(auth.seed_fragned_user)
+            try:
+                from services.followup_engine import seed_test_sequence
+                await asyncio.to_thread(seed_test_sequence)
+            except Exception as seed_err:
+                logger.warning(f"Follow-up test sequence seed skipped: {seed_err}")
             logger.info("Database initialized")
             return
         except Exception as e:
@@ -167,6 +186,7 @@ async def lifespan(app: FastAPI):
     # call_poller = asyncio.create_task(_call_recording_poller_loop())
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
     delay_detector = asyncio.create_task(_estimate_delay_loop())
+    followup_engine = asyncio.create_task(_followup_engine_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -177,6 +197,7 @@ async def lifespan(app: FastAPI):
     wrapped_loop.cancel()
     correction_escalator.cancel()
     delay_detector.cancel()
+    followup_engine.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)
@@ -226,6 +247,7 @@ app.include_router(wrapped.router, prefix="/api")
 app.include_router(sops.router, prefix="/api")
 app.include_router(call_script.router, prefix="/api")
 app.include_router(operator.router, prefix="/api")
+app.include_router(followups.router, prefix="/api")
 
 
 @app.get("/health")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from config import get_settings
@@ -74,6 +75,19 @@ class Lead(Base):
     # referral / GMB / repeat customer.
     lead_source = Column(Text, default="ad")
 
+    # Follow-up engine routing:
+    #   delivery_method — "unknown" | "imessage" | "sms". Engine tries
+    #     iMessage first when unknown; sets sms on the first iMessage
+    #     failure so future sends skip the latency tax.
+    #   do_not_contact — true after the AI detects an opt-out reply
+    #     ("stop texting", "don't message me again"). Sets a hard floor:
+    #     no further follow-up sends, period.
+    #   last_send_failure — most recent GHL-side send failure reason for
+    #     debugging.
+    delivery_method = Column(Text, default="unknown")
+    do_not_contact = Column(Boolean, default=False)
+    last_send_failure = Column(Text, default="")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -109,6 +123,9 @@ class Lead(Base):
             "measurement_uploaded_at": self.measurement_uploaded_at,
             "measurement_uploaded_by": self.measurement_uploaded_by or "",
             "lead_source": self.lead_source or "ad",
+            "delivery_method": self.delivery_method or "unknown",
+            "do_not_contact": bool(self.do_not_contact),
+            "last_send_failure": self.last_send_failure or "",
         }
 
 
@@ -1400,6 +1417,203 @@ class OverheadEntry(Base):
         }
 
 
+class SystemConfig(Base):
+    """Singleton-style key/value config for things the admin tweaks at
+    runtime but don't fit a settings UI of their own (master toggles,
+    test-lead pointers, channel from-numbers). Kept tiny on purpose —
+    when a key gets complex, promote it to its own table."""
+    __tablename__ = "system_config"
+
+    key = Column(Text, primary_key=True)
+    value = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    @staticmethod
+    def get(db, key: str, default: str = "") -> str:
+        row = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+        return (row.value if row else default) or default
+
+    @staticmethod
+    def set(db, key: str, value: str) -> None:
+        row = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+        now = datetime.now(timezone.utc).isoformat()
+        if row:
+            row.value = value
+            row.updated_at = now
+        else:
+            db.add(SystemConfig(key=key, value=value, updated_at=now))
+        db.commit()
+
+
+class FollowUpSequence(Base):
+    """A named follow-up cadence (template) that runs against leads.
+
+    `trigger_event` describes when a FollowUpRun is auto-started for a
+    lead — e.g. "kanban_changed:estimate_sent" or "lead_created". Empty
+    trigger_event means "manual only" (admin starts via API/button).
+
+    `active` is the per-sequence on/off. The global master toggle lives in
+    SystemConfig key "followup_master_on" and gates the engine entirely.
+    Both must be true for a sequence to actually fire."""
+    __tablename__ = "followup_sequences"
+    __table_args__ = (
+        Index("idx_fu_seq_active", "active"),
+        Index("idx_fu_seq_trigger", "trigger_event"),
+    )
+
+    id = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    description = Column(Text, default="")
+    trigger_event = Column(Text, default="")
+    # Inbound events that pause an active run on this sequence.
+    # Comma-separated list, e.g. "customer_replied,kanban_changed:closed_won".
+    pause_on_events = Column(Text, default="customer_replied")
+    active = Column(Boolean, default=False)
+    version = Column(Integer, default=1)
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description or "",
+            "trigger_event": self.trigger_event or "",
+            "pause_on_events": self.pause_on_events or "",
+            "active": bool(self.active),
+            "version": self.version or 1,
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+            "created_by": self.created_by or "",
+        }
+
+
+class FollowUpStep(Base):
+    """One step in a sequence — delay + message body + channel.
+
+    `delay_hours` is measured from the PRIOR step's send time (or
+    run.started_at for position 0). The engine schedules each step's
+    next_due_at as it advances, never pre-computing the whole sequence."""
+    __tablename__ = "followup_steps"
+    __table_args__ = (
+        Index("idx_fu_step_seq", "sequence_id"),
+        Index("idx_fu_step_order", "sequence_id", "position"),
+    )
+
+    id = Column(Text, primary_key=True)
+    sequence_id = Column(Text, nullable=False)
+    position = Column(Integer, default=0)
+    delay_hours = Column(Numeric(10, 2), default=24)        # hours after prior step (or run start for step 0)
+    channel = Column(Text, default="sms")                    # "sms" | "email" (email = Phase 5+)
+    message_template = Column(Text, default="")
+    # When true, the engine asks Claude to personalize the body before
+    # sending. The template still defines voice/structure; Claude swaps
+    # in lead-specific data via context vars.
+    use_ai_personalization = Column(Boolean, default=False)
+    # Free-form per-step conditions (JSON). Reserved for Phase 4+ workflow
+    # editor — e.g. skip-if-not-replied-yet checks. Currently unused.
+    skip_if_conditions = Column(Text, default="{}")
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "sequence_id": self.sequence_id,
+            "position": self.position or 0,
+            "delay_hours": float(self.delay_hours or 0),
+            "channel": self.channel or "sms",
+            "message_template": self.message_template or "",
+            "use_ai_personalization": bool(self.use_ai_personalization),
+            "skip_if_conditions": _j(self.skip_if_conditions) if self.skip_if_conditions else {},
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+        }
+
+
+class FollowUpRun(Base):
+    """A live execution of a sequence for a specific lead.
+
+    The engine maintains `next_due_at` as it advances. The tick loop
+    finds runs where status='active' AND next_due_at <= now and fires
+    the current step."""
+    __tablename__ = "followup_runs"
+    __table_args__ = (
+        Index("idx_fu_run_lead", "lead_id"),
+        Index("idx_fu_run_due", "status", "next_due_at"),
+        Index("idx_fu_run_seq", "sequence_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    sequence_id = Column(Text, nullable=False)
+    current_step = Column(Integer, default=0)
+    # active | paused | stopped | completed | failed
+    status = Column(Text, default="active", nullable=False)
+    paused_reason = Column(Text, default="")
+    next_due_at = Column(Text, default="")      # ISO timestamp
+    last_sent_at = Column(Text, default="")
+    started_at = Column(Text, default="")
+    started_by = Column(Text, default="")        # "trigger:<event>" | "manual:<username>"
+    completed_at = Column(Text, default="")
+    test_mode = Column(Boolean, default=False)   # admin-initiated test run
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "sequence_id": self.sequence_id,
+            "current_step": self.current_step or 0,
+            "status": self.status or "active",
+            "paused_reason": self.paused_reason or "",
+            "next_due_at": self.next_due_at or "",
+            "last_sent_at": self.last_sent_at or "",
+            "started_at": self.started_at or "",
+            "started_by": self.started_by or "",
+            "completed_at": self.completed_at or "",
+            "test_mode": bool(self.test_mode),
+        }
+
+
+class FollowUpEvent(Base):
+    """Immutable audit log for every action the engine takes on a run.
+
+    Used by the intervention UI to show "what's happened on this run" and
+    by the learning module to compute reply rates / outcomes. Never
+    updated after insert — when state changes, new events get appended."""
+    __tablename__ = "followup_events"
+    __table_args__ = (
+        Index("idx_fu_event_run", "run_id"),
+        Index("idx_fu_event_run_created", "run_id", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    run_id = Column(Text, nullable=False)
+    event_type = Column(Text, nullable=False)
+    # JSON payload — shape depends on event_type. Conventions:
+    #   step_sent: {"step_position": 0, "method": "imessage", "from_number": "+1…",
+    #               "ghl_message_id": "…", "body": "…"}
+    #   imessage_fallback: {"step_position": 0, "ghl_message_id": "…",
+    #                       "failure_reason": "Number is Android"}
+    #   paused: {"reason": "customer_replied" | "opt_out_detected" | "manual"}
+    #   resumed: {"by": "admin:fragned"}
+    #   stopped: {"by": "admin:fragned"}
+    payload = Column(Text, default="{}")
+    actor = Column(Text, default="ai")           # "ai" | "admin:<username>"
+    created_at = Column(Text, default="", nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "run_id": self.run_id,
+            "event_type": self.event_type,
+            "payload": _j(self.payload) if self.payload else {},
+            "actor": self.actor or "ai",
+            "created_at": self.created_at,
+        }
+
+
 class AIThought(Base):
     """A single observation/diagnosis from any Operator AI module.
 
@@ -1629,6 +1843,20 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN lead_source TEXT DEFAULT 'ad'"))
             conn.execute(text("UPDATE leads SET lead_source = 'ad' WHERE lead_source IS NULL OR lead_source = ''"))
         logger.info("Migration: added leads.lead_source (backfilled to 'ad')")
+
+    # Follow-up engine routing columns.
+    if "delivery_method" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN delivery_method TEXT DEFAULT 'unknown'"))
+        logger.info("Migration: added leads.delivery_method")
+    if "do_not_contact" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN do_not_contact BOOLEAN DEFAULT FALSE"))
+        logger.info("Migration: added leads.do_not_contact")
+    if "last_send_failure" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN last_send_failure TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.last_send_failure")
 
     # ScheduledJob: materials_cost, payment fields, QuickBooks invoice link
     if inspector.has_table("scheduled_jobs"):

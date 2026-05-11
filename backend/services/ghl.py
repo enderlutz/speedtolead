@@ -167,6 +167,74 @@ def send_sms(contact_id: str, message: str, location_id: str | None = None) -> b
     return _send_message("SMS", contact_id, message, location_id)
 
 
+def send_message_with_routing(
+    contact_id: str,
+    message: str,
+    from_number: str = "",
+    location_id: str | None = None,
+    max_retries: int = 3,
+) -> tuple[bool, str, str]:
+    """Send an SMS-class message and route it through a specific from-number
+    if provided. Used by the follow-up engine to send via the iMessage
+    line first and fall back to SMS on delivery failure.
+
+    Returns: (success, ghl_message_id, error_text)
+        ghl_message_id is set on success — used to correlate with
+        delivery-status webhooks.
+        error_text carries the GHL error body on failure for debugging.
+    """
+    settings = get_settings()
+    payload: dict = {
+        "type": "SMS",
+        "contactId": contact_id,
+        "message": message,
+        "locationId": location_id or settings.ghl_location_id,
+    }
+    if from_number:
+        payload["fromNumber"] = from_number
+
+    last_err = ""
+    for attempt in range(max_retries):
+        try:
+            r = _client.post(
+                f"{GHL_BASE}/conversations/messages",
+                headers=_headers(location_id),
+                json=payload,
+                timeout=15,
+            )
+            if r.status_code == 429:
+                wait = min(2 ** attempt, 10)
+                logger.warning(f"GHL rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait)
+                continue
+            if not r.ok:
+                last_err = f"{r.status_code}: {r.text[:200]}"
+                if attempt < max_retries - 1:
+                    wait = min(2 ** attempt, 8)
+                    time.sleep(wait)
+                    continue
+                logger.error(f"GHL routed send FAILED for {contact_id} from={from_number}: {last_err}")
+                return (False, "", last_err)
+            data = r.json() or {}
+            # GHL returns the new conversation message ID under various keys depending on version.
+            msg_id = (
+                data.get("messageId")
+                or data.get("id")
+                or (data.get("message") or {}).get("id", "")
+            )
+            logger.info(f"GHL routed send ok contact={contact_id} from={from_number or 'default'} msg_id={msg_id}")
+            return (True, msg_id, "")
+        except Exception as e:
+            last_err = str(e)
+            if attempt < max_retries - 1:
+                wait = min(2 ** attempt, 8)
+                time.sleep(wait)
+            else:
+                logger.error(f"GHL routed send EXCEPTION for {contact_id} from={from_number}: {e}")
+                return (False, "", last_err)
+    return (False, "", last_err or "max_retries_exceeded")
+
+
 def send_whatsapp(contact_id: str, message: str, location_id: str | None = None) -> bool:
     """Send a WhatsApp message to a contact via GHL. Retries up to 3 times on failure."""
     return _send_message("WhatsApp", contact_id, message, location_id)

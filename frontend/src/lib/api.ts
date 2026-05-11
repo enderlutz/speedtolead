@@ -1251,6 +1251,44 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // Follow-up Engine — admin-only
+  getFollowupConfig: () => request<FollowUpConfig>("/api/followups/config"),
+  updateFollowupConfig: (body: Partial<FollowUpConfig>) =>
+    request<FollowUpConfig>("/api/followups/config", { method: "PUT", body: JSON.stringify(body) }),
+  listFollowupSequences: () =>
+    request<{ sequences: FollowUpSequence[] }>("/api/followups/sequences"),
+  getFollowupSequence: (id: string) =>
+    request<{ sequence: FollowUpSequence; steps: FollowUpStep[] }>(`/api/followups/sequences/${id}`),
+  createFollowupSequence: (body: { name: string; description?: string; trigger_event?: string; pause_on_events?: string }) =>
+    request<FollowUpSequence>("/api/followups/sequences", { method: "POST", body: JSON.stringify(body) }),
+  updateFollowupSequence: (id: string, body: { name: string; description?: string; trigger_event?: string; pause_on_events?: string }) =>
+    request<FollowUpSequence>(`/api/followups/sequences/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  toggleFollowupSequence: (id: string) =>
+    request<{ id: string; active: boolean }>(`/api/followups/sequences/${id}/toggle`, { method: "POST" }),
+  deleteFollowupSequence: (id: string) =>
+    request<{ status: string }>(`/api/followups/sequences/${id}`, { method: "DELETE" }),
+  addFollowupStep: (seqId: string, body: { position: number; delay_hours: number; channel: string; message_template: string; use_ai_personalization?: boolean }) =>
+    request<FollowUpStep>(`/api/followups/sequences/${seqId}/steps`, { method: "POST", body: JSON.stringify(body) }),
+  updateFollowupStep: (stepId: string, body: { position: number; delay_hours: number; channel: string; message_template: string; use_ai_personalization?: boolean }) =>
+    request<FollowUpStep>(`/api/followups/steps/${stepId}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteFollowupStep: (stepId: string) =>
+    request<{ status: string }>(`/api/followups/steps/${stepId}`, { method: "DELETE" }),
+  getFollowupRunsByLead: (leadId: string) =>
+    request<{ runs: FollowUpRun[] }>(`/api/followups/runs/by-lead/${leadId}`),
+  getFollowupRunEvents: (runId: string) =>
+    request<{ events: FollowUpEvent[] }>(`/api/followups/runs/${runId}/events`),
+  pauseFollowupRun: (runId: string) =>
+    request<FollowUpRun>(`/api/followups/runs/${runId}/pause`, { method: "POST" }),
+  resumeFollowupRun: (runId: string) =>
+    request<FollowUpRun>(`/api/followups/runs/${runId}/resume`, { method: "POST" }),
+  stopFollowupRun: (runId: string) =>
+    request<FollowUpRun>(`/api/followups/runs/${runId}/stop`, { method: "POST" }),
+  startFollowupTestRun: (body: { sequence_id: string; lead_id?: string }) =>
+    request<{ run_id: string; lead_id: string; lead_name: string; master_on: boolean; hint: string }>("/api/followups/test-run", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 // --- Operator AI types ---
@@ -1275,6 +1313,68 @@ export interface AIThought {
   decided_at: string;
   decided_by: string;
   decision_note: string;
+}
+
+// --- Follow-up Engine types ---
+
+export interface FollowUpSequence {
+  id: string;
+  name: string;
+  description: string;
+  trigger_event: string;
+  pause_on_events: string;
+  active: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+}
+
+export interface FollowUpStep {
+  id: string;
+  sequence_id: string;
+  position: number;
+  delay_hours: number;
+  channel: "sms" | "email";
+  message_template: string;
+  use_ai_personalization: boolean;
+  skip_if_conditions: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type FollowUpRunStatus = "active" | "paused" | "stopped" | "completed" | "failed";
+
+export interface FollowUpRun {
+  id: string;
+  lead_id: string;
+  sequence_id: string;
+  current_step: number;
+  status: FollowUpRunStatus;
+  paused_reason: string;
+  next_due_at: string;
+  last_sent_at: string;
+  started_at: string;
+  started_by: string;
+  completed_at: string;
+  test_mode: boolean;
+  sequence_name?: string;
+}
+
+export interface FollowUpEvent {
+  id: string;
+  run_id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  actor: string;
+  created_at: string;
+}
+
+export interface FollowUpConfig {
+  master_on: boolean;
+  imessage_from_number: string;
+  sms_from_number: string;
+  test_lead_id: string;
 }
 
 

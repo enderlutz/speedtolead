@@ -321,6 +321,22 @@ async def ghl_message_webhook(request: Request):
                 "body": body_text[:200],
             })
 
+            # Follow-up engine integration:
+            #   1) Run opt-out detection (keyword + Claude). If true, the
+            #      engine marks the lead do_not_contact and pauses runs.
+            #   2) If not an opt-out, still pause active runs since the
+            #      customer is engaged — we don't want to keep nudging.
+            try:
+                from services.followup_ai import detect_opt_out
+                from services.followup_engine import on_opt_out_detected, on_customer_reply
+                is_opt_out, conf, reason = detect_opt_out(body_text)
+                if is_opt_out:
+                    on_opt_out_detected(lead.id, body_text, reason=f"{reason} (confidence {conf}%)")
+                else:
+                    on_customer_reply(lead.id)
+            except Exception as e:
+                logger.warning(f"Follow-up engine inbound hook failed (non-fatal): {e}")
+
         return {"status": "ok", "direction": direction, "lead_id": lead_id}
 
     except Exception as e:
@@ -329,3 +345,50 @@ async def ghl_message_webhook(request: Request):
         return {"status": "error", "detail": str(e)}
     finally:
         db.close()
+
+
+@router.post("/webhook/ghl/message-status")
+async def ghl_message_status_webhook(request: Request):
+    """Delivery-status events from GHL. Fired when an outbound message
+    transitions (sent → delivered → failed). Used by the follow-up engine
+    to detect async iMessage failures and fall back to SMS.
+
+    Payload shape varies by GHL version + integration. We pluck the most
+    common keys: messageId/id, status, errorCode/error, recipient.
+
+    Configure in GHL: Settings → Integrations → Webhooks → add a new
+    webhook for "Message Status Updated" pointing at this URL."""
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    msg_id = (
+        payload.get("messageId")
+        or payload.get("id")
+        or (payload.get("message") or {}).get("id", "")
+    )
+    status = str(
+        payload.get("status")
+        or payload.get("deliveryStatus")
+        or payload.get("messageStatus")
+        or ""
+    ).lower()
+    err = str(
+        payload.get("errorCode")
+        or payload.get("error")
+        or payload.get("errorMessage")
+        or ""
+    )
+
+    if not msg_id or not status:
+        # Probably a keepalive or unrelated event — ack quietly.
+        return {"status": "ignored", "reason": "missing_msg_id_or_status"}
+
+    try:
+        from services.followup_engine import on_delivery_status
+        on_delivery_status(msg_id, status, error=err)
+    except Exception as e:
+        logger.warning(f"on_delivery_status failed: {e}")
+
+    return {"status": "ok", "msg_id": msg_id, "delivery_status": status}
