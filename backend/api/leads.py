@@ -23,7 +23,7 @@ from services.ghl import get_conversations, get_conversation_messages, get_conta
 # Note: zip_code and address aren't here — they live on GHL's NATIVE contact
 # (postalCode / address1), not as custom fields, so they're pushed via the
 # core-field helper below.
-SYNC_FIELDS_TO_GHL = ("fence_height", "fence_age", "previously_stained", "service_timeline", "linear_feet")
+SYNC_FIELDS_TO_GHL = ("fence_height", "fence_age", "previously_stained", "service_timeline", "linear_feet", "additional_notes")
 
 
 def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:

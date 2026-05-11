@@ -85,6 +85,8 @@ export default function LeadDetail() {
   const [zipCode, setZipCode] = useState("");
   const [fenceSides, setFenceSides] = useState<string[]>([]);
   const [additionalServices, setAdditionalServices] = useState("");
+  const [additionalNotes, setAdditionalNotes] = useState("");
+  const [notesExpanded, setNotesExpanded] = useState(false);
   const [militaryDiscount, setMilitaryDiscount] = useState(false);
   const [confidenceNote, setConfidenceNote] = useState("");
   const [includeFinancing, setIncludeFinancing] = useState(true);
@@ -123,6 +125,7 @@ export default function LeadDetail() {
       const rawSides = fd.fence_sides;
       setFenceSides(Array.isArray(rawSides) ? rawSides : rawSides ? String(rawSides).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
       setAdditionalServices(fd.additional_services || "");
+      setAdditionalNotes(fd.additional_notes || "");
       setMilitaryDiscount(Boolean(fd.military_discount));
       setConfidenceNote(fd.confidence_note || "");
       setIncludeFinancing(String(fd.include_financing ?? "true") !== "false");
@@ -229,6 +232,7 @@ export default function LeadDetail() {
           : [],
     );
     setAdditionalServices(String(inputs.additional_services ?? ""));
+    setAdditionalNotes(String(inputs.additional_notes ?? ""));
     setMilitaryDiscount(Boolean(inputs.military_discount));
     setConfidenceNote(String(inputs.confidence_note ?? ""));
     setIncludeFinancing(String(inputs.include_financing ?? "true") !== "false");
@@ -250,6 +254,7 @@ export default function LeadDetail() {
           zip_code: zipCode,
           fence_sides: fenceSides,
           additional_services: additionalServices,
+          additional_notes: additionalNotes,
           military_discount: militaryDiscount,
           confidence_note: confidenceNote,
           include_financing: includeFinancing,
@@ -943,6 +948,29 @@ export default function LeadDetail() {
                     Military Discount
                   </label>
                 </div>
+              </div>
+
+              {/* Additional Notes — collapsible so long GHL notes don't dominate */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-muted-foreground">Additional Notes</label>
+                  {additionalNotes && (
+                    <button
+                      type="button"
+                      onClick={() => setNotesExpanded((v) => !v)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                    >
+                      {notesExpanded ? "Collapse" : "Expand"}
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                  rows={notesExpanded ? 12 : 3}
+                  placeholder="Anything else the customer mentioned (special requests, gate access, pets, etc.)"
+                  value={additionalNotes}
+                  onChange={(e) => setAdditionalNotes(e.target.value)}
+                />
               </div>
 
               <Button onClick={handleSaveRecalculate} disabled={saving} className="w-full">

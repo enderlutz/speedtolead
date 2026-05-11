@@ -515,6 +515,12 @@ FIELD_ALIASES: dict[str, str] = {
     "when_would_you_like_the_work_done": "service_timeline",
     "additional_services": "additional_services",
     "additionalservices": "additional_services",
+    "additional_notes": "additional_notes",
+    "additionalnotes": "additional_notes",
+    "additional_note": "additional_notes",
+    "notes": "additional_notes",
+    "customer_notes": "additional_notes",
+    "customernotes": "additional_notes",
     "linear_feet": "linear_feet",
     "linearfeet": "linear_feet",
 }

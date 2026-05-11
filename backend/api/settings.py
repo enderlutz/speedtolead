@@ -128,6 +128,7 @@ OUR_FIELD_OPTIONS = [
     {"value": "service_timeline", "label": "Service Timeline"},
     {"value": "linear_feet", "label": "Linear Feet"},
     {"value": "additional_services", "label": "Additional Services"},
+    {"value": "additional_notes", "label": "Additional Notes"},
     {"value": "fence_sides", "label": "Fence Sides"},
     {"value": "confident_pct", "label": "Confidence Level"},
     {"value": "military_discount", "label": "Military Discount"},
