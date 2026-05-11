@@ -16,11 +16,14 @@ from services.activity_log import log_event
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
 
 
-# Estimate-input fields that get mirrored to GHL on every lead save.
+# Custom-field estimate inputs that get mirrored to GHL on every lead save.
 # `our_field_name` (left) must match what's set in the GHL Field Mapping
 # settings UI. If a mapping is missing, that field silently stays in our DB
 # only — admin can map it from Settings later.
-SYNC_FIELDS_TO_GHL = ("zip_code", "fence_height", "fence_age", "previously_stained", "service_timeline", "linear_feet")
+# Note: zip_code and address aren't here — they live on GHL's NATIVE contact
+# (postalCode / address1), not as custom fields, so they're pushed via the
+# core-field helper below.
+SYNC_FIELDS_TO_GHL = ("fence_height", "fence_age", "previously_stained", "service_timeline", "linear_feet")
 
 
 def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:
@@ -537,6 +540,31 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
 
         # Phase 4: mirror estimate-input fields back to GHL custom fields
         _push_estimate_inputs_to_ghl(db, lead, merged)
+
+        # Mirror zip_code (and address if present in form) to GHL's native
+        # contact fields — these aren't custom fields in GHL so they don't
+        # go through the field-mapping system.
+        if lead.ghl_contact_id:
+            core_push: dict[str, str] = {}
+            form_zip = (merged.get("zip_code") or "").strip()
+            form_addr = (merged.get("address") or "").strip()
+            if form_zip and form_zip != (lead.zip_code or ""):
+                lead.zip_code = form_zip
+                db.commit()
+                core_push["zip_code"] = form_zip
+            if form_addr and form_addr != (lead.address or ""):
+                lead.address = form_addr
+                db.commit()
+                core_push["address"] = form_addr
+            if core_push:
+                try:
+                    update_contact_core_fields(
+                        lead.ghl_contact_id,
+                        location_id=lead.ghl_location_id or None,
+                        **core_push,
+                    )
+                except Exception as e:
+                    logger.warning(f"GHL core-field push (zip/addr) for {lead.id} failed (non-fatal): {e}")
 
         log_event(lead_id, "estimate_recalculated",
                   f"Recalculated: ${low:.0f} | {approval_status}",
