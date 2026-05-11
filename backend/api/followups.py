@@ -558,6 +558,98 @@ def stop_run(run_id: str, user: dict = Depends(require_admin)):
 # Test run — admin one-click to start a sequence on the configured test lead
 # -----------------------------------------------------------------------
 
+class CompileInstructionBody(BaseModel):
+    instruction: str
+
+
+@router.post("/followups/sequences/{seq_id}/compile")
+def compile_sequence_instruction(seq_id: str, body: CompileInstructionBody, user: dict = Depends(require_admin)):
+    """Translate a natural-language instruction into a proposed sequence
+    plan + diff. Does NOT mutate anything — admin reviews then calls
+    apply-plan to persist. Used by the workflow editor."""
+    del user
+    from services.workflow_compiler import compile_instruction, compute_diff
+    db = get_db()
+    try:
+        seq = db.query(FollowUpSequence).filter(FollowUpSequence.id == seq_id).first()
+        if not seq:
+            raise HTTPException(status_code=404, detail="Sequence not found")
+        steps = db.query(FollowUpStep).filter(FollowUpStep.sequence_id == seq_id).order_by(FollowUpStep.position).all()
+        current = {
+            "sequence_name": seq.name,
+            "sequence_description": seq.description or "",
+            "trigger_event": seq.trigger_event or "",
+            "pause_on_events": seq.pause_on_events or "",
+            "steps": [
+                {
+                    "position": s.position or 0,
+                    "delay_hours": float(s.delay_hours or 0),
+                    "channel": s.channel or "sms",
+                    "message_template": s.message_template or "",
+                    "use_ai_personalization": bool(s.use_ai_personalization),
+                }
+                for s in steps
+            ],
+        }
+        proposed = compile_instruction(current, body.instruction)
+        diff = compute_diff(current, proposed)
+        return {"current": current, "proposed": proposed, "diff": diff}
+    finally:
+        db.close()
+
+
+class ApplyPlanBody(BaseModel):
+    plan: dict
+
+
+@router.post("/followups/sequences/{seq_id}/apply-plan")
+def apply_plan(seq_id: str, body: ApplyPlanBody, user: dict = Depends(require_admin)):
+    """Persist a compiled plan. Replaces sequence-level fields + ALL
+    steps (delete + re-create) inside a single transaction. The version
+    counter bumps so the workflow editor can show 'v3 → v4' history."""
+    del user
+    db = get_db()
+    try:
+        seq = db.query(FollowUpSequence).filter(FollowUpSequence.id == seq_id).first()
+        if not seq:
+            raise HTTPException(status_code=404, detail="Sequence not found")
+        plan = body.plan or {}
+        if "sequence_name" in plan and plan["sequence_name"]:
+            seq.name = str(plan["sequence_name"])[:200]
+        if "sequence_description" in plan:
+            seq.description = str(plan.get("sequence_description") or "")
+        if "trigger_event" in plan:
+            seq.trigger_event = str(plan.get("trigger_event") or "").strip()
+        if "pause_on_events" in plan:
+            seq.pause_on_events = str(plan.get("pause_on_events") or "customer_replied").strip()
+        # Replace steps. Drop existing, then re-create from plan.
+        db.query(FollowUpStep).filter(FollowUpStep.sequence_id == seq_id).delete()
+        steps_in = plan.get("steps") or []
+        for i, s in enumerate(steps_in):
+            db.add(FollowUpStep(
+                id=str(uuid.uuid4()),
+                sequence_id=seq_id,
+                position=int(s.get("position", i)),
+                delay_hours=float(s.get("delay_hours", 24)),
+                channel=str(s.get("channel") or "sms"),
+                message_template=str(s.get("message_template") or "")[:1200],
+                use_ai_personalization=bool(s.get("use_ai_personalization", False)),
+                created_at=_now(),
+                updated_at=_now(),
+            ))
+        seq.version = (seq.version or 1) + 1
+        seq.updated_at = _now()
+        db.commit()
+        return {"sequence": seq.to_dict(), "step_count": len(steps_in)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 class TestRunBody(BaseModel):
     sequence_id: str
     # Optional override; defaults to SystemConfig CFG_TEST_LEAD_ID, which

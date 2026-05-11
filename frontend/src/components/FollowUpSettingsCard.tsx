@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Power, Sparkles, Send, Edit2, Trash2, Plus } from "lucide-react";
+import SequenceEditor from "@/components/SequenceEditor";
 
 const NUMBER_PLACEHOLDER = "+1 832 555 0100";
 
@@ -19,6 +20,7 @@ export default function FollowUpSettingsCard() {
   const [sms, setSms] = useState("");
   const [testLeadId, setTestLeadId] = useState("");
   const [firingTest, setFiringTest] = useState<string | null>(null);
+  const [editingSeqId, setEditingSeqId] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -182,8 +184,16 @@ export default function FollowUpSettingsCard() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sequences</p>
-                <Button size="sm" variant="outline" disabled title="Workflow editor lands in Phase 4">
-                  <Plus className="h-3.5 w-3.5 mr-1" /> New (Phase 4)
+                <Button size="sm" variant="outline" onClick={async () => {
+                  try {
+                    const seq = await api.createFollowupSequence({ name: "Untitled sequence", description: "" });
+                    setSequences((prev) => [seq, ...prev]);
+                    setEditingSeqId(seq.id);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed to create");
+                  }
+                }}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> New sequence
                 </Button>
               </div>
               {sequences.length === 0 ? (
@@ -220,7 +230,7 @@ export default function FollowUpSettingsCard() {
                         <Button size="sm" variant="ghost" onClick={() => toggleSeq(seq)}>
                           {seq.active ? "Disable" : "Enable"}
                         </Button>
-                        <Button size="sm" variant="ghost" disabled title="Edit lands in Phase 4">
+                        <Button size="sm" variant="ghost" onClick={() => setEditingSeqId(seq.id)} title="Edit steps + voice/text editor">
                           <Edit2 className="h-3.5 w-3.5" />
                         </Button>
                         <Button size="sm" variant="ghost" className="text-red-600" onClick={() => deleteSeq(seq)}>
@@ -235,6 +245,15 @@ export default function FollowUpSettingsCard() {
           </>
         )}
       </CardContent>
+      {editingSeqId && (
+        <SequenceEditor
+          sequenceId={editingSeqId}
+          onClose={() => {
+            setEditingSeqId(null);
+            refresh();
+          }}
+        />
+      )}
     </Card>
   );
 }

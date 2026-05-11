@@ -1300,7 +1300,48 @@ export const api = {
     request<FollowUpRun>(`/api/followups/runs/${runId}/skip-step`, { method: "POST" }),
   clearLeadDoNotContact: (leadId: string) =>
     request<{ status: string; do_not_contact: boolean }>(`/api/followups/leads/${leadId}/clear-dnc`, { method: "POST" }),
+  compileSequenceInstruction: (seqId: string, instruction: string) =>
+    request<{ current: SequencePlan; proposed: SequencePlan; diff: SequenceDiffEntry[] }>(
+      `/api/followups/sequences/${seqId}/compile`,
+      { method: "POST", body: JSON.stringify({ instruction }) },
+    ),
+  applySequencePlan: (seqId: string, plan: SequencePlan) =>
+    request<{ sequence: FollowUpSequence; step_count: number }>(
+      `/api/followups/sequences/${seqId}/apply-plan`,
+      { method: "POST", body: JSON.stringify({ plan }) },
+    ),
 };
+
+// --- Workflow editor types ---
+
+export interface SequenceStepPlan {
+  position: number;
+  delay_hours: number;
+  channel: string;
+  message_template: string;
+  use_ai_personalization: boolean;
+}
+
+export interface SequencePlan {
+  sequence_name: string;
+  sequence_description: string;
+  trigger_event: string;
+  pause_on_events: string;
+  steps: SequenceStepPlan[];
+  reasoning?: string;
+  _compiler_unavailable?: boolean;
+  _error?: string;
+  _parse_error?: string;
+  _instruction?: string;
+}
+
+export interface SequenceDiffEntry {
+  kind: "added" | "removed" | "changed" | "unchanged" | "meta";
+  position?: number;
+  before?: SequenceStepPlan | Record<string, string>;
+  after?: SequenceStepPlan | Record<string, string>;
+  changes?: string[];
+}
 
 // --- Operator AI types ---
 
