@@ -346,6 +346,59 @@ def update_opportunity_stage(opportunity_id: str, stage_id: str, location_id: st
     return False
 
 
+def update_contact_core_fields(
+    contact_id: str,
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+    email: str | None = None,
+    address: str | None = None,
+    zip_code: str | None = None,
+    location_id: str | None = None,
+) -> bool:
+    """PUT name/phone/email/address1/postalCode on an existing GHL contact.
+    Used to mirror dashboard edits of the contact card back to GHL. Pass
+    only the fields you want to update — None values are skipped so we
+    don't accidentally blank out a field. Best-effort, 429-retried."""
+    if not contact_id:
+        return False
+    payload: dict = {}
+    if name is not None:
+        parts = (name or "").strip().split(maxsplit=1)
+        payload["firstName"] = parts[0] if parts else ""
+        payload["lastName"] = parts[1] if len(parts) > 1 else ""
+        payload["name"] = name or ""
+    if phone is not None:
+        payload["phone"] = phone or ""
+    if email is not None:
+        payload["email"] = email or ""
+    if address is not None:
+        payload["address1"] = address or ""
+    if zip_code is not None:
+        payload["postalCode"] = zip_code or ""
+    if not payload:
+        return False
+    url = f"{GHL_BASE}/contacts/{contact_id}"
+    headers = _headers(location_id)
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            r = _client.put(url, headers=headers, json=payload, timeout=10)
+            if r.status_code == 429 and attempt < 2:
+                import time as _time
+                logger.warning(f"GHL core-field push rate-limited for {contact_id}, retrying in {delay}s")
+                _time.sleep(delay)
+                delay *= 2
+                continue
+            r.raise_for_status()
+            logger.info(f"GHL core fields updated for contact {contact_id}: {list(payload.keys())}")
+            return True
+        except Exception as e:
+            logger.error(f"GHL update_contact_core_fields failed for {contact_id}: {e}")
+            return False
+    return False
+
+
 def update_contact_custom_fields(
     contact_id: str,
     fields: dict[str, str | int | float],

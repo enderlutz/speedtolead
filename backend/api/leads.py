@@ -13,39 +13,54 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
-from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields
+from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
 
 
 # Estimate-input fields that get mirrored to GHL on every lead save.
 # `our_field_name` (left) must match what's set in the GHL Field Mapping
 # settings UI. If a mapping is missing, that field silently stays in our DB
 # only — admin can map it from Settings later.
-SYNC_FIELDS_TO_GHL = ("zip_code", "fence_height", "fence_age", "previously_stained", "service_timeline")
+SYNC_FIELDS_TO_GHL = ("zip_code", "fence_height", "fence_age", "previously_stained", "service_timeline", "linear_feet")
 
 
 def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:
     """Push the estimate-input fields back to GHL custom fields after a
-    dashboard save. Best-effort — never fails the save itself."""
+    dashboard save. Best-effort — never fails the save itself.
+
+    Logs WHY a push gets skipped (no contact_id / no mappings / unmapped
+    field / empty value) so silent failures show up in Railway logs."""
     if not lead.ghl_contact_id:
+        logging.getLogger(__name__).info(f"GHL push skipped for {lead.id}: no ghl_contact_id")
         return
+    log = logging.getLogger(__name__)
     try:
         mappings = db.query(GhlFieldMapping).filter(
             GhlFieldMapping.our_field_name.in_(SYNC_FIELDS_TO_GHL)
         ).all()
         if not mappings:
+            log.warning(f"GHL push skipped for {lead.id}: no GhlFieldMapping rows for {SYNC_FIELDS_TO_GHL} — admin needs to map these in Settings → GHL Fields")
             return
+        mapped_names = {m.our_field_name for m in mappings if m.ghl_field_id}
         push: dict[str, str] = {}
+        skipped: list[str] = []
         for m in mappings:
             if not m.our_field_name or not m.ghl_field_id:
                 continue
             v = form_data.get(m.our_field_name)
             if v is None or v == "":
+                skipped.append(f"{m.our_field_name}=empty")
                 continue
             push[m.ghl_field_id] = str(v)
+        unmapped = [f for f in SYNC_FIELDS_TO_GHL if f not in mapped_names]
+        if unmapped:
+            log.warning(f"GHL push for {lead.id}: these fields have no mapping and won't sync: {unmapped} — map them in Settings → GHL Fields")
         if push:
-            update_contact_custom_fields(lead.ghl_contact_id, push, location_id=lead.ghl_location_id or None)
+            ok = update_contact_custom_fields(lead.ghl_contact_id, push, location_id=lead.ghl_location_id or None)
+            log.info(f"GHL push for {lead.id}: {'ok' if ok else 'FAILED'}, pushed={list(push.keys())}, skipped={skipped}")
+        else:
+            log.info(f"GHL push for {lead.id}: nothing to push, skipped={skipped}")
     except Exception as e:
-        logger.warning(f"GHL custom-field push for {lead.id} failed (non-fatal): {e}")
+        log.warning(f"GHL custom-field push for {lead.id} failed (non-fatal): {e}")
 from api.auth import get_current_user
 from config import get_settings
 
@@ -1066,15 +1081,24 @@ def update_contact(lead_id: str, body: ContactUpdate):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
 
-        if body.contact_name is not None:
+        # Track which fields are being changed so we only push deltas to GHL
+        # (avoids resetting fields the VA didn't touch).
+        ghl_push: dict[str, str | None] = {}
+
+        if body.contact_name is not None and body.contact_name != lead.contact_name:
+            ghl_push["name"] = body.contact_name
             lead.contact_name = body.contact_name
-        if body.contact_phone is not None:
+        if body.contact_phone is not None and body.contact_phone != lead.contact_phone:
+            ghl_push["phone"] = body.contact_phone
             lead.contact_phone = body.contact_phone
-        if body.contact_email is not None:
+        if body.contact_email is not None and body.contact_email != lead.contact_email:
+            ghl_push["email"] = body.contact_email
             lead.contact_email = body.contact_email
-        if body.address is not None:
+        if body.address is not None and body.address != lead.address:
+            ghl_push["address"] = body.address
             lead.address = body.address
-        if body.zip_code is not None:
+        if body.zip_code is not None and body.zip_code != lead.zip_code:
+            ghl_push["zip_code"] = body.zip_code
             lead.zip_code = body.zip_code
         if body.lead_source is not None:
             valid = ("ad", "referral", "google_my_business", "repeat_customer", "yard_sign", "other")
@@ -1084,6 +1108,19 @@ def update_contact(lead_id: str, body: ContactUpdate):
 
         lead.updated_at = _now()
         db.commit()
+
+        # Mirror core contact edits back to GHL — best-effort, never blocks
+        # the save. lead_source is dashboard-only so it's not pushed.
+        if ghl_push and lead.ghl_contact_id:
+            try:
+                update_contact_core_fields(
+                    lead.ghl_contact_id,
+                    location_id=lead.ghl_location_id or None,
+                    **ghl_push,
+                )
+            except Exception as e:
+                logger.warning(f"GHL core-field push for {lead.id} failed (non-fatal): {e}")
+
         return lead.to_dict()
     except HTTPException:
         raise

@@ -213,12 +213,78 @@ def _sync_location(location_id: str, label: str):
                         logger.warning(f"Poller: skipping opp with no contact_id: {opp.get('id', '?')}")
                         continue
 
-                    # Existing lead — keep stage in sync with GHL (GHL is the
-                    # system-of-record on stage moves). No re-creation.
+                    # Existing lead — keep stage AND contact info in sync with
+                    # GHL (GHL is the system-of-record). Refreshes name, phone,
+                    # email, address, zip + custom fields so edits the client
+                    # makes in GHL show up on the dashboard within one poll
+                    # cycle.
                     existing = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
                     if existing:
+                        changed = False
                         if stage_id and existing.ghl_pipeline_stage_id != stage_id:
                             existing.ghl_pipeline_stage_id = stage_id
+                            changed = True
+                            logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id} ({stage_name})")
+
+                        # Pull the full contact + refresh anything that drifted.
+                        # We only do this once per opp per tick (skip if we
+                        # already touched this contact via another stage).
+                        try:
+                            contact = get_contact(contact_id, location_id)
+                        except Exception:
+                            contact = None
+                        if contact:
+                            name = contact.get("contactName") or contact.get("name") or ""
+                            if not name:
+                                first = contact.get("firstName") or ""
+                                last = contact.get("lastName") or ""
+                                name = f"{first} {last}".strip()
+                            phone = contact.get("phone") or ""
+                            email = contact.get("email") or ""
+                            addr1 = contact.get("address1") or ""
+                            city = contact.get("city") or ""
+                            state = contact.get("state") or ""
+                            postal = contact.get("postalCode") or ""
+                            full_address = addr1
+                            if city and state:
+                                full_address = f"{addr1}, {city}, {state} {postal}".strip(", ")
+
+                            if name and name != existing.contact_name:
+                                existing.contact_name = name; changed = True
+                            if phone and phone != existing.contact_phone:
+                                existing.contact_phone = phone; changed = True
+                            if email and email != existing.contact_email:
+                                existing.contact_email = email; changed = True
+                            if full_address and full_address != existing.address:
+                                existing.address = full_address; changed = True
+                            if postal and postal != existing.zip_code:
+                                existing.zip_code = postal; changed = True
+
+                            # Refresh custom fields (fence_height/age/etc.) by
+                            # merging GHL-side values into form_data. We only
+                            # write back if something actually changed so we
+                            # don't churn updated_at.
+                            try:
+                                ghl_form = resolve_custom_fields(contact.get("customFields") or [])
+                            except Exception:
+                                ghl_form = {}
+                            if ghl_form:
+                                try:
+                                    current_fd = json.loads(existing.form_data or "{}")
+                                except Exception:
+                                    current_fd = {}
+                                fd_changed = False
+                                for k, v in ghl_form.items():
+                                    if v in (None, ""):
+                                        continue
+                                    if str(current_fd.get(k, "")) != str(v):
+                                        current_fd[k] = v
+                                        fd_changed = True
+                                if fd_changed:
+                                    existing.form_data = json.dumps(current_fd)
+                                    changed = True
+
+                        if changed:
                             existing.updated_at = _now()
                             db.commit()
                             try:
@@ -226,7 +292,6 @@ def _sync_location(location_id: str, label: str):
                                 publish("lead_updated", {"lead_id": existing.id})
                             except Exception:
                                 pass
-                            logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id} ({stage_name})")
                         continue
 
                     # New opportunity — create the lead regardless of stage
