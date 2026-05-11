@@ -146,6 +146,20 @@ async def _followup_engine_loop():
         await asyncio.sleep(300)  # Every 5 minutes
 
 
+async def _followup_learning_loop():
+    """Background task: weekly pattern analysis. Cheap because it only
+    runs once every 24h and writes thoughts only when anomalies clearly
+    exceed thresholds. Quiet until enough volume accumulates."""
+    from services.followup_learning import run_weekly_analysis
+    await asyncio.sleep(3600)  # 1h after boot
+    while True:
+        try:
+            await asyncio.to_thread(run_weekly_analysis)
+        except Exception as e:
+            logger.error(f"Follow-up learning error: {e}")
+        await asyncio.sleep(24 * 3600)  # Daily — quick scan, only publishes when signal is real
+
+
 async def _async_db_init():
     """Run DB init + seed in a background thread so lifespan doesn't block
     uvicorn from serving /health. If Supabase is briefly unreachable, we
@@ -187,6 +201,7 @@ async def lifespan(app: FastAPI):
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
     delay_detector = asyncio.create_task(_estimate_delay_loop())
     followup_engine = asyncio.create_task(_followup_engine_loop())
+    followup_learning = asyncio.create_task(_followup_learning_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -198,6 +213,7 @@ async def lifespan(app: FastAPI):
     correction_escalator.cancel()
     delay_detector.cancel()
     followup_engine.cancel()
+    followup_learning.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)

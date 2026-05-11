@@ -223,6 +223,16 @@ class TestThoughtBody(BaseModel):
     category: str = "System"
 
 
+@router.post("/operator/learning/run-now")
+def run_learning_now(user: dict = Depends(require_admin)):
+    """Manual trigger for the weekly learning analyzer. Useful for
+    testing the pipeline without waiting for the next scheduled run."""
+    del user
+    from services.followup_learning import run_weekly_analysis
+    summary = run_weekly_analysis()
+    return {"status": "ok", **summary}
+
+
 @router.post("/operator/thoughts/_test")
 def drop_test_thought(body: TestThoughtBody, user: dict = Depends(require_admin)):
     del user
