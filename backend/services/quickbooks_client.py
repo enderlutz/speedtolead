@@ -669,16 +669,52 @@ def create_invoice(
     result = qbo_request("POST", f"/v3/company/{t.realm_id}/invoice", json_body=body)
     inv = result.get("Invoice") or {}
     invoice_id = inv.get("Id", "")
-    # Build the public hosted-invoice URL. QB doesn't return it directly
-    # on POST in all API versions — the canonical pattern is to call
-    # /invoice/{id}/send or read it from the invoice's Link field.
-    invoice_url = ""
-    for link in inv.get("EmailStatus") and [] or []:
-        # Newer responses may include a public link; older ones require
-        # a separate fetch. For simplicity we return a deterministic
-        # admin-accessible URL pattern + the customer can also be sent
-        # the QB-hosted link via the "send" endpoint.
-        pass
+
+    # Build a customer-facing payment URL.
+    #
+    # QB doesn't return a public payment link on POST /invoice — the URL
+    # patterns under app.qbo.intuit.com/app/invoice are admin-only and
+    # require the recipient to sign into QB. To get the public hosted
+    # payment page (the one customers click to pay), we have to call
+    # /invoice/{id}/send. That action does two things:
+    #   1. Generates the public share link (returned via the Invoice's
+    #      Link[].LinkType == "InvoiceLink" field).
+    #   2. Triggers QB to email the customer using the BillEmail or
+    #      ?sendTo param. The customer ends up with both an email from
+    #      QB AND our own SMS — both pointing at the same payment page.
+    #      That's actually a feature, not a bug (more reminders = faster
+    #      payment).
+    #
+    # If /send fails for any reason, we fall back to the admin URL —
+    # the admin can at least open the invoice to verify it was created,
+    # even if it isn't a public payment link.
+    invoice_url = _try_extract_share_link(inv)
+
+    if not invoice_url and invoice_id:
+        send_target = customer_email or (body.get("BillEmail") or {}).get("Address", "")
+        if send_target:
+            try:
+                sent = qbo_request(
+                    "POST",
+                    f"/v3/company/{t.realm_id}/invoice/{invoice_id}/send",
+                    params={"sendTo": send_target},
+                )
+                sent_inv = sent.get("Invoice") or {}
+                invoice_url = _try_extract_share_link(sent_inv)
+                if not invoice_url:
+                    logger.warning(
+                        f"QB /send completed for invoice {invoice_id} but no InvoiceLink in "
+                        f"response. Response keys: {list(sent_inv.keys())[:20]}"
+                    )
+            except Exception as e:
+                logger.warning(f"QB /send to generate share link failed (non-fatal): {e}")
+        else:
+            logger.warning(
+                f"No customer_email and no BillEmail on invoice {invoice_id} — "
+                f"cannot trigger /send to generate share link. Falling back to admin URL."
+            )
+
+    # Final fallback — admin URL, requires QB login.
     if not invoice_url and invoice_id:
         host = "https://app.qbo.intuit.com" if qb_environment() == "production" else "https://app.sandbox.qbo.intuit.com"
         invoice_url = f"{host}/app/invoice?txnId={invoice_id}"
@@ -689,6 +725,26 @@ def create_invoice(
         "invoice_url": invoice_url,
         "total_amount": float(inv.get("TotalAmt") or amount),
     }
+
+
+def _try_extract_share_link(inv: dict) -> str:
+    """Look for a customer-facing payment URL in the Invoice resource.
+    Intuit has used a few different shapes over API versions, so we check
+    several possible fields. Returns empty string if nothing usable."""
+    # 1. Link array with LinkType == "InvoiceLink" (modern responses)
+    for link in (inv.get("Link") or []):
+        if not isinstance(link, dict):
+            continue
+        if link.get("LinkType") in ("InvoiceLink", "Invoice", "Share"):
+            url = link.get("Link") or link.get("URL") or ""
+            if url:
+                return url
+    # 2. Top-level fields some integrations return
+    for field in ("InvoiceLink", "OnlineCheckoutUrl", "WebUrl", "PaymentUrl"):
+        val = inv.get(field)
+        if val and isinstance(val, str):
+            return val
+    return ""
 
 
 def fetch_invoice(invoice_id: str) -> dict | None:
