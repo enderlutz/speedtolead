@@ -14,6 +14,7 @@ import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
+import SupportCard from "@/components/SupportCard";
 
 interface PdfTemplateInfo {
   id: string;
@@ -147,6 +148,9 @@ export default function Settings() {
 
       {/* QuickBooks Online — OAuth connection, mode, realm, reconnect banner */}
       <QuickBooksSettingsCard />
+
+      {/* Support + legal — surfaces contact email + EULA / Privacy links */}
+      <SupportCard />
 
       {/* Google Calendar OAuth */}
       <GoogleCalendarCard />

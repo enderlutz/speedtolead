@@ -523,6 +523,14 @@ def qbo_request(
                 timeout=20,
             )
 
+            # Capture intuit_tid for support correlation. Intuit's support
+            # team uses this to look up specific API calls — we log it
+            # on every response (success or failure) so we can grep
+            # Railway logs by tid when filing a ticket.
+            tid = r.headers.get("intuit_tid", "")
+            if tid:
+                logger.info(f"QBO {method} {path.split('?')[0]} status={r.status_code} intuit_tid={tid}")
+
             # 401 — try refreshing once, then re-attempt.
             if r.status_code == 401 and not refreshed_once:
                 refreshed_once = True
@@ -550,8 +558,8 @@ def qbo_request(
                     body_excerpt = r.json()
                 except Exception:
                     body_excerpt = {"raw": r.text[:300]}
-                logger.error(f"QBO {method} {path} status={r.status_code} body={str(body_excerpt)[:300]}")
-                raise RuntimeError(f"QBO {method} {path} failed: {r.status_code}")
+                logger.error(f"QBO {method} {path} status={r.status_code} intuit_tid={tid or 'n/a'} body={str(body_excerpt)[:300]}")
+                raise RuntimeError(f"QBO {method} {path} failed: {r.status_code} (intuit_tid={tid or 'n/a'})")
 
             return r.json()
         except (PermissionError, RuntimeError):
