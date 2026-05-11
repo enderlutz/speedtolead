@@ -978,6 +978,11 @@ export const api = {
   getQuickBooksStatus: () => request<QuickBooksStatus>("/api/quickbooks/status"),
   getQuickBooksAuthUrl: () => request<{ url: string; mode: string; note?: string }>("/api/quickbooks/auth-url"),
   disconnectQuickBooks: () => request<{ status: string }>("/api/quickbooks/disconnect", { method: "POST" }),
+  refreshQuickBooksDiscovery: () =>
+    request<{ authorization_endpoint: string; token_endpoint: string; revocation_endpoint: string }>(
+      "/api/quickbooks/refresh-discovery",
+      { method: "POST" },
+    ),
   generateInvoice: (jobId: string, body: { amount: number; description?: string; due_in_days?: number; line_items?: { description: string; qty: number; rate: number }[] }) =>
     request<GenerateInvoiceResult>(`/api/quickbooks/jobs/${jobId}/generate-invoice`, {
       method: "POST",
@@ -1841,8 +1846,13 @@ export interface QuickBooksStatus {
   mode: "mock" | "live";
   connected: boolean;
   company_name: string;
+  realm_id: string;
   environment: string;
   connected_at: string;
+  access_token_expires_at: string;
+  refresh_token_expires_at: string;
+  needs_reconnect: boolean;
+  reconnect_reason: string;
   ready_to_test: boolean;
 }
 

@@ -13,6 +13,7 @@ import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
+import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
 
 interface PdfTemplateInfo {
   id: string;
@@ -143,6 +144,9 @@ export default function Settings() {
 
       {/* Follow-up Engine — master toggle, routing numbers, sequences */}
       <FollowUpSettingsCard />
+
+      {/* QuickBooks Online — OAuth connection, mode, realm, reconnect banner */}
+      <QuickBooksSettingsCard />
 
       {/* Google Calendar OAuth */}
       <GoogleCalendarCard />
