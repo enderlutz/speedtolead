@@ -243,7 +243,13 @@ def generate_invoice(job_id: str, body: GenerateInvoiceBody, user: dict = Depend
                 customer_email=email,
             )
         except PermissionError as e:
-            raise HTTPException(401, str(e))
+            # NOT a 401 — that would trigger the frontend's global "session
+            # expired, redirect to /login" handler. This means "QB OAuth
+            # not completed yet" which is a config/state issue, not auth.
+            raise HTTPException(
+                400,
+                f"QuickBooks isn't connected yet. Open Settings → QuickBooks Online → Connect. ({e})",
+            )
         except Exception as e:
             logger.error(f"QB live invoice create failed: {e}")
             raise HTTPException(502, f"QuickBooks invoice creation failed: {e}")
