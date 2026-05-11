@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom"
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
+import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -979,6 +980,12 @@ export default function LeadDetail() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Follow-up runs (admin-only — component self-gates) */}
+          <FollowUpStatusPanel
+            lead={lead}
+            onLeadUpdated={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
+          />
 
           {/* Message History */}
           <Card>

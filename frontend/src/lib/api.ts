@@ -1289,6 +1289,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  startSequenceOnLead: (leadId: string, sequenceId: string) =>
+    request<{ run_id: string; master_on: boolean }>(`/api/followups/leads/${leadId}/start-sequence`, {
+      method: "POST",
+      body: JSON.stringify({ sequence_id: sequenceId }),
+    }),
+  sendFollowupNow: (runId: string) =>
+    request<FollowUpRun>(`/api/followups/runs/${runId}/send-now`, { method: "POST" }),
+  skipFollowupStep: (runId: string) =>
+    request<FollowUpRun>(`/api/followups/runs/${runId}/skip-step`, { method: "POST" }),
+  clearLeadDoNotContact: (leadId: string) =>
+    request<{ status: string; do_not_contact: boolean }>(`/api/followups/leads/${leadId}/clear-dnc`, { method: "POST" }),
 };
 
 // --- Operator AI types ---

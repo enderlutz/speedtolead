@@ -54,6 +54,21 @@ def _noop_handler(thought: dict, user: dict) -> dict:
 _ACTION_HANDLERS["noop"] = _noop_handler
 
 
+# Standard "open_lead" handler — the AI uses this when its proposed action
+# is "go look at this lead" (opt-out review, send failure, etc.). Server
+# returns a navigate_to URL and the frontend honors it after approve.
+def _open_lead_handler(thought: dict, user: dict) -> dict:
+    del user
+    payload = thought.get("proposed_action_payload") or {}
+    lead_id = payload.get("lead_id") or thought.get("source_ref_id") or ""
+    if not lead_id:
+        return {"ok": False, "message": "no lead_id in payload"}
+    return {"ok": True, "kind": "navigate", "navigate_to": f"/leads/{lead_id}"}
+
+
+_ACTION_HANDLERS["open_lead"] = _open_lead_handler
+
+
 # --- API ---
 
 @router.get("/operator/thoughts")

@@ -395,6 +395,140 @@ def resume_run(run_id: str, user: dict = Depends(require_admin)):
         db.close()
 
 
+@router.post("/followups/runs/{run_id}/send-now")
+def send_now(run_id: str, user: dict = Depends(require_admin)):
+    """Bump next_due_at to now so the next tick fires this step immediately.
+    Admin uses this to nudge a sequence forward without waiting for the
+    scheduled delay."""
+    db = get_db()
+    try:
+        run = db.query(FollowUpRun).filter(FollowUpRun.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status != "active":
+            raise HTTPException(status_code=400, detail=f"Cannot send-now on a {run.status} run")
+        run.next_due_at = _now()
+        db.add(FollowUpEvent(
+            id=str(uuid.uuid4()), run_id=run_id, event_type="send_now_requested",
+            payload=json.dumps({}),
+            actor=f"admin:{user.get('sub', '')}", created_at=_now(),
+        ))
+        db.commit()
+        return run.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/followups/runs/{run_id}/skip-step")
+def skip_step(run_id: str, user: dict = Depends(require_admin)):
+    """Advance to the next step without sending the current one. Engine
+    will schedule the new step's send based on its delay_hours from now."""
+    from datetime import timedelta
+    db = get_db()
+    try:
+        run = db.query(FollowUpRun).filter(FollowUpRun.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status not in ("active", "paused"):
+            raise HTTPException(status_code=400, detail=f"Cannot skip on a {run.status} run")
+        prev_step = run.current_step or 0
+        run.current_step = prev_step + 1
+        # Schedule the new step's first send using its delay_hours; if no
+        # next step exists, set next_due_at to now so the engine completes
+        # the run on the next tick.
+        next_step_row = (
+            db.query(FollowUpStep)
+            .filter(FollowUpStep.sequence_id == run.sequence_id, FollowUpStep.position == run.current_step)
+            .first()
+        )
+        if next_step_row:
+            from datetime import datetime as _dt, timezone as _tz
+            run.next_due_at = (_dt.now(_tz.utc) + timedelta(hours=float(next_step_row.delay_hours or 0))).isoformat()
+        else:
+            run.next_due_at = _now()
+        db.add(FollowUpEvent(
+            id=str(uuid.uuid4()), run_id=run_id, event_type="step_skipped",
+            payload=json.dumps({"from_step": prev_step, "to_step": run.current_step}),
+            actor=f"admin:{user.get('sub', '')}", created_at=_now(),
+        ))
+        db.commit()
+        return run.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.post("/followups/leads/{lead_id}/clear-dnc")
+def clear_do_not_contact(lead_id: str, user: dict = Depends(require_admin)):
+    """Clear the do_not_contact flag — used when admin reviews an
+    AI-flagged opt-out and decides it was a false positive. Existing
+    paused runs stay paused (admin resumes them separately if they want)."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.do_not_contact:
+            return {"status": "noop", "do_not_contact": False}
+        lead.do_not_contact = False
+        lead.updated_at = _now()
+        db.commit()
+        return {"status": "cleared", "do_not_contact": False}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class StartSequenceBody(BaseModel):
+    sequence_id: str
+
+
+@router.post("/followups/leads/{lead_id}/start-sequence")
+def start_sequence_on_lead(lead_id: str, body: StartSequenceBody, user: dict = Depends(require_admin)):
+    """Start a sequence on a specific lead (admin-initiated). Distinct
+    from test-run in that the target lead is explicit + not flagged as
+    test_mode. Used from the Lead Detail intervention panel."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.ghl_contact_id:
+            raise HTTPException(status_code=400, detail="Lead has no ghl_contact_id — can't send via GHL")
+        if lead.do_not_contact:
+            raise HTTPException(status_code=400, detail="Lead is marked do_not_contact — clear that first")
+        run_id = start_run(
+            lead_id=lead_id,
+            sequence_id=body.sequence_id,
+            actor=f"manual:{user.get('sub', '')}",
+            test_mode=False,
+        )
+        if not run_id:
+            raise HTTPException(status_code=500, detail="Failed to start run")
+        return {"run_id": run_id, "master_on": is_master_on(db)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.post("/followups/runs/{run_id}/stop")
 def stop_run(run_id: str, user: dict = Depends(require_admin)):
     db = get_db()

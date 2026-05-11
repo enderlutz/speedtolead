@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, type AIThought, type AIThoughtSeverity, getCurrentUser } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
@@ -31,6 +32,7 @@ const SEVERITY_STYLES: Record<AIThoughtSeverity, { badge: string; border: string
 
 export default function Agents() {
   const isAdmin = getCurrentUser()?.role === "admin";
+  const navigate = useNavigate();
   const [thoughts, setThoughts] = useState<AIThought[]>([]);
   const [activeCount, setActiveCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,12 @@ export default function Agents() {
         toast.error(`Approved, but action failed: ${res.error}`);
       } else {
         toast.success("Approved");
+      }
+      // Honor server-provided navigation hint (e.g. "open this lead").
+      const result = res.result as { navigate_to?: string } | null | undefined;
+      if (result?.navigate_to) {
+        navigate(result.navigate_to);
+        return;
       }
       load();
     } catch (e) {
