@@ -1400,6 +1400,76 @@ class OverheadEntry(Base):
         }
 
 
+class AIThought(Base):
+    """A single observation/diagnosis from any Operator AI module.
+
+    Generic by design — any background loop (follow-up engine, future
+    procurement watcher, sales aged-quote scanner) can write thoughts via
+    services.ai_thought_bus.publish. The front-end /agents page renders
+    them as a unified Diagnosis Feed. Admin approves/dismisses each one;
+    approving may trigger a proposed action (encoded in
+    proposed_action_payload) but the bus is observer-only — it never
+    auto-applies."""
+    __tablename__ = "ai_thoughts"
+    __table_args__ = (
+        Index("idx_ai_thoughts_status_created", "status", "created_at"),
+        Index("idx_ai_thoughts_source_ref", "source", "source_ref_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    created_at = Column(Text, default="", nullable=False)
+    # Module that produced this thought. Used for filtering + UI grouping.
+    source = Column(Text, default="")               # "followup" | "followup_learning" | future modules
+    source_ref_id = Column(Text, default="")        # lead_id | run_id | job_id (whatever the source refers to)
+    # Severity drives the UI tint + sort order.
+    severity = Column(Text, default="medium")        # "low" | "medium" | "high"
+    category = Column(Text, default="")              # human-readable bucket: "Sales", "Field", "Procurement"…
+    title = Column(Text, nullable=False)             # short headline ("23 aged quotes leaking ~$18k")
+    summary = Column(Text, default="")               # paragraph of detail rendered under the title
+    # Proposed action — what the AI thinks should happen. Text is what we
+    # show in the card; payload is the structured form the approve handler
+    # uses to actually execute (e.g. {"kind":"start_followup","sequence_id":"…"}).
+    proposed_action_text = Column(Text, default="")
+    proposed_action_payload = Column(Text, default="{}")
+    confidence_pct = Column(Integer, default=70)     # 0-100, just shown to humans
+    # Lifecycle:
+    #   active     — visible in the feed, awaiting decision
+    #   approved   — admin clicked Approve; action executed (or queued)
+    #   dismissed  — admin clicked Dismiss
+    #   snoozed    — temporarily hidden until snooze_until
+    #   executed   — terminal state after approved action ran
+    #   superseded — replaced by a newer, more accurate version of the same thought
+    status = Column(Text, default="active", nullable=False)
+    snooze_until = Column(Text, default="")
+    decided_at = Column(Text, default="")
+    decided_by = Column(Text, default="")            # username of the admin
+    decision_note = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        try:
+            payload = json.loads(self.proposed_action_payload or "{}")
+        except Exception:
+            payload = {}
+        return {
+            "id": self.id,
+            "created_at": self.created_at or "",
+            "source": self.source or "",
+            "source_ref_id": self.source_ref_id or "",
+            "severity": self.severity or "medium",
+            "category": self.category or "",
+            "title": self.title,
+            "summary": self.summary or "",
+            "proposed_action_text": self.proposed_action_text or "",
+            "proposed_action_payload": payload,
+            "confidence_pct": int(self.confidence_pct or 0),
+            "status": self.status or "active",
+            "snooze_until": self.snooze_until or "",
+            "decided_at": self.decided_at or "",
+            "decided_by": self.decided_by or "",
+            "decision_note": self.decision_note or "",
+        }
+
+
 # --- Engine / Session ---
 
 _engine = None

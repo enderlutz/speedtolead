@@ -1220,7 +1220,62 @@ export const api = {
     ),
   clearDelayBadge: (leadId: string) =>
     request<{ status: string }>(`/api/leads/${leadId}/estimate-delay/clear`, { method: "POST" }),
+
+  // Operator AI — Diagnosis Feed (admin-only)
+  listAIThoughts: (params?: { status?: string; source?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.source) qs.set("source", params.source);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{ thoughts: AIThought[]; active_count: number }>(`/api/operator/thoughts${suffix}`);
+  },
+  getAIThought: (id: string) => request<AIThought>(`/api/operator/thoughts/${id}`),
+  approveAIThought: (id: string, note?: string) =>
+    request<{ status: string; result: unknown; error?: string }>(`/api/operator/thoughts/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ note: note || "" }),
+    }),
+  dismissAIThought: (id: string, note?: string) =>
+    request<{ status: string }>(`/api/operator/thoughts/${id}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ note: note || "" }),
+    }),
+  snoozeAIThought: (id: string, until: string) =>
+    request<{ status: string; until: string }>(`/api/operator/thoughts/${id}/snooze`, {
+      method: "POST",
+      body: JSON.stringify({ until }),
+    }),
+  dropTestAIThought: (body: { title: string; summary: string; severity: string; category: string }) =>
+    request<{ id: string }>(`/api/operator/thoughts/_test`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
+
+// --- Operator AI types ---
+
+export type AIThoughtSeverity = "low" | "medium" | "high";
+export type AIThoughtStatus = "active" | "approved" | "dismissed" | "snoozed" | "executed" | "superseded";
+
+export interface AIThought {
+  id: string;
+  created_at: string;
+  source: string;
+  source_ref_id: string;
+  severity: AIThoughtSeverity;
+  category: string;
+  title: string;
+  summary: string;
+  proposed_action_text: string;
+  proposed_action_payload: Record<string, unknown>;
+  confidence_pct: number;
+  status: AIThoughtStatus;
+  snooze_until: string;
+  decided_at: string;
+  decided_by: string;
+  decision_note: string;
+}
 
 
 // --- Scheduling types ---
