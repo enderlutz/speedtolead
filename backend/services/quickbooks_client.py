@@ -400,7 +400,7 @@ def exchange_code(code: str, realm_id: str) -> TokenSet:
         headers={"Authorization": f"Basic {basic}", "Accept": "application/json"},
         timeout=15,
     )
-    if not r.ok:
+    if not r.is_success:
         # Never log the actual code or tokens.
         logger.error(f"QB token exchange failed: status={r.status_code} body={r.text[:200]}")
         raise RuntimeError(f"Intuit token exchange failed: {r.status_code}")
@@ -430,7 +430,7 @@ def refresh_access_token(current: TokenSet) -> TokenSet:
         logger.warning(f"QB refresh rejected (status={r.status_code}); marking needs_reconnect")
         mark_needs_reconnect(f"invalid_grant on refresh (status={r.status_code})")
         raise PermissionError("Refresh token invalid — user must reconnect")
-    if not r.ok:
+    if not r.is_success:
         logger.error(f"QB refresh failed: status={r.status_code} body={r.text[:200]}")
         raise RuntimeError(f"Intuit token refresh failed: {r.status_code}")
     body = r.json()
@@ -552,7 +552,7 @@ def qbo_request(
                 last_err = f"status={r.status_code}"
                 continue
 
-            if not r.ok:
+            if not r.is_success:
                 # 4xx other than 401/429 — caller-actionable. Don't retry.
                 try:
                     body_excerpt = r.json()
