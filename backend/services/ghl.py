@@ -167,31 +167,44 @@ def send_sms(contact_id: str, message: str, location_id: str | None = None) -> b
     return _send_message("SMS", contact_id, message, location_id)
 
 
-def send_message_with_routing(
+def send_via_provider(
     contact_id: str,
     message: str,
-    from_number: str = "",
+    conversation_provider_id: str,
     location_id: str | None = None,
     max_retries: int = 3,
 ) -> tuple[bool, str, str]:
-    """Send an SMS-class message and route it through a specific from-number
-    if provided. Used by the follow-up engine to send via the iMessage
-    line first and fall back to SMS on delivery failure.
+    """Send a message through a GHL Custom Conversation Provider.
+
+    This is how third-party messaging integrations (MyCRMSim for
+    iMessage, plus any future custom channel) plug into GHL. The
+    payload shape was reverse-engineered by sniffing GHL's own UI —
+    type "Custom" + conversationProviderId is what GHL sends when the
+    user picks iMessage in the conversation dropdown.
+
+    For MyCRMSim specifically: the provider itself handles
+    iMessage-vs-SMS routing internally based on the recipient's device.
+    We don't need to specify a channel — MyCRMSim picks iMessage for
+    Apple users, falls back to SMS for Android automatically.
 
     Returns: (success, ghl_message_id, error_text)
-        ghl_message_id is set on success — used to correlate with
-        delivery-status webhooks.
+        ghl_message_id is set on success — used to correlate with any
+        delivery-status webhook we may receive later.
         error_text carries the GHL error body on failure for debugging.
     """
+    if not conversation_provider_id:
+        return (False, "", "no conversation_provider_id configured")
     settings = get_settings()
     payload: dict = {
-        "type": "SMS",
+        "type": "Custom",
+        "channel": "sms",
         "contactId": contact_id,
+        "conversationProviderId": conversation_provider_id,
+        "fromOneToOneConversation": True,
         "message": message,
         "locationId": location_id or settings.ghl_location_id,
+        "attachments": [],
     }
-    if from_number:
-        payload["fromNumber"] = from_number
 
     last_err = ""
     for attempt in range(max_retries):
@@ -207,13 +220,13 @@ def send_message_with_routing(
                 logger.warning(f"GHL rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait)
                 continue
-            if not r.ok:
+            if not r.is_success:
                 last_err = f"{r.status_code}: {r.text[:200]}"
                 if attempt < max_retries - 1:
                     wait = min(2 ** attempt, 8)
                     time.sleep(wait)
                     continue
-                logger.error(f"GHL routed send FAILED for {contact_id} from={from_number}: {last_err}")
+                logger.error(f"GHL provider send FAILED for {contact_id} provider={conversation_provider_id}: {last_err}")
                 return (False, "", last_err)
             data = r.json() or {}
             # GHL returns the new conversation message ID under various keys depending on version.
@@ -222,7 +235,7 @@ def send_message_with_routing(
                 or data.get("id")
                 or (data.get("message") or {}).get("id", "")
             )
-            logger.info(f"GHL routed send ok contact={contact_id} from={from_number or 'default'} msg_id={msg_id}")
+            logger.info(f"GHL provider send ok contact={contact_id} provider={conversation_provider_id} msg_id={msg_id}")
             return (True, msg_id, "")
         except Exception as e:
             last_err = str(e)
@@ -230,7 +243,7 @@ def send_message_with_routing(
                 wait = min(2 ** attempt, 8)
                 time.sleep(wait)
             else:
-                logger.error(f"GHL routed send EXCEPTION for {contact_id} from={from_number}: {e}")
+                logger.error(f"GHL provider send EXCEPTION for {contact_id} provider={conversation_provider_id}: {e}")
                 return (False, "", last_err)
     return (False, "", last_err or "max_retries_exceeded")
 

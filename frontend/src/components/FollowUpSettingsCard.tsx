@@ -8,16 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Power, Sparkles, Send, Edit2, Trash2, Plus } from "lucide-react";
 import SequenceEditor from "@/components/SequenceEditor";
 
-const NUMBER_PLACEHOLDER = "+1 832 555 0100";
-
 export default function FollowUpSettingsCard() {
   const isAdmin = getCurrentUser()?.role === "admin";
   const [config, setConfig] = useState<FollowUpConfig | null>(null);
   const [sequences, setSequences] = useState<FollowUpSequence[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [imsg, setImsg] = useState("");
-  const [sms, setSms] = useState("");
+  const [providerId, setProviderId] = useState("");
   const [testLeadId, setTestLeadId] = useState("");
   const [firingTest, setFiringTest] = useState<string | null>(null);
   const [editingSeqId, setEditingSeqId] = useState<string | null>(null);
@@ -27,8 +24,7 @@ export default function FollowUpSettingsCard() {
     Promise.all([api.getFollowupConfig(), api.listFollowupSequences()])
       .then(([cfg, list]) => {
         setConfig(cfg);
-        setImsg(cfg.imessage_from_number);
-        setSms(cfg.sms_from_number);
+        setProviderId(cfg.mycrmsim_provider_id || "");
         setTestLeadId(cfg.test_lead_id);
         setSequences(list.sequences);
       })
@@ -60,8 +56,7 @@ export default function FollowUpSettingsCard() {
     setSaving(true);
     try {
       const next = await api.updateFollowupConfig({
-        imessage_from_number: imsg.trim(),
-        sms_from_number: sms.trim(),
+        mycrmsim_provider_id: providerId.trim(),
         test_lead_id: testLeadId.trim(),
       });
       setConfig(next);
@@ -154,21 +149,24 @@ export default function FollowUpSettingsCard() {
               </Button>
             </div>
 
-            {/* Routing numbers */}
+            {/* MyCRMSim provider ID + test lead */}
             <div className="space-y-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">
-                    iMessage from-number (MyCRMSim)
-                  </label>
-                  <Input value={imsg} onChange={(e) => setImsg(e.target.value)} placeholder={NUMBER_PLACEHOLDER} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground block mb-1">
-                    SMS fallback from-number
-                  </label>
-                  <Input value={sms} onChange={(e) => setSms(e.target.value)} placeholder={NUMBER_PLACEHOLDER} />
-                </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">
+                  MyCRMSim Conversation Provider ID
+                </label>
+                <Input
+                  value={providerId}
+                  onChange={(e) => setProviderId(e.target.value)}
+                  placeholder="e.g. 685e4cb0e83b1a3187bfd686"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                  Found by sending an iMessage from GHL conversation UI with Chrome DevTools open
+                  → Network tab → click the <code>messages</code> request → Payload → copy{" "}
+                  <code>conversationProviderId</code>. With this set, the engine sends through
+                  MyCRMSim (iMessage when possible, SMS fallback automatic). Leave blank to fall
+                  back to GHL's default SMS line for all sends.
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1">
@@ -178,13 +176,9 @@ export default function FollowUpSettingsCard() {
               </div>
               <div className="flex justify-end">
                 <Button size="sm" onClick={saveNumbers} disabled={saving}>
-                  Save routing
+                  Save
                 </Button>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Engine tries the iMessage number first for new leads. On send-failure (Android, etc.) it
-                falls back to the SMS number for that lead and remembers the choice.
-              </p>
             </div>
 
             {/* Sequences */}

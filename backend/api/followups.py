@@ -19,8 +19,9 @@ from pydantic import BaseModel
 from database import get_db, Lead, SystemConfig, FollowUpSequence, FollowUpStep, FollowUpRun, FollowUpEvent
 from api.auth import require_admin
 from services.followup_engine import (
-    CFG_MASTER_ON, CFG_IMESSAGE_NUMBER, CFG_SMS_NUMBER, CFG_TEST_LEAD_ID,
-    start_run, get_routing_numbers, is_master_on,
+    CFG_MASTER_ON, CFG_MYCRMSIM_PROVIDER_ID, CFG_TEST_LEAD_ID,
+    CFG_IMESSAGE_NUMBER, CFG_SMS_NUMBER,  # legacy, retained for back-compat
+    start_run, get_mycrmsim_provider_id, is_master_on,
 )
 
 router = APIRouter()
@@ -40,11 +41,13 @@ def get_config(user: dict = Depends(require_admin)):
     del user
     db = get_db()
     try:
-        imsg, sms = get_routing_numbers(db)
         return {
             "master_on": is_master_on(db),
-            "imessage_from_number": imsg,
-            "sms_from_number": sms,
+            "mycrmsim_provider_id": get_mycrmsim_provider_id(db),
+            # Legacy fields — surfaced so the UI can show them as deprecated
+            # and let admin clear out stale values. Not used by the send path.
+            "imessage_from_number": SystemConfig.get(db, CFG_IMESSAGE_NUMBER, ""),
+            "sms_from_number": SystemConfig.get(db, CFG_SMS_NUMBER, ""),
             "test_lead_id": SystemConfig.get(db, CFG_TEST_LEAD_ID, ""),
         }
     finally:
@@ -53,6 +56,8 @@ def get_config(user: dict = Depends(require_admin)):
 
 class ConfigUpdate(BaseModel):
     master_on: Optional[bool] = None
+    mycrmsim_provider_id: Optional[str] = None
+    # Legacy — accepted but no longer routed through.
     imessage_from_number: Optional[str] = None
     sms_from_number: Optional[str] = None
     test_lead_id: Optional[str] = None
@@ -65,6 +70,8 @@ def update_config(body: ConfigUpdate, user: dict = Depends(require_admin)):
     try:
         if body.master_on is not None:
             SystemConfig.set(db, CFG_MASTER_ON, "true" if body.master_on else "false")
+        if body.mycrmsim_provider_id is not None:
+            SystemConfig.set(db, CFG_MYCRMSIM_PROVIDER_ID, body.mycrmsim_provider_id.strip())
         if body.imessage_from_number is not None:
             SystemConfig.set(db, CFG_IMESSAGE_NUMBER, body.imessage_from_number.strip())
         if body.sms_from_number is not None:

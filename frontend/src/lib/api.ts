@@ -1429,6 +1429,9 @@ export interface FollowUpEvent {
 
 export interface FollowUpConfig {
   master_on: boolean;
+  /** GHL Custom Conversation Provider ID for MyCRMSim (iMessage routing). */
+  mycrmsim_provider_id: string;
+  /** Legacy — retained so admin can see + clear old values. Not routed through. */
   imessage_from_number: string;
   sms_from_number: string;
   test_lead_id: string;

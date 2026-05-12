@@ -31,7 +31,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from database import get_db, Lead, SystemConfig, FollowUpSequence, FollowUpStep, FollowUpRun, FollowUpEvent, Estimate
-from services.ghl import send_message_with_routing
+from services.ghl import send_via_provider, send_sms
 from services.followup_ai import personalize, render_template, _build_vars
 from services.ai_thought_bus import publish as publish_thought
 
@@ -40,9 +40,12 @@ logger = logging.getLogger(__name__)
 
 # Config keys used by this module — single source of truth.
 CFG_MASTER_ON = "followup_master_on"
+CFG_MYCRMSIM_PROVIDER_ID = "followup_mycrmsim_provider_id"
+CFG_TEST_LEAD_ID = "followup_test_lead_id"
+# Legacy keys, kept for back-compat with older Settings rows. Not used
+# by the send path anymore — MyCRMSim picks iMessage vs SMS internally.
 CFG_IMESSAGE_NUMBER = "followup_imessage_from_number"
 CFG_SMS_NUMBER = "followup_sms_from_number"
-CFG_TEST_LEAD_ID = "followup_test_lead_id"
 
 
 def _now() -> str:
@@ -78,31 +81,30 @@ def is_master_on(db) -> bool:
     return SystemConfig.get(db, CFG_MASTER_ON, "false").lower() == "true"
 
 
-def get_routing_numbers(db) -> tuple[str, str]:
-    """Returns (imessage_number, sms_number). Either may be empty — when
-    blank, GHL routes through its default sender (typically the location's
-    primary number)."""
-    return (
-        SystemConfig.get(db, CFG_IMESSAGE_NUMBER, ""),
-        SystemConfig.get(db, CFG_SMS_NUMBER, ""),
-    )
+def get_mycrmsim_provider_id(db) -> str:
+    """Returns the MyCRMSim conversationProviderId for sending iMessages
+    through GHL's Custom Channel mechanism. Empty string means MyCRMSim
+    isn't configured — engine falls back to plain GHL SMS."""
+    return SystemConfig.get(db, CFG_MYCRMSIM_PROVIDER_ID, "")
 
 
 # -----------------------------------------------------------------------
 # Send routing
 # -----------------------------------------------------------------------
 
-def _pick_method(lead: Lead) -> str:
-    """Returns 'imessage' for unknown/imessage, 'sms' for sms.
-    Phase 2 default: always try iMessage first when we don't know yet."""
-    method = (lead.delivery_method or "unknown").lower()
-    if method == "sms":
-        return "sms"
-    return "imessage"
-
-
 def _send_step(db, run: FollowUpRun, step: FollowUpStep, lead: Lead) -> tuple[bool, str, str]:
-    """Renders + sends the message. Returns (ok, ghl_message_id, error)."""
+    """Renders + sends the message. Returns (ok, ghl_message_id, error).
+
+    Routing logic:
+      1. If MyCRMSim provider ID is configured AND lead.delivery_method
+         isn't explicitly 'sms' (a prior MyCRMSim failure pinned it),
+         send through the MyCRMSim provider — MyCRMSim itself picks
+         iMessage for Apple users and falls back to SMS for Android
+         internally. Single call, no synchronous fallback needed.
+      2. If MyCRMSim send fails OR provider isn't configured OR the lead
+         is pinned to 'sms', send through GHL's default SMS line.
+      3. If both paths fail, the run is marked failed.
+    """
     # Pull latest estimate for personalization context (best-effort).
     estimate = None
     try:
@@ -120,50 +122,59 @@ def _send_step(db, run: FollowUpRun, step: FollowUpStep, lead: Lead) -> tuple[bo
     else:
         body = render_template(step.message_template or "", _build_vars(lead, estimate))
 
-    method = _pick_method(lead)
-    imsg_num, sms_num = get_routing_numbers(db)
-    from_number = imsg_num if method == "imessage" else sms_num
+    provider_id = get_mycrmsim_provider_id(db)
+    lead_pinned_sms = (lead.delivery_method or "unknown").lower() == "sms"
 
-    ok, msg_id, err = send_message_with_routing(
-        contact_id=lead.ghl_contact_id or "",
-        message=body,
-        from_number=from_number,
-        location_id=lead.ghl_location_id or None,
-    )
+    used_method = ""
+    msg_id = ""
+    err = ""
+    ok = False
 
-    # If iMessage attempt fails synchronously and we have an SMS number, fall back now.
-    if not ok and method == "imessage" and sms_num:
-        logger.info(f"Follow-up: iMessage send failed for lead {lead.id}, falling back to SMS")
-        ok2, msg_id2, err2 = send_message_with_routing(
+    # Path 1: MyCRMSim provider (preferred — iMessage when possible)
+    if provider_id and not lead_pinned_sms:
+        ok, msg_id, err = send_via_provider(
             contact_id=lead.ghl_contact_id or "",
             message=body,
-            from_number=sms_num,
+            conversation_provider_id=provider_id,
             location_id=lead.ghl_location_id or None,
         )
-        if ok2:
-            lead.delivery_method = "sms"
-            _log_event(db, run.id, "imessage_fallback", {
-                "step_position": step.position,
-                "ghl_message_id": msg_id2,
-                "failure_reason": err,
-                "fell_back_to_method": "sms",
-            })
-            return (True, msg_id2, "")
-        return (False, "", err2 or err)
+        used_method = "mycrmsim"
+
+    # Path 2: GHL default SMS (fallback or no provider configured)
+    if not ok:
+        prior_err = err
+        ghl_ok = send_sms(
+            lead.ghl_contact_id or "",
+            body,
+            location_id=lead.ghl_location_id or None,
+        )
+        if ghl_ok:
+            ok = True
+            err = ""
+            msg_id = ""  # send_sms doesn't return a message ID
+            used_method = "ghl_sms"
+            # If we just fell back from MyCRMSim, pin the lead to sms so we
+            # don't keep retrying the failed channel.
+            if provider_id and not lead_pinned_sms:
+                lead.delivery_method = "sms"
+                _log_event(db, run.id, "mycrmsim_fallback", {
+                    "step_position": step.position,
+                    "failure_reason": prior_err,
+                    "fell_back_to": "ghl_sms",
+                })
+        else:
+            err = prior_err or "GHL SMS send failed"
 
     if ok:
         # Mark delivery_method on first successful send so we lock in the channel.
         if (lead.delivery_method or "unknown") == "unknown":
-            lead.delivery_method = method
-
-    if not ok:
+            lead.delivery_method = used_method
+    else:
         lead.last_send_failure = err[:240]
 
-    # Append the body to the log so admin can audit exactly what got sent.
     _log_event(db, run.id, "step_sent" if ok else "step_failed", {
         "step_position": step.position,
-        "method": method,
-        "from_number": from_number or "default",
+        "method": used_method or "none",
         "ghl_message_id": msg_id if ok else "",
         "body": body,
         "error": err if not ok else "",
@@ -369,10 +380,15 @@ def on_opt_out_detected(lead_id: str, body: str, reason: str = "") -> None:
 
 
 def on_delivery_status(ghl_message_id: str, status: str, error: str = "") -> None:
-    """Called from the message-status webhook. When an iMessage delivery
-    fails AFTER GHL accepted the send (the async failure case), we look
-    up the originating run and resend the same body via SMS."""
-    if not ghl_message_id:
+    """Called from the GHL message-status webhook.
+
+    With MyCRMSim doing iMessage→SMS routing internally, the synchronous
+    `_send_step` already chose the channel that succeeded — there's no
+    second-tier fallback to perform here. We just record the failure
+    against the originating run for audit + surface a thought on the
+    Operator AI feed so admin can investigate.
+    """
+    if not ghl_message_id or not status:
         return
     if status.lower() not in ("failed", "undelivered", "rejected"):
         return
@@ -396,57 +412,39 @@ def on_delivery_status(ghl_message_id: str, status: str, error: str = "") -> Non
             return
         ev, payload = match
 
-        # Only handle the iMessage-failed case here.
-        if (payload.get("method") or "") != "imessage":
-            return
-
         run = db.query(FollowUpRun).filter(FollowUpRun.id == ev.run_id).first()
         if not run:
             return
         lead = db.query(Lead).filter(Lead.id == run.lead_id).first()
-        if not lead or not lead.ghl_contact_id:
+        if not lead:
             return
 
-        _, sms_num = get_routing_numbers(db)
-        if not sms_num:
-            logger.warning(f"iMessage failed for lead {lead.id} but no SMS fallback number configured")
-            lead.last_send_failure = f"iMessage failed: {error}; no SMS fallback configured"
-            db.commit()
-            return
+        _log_event(db, run.id, "delivery_failed", {
+            "step_position": payload.get("step_position"),
+            "ghl_message_id": ghl_message_id,
+            "failure_reason": error,
+            "method": payload.get("method"),
+        })
+        lead.last_send_failure = f"Async delivery failure on {payload.get('method')}: {error[:120]}"
+        db.commit()
 
-        body = payload.get("body") or ""
-        ok, new_msg_id, send_err = send_message_with_routing(
-            contact_id=lead.ghl_contact_id,
-            message=body,
-            from_number=sms_num,
-            location_id=lead.ghl_location_id or None,
+        publish_thought(
+            source="followup",
+            source_ref_id=lead.id,
+            severity="medium",
+            category="Follow-ups",
+            title=f"Delivery failed (async) for {lead.contact_name or lead.id}",
+            summary=(
+                f"GHL reported a delivery failure for an earlier send.\n"
+                f"Method: {payload.get('method')}\n"
+                f"Error: {error}\n"
+                f"With MyCRMSim handling iMessage/SMS fallback internally, this means BOTH channels failed."
+            ),
+            proposed_action_text="Open the lead and check the GHL conversation thread + outbound logs.",
+            proposed_action_payload={"kind": "open_lead", "lead_id": lead.id},
+            confidence_pct=75,
+            supersede_kind="delivery_failed",
         )
-        if ok:
-            lead.delivery_method = "sms"
-            _log_event(db, run.id, "imessage_fallback", {
-                "step_position": payload.get("step_position"),
-                "original_ghl_message_id": ghl_message_id,
-                "new_ghl_message_id": new_msg_id,
-                "failure_reason": error,
-            }, actor="ai")
-            db.commit()
-            logger.info(f"iMessage fallback succeeded for lead {lead.id}")
-        else:
-            lead.last_send_failure = f"SMS fallback also failed: {send_err}"
-            db.commit()
-            logger.error(f"iMessage fallback FAILED for lead {lead.id}: {send_err}")
-            publish_thought(
-                source="followup",
-                source_ref_id=lead.id,
-                severity="high",
-                category="Follow-ups",
-                title=f"SMS fallback failed for {lead.contact_name or lead.id}",
-                summary=f"iMessage failed AND SMS fallback failed: {send_err}",
-                proposed_action_text="Check GHL conversation + outbound logs",
-                proposed_action_payload={"kind": "open_lead", "lead_id": lead.id},
-                confidence_pct=85,
-                supersede_kind="fallback_failed",
-            )
     except Exception as e:
         db.rollback()
         logger.error(f"on_delivery_status failed: {e}")
