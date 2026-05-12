@@ -3,7 +3,7 @@ import { api, type ScheduledJob, type Lead } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, FileText, Loader2, Send, ExternalLink, CheckCircle2 } from "lucide-react";
+import { X, FileText, Loader2, Send, ExternalLink, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface Props {
   job: ScheduledJob;
@@ -95,6 +95,7 @@ export default function GenerateInvoiceModal({ job, lead, onClose, onSaved }: Pr
 
   const isMock = generated?.mode === "mock";
   const isPaid = updatedJob.payment_status === "paid";
+  const hasEmail = Boolean((lead.contact_email || "").trim());
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -117,6 +118,19 @@ export default function GenerateInvoiceModal({ job, lead, onClose, onSaved }: Pr
 
           {!generated && (
             <>
+              {!hasEmail && (
+                <div className="bg-amber-50 border border-amber-300 rounded p-2.5 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-900 leading-snug">
+                    <p className="font-semibold mb-0.5">Customer email required</p>
+                    <p>
+                      QuickBooks needs an email to generate a customer-facing payment link and send the
+                      invoice. Add the customer's email to the lead first (it'll sync to GHL), then come
+                      back here.
+                    </p>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-semibold text-muted-foreground">Amount ($)</label>
                 <Input
@@ -133,7 +147,9 @@ export default function GenerateInvoiceModal({ job, lead, onClose, onSaved }: Pr
                 <Input value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1" />
               </div>
               <p className="text-[11px] text-muted-foreground italic">
-                A QuickBooks invoice will be created and a hosted-payment link returned. Click "Send SMS" after to text the link to the customer.
+                A QuickBooks invoice will be created and a hosted-payment link returned. QB also emails
+                the invoice to the customer. Click "Text invoice to customer" after to send the payment
+                link via SMS too.
               </p>
             </>
           )}
@@ -178,7 +194,11 @@ export default function GenerateInvoiceModal({ job, lead, onClose, onSaved }: Pr
         <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
           <Button variant="ghost" onClick={() => { onSaved(updatedJob); }}>Close</Button>
           {!generated && (
-            <Button onClick={generate} disabled={generating}>
+            <Button
+              onClick={generate}
+              disabled={generating || !hasEmail}
+              title={!hasEmail ? "Add the customer's email to the lead first" : undefined}
+            >
               {generating && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
               Generate
             </Button>

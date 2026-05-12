@@ -588,10 +588,19 @@ def fetch_company_info() -> dict:
     return {"company_name": info.get("CompanyName", ""), "country": info.get("Country", "")}
 
 
-def ensure_customer(name: str, email: str = "", phone: str = "") -> str:
+def ensure_customer(
+    name: str,
+    email: str = "",
+    phone: str = "",
+    address: str = "",
+    zip_code: str = "",
+    notes: str = "",
+) -> str:
     """Find or create a QB Customer by display name. Returns the QB
     customer Id. Required because QBO Invoice.CustomerRef.value must
-    point at an existing customer record."""
+    point at an existing customer record. Address + zip are pushed into
+    both BillAddr and ShipAddr so the hosted invoice PDF shows the
+    customer's full address. State is hardcoded TX — Alan's only market."""
     if not name:
         name = "Walk-in Customer"
     t = ensure_valid_access_token()
@@ -604,12 +613,37 @@ def ensure_customer(name: str, email: str = "", phone: str = "") -> str:
     customers = ((found.get("QueryResponse") or {}).get("Customer")) or []
     if customers:
         return customers[0]["Id"]
-    # Otherwise create.
+
+    # Split name into first/last for QB's personalized email greetings.
+    given, family = "", ""
+    parts = (name or "").strip().split(None, 1)
+    if parts:
+        given = parts[0][:25]
+        if len(parts) > 1:
+            family = parts[1][:25]
+
     body: dict[str, Any] = {"DisplayName": name[:100]}
+    if given:
+        body["GivenName"] = given
+    if family:
+        body["FamilyName"] = family
     if email:
         body["PrimaryEmailAddr"] = {"Address": email[:100]}
     if phone:
         body["PrimaryPhone"] = {"FreeFormNumber": phone[:21]}
+    if address or zip_code:
+        addr: dict[str, Any] = {}
+        if address:
+            addr["Line1"] = address[:500]
+        if zip_code:
+            addr["PostalCode"] = zip_code[:30]
+            addr["CountrySubDivisionCode"] = "TX"
+            addr["Country"] = "USA"
+        body["BillAddr"] = addr
+        body["ShipAddr"] = dict(addr)
+    if notes:
+        body["Notes"] = notes[:2000]
+
     created = qbo_request("POST", f"/v3/company/{t.realm_id}/customer", json_body=body)
     return ((created.get("Customer") or {}).get("Id")) or ""
 
@@ -619,11 +653,17 @@ def create_invoice(
     amount: float,
     description: str,
     line_items: list[dict] | None = None,
-    due_in_days: int = 0,
+    due_in_days: int = 7,
     customer_email: str = "",
+    customer_memo: str = "",
+    private_note: str = "",
 ) -> dict:
     """POST /invoice. Returns {invoice_id, invoice_number, invoice_url,
-    total_amount}. invoice_url is QB's public hosted invoice link."""
+    total_amount}. invoice_url is QB's public hosted invoice link.
+
+    customer_memo: shown to the customer on the hosted invoice page.
+    private_note: visible only to Alan inside QBO — used for our lead URL
+    and any internal traceability data."""
     t = ensure_valid_access_token()
     if not t:
         raise PermissionError("Not connected")
@@ -665,6 +705,10 @@ def create_invoice(
     if due_in_days and due_in_days > 0:
         due_date = (datetime.now(timezone.utc) + timedelta(days=due_in_days)).strftime("%Y-%m-%d")
         body["DueDate"] = due_date
+    if customer_memo:
+        body["CustomerMemo"] = {"value": customer_memo[:1000]}
+    if private_note:
+        body["PrivateNote"] = private_note[:4000]
 
     result = qbo_request("POST", f"/v3/company/{t.realm_id}/invoice", json_body=body)
     inv = result.get("Invoice") or {}

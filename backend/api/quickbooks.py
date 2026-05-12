@@ -27,10 +27,24 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel
 
+from config import settings
 from database import get_db, ScheduledJob, Lead, QuickBooksToken
 from api.auth import require_admin
 from services import ghl
 from services import quickbooks_client as qb
+
+
+_SERVICE_LABELS = {
+    "fence_staining": "Fence Staining",
+    "fence_restoration": "Fence Restoration",
+    "pressure_washing": "Pressure Washing",
+}
+
+
+def _service_label(service_type: str | None) -> str:
+    if not service_type:
+        return "Service"
+    return _SERVICE_LABELS.get(service_type, service_type.replace("_", " ").title())
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -230,17 +244,59 @@ def generate_invoice(job_id: str, body: GenerateInvoiceBody, user: dict = Depend
             customer_name = (lead.contact_name if lead else "") or "Customer"
             email = body.customer_email or (lead.contact_email if lead else "")
             phone = body.customer_phone or (lead.contact_phone if lead else "")
-            customer_id = qb.ensure_customer(customer_name, email=email, phone=phone)
+            # Pull address from the job snapshot first (point-in-time), fall
+            # back to current lead address. Job snapshot is authoritative
+            # because the lead may have been edited after scheduling.
+            address = (job.address or "") or (lead.address if lead else "") or ""
+            zip_code = (job.zip_code or "") or (lead.zip_code if lead else "") or ""
+            service_type = (job.service_type or "") or (lead.service_type if lead else "") or ""
+            service_label = _service_label(service_type)
+            frontend_url = (settings.frontend_url or "").rstrip("/")
+            lead_url = f"{frontend_url}/leads/{lead.id}" if (lead and frontend_url) else ""
+
+            customer_notes = ""
+            if lead and lead_url:
+                customer_notes = f"Lead source: A&T dashboard\nDashboard URL: {lead_url}"
+
+            customer_id = qb.ensure_customer(
+                customer_name,
+                email=email,
+                phone=phone,
+                address=address,
+                zip_code=zip_code,
+                notes=customer_notes,
+            )
             if not customer_id:
                 raise HTTPException(502, "Could not create or find QB customer record")
+
+            # Build the public memo shown on the invoice page. Address +
+            # service type make it instantly clear which job this is for.
+            memo_parts = [f"Thanks for choosing A&T's Fence Staining!"]
+            if address:
+                memo_parts.append(f"Service: {service_label} at {address}")
+            else:
+                memo_parts.append(f"Service: {service_label}")
+            memo_parts.append("Questions? Reply to the text or call us back at this number.")
+            customer_memo = "\n".join(memo_parts)
+
+            # Private note — internal only, helps Alan trace back to the lead
+            # in our dashboard.
+            private_parts = [f"Job ID: {job.id}"]
+            if lead:
+                private_parts.append(f"Lead ID: {lead.id}")
+            if lead_url:
+                private_parts.append(f"Dashboard: {lead_url}")
+            private_note = "\n".join(private_parts)
 
             inv = qb.create_invoice(
                 customer_id=customer_id,
                 amount=body.amount,
                 description=body.description,
                 line_items=body.line_items or None,
-                due_in_days=body.due_in_days or 0,
+                due_in_days=body.due_in_days or 7,
                 customer_email=email,
+                customer_memo=customer_memo,
+                private_note=private_note,
             )
         except PermissionError as e:
             # NOT a 401 — that would trigger the frontend's global "session
