@@ -392,3 +392,102 @@ async def ghl_message_status_webhook(request: Request):
         logger.warning(f"on_delivery_status failed: {e}")
 
     return {"status": "ok", "msg_id": msg_id, "delivery_status": status}
+
+
+# -----------------------------------------------------------------------
+# Tag-added webhook (triggers follow-up sequences)
+# -----------------------------------------------------------------------
+# GHL fires ContactTagUpdate whenever a contact's tag set changes. We pluck
+# the tags array, find any FollowUpSequence with trigger_event matching
+# "tag_added:<tag>" (case-insensitive, whitespace-collapsed), and start a
+# run. Idempotent — if the lead already has an active run on that sequence,
+# we no-op.
+#
+# Alan can wire this up two ways:
+#   (a) ContactTagUpdate webhook subscription in GHL → posts here directly
+#   (b) Inside an existing GHL workflow, add "Tag Added: estimate sent →
+#       Webhook" action targeting this URL
+# Both shapes are accepted — we look in payload['tags'], payload['contact'],
+# and a few other common spots.
+
+@router.post("/webhook/ghl/tag-added")
+async def ghl_tag_added_webhook(request: Request):
+    """GHL fires this when a contact tag changes. We start any follow-up
+    sequence whose trigger_event matches the newly-added tag."""
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    # Pluck the contact ID — payload shapes vary by GHL config.
+    contact_id = (
+        payload.get("contactId")
+        or payload.get("contact_id")
+        or payload.get("id")
+        or (payload.get("contact") or {}).get("id", "")
+        or (payload.get("contact") or {}).get("contactId", "")
+    )
+    # Tag list — GHL sends the FULL current set on ContactTagUpdate. If a
+    # workflow webhook fires with a single tag, use that.
+    tags: list[str] = []
+    if isinstance(payload.get("tags"), list):
+        tags = [str(t) for t in payload["tags"]]
+    elif isinstance((payload.get("contact") or {}).get("tags"), list):
+        tags = [str(t) for t in payload["contact"]["tags"]]
+    elif payload.get("tag"):
+        tags = [str(payload["tag"])]
+    elif payload.get("tagName"):
+        tags = [str(payload["tagName"])]
+
+    if not contact_id or not tags:
+        return {"status": "ignored", "reason": "missing_contact_or_tags"}
+
+    db = get_db()
+    try:
+        from database import FollowUpSequence, FollowUpRun
+        from services.followup_engine import start_run
+
+        lead = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
+        if not lead:
+            return {"status": "ignored", "reason": "no_lead_for_contact", "contact_id": contact_id}
+
+        # Normalize tags to lowercase + collapsed whitespace for matching.
+        norm_tags = [" ".join(t.strip().lower().split()) for t in tags if t]
+        started: list[str] = []
+        sequences = (
+            db.query(FollowUpSequence)
+            .filter(FollowUpSequence.active.is_(True))
+            .all()
+        )
+        for seq in sequences:
+            te = (seq.trigger_event or "").strip().lower()
+            if not te.startswith("tag_added:"):
+                continue
+            seq_tag = " ".join(te[len("tag_added:"):].strip().split())
+            if seq_tag not in norm_tags:
+                continue
+            # Idempotency — don't double-start if a run is already active
+            # or paused on this lead+sequence.
+            existing = (
+                db.query(FollowUpRun)
+                .filter(
+                    FollowUpRun.lead_id == lead.id,
+                    FollowUpRun.sequence_id == seq.id,
+                    FollowUpRun.status.in_(["active", "paused"]),
+                )
+                .first()
+            )
+            if existing:
+                continue
+            run_id = start_run(lead.id, seq.id, actor=f"trigger:tag_added:{seq_tag}")
+            if run_id:
+                started.append(seq.id)
+
+        return {
+            "status": "ok",
+            "lead_id": lead.id,
+            "tags_received": tags,
+            "sequences_started": started,
+        }
+    finally:
+        db.close()

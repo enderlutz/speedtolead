@@ -123,6 +123,10 @@ class SequenceBody(BaseModel):
     description: str = ""
     trigger_event: str = ""
     pause_on_events: str = "customer_replied"
+    # Send window — defaults match Alan's GHL workflow rule (8 AM - 8 PM CT).
+    send_window_start_hour: int = 8
+    send_window_end_hour: int = 20
+    timezone: str = "America/Chicago"
 
 
 @router.post("/followups/sequences")
@@ -138,6 +142,9 @@ def create_sequence(body: SequenceBody, user: dict = Depends(require_admin)):
             pause_on_events=(body.pause_on_events or "customer_replied").strip(),
             active=False,
             version=1,
+            send_window_start_hour=int(body.send_window_start_hour) if body.send_window_start_hour is not None else 8,
+            send_window_end_hour=int(body.send_window_end_hour) if body.send_window_end_hour is not None else 20,
+            timezone=(body.timezone or "America/Chicago").strip(),
             created_at=_now(),
             updated_at=_now(),
             created_by=user.get("sub", ""),
@@ -164,6 +171,12 @@ def update_sequence(seq_id: str, body: SequenceBody, user: dict = Depends(requir
         seq.description = body.description or ""
         seq.trigger_event = (body.trigger_event or "").strip()
         seq.pause_on_events = (body.pause_on_events or "customer_replied").strip()
+        if body.send_window_start_hour is not None:
+            seq.send_window_start_hour = int(body.send_window_start_hour)
+        if body.send_window_end_hour is not None:
+            seq.send_window_end_hour = int(body.send_window_end_hour)
+        if body.timezone:
+            seq.timezone = body.timezone.strip()
         seq.version = (seq.version or 1) + 1
         seq.updated_at = _now()
         db.commit()
@@ -230,6 +243,16 @@ class StepBody(BaseModel):
     channel: str = "sms"
     message_template: str = ""
     use_ai_personalization: bool = False
+    # New fields supporting the GHL-style workflow editor.
+    wait_kind: str = "hours"                 # "minutes" | "hours" | "calendar_day"
+    window_start_hour: int | None = None
+    window_start_minute: int = 0
+    window_end_hour: int | None = None
+    window_end_minute: int = 0
+    action_kind: str = "send_message"        # "send_message" | "add_tag"
+    tag_value: str = ""
+    branch_field: str = ""
+    variants: dict | None = None             # JSON: {branch_value: body, "_default": fallback}
 
 
 @router.post("/followups/sequences/{seq_id}/steps")
@@ -248,6 +271,15 @@ def add_step(seq_id: str, body: StepBody, user: dict = Depends(require_admin)):
             channel=body.channel,
             message_template=body.message_template,
             use_ai_personalization=body.use_ai_personalization,
+            wait_kind=(body.wait_kind or "hours").strip(),
+            window_start_hour=body.window_start_hour,
+            window_start_minute=int(body.window_start_minute or 0),
+            window_end_hour=body.window_end_hour,
+            window_end_minute=int(body.window_end_minute or 0),
+            action_kind=(body.action_kind or "send_message").strip(),
+            tag_value=(body.tag_value or "").strip(),
+            branch_field=(body.branch_field or "").strip(),
+            variants=json.dumps(body.variants) if body.variants else "{}",
             created_at=_now(),
             updated_at=_now(),
         )
@@ -277,6 +309,18 @@ def update_step(step_id: str, body: StepBody, user: dict = Depends(require_admin
         step.channel = body.channel
         step.message_template = body.message_template
         step.use_ai_personalization = body.use_ai_personalization
+        if body.wait_kind:
+            step.wait_kind = body.wait_kind.strip()
+        step.window_start_hour = body.window_start_hour
+        step.window_start_minute = int(body.window_start_minute or 0)
+        step.window_end_hour = body.window_end_hour
+        step.window_end_minute = int(body.window_end_minute or 0)
+        if body.action_kind:
+            step.action_kind = body.action_kind.strip()
+        step.tag_value = (body.tag_value or "").strip()
+        step.branch_field = (body.branch_field or "").strip()
+        if body.variants is not None:
+            step.variants = json.dumps(body.variants)
         step.updated_at = _now()
         db.commit()
         return step.to_dict()
@@ -629,10 +673,25 @@ def apply_plan(seq_id: str, body: ApplyPlanBody, user: dict = Depends(require_ad
             seq.trigger_event = str(plan.get("trigger_event") or "").strip()
         if "pause_on_events" in plan:
             seq.pause_on_events = str(plan.get("pause_on_events") or "customer_replied").strip()
-        # Replace steps. Drop existing, then re-create from plan.
+        if "send_window_start_hour" in plan and plan["send_window_start_hour"] is not None:
+            seq.send_window_start_hour = int(plan["send_window_start_hour"])
+        if "send_window_end_hour" in plan and plan["send_window_end_hour"] is not None:
+            seq.send_window_end_hour = int(plan["send_window_end_hour"])
+        if "timezone" in plan and plan["timezone"]:
+            seq.timezone = str(plan["timezone"]).strip()
+        # Replace steps. Drop existing, then re-create from plan. New
+        # fields (wait_kind, window_*, action_kind, tag_value, branch_field,
+        # variants) round-trip so the editor can save without losing data.
         db.query(FollowUpStep).filter(FollowUpStep.sequence_id == seq_id).delete()
         steps_in = plan.get("steps") or []
         for i, s in enumerate(steps_in):
+            variants_in = s.get("variants")
+            if isinstance(variants_in, dict):
+                variants_str = json.dumps(variants_in)
+            elif isinstance(variants_in, str) and variants_in.strip():
+                variants_str = variants_in
+            else:
+                variants_str = "{}"
             db.add(FollowUpStep(
                 id=str(uuid.uuid4()),
                 sequence_id=seq_id,
@@ -641,6 +700,15 @@ def apply_plan(seq_id: str, body: ApplyPlanBody, user: dict = Depends(require_ad
                 channel=str(s.get("channel") or "sms"),
                 message_template=str(s.get("message_template") or "")[:1200],
                 use_ai_personalization=bool(s.get("use_ai_personalization", False)),
+                wait_kind=str(s.get("wait_kind") or "hours"),
+                window_start_hour=s.get("window_start_hour") if s.get("window_start_hour") is not None else None,
+                window_start_minute=int(s.get("window_start_minute") or 0),
+                window_end_hour=s.get("window_end_hour") if s.get("window_end_hour") is not None else None,
+                window_end_minute=int(s.get("window_end_minute") or 0),
+                action_kind=str(s.get("action_kind") or "send_message"),
+                tag_value=str(s.get("tag_value") or ""),
+                branch_field=str(s.get("branch_field") or ""),
+                variants=variants_str,
                 created_at=_now(),
                 updated_at=_now(),
             ))

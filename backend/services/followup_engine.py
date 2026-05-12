@@ -26,12 +26,18 @@ GHL accepts the message at send-time but it bounces later.
 from __future__ import annotations
 import json
 import logging
+import re
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time as _time
 from typing import Optional
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover — Python <3.9 fallback
+    ZoneInfo = None  # type: ignore
+
 from database import get_db, Lead, SystemConfig, FollowUpSequence, FollowUpStep, FollowUpRun, FollowUpEvent, Estimate
-from services.ghl import send_via_provider, send_sms
+from services.ghl import send_via_provider, send_sms, add_contact_tag
 from services.followup_ai import personalize, render_template, _build_vars
 from services.ai_thought_bus import publish as publish_thought
 
@@ -63,6 +69,167 @@ def _parse_iso(s: str) -> Optional[datetime]:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+# -----------------------------------------------------------------------
+# Send window + wait-kind scheduling
+# -----------------------------------------------------------------------
+# The engine respects two layers of send windows:
+#   1. Sequence-level (FollowUpSequence.send_window_*) — applies to every
+#      step unless the step overrides.
+#   2. Step-level (FollowUpStep.window_*) — overrides for a specific step
+#      (e.g. P1 Text 3 must fire between 1:45-2:30 PM CT).
+# All hours are interpreted in `sequence.timezone` (default America/Chicago).
+# Sends scheduled outside the window are deferred to the next day's window
+# start. This is enforced both at scheduling time (computing next_due_at)
+# and at send time (defer-and-skip if engine ticks outside the window).
+
+def _seq_tz(seq: FollowUpSequence):
+    tz_name = (seq.timezone or "America/Chicago") if seq else "America/Chicago"
+    if ZoneInfo is None:
+        return timezone.utc
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("America/Chicago")
+
+
+def _effective_window(step: FollowUpStep, seq: FollowUpSequence) -> tuple[int, int, int, int]:
+    """Return (start_hour, start_minute, end_hour, end_minute) for this step.
+    Step-level overrides sequence-level. Defaults to 8:00-20:00."""
+    if step.window_start_hour is not None:
+        ws_h = int(step.window_start_hour)
+        ws_m = int(step.window_start_minute or 0)
+    else:
+        ws_h = int(seq.send_window_start_hour) if seq.send_window_start_hour is not None else 8
+        ws_m = 0
+    if step.window_end_hour is not None:
+        we_h = int(step.window_end_hour)
+        we_m = int(step.window_end_minute or 0)
+    else:
+        we_h = int(seq.send_window_end_hour) if seq.send_window_end_hour is not None else 20
+        we_m = 0
+    return (ws_h, ws_m, we_h, we_m)
+
+
+def _compute_next_due_at(now_utc: datetime, step: FollowUpStep, seq: FollowUpSequence) -> str:
+    """Compute the ISO timestamp at which `step` should next fire, honoring
+    wait_kind + send window. Returns UTC ISO. Used when advancing to the
+    next step or scheduling the first step on start_run."""
+    tz = _seq_tz(seq)
+    ws_h, ws_m, we_h, we_m = _effective_window(step, seq)
+
+    wait_kind = (step.wait_kind or "hours").lower()
+    if wait_kind == "calendar_day":
+        # "Wait 1 day" semantics — advance to next calendar day in the
+        # sequence timezone, then snap to window start. The user explicitly
+        # asked for this: "1 day basically means wait for the next day".
+        now_local = now_utc.astimezone(tz)
+        target_date = (now_local + timedelta(days=1)).date()
+        candidate_local = datetime.combine(target_date, _time(ws_h, ws_m), tzinfo=tz)
+    elif wait_kind == "minutes":
+        delay_min = float(step.delay_hours or 0)
+        candidate_local = (now_utc + timedelta(minutes=delay_min)).astimezone(tz)
+    else:  # "hours" (default)
+        delay_h = float(step.delay_hours or 0)
+        candidate_local = (now_utc + timedelta(hours=delay_h)).astimezone(tz)
+
+    # Snap into the window on the candidate's local date.
+    win_start_local = candidate_local.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+    win_end_local = candidate_local.replace(hour=we_h, minute=we_m, second=0, microsecond=0)
+    if candidate_local < win_start_local:
+        candidate_local = win_start_local
+    elif candidate_local > win_end_local:
+        next_day = candidate_local + timedelta(days=1)
+        candidate_local = next_day.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+
+    return candidate_local.astimezone(timezone.utc).isoformat()
+
+
+def _in_window_now(now_utc: datetime, step: FollowUpStep, seq: FollowUpSequence) -> bool:
+    """Send-time guard: even if next_due_at has passed, refuse to fire if
+    we're currently outside the step's effective window. The engine
+    reschedules to the next valid window slot instead. Protects against
+    Railway downtime that pushes a 1:45 PM send into the 3 PM tick."""
+    tz = _seq_tz(seq)
+    now_local = now_utc.astimezone(tz)
+    ws_h, ws_m, we_h, we_m = _effective_window(step, seq)
+    win_start_local = now_local.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+    win_end_local = now_local.replace(hour=we_h, minute=we_m, second=0, microsecond=0)
+    return win_start_local <= now_local <= win_end_local
+
+
+def _next_window_slot(now_utc: datetime, step: FollowUpStep, seq: FollowUpSequence) -> str:
+    """Return the next valid window-start in UTC ISO. Used when the engine
+    finds itself outside the window mid-run and needs to defer."""
+    tz = _seq_tz(seq)
+    now_local = now_utc.astimezone(tz)
+    ws_h, ws_m, we_h, we_m = _effective_window(step, seq)
+    today_start_local = now_local.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+    today_end_local = now_local.replace(hour=we_h, minute=we_m, second=0, microsecond=0)
+    if now_local < today_start_local:
+        target_local = today_start_local
+    else:
+        # Past today's window — push to tomorrow's start.
+        target_local = (now_local + timedelta(days=1)).replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+        del today_end_local  # unused, kept for symmetry/clarity
+    return target_local.astimezone(timezone.utc).isoformat()
+
+
+# -----------------------------------------------------------------------
+# Variant resolution (fence_age branching)
+# -----------------------------------------------------------------------
+
+def _normalize_branch_key(value: str) -> str:
+    """Normalize a free-form lead field value into something stable for
+    variant lookup. Lowercase, strip punctuation, collapse whitespace.
+    'NEW < 6 mo' → 'new < 6 mo' → 'new_6_mo' after key matching."""
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def _resolve_variant(step: FollowUpStep, lead: Lead) -> str:
+    """Pick the right message body for a branching step. Returns the
+    variant body, falling back to '_default' or message_template.
+    Matching is forgiving — does substring match against normalized keys."""
+    branch_field = (step.branch_field or "").strip()
+    if not branch_field:
+        return step.message_template or ""
+    try:
+        variants = json.loads(step.variants or "{}")
+    except Exception:
+        variants = {}
+    if not isinstance(variants, dict) or not variants:
+        return step.message_template or ""
+
+    # Pull the value from lead.form_data first (fence_age et al. live there),
+    # then fall back to direct attribute on Lead (e.g. service_type).
+    raw_value = ""
+    try:
+        fd = json.loads(lead.form_data or "{}") if isinstance(lead.form_data, str) else (lead.form_data or {})
+        raw_value = str(fd.get(branch_field) or "")
+    except Exception:
+        raw_value = ""
+    if not raw_value:
+        raw_value = str(getattr(lead, branch_field, "") or "")
+
+    needle = _normalize_branch_key(raw_value)
+    if needle:
+        # Exact key match first.
+        for key, body in variants.items():
+            if key == "_default":
+                continue
+            if _normalize_branch_key(key) == needle:
+                return body
+        # Substring either direction (handles "1-6 years" vs "1-6_years").
+        for key, body in variants.items():
+            if key == "_default":
+                continue
+            k = _normalize_branch_key(key)
+            if k and (k in needle or needle in k):
+                return body
+
+    # Fall back to explicit default, then to message_template.
+    return variants.get("_default") or step.message_template or ""
 
 
 def _log_event(db, run_id: str, event_type: str, payload: dict, actor: str = "ai") -> None:
@@ -117,10 +284,11 @@ def _send_step(db, run: FollowUpRun, step: FollowUpStep, lead: Lead) -> tuple[bo
     except Exception:
         estimate = None
 
+    raw_template = _resolve_variant(step, lead)
     if step.use_ai_personalization:
-        body = personalize(step.message_template or "", lead, estimate)
+        body = personalize(raw_template, lead, estimate)
     else:
-        body = render_template(step.message_template or "", _build_vars(lead, estimate))
+        body = render_template(raw_template, _build_vars(lead, estimate))
 
     provider_id = get_mycrmsim_provider_id(db)
     lead_pinned_sms = (lead.delivery_method or "unknown").lower() == "sms"
@@ -241,23 +409,57 @@ def _advance_run(db, run: FollowUpRun) -> None:
         )
         return
 
-    ok, msg_id, err = _send_step(db, run, step, lead)
-    if not ok:
-        run.status = "failed"
-        run.paused_reason = f"send_failed: {err[:120]}"
-        publish_thought(
-            source="followup",
-            source_ref_id=run.id,
-            severity="high",
-            category="Follow-ups",
-            title=f"Send failed for {lead.contact_name or lead.id}",
-            summary=f"Step {step.position} on '{getattr(seq, 'name', '?')}' failed: {err[:240]}. Run marked failed.",
-            proposed_action_text="Open the lead and check the contact's GHL conversation",
-            proposed_action_payload={"kind": "open_lead", "lead_id": lead.id},
-            confidence_pct=80,
-            supersede_kind="send_failed",
-        )
+    # Send-time window guard. Even if next_due_at has passed, refuse to
+    # fire outside the step's effective window — defer to the next slot.
+    # add_tag steps are window-exempt (they're internal, not customer-facing).
+    now_utc = _now_dt()
+    action_kind = (step.action_kind or "send_message").lower()
+    if action_kind != "add_tag" and not _in_window_now(now_utc, step, seq):
+        deferred_to = _next_window_slot(now_utc, step, seq)
+        run.next_due_at = deferred_to
+        _log_event(db, run.id, "window_deferred", {
+            "step_position": step.position,
+            "deferred_to": deferred_to,
+        })
         return
+
+    # Dispatch by action kind.
+    if action_kind == "add_tag":
+        tag = (step.tag_value or "").strip()
+        if not tag:
+            _log_event(db, run.id, "step_skipped", {
+                "step_position": step.position,
+                "reason": "add_tag step has empty tag_value",
+            })
+        elif not lead.ghl_contact_id:
+            _log_event(db, run.id, "step_skipped", {
+                "step_position": step.position,
+                "reason": "no_ghl_contact_for_tag_add",
+            })
+        else:
+            tag_ok = add_contact_tag(lead.ghl_contact_id, tag, location_id=lead.ghl_location_id or None)
+            _log_event(db, run.id, "tag_added" if tag_ok else "tag_add_failed", {
+                "step_position": step.position,
+                "tag": tag,
+            })
+    else:
+        ok, msg_id, err = _send_step(db, run, step, lead)
+        if not ok:
+            run.status = "failed"
+            run.paused_reason = f"send_failed: {err[:120]}"
+            publish_thought(
+                source="followup",
+                source_ref_id=run.id,
+                severity="high",
+                category="Follow-ups",
+                title=f"Send failed for {lead.contact_name or lead.id}",
+                summary=f"Step {step.position} on '{getattr(seq, 'name', '?')}' failed: {err[:240]}. Run marked failed.",
+                proposed_action_text="Open the lead and check the contact's GHL conversation",
+                proposed_action_payload={"kind": "open_lead", "lead_id": lead.id},
+                confidence_pct=80,
+                supersede_kind="send_failed",
+            )
+            return
 
     # Advance pointer + schedule next.
     run.current_step = (run.current_step or 0) + 1
@@ -268,7 +470,7 @@ def _advance_run(db, run: FollowUpRun) -> None:
         .first()
     )
     if next_step:
-        run.next_due_at = (_now_dt() + timedelta(hours=float(next_step.delay_hours or 0))).isoformat()
+        run.next_due_at = _compute_next_due_at(_now_dt(), next_step, seq)
     else:
         # End of sequence on next tick.
         run.next_due_at = _now()
@@ -485,6 +687,187 @@ def on_customer_reply(lead_id: str) -> None:
 # Manual operations (called from api/followups.py)
 # -----------------------------------------------------------------------
 
+def seed_p1_sterling_estimate_sent() -> None:
+    """Recreates Alan's GHL workflow 'P1: Sterling Estimate Sent' inside
+    our engine. Idempotent — runs on every boot but only creates rows the
+    first time. Inactive by default; admin flips on when ready to retire
+    the GHL version.
+
+    Flow:
+      [Trigger: tag_added "estimate sent"]
+        ↓
+      Text 1 — "How soon are you looking?" (immediate, 8 AM-8 PM CT)
+        ↓ wait 30 min
+      Text 2 — "Signature or Legacy?" (8 AM-8 PM CT)
+        ↓ wait calendar_day, send between 1:45-2:30 PM CT
+      Text 3 — branched on fence_age (6 variants)
+        ↓
+      Add Tag — "estimate-followup-continue"
+        ↓
+      END
+
+    Stop conditions are global to the engine: customer reply → run pauses;
+    do_not_contact → run pauses. Both already handled by on_customer_reply
+    and the do_not_contact guard in _advance_run."""
+    db = get_db()
+    try:
+        seq_name = "P1: Sterling Estimate Sent"
+        existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
+        if existing:
+            return
+
+        text1 = (
+            "Hey {{customer_first_name}}, your estimate is in the link above! "
+            "How soon are you looking to have the the work done?"
+        )
+        text2 = (
+            "Hey {{customer_first_name}}, Quick question- when you reviewed "
+            "the estimate, were you leaning more toward the Signature Finish "
+            "or the Legacy Finish?"
+        )
+        # Text 3 — branched on fence_age. Keys match the most common GHL
+        # dropdown values; _resolve_variant does fuzzy/substring matching
+        # to absorb shape variations.
+        text3_variants = {
+            "new": (
+                "Hey {{customer_first_name}}, Amy here. Since your fence is still "
+                "pretty new and has that golden glow, the Signature Finish is what "
+                "most folks go with — it soaks into the grain and protects the wood "
+                "from Houston humidity before the sun starts graying it out. Were "
+                "you leaning that way, or thinking the Essential Seal?"
+            ),
+            "1-6 years": (
+                "Hey {{customer_first_name}}, Amy here. Fences in the 1-6 year range "
+                "are right in the sweet spot for staining. Wait too long and boards "
+                "start warping or rotting — that's when repairs get expensive. The "
+                "Signature Finish is what most folks in your spot go with since it "
+                "seals the wood and locks in color. Are you leaning towards the "
+                "Signature or Legacy?"
+            ),
+            "6-15 years": (
+                "Hey {{customer_first_name}}, Amy here. Older fences don't have to "
+                "mean replacement. We swap broken pickets and posts if needed, stain "
+                "it, add 5-7 years of life — way cheaper than a $10-15k new fence. "
+                "Legacy Finish covers the gray completely; Signature keeps some wood "
+                "character. Want me to walk you through which fits?"
+            ),
+            "15+ years": (
+                "Hey {{customer_first_name}}, Amy here. Older fences don't have to "
+                "mean replacement. We swap broken posts & pickets, stain it, add 2-4 "
+                "years of life — way cheaper than a $10-15k new fence. Legacy Finish "
+                "covers the gray completely; Signature keeps some wood character. "
+                "Want me to walk you through which fits?"
+            ),
+            "i don't know": (
+                "Hey {{customer_first_name}}, Amy here. Just checking in — any thoughts "
+                "on the estimate? Happy to walk through which package fits your fence best."
+            ),
+            "_default": (
+                "Hey {{customer_first_name}}, Amy here. Just checking in — any thoughts "
+                "on the estimate? Happy to walk through which package fits your fence best."
+            ),
+        }
+
+        seq_id = str(uuid.uuid4())
+        seq = FollowUpSequence(
+            id=seq_id,
+            name=seq_name,
+            description=(
+                "Estimate-sent follow-up sequence — recreated from Alan's GHL "
+                "workflow. Triggered when the GHL contact gets the 'estimate "
+                "sent' tag. Three text touches: immediate, +30 min, +1 day "
+                "(1:45-2:30 PM). Text 3 personalizes by fence age. Adds the "
+                "'estimate-followup-continue' tag at the end for downstream "
+                "workflows."
+            ),
+            trigger_event="tag_added:estimate sent",
+            pause_on_events="customer_replied",
+            active=False,
+            version=1,
+            send_window_start_hour=8,
+            send_window_end_hour=20,
+            timezone="America/Chicago",
+            created_at=_now(),
+            updated_at=_now(),
+            created_by="system:seed",
+        )
+        db.add(seq)
+
+        # Step 0 — Text 1 (immediate)
+        db.add(FollowUpStep(
+            id=str(uuid.uuid4()),
+            sequence_id=seq_id,
+            position=0,
+            delay_hours=0,
+            wait_kind="hours",
+            channel="sms",
+            action_kind="send_message",
+            message_template=text1,
+            use_ai_personalization=False,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        # Step 1 — Text 2 (wait 30 min)
+        db.add(FollowUpStep(
+            id=str(uuid.uuid4()),
+            sequence_id=seq_id,
+            position=1,
+            delay_hours=30,
+            wait_kind="minutes",
+            channel="sms",
+            action_kind="send_message",
+            message_template=text2,
+            use_ai_personalization=False,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        # Step 2 — Text 3 (wait calendar_day, send 1:45-2:30 PM CT, branched)
+        db.add(FollowUpStep(
+            id=str(uuid.uuid4()),
+            sequence_id=seq_id,
+            position=2,
+            delay_hours=0,
+            wait_kind="calendar_day",
+            window_start_hour=13,
+            window_start_minute=45,
+            window_end_hour=14,
+            window_end_minute=30,
+            channel="sms",
+            action_kind="send_message",
+            branch_field="fence_age",
+            variants=json.dumps(text3_variants),
+            # message_template kept as a fallback if variant resolution
+            # fails for some reason; mirrors the _default variant.
+            message_template=text3_variants["_default"],
+            use_ai_personalization=False,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        # Step 3 — Add Tag (immediate after Text 3, no customer-facing send)
+        db.add(FollowUpStep(
+            id=str(uuid.uuid4()),
+            sequence_id=seq_id,
+            position=3,
+            delay_hours=0,
+            wait_kind="hours",
+            channel="sms",
+            action_kind="add_tag",
+            tag_value="estimate-followup-continue",
+            message_template="",
+            use_ai_personalization=False,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+
+        db.commit()
+        logger.info(f"Seeded P1 Sterling Estimate Sent sequence: {seq_id} (inactive — admin must enable)")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to seed P1 sequence (non-fatal): {e}")
+    finally:
+        db.close()
+
+
 def seed_test_sequence() -> None:
     """Idempotent — creates a single test sequence on first boot so admin
     has something to fire from the Settings page. Inactive by default;
@@ -550,13 +933,16 @@ def start_run(lead_id: str, sequence_id: str, *, actor: str = "manual:system", t
         seq = db.query(FollowUpSequence).filter(FollowUpSequence.id == sequence_id).first()
         if not seq:
             return None
-        # First step's delay schedules the first send.
+        # First step's delay + window schedule the first send.
         first_step = (
             db.query(FollowUpStep)
             .filter(FollowUpStep.sequence_id == seq.id, FollowUpStep.position == 0)
             .first()
         )
-        delay_hours = float(first_step.delay_hours or 0) if first_step else 0
+        if first_step:
+            next_due = _compute_next_due_at(_now_dt(), first_step, seq)
+        else:
+            next_due = _now()
         run_id = str(uuid.uuid4())
         run = FollowUpRun(
             id=run_id,
@@ -565,7 +951,7 @@ def start_run(lead_id: str, sequence_id: str, *, actor: str = "manual:system", t
             current_step=0,
             status="active",
             paused_reason="",
-            next_due_at=(_now_dt() + timedelta(hours=delay_hours)).isoformat(),
+            next_due_at=next_due,
             last_sent_at="",
             started_at=_now(),
             started_by=actor,

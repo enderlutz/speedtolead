@@ -292,6 +292,50 @@ def _sync_location(location_id: str, label: str):
                                 publish("lead_updated", {"lead_id": existing.id})
                             except Exception:
                                 pass
+
+                        # Tag-trigger fallback for the follow-up engine.
+                        # GHL's ContactTagUpdate webhook is preferred, but if
+                        # it ever drops/misfires, this catches new tags on
+                        # the next 5-min tick. We only fire when no run has
+                        # ever existed for this lead+sequence (any status)
+                        # so the poller doesn't keep re-starting completed
+                        # runs every tick because the tag is still there.
+                        try:
+                            ghl_tag_set = [t for t in (contact.get("tags") or []) if t] if contact else []
+                            if ghl_tag_set:
+                                from database import FollowUpSequence, FollowUpRun
+                                from services.followup_engine import start_run
+
+                                norm_tags = [" ".join(str(t).strip().lower().split()) for t in ghl_tag_set]
+                                seqs = (
+                                    db.query(FollowUpSequence)
+                                    .filter(FollowUpSequence.active.is_(True))
+                                    .all()
+                                )
+                                for seq in seqs:
+                                    te = (seq.trigger_event or "").strip().lower()
+                                    if not te.startswith("tag_added:"):
+                                        continue
+                                    seq_tag = " ".join(te[len("tag_added:"):].strip().split())
+                                    if seq_tag not in norm_tags:
+                                        continue
+                                    any_run = (
+                                        db.query(FollowUpRun)
+                                        .filter(
+                                            FollowUpRun.lead_id == existing.id,
+                                            FollowUpRun.sequence_id == seq.id,
+                                        )
+                                        .first()
+                                    )
+                                    if any_run:
+                                        continue
+                                    start_run(existing.id, seq.id, actor=f"trigger:tag_added:{seq_tag}:poller")
+                                    logger.info(
+                                        f"Poller: auto-started sequence '{seq.name}' for lead {existing.id} "
+                                        f"(tag '{seq_tag}' seen)"
+                                    )
+                        except Exception as e:
+                            logger.warning(f"Poller tag-trigger fallback failed (non-fatal): {e}")
                         continue
 
                     # New opportunity — create the lead regardless of stage

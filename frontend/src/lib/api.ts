@@ -1325,6 +1325,15 @@ export interface SequenceStepPlan {
   channel: string;
   message_template: string;
   use_ai_personalization: boolean;
+  wait_kind?: FollowUpWaitKind;
+  window_start_hour?: number | null;
+  window_start_minute?: number;
+  window_end_hour?: number | null;
+  window_end_minute?: number;
+  action_kind?: FollowUpActionKind;
+  tag_value?: string;
+  branch_field?: string;
+  variants?: Record<string, string>;
 }
 
 export interface SequencePlan {
@@ -1332,6 +1341,9 @@ export interface SequencePlan {
   sequence_description: string;
   trigger_event: string;
   pause_on_events: string;
+  send_window_start_hour?: number;
+  send_window_end_hour?: number;
+  timezone?: string;
   steps: SequenceStepPlan[];
   reasoning?: string;
   _compiler_unavailable?: boolean;
@@ -1382,10 +1394,16 @@ export interface FollowUpSequence {
   pause_on_events: string;
   active: boolean;
   version: number;
+  send_window_start_hour?: number;
+  send_window_end_hour?: number;
+  timezone?: string;
   created_at: string;
   updated_at: string;
   created_by: string;
 }
+
+export type FollowUpWaitKind = "minutes" | "hours" | "calendar_day";
+export type FollowUpActionKind = "send_message" | "add_tag";
 
 export interface FollowUpStep {
   id: string;
@@ -1396,6 +1414,15 @@ export interface FollowUpStep {
   message_template: string;
   use_ai_personalization: boolean;
   skip_if_conditions: Record<string, unknown>;
+  wait_kind?: FollowUpWaitKind;
+  window_start_hour?: number | null;
+  window_start_minute?: number;
+  window_end_hour?: number | null;
+  window_end_minute?: number;
+  action_kind?: FollowUpActionKind;
+  tag_value?: string;
+  branch_field?: string;
+  variants?: Record<string, string>;
   created_at: string;
   updated_at: string;
 }

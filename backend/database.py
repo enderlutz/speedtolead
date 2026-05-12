@@ -1470,6 +1470,12 @@ class FollowUpSequence(Base):
     pause_on_events = Column(Text, default="customer_replied")
     active = Column(Boolean, default=False)
     version = Column(Integer, default=1)
+    # Send window — sequence-level default. Steps can override individually.
+    # Hours are local to `timezone`. Sends scheduled outside the window are
+    # deferred to the next day's window start.
+    send_window_start_hour = Column(Integer, default=8)    # 08:00 local
+    send_window_end_hour = Column(Integer, default=20)     # 20:00 local
+    timezone = Column(Text, default="America/Chicago")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
     created_by = Column(Text, default="")
@@ -1483,6 +1489,9 @@ class FollowUpSequence(Base):
             "pause_on_events": self.pause_on_events or "",
             "active": bool(self.active),
             "version": self.version or 1,
+            "send_window_start_hour": int(self.send_window_start_hour if self.send_window_start_hour is not None else 8),
+            "send_window_end_hour": int(self.send_window_end_hour if self.send_window_end_hour is not None else 20),
+            "timezone": self.timezone or "America/Chicago",
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
             "created_by": self.created_by or "",
@@ -1505,6 +1514,30 @@ class FollowUpStep(Base):
     sequence_id = Column(Text, nullable=False)
     position = Column(Integer, default=0)
     delay_hours = Column(Numeric(10, 2), default=24)        # hours after prior step (or run start for step 0)
+    # wait_kind controls how delay_hours is interpreted:
+    #   "hours"        : wait exactly delay_hours from prior step
+    #   "minutes"      : delay_hours is in minutes (used when admin wants <1h)
+    #   "calendar_day" : advance to next calendar day in sequence.timezone,
+    #                    then snap to this step's window_start (or sequence
+    #                    default). delay_hours ignored in this mode.
+    wait_kind = Column(Text, default="hours")
+    # Optional per-step window — overrides the sequence-level send window.
+    # If set, the step can only fire between window_start..window_end (local).
+    # Null = inherit sequence window.
+    window_start_hour = Column(Integer, default=None)
+    window_start_minute = Column(Integer, default=0)
+    window_end_hour = Column(Integer, default=None)
+    window_end_minute = Column(Integer, default=0)
+    # action_kind: "send_message" (default) | "add_tag"
+    # add_tag mirrors `tag_value` to GHL + the local lead row, then advances.
+    action_kind = Column(Text, default="send_message")
+    tag_value = Column(Text, default="")
+    # Branch on a lead field (e.g. "fence_age"). When set, the engine reads
+    # `lead.{branch_field}` and looks up `variants[value]` for the body.
+    # Empty branch_field means a single linear step (message_template used).
+    branch_field = Column(Text, default="")
+    # JSON: {branch_value: message_body, "_default": fallback_body}
+    variants = Column(Text, default="{}")
     channel = Column(Text, default="sms")                    # "sms" | "email" (email = Phase 5+)
     message_template = Column(Text, default="")
     # When true, the engine asks Claude to personalize the body before
@@ -1523,6 +1556,15 @@ class FollowUpStep(Base):
             "sequence_id": self.sequence_id,
             "position": self.position or 0,
             "delay_hours": float(self.delay_hours or 0),
+            "wait_kind": self.wait_kind or "hours",
+            "window_start_hour": self.window_start_hour if self.window_start_hour is not None else None,
+            "window_start_minute": int(self.window_start_minute or 0),
+            "window_end_hour": self.window_end_hour if self.window_end_hour is not None else None,
+            "window_end_minute": int(self.window_end_minute or 0),
+            "action_kind": self.action_kind or "send_message",
+            "tag_value": self.tag_value or "",
+            "branch_field": self.branch_field or "",
+            "variants": _j(self.variants) if self.variants else {},
             "channel": self.channel or "sms",
             "message_template": self.message_template or "",
             "use_ai_personalization": bool(self.use_ai_personalization),
@@ -1955,6 +1997,39 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added sop_runs.{new_col}")
+
+    # FollowUpSequence — send-window + timezone for P1 Sterling Estimate Sent
+    if inspector.has_table("followup_sequences"):
+        fs_cols = {c["name"] for c in inspector.get_columns("followup_sequences")}
+        for new_col, ddl in [
+            ("send_window_start_hour", "ALTER TABLE followup_sequences ADD COLUMN send_window_start_hour INTEGER DEFAULT 8"),
+            ("send_window_end_hour", "ALTER TABLE followup_sequences ADD COLUMN send_window_end_hour INTEGER DEFAULT 20"),
+            ("timezone", "ALTER TABLE followup_sequences ADD COLUMN timezone TEXT DEFAULT 'America/Chicago'"),
+        ]:
+            if new_col not in fs_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added followup_sequences.{new_col}")
+
+    # FollowUpStep — wait_kind, per-step window, action_kind, tag_value,
+    # branch_field, variants. Required for the GHL-style workflow editor.
+    if inspector.has_table("followup_steps"):
+        fst_cols = {c["name"] for c in inspector.get_columns("followup_steps")}
+        for new_col, ddl in [
+            ("wait_kind", "ALTER TABLE followup_steps ADD COLUMN wait_kind TEXT DEFAULT 'hours'"),
+            ("window_start_hour", "ALTER TABLE followup_steps ADD COLUMN window_start_hour INTEGER"),
+            ("window_start_minute", "ALTER TABLE followup_steps ADD COLUMN window_start_minute INTEGER DEFAULT 0"),
+            ("window_end_hour", "ALTER TABLE followup_steps ADD COLUMN window_end_hour INTEGER"),
+            ("window_end_minute", "ALTER TABLE followup_steps ADD COLUMN window_end_minute INTEGER DEFAULT 0"),
+            ("action_kind", "ALTER TABLE followup_steps ADD COLUMN action_kind TEXT DEFAULT 'send_message'"),
+            ("tag_value", "ALTER TABLE followup_steps ADD COLUMN tag_value TEXT DEFAULT ''"),
+            ("branch_field", "ALTER TABLE followup_steps ADD COLUMN branch_field TEXT DEFAULT ''"),
+            ("variants", "ALTER TABLE followup_steps ADD COLUMN variants TEXT DEFAULT '{}'"),
+        ]:
+            if new_col not in fst_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added followup_steps.{new_col}")
 
     # WrappedCache table — Base.metadata.create_all() above handles initial
     # creation, but if the table existed in an older shape we'd add columns
