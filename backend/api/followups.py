@@ -686,6 +686,15 @@ def start_test_run(body: TestRunBody, user: dict = Depends(require_admin)):
                 detail=f"Test lead {lead.contact_name or lead_id} has no ghl_contact_id — can't send via GHL",
             )
 
+        # Surface common misconfig states in the response — the toast on
+        # the frontend reads these and warns admin loudly instead of
+        # pretending everything's fine.
+        seq = db.query(FollowUpSequence).filter(FollowUpSequence.id == body.sequence_id).first()
+        if not seq:
+            raise HTTPException(404, "Sequence not found")
+        seq_active = bool(seq.active)
+        master_on = is_master_on(db)
+
         run_id = start_run(
             lead_id=lead_id,
             sequence_id=body.sequence_id,
@@ -694,16 +703,22 @@ def start_test_run(body: TestRunBody, user: dict = Depends(require_admin)):
         )
         if not run_id:
             raise HTTPException(status_code=500, detail="Failed to start run")
+
+        warnings: list[str] = []
+        if not master_on:
+            warnings.append("Engine master is OFF — flip Settings → Follow-up Engine → Master to ON to fire.")
+        if not seq_active:
+            warnings.append("This sequence is INACTIVE — the run will pause itself on the next tick until you enable the sequence.")
+
         return {
             "run_id": run_id,
             "lead_id": lead_id,
             "lead_name": lead.contact_name,
             "next_due_at_immediate": True,
-            "master_on": is_master_on(db),
-            "hint": (
-                "If master_on is false, the engine will not actually send. "
-                "Flip Settings → Follow-up Engine → Master ON to fire."
-            ),
+            "master_on": master_on,
+            "sequence_active": seq_active,
+            "warnings": warnings,
+            "hint": " ".join(warnings) if warnings else "All set — engine will fire on the next tick (within 5 min).",
         }
     except HTTPException:
         raise

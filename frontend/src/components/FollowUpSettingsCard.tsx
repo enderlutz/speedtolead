@@ -98,12 +98,19 @@ export default function FollowUpSettingsCard() {
     setFiringTest(seq.id);
     try {
       const r = await api.startFollowupTestRun({ sequence_id: seq.id });
-      toast.success(`Test run started on ${r.lead_name}`, {
-        description: r.master_on
-          ? "Engine ON — message will fire on the next tick (within 5 min)."
-          : "Engine is OFF — flip the master toggle to actually send.",
-        duration: 8000,
-      });
+      const warnings = (r as unknown as { warnings?: string[] }).warnings || [];
+      if (warnings.length > 0) {
+        // Loud warning when something will silently block the send.
+        toast.warning(`Test run created on ${r.lead_name} — but it won't fire`, {
+          description: warnings.join(" "),
+          duration: 12000,
+        });
+      } else {
+        toast.success(`Test run started on ${r.lead_name}`, {
+          description: r.hint || "Will fire on the next tick (within 5 min).",
+          duration: 8000,
+        });
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to start test");
     } finally {

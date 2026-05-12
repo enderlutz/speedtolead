@@ -266,14 +266,19 @@ def _advance_run(db, run: FollowUpRun) -> None:
 def tick() -> dict:
     """Single pass through due runs. Called by the background loop.
 
-    Returns: summary dict {processed: int, sent: int, skipped: int}.
-    Logged at INFO level so it shows up in Railway."""
-    summary = {"processed": 0, "sent": 0, "failed": 0, "skipped_master_off": 0}
+    Always logs a "Follow-up tick:" line at INFO level so Railway logs
+    show the engine is alive — even when there's nothing to do. Makes
+    remote debugging tractable."""
+    summary = {"processed": 0, "sent": 0, "failed": 0, "skipped_master_off": 0, "due": 0, "total_active": 0}
     db = get_db()
     try:
-        if not is_master_on(db):
-            # Quietest exit possible — runs are still recorded, just not advanced.
+        master_on = is_master_on(db)
+        # Always log so we know the loop is alive.
+        if not master_on:
+            total_active = db.query(FollowUpRun).filter(FollowUpRun.status == "active").count()
             summary["skipped_master_off"] = 1
+            summary["total_active"] = total_active
+            logger.info(f"Follow-up tick: master_on=False, {total_active} active runs sitting idle")
             return summary
 
         now_iso = _now()
@@ -287,21 +292,26 @@ def tick() -> dict:
             .limit(25)  # Cap per-tick to keep one bad sequence from monopolizing
             .all()
         )
+        total_active = db.query(FollowUpRun).filter(FollowUpRun.status == "active").count()
+        summary["due"] = len(runs)
+        summary["total_active"] = total_active
+
         for run in runs:
             summary["processed"] += 1
             try:
                 pre_status = run.status
+                pre_step = run.current_step
                 _advance_run(db, run)
                 db.commit()
-                if run.status == "active" and pre_status == "active":
+                if run.status == "active" and pre_status == "active" and run.current_step != pre_step:
                     summary["sent"] += 1
                 elif run.status == "failed":
                     summary["failed"] += 1
+                logger.info(f"Follow-up: advanced run {run.id} pre_status={pre_status} post_status={run.status} step {pre_step}->{run.current_step}")
             except Exception as e:
                 db.rollback()
                 logger.error(f"Follow-up engine: failed advancing run {run.id}: {e}")
-        if runs:
-            logger.info(f"Follow-up tick: {summary}")
+        logger.info(f"Follow-up tick: master_on=True {summary}")
         return summary
     finally:
         db.close()
