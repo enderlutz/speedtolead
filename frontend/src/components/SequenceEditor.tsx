@@ -43,7 +43,8 @@ import {
 const PIPELINE_STAGES: { id: string; label: string }[] = [
   { id: "e77fa568-8dd1-4f66-83c3-fa70dbd4d570", label: "New Lead" },
   { id: "616087fa-4144-454e-b3d3-ff3669cb9461", label: "HOT LEAD — Send Estimate" },
-  { id: "4ea9bbe0-d763-4440-8026-d0fc88d0358e", label: "Address Follow Up" },
+  { id: "86fd0197-38ee-4999-bd26-4cf175aeba6b", label: "Address Follow Up" },
+  { id: "92585169-bbc1-42c5-945d-63caf780e0b1", label: "Responded to Address Follow Up" },
   { id: "dc3600f2-009b-4075-95fa-786823131416", label: "Estimate Sent" },
   { id: "3ed8e7e3-6852-469c-bb72-effc1b6df76c", label: "Estimate — Follow Up Later" },
   { id: "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b", label: "Responded to Estimate" },

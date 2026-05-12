@@ -48,7 +48,8 @@ type StageDef = {
 export const V2_STAGES: StageDef[] = [
   { id: "e77fa568-8dd1-4f66-83c3-fa70dbd4d570", label: "New Lead", shortLabel: "New", headerCls: "bg-gray-100 text-gray-800", bgCls: "bg-gray-50/50", dotCls: "bg-gray-400" },
   { id: "616087fa-4144-454e-b3d3-ff3669cb9461", label: "HOT LEAD_SEND ESTIMATE", shortLabel: "Hot", headerCls: "bg-red-100 text-red-800", bgCls: "bg-red-50/30", dotCls: "bg-red-500" },
-  { id: "4ea9bbe0-d763-4440-8026-d0fc88d0358e", label: "LEAD_FOLLOW UP LATER", shortLabel: "Follow Up", headerCls: "bg-orange-100 text-orange-800", bgCls: "bg-orange-50/30", dotCls: "bg-orange-500" },
+  { id: "86fd0197-38ee-4999-bd26-4cf175aeba6b", label: "Address Follow Up", shortLabel: "Addr F/U", headerCls: "bg-orange-100 text-orange-800", bgCls: "bg-orange-50/30", dotCls: "bg-orange-500" },
+  { id: "92585169-bbc1-42c5-945d-63caf780e0b1", label: "Responded to Address Follow Up", shortLabel: "Addr F/U+", headerCls: "bg-yellow-100 text-yellow-800", bgCls: "bg-yellow-50/30", dotCls: "bg-yellow-500" },
   { id: "dc3600f2-009b-4075-95fa-786823131416", label: "ESTIMATE SENT", shortLabel: "Sent", headerCls: "bg-sky-100 text-sky-800", bgCls: "bg-sky-50/30", dotCls: "bg-sky-500" },
   { id: "3ed8e7e3-6852-469c-bb72-effc1b6df76c", label: "ESTIMATE_FOLLOW UP LATER", shortLabel: "Est. F/U", headerCls: "bg-amber-100 text-amber-800", bgCls: "bg-amber-50/30", dotCls: "bg-amber-500" },
   { id: "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b", label: "RESPONDED TO ESTIMATE", shortLabel: "Responded", headerCls: "bg-blue-100 text-blue-800", bgCls: "bg-blue-50/30", dotCls: "bg-blue-500" },
