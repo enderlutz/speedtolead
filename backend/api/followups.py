@@ -249,8 +249,9 @@ class StepBody(BaseModel):
     window_start_minute: int = 0
     window_end_hour: int | None = None
     window_end_minute: int = 0
-    action_kind: str = "send_message"        # "send_message" | "add_tag"
+    action_kind: str = "send_message"        # "send_message" | "add_tag" | "move_column"
     tag_value: str = ""
+    column_value: str = ""                    # GHL pipeline stage ID for move_column
     branch_field: str = ""
     variants: dict | None = None             # JSON: {branch_value: body, "_default": fallback}
 
@@ -278,6 +279,7 @@ def add_step(seq_id: str, body: StepBody, user: dict = Depends(require_admin)):
             window_end_minute=int(body.window_end_minute or 0),
             action_kind=(body.action_kind or "send_message").strip(),
             tag_value=(body.tag_value or "").strip(),
+            column_value=(body.column_value or "").strip(),
             branch_field=(body.branch_field or "").strip(),
             variants=json.dumps(body.variants) if body.variants else "{}",
             created_at=_now(),
@@ -318,6 +320,7 @@ def update_step(step_id: str, body: StepBody, user: dict = Depends(require_admin
         if body.action_kind:
             step.action_kind = body.action_kind.strip()
         step.tag_value = (body.tag_value or "").strip()
+        step.column_value = (body.column_value or "").strip()
         step.branch_field = (body.branch_field or "").strip()
         if body.variants is not None:
             step.variants = json.dumps(body.variants)
@@ -707,6 +710,7 @@ def apply_plan(seq_id: str, body: ApplyPlanBody, user: dict = Depends(require_ad
                 window_end_minute=int(s.get("window_end_minute") or 0),
                 action_kind=str(s.get("action_kind") or "send_message"),
                 tag_value=str(s.get("tag_value") or ""),
+                column_value=str(s.get("column_value") or ""),
                 branch_field=str(s.get("branch_field") or ""),
                 variants=variants_str,
                 created_at=_now(),

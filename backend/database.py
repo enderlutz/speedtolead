@@ -1528,10 +1528,14 @@ class FollowUpStep(Base):
     window_start_minute = Column(Integer, default=0)
     window_end_hour = Column(Integer, default=None)
     window_end_minute = Column(Integer, default=0)
-    # action_kind: "send_message" (default) | "add_tag"
-    # add_tag mirrors `tag_value` to GHL + the local lead row, then advances.
+    # action_kind: "send_message" (default) | "add_tag" | "move_column"
+    # add_tag mirrors `tag_value` to GHL. move_column sets `column_value`
+    # (a GHL pipeline stage ID) on the lead + pushes to GHL.
     action_kind = Column(Text, default="send_message")
     tag_value = Column(Text, default="")
+    # GHL pipeline stage ID for move_column actions (e.g. "Long Term Nurture"
+    # has ID d836628c-3094-4a63-b95a-8a5358d251d0). Unused for other actions.
+    column_value = Column(Text, default="")
     # Branch on a lead field (e.g. "fence_age"). When set, the engine reads
     # `lead.{branch_field}` and looks up `variants[value]` for the body.
     # Empty branch_field means a single linear step (message_template used).
@@ -1563,6 +1567,7 @@ class FollowUpStep(Base):
             "window_end_minute": int(self.window_end_minute or 0),
             "action_kind": self.action_kind or "send_message",
             "tag_value": self.tag_value or "",
+            "column_value": self.column_value or "",
             "branch_field": self.branch_field or "",
             "variants": _j(self.variants) if self.variants else {},
             "channel": self.channel or "sms",
@@ -2023,6 +2028,7 @@ def _run_migrations():
             ("window_end_minute", "ALTER TABLE followup_steps ADD COLUMN window_end_minute INTEGER DEFAULT 0"),
             ("action_kind", "ALTER TABLE followup_steps ADD COLUMN action_kind TEXT DEFAULT 'send_message'"),
             ("tag_value", "ALTER TABLE followup_steps ADD COLUMN tag_value TEXT DEFAULT ''"),
+            ("column_value", "ALTER TABLE followup_steps ADD COLUMN column_value TEXT DEFAULT ''"),
             ("branch_field", "ALTER TABLE followup_steps ADD COLUMN branch_field TEXT DEFAULT ''"),
             ("variants", "ALTER TABLE followup_steps ADD COLUMN variants TEXT DEFAULT '{}'"),
         ]:

@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover — Python <3.9 fallback
     ZoneInfo = None  # type: ignore
 
 from database import get_db, Lead, SystemConfig, FollowUpSequence, FollowUpStep, FollowUpRun, FollowUpEvent, Estimate
-from services.ghl import send_via_provider, send_sms, add_contact_tag
+from services.ghl import send_via_provider, send_sms, add_contact_tag, update_opportunity_stage
 from services.followup_ai import personalize, render_template, _build_vars
 from services.ai_thought_bus import publish as publish_thought
 
@@ -121,11 +121,13 @@ def _compute_next_due_at(now_utc: datetime, step: FollowUpStep, seq: FollowUpSeq
 
     wait_kind = (step.wait_kind or "hours").lower()
     if wait_kind == "calendar_day":
-        # "Wait 1 day" semantics — advance to next calendar day in the
-        # sequence timezone, then snap to window start. The user explicitly
-        # asked for this: "1 day basically means wait for the next day".
+        # Calendar-day waits — advance N days in the sequence timezone, then
+        # snap to window start. delay_hours doubles as the day count here:
+        # 0 or 1 = next day, 2 = +2 days, etc. Matches the user's spec
+        # ("wait 2 days, text on the 2nd day at 6:30 PM").
+        days = max(1, int(float(step.delay_hours or 0)) or 1)
         now_local = now_utc.astimezone(tz)
-        target_date = (now_local + timedelta(days=1)).date()
+        target_date = (now_local + timedelta(days=days)).date()
         candidate_local = datetime.combine(target_date, _time(ws_h, ws_m), tzinfo=tz)
     elif wait_kind == "minutes":
         delay_min = float(step.delay_hours or 0)
@@ -411,10 +413,11 @@ def _advance_run(db, run: FollowUpRun) -> None:
 
     # Send-time window guard. Even if next_due_at has passed, refuse to
     # fire outside the step's effective window — defer to the next slot.
-    # add_tag steps are window-exempt (they're internal, not customer-facing).
+    # add_tag and move_column steps are window-exempt (they're internal,
+    # not customer-facing).
     now_utc = _now_dt()
     action_kind = (step.action_kind or "send_message").lower()
-    if action_kind != "add_tag" and not _in_window_now(now_utc, step, seq):
+    if action_kind not in ("add_tag", "move_column") and not _in_window_now(now_utc, step, seq):
         deferred_to = _next_window_slot(now_utc, step, seq)
         run.next_due_at = deferred_to
         _log_event(db, run.id, "window_deferred", {
@@ -441,6 +444,35 @@ def _advance_run(db, run: FollowUpRun) -> None:
             _log_event(db, run.id, "tag_added" if tag_ok else "tag_add_failed", {
                 "step_position": step.position,
                 "tag": tag,
+            })
+    elif action_kind == "move_column":
+        # Move the lead to a different GHL pipeline stage + mirror locally.
+        # column_value is the GHL stage ID (e.g. d836628c-… for Long Term
+        # Nurture). Used at the end of P1/P2 to bucket cold leads.
+        stage_id = (step.column_value or "").strip()
+        if not stage_id:
+            _log_event(db, run.id, "step_skipped", {
+                "step_position": step.position,
+                "reason": "move_column step has empty column_value",
+            })
+        else:
+            previous_stage = lead.ghl_pipeline_stage_id or ""
+            lead.ghl_pipeline_stage_id = stage_id
+            ghl_ok = False
+            if lead.ghl_opportunity_id:
+                try:
+                    ghl_ok = update_opportunity_stage(
+                        lead.ghl_opportunity_id,
+                        stage_id,
+                        lead.ghl_location_id or None,
+                    )
+                except Exception as e:
+                    logger.warning(f"move_column GHL push failed: {e}")
+            _log_event(db, run.id, "column_moved" if ghl_ok or not lead.ghl_opportunity_id else "column_move_partial", {
+                "step_position": step.position,
+                "from_stage_id": previous_stage,
+                "to_stage_id": stage_id,
+                "ghl_synced": ghl_ok,
             })
     else:
         ok, msg_id, err = _send_step(db, run, step, lead)
@@ -687,24 +719,201 @@ def on_customer_reply(lead_id: str) -> None:
 # Manual operations (called from api/followups.py)
 # -----------------------------------------------------------------------
 
+# Long Term Nurture GHL stage ID — sourced from LeadsV2.tsx V2_STAGES.
+# Used at the end of P1's Part 2 to bucket cold leads who never replied.
+LONG_TERM_NURTURE_STAGE_ID = "d836628c-3094-4a63-b95a-8a5358d251d0"
+
+
+def _p1_step_definitions() -> list[dict]:
+    """Canonical step list for P1 — Part 1 (4 steps) + Part 2 (6 steps).
+    Returned as plain dicts so the same definitions back both initial-seed
+    and migrate-existing paths."""
+    text1 = (
+        "Hey {{customer_first_name}}, your estimate is in the link above! "
+        "How soon are you looking to have the the work done?"
+    )
+    text2 = (
+        "Hey {{customer_first_name}}, Quick question- when you reviewed "
+        "the estimate, were you leaning more toward the Signature Finish "
+        "or the Legacy Finish?"
+    )
+    text3_variants = {
+        "new": (
+            "Hey {{customer_first_name}}, Amy here. Since your fence is still "
+            "pretty new and has that golden glow, the Signature Finish is what "
+            "most folks go with — it soaks into the grain and protects the wood "
+            "from Houston humidity before the sun starts graying it out. Were "
+            "you leaning that way, or thinking the Essential Seal?"
+        ),
+        "1-6 years": (
+            "Hey {{customer_first_name}}, Amy here. Fences in the 1-6 year range "
+            "are right in the sweet spot for staining. Wait too long and boards "
+            "start warping or rotting — that's when repairs get expensive. The "
+            "Signature Finish is what most folks in your spot go with since it "
+            "seals the wood and locks in color. Are you leaning towards the "
+            "Signature or Legacy?"
+        ),
+        "6-15 years": (
+            "Hey {{customer_first_name}}, Amy here. Older fences don't have to "
+            "mean replacement. We swap broken pickets and posts if needed, stain "
+            "it, add 5-7 years of life — way cheaper than a $10-15k new fence. "
+            "Legacy Finish covers the gray completely; Signature keeps some wood "
+            "character. Want me to walk you through which fits?"
+        ),
+        "15+ years": (
+            "Hey {{customer_first_name}}, Amy here. Older fences don't have to "
+            "mean replacement. We swap broken posts & pickets, stain it, add 2-4 "
+            "years of life — way cheaper than a $10-15k new fence. Legacy Finish "
+            "covers the gray completely; Signature keeps some wood character. "
+            "Want me to walk you through which fits?"
+        ),
+        "i don't know": (
+            "Hey {{customer_first_name}}, Amy here. Just checking in — any thoughts "
+            "on the estimate? Happy to walk through which package fits your fence best."
+        ),
+        "_default": (
+            "Hey {{customer_first_name}}, Amy here. Just checking in — any thoughts "
+            "on the estimate? Happy to walk through which package fits your fence best."
+        ),
+    }
+    # Part 2 — kicks in after the "estimate-followup-continue" tag at the
+    # end of Part 1. Stop-on-reply pauses the run anywhere it hits.
+    text4 = (
+        "Hey {{customer_first_name}}, I wanted to make sure your estimate "
+        "didn't get lost in the shuffle. We have a few openings left this "
+        "month if you'd like to get on the schedule!"
+    )
+    text5 = (
+        "Hey {{customer_first_name}}, Amy here. Quick note — Houston humidity "
+        "is brutal on untreated fence wood. Most pickets that go unstained "
+        "start cupping or rotting within 2 summers, and replacement runs "
+        "$10-15k. Staining is the cheap side of that math. Happy to walk "
+        "through what's involved if you want."
+    )
+    text6 = (
+        "{{customer_first_name}}, just wanted to share! here's a fence we "
+        "just finished nearby. If you're still thinking about it, happy to "
+        "answer any questions."
+    )
+    text7 = (
+        "Hey {{customer_first_name}}, we're wrapping up our schedule for this "
+        "month. After this I'll just check in once a month in case the timing "
+        "works out better later. Want me to hold one of our last spots for you?"
+    )
+
+    return [
+        # ── Part 1 ────────────────────────────────────────────────────
+        # Step 0 — Text 1, immediate (respects sequence 8AM-8PM window)
+        {
+            "position": 0, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "send_message", "message_template": text1,
+        },
+        # Step 1 — Text 2, wait 30 min
+        {
+            "position": 1, "delay_hours": 30, "wait_kind": "minutes",
+            "action_kind": "send_message", "message_template": text2,
+        },
+        # Step 2 — Text 3, wait 1 calendar day, send 1:45-2:30 PM CT,
+        # branched on fence_age
+        {
+            "position": 2, "delay_hours": 1, "wait_kind": "calendar_day",
+            "window_start_hour": 13, "window_start_minute": 45,
+            "window_end_hour": 14, "window_end_minute": 30,
+            "action_kind": "send_message",
+            "branch_field": "fence_age", "variants": text3_variants,
+            "message_template": text3_variants["_default"],
+        },
+        # Step 3 — tag "estimate-followup-continue" (end of Part 1)
+        {
+            "position": 3, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "add_tag", "tag_value": "estimate-followup-continue",
+        },
+        # ── Part 2 ────────────────────────────────────────────────────
+        # Step 4 — Text 4, wait 2 calendar days, send 6:30-7:00 PM CT
+        {
+            "position": 4, "delay_hours": 2, "wait_kind": "calendar_day",
+            "window_start_hour": 18, "window_start_minute": 30,
+            "window_end_hour": 19, "window_end_minute": 0,
+            "action_kind": "send_message", "message_template": text4,
+        },
+        # Step 5 — Text 5, wait 3 calendar days, send 8:00-8:30 AM CT
+        {
+            "position": 5, "delay_hours": 3, "wait_kind": "calendar_day",
+            "window_start_hour": 8, "window_start_minute": 0,
+            "window_end_hour": 8, "window_end_minute": 30,
+            "action_kind": "send_message", "message_template": text5,
+        },
+        # Step 6 — Text 6, wait 4 calendar days, send 3:30-4:00 PM CT
+        {
+            "position": 6, "delay_hours": 4, "wait_kind": "calendar_day",
+            "window_start_hour": 15, "window_start_minute": 30,
+            "window_end_hour": 16, "window_end_minute": 0,
+            "action_kind": "send_message", "message_template": text6,
+        },
+        # Step 7 — Text 7, wait 4 calendar days, send 11:30 AM-12:00 PM CT
+        {
+            "position": 7, "delay_hours": 4, "wait_kind": "calendar_day",
+            "window_start_hour": 11, "window_start_minute": 30,
+            "window_end_hour": 12, "window_end_minute": 0,
+            "action_kind": "send_message", "message_template": text7,
+        },
+        # Step 8 — tag "cold lead" (no reply across the full sequence)
+        {
+            "position": 8, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "add_tag", "tag_value": "cold lead",
+        },
+        # Step 9 — move to "Long Term Nurture" pipeline stage
+        {
+            "position": 9, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "move_column", "column_value": LONG_TERM_NURTURE_STAGE_ID,
+        },
+    ]
+
+
+def _build_step_row(seq_id: str, defn: dict) -> FollowUpStep:
+    """Materialize a step definition dict into a FollowUpStep model row."""
+    variants_dict = defn.get("variants") or {}
+    return FollowUpStep(
+        id=str(uuid.uuid4()),
+        sequence_id=seq_id,
+        position=int(defn["position"]),
+        delay_hours=float(defn.get("delay_hours", 0)),
+        wait_kind=str(defn.get("wait_kind", "hours")),
+        window_start_hour=defn.get("window_start_hour"),
+        window_start_minute=int(defn.get("window_start_minute", 0)),
+        window_end_hour=defn.get("window_end_hour"),
+        window_end_minute=int(defn.get("window_end_minute", 0)),
+        channel="sms",
+        action_kind=str(defn.get("action_kind", "send_message")),
+        tag_value=str(defn.get("tag_value", "")),
+        column_value=str(defn.get("column_value", "")),
+        branch_field=str(defn.get("branch_field", "")),
+        variants=json.dumps(variants_dict) if variants_dict else "{}",
+        message_template=str(defn.get("message_template", "")),
+        use_ai_personalization=False,
+        created_at=_now(),
+        updated_at=_now(),
+    )
+
+
 def seed_p1_sterling_estimate_sent() -> None:
     """Recreates Alan's GHL workflow 'P1: Sterling Estimate Sent' inside
-    our engine. Idempotent — runs on every boot but only creates rows the
-    first time. Inactive by default; admin flips on when ready to retire
-    the GHL version.
+    our engine. Idempotent at two levels:
+      1. First boot — creates the sequence + all 10 steps (Part 1 + Part 2).
+      2. Subsequent boots after Part 2 was added — if a previously-seeded
+         P1 still has only Part 1's 4 steps AND the trigger/created_by mark
+         it as untouched by admin, append Part 2 steps. If admin has
+         already edited it (different step count or created_by != seed),
+         leave it alone.
 
     Flow:
-      [Trigger: tag_added "estimate sent"]
-        ↓
-      Text 1 — "How soon are you looking?" (immediate, 8 AM-8 PM CT)
-        ↓ wait 30 min
-      Text 2 — "Signature or Legacy?" (8 AM-8 PM CT)
-        ↓ wait calendar_day, send between 1:45-2:30 PM CT
-      Text 3 — branched on fence_age (6 variants)
-        ↓
-      Add Tag — "estimate-followup-continue"
-        ↓
-      END
+      Part 1: Text 1 → wait 30 min → Text 2 → wait 1 day, 1:45-2:30 PM →
+              Text 3 (branched on fence_age) → tag estimate-followup-continue
+      Part 2: wait 2 days, 6:30-7:00 PM → Text 4 →
+              wait 3 days, 8:00-8:30 AM → Text 5 →
+              wait 4 days, 3:30-4:00 PM → Text 6 →
+              wait 4 days, 11:30 AM-12:00 PM → Text 7 →
+              tag "cold lead" → move to Long Term Nurture → END
 
     Stop conditions are global to the engine: customer reply → run pauses;
     do_not_contact → run pauses. Both already handled by on_customer_reply
@@ -712,73 +921,61 @@ def seed_p1_sterling_estimate_sent() -> None:
     db = get_db()
     try:
         seq_name = "P1: Sterling Estimate Sent"
+        defs = _p1_step_definitions()
         existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
+
         if existing:
+            # Migration path — append Part 2 steps to a previously-seeded P1.
+            # Conservative: only act if existing rowset matches the original
+            # Part 1 shape (4 steps, last is the estimate-followup-continue
+            # tag, created_by marks it as untouched by admin).
+            current_steps = (
+                db.query(FollowUpStep)
+                .filter(FollowUpStep.sequence_id == existing.id)
+                .order_by(FollowUpStep.position)
+                .all()
+            )
+            looks_like_part1_only = (
+                len(current_steps) == 4
+                and (existing.created_by or "").startswith("system:")
+                and current_steps[-1].action_kind == "add_tag"
+                and (current_steps[-1].tag_value or "").strip() == "estimate-followup-continue"
+            )
+            if looks_like_part1_only:
+                # Also update Step 2's delay_hours to 1 (was 0 in the
+                # original seed; the engine treated 0 as 1 day, but
+                # the new explicit semantics use the value directly).
+                if (current_steps[2].action_kind or "send_message") == "send_message":
+                    current_steps[2].delay_hours = 1
+                # Append Part 2 steps (positions 4-9).
+                for defn in defs:
+                    if int(defn["position"]) < 4:
+                        continue
+                    db.add(_build_step_row(existing.id, defn))
+                existing.updated_at = _now()
+                existing.version = (existing.version or 1) + 1
+                db.commit()
+                logger.info(f"Migration: appended Part 2 steps to existing P1 sequence {existing.id}")
+            else:
+                logger.info(
+                    f"P1 sequence already present and has been customized "
+                    f"({len(current_steps)} steps, created_by={existing.created_by or '?'}); "
+                    f"skipping Part 2 auto-append."
+                )
             return
 
-        text1 = (
-            "Hey {{customer_first_name}}, your estimate is in the link above! "
-            "How soon are you looking to have the the work done?"
-        )
-        text2 = (
-            "Hey {{customer_first_name}}, Quick question- when you reviewed "
-            "the estimate, were you leaning more toward the Signature Finish "
-            "or the Legacy Finish?"
-        )
-        # Text 3 — branched on fence_age. Keys match the most common GHL
-        # dropdown values; _resolve_variant does fuzzy/substring matching
-        # to absorb shape variations.
-        text3_variants = {
-            "new": (
-                "Hey {{customer_first_name}}, Amy here. Since your fence is still "
-                "pretty new and has that golden glow, the Signature Finish is what "
-                "most folks go with — it soaks into the grain and protects the wood "
-                "from Houston humidity before the sun starts graying it out. Were "
-                "you leaning that way, or thinking the Essential Seal?"
-            ),
-            "1-6 years": (
-                "Hey {{customer_first_name}}, Amy here. Fences in the 1-6 year range "
-                "are right in the sweet spot for staining. Wait too long and boards "
-                "start warping or rotting — that's when repairs get expensive. The "
-                "Signature Finish is what most folks in your spot go with since it "
-                "seals the wood and locks in color. Are you leaning towards the "
-                "Signature or Legacy?"
-            ),
-            "6-15 years": (
-                "Hey {{customer_first_name}}, Amy here. Older fences don't have to "
-                "mean replacement. We swap broken pickets and posts if needed, stain "
-                "it, add 5-7 years of life — way cheaper than a $10-15k new fence. "
-                "Legacy Finish covers the gray completely; Signature keeps some wood "
-                "character. Want me to walk you through which fits?"
-            ),
-            "15+ years": (
-                "Hey {{customer_first_name}}, Amy here. Older fences don't have to "
-                "mean replacement. We swap broken posts & pickets, stain it, add 2-4 "
-                "years of life — way cheaper than a $10-15k new fence. Legacy Finish "
-                "covers the gray completely; Signature keeps some wood character. "
-                "Want me to walk you through which fits?"
-            ),
-            "i don't know": (
-                "Hey {{customer_first_name}}, Amy here. Just checking in — any thoughts "
-                "on the estimate? Happy to walk through which package fits your fence best."
-            ),
-            "_default": (
-                "Hey {{customer_first_name}}, Amy here. Just checking in — any thoughts "
-                "on the estimate? Happy to walk through which package fits your fence best."
-            ),
-        }
-
+        # Fresh install — create the whole sequence with all 10 steps.
         seq_id = str(uuid.uuid4())
         seq = FollowUpSequence(
             id=seq_id,
             name=seq_name,
             description=(
                 "Estimate-sent follow-up sequence — recreated from Alan's GHL "
-                "workflow. Triggered when the GHL contact gets the 'estimate "
-                "sent' tag. Three text touches: immediate, +30 min, +1 day "
-                "(1:45-2:30 PM). Text 3 personalizes by fence age. Adds the "
-                "'estimate-followup-continue' tag at the end for downstream "
-                "workflows."
+                "workflow (P1 + P2). Triggered when the GHL contact gets the "
+                "'estimate sent' tag. 7 text touches across ~13 days, branched "
+                "on fence age for Text 3. Ends by tagging cold leads and "
+                "moving them to Long Term Nurture. Stop-on-reply pauses the "
+                "run anywhere it hits."
             ),
             trigger_event="tag_added:estimate sent",
             pause_on_events="customer_replied",
@@ -792,75 +989,11 @@ def seed_p1_sterling_estimate_sent() -> None:
             created_by="system:seed",
         )
         db.add(seq)
-
-        # Step 0 — Text 1 (immediate)
-        db.add(FollowUpStep(
-            id=str(uuid.uuid4()),
-            sequence_id=seq_id,
-            position=0,
-            delay_hours=0,
-            wait_kind="hours",
-            channel="sms",
-            action_kind="send_message",
-            message_template=text1,
-            use_ai_personalization=False,
-            created_at=_now(),
-            updated_at=_now(),
-        ))
-        # Step 1 — Text 2 (wait 30 min)
-        db.add(FollowUpStep(
-            id=str(uuid.uuid4()),
-            sequence_id=seq_id,
-            position=1,
-            delay_hours=30,
-            wait_kind="minutes",
-            channel="sms",
-            action_kind="send_message",
-            message_template=text2,
-            use_ai_personalization=False,
-            created_at=_now(),
-            updated_at=_now(),
-        ))
-        # Step 2 — Text 3 (wait calendar_day, send 1:45-2:30 PM CT, branched)
-        db.add(FollowUpStep(
-            id=str(uuid.uuid4()),
-            sequence_id=seq_id,
-            position=2,
-            delay_hours=0,
-            wait_kind="calendar_day",
-            window_start_hour=13,
-            window_start_minute=45,
-            window_end_hour=14,
-            window_end_minute=30,
-            channel="sms",
-            action_kind="send_message",
-            branch_field="fence_age",
-            variants=json.dumps(text3_variants),
-            # message_template kept as a fallback if variant resolution
-            # fails for some reason; mirrors the _default variant.
-            message_template=text3_variants["_default"],
-            use_ai_personalization=False,
-            created_at=_now(),
-            updated_at=_now(),
-        ))
-        # Step 3 — Add Tag (immediate after Text 3, no customer-facing send)
-        db.add(FollowUpStep(
-            id=str(uuid.uuid4()),
-            sequence_id=seq_id,
-            position=3,
-            delay_hours=0,
-            wait_kind="hours",
-            channel="sms",
-            action_kind="add_tag",
-            tag_value="estimate-followup-continue",
-            message_template="",
-            use_ai_personalization=False,
-            created_at=_now(),
-            updated_at=_now(),
-        ))
+        for defn in defs:
+            db.add(_build_step_row(seq_id, defn))
 
         db.commit()
-        logger.info(f"Seeded P1 Sterling Estimate Sent sequence: {seq_id} (inactive — admin must enable)")
+        logger.info(f"Seeded P1 Sterling Estimate Sent sequence: {seq_id} ({len(defs)} steps, inactive — admin must enable)")
     except Exception as e:
         db.rollback()
         logger.warning(f"Failed to seed P1 sequence (non-fatal): {e}")

@@ -34,8 +34,33 @@ import { Badge } from "@/components/ui/badge";
 import VoiceInput from "@/components/VoiceInput";
 import {
   Plus, Trash2, Save, Sparkles, X, MessageSquare, Clock, Tag as TagIcon,
-  GitBranch, Zap, Wand2, ChevronDown, ChevronUp, Pencil,
+  GitBranch, Zap, Wand2, ChevronDown, ChevronUp, Pencil, ArrowRightLeft,
 } from "lucide-react";
+
+// V2 GHL pipeline stages — mirror of LeadsV2 V2_STAGES, kept locally so the
+// editor can render a stage picker without an extra round-trip. Keep in sync
+// with frontend/src/pages/LeadsV2.tsx if stages are renamed/added.
+const PIPELINE_STAGES: { id: string; label: string }[] = [
+  { id: "e77fa568-8dd1-4f66-83c3-fa70dbd4d570", label: "New Lead" },
+  { id: "616087fa-4144-454e-b3d3-ff3669cb9461", label: "HOT LEAD — Send Estimate" },
+  { id: "4ea9bbe0-d763-4440-8026-d0fc88d0358e", label: "Address Follow Up" },
+  { id: "dc3600f2-009b-4075-95fa-786823131416", label: "Estimate Sent" },
+  { id: "3ed8e7e3-6852-469c-bb72-effc1b6df76c", label: "Estimate — Follow Up Later" },
+  { id: "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b", label: "Responded to Estimate" },
+  { id: "147bd53b-3848-449d-b7c2-7a2cfad2a5f5", label: "Top Priority — Responded" },
+  { id: "f207a600-81c9-4150-941c-e977ea876929", label: "Declined Estimate" },
+  { id: "bbebbdac-0011-4253-9ed7-65522bafde02", label: "Deal Closed (Not Scheduled)" },
+  { id: "3eed5964-573f-445e-a181-1ee28068f066", label: "Closed & Scheduled" },
+  { id: "c77b052f-845c-47e9-bba2-4cdba35a94d0", label: "Completed — Happy" },
+  { id: "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc", label: "Completed — Unhappy" },
+  { id: "d836628c-3094-4a63-b95a-8a5358d251d0", label: "Long Term Nurture" },
+  { id: "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01", label: "Responded to Long Term Nurture" },
+  { id: "0ca2e2a6-2990-4a5b-8ace-608393e39b5a", label: "Cold Leads (Never Answered)" },
+];
+
+function stageLabel(id: string): string {
+  return PIPELINE_STAGES.find((s) => s.id === id)?.label || id;
+}
 
 const EMPTY_SEND: SequenceStepPlan = {
   position: 0,
@@ -54,6 +79,13 @@ const EMPTY_TAG: SequenceStepPlan = {
   ...EMPTY_SEND,
   action_kind: "add_tag",
   tag_value: "",
+  message_template: "",
+};
+
+const EMPTY_MOVE: SequenceStepPlan = {
+  ...EMPTY_SEND,
+  action_kind: "move_column",
+  column_value: "",
   message_template: "",
 };
 
@@ -103,6 +135,7 @@ export default function SequenceEditor({ sequenceId, onClose }: { sequenceId: st
           window_end_minute: s.window_end_minute ?? 0,
           action_kind: s.action_kind || "send_message",
           tag_value: s.tag_value || "",
+          column_value: s.column_value || "",
           branch_field: s.branch_field || "",
           variants: s.variants || {},
         })));
@@ -352,7 +385,11 @@ export default function SequenceEditor({ sequenceId, onClose }: { sequenceId: st
                       No steps yet. Click + below to add a message, branch, wait, or tag action.
                     </p>
                     <div className="mt-2 flex justify-center">
-                      <AddBetween onAddSend={() => insertStep(-1, EMPTY_SEND)} onAddTag={() => insertStep(-1, EMPTY_TAG)} />
+                      <AddBetween
+                        onAddSend={() => insertStep(-1, EMPTY_SEND)}
+                        onAddTag={() => insertStep(-1, EMPTY_TAG)}
+                        onAddMove={() => insertStep(-1, EMPTY_MOVE)}
+                      />
                     </div>
                   </div>
                 ) : (
@@ -361,7 +398,6 @@ export default function SequenceEditor({ sequenceId, onClose }: { sequenceId: st
                       key={i}
                       step={s}
                       index={i}
-                      total={steps.length}
                       expanded={expandedIdx === i}
                       onToggleExpand={() => setExpandedIdx(expandedIdx === i ? null : i)}
                       onUpdate={(patch) => updateStep(i, patch)}
@@ -407,16 +443,17 @@ export default function SequenceEditor({ sequenceId, onClose }: { sequenceId: st
 
 // ─── Visual primitives ─────────────────────────────────────────────────
 
-function Connector({ withAdd, onAddSend, onAddTag }: {
+function Connector({ withAdd, onAddSend, onAddTag, onAddMove }: {
   withAdd?: boolean;
   onAddSend?: () => void;
   onAddTag?: () => void;
+  onAddMove?: () => void;
 }) {
   return (
     <div className="flex flex-col items-center">
       <div className="w-px h-3 bg-border" />
-      {withAdd && onAddSend && onAddTag ? (
-        <AddBetween onAddSend={onAddSend} onAddTag={onAddTag} />
+      {withAdd && onAddSend && onAddTag && onAddMove ? (
+        <AddBetween onAddSend={onAddSend} onAddTag={onAddTag} onAddMove={onAddMove} />
       ) : (
         <div className="w-2 h-2 rounded-full border bg-background" />
       )}
@@ -425,7 +462,11 @@ function Connector({ withAdd, onAddSend, onAddTag }: {
   );
 }
 
-function AddBetween({ onAddSend, onAddTag }: { onAddSend: () => void; onAddTag: () => void }) {
+function AddBetween({ onAddSend, onAddTag, onAddMove }: {
+  onAddSend: () => void;
+  onAddTag: () => void;
+  onAddMove: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -438,7 +479,7 @@ function AddBetween({ onAddSend, onAddTag }: { onAddSend: () => void; onAddTag: 
         <Plus className="h-3 w-3" />
       </button>
       {open && (
-        <div className="absolute left-1/2 -translate-x-1/2 mt-1 z-10 rounded-md border bg-popover shadow-md py-1 min-w-[140px]">
+        <div className="absolute left-1/2 -translate-x-1/2 mt-1 z-10 rounded-md border bg-popover shadow-md py-1 min-w-[160px]">
           <button
             className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted flex items-center gap-2"
             onClick={() => { onAddSend(); setOpen(false); }}
@@ -450,6 +491,12 @@ function AddBetween({ onAddSend, onAddTag }: { onAddSend: () => void; onAddTag: 
             onClick={() => { onAddTag(); setOpen(false); }}
           >
             <TagIcon className="h-3 w-3 text-blue-600" /> Add tag
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted flex items-center gap-2"
+            onClick={() => { onAddMove(); setOpen(false); }}
+          >
+            <ArrowRightLeft className="h-3 w-3 text-purple-600" /> Move column
           </button>
         </div>
       )}
@@ -485,11 +532,10 @@ function TriggerCard({ triggerEvent, winStart, winEnd, tz }: {
 }
 
 function StepBlock({
-  step, index, total, expanded, onToggleExpand, onUpdate, onRemove, onAddBelow,
+  step, index, expanded, onToggleExpand, onUpdate, onRemove, onAddBelow,
 }: {
   step: SequenceStepPlan;
   index: number;
-  total: number;
   expanded: boolean;
   onToggleExpand: () => void;
   onUpdate: (patch: Partial<SequenceStepPlan>) => void;
@@ -497,11 +543,14 @@ function StepBlock({
   onAddBelow: (tpl: SequenceStepPlan) => void;
 }) {
   const isAddTag = step.action_kind === "add_tag";
+  const isMoveColumn = step.action_kind === "move_column";
+  const isInternalAction = isAddTag || isMoveColumn;
   const hasBranch = Boolean(step.branch_field && Object.keys(step.variants || {}).length > 0);
 
-  // Show wait card if this step has any wait/window > 0 AND is not the first step's "immediate" send
+  // Show wait card if this step has any wait/window > 0 AND is not an
+  // internal (non-customer-facing) action like add_tag or move_column.
   const showWait =
-    !isAddTag &&
+    !isInternalAction &&
     ((step.wait_kind === "calendar_day") ||
       (step.delay_hours && step.delay_hours > 0) ||
       step.window_start_hour != null);
@@ -529,6 +578,17 @@ function StepBlock({
               bg="bg-blue-50/50"
               kind="Add Tag"
               summary={step.tag_value ? `"${step.tag_value}"` : "(no tag set)"}
+              onToggleExpand={onToggleExpand}
+              expanded={expanded}
+              onRemove={onRemove}
+            />
+          ) : isMoveColumn ? (
+            <ActionCard
+              icon={<ArrowRightLeft className="h-4 w-4 text-purple-700" />}
+              border="border-purple-300"
+              bg="bg-purple-50/50"
+              kind="Move Column"
+              summary={step.column_value ? `→ ${stageLabel(step.column_value)}` : "(no column set)"}
               onToggleExpand={onToggleExpand}
               expanded={expanded}
               onRemove={onRemove}
@@ -571,11 +631,12 @@ function StepBlock({
       )}
 
       {/* Connector + add button to next step */}
-      {index < total - 1 ? (
-        <Connector withAdd onAddSend={() => onAddBelow(EMPTY_SEND)} onAddTag={() => onAddBelow(EMPTY_TAG)} />
-      ) : (
-        <Connector withAdd onAddSend={() => onAddBelow(EMPTY_SEND)} onAddTag={() => onAddBelow(EMPTY_TAG)} />
-      )}
+      <Connector
+        withAdd
+        onAddSend={() => onAddBelow(EMPTY_SEND)}
+        onAddTag={() => onAddBelow(EMPTY_TAG)}
+        onAddMove={() => onAddBelow(EMPTY_MOVE)}
+      />
     </>
   );
 }
@@ -680,6 +741,7 @@ function StepEditor({ step, onUpdate, index }: {
   index: number;
 }) {
   const isAddTag = step.action_kind === "add_tag";
+  const isMoveColumn = step.action_kind === "move_column";
 
   if (isAddTag) {
     return (
@@ -693,6 +755,30 @@ function StepEditor({ step, onUpdate, index }: {
           />
           <p className="text-[10px] text-muted-foreground mt-1">
             This tag will be added to the contact in GHL. No customer-facing message is sent.
+          </p>
+        </div>
+        <ActionKindSwitch value={step.action_kind || "send_message"} onChange={(v) => onUpdate({ action_kind: v })} />
+      </div>
+    );
+  }
+
+  if (isMoveColumn) {
+    return (
+      <div className="space-y-2">
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Move to column</label>
+          <select
+            className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+            value={step.column_value || ""}
+            onChange={(e) => onUpdate({ column_value: e.target.value })}
+          >
+            <option value="">— select a pipeline stage —</option>
+            {PIPELINE_STAGES.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Updates the lead's GHL pipeline stage + mirrors locally. No customer-facing message is sent.
           </p>
         </div>
         <ActionKindSwitch value={step.action_kind || "send_message"} onChange={(v) => onUpdate({ action_kind: v })} />
@@ -861,6 +947,13 @@ function ActionKindSwitch({ value, onChange }: {
           onClick={() => onChange("add_tag")}
         >
           <TagIcon className="h-3 w-3 inline mr-1" /> Add tag
+        </button>
+        <button
+          type="button"
+          className={`px-3 py-1.5 text-xs border-l ${value === "move_column" ? "bg-purple-100 text-purple-900" : "bg-background hover:bg-muted"}`}
+          onClick={() => onChange("move_column")}
+        >
+          <ArrowRightLeft className="h-3 w-3 inline mr-1" /> Move column
         </button>
       </div>
     </div>

@@ -1332,6 +1332,7 @@ export interface SequenceStepPlan {
   window_end_minute?: number;
   action_kind?: FollowUpActionKind;
   tag_value?: string;
+  column_value?: string;
   branch_field?: string;
   variants?: Record<string, string>;
 }
@@ -1403,7 +1404,7 @@ export interface FollowUpSequence {
 }
 
 export type FollowUpWaitKind = "minutes" | "hours" | "calendar_day";
-export type FollowUpActionKind = "send_message" | "add_tag";
+export type FollowUpActionKind = "send_message" | "add_tag" | "move_column";
 
 export interface FollowUpStep {
   id: string;
@@ -1421,6 +1422,7 @@ export interface FollowUpStep {
   window_end_minute?: number;
   action_kind?: FollowUpActionKind;
   tag_value?: string;
+  column_value?: string;
   branch_field?: string;
   variants?: Record<string, string>;
   created_at: string;
