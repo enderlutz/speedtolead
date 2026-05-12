@@ -26,6 +26,46 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _verify_webhook_token(request: Request) -> None:
+    """Reject the request if a shared secret is configured and the caller
+    didn't present it. Accepts the token from either:
+      - `?token=...` query param (easy to wire in GHL workflow Webhook actions)
+      - `X-Webhook-Token` header (cleaner for ContactTagUpdate subscriptions)
+
+    Skipped (with a warning) when `GHL_WEBHOOK_SECRET` is unset — lets
+    local dev work without setup. In production this env var MUST be set
+    or anyone with the URL can fire sequences.
+
+    Raises HTTPException(401) if the secret is wrong or missing."""
+    secret = get_settings().ghl_webhook_secret or ""
+    if not secret:
+        # Logged at module init so it's visible but doesn't spam every request.
+        return
+    presented = (
+        request.query_params.get("token")
+        or request.headers.get("x-webhook-token")
+        or request.headers.get("X-Webhook-Token")
+        or ""
+    ).strip()
+    # Constant-time compare avoids leaking length via timing.
+    import hmac
+    if not presented or not hmac.compare_digest(presented, secret):
+        logger.warning(
+            f"Webhook rejected: missing/wrong token from {request.client.host if request.client else '?'} "
+            f"on {request.url.path}"
+        )
+        raise HTTPException(status_code=401, detail="invalid_webhook_token")
+
+
+# Surface the security posture at import time so admin notices if it's off.
+_startup_settings = get_settings()
+if not _startup_settings.ghl_webhook_secret:
+    logger.warning(
+        "GHL_WEBHOOK_SECRET is not set — /webhook/ghl/* endpoints accept ANY POST. "
+        "Set the env var + add ?token=<secret> to the GHL webhook URL before production."
+    )
+
+
 def _process_lead(lead_id: str, lead_data: dict):
     """Background: calculate estimate, geocode, notify."""
     db = get_db()
@@ -107,6 +147,7 @@ def _process_lead(lead_id: str, lead_data: dict):
 
 @router.post("/webhook/ghl")
 async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
+    _verify_webhook_token(request)
     try:
         payload = await request.json()
     except Exception:
@@ -263,6 +304,7 @@ async def create_test_lead(background_tasks: BackgroundTasks):
 @router.post("/webhook/ghl/message")
 async def ghl_message_webhook(request: Request):
     """Receives GHL InboundMessage / OutboundMessage events."""
+    _verify_webhook_token(request)
     try:
         payload = await request.json()
     except Exception:
@@ -358,6 +400,7 @@ async def ghl_message_status_webhook(request: Request):
 
     Configure in GHL: Settings → Integrations → Webhooks → add a new
     webhook for "Message Status Updated" pointing at this URL."""
+    _verify_webhook_token(request)
     try:
         payload = await request.json()
     except Exception:
@@ -414,6 +457,7 @@ async def ghl_message_status_webhook(request: Request):
 async def ghl_tag_added_webhook(request: Request):
     """GHL fires this when a contact tag changes. We start any follow-up
     sequence whose trigger_event matches the newly-added tag."""
+    _verify_webhook_token(request)
     try:
         payload = await request.json()
     except Exception:

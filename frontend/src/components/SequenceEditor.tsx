@@ -1095,6 +1095,52 @@ function DiffModal({
   );
 }
 
+// Friendly labels for each step field — keeps the diff readable for
+// non-engineers reviewing AI proposals.
+const FIELD_LABELS: Record<string, string> = {
+  delay_hours: "Delay",
+  channel: "Channel",
+  message_template: "Message",
+  use_ai_personalization: "AI personalize",
+  wait_kind: "Wait kind",
+  window_start_hour: "Window start (hour)",
+  window_start_minute: "Window start (min)",
+  window_end_hour: "Window end (hour)",
+  window_end_minute: "Window end (min)",
+  action_kind: "Action",
+  tag_value: "Tag",
+  column_value: "Pipeline column",
+  branch_field: "Branch on",
+  variants: "Branch variants",
+};
+
+function fmtFieldValue(field: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (field === "column_value") return stageLabel(String(value));
+  if (field === "use_ai_personalization") return value ? "yes" : "no";
+  return String(value);
+}
+
+function StepSummary({ s, dim = false }: { s: SequenceStepPlan; dim?: boolean }) {
+  // Compact one-line summary used in added/removed/unchanged rows.
+  const isAddTag = s.action_kind === "add_tag";
+  const isMove = s.action_kind === "move_column";
+  const cls = dim ? "opacity-70 line-through" : "";
+  if (isAddTag) {
+    return <p className={`text-xs ${cls}`}><TagIcon className="h-3 w-3 inline mr-1 text-blue-600" /> Add tag: <span className="font-mono">{s.tag_value || "(empty)"}</span></p>;
+  }
+  if (isMove) {
+    return <p className={`text-xs ${cls}`}><ArrowRightLeft className="h-3 w-3 inline mr-1 text-purple-600" /> Move to: <span className="font-mono">{stageLabel(s.column_value || "")}</span></p>;
+  }
+  const branchSuffix = s.branch_field ? ` (branches on ${s.branch_field})` : "";
+  return (
+    <p className={`text-xs whitespace-pre-wrap font-mono ${cls}`}>
+      <MessageSquare className="h-3 w-3 inline mr-1 text-emerald-600" />
+      {truncate(s.message_template, 100) || "(empty)"}{branchSuffix}
+    </p>
+  );
+}
+
 function DiffRow({ entry }: { entry: SequenceDiffEntry }) {
   if (entry.kind === "meta") {
     const changes = entry.changes || [];
@@ -1116,8 +1162,9 @@ function DiffRow({ entry }: { entry: SequenceDiffEntry }) {
   if (entry.kind === "unchanged") {
     const s = entry.after as SequenceStepPlan;
     return (
-      <li className="rounded-md border bg-muted/20 p-2 text-[11px] text-muted-foreground italic">
-        Step {(entry.position ?? 0) + 1} — unchanged ({s.delay_hours}h, {s.message_template.slice(0, 60)}{s.message_template.length > 60 ? "…" : ""})
+      <li className="rounded-md border bg-muted/20 p-2 text-[11px] text-muted-foreground italic flex items-center gap-2">
+        <span>Step {(entry.position ?? 0) + 1} — unchanged</span>
+        <span className="opacity-70 truncate"><StepSummary s={s} /></span>
       </li>
     );
   }
@@ -1126,8 +1173,7 @@ function DiffRow({ entry }: { entry: SequenceDiffEntry }) {
     return (
       <li className="rounded-md border border-emerald-300 bg-emerald-50/50 p-3">
         <p className="text-[10px] uppercase tracking-wide text-emerald-700 mb-1">+ Added — Step {(entry.position ?? 0) + 1}</p>
-        <p className="text-xs"><span className="font-medium">delay:</span> {s.delay_hours}h{s.use_ai_personalization && " · AI personalize"}</p>
-        <p className="text-xs font-mono whitespace-pre-wrap mt-1">{s.message_template}</p>
+        <StepSummary s={s} />
       </li>
     );
   }
@@ -1136,7 +1182,7 @@ function DiffRow({ entry }: { entry: SequenceDiffEntry }) {
     return (
       <li className="rounded-md border border-red-300 bg-red-50/40 p-3">
         <p className="text-[10px] uppercase tracking-wide text-red-700 mb-1">– Removed — Step {(entry.position ?? 0) + 1}</p>
-        <p className="text-xs font-mono whitespace-pre-wrap line-through opacity-70">{s.message_template}</p>
+        <StepSummary s={s} dim />
       </li>
     );
   }
@@ -1144,16 +1190,73 @@ function DiffRow({ entry }: { entry: SequenceDiffEntry }) {
   const after = entry.after as SequenceStepPlan;
   const changes = entry.changes || [];
   return (
-    <li className="rounded-md border border-amber-300 bg-amber-50/40 p-3">
-      <p className="text-[10px] uppercase tracking-wide text-amber-700 mb-1">~ Changed — Step {(entry.position ?? 0) + 1}</p>
+    <li className="rounded-md border border-amber-300 bg-amber-50/40 p-3 space-y-1.5">
+      <p className="text-[10px] uppercase tracking-wide text-amber-700">~ Changed — Step {(entry.position ?? 0) + 1}</p>
       <ul className="text-xs space-y-1">
-        {changes.map((k) => (
-          <li key={k}>
-            <span className="font-medium">{k}:</span>{" "}
-            <span className="line-through text-muted-foreground">{String(before[k as keyof SequenceStepPlan] ?? "")}</span>{" → "}
-            <span className="text-amber-800">{String(after[k as keyof SequenceStepPlan] ?? "")}</span>
-          </li>
-        ))}
+        {changes.map((k) => {
+          if (k === "variants") {
+            return <VariantsDiff key={k} before={(before.variants || {}) as Record<string, string>} after={(after.variants || {}) as Record<string, string>} />;
+          }
+          if (k === "message_template") {
+            return (
+              <li key={k}>
+                <span className="font-medium">{FIELD_LABELS[k] || k}:</span>
+                <div className="mt-1 grid grid-cols-1 gap-1">
+                  <pre className="text-[11px] bg-red-50 border border-red-200 rounded px-2 py-1 whitespace-pre-wrap font-mono text-red-900/80 line-through">{fmtFieldValue(k, before[k as keyof SequenceStepPlan])}</pre>
+                  <pre className="text-[11px] bg-emerald-50 border border-emerald-200 rounded px-2 py-1 whitespace-pre-wrap font-mono text-emerald-900">{fmtFieldValue(k, after[k as keyof SequenceStepPlan])}</pre>
+                </div>
+              </li>
+            );
+          }
+          return (
+            <li key={k}>
+              <span className="font-medium">{FIELD_LABELS[k] || k}:</span>{" "}
+              <span className="line-through text-muted-foreground">{fmtFieldValue(k, before[k as keyof SequenceStepPlan])}</span>{" → "}
+              <span className="text-amber-800">{fmtFieldValue(k, after[k as keyof SequenceStepPlan])}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </li>
+  );
+}
+
+function VariantsDiff({ before, after }: { before: Record<string, string>; after: Record<string, string> }) {
+  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+  return (
+    <li>
+      <span className="font-medium">Branch variants:</span>
+      <ul className="ml-3 mt-1 space-y-1">
+        {keys.map((k) => {
+          const bv = before[k];
+          const av = after[k];
+          if (bv === av) return null;
+          if (bv === undefined) {
+            return (
+              <li key={k} className="text-[11px]">
+                <span className="text-emerald-700 font-semibold">+ {k}:</span>{" "}
+                <span className="font-mono whitespace-pre-wrap">{truncate(av || "", 120)}</span>
+              </li>
+            );
+          }
+          if (av === undefined) {
+            return (
+              <li key={k} className="text-[11px]">
+                <span className="text-red-700 font-semibold">– {k}:</span>{" "}
+                <span className="font-mono whitespace-pre-wrap line-through opacity-70">{truncate(bv || "", 120)}</span>
+              </li>
+            );
+          }
+          return (
+            <li key={k} className="text-[11px]">
+              <span className="text-amber-700 font-semibold">~ {k}:</span>
+              <div className="grid grid-cols-1 gap-1 mt-0.5">
+                <pre className="text-[10px] bg-red-50 border border-red-200 rounded px-1.5 py-0.5 whitespace-pre-wrap font-mono text-red-900/80 line-through">{truncate(bv || "", 200)}</pre>
+                <pre className="text-[10px] bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 whitespace-pre-wrap font-mono text-emerald-900">{truncate(av || "", 200)}</pre>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </li>
   );

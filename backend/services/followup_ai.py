@@ -57,7 +57,7 @@ def _build_vars(lead: Any, estimate: Any | None = None) -> dict[str, str]:
         "service_timeline": str(fd.get("service_timeline", "")),
         "estimate_low": f"${est_low:,.0f}" if est_low else "",
         "estimate_high": f"${est_high:,.0f}" if est_high else "",
-        "brand": "Sterling Fence Staining",
+        "brand": "A&T's Fence Staining",
     }
 
 
@@ -70,7 +70,7 @@ def render_template(template: str, vars_: dict[str, str]) -> str:
 # Personalization
 # -----------------------------------------------------------------------
 
-_PERSONALIZE_SYSTEM = """You rewrite follow-up SMS bodies for Sterling Fence Staining, a Texas home services company. The owner wants their messages to feel like a human just typed them — casual but professional, short, no corporate stiffness.
+_PERSONALIZE_SYSTEM = """You rewrite follow-up SMS bodies for A&T's Fence Staining, a Texas home services company. The owner wants their messages to feel like a human just typed them — casual but professional, short, no corporate stiffness.
 
 Rules:
 - Keep it under 320 characters (fits in 2 SMS segments).

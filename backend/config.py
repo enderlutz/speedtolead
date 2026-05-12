@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # Auth
     auth_secret: str = "change-me-in-production"
 
+    # Shared secret for GHL webhooks. When set, /webhook/ghl/* endpoints
+    # require the secret as either a `?token=...` query param OR an
+    # `X-Webhook-Token` header. Defense against random POSTs to our
+    # webhook URLs from anyone who guesses the path. Empty (default)
+    # disables the check for local dev.
+    ghl_webhook_secret: str = ""
+
     # Server
     port: int = 8000
     allowed_origins: str = "*"  # Comma-separated for production

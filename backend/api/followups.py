@@ -565,6 +565,31 @@ def start_sequence_on_lead(lead_id: str, body: StartSequenceBody, user: dict = D
             raise HTTPException(status_code=400, detail="Lead has no ghl_contact_id — can't send via GHL")
         if lead.do_not_contact:
             raise HTTPException(status_code=400, detail="Lead is marked do_not_contact — clear that first")
+        # Idempotency — block double-clicks. If a run on this (lead, sequence)
+        # is already active or paused, return the existing run instead of
+        # creating a duplicate. Admin almost never wants two parallel runs
+        # of the same sequence on the same lead — that's how double-texts
+        # happen.
+        existing = (
+            db.query(FollowUpRun)
+            .filter(
+                FollowUpRun.lead_id == lead_id,
+                FollowUpRun.sequence_id == body.sequence_id,
+                FollowUpRun.status.in_(["active", "paused"]),
+            )
+            .order_by(FollowUpRun.started_at.desc())
+            .first()
+        )
+        if existing:
+            return {
+                "run_id": existing.id,
+                "lead_id": lead_id,
+                "status": existing.status,
+                "note": (
+                    f"A {existing.status} run already exists for this lead+sequence — "
+                    f"returning the existing run id (no duplicate created)."
+                ),
+            }
         run_id = start_run(
             lead_id=lead_id,
             sequence_id=body.sequence_id,
@@ -629,21 +654,41 @@ def compile_sequence_instruction(seq_id: str, body: CompileInstructionBody, user
         if not seq:
             raise HTTPException(status_code=404, detail="Sequence not found")
         steps = db.query(FollowUpStep).filter(FollowUpStep.sequence_id == seq_id).order_by(FollowUpStep.position).all()
+        # FULL snapshot — every field the compiler/Claude needs to preserve
+        # data it's not being asked to change. Stripping fields here is what
+        # caused the AI editor to wipe structured workflow data in the past.
+        def _step_snapshot(s) -> dict:
+            try:
+                variants = json.loads(s.variants or "{}") if s.variants else {}
+            except Exception:
+                variants = {}
+            return {
+                "position": s.position or 0,
+                "delay_hours": float(s.delay_hours or 0),
+                "wait_kind": s.wait_kind or "hours",
+                "window_start_hour": s.window_start_hour if s.window_start_hour is not None else None,
+                "window_start_minute": int(s.window_start_minute or 0),
+                "window_end_hour": s.window_end_hour if s.window_end_hour is not None else None,
+                "window_end_minute": int(s.window_end_minute or 0),
+                "channel": s.channel or "sms",
+                "message_template": s.message_template or "",
+                "use_ai_personalization": bool(s.use_ai_personalization),
+                "action_kind": s.action_kind or "send_message",
+                "tag_value": s.tag_value or "",
+                "column_value": s.column_value or "",
+                "branch_field": s.branch_field or "",
+                "variants": variants,
+            }
+
         current = {
             "sequence_name": seq.name,
             "sequence_description": seq.description or "",
             "trigger_event": seq.trigger_event or "",
             "pause_on_events": seq.pause_on_events or "",
-            "steps": [
-                {
-                    "position": s.position or 0,
-                    "delay_hours": float(s.delay_hours or 0),
-                    "channel": s.channel or "sms",
-                    "message_template": s.message_template or "",
-                    "use_ai_personalization": bool(s.use_ai_personalization),
-                }
-                for s in steps
-            ],
+            "send_window_start_hour": int(seq.send_window_start_hour) if seq.send_window_start_hour is not None else 8,
+            "send_window_end_hour": int(seq.send_window_end_hour) if seq.send_window_end_hour is not None else 20,
+            "timezone": seq.timezone or "America/Chicago",
+            "steps": [_step_snapshot(s) for s in steps],
         }
         proposed = compile_instruction(current, body.instruction)
         diff = compute_diff(current, proposed)
