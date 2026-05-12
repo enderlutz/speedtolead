@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel
 
-from config import settings
+from config import get_settings
 from database import get_db, ScheduledJob, Lead, QuickBooksToken
 from api.auth import require_admin
 from services import ghl
@@ -251,7 +251,7 @@ def generate_invoice(job_id: str, body: GenerateInvoiceBody, user: dict = Depend
             zip_code = (job.zip_code or "") or (lead.zip_code if lead else "") or ""
             service_type = (job.service_type or "") or (lead.service_type if lead else "") or ""
             service_label = _service_label(service_type)
-            frontend_url = (settings.frontend_url or "").rstrip("/")
+            frontend_url = (get_settings().frontend_url or "").rstrip("/")
             lead_url = f"{frontend_url}/leads/{lead.id}" if (lead and frontend_url) else ""
 
             customer_notes = ""
