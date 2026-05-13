@@ -349,6 +349,9 @@ export interface ProposalData {
   pricing_includes: string[];
   has_pdf: boolean;
   page_count: number;
+  // Absolute URLs (Supabase Storage CDN) or relative paths starting with
+  // "/api/..." that the frontend prepends BASE to. Length matches page_count.
+  page_urls?: string[];
   created_at: string;
   correction_pending: boolean;
   correction_requests: CorrectionRequest[];

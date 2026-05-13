@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import defer
 from jose import jwt, JWTError
@@ -16,8 +16,10 @@ from services.activity_log import log_event
 from services.event_bus import publish
 from services.notifications import notify_correction_requested
 from services.ghl import update_opportunity_stage
+from services import supabase_storage
 from config import get_settings
 from api.estimates import V2_REQUOTE_REQUESTED_STAGE_ID
+from api.auth import require_admin
 import uuid
 
 router = APIRouter()
@@ -177,6 +179,28 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
             .all()
         )
 
+        # Build page URLs: prefer Supabase Storage CDN if uploaded, fall
+        # back to the legacy /proposal/{token}/page/{n} backend route.
+        # The defer(image_data) keeps this query cheap — we only need
+        # storage_path + page_num here, not the BLOB.
+        pages = (
+            db.query(ProposalPage)
+            .options(defer(ProposalPage.image_data))
+            .filter(ProposalPage.token == token)
+            .order_by(ProposalPage.page_num.asc())
+            .all()
+        )
+        bucket = get_settings().supabase_proposal_pages_bucket
+        page_urls: list[str] = []
+        for p in pages:
+            if p.storage_path:
+                page_urls.append(supabase_storage.public_url(bucket, p.storage_path))
+            else:
+                # Frontend will detect the leading "/api/" and prepend its
+                # BASE URL. Lets old proposals (pre-Storage backfill) keep
+                # working without a code change on the customer side.
+                page_urls.append(f"/api/proposal/{token}/page/{p.page_num}")
+
         est_dict = est.to_dict()
         lead_dict = lead.to_dict()
         return {
@@ -191,6 +215,7 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
             "pricing_includes": _pricing_includes_bullets(lead_dict.get("form_data", {})),
             "has_pdf": (proposal.pdf_page_count or 0) > 0,
             "page_count": proposal.pdf_page_count or 0,
+            "page_urls": page_urls,
             "created_at": proposal.created_at,
             "correction_pending": bool(est.correction_pending),
             "correction_requests": [cr.to_dict() for cr in correction_requests],
@@ -371,3 +396,73 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
     except Exception as e:
         logger.error(f"PDF regeneration failed for proposal {proposal.id}: {e}")
         return None
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Admin: backfill existing proposal pages into Supabase Storage
+# ────────────────────────────────────────────────────────────────────────
+# One-time-ish operation that uploads each proposal page's JPEG BLOB from
+# Postgres into the Storage bucket and sets storage_path so future views
+# fetch from the CDN instead. Idempotent — skips pages that already have
+# storage_path set. Processes in small batches to bound memory + DB load;
+# admin can call repeatedly until the response says nothing was migrated.
+
+@router.post("/admin/proposal-pages/backfill-storage")
+def backfill_proposal_pages_to_storage(
+    limit: int = Query(50, ge=1, le=200, description="Max pages per call"),
+    user: dict = Depends(require_admin),
+):
+    """Upload up to `limit` un-migrated proposal page JPEGs to Supabase
+    Storage. Returns a summary so admin can re-call until done."""
+    del user
+    if not supabase_storage._enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="Supabase Storage is not configured (SUPABASE_URL + SUPABASE_SERVICE_KEY missing).",
+        )
+    bucket = get_settings().supabase_proposal_pages_bucket
+
+    db = get_db()
+    try:
+        from sqlalchemy import or_
+        pages = (
+            db.query(ProposalPage)
+            .filter(or_(ProposalPage.storage_path == "", ProposalPage.storage_path.is_(None)))
+            .order_by(ProposalPage.created_at.desc())  # newest first — those are what customers click
+            .limit(limit)
+            .all()
+        )
+
+        migrated = 0
+        failed = 0
+        for p in pages:
+            if not p.image_data:
+                # Edge case — row exists but BLOB was cleared. Mark as
+                # skipped so future runs don't keep retrying.
+                continue
+            storage_path = f"{p.token}/page-{p.page_num}.jpg"
+            public = supabase_storage.upload_image(bucket, storage_path, bytes(p.image_data))
+            if public:
+                p.storage_path = storage_path
+                migrated += 1
+            else:
+                failed += 1
+
+        db.commit()
+        remaining = (
+            db.query(ProposalPage)
+            .filter(or_(ProposalPage.storage_path == "", ProposalPage.storage_path.is_(None)))
+            .count()
+        )
+        return {
+            "migrated": migrated,
+            "failed": failed,
+            "remaining": remaining,
+            "done": remaining == 0,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"backfill_proposal_pages_to_storage failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

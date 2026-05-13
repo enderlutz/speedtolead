@@ -286,7 +286,12 @@ class ProposalPage(Base):
     proposal_id = Column(Text, nullable=False)
     token = Column(Text, nullable=False)
     page_num = Column(Integer, nullable=False)
-    image_data = Column(LargeBinary, nullable=False)  # JPEG bytes
+    image_data = Column(LargeBinary, nullable=False)  # JPEG bytes (legacy + fallback)
+    # Path inside Supabase Storage (e.g. "<token>/page-0.jpg"). When set,
+    # the customer-facing proposal view loads the image directly from the
+    # Storage CDN — bypasses our backend entirely. Empty = serve from
+    # image_data via the legacy /proposal/{token}/page/{n} endpoint.
+    storage_path = Column(Text, default="")
     created_at = Column(Text, default="")
 
 
@@ -1744,19 +1749,18 @@ def init_db():
 
     engine_kwargs: dict = {"echo": False}
 
-    # Supabase's session-mode pooler caps total connections at 15 per
-    # project. With 6 background loops + 30+ endpoints all opening
-    # sessions, the previous 10+20=30 ceiling saturated Supabase and
-    # spiraled into 500s. Cut to 5+8=13 max — leaves 2 connections
-    # headroom for migrations / one-off queries.
+    # We're on Supabase's TRANSACTION-mode pooler (port 6543, IPv4 Shared
+    # Pooler). That pool handles ~500 concurrent clients via multiplexing,
+    # so our app-side pool can safely run much higher than the old 5+8=13
+    # cap that was sized for the 15-client session-mode pooler.
     #
-    # Long-term fix: switch DATABASE_URL to Supabase's TRANSACTION-mode
-    # pooler (port 6543 instead of 5432). That has a ~500-client limit
-    # and is the recommended pool for serverless/web workloads.
-    engine_kwargs["pool_size"] = 5
-    engine_kwargs["max_overflow"] = 8
+    # 20 baseline + 40 overflow = 60 concurrent app sessions. Handles ~10
+    # concurrent proposal viewers (each opens ~6 parallel image requests)
+    # plus dashboard + background jobs without queueing.
+    engine_kwargs["pool_size"] = 20
+    engine_kwargs["max_overflow"] = 40
     engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 120   # turn idle connections over fast so we free up Supabase slots
+    engine_kwargs["pool_recycle"] = 300   # 5 min recycle is plenty on transaction-mode pooling
     engine_kwargs["pool_timeout"] = 20    # tolerate a short burst rather than 500ing immediately
     _engine = create_engine(db_url, **engine_kwargs)
 
@@ -2002,6 +2006,15 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added sop_runs.{new_col}")
+
+    # ProposalPage — storage_path lets us serve images from Supabase
+    # Storage CDN instead of pulling BLOBs through the DB on every view.
+    if inspector.has_table("proposal_pages"):
+        pp_cols = {c["name"] for c in inspector.get_columns("proposal_pages")}
+        if "storage_path" not in pp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE proposal_pages ADD COLUMN storage_path TEXT DEFAULT ''"))
+            logger.info("Migration: added proposal_pages.storage_path")
 
     # FollowUpSequence — send-window + timezone for P1 Sterling Estimate Sent
     if inspector.has_table("followup_sequences"):

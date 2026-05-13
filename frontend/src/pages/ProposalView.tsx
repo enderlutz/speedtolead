@@ -26,19 +26,36 @@ function ProposalPage({
   token,
   pageNum,
   totalPages,
+  customUrl,
 }: {
   token: string;
   pageNum: number;
   totalPages: number;
+  customUrl?: string;  // Storage CDN URL or "/api/..." path from backend
 }) {
   const [loaded, setLoaded] = useState(false);
   const eager = pageNum === 0;
+
+  // Source priority:
+  //   1. customUrl from backend's page_urls[] — usually a Supabase Storage
+  //      CDN URL (absolute). Bypasses our backend entirely, no DB hit,
+  //      no metered DB egress.
+  //   2. If customUrl is a relative path like "/api/proposal/.../page/N"
+  //      (backfill not run yet, or Storage unavailable), prepend BASE.
+  //   3. Fallback to constructing the legacy URL — keeps the page working
+  //      even if backend omitted page_urls.
+  const src = (() => {
+    if (customUrl) {
+      return customUrl.startsWith("http") ? customUrl : `${BASE}${customUrl}`;
+    }
+    return `${BASE}/api/proposal/${token}/page/${pageNum}`;
+  })();
 
   return (
     <div className="relative w-full">
       {!loaded && <PageSkeleton />}
       <img
-        src={`${BASE}/api/proposal/${token}/page/${pageNum}`}
+        src={src}
         alt={`Proposal page ${pageNum + 1} of ${totalPages}`}
         loading={eager ? "eager" : "lazy"}
         onLoad={() => setLoaded(true)}
@@ -191,6 +208,7 @@ export default function ProposalView() {
                 token={token}
                 pageNum={i}
                 totalPages={pageCount}
+                customUrl={proposal.page_urls?.[i]}
               />
             ))}
           </div>

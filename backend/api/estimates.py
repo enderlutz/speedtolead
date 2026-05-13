@@ -14,6 +14,19 @@ from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
 from services.ghl import send_sms, add_contact_note, add_contact_tag, update_opportunity_stage
+from services import supabase_storage
+from config import get_settings as _get_settings
+
+
+def _upload_page_to_storage(token: str, page_num: int, jpeg_data: bytes) -> str:
+    """Upload a single page JPEG to Supabase Storage. Returns the storage
+    path string on success, empty string on failure. Failures are non-
+    fatal — caller still stores the BLOB in image_data so the legacy
+    backend route can serve it."""
+    bucket = _get_settings().supabase_proposal_pages_bucket
+    storage_path = f"{token}/page-{page_num}.jpg"
+    public = supabase_storage.upload_image(bucket, storage_path, jpeg_data, content_type="image/jpeg")
+    return storage_path if public else ""
 
 # New GHL pipeline "ESTIMATE SENT" stage ID — used to advance v2 leads when
 # their estimate is approved + sent.
@@ -409,12 +422,14 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                 jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)
                 page_count = len(jpeg_pages)
                 for i, jpeg_data in enumerate(jpeg_pages):
+                    storage_path = _upload_page_to_storage(token, i, jpeg_data)
                     db.add(ProposalPage(
                         id=str(uuid.uuid4()),
                         proposal_id=proposal_id,
                         token=token,
                         page_num=i,
                         image_data=jpeg_data,
+                        storage_path=storage_path,
                         created_at=now,
                     ))
             except Exception as e:
@@ -884,12 +899,14 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
             db.delete(op)
 
         for i, jpeg_data in enumerate(jpeg_pages):
+            storage_path = _upload_page_to_storage(token, i, jpeg_data)
             db.add(ProposalPage(
                 id=str(uuid.uuid4()),
                 proposal_id=proposal_id,
                 token=token,
                 page_num=i,
                 image_data=jpeg_data,
+                storage_path=storage_path,
                 created_at=now,
             ))
 

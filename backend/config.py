@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     # disables the check for local dev.
     ghl_webhook_secret: str = ""
 
+    # Supabase Storage — used for proposal page images. Lets us serve
+    # JPEGs from Supabase's CDN instead of pulling BLOBs through the DB
+    # (which counts against the metered DB egress quota and saturates
+    # the connection pool). The service role key bypasses RLS for
+    # backend uploads — keep it secret, never expose to the frontend.
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    # Bucket name for proposal page JPEGs. Must exist + be public.
+    supabase_proposal_pages_bucket: str = "proposal-pages"
+
     # Server
     port: int = 8000
     allowed_origins: str = "*"  # Comma-separated for production
