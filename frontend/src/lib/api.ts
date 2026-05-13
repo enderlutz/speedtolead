@@ -1318,7 +1318,86 @@ export const api = {
       `/api/followups/sequences/${seqId}/apply-plan`,
       { method: "POST", body: JSON.stringify({ plan }) },
     ),
+
+  // Internal value dashboard (fragned only)
+  getInternalDashboard: (range: InternalRange) =>
+    request<InternalDashboard>(`/api/internal/dashboard?range=${range}`),
+  getInternalBaselines: () =>
+    request<InternalBaselines>(`/api/internal/baselines`),
+  setInternalBaselines: (body: Partial<InternalBaselines>) =>
+    request<InternalBaselines>(`/api/internal/baselines`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 };
+
+// --- Internal dashboard types ---
+
+export type InternalRange = "this_month" | "last_month" | "last_90_days" | "last_7_days" | "all_time";
+
+export interface InternalBaselines {
+  baseline_avg_response_minutes: number | null;
+  baseline_close_rate_pct: number | null;
+  baseline_monthly_revenue: number | null;
+  system_launch_date: string | null;
+}
+
+export interface InternalDashboard {
+  range: InternalRange;
+  range_label: string;
+  start: string;
+  end: string;
+  generated_at: string;
+  baselines: InternalBaselines;
+  hero: {
+    total_revenue_closed: number;
+    current_close_rate_pct: number;
+    attribution_pct: number;
+    attribution_method: "conservative_50pct" | "baseline_delta" | "below_baseline";
+    attributable_revenue: number;
+    recovered_revenue_from_sequences: number;
+  };
+  speed: {
+    total_quotes_sent: number;
+    avg_response_minutes: number;
+    median_response_minutes: number;
+    under_5_min_count: number;
+    under_5_min_pct: number;
+    after_hours_count: number;
+  };
+  persistence: {
+    recovered_leads_count: number;
+    recovered_revenue: number;
+    sequence_runs_started: number;
+    sequence_reply_count: number;
+    sequence_reply_rate_pct: number;
+    avg_touches_per_close: number;
+    active_sequences_now: number;
+    opt_outs_respected_total: number;
+  };
+  labor: {
+    auto_quotes_generated: number;
+    followup_sms_sent: number;
+    chatbot_resolved_count: number;
+    corrections_routed: number;
+    estimated_hours_saved: number;
+    labor_dollars_saved: number;
+    multipliers: {
+      auto_quote_min: number;
+      followup_sms_min: number;
+      chatbot_reply_min: number;
+      correction_route_min: number;
+      hourly_rate_usd: number;
+    };
+  };
+  owner_time: {
+    decisions_autonomous: number;
+    delays_caught_count: number;
+    after_hours_revenue: number;
+    avg_gross_margin_pct: number;
+    completed_jobs_in_range: number;
+  };
+}
 
 // --- Workflow editor types ---
 

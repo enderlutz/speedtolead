@@ -22,6 +22,7 @@ import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import Accounting from "@/pages/Accounting";
 import Agents from "@/pages/Agents";
+import Internal from "@/pages/Internal";
 import Eula from "@/pages/Eula";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 
@@ -43,6 +44,12 @@ function StaffOnly({ children }: { children: React.ReactNode }) {
 function AdminOnly({ children }: { children: React.ReactNode }) {
   const u = getCurrentUser();
   if (u?.role !== "admin") return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function FragnedOnly({ children }: { children: React.ReactNode }) {
+  const u = getCurrentUser();
+  if (u?.sub !== "fragned") return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -95,6 +102,7 @@ function AppLayout() {
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<StaffOnly><Settings /></StaffOnly>} />
               <Route path="/agents" element={<AdminOnly><Agents /></AdminOnly>} />
+              <Route path="/internal" element={<FragnedOnly><Internal /></FragnedOnly>} />
             </Routes>
           </main>
         </div>

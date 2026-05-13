@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic, HardHat, Calendar, Calculator, Sparkles } from "lucide-react";
+import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic, HardHat, Calendar, Calculator, Sparkles, Gauge } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
@@ -21,6 +21,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] },
   { to: "/pricing", icon: DollarSign, label: "Pricing" },
   { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" },
+  { to: "/internal", icon: Gauge, label: "Internal", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings" },
 ];
 
