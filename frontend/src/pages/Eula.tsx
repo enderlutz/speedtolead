@@ -13,7 +13,7 @@ import { Zap } from "lucide-react";
 
 const COMPANY_LEGAL = "A&T's Fence Staining LLC";
 const COMPANY_BRAND = "Sterling Fence Staining";
-const SUPPORT_EMAIL = "support@atpressurewash.com";
+const SUPPORT_EMAIL = "bonneralan25@gmail.com";
 const LAST_UPDATED = "May 8, 2026";
 
 export default function Eula() {

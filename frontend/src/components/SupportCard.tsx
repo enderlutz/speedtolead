@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { Mail, FileText, Shield, ExternalLink } from "lucide-react";
 
-const SUPPORT_EMAIL = "support@atpressurewash.com";
+const SUPPORT_EMAIL = "bonneralan25@gmail.com";
 
 export default function SupportCard() {
   return (
