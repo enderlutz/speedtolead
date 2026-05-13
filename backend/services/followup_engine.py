@@ -508,59 +508,6 @@ def _advance_run(db, run: FollowUpRun) -> None:
         run.next_due_at = _now()
 
 
-# Postgres advisory lock key for the follow-up tick. Arbitrary 32-bit int —
-# pick something unlikely to collide with other advisory-lock users in the
-# same DB. (We don't currently use advisory locks elsewhere.)
-_TICK_ADVISORY_LOCK_KEY = 0x70F0_70F0  # "tick" in leetspeak
-
-
-def _try_acquire_tick_lock(db) -> bool:
-    """Postgres: try to grab an exclusive session-scoped advisory lock so
-    only one worker runs the tick at a time. Auto-released when the DB
-    session closes. Returns True if we got the lock, False if another
-    worker has it.
-
-    On SQLite (dev) or if the lock call fails, returns True — SQLite only
-    has one writer at a time anyway, and we don't deploy SQLite with
-    multiple workers. The lock is a production-safety layer, not a
-    correctness requirement on dev."""
-    try:
-        bind = db.get_bind()
-        dialect = bind.dialect.name if bind is not None else ""
-    except Exception:
-        dialect = ""
-    if dialect != "postgresql":
-        return True
-    try:
-        from sqlalchemy import text as _text
-        result = db.execute(_text("SELECT pg_try_advisory_lock(:k)"), {"k": _TICK_ADVISORY_LOCK_KEY})
-        got = bool(result.scalar())
-        return got
-    except Exception as e:
-        # Failure to call the lock function should not block the tick —
-        # log and proceed (single-worker is the common case).
-        logger.warning(f"Tick lock acquire failed (proceeding without lock): {e}")
-        return True
-
-
-def _release_tick_lock(db) -> None:
-    """Best-effort release of the advisory lock. Postgres also releases
-    session-scoped locks automatically when the connection closes, so this
-    is belt-and-suspenders."""
-    try:
-        bind = db.get_bind()
-        dialect = bind.dialect.name if bind is not None else ""
-    except Exception:
-        dialect = ""
-    if dialect != "postgresql":
-        return
-    try:
-        from sqlalchemy import text as _text
-        db.execute(_text("SELECT pg_advisory_unlock(:k)"), {"k": _TICK_ADVISORY_LOCK_KEY})
-    except Exception as e:
-        logger.debug(f"Tick lock release failed (non-fatal): {e}")
-
-
 def tick() -> dict:
     """Single pass through due runs. Called by the background loop.
 
@@ -568,19 +515,19 @@ def tick() -> dict:
     show the engine is alive — even when there's nothing to do. Makes
     remote debugging tractable.
 
-    Multi-worker safety: acquires a Postgres advisory lock around the
-    entire tick so concurrent workers can't both fire the same due runs
-    (which would double-text customers). The lock is session-scoped and
-    auto-releases on connection close."""
+    Multi-worker note: we currently run a single uvicorn worker on
+    Railway, so concurrent ticks across workers aren't possible. If we
+    ever scale to multiple workers, this loop will need row-level
+    locking (SELECT ... FOR UPDATE SKIP LOCKED) on the runs query so
+    different workers grab disjoint subsets of due runs. A whole-tick
+    advisory lock doesn't fit with the TRANSACTION-mode Supabase pooler
+    (port 6543) we're on — session-scoped locks need sticky connections
+    and transaction-scoped locks release on the first commit inside the
+    loop, so neither is correct here."""
     summary = {"processed": 0, "sent": 0, "failed": 0, "skipped_master_off": 0,
-               "skipped_locked": 0, "due": 0, "total_active": 0}
+               "due": 0, "total_active": 0}
     db = get_db()
     try:
-        if not _try_acquire_tick_lock(db):
-            logger.info("Follow-up tick: skipped (another worker holds the lock)")
-            summary["skipped_locked"] = 1
-            return summary
-
         master_on = is_master_on(db)
         # Always log so we know the loop is alive.
         if not master_on:
@@ -627,13 +574,6 @@ def tick() -> dict:
         logger.info(f"Follow-up tick: master_on=True {summary}")
         return summary
     finally:
-        # Belt-and-suspenders — the session-scoped advisory lock would
-        # also release on db.close() below, but explicit unlock keeps the
-        # behavior obvious to anyone reading the code.
-        try:
-            _release_tick_lock(db)
-        except Exception:
-            pass
         db.close()
 
 
