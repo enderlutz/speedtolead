@@ -49,7 +49,16 @@ def upload_image(bucket: str, path: str, data: bytes, content_type: str = "image
     None on failure (caller should fall back to the DB BLOB path).
 
     Uses `upsert=true` so re-uploading the same path overwrites cleanly —
-    useful when regenerating a proposal PDF for the same token."""
+    useful when regenerating a proposal PDF for the same token.
+
+    Cache-Control is the CRITICAL bit for billing: Supabase's CDN reads
+    this header off the stored object's metadata when serving the file,
+    and uses it to decide how long edge-cache entries live. Previous
+    implementations used `public, max-age=31536000, immutable` but
+    Supabase only honors the simple `max-age=N` form (matching their
+    own SDK). Anything fancier silently falls back to a short default
+    cache, which turns every customer view into uncached billable
+    egress instead of free cached egress."""
     if not _enabled():
         logger.debug("Supabase Storage not configured — skipping upload")
         return None
@@ -60,10 +69,12 @@ def upload_image(bucket: str, path: str, data: bytes, content_type: str = "image
         "Content-Type": content_type,
         # x-upsert lets us overwrite existing objects (default would 409 on duplicate).
         "x-upsert": "true",
-        # Cache-Control on the stored object is what Supabase's CDN will
-        # honor when serving the image. 1 year + immutable is right for
-        # pages — once written, the content never changes for a given path.
-        "cache-control": "public, max-age=31536000, immutable",
+        # Supabase Storage CDN reads this header off the stored object and
+        # serves it to clients. Use the simple `max-age=N` form that matches
+        # Supabase's own JS SDK — Cloudflare/Supabase's edge cache honors
+        # this format; multi-directive values (public, immutable, etc.)
+        # have been observed to fall back to short default caching.
+        "Cache-Control": "max-age=31536000",
     }
     try:
         with httpx.Client(timeout=30) as c:

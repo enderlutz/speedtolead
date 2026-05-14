@@ -410,10 +410,18 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
 @router.post("/admin/proposal-pages/backfill-storage")
 def backfill_proposal_pages_to_storage(
     limit: int = Query(50, ge=1, le=200, description="Max pages per call"),
+    force: bool = Query(False, description="Re-upload pages that already have storage_path (for cache header fixes)"),
     user: dict = Depends(require_admin),
 ):
-    """Upload up to `limit` un-migrated proposal page JPEGs to Supabase
-    Storage. Returns a summary so admin can re-call until done."""
+    """Upload up to `limit` proposal page JPEGs to Supabase Storage.
+
+    Two modes:
+      - Default: migrate pages with empty storage_path (first-time backfill)
+      - force=true: re-upload pages that already have storage_path. Use this
+        after a Cache-Control fix so existing pages get the corrected cache
+        headers and the CDN starts caching them properly.
+
+    Returns a summary so admin can re-call until done."""
     del user
     if not supabase_storage._enabled():
         raise HTTPException(
@@ -425,20 +433,31 @@ def backfill_proposal_pages_to_storage(
     db = get_db()
     try:
         from sqlalchemy import or_
-        pages = (
-            db.query(ProposalPage)
-            .filter(or_(ProposalPage.storage_path == "", ProposalPage.storage_path.is_(None)))
-            .order_by(ProposalPage.created_at.desc())  # newest first — those are what customers click
-            .limit(limit)
-            .all()
-        )
+        query = db.query(ProposalPage)
+        if force:
+            # Re-upload pages already in Storage — used after cache-header fixes.
+            # Order oldest-first so customers viewing newer proposals (the more
+            # recently sent ones) still get cached results sooner.
+            query = query.filter(ProposalPage.storage_path != "").order_by(ProposalPage.created_at.asc())
+        else:
+            # Default first-time migration path — only un-migrated rows.
+            query = (
+                query
+                .filter(or_(ProposalPage.storage_path == "", ProposalPage.storage_path.is_(None)))
+                .order_by(ProposalPage.created_at.desc())
+            )
+        pages = query.limit(limit).all()
 
         migrated = 0
         failed = 0
+        skipped_no_blob = 0
         for p in pages:
             if not p.image_data:
                 # Edge case — row exists but BLOB was cleared. Mark as
-                # skipped so future runs don't keep retrying.
+                # skipped so future runs don't keep retrying. In force mode
+                # this means we can't re-upload (we'd need to regenerate
+                # the page from the PDF, which is more involved).
+                skipped_no_blob += 1
                 continue
             storage_path = f"{p.token}/page-{p.page_num}.jpg"
             public = supabase_storage.upload_image(bucket, storage_path, bytes(p.image_data))
@@ -449,14 +468,24 @@ def backfill_proposal_pages_to_storage(
                 failed += 1
 
         db.commit()
-        remaining = (
-            db.query(ProposalPage)
-            .filter(or_(ProposalPage.storage_path == "", ProposalPage.storage_path.is_(None)))
-            .count()
-        )
+        if force:
+            remaining = (
+                db.query(ProposalPage)
+                .filter(ProposalPage.storage_path != "")
+                .filter(ProposalPage.created_at > (pages[-1].created_at if pages else ""))
+                .count()
+            ) if pages else 0
+        else:
+            remaining = (
+                db.query(ProposalPage)
+                .filter(or_(ProposalPage.storage_path == "", ProposalPage.storage_path.is_(None)))
+                .count()
+            )
         return {
+            "mode": "force_reupload" if force else "first_migration",
             "migrated": migrated,
             "failed": failed,
+            "skipped_no_blob": skipped_no_blob,
             "remaining": remaining,
             "done": remaining == 0,
         }
