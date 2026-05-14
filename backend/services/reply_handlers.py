@@ -33,6 +33,7 @@ from services.ghl import (
 from services.followup_engine import (
     is_external_workflow_active,
     EXTERNAL_WORKFLOW_P03_REPLY_NAME,
+    EXTERNAL_WORKFLOW_P04_REPLY_NAME,
 )
 from config import get_settings
 
@@ -43,12 +44,15 @@ logger = logging.getLogger(__name__)
 HOT_LEAD_SEND_ESTIMATE_STAGE_ID = "616087fa-4144-454e-b3d3-ff3669cb9461"
 ADDRESS_FOLLOW_UP_STAGE_ID = "86fd0197-38ee-4999-bd26-4cf175aeba6b"
 RESPONDED_TO_ADDRESS_STAGE_ID = "92585169-bbc1-42c5-945d-63caf780e0b1"
+RESPONDED_TO_ESTIMATE_STAGE_ID = "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b"
 
 # Tag names mirror Alan's GHL workflow vocabulary so it's obvious where
 # they come from. Lowercase + space-collapsed for matching.
 TAG_ASKING_FOR_ADDRESS = "asking-for-address"
 TAG_RESPONDED_TO_ADDRESS = "responded to address"
 TAG_REPLIED_TO_INTAKE = "replied-to-intake"
+TAG_ESTIMATE_SENT = "estimate sent"
+TAG_REPLIED_TO_ESTIMATE = "replied to estimate"
 
 
 def _norm(t: str) -> str:
@@ -113,6 +117,56 @@ def _handle_p03_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     logger.info(
         f"P03-REPLY fired for lead {lead.id} "
         f"(stage {previous_stage} -> {RESPONDED_TO_ADDRESS_STAGE_ID})"
+    )
+    return True
+
+
+def _handle_p04_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
+    """If the customer was tagged `estimate sent` AND hasn't already
+    been tagged `replied to estimate`, this reply is the estimate-replied
+    signal. Tag them, move to RESPONDED TO ESTIMATE, ping Alan + Olga.
+
+    Returns True if the handler fired. Skipped silently when the
+    P04-REPLY shell sequence is toggled inactive in the workflow editor.
+
+    Note: `on_customer_reply` (called earlier in the inbound webhook)
+    already pauses any active P1 Sterling Estimate Sent runs, which is
+    Alan's "Remove from Workflow: P04a + P04b" step in the GHL spec.
+    Nothing extra to do here."""
+    if not is_external_workflow_active(EXTERNAL_WORKFLOW_P04_REPLY_NAME):
+        return False
+    if TAG_ESTIMATE_SENT not in tags:
+        return False
+    if TAG_REPLIED_TO_ESTIMATE in tags:
+        return False  # idempotent — already handled
+
+    # Tag GHL contact + push pipeline stage. Both best-effort.
+    try:
+        add_contact_tag(
+            lead.ghl_contact_id,
+            TAG_REPLIED_TO_ESTIMATE,
+            location_id=lead.ghl_location_id or None,
+        )
+    except Exception as e:
+        logger.warning(f"P04-REPLY tag add failed for lead {lead.id}: {e}")
+
+    previous_stage = lead.ghl_pipeline_stage_id or ""
+    lead.ghl_pipeline_stage_id = RESPONDED_TO_ESTIMATE_STAGE_ID
+    if lead.ghl_opportunity_id:
+        try:
+            update_opportunity_stage(
+                lead.ghl_opportunity_id,
+                RESPONDED_TO_ESTIMATE_STAGE_ID,
+                lead.ghl_location_id or None,
+            )
+        except Exception as e:
+            logger.warning(f"P04-REPLY stage push failed for lead {lead.id}: {e}")
+    db.commit()
+
+    _notify_estimate_replied(lead, body)
+    logger.info(
+        f"P04-REPLY fired for lead {lead.id} "
+        f"(stage {previous_stage} -> {RESPONDED_TO_ESTIMATE_STAGE_ID})"
     )
     return True
 
@@ -224,6 +278,29 @@ def _notify_address_replied(lead: Lead, body: str) -> None:
             logger.warning(f"Fragne address-replied SMS failed: {e}")
 
 
+def _notify_estimate_replied(lead: Lead, body: str) -> None:
+    """SMS Alan + WhatsApp Olga with the spec body. Variables resolved
+    inline since these aren't engine messages (no template renderer)."""
+    settings = get_settings()
+    snippet = (body or "")[:160]
+    name = lead.contact_name or "Unknown"
+    link = f"{settings.frontend_url}/leads/{lead.id}"
+    msg = (
+        f"🔥{name} Responded to the Estimate! Check the Conversation🔥\n\n"
+        f"they said \"{snippet}\"\n{link}"
+    )
+    if settings.owner_ghl_contact_id:
+        try:
+            send_sms(settings.owner_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Alan estimate-replied SMS failed: {e}")
+    if settings.olga_ghl_contact_id:
+        try:
+            send_whatsapp(settings.olga_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Olga estimate-replied WhatsApp failed: {e}")
+
+
 def _notify_intake_converted(lead: Lead, body: str) -> None:
     settings = get_settings()
     snippet = (body or "")[:160]
@@ -274,6 +351,13 @@ def dispatch_reply_handlers(lead_id: str, body: str) -> list[str]:
         except Exception as e:
             db.rollback()
             logger.error(f"P03-REPLY handler raised for lead {lead_id}: {e}")
+
+        try:
+            if _handle_p04_reply(db, lead, body, tags):
+                fired.append("p04_reply")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"P04-REPLY handler raised for lead {lead_id}: {e}")
 
         try:
             if _handle_p01_intake_reply(db, lead, body):

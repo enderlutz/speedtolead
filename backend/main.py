@@ -177,11 +177,13 @@ async def _async_db_init():
                     seed_test_sequence,
                     seed_p1_sterling_estimate_sent,
                     seed_p0_sterling_intake,
+                    seed_p03_address_confirmation,
                     seed_external_workflow_shells,
                 )
                 await asyncio.to_thread(seed_test_sequence)
                 await asyncio.to_thread(seed_p1_sterling_estimate_sent)
                 await asyncio.to_thread(seed_p0_sterling_intake)
+                await asyncio.to_thread(seed_p03_address_confirmation)
                 await asyncio.to_thread(seed_external_workflow_shells)
             except Exception as seed_err:
                 logger.warning(f"Follow-up sequence seed skipped: {seed_err}")

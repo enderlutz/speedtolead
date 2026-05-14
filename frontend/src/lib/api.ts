@@ -1487,7 +1487,7 @@ export interface FollowUpSequence {
 }
 
 export type FollowUpWaitKind = "seconds" | "minutes" | "hours" | "calendar_day";
-export type FollowUpActionKind = "send_message" | "add_tag" | "move_column";
+export type FollowUpActionKind = "send_message" | "add_tag" | "move_column" | "notify_internal";
 
 export interface FollowUpStep {
   id: string;

@@ -446,7 +446,7 @@ def _advance_run(db, run: FollowUpRun) -> None:
     now_utc = _now_dt()
     action_kind = (step.action_kind or "send_message").lower()
     test_mode_run = bool(run.test_mode)
-    if action_kind not in ("add_tag", "move_column") and not test_mode_run and not _in_window_now(now_utc, step, seq):
+    if action_kind not in ("add_tag", "move_column", "notify_internal") and not test_mode_run and not _in_window_now(now_utc, step, seq):
         deferred_to = _next_window_slot(now_utc, step, seq)
         run.next_due_at = deferred_to
         _log_event(db, run.id, "window_deferred", {
@@ -502,6 +502,59 @@ def _advance_run(db, run: FollowUpRun) -> None:
                 "from_stage_id": previous_stage,
                 "to_stage_id": stage_id,
                 "ghl_synced": ghl_ok,
+            })
+    elif action_kind == "notify_internal":
+        # End-of-flow team ping — broadcast a message to every configured
+        # admin recipient (Alan SMS, Olga WhatsApp, Fragne SMS). Body uses
+        # the same template renderer as send_message so {{contact.name}}
+        # etc. resolve against the lead. Window-exempt because admins want
+        # to see these regardless of business hours.
+        try:
+            from services.ghl import send_whatsapp
+            from config import get_settings
+            from services.followup_ai import render_template as _render, _build_vars as _vars
+            estimate = None
+            try:
+                estimate = (
+                    db.query(Estimate)
+                    .filter(Estimate.lead_id == lead.id)
+                    .order_by(Estimate.created_at.desc())
+                    .first()
+                )
+            except Exception:
+                estimate = None
+            body = _render(step.message_template or "", _vars(lead, estimate))
+            settings = get_settings()
+            pinged: list[str] = []
+            if settings.owner_ghl_contact_id:
+                try:
+                    if send_sms(settings.owner_ghl_contact_id, body):
+                        pinged.append("alan")
+                except Exception as e:
+                    logger.warning(f"notify_internal Alan SMS failed: {e}")
+            if settings.olga_ghl_contact_id:
+                try:
+                    if send_whatsapp(settings.olga_ghl_contact_id, body):
+                        pinged.append("olga")
+                except Exception as e:
+                    logger.warning(f"notify_internal Olga WhatsApp failed: {e}")
+            fragne_id = getattr(settings, "fragne_ghl_contact_id", "") or ""
+            if fragne_id:
+                try:
+                    if send_sms(fragne_id, body):
+                        pinged.append("fragne")
+                except Exception as e:
+                    logger.warning(f"notify_internal Fragne SMS failed: {e}")
+            _log_event(db, run.id, "internal_notified", {
+                "step_position": step.position,
+                "recipients": pinged,
+                "body": body[:240],
+            })
+        except Exception as e:
+            logger.error(f"notify_internal step raised: {e}")
+            _log_event(db, run.id, "step_failed", {
+                "step_position": step.position,
+                "error": str(e)[:240],
             })
     else:
         ok, msg_id, err = _send_step(db, run, step, lead)
@@ -1144,6 +1197,8 @@ def seed_p1_sterling_estimate_sent() -> None:
 
 # Cold-leads GHL stage ID (for the P0 timeout step).
 COLD_LEADS_STAGE_ID = "0ca2e2a6-2990-4a5b-8ace-608393e39b5a"
+# Address Follow Up stage — set on enrollment in P03 Address Confirmation.
+ADDRESS_FOLLOW_UP_STAGE_ID = "86fd0197-38ee-4999-bd26-4cf175aeba6b"
 
 
 def _p0_step_definitions() -> list[dict]:
@@ -1187,6 +1242,175 @@ def _p0_step_definitions() -> list[dict]:
             "action_kind": "move_column", "column_value": COLD_LEADS_STAGE_ID,
         },
     ]
+
+
+def _p03_address_confirmation_step_definitions() -> list[dict]:
+    """Canonical step list for P03 Address Confirmation. Triggered when
+    Olga manually tags a lead `asking-for-address` (the tag-added webhook
+    starts the sequence).
+
+    Five customer-facing SMSes spaced over ~16 days, each with its own
+    narrow send window (10-10:30 AM or 3-3:30 PM CT). If the customer
+    never replies, ends by tagging `cold lead`, moving to Long Term
+    Nurture, and pinging Alan + Olga. Customer reply pauses the run via
+    on_customer_reply, so the later steps only fire on no-response."""
+    sms1 = (
+        "Hey {{customer_first_name}}! To get your free estimate put together, "
+        "we measure your fence through Google Earth. We just need your home "
+        "address and ZIP code. What's the best address for you?"
+    )
+    sms2 = (
+        "Hey {{customer_first_name}}, just bumping this up — what's the best "
+        "address for your fence staining estimate? Or if you'd rather, send "
+        "me the linear footage of your fence and I can put together a "
+        "general estimate that way."
+    )
+    sms3 = (
+        "Hey {{customer_first_name}}, no rush — and if you're not comfortable "
+        "sharing your address, just send me the linear footage of your fence "
+        "and I can put together a general estimate that way."
+    )
+    sms4 = (
+        "Hey {{customer_first_name}}, last try for this week — what's the "
+        "address? Happy to circle back later if the timing's off, just want "
+        "to make sure your estimate doesn't get stuck on my end."
+    )
+    sms5 = (
+        "Hey {{customer_first_name}}, since I haven't heard back, I'll close "
+        "out your estimate request for now. If you'd like to revisit, just "
+        "shoot me your address anytime and I'll get the quote done. Take care!"
+    )
+    notify_body = (
+        "Hey guys, {{customer_name}} never responded with their address. "
+        "Give them a call — they're getting moved over to cold lead."
+    )
+    return [
+        # Step 0 — Move to Address Follow Up stage immediately on enrollment
+        {
+            "position": 0, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "move_column", "column_value": ADDRESS_FOLLOW_UP_STAGE_ID,
+        },
+        # Step 1 — SMS 1, immediate (within sequence default 8AM-8PM window)
+        {
+            "position": 1, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "send_message", "message_template": sms1,
+        },
+        # Step 2 — SMS 2, +2 calendar days, send between 10:00-10:30 AM CT
+        {
+            "position": 2, "delay_hours": 2, "wait_kind": "calendar_day",
+            "window_start_hour": 10, "window_start_minute": 0,
+            "window_end_hour": 10, "window_end_minute": 30,
+            "action_kind": "send_message", "message_template": sms2,
+        },
+        # Step 3 — SMS 3, +2 calendar days, send between 3:00-3:30 PM CT
+        {
+            "position": 3, "delay_hours": 2, "wait_kind": "calendar_day",
+            "window_start_hour": 15, "window_start_minute": 0,
+            "window_end_hour": 15, "window_end_minute": 30,
+            "action_kind": "send_message", "message_template": sms3,
+        },
+        # Step 4 — SMS 4, +3 calendar days, send between 10:00-10:30 AM CT
+        {
+            "position": 4, "delay_hours": 3, "wait_kind": "calendar_day",
+            "window_start_hour": 10, "window_start_minute": 0,
+            "window_end_hour": 10, "window_end_minute": 30,
+            "action_kind": "send_message", "message_template": sms4,
+        },
+        # Step 5 — SMS 5 (graceful exit), +7 calendar days, 10:00-10:30 AM CT
+        {
+            "position": 5, "delay_hours": 7, "wait_kind": "calendar_day",
+            "window_start_hour": 10, "window_start_minute": 0,
+            "window_end_hour": 10, "window_end_minute": 30,
+            "action_kind": "send_message", "message_template": sms5,
+        },
+        # Step 6 — Tag cold lead
+        {
+            "position": 6, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "add_tag", "tag_value": "cold lead",
+        },
+        # Step 7 — Move to Long Term Nurture stage
+        {
+            "position": 7, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "move_column", "column_value": LONG_TERM_NURTURE_STAGE_ID,
+        },
+        # Step 8 — Internal notification to Alan + Olga (+ Fragne)
+        {
+            "position": 8, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "notify_internal", "message_template": notify_body,
+        },
+    ]
+
+
+def seed_p03_address_confirmation() -> None:
+    """Recreates Alan's GHL workflow 'P03: Address Confirmation' inside
+    our engine. Triggered when Olga manually adds the `asking-for-address`
+    tag to a lead in GHL.
+
+    Idempotent — only seeds on first boot. Inactive by default; admin
+    flips it on after reviewing the message bodies and confirming with
+    Alan.
+
+    Flow:
+      Step 0 — move to Address Follow Up stage
+      Step 1 — SMS 1 (Address Ask), immediate
+      Step 2 — SMS 2 (Friendly bump), +2d @ 10:00-10:30 AM
+      Step 3 — SMS 3 (Linear footage alt), +2d @ 3:00-3:30 PM
+      Step 4 — SMS 4 (Last try this week), +3d @ 10:00-10:30 AM
+      Step 5 — SMS 5 (Graceful exit), +7d @ 10:00-10:30 AM
+      Step 6 — tag `cold lead`
+      Step 7 — move to Long Term Nurture stage
+      Step 8 — notify Alan + Olga + Fragne
+
+    Reply branching is handled by services/reply_handlers.py P03-REPLY
+    (already shipped). Customer reply pauses this run via on_customer_reply
+    so the later no-response steps don't fire."""
+    db = get_db()
+    try:
+        seq_name = "P03: Address Confirmation"
+        existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
+        if existing:
+            return
+
+        seq_id = str(uuid.uuid4())
+        seq = FollowUpSequence(
+            id=seq_id,
+            name=seq_name,
+            description=(
+                "Address-confirmation sequence — recreated from Alan's GHL "
+                "workflow 'P03: Address Confirmation'. Triggered when Olga "
+                "tags a lead `asking-for-address` in GHL. Five SMSes spaced "
+                "across ~16 days, each in its own narrow send window. Ends "
+                "by tagging cold lead, moving to Long Term Nurture, and "
+                "pinging Alan + Olga. Customer reply pauses the run via "
+                "the existing reply-paused hook; P03-REPLY (in "
+                "services/reply_handlers.py) handles the per-state side "
+                "effects."
+            ),
+            trigger_event="tag_added:asking-for-address",
+            pause_on_events="customer_replied",
+            active=False,
+            version=1,
+            send_window_start_hour=8,
+            send_window_end_hour=20,
+            timezone="America/Chicago",
+            created_at=_now(),
+            updated_at=_now(),
+            created_by="system:seed",
+        )
+        db.add(seq)
+        for defn in _p03_address_confirmation_step_definitions():
+            db.add(_build_step_row(seq_id, defn))
+
+        db.commit()
+        logger.info(
+            f"Seeded P03 Address Confirmation sequence: {seq_id} "
+            f"(9 steps, inactive — admin must enable after review)"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to seed P03 sequence (non-fatal): {e}")
+    finally:
+        db.close()
 
 
 def seed_p0_sterling_intake() -> None:
@@ -1278,6 +1502,7 @@ EXTERNAL_WORKFLOW_P02_NAMES = {
     "ad from premium 2":       "P02d Ad Tag — Premium 2",
 }
 EXTERNAL_WORKFLOW_P03_REPLY_NAME = "P03-REPLY Address Reply Catcher"
+EXTERNAL_WORKFLOW_P04_REPLY_NAME = "P04-REPLY Estimate Reply Catcher"
 
 
 def is_external_workflow_active(name: str) -> bool:
@@ -1405,6 +1630,25 @@ def seed_external_workflow_shells() -> None:
             "disable the handler."
         ),
         trigger_event="external:customer_replied_with_tag:asking-for-address",
+    )
+    # P04-REPLY — fires when a customer tagged `estimate sent` replies
+    _seed_external_workflow_shell(
+        name=EXTERNAL_WORKFLOW_P04_REPLY_NAME,
+        description=(
+            "When a contact tagged `estimate sent` replies AND isn't "
+            "already tagged `replied to estimate`, this handler:\n"
+            "  1. Tags the contact `replied to estimate`\n"
+            "  2. Moves the lead to the `RESPONDED TO ESTIMATE` stage\n"
+            "  3. SMS Alan + WhatsApp Olga with a 🔥 'they responded' alert "
+            "containing their reply text\n\n"
+            "The existing on_customer_reply hook already pauses any active "
+            "P1 Sterling Estimate Sent runs, which covers Alan's "
+            "'Remove from Workflow: P04a/P04b' step from the GHL spec.\n\n"
+            "Runs synchronously on inbound message webhook — actual logic "
+            "lives in services/reply_handlers.py. Toggle Active off to "
+            "disable the handler."
+        ),
+        trigger_event="external:customer_replied_with_tag:estimate sent",
     )
 
 

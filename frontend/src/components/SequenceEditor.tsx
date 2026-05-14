@@ -35,6 +35,7 @@ import VoiceInput from "@/components/VoiceInput";
 import {
   Plus, Trash2, Save, Sparkles, X, MessageSquare, Clock, Tag as TagIcon,
   GitBranch, Zap, Wand2, ChevronDown, ChevronUp, Pencil, ArrowRightLeft,
+  Bell,
 } from "lucide-react";
 
 // V2 GHL pipeline stages — mirror of LeadsV2 V2_STAGES, kept locally so the
@@ -902,14 +903,24 @@ function StepEditor({ step, onUpdate, index }: {
         />
       ) : (
         <div>
-          <label className="text-xs font-medium text-muted-foreground block mb-1">Message</label>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">
+            {step.action_kind === "notify_internal" ? "Internal team notification body" : "Message"}
+          </label>
           <textarea
             rows={4}
             className="w-full border rounded-md px-3 py-2 text-sm bg-background font-mono"
             value={step.message_template}
             onChange={(e) => onUpdate({ message_template: e.target.value })}
-            placeholder="Hey {{customer_first_name}}, …"
+            placeholder={step.action_kind === "notify_internal"
+              ? "Hey guys, {{customer_name}} never responded…"
+              : "Hey {{customer_first_name}}, …"
+            }
           />
+          {step.action_kind === "notify_internal" && (
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Broadcast as SMS to Alan, WhatsApp to Olga, and SMS to Fragne — whichever are configured. Customer never sees this.
+            </p>
+          )}
         </div>
       )}
 
@@ -974,6 +985,13 @@ function ActionKindSwitch({ value, onChange }: {
           onClick={() => onChange("move_column")}
         >
           <ArrowRightLeft className="h-3 w-3 inline mr-1" /> Move column
+        </button>
+        <button
+          type="button"
+          className={`px-3 py-1.5 text-xs border-l ${value === "notify_internal" ? "bg-amber-100 text-amber-900" : "bg-background hover:bg-muted"}`}
+          onClick={() => onChange("notify_internal")}
+        >
+          <Bell className="h-3 w-3 inline mr-1" /> Notify team
         </button>
       </div>
     </div>
@@ -1144,12 +1162,21 @@ function StepSummary({ s, dim = false }: { s: SequenceStepPlan; dim?: boolean })
   // Compact one-line summary used in added/removed/unchanged rows.
   const isAddTag = s.action_kind === "add_tag";
   const isMove = s.action_kind === "move_column";
+  const isNotify = s.action_kind === "notify_internal";
   const cls = dim ? "opacity-70 line-through" : "";
   if (isAddTag) {
     return <p className={`text-xs ${cls}`}><TagIcon className="h-3 w-3 inline mr-1 text-blue-600" /> Add tag: <span className="font-mono">{s.tag_value || "(empty)"}</span></p>;
   }
   if (isMove) {
     return <p className={`text-xs ${cls}`}><ArrowRightLeft className="h-3 w-3 inline mr-1 text-purple-600" /> Move to: <span className="font-mono">{stageLabel(s.column_value || "")}</span></p>;
+  }
+  if (isNotify) {
+    return (
+      <p className={`text-xs whitespace-pre-wrap font-mono ${cls}`}>
+        <Bell className="h-3 w-3 inline mr-1 text-amber-600" />
+        Notify team: {truncate(s.message_template, 100) || "(empty)"}
+      </p>
+    );
   }
   const branchSuffix = s.branch_field ? ` (branches on ${s.branch_field})` : "";
   return (
