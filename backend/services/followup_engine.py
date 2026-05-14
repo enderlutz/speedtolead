@@ -503,6 +503,15 @@ def _advance_run(db, run: FollowUpRun) -> None:
                 "to_stage_id": stage_id,
                 "ghl_synced": ghl_ok,
             })
+            # U02 hook — pause OTHER active runs on this lead if we just
+            # moved into a terminal stage. The current run is excluded so
+            # it can finish advancing to its next step normally instead of
+            # pausing itself mid-execution.
+            try:
+                from services.terminal_stage_guard import on_pipeline_stage_changed
+                on_pipeline_stage_changed(lead.id, stage_id, exclude_run_id=run.id)
+            except Exception as e:
+                logger.warning(f"U02 terminal-stage guard after move_column failed: {e}")
     elif action_kind == "notify_internal":
         # End-of-flow team ping — broadcast a message to every configured
         # admin recipient (Alan SMS, Olga WhatsApp, Fragne SMS). Body uses
@@ -1595,6 +1604,7 @@ EXTERNAL_WORKFLOW_P02_NAMES = {
 }
 EXTERNAL_WORKFLOW_P03_REPLY_NAME = "P03-REPLY Address Reply Catcher"
 EXTERNAL_WORKFLOW_P04_REPLY_NAME = "P04-REPLY Estimate Reply Catcher"
+EXTERNAL_WORKFLOW_U02_NAME = "U02 Stop Workflows in Terminal Stages"
 
 
 def is_external_workflow_active(name: str) -> bool:
@@ -1741,6 +1751,27 @@ def seed_external_workflow_shells() -> None:
             "disable the handler."
         ),
         trigger_event="external:customer_replied_with_tag:estimate sent",
+    )
+    # U02 — pauses all active runs on the lead when it enters a terminal
+    # pipeline stage
+    _seed_external_workflow_shell(
+        name=EXTERNAL_WORKFLOW_U02_NAME,
+        description=(
+            "Stops all active follow-up runs on a lead when its GHL "
+            "pipeline stage transitions to one of:\n"
+            "  • DECLINED ESTIMATE\n"
+            "  • Top Priority-Responded to Estimate\n"
+            "  • DEAL CLOSED & NOT SCHEDULED\n"
+            "  • CLOSED & SCHEDULED\n\n"
+            "Triggered from two surfaces: (a) the follow-up engine's "
+            "move_column action whenever WE move a lead, and (b) the "
+            "5-min GHL poller when Olga or Alan moves a lead manually "
+            "in GHL.\n\n"
+            "Actual logic lives in services/terminal_stage_guard.py. "
+            "Toggle Active off to disable the guard. The terminal stage "
+            "list is in code — edit there to add/remove stages."
+        ),
+        trigger_event="external:pipeline_stage_changed:terminal",
     )
 
 

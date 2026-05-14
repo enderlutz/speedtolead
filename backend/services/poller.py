@@ -225,6 +225,19 @@ def _sync_location(location_id: str, label: str):
                             existing.ghl_pipeline_stage_id = stage_id
                             changed = True
                             logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id} ({stage_name})")
+                            # U02 terminal-stage guard — if the lead just
+                            # transitioned into DECLINED/CLOSED/etc. via a
+                            # manual GHL move, stop any in-flight nurture
+                            # runs. Commit the stage change first so the
+                            # guard's transaction doesn't deadlock with this
+                            # one. Best-effort; failure doesn't block the
+                            # poller.
+                            try:
+                                db.commit()
+                                from services.terminal_stage_guard import on_pipeline_stage_changed
+                                on_pipeline_stage_changed(existing.id, stage_id)
+                            except Exception as e:
+                                logger.warning(f"Poller U02 hook failed for lead {existing.id}: {e}")
 
                         # Pull the full contact + refresh anything that drifted.
                         # We only do this once per opp per tick (skip if we
