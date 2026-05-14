@@ -84,6 +84,9 @@ class ApproveBody(BaseModel):
     field_overrides: dict | None = None
     extra_fields: list[dict] | None = None
     scheduled_send_at: str | None = None  # ISO datetime — None = send immediately
+    # Customer-facing delivery channels. At least one must be true.
+    # Defaults preserve historical behavior: SMS only.
+    send_sms: bool = True
     also_email: bool = False  # If true + lead has contact_email, also email a copy
 
 
@@ -496,14 +499,34 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
         # Build proposal URL
         proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
 
-        # SMS the CUSTOMER with proposal link
+        # Resolve channel flags. `body` is optional on this endpoint, so when
+        # absent we fall back to the legacy defaults (SMS only, no email).
+        send_sms_flag = bool(body.send_sms) if body else True
+        also_email_flag = bool(body.also_email) if body else False
+        # Refuse silently-empty sends — at least one customer channel must
+        # be on. Catches a UI mis-state where both boxes get unchecked.
+        if not send_sms_flag and not also_email_flag:
+            raise HTTPException(
+                status_code=400,
+                detail="Pick at least one delivery channel — SMS or email.",
+            )
+        # Scheduled-send is SMS-only today (the queue worker only knows how
+        # to fire SMSes). Refuse the combination rather than silently
+        # dropping the email half.
+        if body and body.scheduled_send_at and not send_sms_flag:
+            raise HTTPException(
+                status_code=400,
+                detail="Scheduled sends currently support SMS only. Send email immediately or schedule SMS.",
+            )
+
+        # SMS the CUSTOMER with proposal link (when SMS channel is on)
         tiers_dict = est.to_dict()["tiers"]
         sig_price = tiers_dict.get("signature", 0)
         sms_sent = False
         sms_scheduled = False
         scheduled_send_at = body.scheduled_send_at if body else None
 
-        if lead.ghl_contact_id and lead.contact_phone:
+        if send_sms_flag and lead.ghl_contact_id and lead.contact_phone:
             first_name = lead.contact_name.split()[0] if lead.contact_name else "there"
             customer_msg = (
                 f"Here it is!\n"
@@ -536,11 +559,11 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'} with proposal link: {proposal_url}",
                           {"token": token, "signature_price": sig_price, "sms_sent": sms_sent})
 
-        # Optional email copy — only when admin checked "Also email" AND
-        # we just sent immediately (scheduled sends route through the SMS
-        # queue worker; email-on-schedule isn't wired yet). Soft-fails on
-        # missing email so the SMS path is unaffected.
-        if body and body.also_email and not sms_scheduled and lead.ghl_contact_id:
+        # Email send — fires when admin enabled the Email channel. Refuses
+        # to compose for scheduled sends (the queue worker is SMS-only).
+        # Soft-fails on missing contact_email so the SMS path (if also on)
+        # still completes.
+        if also_email_flag and not sms_scheduled and lead.ghl_contact_id:
             email_ok, email_info = _send_estimate_email_copy(lead, proposal_url, tiers_dict)
             log_event(
                 lead.id,
@@ -884,6 +907,9 @@ class SavePdfField(BaseModel):
 class SavePdfBody(BaseModel):
     fields: list[SavePdfField]
     send: bool = False
+    # Channels for the customer-facing send (only used when send=True).
+    # Default mirrors the legacy behavior: SMS only.
+    send_sms: bool = True
     also_email: bool = False  # If true + lead has contact_email, also email a copy
 
 
@@ -995,8 +1021,17 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
 
             proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
 
-            # SMS customer
-            if lead.ghl_contact_id and lead.contact_phone:
+            # Resolve channels. At least one must be on.
+            send_sms_flag = bool(body.send_sms)
+            also_email_flag = bool(body.also_email)
+            if not send_sms_flag and not also_email_flag:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Pick at least one delivery channel — SMS or email.",
+                )
+
+            # SMS customer (when SMS channel is on)
+            if send_sms_flag and lead.ghl_contact_id and lead.contact_phone:
                 tiers_dict = est.to_dict()["tiers"]
                 sig_price = tiers_dict.get("signature", 0)
                 first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
@@ -1009,10 +1044,9 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'}: {proposal_url}")
 
-            # Optional email copy. Soft-fails on missing email so the SMS
-            # path is unaffected when admin clicks "Also email" on a lead
-            # without contact_email on file.
-            if body.also_email and lead.ghl_contact_id:
+            # Email customer (when Email channel is on). Soft-fails on
+            # missing contact_email.
+            if also_email_flag and lead.ghl_contact_id:
                 tiers_dict = est.to_dict()["tiers"]
                 email_ok, email_info = _send_estimate_email_copy(lead, proposal_url, tiers_dict)
                 log_event(

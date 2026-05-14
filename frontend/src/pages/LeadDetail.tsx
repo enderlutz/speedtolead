@@ -62,6 +62,7 @@ export default function LeadDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [sendSms, setSendSms] = useState(true);
   const [alsoEmail, setAlsoEmail] = useState(false);
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
@@ -330,9 +331,21 @@ export default function LeadDetail() {
 
   const handleApprove = async (scheduledSendAt?: string) => {
     if (!estimate) return;
+    if (!sendSms && !alsoEmail) {
+      toast.error("Pick at least one channel — SMS or email.");
+      return;
+    }
+    if (scheduledSendAt && !sendSms) {
+      toast.error("Scheduled sends support SMS only. Send email immediately or schedule SMS.");
+      return;
+    }
     setApproving(true);
     try {
-      const result = await api.approveEstimate(estimate.id, scheduledSendAt, alsoEmail);
+      const result = await api.approveEstimate(estimate.id, {
+        scheduledSendAt,
+        sendSms,
+        alsoEmail: alsoEmail && !!lead?.contact_email,
+      });
       const data = await api.getLead(id!);
       setLead(data);
       const url = result.proposal_url;
@@ -1248,28 +1261,55 @@ export default function LeadDetail() {
                 </div>
               )}
 
-              <label
-                className={`flex items-center gap-2 text-xs mb-2 select-none ${
-                  lead.contact_email ? "text-foreground cursor-pointer" : "text-muted-foreground cursor-not-allowed"
-                }`}
-                title={
-                  lead.contact_email
-                    ? `Also send the proposal as an email to ${lead.contact_email}`
-                    : "No email on file for this lead — only SMS will be sent"
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={alsoEmail && !!lead.contact_email}
-                  disabled={!lead.contact_email}
-                  onChange={(e) => setAlsoEmail(e.target.checked)}
-                  className="h-3.5 w-3.5"
-                />
-                Also email a copy
-                {lead.contact_email && (
-                  <span className="text-muted-foreground truncate">→ {lead.contact_email}</span>
-                )}
-              </label>
+              <div className="mb-2 space-y-1">
+                <div className="text-xs font-medium text-muted-foreground">Send via</div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <label
+                    className={`flex items-center gap-2 text-xs select-none ${
+                      lead.contact_phone ? "text-foreground cursor-pointer" : "text-muted-foreground cursor-not-allowed"
+                    }`}
+                    title={
+                      lead.contact_phone
+                        ? `SMS to ${lead.contact_phone}`
+                        : "No phone on file — SMS unavailable"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sendSms && !!lead.contact_phone}
+                      disabled={!lead.contact_phone}
+                      onChange={(e) => setSendSms(e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    SMS
+                    {lead.contact_phone && (
+                      <span className="text-muted-foreground truncate">→ {lead.contact_phone}</span>
+                    )}
+                  </label>
+                  <label
+                    className={`flex items-center gap-2 text-xs select-none ${
+                      lead.contact_email ? "text-foreground cursor-pointer" : "text-muted-foreground cursor-not-allowed"
+                    }`}
+                    title={
+                      lead.contact_email
+                        ? `Email to ${lead.contact_email}`
+                        : "No email on file — email unavailable"
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={alsoEmail && !!lead.contact_email}
+                      disabled={!lead.contact_email}
+                      onChange={(e) => setAlsoEmail(e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    Email
+                    {lead.contact_email && (
+                      <span className="text-muted-foreground truncate">→ {lead.contact_email}</span>
+                    )}
+                  </label>
+                </div>
+              </div>
               <div className="flex gap-2">
                 <Button
                   onClick={() => handleApprove()}

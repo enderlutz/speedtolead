@@ -485,10 +485,13 @@ export const api = {
     const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
     return request<PendingEstimate[]>(`/api/estimates/pending-action${qs}`);
   },
-  approveEstimate: (id: string, scheduledSendAt?: string, alsoEmail?: boolean) => {
+  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean }) => {
     const body: Record<string, unknown> = {};
-    if (scheduledSendAt) body.scheduled_send_at = scheduledSendAt;
-    if (alsoEmail) body.also_email = true;
+    if (opts?.scheduledSendAt) body.scheduled_send_at = opts.scheduledSendAt;
+    if (opts?.alsoEmail) body.also_email = true;
+    // Only include send_sms when caller wants to flip it off — backend
+    // defaults to true so omitting it preserves the legacy SMS-only behavior.
+    if (opts && opts.sendSms === false) body.send_sms = false;
     return request<EstimateDetail & { proposal_url?: string; sms_sent?: boolean; sms_scheduled?: boolean; scheduled_send_at?: string }>(
       `/api/estimates/${id}/approve`,
       {
@@ -502,10 +505,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ fields, send: false }),
     }),
-  saveAndSendEstimate: (id: string, fields: Record<string, unknown>[], alsoEmail?: boolean) =>
+  saveAndSendEstimate: (id: string, fields: Record<string, unknown>[], opts?: { alsoEmail?: boolean; sendSms?: boolean }) =>
     request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/save-pdf`, {
       method: "POST",
-      body: JSON.stringify({ fields, send: true, also_email: !!alsoEmail }),
+      body: JSON.stringify({
+        fields,
+        send: true,
+        send_sms: opts?.sendSms !== false,
+        also_email: !!opts?.alsoEmail,
+      }),
     }),
   overrideBreakdown: (id: string, items: BreakdownItem[]) =>
     request<EstimateDetail>(`/api/estimates/${id}/breakdown`, {
@@ -585,10 +593,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ field_overrides: fieldOverrides, extra_fields: extraFields }),
     }),
-  approveWithOverrides: (id: string, fieldOverrides?: Record<string, unknown>, extraFields?: Record<string, unknown>[], alsoEmail?: boolean) =>
+  approveWithOverrides: (
+    id: string,
+    fieldOverrides?: Record<string, unknown>,
+    extraFields?: Record<string, unknown>[],
+    opts?: { alsoEmail?: boolean; sendSms?: boolean },
+  ) =>
     request<EstimateDetail & { proposal_url?: string }>(`/api/estimates/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ field_overrides: fieldOverrides, extra_fields: extraFields, also_email: !!alsoEmail }),
+      body: JSON.stringify({
+        field_overrides: fieldOverrides,
+        extra_fields: extraFields,
+        send_sms: opts?.sendSms !== false,
+        also_email: !!opts?.alsoEmail,
+      }),
     }),
 
   // Quick approve (public)
