@@ -183,13 +183,28 @@ def _process_lead(lead_id: str, lead_data: dict):
 def _brand_key_from_label(label: str) -> str:
     """Map a lead's location_label to a brand key used by lead_created
     triggers. Sterling = Cypress + Woodlands (Alan's current sub-brand).
-    Default to 'sterling' for backward compatibility — when Alan adds a
-    new brand, add another mapping here."""
+
+    ⚠️ FUTURE-PROOFING NOTE:
+    Today this is effectively a constant — every code path returns
+    "sterling" because Sterling is the only brand we serve. The branch
+    structure is preserved so that whenever Alan adds another brand
+    (e.g. A&T Pressure Washing, A&T Fence Restoration), the routing
+    logic has a clear place to extend.
+
+    To add a new brand:
+      1. Add a `if "<keyword>" in label: return "<brand_key>"` branch above
+         the default return.
+      2. Seed a corresponding intake sequence with trigger_event
+         `lead_created:<brand_key>` (see seed_p0_sterling_intake for the
+         template).
+    """
     label = (label or "").strip().lower()
     if not label:
         return "sterling"
     if "cypress" in label or "woodlands" in label:
         return "sterling"
+    # Default — only Sterling exists today; future brands fall back here
+    # until explicit mappings are added above.
     return "sterling"
 
 

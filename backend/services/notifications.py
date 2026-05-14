@@ -37,15 +37,41 @@ def _log_notification(lead_id: str, channel: str, recipient: str, event: str, de
 def notify_new_lead(lead: dict):
     """Notify Alan (SMS) and Olga (WhatsApp) about a new lead, and pin a
     dashboard hyperlink to the GHL contact's notes so the team can jump
-    from GHL to our system in one click."""
+    from GHL to our system in one click.
+
+    Body mirrors Alan's original P01 Step 3+4 GHL workflow format —
+    summary + dashboard link on top for one-glance scanning, full detail
+    breakdown below so Alan/Olga can act without opening the dashboard
+    if they don't need to."""
+    import json as _json
     settings = get_settings()
     name = lead.get("contact_name", "Unknown")
     address = lead.get("address", "No address")
     location = lead.get("location_label", "")
+    phone = lead.get("contact_phone", "") or ""
+    email = lead.get("contact_email", "") or ""
+    fd = lead.get("form_data", {}) or {}
+    if isinstance(fd, str):
+        try:
+            fd = _json.loads(fd)
+        except Exception:
+            fd = {}
+    timeframe = str(fd.get("service_timeline", "") or "").strip()
+    fence_height = str(fd.get("fence_height", "") or "").strip()
+    fence_age = str(fd.get("fence_age", "") or "").strip()
     lead_id = lead["id"]
     link = f"{settings.frontend_url}/leads/{lead_id}"
 
-    msg = f"New lead: {name} — {address} ({location}). View: {link}"
+    msg = (
+        f"New lead: {name} — {address} ({location}). View: {link}\n\n"
+        f"NAME: {name}\n"
+        f"PHONE: {phone}\n"
+        f"EMAIL: {email}\n"
+        f"WHEN: {timeframe}\n"
+        f"ADDRESS: {address}\n"
+        f"Fence Height: {fence_height}\n"
+        f"Fence Age: {fence_age}"
+    )
 
     # Alan - SMS
     if settings.owner_ghl_contact_id:
