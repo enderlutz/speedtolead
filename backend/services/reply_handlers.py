@@ -303,9 +303,9 @@ def _handle_p01_intake_reply(db, lead: Lead, body: str) -> bool:
 
 def _notify_address_replied(lead: Lead, body: str) -> None:
     """Spec says 'in-app to All Users' with title 'replied to address'.
-    Closest analogue in our system is to ping every configured human:
-    Olga (WhatsApp), Alan (SMS), Fragne (SMS). Any failure is logged
-    and ignored so one bad channel can't suppress the others."""
+    In our system that means Olga (WhatsApp) + Alan (SMS) only — the
+    operator team. Fragne is intentionally NOT included since these are
+    operational notifications, not system-monitoring pings."""
     settings = get_settings()
     snippet = (body or "")[:160]
     name = lead.contact_name or "Unknown"
@@ -324,12 +324,6 @@ def _notify_address_replied(lead: Lead, body: str) -> None:
             send_sms(settings.owner_ghl_contact_id, msg)
         except Exception as e:
             logger.warning(f"Alan address-replied SMS failed: {e}")
-    fragne_id = getattr(settings, "fragne_ghl_contact_id", "") or ""
-    if fragne_id:
-        try:
-            send_sms(fragne_id, msg)
-        except Exception as e:
-            logger.warning(f"Fragne address-replied SMS failed: {e}")
 
 
 def _notify_estimate_replied(lead: Lead, body: str) -> None:
@@ -356,8 +350,10 @@ def _notify_estimate_replied(lead: Lead, body: str) -> None:
 
 
 def _notify_ltn_replied(lead: Lead, body: str) -> None:
-    """SMS All Users + in-app to Olga per spec — broadcast to Alan,
-    Olga (WhatsApp), and Fragne with the 🔥 alert body."""
+    """Spec says SMS to 'All Users' + in-app to Olga. In our system that
+    means Alan (SMS) + Olga (WhatsApp) only — the operator team. Fragne
+    is intentionally NOT included since these are operational
+    notifications, not system-monitoring pings."""
     settings = get_settings()
     snippet = (body or "")[:160]
     name = lead.contact_name or "Unknown"
@@ -377,12 +373,6 @@ def _notify_ltn_replied(lead: Lead, body: str) -> None:
             send_whatsapp(settings.olga_ghl_contact_id, msg)
         except Exception as e:
             logger.warning(f"Olga LTN-replied WhatsApp failed: {e}")
-    fragne_id = getattr(settings, "fragne_ghl_contact_id", "") or ""
-    if fragne_id:
-        try:
-            send_sms(fragne_id, msg)
-        except Exception as e:
-            logger.warning(f"Fragne LTN-replied SMS failed: {e}")
 
 
 def _notify_intake_converted(lead: Lead, body: str) -> None:

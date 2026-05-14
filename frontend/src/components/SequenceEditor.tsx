@@ -918,7 +918,7 @@ function StepEditor({ step, onUpdate, index }: {
           />
           {step.action_kind === "notify_internal" && (
             <p className="text-[10px] text-muted-foreground mt-1">
-              Broadcast as SMS to Alan, WhatsApp to Olga, and SMS to Fragne — whichever are configured. Customer never sees this.
+              Sent as SMS to Alan and WhatsApp to Olga. Customer never sees this.
             </p>
           )}
         </div>

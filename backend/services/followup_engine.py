@@ -520,11 +520,12 @@ def _advance_run(db, run: FollowUpRun) -> None:
             except Exception as e:
                 logger.warning(f"U02 terminal-stage guard after move_column failed: {e}")
     elif action_kind == "notify_internal":
-        # End-of-flow team ping — broadcast a message to every configured
-        # admin recipient (Alan SMS, Olga WhatsApp, Fragne SMS). Body uses
-        # the same template renderer as send_message so {{contact.name}}
-        # etc. resolve against the lead. Window-exempt because admins want
-        # to see these regardless of business hours.
+        # End-of-flow team ping — send a message to Alan (SMS) + Olga
+        # (WhatsApp) only. Body uses the same template renderer as
+        # send_message so {{contact.name}} etc. resolve against the lead.
+        # Window-exempt because admins want to see these regardless of
+        # business hours. Fragne is intentionally NOT included — these
+        # are operator-facing notifications, not system-monitoring pings.
         try:
             from services.ghl import send_whatsapp
             from config import get_settings
@@ -554,13 +555,6 @@ def _advance_run(db, run: FollowUpRun) -> None:
                         pinged.append("olga")
                 except Exception as e:
                     logger.warning(f"notify_internal Olga WhatsApp failed: {e}")
-            fragne_id = getattr(settings, "fragne_ghl_contact_id", "") or ""
-            if fragne_id:
-                try:
-                    if send_sms(fragne_id, body):
-                        pinged.append("fragne")
-                except Exception as e:
-                    logger.warning(f"notify_internal Fragne SMS failed: {e}")
             _log_event(db, run.id, "internal_notified", {
                 "step_position": step.position,
                 "recipients": pinged,
@@ -1429,7 +1423,7 @@ def _p03_address_confirmation_step_definitions() -> list[dict]:
             "position": 7, "delay_hours": 0, "wait_kind": "hours",
             "action_kind": "move_column", "column_value": LONG_TERM_NURTURE_STAGE_ID,
         },
-        # Step 8 — Internal notification to Alan + Olga (+ Fragne)
+        # Step 8 — Internal notification to Alan + Olga
         {
             "position": 8, "delay_hours": 0, "wait_kind": "hours",
             "action_kind": "notify_internal", "message_template": notify_body,
@@ -1455,7 +1449,7 @@ def seed_p03_address_confirmation() -> None:
       Step 5 — SMS 5 (Graceful exit), +7d @ 10:00-10:30 AM
       Step 6 — tag `cold lead`
       Step 7 — move to Long Term Nurture stage
-      Step 8 — notify Alan + Olga + Fragne
+      Step 8 — notify Alan + Olga
 
     Reply branching is handled by services/reply_handlers.py P03-REPLY
     (already shipped). Customer reply pauses this run via on_customer_reply
@@ -1958,8 +1952,8 @@ def seed_external_workflow_shells() -> None:
             "already tagged `responded to address`, this handler:\n"
             "  1. Tags the contact `responded to address`\n"
             "  2. Moves the lead to the `Responded to Address Follow Up` stage\n"
-            "  3. Broadcasts 'replied to address' notification to Olga "
-            "(WhatsApp), Alan (SMS), and Fragne (SMS)\n\n"
+            "  3. Notifies Olga (WhatsApp) and Alan (SMS) with the "
+            "'replied to address' alert\n\n"
             "Runs synchronously on inbound message webhook — actual logic "
             "lives in services/reply_handlers.py. Toggle Active off to "
             "disable the handler."
@@ -1994,8 +1988,7 @@ def seed_external_workflow_shells() -> None:
             "  1. Tags the contact `replied to long term nurture`\n"
             "  2. Moves the lead to the `Responded to long term nurture` "
             "stage\n"
-            "  3. SMS Alan + WhatsApp Olga + SMS Fragne with the spec's "
-            "🔥 alert body\n\n"
+            "  3. SMS Alan + WhatsApp Olga with the spec's 🔥 alert body\n\n"
             "The existing on_customer_reply hook already pauses any active "
             "P06: Long Term Nurture run, covering the spec's "
             "'Remove from Workflow: P06' step.\n\n"
