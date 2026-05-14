@@ -1570,6 +1570,10 @@ class FollowUpStep(Base):
     variants = Column(Text, default="{}")
     channel = Column(Text, default="sms")                    # "sms" | "email" (email = Phase 5+)
     message_template = Column(Text, default="")
+    # Optional image attachment URL for MMS / iMessage. Sent as the only
+    # attachment when set. Used by P0 Sterling Intake's "fence we just
+    # finished nearby" photo. Empty string = no attachment.
+    attachment_url = Column(Text, default="")
     # When true, the engine asks Claude to personalize the body before
     # sending. The template still defines voice/structure; Claude swaps
     # in lead-specific data via context vars.
@@ -1598,6 +1602,7 @@ class FollowUpStep(Base):
             "variants": _j(self.variants) if self.variants else {},
             "channel": self.channel or "sms",
             "message_template": self.message_template or "",
+            "attachment_url": self.attachment_url or "",
             "use_ai_personalization": bool(self.use_ai_personalization),
             "skip_if_conditions": _j(self.skip_if_conditions) if self.skip_if_conditions else {},
             "created_at": self.created_at or "",
@@ -2065,6 +2070,7 @@ def _run_migrations():
             ("column_value", "ALTER TABLE followup_steps ADD COLUMN column_value TEXT DEFAULT ''"),
             ("branch_field", "ALTER TABLE followup_steps ADD COLUMN branch_field TEXT DEFAULT ''"),
             ("variants", "ALTER TABLE followup_steps ADD COLUMN variants TEXT DEFAULT '{}'"),
+            ("attachment_url", "ALTER TABLE followup_steps ADD COLUMN attachment_url TEXT DEFAULT ''"),
         ]:
             if new_col not in fst_cols:
                 with _engine.begin() as conn:

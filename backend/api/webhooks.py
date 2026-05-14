@@ -138,11 +138,46 @@ def _process_lead(lead_id: str, lead_data: dict):
             if approval_status == "red" and meta.get("approval_reason"):
                 notify_new_lead_red(lead.to_dict(), meta["approval_reason"])
 
+        # P02 ad attribution — apply a GHL tag based on which ad form
+        # the lead submitted. Replaces Alan's P02a-d GHL workflows.
+        form_name = lead_data.get("form_name") or ""
+        if lead and lead.ghl_contact_id and form_name:
+            try:
+                from services.ad_attribution import apply_ad_tag
+                apply_ad_tag(lead.ghl_contact_id, form_name, location_id=lead.ghl_location_id or None)
+            except Exception as e:
+                logger.warning(f"Ad attribution skipped for lead {lead_id}: {e}")
+
+        # P01 New Lead Intake — start any FollowUpSequence whose trigger
+        # is `lead_created` or `lead_created:<brand>`. Brand is keyed off
+        # location label so the Sterling pipeline (Cypress + Woodlands) only
+        # fires its intake sequence for its own leads.
+        if lead:
+            brand_key = _brand_key_from_label(lead.location_label or "")
+            try:
+                from services.followup_engine import on_lead_created
+                on_lead_created(lead_id, brand=brand_key)
+            except Exception as e:
+                logger.warning(f"on_lead_created hook failed for lead {lead_id}: {e}")
+
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to process lead {lead_id}: {e}")
     finally:
         db.close()
+
+
+def _brand_key_from_label(label: str) -> str:
+    """Map a lead's location_label to a brand key used by lead_created
+    triggers. Sterling = Cypress + Woodlands (Alan's current sub-brand).
+    Default to 'sterling' for backward compatibility — when Alan adds a
+    new brand, add another mapping here."""
+    label = (label or "").strip().lower()
+    if not label:
+        return "sterling"
+    if "cypress" in label or "woodlands" in label:
+        return "sterling"
+    return "sterling"
 
 
 @router.post("/webhook/ghl")
@@ -193,6 +228,7 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
                 "address": parsed["address"] or existing.address,
                 "contact_name": existing.contact_name,
                 "location_label": existing.location_label,
+                "form_name": parsed.get("form_name", ""),
             }
             background_tasks.add_task(_process_lead, existing.id, lead_data)
             db.close()
@@ -232,6 +268,7 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
             "address": parsed["address"],
             "contact_name": parsed["contact_name"],
             "location_label": label,
+            "form_name": parsed.get("form_name", ""),
         }
         background_tasks.add_task(_process_lead, lead_id, lead_data)
 
@@ -376,6 +413,15 @@ async def ghl_message_webhook(request: Request):
                     on_opt_out_detected(lead.id, body_text, reason=f"{reason} (confidence {conf}%)")
                 else:
                     on_customer_reply(lead.id)
+                    # Run per-state side effects (P01-INTAKE-REPLY,
+                    # P03-REPLY, etc). Must come AFTER on_customer_reply
+                    # so the active->paused transition is already applied
+                    # — the intake handler keys off run.status.
+                    try:
+                        from services.reply_handlers import dispatch_reply_handlers
+                        dispatch_reply_handlers(lead.id, body_text)
+                    except Exception as e:
+                        logger.warning(f"Reply handler dispatch failed (non-fatal): {e}")
             except Exception as e:
                 logger.warning(f"Follow-up engine inbound hook failed (non-fatal): {e}")
 

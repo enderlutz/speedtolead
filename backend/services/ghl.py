@@ -173,6 +173,7 @@ def send_via_provider(
     conversation_provider_id: str,
     location_id: str | None = None,
     max_retries: int = 3,
+    attachments: list[str] | None = None,
 ) -> tuple[bool, str, str]:
     """Send a message through a GHL Custom Conversation Provider.
 
@@ -186,6 +187,11 @@ def send_via_provider(
     iMessage-vs-SMS routing internally based on the recipient's device.
     We don't need to specify a channel — MyCRMSim picks iMessage for
     Apple users, falls back to SMS for Android automatically.
+
+    `attachments` is an optional list of public URLs (images / files).
+    GHL forwards them as MMS attachments; MyCRMSim relays them as
+    iMessage attachments when the recipient is Apple. URLs must be
+    publicly fetchable (Supabase Storage public-bucket URLs work).
 
     Returns: (success, ghl_message_id, error_text)
         ghl_message_id is set on success — used to correlate with any
@@ -203,7 +209,7 @@ def send_via_provider(
         "fromOneToOneConversation": True,
         "message": message,
         "locationId": location_id or settings.ghl_location_id,
-        "attachments": [],
+        "attachments": [u for u in (attachments or []) if u],
     }
 
     last_err = ""
@@ -679,6 +685,18 @@ def parse_webhook_payload(payload: dict) -> dict:
     else:
         service_type = "fence_staining"
 
+    # Pluck the form name (used by P02 ad attribution). GHL workflow webhooks
+    # can pass this under several keys depending on how Alan configured the
+    # workflow action — handle the common shapes.
+    form_name = (
+        payload.get("formName")
+        or payload.get("form_name")
+        or (payload.get("form") or {}).get("name", "")
+        or (payload.get("customData") or {}).get("formName", "")
+        or (payload.get("customData") or {}).get("form_name", "")
+        or ""
+    )
+
     return {
         "contact_id": contact_id,
         "contact_name": name,
@@ -689,4 +707,5 @@ def parse_webhook_payload(payload: dict) -> dict:
         "service_type": service_type,
         "form_data": form_data,
         "location_id": location_id,
+        "form_name": str(form_name).strip(),
     }

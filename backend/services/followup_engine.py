@@ -129,6 +129,12 @@ def _compute_next_due_at(now_utc: datetime, step: FollowUpStep, seq: FollowUpSeq
         now_local = now_utc.astimezone(tz)
         target_date = (now_local + timedelta(days=days)).date()
         candidate_local = datetime.combine(target_date, _time(ws_h, ws_m), tzinfo=tz)
+    elif wait_kind == "seconds":
+        # Sub-minute waits for psychological pacing — e.g. P0 Sterling
+        # Intake's 15-second gap between the Amy intro SMS and the photo
+        # MMS. delay_hours doubles as seconds count.
+        delay_s = float(step.delay_hours or 0)
+        candidate_local = (now_utc + timedelta(seconds=delay_s)).astimezone(tz)
     elif wait_kind == "minutes":
         delay_min = float(step.delay_hours or 0)
         candidate_local = (now_utc + timedelta(minutes=delay_min)).astimezone(tz)
@@ -300,6 +306,12 @@ def _send_step(db, run: FollowUpRun, step: FollowUpStep, lead: Lead) -> tuple[bo
     err = ""
     ok = False
 
+    # Optional MMS / iMessage attachment for this step. Only the provider
+    # path supports attachments today — the GHL default SMS fallback drops
+    # them silently (GHL's basic SMS API doesn't take an attachments array).
+    attachment_url = (step.attachment_url or "").strip()
+    attachments_list = [attachment_url] if attachment_url else None
+
     # Path 1: MyCRMSim provider (preferred — iMessage when possible)
     if provider_id and not lead_pinned_sms:
         ok, msg_id, err = send_via_provider(
@@ -307,6 +319,7 @@ def _send_step(db, run: FollowUpRun, step: FollowUpStep, lead: Lead) -> tuple[bo
             message=body,
             conversation_provider_id=provider_id,
             location_id=lead.ghl_location_id or None,
+            attachments=attachments_list,
         )
         used_method = "mycrmsim"
 
@@ -705,6 +718,62 @@ def on_delivery_status(ghl_message_id: str, status: str, error: str = "") -> Non
 # Pause-on-reply
 # -----------------------------------------------------------------------
 
+def on_lead_created(lead_id: str, brand: str = "") -> int:
+    """Start every active sequence whose trigger_event matches the
+    lead-created event. Two trigger forms are accepted:
+      - `lead_created`           — every brand
+      - `lead_created:<brand>`   — brand-specific (e.g. `lead_created:sterling`
+                                   only fires for Sterling-pipeline leads)
+
+    Called from the webhook intake path. Idempotent: if a run on the same
+    sequence is already active or paused for this lead, it's skipped.
+
+    Returns the count of sequences actually started."""
+    brand_key = (brand or "").strip().lower()
+    db = get_db()
+    started = 0
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            return 0
+        sequences = (
+            db.query(FollowUpSequence)
+            .filter(FollowUpSequence.active.is_(True))
+            .all()
+        )
+        for seq in sequences:
+            te = (seq.trigger_event or "").strip().lower()
+            if not te.startswith("lead_created"):
+                continue
+            # Accept "lead_created" (brand-agnostic) and "lead_created:<brand>".
+            if te == "lead_created" or te == f"lead_created:{brand_key}":
+                pass
+            else:
+                continue
+            existing = (
+                db.query(FollowUpRun)
+                .filter(
+                    FollowUpRun.lead_id == lead.id,
+                    FollowUpRun.sequence_id == seq.id,
+                    FollowUpRun.status.in_(["active", "paused"]),
+                )
+                .first()
+            )
+            if existing:
+                continue
+            actor = f"trigger:lead_created:{brand_key}" if brand_key else "trigger:lead_created"
+            run_id = start_run(lead.id, seq.id, actor=actor)
+            if run_id:
+                started += 1
+        return started
+    except Exception as e:
+        db.rollback()
+        logger.error(f"on_lead_created failed for {lead_id} (brand={brand_key}): {e}")
+        return 0
+    finally:
+        db.close()
+
+
 def on_customer_reply(lead_id: str) -> None:
     """Pause all active runs for this lead when the customer replies
     (and it isn't an opt-out — opt-out is handled by on_opt_out_detected
@@ -905,6 +974,7 @@ def _build_step_row(seq_id: str, defn: dict) -> FollowUpStep:
         branch_field=str(defn.get("branch_field", "")),
         variants=json.dumps(variants_dict) if variants_dict else "{}",
         message_template=str(defn.get("message_template", "")),
+        attachment_url=str(defn.get("attachment_url", "")),
         use_ai_personalization=False,
         created_at=_now(),
         updated_at=_now(),
@@ -1012,6 +1082,121 @@ def seed_p1_sterling_estimate_sent() -> None:
     except Exception as e:
         db.rollback()
         logger.warning(f"Failed to seed P1 sequence (non-fatal): {e}")
+    finally:
+        db.close()
+
+
+# Cold-leads GHL stage ID (for the P0 timeout step).
+COLD_LEADS_STAGE_ID = "0ca2e2a6-2990-4a5b-8ace-608393e39b5a"
+
+
+def _p0_step_definitions() -> list[dict]:
+    """Canonical step list for P0 Sterling Intake. 3 steps:
+      0. Amy intro SMS (immediate, respects 8-8 window)
+      1. Photo MMS, 15 seconds later (attachment_url initially empty —
+         admin pastes the photo URL in the workflow editor before activation)
+      2. 1-day timeout: if no reply, move to Cold Leads. Reply pauses the
+         run via on_customer_reply, so this step only fires on no-response.
+    """
+    text1 = (
+        "Hey {{customer_first_name}}, this is Amy with A&T's Pressure Washing & "
+        "Fence Restoration — thanks for reaching out about your fence! I'll have "
+        "your estimate ready shortly. To make sure I'm pulling the right property, "
+        "can you confirm the full address (with city + ZIP)? Once I've got that, "
+        "I'll send over pricing on Essential, Signature, and Legacy finishes so "
+        "you can pick what fits."
+    )
+    text2 = "Btw this is a fence we just finished up nearby ^"
+
+    return [
+        # Step 0 — Amy intro SMS, immediate (window-guarded)
+        {
+            "position": 0, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "send_message", "message_template": text1,
+        },
+        # Step 1 — Photo MMS, 15 seconds after Step 0. Attachment URL is
+        # empty by default; admin uploads the "fence we just finished
+        # nearby" photo and pastes the URL in the workflow editor before
+        # activating the sequence.
+        {
+            "position": 1, "delay_hours": 15, "wait_kind": "seconds",
+            "action_kind": "send_message", "message_template": text2,
+            "attachment_url": "",
+        },
+        # Step 2 — 24-hour no-reply timeout: bucket to Cold Leads. Reply
+        # pauses the run via on_customer_reply, so this only fires when
+        # the customer ignored both touches.
+        {
+            "position": 2, "delay_hours": 24, "wait_kind": "hours",
+            "action_kind": "move_column", "column_value": COLD_LEADS_STAGE_ID,
+        },
+    ]
+
+
+def seed_p0_sterling_intake() -> None:
+    """Recreates Alan's GHL workflow 'P01 New Lead Intake' inside our
+    engine. Idempotent — only seeds on first boot. Inactive by default;
+    admin must (a) upload the fence photo to Supabase Storage and paste
+    the URL into Step 1's attachment_url field, then (b) toggle the
+    sequence active in the workflow editor.
+
+    Flow (3 steps):
+      Step 0 — Amy intro SMS (immediate, 8AM-8PM window)
+      Step 1 — Photo MMS, +15 seconds
+      Step 2 — +24 hours, no reply → move to Cold Leads
+
+    Reply branching is handled outside this sequence by the reply-handler
+    dispatcher (services/reply_handlers.py): on customer reply, the run
+    pauses and the dispatcher moves the lead to HOT LEAD_SEND ESTIMATE.
+
+    Trigger: `lead_created:sterling` — fires for every new lead in the
+    Sterling sub-brand (Cypress + Woodlands locations)."""
+    db = get_db()
+    try:
+        seq_name = "P0: Sterling Intake"
+        existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
+        if existing:
+            return
+
+        seq_id = str(uuid.uuid4())
+        seq = FollowUpSequence(
+            id=seq_id,
+            name=seq_name,
+            description=(
+                "New-lead intake sequence — recreated from Alan's GHL "
+                "workflow 'P01 New Lead Intake (FB Form)'. Triggered on "
+                "new Sterling lead creation. Two-touch open with a 15-second "
+                "gap (psychological pacing), then a 24-hour timeout that "
+                "buckets unresponsive leads to Cold Leads. Reply branching "
+                "lives in services/reply_handlers.py — customer reply → "
+                "HOT LEAD_SEND ESTIMATE + notify Olga/Alan.\n\n"
+                "Before activating: upload the 'fence we just finished up "
+                "nearby' photo to Supabase Storage, then paste the public "
+                "URL into Step 1's attachment_url in the workflow editor."
+            ),
+            trigger_event="lead_created:sterling",
+            pause_on_events="customer_replied",
+            active=False,
+            version=1,
+            send_window_start_hour=8,
+            send_window_end_hour=20,
+            timezone="America/Chicago",
+            created_at=_now(),
+            updated_at=_now(),
+            created_by="system:seed",
+        )
+        db.add(seq)
+        for defn in _p0_step_definitions():
+            db.add(_build_step_row(seq_id, defn))
+
+        db.commit()
+        logger.info(
+            f"Seeded P0 Sterling Intake sequence: {seq_id} (3 steps, inactive "
+            f"— admin must paste the photo URL into Step 1 and flip active before it runs)"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to seed P0 sequence (non-fatal): {e}")
     finally:
         db.close()
 

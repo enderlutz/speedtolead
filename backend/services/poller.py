@@ -443,6 +443,14 @@ def _sync_location(location_id: str, label: str):
                     if is_target_stage and not already_sent:
                         logger.info(f"Poller: new lead {lead_id} from {label}/{stage_name}: {name}")
                         notify_new_lead(lead.to_dict())
+                        # Start any sequence triggered by lead_created. The
+                        # poller covers Sterling (Cypress + Woodlands) — both
+                        # map to the `sterling` brand key, same as webhooks.
+                        try:
+                            from services.followup_engine import on_lead_created
+                            on_lead_created(lead_id, brand="sterling")
+                        except Exception as e:
+                            logger.warning(f"Poller on_lead_created hook failed for {lead_id}: {e}")
                     else:
                         logger.info(f"Poller: backfilled lead {lead_id} from {label}/{stage_name}: {name} (no notify — non-intake stage)")
 

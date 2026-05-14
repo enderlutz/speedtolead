@@ -173,9 +173,14 @@ async def _async_db_init():
             await asyncio.to_thread(auth.seed_default_users)
             await asyncio.to_thread(auth.seed_fragned_user)
             try:
-                from services.followup_engine import seed_test_sequence, seed_p1_sterling_estimate_sent
+                from services.followup_engine import (
+                    seed_test_sequence,
+                    seed_p1_sterling_estimate_sent,
+                    seed_p0_sterling_intake,
+                )
                 await asyncio.to_thread(seed_test_sequence)
                 await asyncio.to_thread(seed_p1_sterling_estimate_sent)
+                await asyncio.to_thread(seed_p0_sterling_intake)
             except Exception as seed_err:
                 logger.warning(f"Follow-up sequence seed skipped: {seed_err}")
             logger.info("Database initialized")
