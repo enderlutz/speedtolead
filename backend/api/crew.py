@@ -335,6 +335,7 @@ async def upload_w9(employee_id: str, file: UploadFile = File(...), user: dict =
         if not e:
             raise HTTPException(status_code=404, detail="Employee not found")
         e.w9_file_data = data
+        e.has_w9_file = True  # avoids loading W9 BLOB in to_dict() egress hot path
         e.w9_file_name = file.filename or "w9.pdf"
         e.w9_file_mime = file.content_type or "application/pdf"
         e.w9_uploaded_at = _now()

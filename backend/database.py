@@ -65,6 +65,11 @@ class Lead(Base):
     # Single Google-Maps measurement screenshot uploaded by the VA for admin
     # review. Single image at a time — re-upload replaces it; delete clears it.
     measurement_image_data = Column(LargeBinary, nullable=True)
+    # Existence flag — set on upload so to_dict() can answer "is there an image?"
+    # without triggering a BLOB load. Accessing measurement_image_data directly
+    # (even `is not None`) forces SQLAlchemy to fetch the full BLOB from
+    # Postgres, which is fatal for egress when the dashboard fetches many leads.
+    has_measurement_image = Column(Boolean, default=False, nullable=False)
     measurement_filename = Column(Text, default="")
     measurement_mime = Column(Text, default="")
     measurement_uploaded_at = Column(Text, nullable=True)
@@ -118,7 +123,7 @@ class Lead(Base):
             "dashboard_synced_at": self.dashboard_synced_at or self.created_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "measurement_uploaded": self.measurement_image_data is not None,
+            "measurement_uploaded": bool(self.has_measurement_image),
             "measurement_filename": self.measurement_filename or "",
             "measurement_uploaded_at": self.measurement_uploaded_at,
             "measurement_uploaded_by": self.measurement_uploaded_by or "",
@@ -646,6 +651,9 @@ class CallReview(Base):
     reviewer_name = Column(Text, default="")
     text = Column(Text, default="")  # final transcript-or-typed body
     audio_data = Column(LargeBinary, nullable=True)  # only set if reviewer spoke
+    # Existence flag set on upload — avoids loading the audio BLOB from
+    # Postgres every time we serialize a review (egress hot path).
+    has_audio_data = Column(Boolean, default=False, nullable=False)
     audio_mime = Column(Text, default="")  # e.g. "audio/webm"
     created_at = Column(Text, default="")
 
@@ -657,7 +665,7 @@ class CallReview(Base):
             "reviewer_user_id": self.reviewer_user_id,
             "reviewer_name": self.reviewer_name,
             "text": self.text or "",
-            "has_audio": bool(self.audio_data),
+            "has_audio": bool(self.has_audio_data),
             "audio_mime": self.audio_mime or "",
             "created_at": self.created_at,
         }
@@ -693,6 +701,10 @@ class Employee(Base):
     start_date = Column(Text, default="")            # YYYY-MM-DD
     status = Column(Text, default="active")          # active | inactive
     w9_file_data = Column(LargeBinary, nullable=True)  # blob storage matches call recordings precedent
+    # Existence flag set on upload. Crew listing endpoints serialized every
+    # employee twice via bool(w9_file_data) — each access loaded the entire
+    # W9 PDF blob from Postgres. This flag avoids that hit.
+    has_w9_file = Column(Boolean, default=False, nullable=False)
     w9_file_name = Column(Text, default="")
     w9_file_mime = Column(Text, default="")
     w9_uploaded_at = Column(Text, nullable=True)
@@ -714,10 +726,10 @@ class Employee(Base):
             "address": self.address or "",
             "start_date": self.start_date or "",
             "status": self.status or "active",
-            "w9_uploaded": bool(self.w9_file_data),
+            "w9_uploaded": bool(self.has_w9_file),
             "w9_file_name": self.w9_file_name or "",
             "w9_uploaded_at": self.w9_uploaded_at,
-            "w9_missing": (not bool(self.w9_file_data)) and (self.status == "active"),
+            "w9_missing": (not bool(self.has_w9_file)) and (self.status == "active"),
             "notes": self.notes or "",
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -1050,6 +1062,9 @@ class Reimbursement(Base):
     amount = Column(Numeric(10, 2), nullable=False, default=0)
     description = Column(Text, default="")               # e.g., "extra stain, paint roller"
     receipt_data = Column(LargeBinary, nullable=True)    # photo blob (W9 pattern)
+    # Existence flag set on upload — keeps the receipt photo BLOB out of
+    # every reimbursement listing serialization.
+    has_receipt_data = Column(Boolean, default=False, nullable=False)
     receipt_filename = Column(Text, default="")
     receipt_mime = Column(Text, default="")
     status = Column(Text, default="pending")             # pending | approved | rejected
@@ -1067,7 +1082,7 @@ class Reimbursement(Base):
             "expense_date": self.expense_date,
             "amount": float(self.amount or 0),
             "description": self.description or "",
-            "receipt_uploaded": bool(self.receipt_data),
+            "receipt_uploaded": bool(self.has_receipt_data),
             "receipt_filename": self.receipt_filename or "",
             "status": self.status or "pending",
             "notes": self.notes or "",
@@ -2056,23 +2071,30 @@ def _run_migrations():
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added followup_steps.{new_col}")
 
-    # CallRecording — add has_recording_data flag so listing endpoints can
-    # answer "is there audio?" without loading the multi-MB BLOB. Critical
-    # for keeping egress costs sane: before this column, every Call Coach
-    # page load streamed every BLOB out of Postgres.
-    if inspector.has_table("call_recordings"):
-        cr_cols = {c["name"] for c in inspector.get_columns("call_recordings")}
-        if "has_recording_data" not in cr_cols:
-            with _engine.begin() as conn:
-                conn.execute(text("ALTER TABLE call_recordings ADD COLUMN has_recording_data BOOLEAN NOT NULL DEFAULT FALSE"))
-                # Backfill: mark every existing row whose BLOB is non-empty.
-                # octet_length is cheap (reads the TOAST pointer's length,
-                # not the BLOB contents) so this is fast.
-                conn.execute(text(
-                    "UPDATE call_recordings SET has_recording_data = TRUE "
-                    "WHERE recording_data IS NOT NULL AND octet_length(recording_data) > 0"
-                ))
-            logger.info("Migration: added call_recordings.has_recording_data and backfilled")
+    # Egress fix: existence flags for every LargeBinary column whose to_dict()
+    # used to do `bool(self.blob_field)`. That pattern forces SQLAlchemy to
+    # load the full BLOB from Postgres every time the row is serialized,
+    # which turned routine dashboard refreshes into massive egress events.
+    # Each flag column is cheap to read; octet_length() backfill is cheap
+    # too because it only reads the TOAST pointer length, not the bytes.
+    _blob_flag_migrations = [
+        ("call_recordings", "has_recording_data", "recording_data"),
+        ("leads", "has_measurement_image", "measurement_image_data"),
+        ("employees", "has_w9_file", "w9_file_data"),
+        ("call_reviews", "has_audio_data", "audio_data"),
+        ("reimbursements", "has_receipt_data", "receipt_data"),
+    ]
+    for tbl, flag, blob in _blob_flag_migrations:
+        if inspector.has_table(tbl):
+            cols = {c["name"] for c in inspector.get_columns(tbl)}
+            if flag not in cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {flag} BOOLEAN NOT NULL DEFAULT FALSE"))
+                    conn.execute(text(
+                        f"UPDATE {tbl} SET {flag} = TRUE "
+                        f"WHERE {blob} IS NOT NULL AND octet_length({blob}) > 0"
+                    ))
+                logger.info(f"Migration: added {tbl}.{flag} (egress fix) and backfilled")
 
     # WrappedCache table — Base.metadata.create_all() above handles initial
     # creation, but if the table existed in an older shape we'd add columns

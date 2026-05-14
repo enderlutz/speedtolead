@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import or_
+from sqlalchemy.orm import defer
 
 from database import get_db, EstimateDelay, Lead, Estimate
 from api.auth import require_staff, get_current_user
@@ -98,7 +99,10 @@ def detect_and_record_delays(db) -> int:
     in estimate_delays AND fires a one-time SMS to Alan. Idempotent — runs
     every few minutes; existing rows are skipped."""
     settings = get_settings()
-    leads = db.query(Lead).filter(
+    # Background loop runs every 10 min over all active leads — defer the
+    # measurement screenshot BLOB. We never look at it here; the only field
+    # of interest is metadata for delay detection.
+    leads = db.query(Lead).options(defer(Lead.measurement_image_data)).filter(
         Lead.status.notin_(["archived", "completed"]),
         Lead.is_test.is_(False),
     ).all()

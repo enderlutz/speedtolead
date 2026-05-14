@@ -1338,6 +1338,7 @@ async def upload_measurement(
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
         lead.measurement_image_data = data
+        lead.has_measurement_image = True  # avoids loading BLOB in to_dict() egress hot path
         lead.measurement_filename = file.filename or "measurement"
         lead.measurement_mime = file.content_type or "image/png"
         lead.measurement_uploaded_at = _now()
@@ -1382,6 +1383,7 @@ def delete_measurement(lead_id: str, user: dict = Depends(get_current_user)):
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
         lead.measurement_image_data = None
+        lead.has_measurement_image = False
         lead.measurement_filename = ""
         lead.measurement_mime = ""
         lead.measurement_uploaded_at = None

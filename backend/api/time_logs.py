@@ -163,7 +163,17 @@ def customers_to_log(
         # Frontend search box uses this to find customers not in the "to log"
         # priority list (e.g., logging time for a lead that didn't have a
         # scheduled job, or back-logging an old job).
-        leads = db.query(Lead).filter(Lead.is_test.is_(False)).order_by(Lead.created_at.desc()).limit(500).all()
+        # Defer measurement_image_data — we only need name + address for
+        # the searchable list, and the BLOB load × 500 rows is fatal to egress.
+        from sqlalchemy.orm import defer as _defer
+        leads = (
+            db.query(Lead)
+            .options(_defer(Lead.measurement_image_data))
+            .filter(Lead.is_test.is_(False))
+            .order_by(Lead.created_at.desc())
+            .limit(500)
+            .all()
+        )
         searchable = [
             {"lead_id": l.id, "name": l.contact_name or "(Unknown)", "address": l.address or ""}
             for l in leads if l.contact_name
@@ -360,6 +370,7 @@ async def create_reimbursement(
             amount=amount,
             description=description,
             receipt_data=blob,
+            has_receipt_data=bool(blob),  # avoids loading receipt BLOB in to_dict() egress hot path
             receipt_filename=receipt.filename or "receipt",
             receipt_mime=receipt.content_type or "application/octet-stream",
             status="pending",

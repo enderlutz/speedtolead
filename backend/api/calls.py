@@ -786,6 +786,7 @@ async def create_call_review(
             reviewer_name=user.get("name", "Admin"),
             text=final_text,
             audio_data=audio_bytes,
+            has_audio_data=bool(audio_bytes),  # avoids loading audio BLOB in to_dict() egress hot path
             audio_mime=audio_mime,
             created_at=_now(),
         )
