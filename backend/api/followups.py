@@ -459,6 +459,19 @@ def pause_run(run_id: str, user: dict = Depends(require_admin)):
 
 @router.post("/followups/runs/{run_id}/resume")
 def resume_run(run_id: str, user: dict = Depends(require_admin)):
+    """Flip a paused run back to active.
+
+    Refuses to resume if the underlying lead is in a state where the
+    engine would just immediately re-pause anyway — saves admin from
+    accidentally re-firing texts at a declined/closed/opted-out customer
+    by mis-clicking through the paused-run list. Hard guards mirrored
+    here:
+      - lead is do_not_contact (opt-out detected upstream)
+      - lead is in a TERMINAL_STAGE_IDS stage (DECLINED, CLOSED, etc.)
+      - lead has no ghl_contact_id (engine would pause again on first send)
+    Admin can clear the underlying condition (move the lead to a
+    non-terminal stage, clear do_not_contact) and try again."""
+    from services.terminal_stage_guard import is_terminal_stage
     db = get_db()
     try:
         run = db.query(FollowUpRun).filter(FollowUpRun.id == run_id).first()
@@ -466,6 +479,34 @@ def resume_run(run_id: str, user: dict = Depends(require_admin)):
             raise HTTPException(status_code=404, detail="Run not found")
         if run.status != "paused":
             raise HTTPException(status_code=400, detail=f"Cannot resume a {run.status} run")
+
+        lead = db.query(Lead).filter(Lead.id == run.lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=400, detail="Lead not found — cannot resume orphaned run")
+        if lead.do_not_contact:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Lead is marked do_not_contact (opt-out). Clear that flag "
+                    "from the lead detail page before resuming this run."
+                ),
+            )
+        if not lead.ghl_contact_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Lead has no ghl_contact_id — engine cannot send. Fix the lead's GHL linkage first.",
+            )
+        if is_terminal_stage(lead.ghl_pipeline_stage_id or ""):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Lead is in a terminal pipeline stage "
+                    f"({lead.ghl_pipeline_stage_id}). Move the lead to a non-terminal "
+                    f"stage before resuming, otherwise U02 would immediately re-pause "
+                    f"this run on the next stage-change check."
+                ),
+            )
+
         run.status = "active"
         run.paused_reason = ""
         if not run.next_due_at:
@@ -518,8 +559,9 @@ def send_now(run_id: str, user: dict = Depends(require_admin)):
 @router.post("/followups/runs/{run_id}/skip-step")
 def skip_step(run_id: str, user: dict = Depends(require_admin)):
     """Advance to the next step without sending the current one. Engine
-    will schedule the new step's send based on its delay_hours from now."""
-    from datetime import timedelta
+    will schedule the new step's send respecting its wait_kind + window."""
+    from datetime import datetime as _dt, timezone as _tz
+    from services.followup_engine import _compute_next_due_at
     db = get_db()
     try:
         run = db.query(FollowUpRun).filter(FollowUpRun.id == run_id).first()
@@ -529,17 +571,27 @@ def skip_step(run_id: str, user: dict = Depends(require_admin)):
             raise HTTPException(status_code=400, detail=f"Cannot skip on a {run.status} run")
         prev_step = run.current_step or 0
         run.current_step = prev_step + 1
-        # Schedule the new step's first send using its delay_hours; if no
-        # next step exists, set next_due_at to now so the engine completes
-        # the run on the next tick.
+        # Schedule the new step using the same logic the engine uses when
+        # it advances normally — respects wait_kind (seconds/minutes/hours/
+        # calendar_day) AND the send window. Previously this used a flat
+        # `timedelta(hours=delay_hours)`, which mis-scheduled calendar_day
+        # steps (firing 2 hours from now instead of 2 days at window start)
+        # and ignored per-step send windows entirely.
         next_step_row = (
             db.query(FollowUpStep)
             .filter(FollowUpStep.sequence_id == run.sequence_id, FollowUpStep.position == run.current_step)
             .first()
         )
         if next_step_row:
-            from datetime import datetime as _dt, timezone as _tz
-            run.next_due_at = (_dt.now(_tz.utc) + timedelta(hours=float(next_step_row.delay_hours or 0))).isoformat()
+            seq = (
+                db.query(FollowUpSequence)
+                .filter(FollowUpSequence.id == run.sequence_id)
+                .first()
+            )
+            run.next_due_at = _compute_next_due_at(
+                _dt.now(_tz.utc), next_step_row, seq,
+                ignore_window=bool(run.test_mode),
+            )
         else:
             run.next_due_at = _now()
         db.add(FollowUpEvent(
@@ -592,7 +644,14 @@ class StartSequenceBody(BaseModel):
 def start_sequence_on_lead(lead_id: str, body: StartSequenceBody, user: dict = Depends(require_admin)):
     """Start a sequence on a specific lead (admin-initiated). Distinct
     from test-run in that the target lead is explicit + not flagged as
-    test_mode. Used from the Lead Detail intervention panel."""
+    test_mode. Used from the Lead Detail intervention panel.
+
+    Enforces the no-duplicates rule: if the lead has any prior non-test
+    run on this sequence (active, paused, completed, stopped, or failed),
+    refuse and direct admin to the restart-sequence endpoint instead.
+    Otherwise an Olga-at-11-PM mis-click could re-send the full cadence
+    to a customer who already received it."""
+    from services.followup_engine import has_ever_been_enrolled
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -604,9 +663,7 @@ def start_sequence_on_lead(lead_id: str, body: StartSequenceBody, user: dict = D
             raise HTTPException(status_code=400, detail="Lead is marked do_not_contact — clear that first")
         # Idempotency — block double-clicks. If a run on this (lead, sequence)
         # is already active or paused, return the existing run instead of
-        # creating a duplicate. Admin almost never wants two parallel runs
-        # of the same sequence on the same lead — that's how double-texts
-        # happen.
+        # creating a duplicate.
         existing = (
             db.query(FollowUpRun)
             .filter(
@@ -627,6 +684,20 @@ def start_sequence_on_lead(lead_id: str, body: StartSequenceBody, user: dict = D
                     f"returning the existing run id (no duplicate created)."
                 ),
             }
+        # Strict no-duplicates: refuse if any prior non-test run exists
+        # (completed, stopped, failed). Admin who genuinely wants to
+        # re-enroll the lead must use the explicit restart-sequence
+        # endpoint — that path logs `sequence_restarted_by_admin` for
+        # audit and makes intent unambiguous.
+        if has_ever_been_enrolled(db, lead_id, body.sequence_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This lead has already been through this sequence. "
+                    "Use /followups/sequences/{seq_id}/restart/{lead_id} "
+                    "if you intentionally want to re-send the cadence."
+                ),
+            )
         run_id = start_run(
             lead_id=lead_id,
             sequence_id=body.sequence_id,
