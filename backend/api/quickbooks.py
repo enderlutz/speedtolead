@@ -249,7 +249,7 @@ def generate_invoice(job_id: str, body: GenerateInvoiceBody, user: dict = Depend
             # because the lead may have been edited after scheduling.
             address = (job.address or "") or (lead.address if lead else "") or ""
             zip_code = (job.zip_code or "") or (lead.zip_code if lead else "") or ""
-            service_type = (job.service_type or "") or (lead.service_type if lead else "") or ""
+            service_type = (lead.service_type if lead else "") or ""
             service_label = _service_label(service_type)
             frontend_url = (get_settings().frontend_url or "").rstrip("/")
             lead_url = f"{frontend_url}/leads/{lead.id}" if (lead and frontend_url) else ""

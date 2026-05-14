@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { FileText, AlertOctagon, RotateCcw, Link2, Unlink, RefreshCw, AlertTriangle } from "lucide-react";
+import { FileText, AlertOctagon, RotateCcw, Link2, Unlink, RefreshCw } from "lucide-react";
 
 export default function QuickBooksSettingsCard() {
   const isAdmin = getCurrentUser()?.role === "admin";
@@ -88,21 +88,6 @@ export default function QuickBooksSettingsCard() {
           <p className="text-xs text-muted-foreground">Loading…</p>
         ) : (
           <>
-            {/* Sales tax reminder — must be configured before going live */}
-            {status.connected && (
-              <div className="rounded-md border border-amber-300 bg-amber-50/60 p-3 flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-amber-900">Sales tax not configured</p>
-                  <p className="text-[12px] text-amber-800/80 leading-snug">
-                    Invoices are created without a tax line. If Alan charges Texas sales tax on his
-                    services, confirm with him and we'll wire up <code>TxnTaxDetail</code> before
-                    flipping to <span className="font-mono">production</span>. Safe for sandbox testing.
-                  </p>
-                </div>
-              </div>
-            )}
-
             {/* Reconnect banner — only shown when refresh token expired or invalid_grant */}
             {status.needs_reconnect && (
               <div className="rounded-md border border-red-300 bg-red-50/60 p-3 flex items-start justify-between gap-2">
