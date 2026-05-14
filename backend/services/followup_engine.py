@@ -915,6 +915,9 @@ def on_customer_reply(lead_id: str) -> None:
 # Long Term Nurture GHL stage ID — sourced from LeadsV2.tsx V2_STAGES.
 # Used at the end of P1's Part 2 to bucket cold leads who never replied.
 LONG_TERM_NURTURE_STAGE_ID = "d836628c-3094-4a63-b95a-8a5358d251d0"
+# Estimate Sent GHL stage ID — set on P1 enrollment so the lead's GHL
+# pipeline reflects reality even if Olga forgot to move them first.
+ESTIMATE_SENT_STAGE_ID = "dc3600f2-009b-4075-95fa-786823131416"
 
 
 def _p1_step_definitions() -> list[dict]:
@@ -996,68 +999,75 @@ def _p1_step_definitions() -> list[dict]:
 
     return [
         # ── Part 1 ────────────────────────────────────────────────────
-        # Step 0 — Text 1, immediate (respects sequence 8AM-8PM window)
+        # Step 0 — Move to ESTIMATE SENT stage on enrollment. Olga usually
+        # moves the lead manually before tagging `estimate sent`, but this
+        # makes the workflow self-correcting if she forgets.
         {
             "position": 0, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "move_column", "column_value": ESTIMATE_SENT_STAGE_ID,
+        },
+        # Step 1 — Text 1, immediate (respects sequence 8AM-8PM window)
+        {
+            "position": 1, "delay_hours": 0, "wait_kind": "hours",
             "action_kind": "send_message", "message_template": text1,
         },
-        # Step 1 — Text 2, wait 30 min
+        # Step 2 — Text 2, wait 30 min
         {
-            "position": 1, "delay_hours": 30, "wait_kind": "minutes",
+            "position": 2, "delay_hours": 30, "wait_kind": "minutes",
             "action_kind": "send_message", "message_template": text2,
         },
-        # Step 2 — Text 3, wait 1 calendar day, send 1:45-2:30 PM CT,
+        # Step 3 — Text 3, wait 1 calendar day, send 1:45-2:30 PM CT,
         # branched on fence_age
         {
-            "position": 2, "delay_hours": 1, "wait_kind": "calendar_day",
+            "position": 3, "delay_hours": 1, "wait_kind": "calendar_day",
             "window_start_hour": 13, "window_start_minute": 45,
             "window_end_hour": 14, "window_end_minute": 30,
             "action_kind": "send_message",
             "branch_field": "fence_age", "variants": text3_variants,
             "message_template": text3_variants["_default"],
         },
-        # Step 3 — tag "estimate-followup-continue" (end of Part 1)
+        # Step 4 — tag "estimate-followup-continue" (end of Part 1)
         {
-            "position": 3, "delay_hours": 0, "wait_kind": "hours",
+            "position": 4, "delay_hours": 0, "wait_kind": "hours",
             "action_kind": "add_tag", "tag_value": "estimate-followup-continue",
         },
         # ── Part 2 ────────────────────────────────────────────────────
-        # Step 4 — Text 4, wait 2 calendar days, send 6:30-7:00 PM CT
+        # Step 5 — Text 4, wait 2 calendar days, send 6:30-7:00 PM CT
         {
-            "position": 4, "delay_hours": 2, "wait_kind": "calendar_day",
+            "position": 5, "delay_hours": 2, "wait_kind": "calendar_day",
             "window_start_hour": 18, "window_start_minute": 30,
             "window_end_hour": 19, "window_end_minute": 0,
             "action_kind": "send_message", "message_template": text4,
         },
-        # Step 5 — Text 5, wait 3 calendar days, send 8:00-8:30 AM CT
+        # Step 6 — Text 5, wait 3 calendar days, send 8:00-8:30 AM CT
         {
-            "position": 5, "delay_hours": 3, "wait_kind": "calendar_day",
+            "position": 6, "delay_hours": 3, "wait_kind": "calendar_day",
             "window_start_hour": 8, "window_start_minute": 0,
             "window_end_hour": 8, "window_end_minute": 30,
             "action_kind": "send_message", "message_template": text5,
         },
-        # Step 6 — Text 6, wait 4 calendar days, send 3:30-4:00 PM CT
+        # Step 7 — Text 6, wait 4 calendar days, send 3:30-4:00 PM CT
         {
-            "position": 6, "delay_hours": 4, "wait_kind": "calendar_day",
+            "position": 7, "delay_hours": 4, "wait_kind": "calendar_day",
             "window_start_hour": 15, "window_start_minute": 30,
             "window_end_hour": 16, "window_end_minute": 0,
             "action_kind": "send_message", "message_template": text6,
         },
-        # Step 7 — Text 7, wait 4 calendar days, send 11:30 AM-12:00 PM CT
+        # Step 8 — Text 7, wait 4 calendar days, send 11:30 AM-12:00 PM CT
         {
-            "position": 7, "delay_hours": 4, "wait_kind": "calendar_day",
+            "position": 8, "delay_hours": 4, "wait_kind": "calendar_day",
             "window_start_hour": 11, "window_start_minute": 30,
             "window_end_hour": 12, "window_end_minute": 0,
             "action_kind": "send_message", "message_template": text7,
         },
-        # Step 8 — tag "cold lead" (no reply across the full sequence)
-        {
-            "position": 8, "delay_hours": 0, "wait_kind": "hours",
-            "action_kind": "add_tag", "tag_value": "cold lead",
-        },
-        # Step 9 — move to "Long Term Nurture" pipeline stage
+        # Step 9 — tag "cold lead" (no reply across the full sequence)
         {
             "position": 9, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "add_tag", "tag_value": "cold lead",
+        },
+        # Step 10 — move to "Long Term Nurture" pipeline stage
+        {
+            "position": 10, "delay_hours": 0, "wait_kind": "hours",
             "action_kind": "move_column", "column_value": LONG_TERM_NURTURE_STAGE_ID,
         },
     ]
@@ -1092,15 +1102,11 @@ def _build_step_row(seq_id: str, defn: dict) -> FollowUpStep:
 
 def seed_p1_sterling_estimate_sent() -> None:
     """Recreates Alan's GHL workflow 'P1: Sterling Estimate Sent' inside
-    our engine. Idempotent at two levels:
-      1. First boot — creates the sequence + all 10 steps (Part 1 + Part 2).
-      2. Subsequent boots after Part 2 was added — if a previously-seeded
-         P1 still has only Part 1's 4 steps AND the trigger/created_by mark
-         it as untouched by admin, append Part 2 steps. If admin has
-         already edited it (different step count or created_by != seed),
-         leave it alone.
+    our engine. Migrates older seeded shapes forward as Alan's spec
+    evolves. Customized sequences (created_by != system) are left alone.
 
-    Flow:
+    Current shape — 11 steps (Part 1 + Part 2):
+      Step 0  — move to ESTIMATE SENT stage
       Part 1: Text 1 → wait 30 min → Text 2 → wait 1 day, 1:45-2:30 PM →
               Text 3 (branched on fence_age) → tag estimate-followup-continue
       Part 2: wait 2 days, 6:30-7:00 PM → Text 4 →
@@ -1119,57 +1125,73 @@ def seed_p1_sterling_estimate_sent() -> None:
         existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
 
         if existing:
-            # Migration path — append Part 2 steps to a previously-seeded P1.
-            # Conservative: only act if existing rowset matches the original
-            # Part 1 shape (4 steps, last is the estimate-followup-continue
-            # tag, created_by marks it as untouched by admin).
             current_steps = (
                 db.query(FollowUpStep)
                 .filter(FollowUpStep.sequence_id == existing.id)
                 .order_by(FollowUpStep.position)
                 .all()
             )
-            looks_like_part1_only = (
-                len(current_steps) == 4
-                and (existing.created_by or "").startswith("system:")
-                and current_steps[-1].action_kind == "add_tag"
-                and (current_steps[-1].tag_value or "").strip() == "estimate-followup-continue"
+            is_seed_managed = (existing.created_by or "").startswith("system:")
+            current_count = len(current_steps)
+            already_has_move = (
+                current_count > 0
+                and (current_steps[0].action_kind or "") == "move_column"
+                and (current_steps[0].column_value or "") == ESTIMATE_SENT_STAGE_ID
             )
-            if looks_like_part1_only:
-                # Also update Step 2's delay_hours to 1 (was 0 in the
-                # original seed; the engine treated 0 as 1 day, but
-                # the new explicit semantics use the value directly).
-                if (current_steps[2].action_kind or "send_message") == "send_message":
-                    current_steps[2].delay_hours = 1
-                # Append Part 2 steps (positions 4-9).
-                for defn in defs:
-                    if int(defn["position"]) < 4:
-                        continue
-                    db.add(_build_step_row(existing.id, defn))
-                existing.updated_at = _now()
-                existing.version = (existing.version or 1) + 1
-                db.commit()
-                logger.info(f"Migration: appended Part 2 steps to existing P1 sequence {existing.id}")
-            else:
+
+            if not is_seed_managed:
                 logger.info(
-                    f"P1 sequence already present and has been customized "
-                    f"({len(current_steps)} steps, created_by={existing.created_by or '?'}); "
-                    f"skipping Part 2 auto-append."
+                    f"P1 sequence is admin-customized "
+                    f"(created_by={existing.created_by or '?'}); skipping all migrations."
                 )
+                return
+            if current_count == len(defs) and already_has_move:
+                return  # already on the current shape
+            if current_count in (4, 10) and not already_has_move:
+                # Legacy shapes — Part 1 only (4 steps) OR Part 1 + Part 2
+                # without the leading move_column (10 steps). Rebuild to
+                # the current 11-step layout. Pause any active runs first
+                # so their current_step pointers don't end up off-by-one.
+                paused = 0
+                for run in db.query(FollowUpRun).filter(
+                    FollowUpRun.sequence_id == existing.id,
+                    FollowUpRun.status == "active",
+                ).all():
+                    run.status = "paused"
+                    run.paused_reason = "schema_migration"
+                    _log_event(db, run.id, "paused", {"reason": "schema_migration"})
+                    paused += 1
+                db.query(FollowUpStep).filter(FollowUpStep.sequence_id == existing.id).delete()
+                for defn in defs:
+                    db.add(_build_step_row(existing.id, defn))
+                existing.version = (existing.version or 1) + 1
+                existing.updated_at = _now()
+                db.commit()
+                logger.info(
+                    f"Migration: rebuilt P1 sequence {existing.id} "
+                    f"({current_count} -> {len(defs)} steps; {paused} active runs paused)"
+                )
+                return
+            logger.info(
+                f"P1 sequence has unexpected shape "
+                f"({current_count} steps, has_move_step={already_has_move}); "
+                f"skipping migration to avoid clobbering."
+            )
             return
 
-        # Fresh install — create the whole sequence with all 10 steps.
+        # Fresh install — create the whole sequence with all 11 steps.
         seq_id = str(uuid.uuid4())
         seq = FollowUpSequence(
             id=seq_id,
             name=seq_name,
             description=(
                 "Estimate-sent follow-up sequence — recreated from Alan's GHL "
-                "workflow (P1 + P2). Triggered when the GHL contact gets the "
-                "'estimate sent' tag. 7 text touches across ~13 days, branched "
-                "on fence age for Text 3. Ends by tagging cold leads and "
-                "moving them to Long Term Nurture. Stop-on-reply pauses the "
-                "run anywhere it hits."
+                "workflows P04a + P04b. Triggered when the GHL contact gets the "
+                "'estimate sent' tag. Opens by moving the lead to the ESTIMATE "
+                "SENT stage (no-op if Olga already moved them), then 7 text "
+                "touches across ~13 days, branched on fence age for Text 3. "
+                "Ends by tagging cold leads and moving them to Long Term "
+                "Nurture. Stop-on-reply pauses the run anywhere it hits."
             ),
             trigger_event="tag_added:estimate sent",
             pause_on_events="customer_replied",
