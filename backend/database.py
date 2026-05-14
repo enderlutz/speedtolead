@@ -487,6 +487,12 @@ class CallRecording(Base):
     ghl_call_id = Column(Text, unique=True, nullable=True)
     recording_url = Column(Text, default="")
     recording_data = Column(LargeBinary, nullable=True)
+    # Set to True when recording_data BLOB is uploaded. Lets listing endpoints
+    # answer "is there audio?" without loading the BLOB into memory — accessing
+    # recording_data directly (even just `bool(self.recording_data)`) forces
+    # SQLAlchemy to fetch the entire BLOB from Postgres, which previously
+    # turned every Call Coach page load into hundreds of MB of egress.
+    has_recording_data = Column(Boolean, default=False, nullable=False)
     duration_seconds = Column(Integer, default=0)
     call_direction = Column(Text, default="outbound")
     caller_name = Column(Text, default="")
@@ -517,7 +523,7 @@ class CallRecording(Base):
             "created_at": self.created_at,
             "transcribed_at": self.transcribed_at,
             "analyzed_at": self.analyzed_at,
-            "has_recording": bool(self.recording_url or self.recording_data),
+            "has_recording": bool(self.recording_url) or bool(self.has_recording_data),
         }
 
 
@@ -2049,6 +2055,24 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added followup_steps.{new_col}")
+
+    # CallRecording — add has_recording_data flag so listing endpoints can
+    # answer "is there audio?" without loading the multi-MB BLOB. Critical
+    # for keeping egress costs sane: before this column, every Call Coach
+    # page load streamed every BLOB out of Postgres.
+    if inspector.has_table("call_recordings"):
+        cr_cols = {c["name"] for c in inspector.get_columns("call_recordings")}
+        if "has_recording_data" not in cr_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_recordings ADD COLUMN has_recording_data BOOLEAN NOT NULL DEFAULT FALSE"))
+                # Backfill: mark every existing row whose BLOB is non-empty.
+                # octet_length is cheap (reads the TOAST pointer's length,
+                # not the BLOB contents) so this is fast.
+                conn.execute(text(
+                    "UPDATE call_recordings SET has_recording_data = TRUE "
+                    "WHERE recording_data IS NOT NULL AND octet_length(recording_data) > 0"
+                ))
+            logger.info("Migration: added call_recordings.has_recording_data and backfilled")
 
     # WrappedCache table — Base.metadata.create_all() above handles initial
     # creation, but if the table existed in an older shape we'd add columns

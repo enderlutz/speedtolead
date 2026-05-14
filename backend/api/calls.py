@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Response, Request
 from sqlalchemy import func
+from sqlalchemy.orm import defer
 from pydantic import BaseModel
 from database import (
     get_db, CallRecording, CallTranscript, CallAnalysis, CallReview,
@@ -40,7 +41,15 @@ def get_lead_calls(lead_id: str, include_archived: bool = False):
     """Get all call recordings for a lead with transcripts and analyses."""
     db = get_db()
     try:
-        q = db.query(CallRecording).filter(CallRecording.lead_id == lead_id)
+        # defer(recording_data) keeps the multi-MB audio BLOB out of the row
+        # fetch — listing only needs metadata + has_recording_data flag.
+        # Without this, every Call Coach page load streams every BLOB from
+        # Postgres to Railway and counts as billable egress.
+        q = (
+            db.query(CallRecording)
+            .options(defer(CallRecording.recording_data))
+            .filter(CallRecording.lead_id == lead_id)
+        )
         if not include_archived:
             q = q.filter(CallRecording.is_archived.is_(False) | CallRecording.is_archived.is_(None))
         recordings = q.order_by(CallRecording.created_at.desc()).limit(50).all()
@@ -100,6 +109,7 @@ async def upload_call_recording(
             ghl_contact_id=lead.ghl_contact_id or "",
             ghl_location_id=lead.ghl_location_id or "",
             recording_data=data,
+            has_recording_data=True,
             duration_seconds=0,  # Will be determined by transcription
             call_direction=call_direction,
             caller_name=lead.contact_name or "",
@@ -283,7 +293,13 @@ def get_all_calls(
     to fetch the archive view."""
     db = get_db()
     try:
-        q = db.query(CallRecording)
+        # defer(recording_data) — same reasoning as get_lead_calls. Listing
+        # doesn't need the audio BLOB; loading it on every request is what
+        # caused the May-12 egress spike that blew past the 250 GB Pro quota.
+        q = (
+            db.query(CallRecording)
+            .options(defer(CallRecording.recording_data))
+        )
         if archived:
             q = q.filter(CallRecording.is_archived.is_(True))
         else:
