@@ -503,10 +503,17 @@ def _advance_run(db, run: FollowUpRun) -> None:
                 "to_stage_id": stage_id,
                 "ghl_synced": ghl_ok,
             })
-            # U02 hook — pause OTHER active runs on this lead if we just
-            # moved into a terminal stage. The current run is excluded so
-            # it can finish advancing to its next step normally instead of
-            # pausing itself mid-execution.
+            # Two stage-change hooks fire after every move_column:
+            #   (a) on_stage_entered — starts any new sequence whose
+            #       trigger_event matches the destination stage (P06 LTN
+            #       sequence is the current consumer).
+            #   (b) on_pipeline_stage_changed (U02) — pauses OTHER active
+            #       runs if we just moved into a terminal stage. Current
+            #       run is excluded so it advances normally.
+            try:
+                on_stage_entered(lead.id, stage_id)
+            except Exception as e:
+                logger.warning(f"on_stage_entered after move_column failed: {e}")
             try:
                 from services.terminal_stage_guard import on_pipeline_stage_changed
                 on_pipeline_stage_changed(lead.id, stage_id, exclude_run_id=run.id)
@@ -835,6 +842,64 @@ def on_delivery_status(ghl_message_id: str, status: str, error: str = "") -> Non
 # -----------------------------------------------------------------------
 # Pause-on-reply
 # -----------------------------------------------------------------------
+
+def on_stage_entered(lead_id: str, new_stage_id: str) -> int:
+    """Start every active sequence whose trigger_event is
+    `stage_entered:<new_stage_id>` for this lead. Used for P06 Long Term
+    Nurture (triggered by entry into the LTN stage) and any future
+    stage-driven sequence.
+
+    Idempotent — if a run on the same lead+sequence is already active
+    or paused, the new one isn't started. Returns the count of new
+    runs created.
+
+    Wired into the engine's move_column action (catches our own
+    end-of-flow moves) and the poller's stage-sync path (catches manual
+    moves in GHL within 5 min). Paired with U02's stage-change guard
+    which pauses runs for terminal stages."""
+    if not new_stage_id:
+        return 0
+    db = get_db()
+    started = 0
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            return 0
+        trigger = f"stage_entered:{new_stage_id}"
+        sequences = (
+            db.query(FollowUpSequence)
+            .filter(
+                FollowUpSequence.active.is_(True),
+                FollowUpSequence.trigger_event == trigger,
+            )
+            .all()
+        )
+        for seq in sequences:
+            existing = (
+                db.query(FollowUpRun)
+                .filter(
+                    FollowUpRun.lead_id == lead.id,
+                    FollowUpRun.sequence_id == seq.id,
+                    FollowUpRun.status.in_(["active", "paused"]),
+                )
+                .first()
+            )
+            if existing:
+                continue
+            run_id = start_run(
+                lead.id, seq.id,
+                actor=f"trigger:stage_entered:{new_stage_id[:8]}",
+            )
+            if run_id:
+                started += 1
+        return started
+    except Exception as e:
+        db.rollback()
+        logger.error(f"on_stage_entered failed for {lead_id} stage={new_stage_id}: {e}")
+        return 0
+    finally:
+        db.close()
+
 
 def on_lead_created(lead_id: str, brand: str = "") -> int:
     """Start every active sequence whose trigger_event matches the
@@ -1440,6 +1505,173 @@ def seed_p03_address_confirmation() -> None:
     except Exception as e:
         db.rollback()
         logger.warning(f"Failed to seed P03 sequence (non-fatal): {e}")
+    finally:
+        db.close()
+
+
+def _p06_long_term_nurture_step_definitions() -> list[dict]:
+    """Canonical 8-step layout for P06 Long Term Nurture. ~349-day
+    nurture cadence with calendar_day waits — first message is 28 days
+    after entry to LTN, last team-ping is ~year+ out.
+
+    All sends use the sequence-default 8 AM-8 PM CT window. calendar_day
+    snapping fires every message at 8:00 AM local on its target date;
+    admin can narrow per-step windows in the editor if a specific time
+    of day is preferred (Alan's GHL spec doesn't specify any).
+    """
+    sms1 = (
+        "Hey! This is Amy with A&T's Fence Staining 👋 Just wanted to "
+        "reach out again, fence staining is usually something people "
+        "circle back to when the timing feels right. If you ever want "
+        "to talk it through, I'm here."
+    )
+    sms2 = (
+        "Hey {{customer_first_name}} hope you're well. Just wanted to "
+        "mention we're currently offering 20% off fence staining for a "
+        "limited time. If that helps make the timing work, feel free "
+        "to text me back anytime 👍"
+    )
+    sms3 = (
+        "Hey {{customer_first_name}}! Quick tip! untreated fences "
+        "typically need full replacement after 10-12 years, but staining "
+        "and replacing a few boards (if needed) can extend the life 15+ "
+        "years. If you want a quick updated estimate, just shoot me a text!"
+    )
+    sms4 = (
+        "Hey {{customer_first_name}}, just finished a fence staining job "
+        "near your area and the homeowner loved the results. If you'd "
+        "like to see before/after photos or get an updated quote, just "
+        "text me back!"
+    )
+    sms5 = (
+        "Hey {{customer_first_name}}, just checking — is fence staining "
+        "still on your radar, or have you gone a different direction? "
+        "Either way, no worries at all!"
+    )
+    sms6 = (
+        "Hey {{customer_first_name}}, it's Amy with A&T's Fence Staining! "
+        "Just wanted to check in — we've been booking up fast this "
+        "season. If you want to get on the schedule before things fill "
+        "up, just text me back and I'll get you a fresh quote!"
+    )
+    sms7 = (
+        "Hey {{customer_first_name}}, it's been a while! If your fence "
+        "is still untreated, it's not too late — we'd love to help you "
+        "protect it before more weather damage sets in. Want me to send "
+        "over an updated estimate?"
+    )
+    notify_body = (
+        "CALL LEAD! they never responded to COLD LEAD\n\n{{customer_name}}"
+    )
+    return [
+        # Step 0 — SMS 1, +28d
+        {
+            "position": 0, "delay_hours": 28, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms1,
+        },
+        # Step 1 — SMS 2 (20% off), +7d
+        {
+            "position": 1, "delay_hours": 7, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms2,
+        },
+        # Step 2 — SMS 3 (untreated fence tip), +14d
+        {
+            "position": 2, "delay_hours": 14, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms3,
+        },
+        # Step 3 — SMS 4 (recent nearby job), +30d
+        {
+            "position": 3, "delay_hours": 30, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms4,
+        },
+        # Step 4 — SMS 5 (still on radar?), +30d
+        {
+            "position": 4, "delay_hours": 30, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms5,
+        },
+        # Step 5 — SMS 6 (booking up), +60d
+        {
+            "position": 5, "delay_hours": 60, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms6,
+        },
+        # Step 6 — SMS 7 (weather damage), +90d
+        {
+            "position": 6, "delay_hours": 90, "wait_kind": "calendar_day",
+            "action_kind": "send_message", "message_template": sms7,
+        },
+        # Step 7 — internal notify (final, +90d after SMS 7)
+        {
+            "position": 7, "delay_hours": 90, "wait_kind": "calendar_day",
+            "action_kind": "notify_internal", "message_template": notify_body,
+        },
+    ]
+
+
+def seed_p06_long_term_nurture() -> None:
+    """Recreates Alan's GHL workflow 'P06: Long Term Nurture' inside our
+    engine. Triggered when a lead enters the LONG TERM NURTURE pipeline
+    stage (via U01, P1 end, P03 end, or a manual move in GHL).
+
+    Idempotent — only seeds on first boot. Inactive by default; admin
+    flips it on after reviewing the message bodies.
+
+    Flow (8 steps, ~349 days total):
+      Step 0 — SMS 1 (general check-in),       +28d
+      Step 1 — SMS 2 (20% off promo),          +7d
+      Step 2 — SMS 3 (untreated fence tip),   +14d
+      Step 3 — SMS 4 (recent nearby job),     +30d
+      Step 4 — SMS 5 (still on radar?),       +30d
+      Step 5 — SMS 6 (booking up fast),       +60d
+      Step 6 — SMS 7 (weather damage),        +90d
+      Step 7 — internal team ping ("CALL LEAD"), +90d
+
+    Customer reply pauses the run via on_customer_reply. The first step
+    of LTN coming in 28 days after entry means most replies happen
+    elsewhere first (P03-REPLY, P04-REPLY) — by the time P06's first
+    SMS fires, the lead has been cold for nearly a month."""
+    db = get_db()
+    try:
+        seq_name = "P06: Long Term Nurture"
+        existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
+        if existing:
+            return
+
+        seq_id = str(uuid.uuid4())
+        seq = FollowUpSequence(
+            id=seq_id,
+            name=seq_name,
+            description=(
+                "Long-term nurture cadence — recreated from Alan's GHL "
+                "workflow 'P06: Long Term Nurture'. Triggered when a lead "
+                "enters the LONG TERM NURTURE pipeline stage. 7 SMS touches "
+                "spread across ~349 days, ending with an internal team "
+                "ping to call the lead manually if they never responded.\n\n"
+                "Stop-on-reply pauses the run anywhere it hits — customer "
+                "engagement triggers the existing reply-handler flow."
+            ),
+            trigger_event=f"stage_entered:{LONG_TERM_NURTURE_STAGE_ID}",
+            pause_on_events="customer_replied",
+            active=False,
+            version=1,
+            send_window_start_hour=8,
+            send_window_end_hour=20,
+            timezone="America/Chicago",
+            created_at=_now(),
+            updated_at=_now(),
+            created_by="system:seed",
+        )
+        db.add(seq)
+        for defn in _p06_long_term_nurture_step_definitions():
+            db.add(_build_step_row(seq_id, defn))
+
+        db.commit()
+        logger.info(
+            f"Seeded P06 Long Term Nurture sequence: {seq_id} "
+            f"(8 steps, inactive — admin must review + enable)"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to seed P06 sequence (non-fatal): {e}")
     finally:
         db.close()
 

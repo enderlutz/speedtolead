@@ -179,6 +179,7 @@ async def _async_db_init():
                     seed_p0_sterling_intake,
                     seed_p03_address_confirmation,
                     seed_u01_manual_move_to_ltn,
+                    seed_p06_long_term_nurture,
                     seed_external_workflow_shells,
                 )
                 await asyncio.to_thread(seed_test_sequence)
@@ -186,6 +187,7 @@ async def _async_db_init():
                 await asyncio.to_thread(seed_p0_sterling_intake)
                 await asyncio.to_thread(seed_p03_address_confirmation)
                 await asyncio.to_thread(seed_u01_manual_move_to_ltn)
+                await asyncio.to_thread(seed_p06_long_term_nurture)
                 await asyncio.to_thread(seed_external_workflow_shells)
             except Exception as seed_err:
                 logger.warning(f"Follow-up sequence seed skipped: {seed_err}")
