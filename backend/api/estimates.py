@@ -13,7 +13,7 @@ from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
-from services.ghl import send_sms, add_contact_note, add_contact_tag, update_opportunity_stage
+from services.ghl import send_sms, send_email, add_contact_note, add_contact_tag, update_opportunity_stage
 from services import supabase_storage
 from config import get_settings as _get_settings
 
@@ -84,11 +84,55 @@ class ApproveBody(BaseModel):
     field_overrides: dict | None = None
     extra_fields: list[dict] | None = None
     scheduled_send_at: str | None = None  # ISO datetime — None = send immediately
+    also_email: bool = False  # If true + lead has contact_email, also email a copy
 
 
 class PreviewBody(BaseModel):
     field_overrides: dict | None = None
     extra_fields: list[dict] | None = None
+
+
+def _send_estimate_email_copy(lead, proposal_url: str, tiers_dict: dict) -> tuple[bool, str]:
+    """Send the proposal as an email through GHL alongside the SMS send.
+    Returns (sent_ok, info_message). Soft-fails when the lead has no email
+    on file — we just skip the email and let the SMS path do its thing,
+    so an Olga mis-click on 'Also email' doesn't break the approve flow.
+
+    Replies route back into GHL Conversations on the contact thread, so
+    the existing inbound message webhook + P04-REPLY handler keep working
+    without any extra plumbing on the email path."""
+    email_to = (lead.contact_email or "").strip()
+    if not email_to:
+        return (False, "no_email_on_file")
+    if not lead.ghl_contact_id:
+        return (False, "no_ghl_contact_id")
+
+    first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
+    subject = "Your Sterling Fence Staining Estimate"
+    # Plain-but-friendly HTML. Mirrors the SMS body so customers who
+    # received both don't see conflicting info. The proposal page itself
+    # is the source of truth for pricing detail.
+    html_body = (
+        f"<p>Hey {first_name},</p>"
+        f"<p>Here's your estimate from Sterling Fence Staining — "
+        f"three finish options laid out so you can pick what fits:</p>"
+        f"<p><a href=\"{proposal_url}\" "
+        f"style=\"background:#1d4ed8;color:#fff;padding:10px 18px;"
+        f"text-decoration:none;border-radius:6px;display:inline-block;\">"
+        f"View Your Estimate</a></p>"
+        f"<p>Or paste this link in a browser:<br>"
+        f"<a href=\"{proposal_url}\">{proposal_url}</a></p>"
+        f"<p>Reply here or shoot us a text if you want to chat through it. "
+        f"Thanks!</p>"
+        f"<p>— Sterling Fence Staining</p>"
+    )
+    ok = send_email(
+        contact_id=lead.ghl_contact_id,
+        subject=subject,
+        html_body=html_body,
+        location_id=lead.ghl_location_id or None,
+    )
+    return (ok, "sent" if ok else "send_failed")
 
 
 @router.get("/estimates")
@@ -492,6 +536,19 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'} with proposal link: {proposal_url}",
                           {"token": token, "signature_price": sig_price, "sms_sent": sms_sent})
 
+        # Optional email copy — only when admin checked "Also email" AND
+        # we just sent immediately (scheduled sends route through the SMS
+        # queue worker; email-on-schedule isn't wired yet). Soft-fails on
+        # missing email so the SMS path is unaffected.
+        if body and body.also_email and not sms_scheduled and lead.ghl_contact_id:
+            email_ok, email_info = _send_estimate_email_copy(lead, proposal_url, tiers_dict)
+            log_event(
+                lead.id,
+                "estimate_emailed_to_customer" if email_ok else "estimate_email_skipped",
+                f"Email result: {email_info} ({lead.contact_email or 'no email'})",
+                {"token": token, "email_to": lead.contact_email or "", "email_sent": email_ok},
+            )
+
         # Add GHL contact note with all 3 tier prices.
         # Includes:
         #   - Sequential estimate number per lead ("Estimate #1", "#2"…)
@@ -827,6 +884,7 @@ class SavePdfField(BaseModel):
 class SavePdfBody(BaseModel):
     fields: list[SavePdfField]
     send: bool = False
+    also_email: bool = False  # If true + lead has contact_email, also email a copy
 
 
 @router.post("/estimates/{estimate_id}/save-pdf")
@@ -950,6 +1008,18 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'}: {proposal_url}")
+
+            # Optional email copy. Soft-fails on missing email so the SMS
+            # path is unaffected when admin clicks "Also email" on a lead
+            # without contact_email on file.
+            if body.also_email and lead.ghl_contact_id:
+                tiers_dict = est.to_dict()["tiers"]
+                email_ok, email_info = _send_estimate_email_copy(lead, proposal_url, tiers_dict)
+                log_event(
+                    lead.id,
+                    "estimate_emailed_to_customer" if email_ok else "estimate_email_skipped",
+                    f"Email result: {email_info} ({lead.contact_email or 'no email'})",
+                )
 
             # GHL tag + note. "estimate sent" with a space matches Alan's
             # GHL workflow vocabulary, which is what P1 Sterling Estimate

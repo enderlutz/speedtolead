@@ -259,6 +259,69 @@ def send_whatsapp(contact_id: str, message: str, location_id: str | None = None)
     return _send_message("WhatsApp", contact_id, message, location_id)
 
 
+def send_email(
+    contact_id: str,
+    subject: str,
+    html_body: str,
+    location_id: str | None = None,
+    attachments: list[str] | None = None,
+    max_retries: int = 3,
+) -> bool:
+    """Send an email to a contact via GHL's Conversations API.
+
+    The "From" address is whatever the GHL location has configured under
+    Settings → Email Services. We do NOT set `emailFrom` here so GHL uses
+    the location default (one sender per location keeps brand consistency).
+
+    Replies route into GHL Conversations on the contact thread automatically
+    — same as SMS replies — so the existing inbound message webhook handles
+    them and the reply-handler dispatch (P04-REPLY etc.) continues to work.
+
+    `attachments` is an optional list of public URLs. GHL fetches each URL
+    and attaches it to the outgoing email. The proposal PDF page is served
+    publicly so we can either link to it in `html_body` (current SMS pattern)
+    or attach the raw PDF — caller's choice.
+
+    Returns True on success."""
+    settings = get_settings()
+    payload: dict = {
+        "type": "Email",
+        "contactId": contact_id,
+        "subject": subject,
+        "html": html_body,
+        "locationId": location_id or settings.ghl_location_id,
+    }
+    atts = [u for u in (attachments or []) if u]
+    if atts:
+        payload["attachments"] = atts
+
+    for attempt in range(max_retries):
+        try:
+            r = _client.post(
+                f"{GHL_BASE}/conversations/messages",
+                headers=_headers(location_id),
+                json=payload,
+                timeout=20,
+            )
+            if r.status_code == 429:
+                wait = min(2 ** attempt, 10)
+                logger.warning(f"GHL email rate-limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            logger.info(f"GHL email sent to {contact_id} (attempt {attempt + 1}, subject={subject!r})")
+            return True
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = min(2 ** attempt, 8)
+                logger.warning(f"GHL email failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                time.sleep(wait)
+            else:
+                logger.error(f"GHL email FAILED after {max_retries} attempts for {contact_id}: {e}")
+                return False
+    return False
+
+
 # --- Contact notes ---
 
 def add_contact_note(contact_id: str, body: str, location_id: str | None = None) -> str | None:
