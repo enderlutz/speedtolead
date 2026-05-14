@@ -839,6 +839,17 @@ def start_test_run(body: TestRunBody, user: dict = Depends(require_admin)):
         if not seq_active:
             warnings.append("This sequence is INACTIVE — the run will pause itself on the next tick until you enable the sequence.")
 
+        # Force a tick immediately so admin sees the test fire in seconds
+        # instead of waiting up to 5 minutes for the background loop. Only
+        # done when master+sequence are both on (otherwise the tick has
+        # nothing to do and we'd just confuse the response payload).
+        tick_summary = None
+        if master_on and seq_active:
+            try:
+                tick_summary = engine_tick()
+            except Exception as e:
+                logger.warning(f"Auto-tick after test-run failed (non-fatal): {e}")
+
         return {
             "run_id": run_id,
             "lead_id": lead_id,
@@ -847,7 +858,8 @@ def start_test_run(body: TestRunBody, user: dict = Depends(require_admin)):
             "master_on": master_on,
             "sequence_active": seq_active,
             "warnings": warnings,
-            "hint": " ".join(warnings) if warnings else "All set — engine will fire on the next tick (within 5 min).",
+            "tick_summary": tick_summary,
+            "hint": " ".join(warnings) if warnings else "All set — engine fired immediately, check your phone.",
         }
     except HTTPException:
         raise
