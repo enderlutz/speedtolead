@@ -198,7 +198,41 @@ def toggle_sequence(seq_id: str, user: dict = Depends(require_admin)):
         seq = db.query(FollowUpSequence).filter(FollowUpSequence.id == seq_id).first()
         if not seq:
             raise HTTPException(status_code=404, detail="Sequence not found")
-        seq.active = not bool(seq.active)
+
+        will_be_active = not bool(seq.active)
+        # When flipping a sequence ON, reject if any send_message step
+        # carries a "see image above" marker (`^` at end of body) without
+        # an attachment_url. Catches the P0 footgun where admin enables
+        # the sequence before pasting the photo URL — the customer would
+        # otherwise get a text saying "Btw this is a fence we just
+        # finished up nearby ^" with no image attached.
+        if will_be_active:
+            steps = (
+                db.query(FollowUpStep)
+                .filter(FollowUpStep.sequence_id == seq_id)
+                .order_by(FollowUpStep.position)
+                .all()
+            )
+            missing: list[int] = []
+            for s in steps:
+                if (s.action_kind or "send_message") != "send_message":
+                    continue
+                body = (s.message_template or "").rstrip()
+                if body.endswith("^") and not (s.attachment_url or "").strip():
+                    missing.append(s.position or 0)
+            if missing:
+                positions = ", ".join(str(p) for p in missing)
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Cannot activate '{seq.name}' — step(s) {positions} "
+                        f"end with '^' (image marker) but have no attachment_url. "
+                        f"Paste the public image URL into each step's "
+                        f"Attachment URL field, then try again."
+                    ),
+                )
+
+        seq.active = will_be_active
         seq.updated_at = _now()
         db.commit()
         return {"id": seq.id, "active": bool(seq.active)}

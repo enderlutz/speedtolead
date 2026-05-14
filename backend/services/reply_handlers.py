@@ -20,7 +20,7 @@ when those workflows are migrated.
 """
 from __future__ import annotations
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from database import get_db, Lead, FollowUpRun, FollowUpSequence
 from services.ghl import (
@@ -60,7 +60,12 @@ TAG_REPLIED_TO_LTN = "replied to long term nurture"
 
 
 def _norm(t: str) -> str:
-    return " ".join((t or "").strip().lower().split())
+    """Lowercase + collapse whitespace + fold underscores to spaces.
+    The underscore fold catches legacy contacts tagged `estimate_sent`
+    or `cold_lead` (from before the 2026-05-14 tag-form fix) so the
+    reply handlers correctly identify them as `estimate sent` /
+    `cold lead`."""
+    return " ".join((t or "").strip().lower().replace("_", " ").split())
 
 
 def _get_contact_tags(contact_id: str, location_id: str | None) -> set[str]:
@@ -225,12 +230,31 @@ def _handle_p06_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     return True
 
 
-def _handle_p01_intake_reply(db, lead: Lead, body: str) -> bool:
-    """If the lead has an active OR recently-paused run on the P0 Sterling
-    Intake sequence, treat this reply as the intake-converted signal. Move
-    them to HOT LEAD_SEND ESTIMATE and notify Olga + Alan.
+def _handle_p01_intake_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
+    """If the lead is in the P0 Sterling Intake flow and replies, treat
+    it as the intake-converted signal: move them to HOT LEAD_SEND ESTIMATE
+    and notify Olga + Alan.
+
+    Idempotency is tag-based — once we've fired this handler once, the
+    `replied-to-intake` tag is on the contact and we no-op on subsequent
+    replies. Previously we used a started_at-vs-now cutoff as a proxy for
+    "recently paused", which silently dropped any intake reply arriving
+    more than 30 minutes after enrollment (a likely scenario since P0
+    runs for 24h).
 
     Returns True if the handler fired."""
+    # Primary idempotency — the `replied-to-intake` tag is written on
+    # the first fire below. If it's already on the contact, skip.
+    if TAG_REPLIED_TO_INTAKE in tags:
+        return False
+    # Secondary idempotency — the lead is already in the destination
+    # stage (HOT LEAD_SEND ESTIMATE). Covers the tiny race window where
+    # two replies arrive in the milliseconds between "handler writes the
+    # GHL tag" and "GHL propagates it back so we can read it." Without
+    # this, the second pass sees no tag and would re-fire notifications.
+    if (lead.ghl_pipeline_stage_id or "") == HOT_LEAD_SEND_ESTIMATE_STAGE_ID:
+        return False
+
     # Find the Sterling Intake sequence by name. Matches whatever the
     # admin renamed it to as long as the name still starts with "P0".
     seq = (
@@ -241,10 +265,10 @@ def _handle_p01_intake_reply(db, lead: Lead, body: str) -> bool:
     if not seq:
         return False
 
-    # Look for a run that's active OR was paused within the last 30 min
-    # (just-paused by on_customer_reply for this very reply). Anything
-    # paused longer is from a stale earlier flow — don't fire.
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    # The lead must have a P0 run on record (active or paused). The pause
+    # was set by on_customer_reply just before this dispatcher ran. No
+    # time cutoff — the `replied-to-intake` tag gate above is what
+    # prevents re-firing on later replies.
     run = (
         db.query(FollowUpRun)
         .filter(
@@ -256,13 +280,6 @@ def _handle_p01_intake_reply(db, lead: Lead, body: str) -> bool:
         .first()
     )
     if not run:
-        return False
-    # If paused, only fire if it was paused recently (i.e. by this reply).
-    if run.status == "paused" and (run.completed_at or run.started_at) and run.started_at < cutoff:
-        # Conservative: started a long time ago, paused state is stale.
-        # Skip rather than risk firing on an old, unrelated reply.
-        # (started_at is the closest proxy we have for "recently active";
-        # an explicit paused_at would be cleaner but isn't on the model.)
         return False
 
     # Tag GHL contact (so it's easy to see in the GHL UI which leads
@@ -441,7 +458,7 @@ def dispatch_reply_handlers(lead_id: str, body: str) -> list[str]:
             logger.error(f"P06-REPLY handler raised for lead {lead_id}: {e}")
 
         try:
-            if _handle_p01_intake_reply(db, lead, body):
+            if _handle_p01_intake_reply(db, lead, body, tags):
                 fired.append("p01_intake_reply")
         except Exception as e:
             db.rollback()

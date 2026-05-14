@@ -322,7 +322,14 @@ def _sync_location(location_id: str, label: str):
                                 from database import FollowUpSequence, FollowUpRun
                                 from services.followup_engine import start_run
 
-                                norm_tags = [" ".join(str(t).strip().lower().split()) for t in ghl_tag_set]
+                                # Normalize tags: lowercase, collapse
+                                # whitespace, underscore→space. Matches the
+                                # webhook path so legacy `estimate_sent`
+                                # (underscore) maps to `estimate sent` (space).
+                                def _norm_tag(t: str) -> str:
+                                    return " ".join(str(t or "").strip().lower().replace("_", " ").split())
+
+                                norm_tags = [_norm_tag(t) for t in ghl_tag_set]
                                 seqs = (
                                     db.query(FollowUpSequence)
                                     .filter(FollowUpSequence.active.is_(True))
@@ -332,7 +339,7 @@ def _sync_location(location_id: str, label: str):
                                     te = (seq.trigger_event or "").strip().lower()
                                     if not te.startswith("tag_added:"):
                                         continue
-                                    seq_tag = " ".join(te[len("tag_added:"):].strip().split())
+                                    seq_tag = _norm_tag(te[len("tag_added:"):])
                                     if seq_tag not in norm_tags:
                                         continue
                                     any_run = (
@@ -340,6 +347,7 @@ def _sync_location(location_id: str, label: str):
                                         .filter(
                                             FollowUpRun.lead_id == existing.id,
                                             FollowUpRun.sequence_id == seq.id,
+                                            FollowUpRun.test_mode.is_(False),
                                         )
                                         .first()
                                     )

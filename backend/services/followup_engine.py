@@ -887,10 +887,13 @@ def backfill_stage_triggered_sequences() -> dict:
             summary["leads_scanned"] += len(leads_in_stage)
 
             for lead in leads_in_stage:
-                # Strict "ever enrolled" check — no run history at all.
+                # Strict "ever enrolled" check — no non-test run history
+                # at all. Test runs are excluded (see has_ever_been_enrolled
+                # for rationale).
                 existing = db.query(FollowUpRun).filter(
                     FollowUpRun.lead_id == lead.id,
                     FollowUpRun.sequence_id == seq.id,
+                    FollowUpRun.test_mode.is_(False),
                 ).first()
                 if existing:
                     summary["skipped_already_enrolled"] += 1
@@ -917,11 +920,17 @@ def backfill_stage_triggered_sequences() -> dict:
 
 
 def has_ever_been_enrolled(db, lead_id: str, sequence_id: str) -> bool:
-    """True if the lead has ANY run history on this sequence — active,
-    paused, completed, stopped, or failed. Once this returns True, no
-    trigger (tag_added, stage_entered, lead_created) will start a new
+    """True if the lead has ANY non-test run history on this sequence —
+    active, paused, completed, stopped, or failed. Once this returns True,
+    no trigger (tag_added, stage_entered, lead_created) will start a new
     run for this (lead, sequence) combo. Admin can still manually
     re-enroll via /followups/sequences/{id}/restart/{lead_id}.
+
+    Test-mode runs (started via Settings → Send test sequence) are
+    explicitly excluded — admin firing a test against Fragne's lead
+    must NOT block that lead from ever being auto-enrolled by a real
+    trigger later. Otherwise testing the workflow against a real lead
+    permanently breaks automation for that lead.
 
     This is the strongest possible safeguard against duplicate
     sequences — guarantees that no automated path can re-send the
@@ -929,10 +938,22 @@ def has_ever_been_enrolled(db, lead_id: str, sequence_id: str) -> bool:
     re-engagement (returning leads) requires explicit admin action.
     The trade is worthwhile: customer-side duplicates are a much worse
     failure mode than "Olga clicks one extra button for a returning
-    lead."""
+    lead."
+
+    Backfill paths for sequences activated AFTER leads were already in
+    a matching state:
+      - `stage_entered:*` sequences — covered by `backfill_stage_
+        triggered_sequences` (4-week cadence loop, see main.py).
+      - `tag_added:*` sequences — covered opportunistically by the GHL
+        lead-poller at `services/poller.py:312` (60s cadence) when it
+        re-scans tags on each known contact. Leads that aren't in any
+        active GHL pipeline the poller iterates won't be caught — that
+        edge is acceptable since dormant pipelines (DECLINED, CLOSED)
+        are terminal anyway and U02 would have blocked enrollment."""
     return db.query(FollowUpRun).filter(
         FollowUpRun.lead_id == lead_id,
         FollowUpRun.sequence_id == sequence_id,
+        FollowUpRun.test_mode.is_(False),
     ).first() is not None
 
 
@@ -1075,7 +1096,7 @@ def _p1_step_definitions() -> list[dict]:
     and migrate-existing paths."""
     text1 = (
         "Hey {{customer_first_name}}, your estimate is in the link above! "
-        "How soon are you looking to have the the work done?"
+        "How soon are you looking to have the work done?"
     )
     text2 = (
         "Hey {{customer_first_name}}, Quick question- when you reviewed "
@@ -1762,10 +1783,14 @@ def seed_u01_manual_move_to_ltn() -> None:
       - P03 Address Confirmation end-of-flow tag
       - Any future workflow that ends with a cold-lead tag
 
-    Idempotent: if U01 is already active/paused on this lead+sequence,
-    the tag-added webhook short-circuits and doesn't start a duplicate.
-    Re-tagging a lead later re-fires the sequence (the prior run is
-    completed and no longer blocks).
+    Strict no-duplicate rule (Option C): U01 fires AT MOST ONCE per lead.
+    Once a lead has any non-test U01 run on record (active, paused,
+    completed, stopped, or failed), re-tagging `cold lead` is a no-op.
+    Re-engagement requires admin to call the restart-sequence endpoint
+    explicitly. This protects against re-tag loops (e.g. P1 step 9 tags
+    `cold lead`, the GHL tag webhook fires U01, then P1 step 10 also
+    moves to LTN — only one of those should fire; the second is silently
+    blocked).
 
     Active by default — Olga relies on this to bucket leads without
     having to manually move them in GHL. Toggle off via the editor if
@@ -1788,8 +1813,12 @@ def seed_u01_manual_move_to_ltn() -> None:
                 "Fires from any source: Olga tagging a stuck lead manually, "
                 "P1 Sterling Estimate Sent's end tag, P03 Address "
                 "Confirmation's end tag, or any future workflow that ends "
-                "with a cold-lead tag. Idempotent — re-tagging a lead later "
-                "re-fires (prior run is completed).\n\n"
+                "with a cold-lead tag.\n\n"
+                "Strict no-duplicate rule: U01 fires at most once per lead. "
+                "Re-tagging `cold lead` after the first run is a no-op "
+                "(protects against tag re-fire loops between sibling "
+                "workflows). Admin can manually re-enroll via the "
+                "restart-sequence endpoint if needed.\n\n"
                 "Active by default. Toggle off if Alan wants a different "
                 "cold-lead handoff."
             ),
@@ -1914,18 +1943,46 @@ EXTERNAL_WORKFLOW_P04_REPLY_NAME = "P04-REPLY Estimate Reply Catcher"
 EXTERNAL_WORKFLOW_P06_REPLY_NAME = "P06-REPLY LTN Reply Catcher"
 EXTERNAL_WORKFLOW_U02_NAME = "U02 Stop Workflows in Terminal Stages"
 
+# Canonical name → trigger_event map. The trigger_event is the IMMUTABLE
+# lookup key for shell rows — admin can rename a shell in the workflow
+# editor without breaking the kill-switch query. Keep this map in sync
+# with the seed calls below.
+EXTERNAL_WORKFLOW_TRIGGERS: dict[str, str] = {
+    "P02a Ad Tag — See This Grey":    "external:form_submitted:see_this_grey",
+    "P02b Ad Tag — Walk Outside":     "external:form_submitted:walk_outside",
+    "P02c Ad Tag — Premium 1":        "external:form_submitted:premium_1",
+    "P02d Ad Tag — Premium 2":        "external:form_submitted:premium_2",
+    EXTERNAL_WORKFLOW_P03_REPLY_NAME: "external:customer_replied_with_tag:asking-for-address",
+    EXTERNAL_WORKFLOW_P04_REPLY_NAME: "external:customer_replied_with_tag:estimate sent",
+    EXTERNAL_WORKFLOW_P06_REPLY_NAME: "external:customer_replied_with_tag:cold lead",
+    EXTERNAL_WORKFLOW_U02_NAME:       "external:pipeline_stage_changed:terminal",
+}
+
 
 def is_external_workflow_active(name: str) -> bool:
     """Kill-switch query used by external handlers (ad_attribution,
-    reply_handlers). Returns True if a shell with this name exists AND is
-    active, OR if no shell row exists at all (fail-open during first
-    deploy before seeding has happened). Returns False only when admin
-    has explicitly toggled the shell off in the workflow editor."""
+    reply_handlers). Returns True if the shell whose trigger_event
+    matches `name`'s canonical entry is active, OR if no row exists yet
+    (fail-open during first deploy before seeding has happened). Returns
+    False only when admin has explicitly toggled the shell off.
+
+    Looks up by trigger_event (immutable) instead of by name (mutable) —
+    if admin renames the shell to 'U02 (disabled)' in the editor to try
+    to disable it, the kill-switch still finds the row by trigger_event
+    and correctly reports its `active` flag. The intuitive "rename to
+    disable" UX move no longer silently bypasses the guard."""
+    trigger = EXTERNAL_WORKFLOW_TRIGGERS.get(name)
+    if not trigger:
+        # Unknown shell name (not in our map) — fail-open so handler runs.
+        # Caller passed a name we don't recognize; nothing to disable.
+        return True
     db = get_db()
     try:
-        seq = db.query(FollowUpSequence).filter(FollowUpSequence.name == name).first()
+        seq = db.query(FollowUpSequence).filter(
+            FollowUpSequence.trigger_event == trigger
+        ).first()
         if seq is None:
-            return True
+            return True  # not seeded yet — fail-open
         return bool(seq.active)
     except Exception as e:
         logger.warning(f"is_external_workflow_active({name!r}) failed: {e}")
@@ -1937,15 +1994,43 @@ def is_external_workflow_active(name: str) -> bool:
 def _seed_external_workflow_shell(
     name: str, description: str, trigger_event: str, active: bool = True
 ) -> None:
-    """Idempotent — creates one read-only shell sequence if it doesn't
-    exist. Sequences have no steps; the handler in services/ does the work.
+    """Upsert a read-only shell sequence keyed by `trigger_event`.
+
+    Behavior:
+      - First deploy: insert a fresh row with the supplied fields.
+      - Re-deploy: if a row with this `trigger_event` already exists,
+        sync `name` and `description` to the latest code values. This
+        lets us evolve the admin-facing copy (e.g. U02's terminal-stage
+        list) without requiring a manual DB edit on the live system.
+      - The `active` flag is NEVER touched on re-deploy — admin's toggle
+        intent wins over the seed default (e.g. they may have turned
+        P02b off intentionally; redeploying shouldn't flip it back on).
+
+    Lookup is by `trigger_event` (immutable code constant) so admin
+    renames in the editor don't cause us to create duplicate rows.
 
     Marked `created_by="system:external"` so future engine work can
     recognize and skip these (e.g. the run-completion notifier wouldn't
     ever fire for a shell since no run can be started against it)."""
     db = get_db()
     try:
-        if db.query(FollowUpSequence).filter(FollowUpSequence.name == name).first():
+        existing = (
+            db.query(FollowUpSequence)
+            .filter(FollowUpSequence.trigger_event == trigger_event)
+            .first()
+        )
+        if existing:
+            changed = False
+            if existing.name != name:
+                existing.name = name
+                changed = True
+            if (existing.description or "") != description:
+                existing.description = description
+                changed = True
+            if changed:
+                existing.updated_at = _now()
+                db.commit()
+                logger.info(f"Refreshed external workflow shell: {name}")
             return
         db.add(FollowUpSequence(
             id=str(uuid.uuid4()),
@@ -2089,7 +2174,8 @@ def seed_external_workflow_shells() -> None:
             "  • DECLINED ESTIMATE\n"
             "  • Top Priority-Responded to Estimate\n"
             "  • DEAL CLOSED & NOT SCHEDULED\n"
-            "  • CLOSED & SCHEDULED\n\n"
+            "  • CLOSED & SCHEDULED\n"
+            "  • Cold Leads (Never answered)\n\n"
             "Triggered from two surfaces: (a) the follow-up engine's "
             "move_column action whenever WE move a lead, and (b) the "
             "5-min GHL poller when Olga or Alan moves a lead manually "

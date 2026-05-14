@@ -569,8 +569,16 @@ async def ghl_tag_added_webhook(request: Request):
         if not lead:
             return {"status": "ignored", "reason": "no_lead_for_contact", "contact_id": contact_id}
 
-        # Normalize tags to lowercase + collapsed whitespace for matching.
-        norm_tags = [" ".join(t.strip().lower().split()) for t in tags if t]
+        # Normalize tags to lowercase, collapse whitespace, AND fold
+        # underscores into spaces. The underscore fold catches legacy
+        # contacts tagged `estimate_sent` (with underscore — pre-2026-05-14
+        # dashboard bug) and matches them against the current trigger
+        # `tag_added:estimate sent`. Without this, leads tagged before the
+        # fix would never auto-enroll P1.
+        def _norm_tag(t: str) -> str:
+            return " ".join(str(t or "").strip().lower().replace("_", " ").split())
+
+        norm_tags = [_norm_tag(t) for t in tags if t]
         started: list[str] = []
         sequences = (
             db.query(FollowUpSequence)
@@ -581,7 +589,7 @@ async def ghl_tag_added_webhook(request: Request):
             te = (seq.trigger_event or "").strip().lower()
             if not te.startswith("tag_added:"):
                 continue
-            seq_tag = " ".join(te[len("tag_added:"):].strip().split())
+            seq_tag = _norm_tag(te[len("tag_added:"):])
             if seq_tag not in norm_tags:
                 continue
             # No-duplicates rule — refuse to start a new run if this
