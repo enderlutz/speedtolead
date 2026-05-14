@@ -587,21 +587,59 @@ def tick() -> dict:
         summary["due"] = len(runs)
         summary["total_active"] = total_active
 
-        for run in runs:
-            summary["processed"] += 1
-            try:
-                pre_status = run.status
-                pre_step = run.current_step
-                _advance_run(db, run)
-                db.commit()
-                if run.status == "active" and pre_status == "active" and run.current_step != pre_step:
-                    summary["sent"] += 1
-                elif run.status == "failed":
-                    summary["failed"] += 1
-                logger.info(f"Follow-up: advanced run {run.id} pre_status={pre_status} post_status={run.status} step {pre_step}->{run.current_step}")
-            except Exception as e:
-                db.rollback()
-                logger.error(f"Follow-up engine: failed advancing run {run.id}: {e}")
+        def _process_batch(due_runs):
+            for run in due_runs:
+                summary["processed"] += 1
+                try:
+                    pre_status = run.status
+                    pre_step = run.current_step
+                    _advance_run(db, run)
+                    db.commit()
+                    if run.status == "active" and pre_status == "active" and run.current_step != pre_step:
+                        summary["sent"] += 1
+                    elif run.status == "failed":
+                        summary["failed"] += 1
+                    logger.info(f"Follow-up: advanced run {run.id} pre_status={pre_status} post_status={run.status} step {pre_step}->{run.current_step}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Follow-up engine: failed advancing run {run.id}: {e}")
+
+        _process_batch(runs)
+
+        # Burst loop — after the initial pass, some runs may have been
+        # advanced to a next_due_at within the next ~90s (typical for
+        # `wait_kind="seconds"` pacing like P0 Sterling Intake's 15-second
+        # gap between intro SMS and photo MMS). Without this, those steps
+        # would wait up to a full 5 minutes for the next background tick,
+        # destroying the psychological pacing. Cap at 5 iterations so a
+        # misconfigured sub-minute loop can't dominate the tick.
+        import time as _t
+        burst_window_s = 90
+        for _ in range(5):
+            now_dt = _now_dt()
+            horizon_iso = (now_dt + timedelta(seconds=burst_window_s)).isoformat()
+            soon_runs = (
+                db.query(FollowUpRun)
+                .filter(
+                    FollowUpRun.status == "active",
+                    FollowUpRun.next_due_at != "",
+                    FollowUpRun.next_due_at <= horizon_iso,
+                )
+                .order_by(FollowUpRun.next_due_at.asc())
+                .limit(50)
+                .all()
+            )
+            if not soon_runs:
+                break
+            # Sleep until the earliest one is due (capped at burst_window_s).
+            earliest = _parse_iso(soon_runs[0].next_due_at)
+            if earliest:
+                wait_s = max(0.0, (earliest - _now_dt()).total_seconds())
+                wait_s = min(wait_s, float(burst_window_s))
+                if wait_s > 0:
+                    _t.sleep(wait_s)
+            _process_batch(soon_runs)
+
         logger.info(f"Follow-up tick: master_on=True {summary}")
         return summary
     finally:
