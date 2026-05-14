@@ -34,6 +34,7 @@ from services.followup_engine import (
     is_external_workflow_active,
     EXTERNAL_WORKFLOW_P03_REPLY_NAME,
     EXTERNAL_WORKFLOW_P04_REPLY_NAME,
+    EXTERNAL_WORKFLOW_P06_REPLY_NAME,
 )
 from config import get_settings
 
@@ -45,6 +46,7 @@ HOT_LEAD_SEND_ESTIMATE_STAGE_ID = "616087fa-4144-454e-b3d3-ff3669cb9461"
 ADDRESS_FOLLOW_UP_STAGE_ID = "86fd0197-38ee-4999-bd26-4cf175aeba6b"
 RESPONDED_TO_ADDRESS_STAGE_ID = "92585169-bbc1-42c5-945d-63caf780e0b1"
 RESPONDED_TO_ESTIMATE_STAGE_ID = "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b"
+RESPONDED_TO_LTN_STAGE_ID = "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01"
 
 # Tag names mirror Alan's GHL workflow vocabulary so it's obvious where
 # they come from. Lowercase + space-collapsed for matching.
@@ -53,6 +55,8 @@ TAG_RESPONDED_TO_ADDRESS = "responded to address"
 TAG_REPLIED_TO_INTAKE = "replied-to-intake"
 TAG_ESTIMATE_SENT = "estimate sent"
 TAG_REPLIED_TO_ESTIMATE = "replied to estimate"
+TAG_COLD_LEAD = "cold lead"
+TAG_REPLIED_TO_LTN = "replied to long term nurture"
 
 
 def _norm(t: str) -> str:
@@ -167,6 +171,56 @@ def _handle_p04_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     logger.info(
         f"P04-REPLY fired for lead {lead.id} "
         f"(stage {previous_stage} -> {RESPONDED_TO_ESTIMATE_STAGE_ID})"
+    )
+    return True
+
+
+def _handle_p06_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
+    """If the customer is tagged `cold lead` AND hasn't already been
+    tagged `replied to long term nurture`, this reply is the LTN-replied
+    signal. Tag them, move to Responded to long term nurture, ping the
+    team.
+
+    Returns True if the handler fired. Skipped silently when the
+    P06-REPLY shell sequence is toggled inactive in the workflow editor.
+
+    Note: `on_customer_reply` (called earlier in the inbound webhook)
+    already pauses any active P06: Long Term Nurture run, which is
+    Alan's "Remove from Workflow: P06" step in the GHL spec."""
+    if not is_external_workflow_active(EXTERNAL_WORKFLOW_P06_REPLY_NAME):
+        return False
+    if TAG_COLD_LEAD not in tags:
+        return False
+    if TAG_REPLIED_TO_LTN in tags:
+        return False  # idempotent — already handled
+
+    # Tag GHL contact + push pipeline stage. Both best-effort.
+    try:
+        add_contact_tag(
+            lead.ghl_contact_id,
+            TAG_REPLIED_TO_LTN,
+            location_id=lead.ghl_location_id or None,
+        )
+    except Exception as e:
+        logger.warning(f"P06-REPLY tag add failed for lead {lead.id}: {e}")
+
+    previous_stage = lead.ghl_pipeline_stage_id or ""
+    lead.ghl_pipeline_stage_id = RESPONDED_TO_LTN_STAGE_ID
+    if lead.ghl_opportunity_id:
+        try:
+            update_opportunity_stage(
+                lead.ghl_opportunity_id,
+                RESPONDED_TO_LTN_STAGE_ID,
+                lead.ghl_location_id or None,
+            )
+        except Exception as e:
+            logger.warning(f"P06-REPLY stage push failed for lead {lead.id}: {e}")
+    db.commit()
+
+    _notify_ltn_replied(lead, body)
+    logger.info(
+        f"P06-REPLY fired for lead {lead.id} "
+        f"(stage {previous_stage} -> {RESPONDED_TO_LTN_STAGE_ID})"
     )
     return True
 
@@ -301,6 +355,36 @@ def _notify_estimate_replied(lead: Lead, body: str) -> None:
             logger.warning(f"Olga estimate-replied WhatsApp failed: {e}")
 
 
+def _notify_ltn_replied(lead: Lead, body: str) -> None:
+    """SMS All Users + in-app to Olga per spec — broadcast to Alan,
+    Olga (WhatsApp), and Fragne with the 🔥 alert body."""
+    settings = get_settings()
+    snippet = (body or "")[:160]
+    name = lead.contact_name or "Unknown"
+    link = f"{settings.frontend_url}/leads/{lead.id}"
+    msg = (
+        f"🔥{name} Responded to Long Term Nurture!\n\n"
+        f"Check the Conversation🔥\n\n"
+        f"they said \"{snippet}\"\n{link}"
+    )
+    if settings.owner_ghl_contact_id:
+        try:
+            send_sms(settings.owner_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Alan LTN-replied SMS failed: {e}")
+    if settings.olga_ghl_contact_id:
+        try:
+            send_whatsapp(settings.olga_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Olga LTN-replied WhatsApp failed: {e}")
+    fragne_id = getattr(settings, "fragne_ghl_contact_id", "") or ""
+    if fragne_id:
+        try:
+            send_sms(fragne_id, msg)
+        except Exception as e:
+            logger.warning(f"Fragne LTN-replied SMS failed: {e}")
+
+
 def _notify_intake_converted(lead: Lead, body: str) -> None:
     settings = get_settings()
     snippet = (body or "")[:160]
@@ -358,6 +442,13 @@ def dispatch_reply_handlers(lead_id: str, body: str) -> list[str]:
         except Exception as e:
             db.rollback()
             logger.error(f"P04-REPLY handler raised for lead {lead_id}: {e}")
+
+        try:
+            if _handle_p06_reply(db, lead, body, tags):
+                fired.append("p06_reply")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"P06-REPLY handler raised for lead {lead_id}: {e}")
 
         try:
             if _handle_p01_intake_reply(db, lead, body):

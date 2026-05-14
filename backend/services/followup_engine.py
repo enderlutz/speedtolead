@@ -1836,6 +1836,7 @@ EXTERNAL_WORKFLOW_P02_NAMES = {
 }
 EXTERNAL_WORKFLOW_P03_REPLY_NAME = "P03-REPLY Address Reply Catcher"
 EXTERNAL_WORKFLOW_P04_REPLY_NAME = "P04-REPLY Estimate Reply Catcher"
+EXTERNAL_WORKFLOW_P06_REPLY_NAME = "P06-REPLY LTN Reply Catcher"
 EXTERNAL_WORKFLOW_U02_NAME = "U02 Stop Workflows in Terminal Stages"
 
 
@@ -1983,6 +1984,26 @@ def seed_external_workflow_shells() -> None:
             "disable the handler."
         ),
         trigger_event="external:customer_replied_with_tag:estimate sent",
+    )
+    # P06-REPLY — fires when a customer tagged `cold lead` replies
+    _seed_external_workflow_shell(
+        name=EXTERNAL_WORKFLOW_P06_REPLY_NAME,
+        description=(
+            "When a contact tagged `cold lead` replies AND isn't already "
+            "tagged `replied to long term nurture`, this handler:\n"
+            "  1. Tags the contact `replied to long term nurture`\n"
+            "  2. Moves the lead to the `Responded to long term nurture` "
+            "stage\n"
+            "  3. SMS Alan + WhatsApp Olga + SMS Fragne with the spec's "
+            "🔥 alert body\n\n"
+            "The existing on_customer_reply hook already pauses any active "
+            "P06: Long Term Nurture run, covering the spec's "
+            "'Remove from Workflow: P06' step.\n\n"
+            "Runs synchronously on inbound message webhook — actual logic "
+            "lives in services/reply_handlers.py. Toggle Active off to "
+            "disable the handler."
+        ),
+        trigger_event="external:customer_replied_with_tag:cold lead",
     )
     # U02 — pauses all active runs on the lead when it enters a terminal
     # pipeline stage
