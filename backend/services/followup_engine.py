@@ -1257,6 +1257,157 @@ def seed_p0_sterling_intake() -> None:
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# External-workflow shells
+# ---------------------------------------------------------------------------
+# Some migrated GHL workflows don't fit the FollowUpStep model — they're
+# synchronous one-shot handlers running off webhook hooks (P02a-d ad
+# attribution, P03-REPLY address-reply catcher). We seed read-only shell
+# sequences for them so admin sees the full inventory in the workflow
+# editor — same visibility as in GHL — and the `active` flag on the shell
+# acts as a kill-switch the handler queries before firing.
+#
+# These shells have no FollowUpStep rows. Editing them in the workflow
+# editor changes only the name/description/active. The actual logic
+# lives in services/ad_attribution.py and services/reply_handlers.py.
+
+EXTERNAL_WORKFLOW_P02_NAMES = {
+    'ad from "see this grey"': "P02a Ad Tag — See This Grey",
+    'ad from "walk outside"':  "P02b Ad Tag — Walk Outside",
+    "ad from premium 1":       "P02c Ad Tag — Premium 1",
+    "ad from premium 2":       "P02d Ad Tag — Premium 2",
+}
+EXTERNAL_WORKFLOW_P03_REPLY_NAME = "P03-REPLY Address Reply Catcher"
+
+
+def is_external_workflow_active(name: str) -> bool:
+    """Kill-switch query used by external handlers (ad_attribution,
+    reply_handlers). Returns True if a shell with this name exists AND is
+    active, OR if no shell row exists at all (fail-open during first
+    deploy before seeding has happened). Returns False only when admin
+    has explicitly toggled the shell off in the workflow editor."""
+    db = get_db()
+    try:
+        seq = db.query(FollowUpSequence).filter(FollowUpSequence.name == name).first()
+        if seq is None:
+            return True
+        return bool(seq.active)
+    except Exception as e:
+        logger.warning(f"is_external_workflow_active({name!r}) failed: {e}")
+        return True
+    finally:
+        db.close()
+
+
+def _seed_external_workflow_shell(
+    name: str, description: str, trigger_event: str, active: bool = True
+) -> None:
+    """Idempotent — creates one read-only shell sequence if it doesn't
+    exist. Sequences have no steps; the handler in services/ does the work.
+
+    Marked `created_by="system:external"` so future engine work can
+    recognize and skip these (e.g. the run-completion notifier wouldn't
+    ever fire for a shell since no run can be started against it)."""
+    db = get_db()
+    try:
+        if db.query(FollowUpSequence).filter(FollowUpSequence.name == name).first():
+            return
+        db.add(FollowUpSequence(
+            id=str(uuid.uuid4()),
+            name=name,
+            description=description,
+            trigger_event=trigger_event,
+            pause_on_events="",
+            active=active,
+            version=1,
+            send_window_start_hour=8,
+            send_window_end_hour=20,
+            timezone="America/Chicago",
+            created_at=_now(),
+            updated_at=_now(),
+            created_by="system:external",
+        ))
+        db.commit()
+        logger.info(f"Seeded external workflow shell: {name}")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to seed external shell {name!r} (non-fatal): {e}")
+    finally:
+        db.close()
+
+
+def seed_external_workflow_shells() -> None:
+    """Surface the migrated GHL workflows that don't fit the FollowUpStep
+    model — P02a-d (ad attribution) and P03-REPLY (address reply catcher)
+    — as read-only shell sequences in the workflow editor. Admin can
+    toggle each one off to disable the underlying handler."""
+    # P02a-d — one shell per ad creative tag
+    _seed_external_workflow_shell(
+        name="P02a Ad Tag — See This Grey",
+        description=(
+            "Tags the GHL contact with `ad from \"see this grey\"` when a "
+            "Facebook lead form with name `FENCE REVIVE-FULL DETAIL -GREY - "
+            "SEE THIS GREY AD 5/11/2026-copy` is submitted.\n\n"
+            "Runs synchronously after lead intake — actual logic lives in "
+            "services/ad_attribution.py. Toggle Active off to disable the "
+            "handler. Form name + tag are edited in code, not here."
+        ),
+        trigger_event="external:form_submitted:see_this_grey",
+    )
+    _seed_external_workflow_shell(
+        name="P02b Ad Tag — Walk Outside",
+        description=(
+            "Tags the GHL contact with `ad from \"walk outside\"` when a "
+            "Facebook lead form with name `FENCE REVIVE-FULL DETAIL -GREY - "
+            "WALK OUTSIDE AD 5/11/2026` is submitted.\n\n"
+            "Runs synchronously after lead intake — actual logic lives in "
+            "services/ad_attribution.py. Toggle Active off to disable the "
+            "handler. Form name + tag are edited in code, not here."
+        ),
+        trigger_event="external:form_submitted:walk_outside",
+    )
+    _seed_external_workflow_shell(
+        name="P02c Ad Tag — Premium 1",
+        description=(
+            "Tags the GHL contact with `ad from premium 1` when a Facebook "
+            "lead form with name `FENCE REVIVE-FULL DETAIL -PREMIUM AD "
+            "5/11/2026` is submitted.\n\n"
+            "Runs synchronously after lead intake — actual logic lives in "
+            "services/ad_attribution.py. Toggle Active off to disable the "
+            "handler. Form name + tag are edited in code, not here."
+        ),
+        trigger_event="external:form_submitted:premium_1",
+    )
+    _seed_external_workflow_shell(
+        name="P02d Ad Tag — Premium 2",
+        description=(
+            "Tags the GHL contact with `ad from premium 2` when a Facebook "
+            "lead form with name `FENCE REVIVE-FULL DETAIL -PREMIUM 2 AD "
+            "5/11/2026-` is submitted.\n\n"
+            "Runs synchronously after lead intake — actual logic lives in "
+            "services/ad_attribution.py. Toggle Active off to disable the "
+            "handler. Form name + tag are edited in code, not here."
+        ),
+        trigger_event="external:form_submitted:premium_2",
+    )
+    # P03-REPLY — fires when a customer tagged `asking-for-address` replies
+    _seed_external_workflow_shell(
+        name=EXTERNAL_WORKFLOW_P03_REPLY_NAME,
+        description=(
+            "When a contact tagged `asking-for-address` replies AND isn't "
+            "already tagged `responded to address`, this handler:\n"
+            "  1. Tags the contact `responded to address`\n"
+            "  2. Moves the lead to the `Responded to Address Follow Up` stage\n"
+            "  3. Broadcasts 'replied to address' notification to Olga "
+            "(WhatsApp), Alan (SMS), and Fragne (SMS)\n\n"
+            "Runs synchronously on inbound message webhook — actual logic "
+            "lives in services/reply_handlers.py. Toggle Active off to "
+            "disable the handler."
+        ),
+        trigger_event="external:customer_replied_with_tag:asking-for-address",
+    )
+
+
 def seed_test_sequence() -> None:
     """Idempotent — creates a single test sequence on first boot so admin
     has something to fire from the Settings page. Inactive by default;

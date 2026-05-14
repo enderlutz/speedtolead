@@ -30,6 +30,10 @@ from services.ghl import (
     send_sms,
     send_whatsapp,
 )
+from services.followup_engine import (
+    is_external_workflow_active,
+    EXTERNAL_WORKFLOW_P03_REPLY_NAME,
+)
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -71,7 +75,10 @@ def _handle_p03_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     'asking-for-address' (but not yet 'responded to address'), move them
     forward and notify Olga.
 
-    Returns True if the handler fired."""
+    Returns True if the handler fired. Skipped silently if the shell
+    sequence is toggled inactive in the workflow editor."""
+    if not is_external_workflow_active(EXTERNAL_WORKFLOW_P03_REPLY_NAME):
+        return False
     if TAG_ASKING_FOR_ADDRESS not in tags:
         return False
     if TAG_RESPONDED_TO_ADDRESS in tags:

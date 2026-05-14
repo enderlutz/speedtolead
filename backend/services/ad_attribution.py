@@ -12,6 +12,10 @@ and a redeploy. This is a deliberate trade-off: Alan tests new creative
 infrequently (every few weeks) and the explicit map prevents accidental
 mis-tagging if a form is renamed.
 
+Each P02a-d handler has a corresponding shell sequence in the workflow
+editor; admin can toggle them off there to disable individual taggers
+without touching code.
+
 To add a new ad form:
   1. Get the exact form name from GHL.
   2. Add a `"<form name>": "<tag>"` entry below.
@@ -20,6 +24,10 @@ To add a new ad form:
 from __future__ import annotations
 import logging
 from services.ghl import add_contact_tag
+from services.followup_engine import (
+    is_external_workflow_active,
+    EXTERNAL_WORKFLOW_P02_NAMES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +57,23 @@ def tag_for_form_name(form_name: str) -> str:
 def apply_ad_tag(contact_id: str, form_name: str, location_id: str | None = None) -> str:
     """Apply the mapped GHL tag for `form_name`. Returns the tag that was
     applied (or empty string if no match / no contact_id). Best-effort —
-    a GHL failure logs a warning but doesn't raise."""
+    a GHL failure logs a warning but doesn't raise.
+
+    Skips silently when the per-tag shell sequence is toggled inactive in
+    the workflow editor — that's the admin kill-switch for each P02 tagger."""
     tag = tag_for_form_name(form_name)
     if not tag or not contact_id:
         return ""
+
+    # Per-tag kill-switch: each P02a-d shell sequence in the workflow
+    # editor can be toggled off to disable that specific tagger without
+    # touching code. Unknown tags (not in EXTERNAL_WORKFLOW_P02_NAMES)
+    # fall through and tag as normal.
+    shell_name = EXTERNAL_WORKFLOW_P02_NAMES.get(tag)
+    if shell_name and not is_external_workflow_active(shell_name):
+        logger.info(f"P02 ad attribution: '{shell_name}' is OFF — skipping tag '{tag}' for {contact_id}")
+        return ""
+
     try:
         ok = add_contact_tag(contact_id, tag, location_id=location_id)
         if ok:
