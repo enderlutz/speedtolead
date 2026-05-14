@@ -244,7 +244,7 @@ class StepBody(BaseModel):
     message_template: str = ""
     use_ai_personalization: bool = False
     # New fields supporting the GHL-style workflow editor.
-    wait_kind: str = "hours"                 # "minutes" | "hours" | "calendar_day"
+    wait_kind: str = "hours"                 # "seconds" | "minutes" | "hours" | "calendar_day"
     window_start_hour: int | None = None
     window_start_minute: int = 0
     window_end_hour: int | None = None
@@ -254,6 +254,7 @@ class StepBody(BaseModel):
     column_value: str = ""                    # GHL pipeline stage ID for move_column
     branch_field: str = ""
     variants: dict | None = None             # JSON: {branch_value: body, "_default": fallback}
+    attachment_url: str = ""                  # Optional MMS / iMessage image URL
 
 
 @router.post("/followups/sequences/{seq_id}/steps")
@@ -282,6 +283,7 @@ def add_step(seq_id: str, body: StepBody, user: dict = Depends(require_admin)):
             column_value=(body.column_value or "").strip(),
             branch_field=(body.branch_field or "").strip(),
             variants=json.dumps(body.variants) if body.variants else "{}",
+            attachment_url=(body.attachment_url or "").strip(),
             created_at=_now(),
             updated_at=_now(),
         )
@@ -324,6 +326,7 @@ def update_step(step_id: str, body: StepBody, user: dict = Depends(require_admin
         step.branch_field = (body.branch_field or "").strip()
         if body.variants is not None:
             step.variants = json.dumps(body.variants)
+        step.attachment_url = (body.attachment_url or "").strip()
         step.updated_at = _now()
         db.commit()
         return step.to_dict()
@@ -678,6 +681,7 @@ def compile_sequence_instruction(seq_id: str, body: CompileInstructionBody, user
                 "column_value": s.column_value or "",
                 "branch_field": s.branch_field or "",
                 "variants": variants,
+                "attachment_url": s.attachment_url or "",
             }
 
         current = {
@@ -758,6 +762,7 @@ def apply_plan(seq_id: str, body: ApplyPlanBody, user: dict = Depends(require_ad
                 column_value=str(s.get("column_value") or ""),
                 branch_field=str(s.get("branch_field") or ""),
                 variants=variants_str,
+                attachment_url=str(s.get("attachment_url") or "").strip(),
                 created_at=_now(),
                 updated_at=_now(),
             ))

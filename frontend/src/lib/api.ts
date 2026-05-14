@@ -1417,6 +1417,7 @@ export interface SequenceStepPlan {
   column_value?: string;
   branch_field?: string;
   variants?: Record<string, string>;
+  attachment_url?: string;
 }
 
 export interface SequencePlan {
@@ -1485,7 +1486,7 @@ export interface FollowUpSequence {
   created_by: string;
 }
 
-export type FollowUpWaitKind = "minutes" | "hours" | "calendar_day";
+export type FollowUpWaitKind = "seconds" | "minutes" | "hours" | "calendar_day";
 export type FollowUpActionKind = "send_message" | "add_tag" | "move_column";
 
 export interface FollowUpStep {
@@ -1507,6 +1508,7 @@ export interface FollowUpStep {
   column_value?: string;
   branch_field?: string;
   variants?: Record<string, string>;
+  attachment_url?: string;
   created_at: string;
   updated_at: string;
 }

@@ -74,6 +74,7 @@ const EMPTY_SEND: SequenceStepPlan = {
   tag_value: "",
   branch_field: "",
   variants: {},
+  attachment_url: "",
 };
 
 const EMPTY_TAG: SequenceStepPlan = {
@@ -139,6 +140,7 @@ export default function SequenceEditor({ sequenceId, onClose }: { sequenceId: st
           column_value: s.column_value || "",
           branch_field: s.branch_field || "",
           variants: s.variants || {},
+          attachment_url: s.attachment_url || "",
         })));
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load sequence"))
@@ -800,20 +802,21 @@ function StepEditor({ step, onUpdate, index }: {
             value={step.wait_kind || "hours"}
             onChange={(e) => onUpdate({ wait_kind: e.target.value as FollowUpWaitKind })}
           >
-            <option value="hours">Hours</option>
+            <option value="seconds">Seconds</option>
             <option value="minutes">Minutes</option>
+            <option value="hours">Hours</option>
             <option value="calendar_day">Calendar day (next day)</option>
           </select>
         </div>
         {step.wait_kind !== "calendar_day" && (
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">
-              Delay ({step.wait_kind === "minutes" ? "min" : "h"})
+              Delay ({step.wait_kind === "seconds" ? "sec" : step.wait_kind === "minutes" ? "min" : "h"})
             </label>
             <Input
               type="number"
               min={0}
-              step={step.wait_kind === "minutes" ? 1 : 0.25}
+              step={step.wait_kind === "seconds" ? 1 : step.wait_kind === "minutes" ? 1 : 0.25}
               value={step.delay_hours}
               onChange={(e) => onUpdate({ delay_hours: parseFloat(e.target.value) || 0 })}
             />
@@ -909,6 +912,22 @@ function StepEditor({ step, onUpdate, index }: {
           />
         </div>
       )}
+
+      <div>
+        <label className="text-xs font-medium text-muted-foreground block mb-1">
+          Attachment URL (optional)
+        </label>
+        <Input
+          type="url"
+          value={step.attachment_url || ""}
+          onChange={(e) => onUpdate({ attachment_url: e.target.value })}
+          placeholder="https://…/photo.jpg"
+        />
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Public image URL — sent as an MMS / iMessage attachment alongside the text.
+          The URL must be publicly fetchable (e.g. a Supabase Storage public bucket link).
+        </p>
+      </div>
 
       <label className="text-[11px] text-muted-foreground inline-flex items-center gap-1 cursor-pointer">
         <input
