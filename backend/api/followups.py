@@ -21,7 +21,7 @@ from api.auth import require_admin
 from services.followup_engine import (
     CFG_MASTER_ON, CFG_MYCRMSIM_PROVIDER_ID, CFG_TEST_LEAD_ID,
     CFG_IMESSAGE_NUMBER, CFG_SMS_NUMBER,  # legacy, retained for back-compat
-    start_run, get_mycrmsim_provider_id, is_master_on,
+    start_run, get_mycrmsim_provider_id, is_master_on, tick as engine_tick,
 )
 
 router = APIRouter()
@@ -856,3 +856,18 @@ def start_test_run(body: TestRunBody, user: dict = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.post("/followups/tick")
+def run_engine_tick(user: dict = Depends(require_admin)):
+    """Force a single engine tick immediately instead of waiting up to 5
+    minutes for the background loop. Returns the tick's processed/sent
+    summary. Used after start_test_run when admin wants to verify
+    end-to-end without watching the clock."""
+    del user
+    try:
+        summary = engine_tick()
+        return {"status": "ok", "summary": summary}
+    except Exception as e:
+        logger.error(f"Manual /followups/tick failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

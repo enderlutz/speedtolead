@@ -112,10 +112,21 @@ def _effective_window(step: FollowUpStep, seq: FollowUpSequence) -> tuple[int, i
     return (ws_h, ws_m, we_h, we_m)
 
 
-def _compute_next_due_at(now_utc: datetime, step: FollowUpStep, seq: FollowUpSequence) -> str:
+def _compute_next_due_at(
+    now_utc: datetime,
+    step: FollowUpStep,
+    seq: FollowUpSequence,
+    *,
+    ignore_window: bool = False,
+) -> str:
     """Compute the ISO timestamp at which `step` should next fire, honoring
     wait_kind + send window. Returns UTC ISO. Used when advancing to the
-    next step or scheduling the first step on start_run."""
+    next step or scheduling the first step on start_run.
+
+    `ignore_window=True` skips the window snap entirely — used by test_mode
+    runs so admin can fire a sequence at 11 PM for verification without
+    waiting until the 8 AM window opens.
+    """
     tz = _seq_tz(seq)
     ws_h, ws_m, we_h, we_m = _effective_window(step, seq)
 
@@ -142,14 +153,17 @@ def _compute_next_due_at(now_utc: datetime, step: FollowUpStep, seq: FollowUpSeq
         delay_h = float(step.delay_hours or 0)
         candidate_local = (now_utc + timedelta(hours=delay_h)).astimezone(tz)
 
-    # Snap into the window on the candidate's local date.
-    win_start_local = candidate_local.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
-    win_end_local = candidate_local.replace(hour=we_h, minute=we_m, second=0, microsecond=0)
-    if candidate_local < win_start_local:
-        candidate_local = win_start_local
-    elif candidate_local > win_end_local:
-        next_day = candidate_local + timedelta(days=1)
-        candidate_local = next_day.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+    # Snap into the window on the candidate's local date. Test-mode runs
+    # skip this entirely so admin can verify a sequence outside business
+    # hours (e.g. running a test at 11 PM).
+    if not ignore_window:
+        win_start_local = candidate_local.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
+        win_end_local = candidate_local.replace(hour=we_h, minute=we_m, second=0, microsecond=0)
+        if candidate_local < win_start_local:
+            candidate_local = win_start_local
+        elif candidate_local > win_end_local:
+            next_day = candidate_local + timedelta(days=1)
+            candidate_local = next_day.replace(hour=ws_h, minute=ws_m, second=0, microsecond=0)
 
     return candidate_local.astimezone(timezone.utc).isoformat()
 
@@ -427,10 +441,12 @@ def _advance_run(db, run: FollowUpRun) -> None:
     # Send-time window guard. Even if next_due_at has passed, refuse to
     # fire outside the step's effective window — defer to the next slot.
     # add_tag and move_column steps are window-exempt (they're internal,
-    # not customer-facing).
+    # not customer-facing). Test-mode runs also skip the window check so
+    # admin can verify a sequence after hours.
     now_utc = _now_dt()
     action_kind = (step.action_kind or "send_message").lower()
-    if action_kind not in ("add_tag", "move_column") and not _in_window_now(now_utc, step, seq):
+    test_mode_run = bool(run.test_mode)
+    if action_kind not in ("add_tag", "move_column") and not test_mode_run and not _in_window_now(now_utc, step, seq):
         deferred_to = _next_window_slot(now_utc, step, seq)
         run.next_due_at = deferred_to
         _log_event(db, run.id, "window_deferred", {
@@ -515,7 +531,9 @@ def _advance_run(db, run: FollowUpRun) -> None:
         .first()
     )
     if next_step:
-        run.next_due_at = _compute_next_due_at(_now_dt(), next_step, seq)
+        run.next_due_at = _compute_next_due_at(
+            _now_dt(), next_step, seq, ignore_window=test_mode_run,
+        )
     else:
         # End of sequence on next tick.
         run.next_due_at = _now()
@@ -1273,7 +1291,9 @@ def start_run(lead_id: str, sequence_id: str, *, actor: str = "manual:system", t
             .first()
         )
         if first_step:
-            next_due = _compute_next_due_at(_now_dt(), first_step, seq)
+            next_due = _compute_next_due_at(
+                _now_dt(), first_step, seq, ignore_window=test_mode,
+            )
         else:
             next_due = _now()
         run_id = str(uuid.uuid4())
