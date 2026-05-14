@@ -138,6 +138,19 @@ def _process_lead(lead_id: str, lead_data: dict):
             if approval_status == "red" and meta.get("approval_reason"):
                 notify_new_lead_red(lead.to_dict(), meta["approval_reason"])
 
+        # P01 Step 1 — every new lead gets the `new lead - needs estimate`
+        # tag. Olga + Alan filter their GHL inbox on this. Best-effort.
+        if lead and lead.ghl_contact_id:
+            try:
+                from services.ghl import add_contact_tag
+                add_contact_tag(
+                    lead.ghl_contact_id,
+                    "new lead - needs estimate",
+                    location_id=lead.ghl_location_id or None,
+                )
+            except Exception as e:
+                logger.warning(f"new-lead tag failed for lead {lead_id}: {e}")
+
         # P02 ad attribution — apply a GHL tag based on which ad form
         # the lead submitted. Replaces Alan's P02a-d GHL workflows.
         form_name = lead_data.get("form_name") or ""

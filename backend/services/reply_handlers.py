@@ -100,8 +100,9 @@ def _handle_p03_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
             logger.warning(f"P03-REPLY stage push failed for lead {lead.id}: {e}")
     db.commit()
 
-    # Notify Olga (WhatsApp). Body template per spec.
-    _notify_olga_address_replied(lead, body)
+    # Spec says broadcast in-app to All Users. Closest fit in our system
+    # is pinging every configured recipient (Olga / Alan / Fragne).
+    _notify_address_replied(lead, body)
     logger.info(
         f"P03-REPLY fired for lead {lead.id} "
         f"(stage {previous_stage} -> {RESPONDED_TO_ADDRESS_STAGE_ID})"
@@ -185,21 +186,35 @@ def _handle_p01_intake_reply(db, lead: Lead, body: str) -> bool:
 # Notifications
 # ---------------------------------------------------------------------------
 
-def _notify_olga_address_replied(lead: Lead, body: str) -> None:
+def _notify_address_replied(lead: Lead, body: str) -> None:
+    """Spec says 'in-app to All Users' with title 'replied to address'.
+    Closest analogue in our system is to ping every configured human:
+    Olga (WhatsApp), Alan (SMS), Fragne (SMS). Any failure is logged
+    and ignored so one bad channel can't suppress the others."""
     settings = get_settings()
-    if not settings.olga_ghl_contact_id:
-        return
     snippet = (body or "")[:160]
     name = lead.contact_name or "Unknown"
     link = f"{settings.frontend_url}/leads/{lead.id}"
     msg = (
-        f"{name} replied to the address request. "
+        f"replied to address — {name} replied to the address request. "
         f"They said: \"{snippet}\". Route from there.\n{link}"
     )
-    try:
-        send_whatsapp(settings.olga_ghl_contact_id, msg)
-    except Exception as e:
-        logger.warning(f"Olga address-replied WhatsApp failed: {e}")
+    if settings.olga_ghl_contact_id:
+        try:
+            send_whatsapp(settings.olga_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Olga address-replied WhatsApp failed: {e}")
+    if settings.owner_ghl_contact_id:
+        try:
+            send_sms(settings.owner_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Alan address-replied SMS failed: {e}")
+    fragne_id = getattr(settings, "fragne_ghl_contact_id", "") or ""
+    if fragne_id:
+        try:
+            send_sms(fragne_id, msg)
+        except Exception as e:
+            logger.warning(f"Fragne address-replied SMS failed: {e}")
 
 
 def _notify_intake_converted(lead: Lead, body: str) -> None:

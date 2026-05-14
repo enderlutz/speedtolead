@@ -25,15 +25,16 @@ logger = logging.getLogger(__name__)
 
 
 # Form name → GHL tag. Form names are matched EXACTLY (case-sensitive)
-# against payload.formName. Update each time Alan launches a new ad
-# creative (re-uses the same 4 tag names; only the date in the form
-# name changes).
+# against payload.formName. Tag spellings (including the quotes around
+# "see this grey" / "walk outside" but no quotes for the premium ones)
+# match Alan's GHL workflow vocabulary verbatim — don't "tidy" them.
+# Update each time Alan launches a new ad creative.
 FORM_NAME_TO_TAG: dict[str, str] = {
     # Active ads — 5/11/2026 launch
-    "WALK OUTSIDE 5/11/2026": "Walk Outside",
-    "SEE THIS GRAY 5/11/2026": "See This Gray",
-    "PREMIUM 1 5/11/2026": "Premium 1",
-    "PREMIUM 2 5/11/2026": "Premium 2",
+    "FENCE REVIVE-FULL DETAIL -GREY - SEE THIS GREY AD 5/11/2026-copy": 'ad from "see this grey"',
+    "FENCE REVIVE-FULL DETAIL -GREY - WALK OUTSIDE AD 5/11/2026":       'ad from "walk outside"',
+    "FENCE REVIVE-FULL DETAIL -PREMIUM AD 5/11/2026":                   "ad from premium 1",
+    "FENCE REVIVE-FULL DETAIL -PREMIUM 2 AD 5/11/2026-":                "ad from premium 2",
 }
 
 
