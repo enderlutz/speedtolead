@@ -1435,6 +1435,76 @@ def seed_p03_address_confirmation() -> None:
         db.close()
 
 
+def seed_u01_manual_move_to_ltn() -> None:
+    """Recreates Alan's GHL workflow 'U01: Manual Move to LTN'. A 1-step
+    utility — when any source adds the `cold lead` tag to a contact,
+    the lead is moved to the LONG TERM NURTURE pipeline stage.
+
+    Trigger sources (any of these fires U01):
+      - Olga manually tags a stuck lead `cold lead` in GHL
+      - P1 Sterling Estimate Sent end-of-flow tag
+      - P03 Address Confirmation end-of-flow tag
+      - Any future workflow that ends with a cold-lead tag
+
+    Idempotent: if U01 is already active/paused on this lead+sequence,
+    the tag-added webhook short-circuits and doesn't start a duplicate.
+    Re-tagging a lead later re-fires the sequence (the prior run is
+    completed and no longer blocks).
+
+    Active by default — Olga relies on this to bucket leads without
+    having to manually move them in GHL. Toggle off via the editor if
+    Alan wants to staff a different cold-lead handoff."""
+    db = get_db()
+    try:
+        seq_name = "U01: Manual Move to LTN"
+        existing = db.query(FollowUpSequence).filter(FollowUpSequence.name == seq_name).first()
+        if existing:
+            return
+
+        seq_id = str(uuid.uuid4())
+        seq = FollowUpSequence(
+            id=seq_id,
+            name=seq_name,
+            description=(
+                "Single-step utility — moves the lead to the LONG TERM "
+                "NURTURE pipeline stage when the `cold lead` tag is added "
+                "to the GHL contact.\n\n"
+                "Fires from any source: Olga tagging a stuck lead manually, "
+                "P1 Sterling Estimate Sent's end tag, P03 Address "
+                "Confirmation's end tag, or any future workflow that ends "
+                "with a cold-lead tag. Idempotent — re-tagging a lead later "
+                "re-fires (prior run is completed).\n\n"
+                "Active by default. Toggle off if Alan wants a different "
+                "cold-lead handoff."
+            ),
+            trigger_event="tag_added:cold lead",
+            pause_on_events="",  # no customer-reply pause — internal-only step
+            active=True,
+            version=1,
+            send_window_start_hour=8,
+            send_window_end_hour=20,
+            timezone="America/Chicago",
+            created_at=_now(),
+            updated_at=_now(),
+            created_by="system:seed",
+        )
+        db.add(seq)
+        # Step 0 — move to LONG TERM NURTURE. Window-exempt (action_kind
+        # move_column already skips the send-window guard).
+        db.add(_build_step_row(seq_id, {
+            "position": 0, "delay_hours": 0, "wait_kind": "hours",
+            "action_kind": "move_column", "column_value": LONG_TERM_NURTURE_STAGE_ID,
+        }))
+
+        db.commit()
+        logger.info(f"Seeded U01 Manual Move to LTN sequence: {seq_id} (1 step, ACTIVE)")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to seed U01 sequence (non-fatal): {e}")
+    finally:
+        db.close()
+
+
 def seed_p0_sterling_intake() -> None:
     """Recreates Alan's GHL workflow 'P01 New Lead Intake' inside our
     engine. Idempotent — only seeds on first boot. Inactive by default;
