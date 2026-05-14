@@ -870,6 +870,81 @@ def start_test_run(body: TestRunBody, user: dict = Depends(require_admin)):
         db.close()
 
 
+@router.post("/followups/sequences/{seq_id}/restart/{lead_id}")
+def restart_sequence_for_lead(
+    seq_id: str, lead_id: str, user: dict = Depends(require_admin),
+):
+    """Admin override — start a non-test run for a lead on a sequence
+    EVEN IF the lead has previously been enrolled in (and completed) it.
+
+    The no-duplicates rule blocks tag/stage triggers from auto-re-enrolling
+    a lead who's already been through a sequence — this endpoint is the
+    explicit exit hatch when admin needs to send the cadence again (e.g.,
+    a returning lead who got an updated estimate and should go through P1
+    follow-ups a second time).
+
+    Logs a 'sequence_restarted_by_admin' event on the new run for audit
+    so it's clear in the run history this wasn't an accidental duplicate."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, f"Lead {lead_id} not found")
+        if not lead.ghl_contact_id:
+            raise HTTPException(400, f"Lead {lead.contact_name or lead_id} has no ghl_contact_id — can't send via GHL")
+        seq = db.query(FollowUpSequence).filter(FollowUpSequence.id == seq_id).first()
+        if not seq:
+            raise HTTPException(404, "Sequence not found")
+
+        # Count prior runs so the audit log captures intent clearly.
+        prior_count = db.query(FollowUpRun).filter(
+            FollowUpRun.lead_id == lead_id,
+            FollowUpRun.sequence_id == seq_id,
+        ).count()
+
+        run_id = start_run(
+            lead_id=lead_id,
+            sequence_id=seq_id,
+            actor=f"admin_restart:{user.get('sub', '')}",
+            test_mode=False,
+        )
+        if not run_id:
+            raise HTTPException(500, "Failed to start run")
+
+        # Audit trail — make it obvious this was a deliberate re-send.
+        db.add(FollowUpEvent(
+            id=str(uuid.uuid4()),
+            run_id=run_id,
+            event_type="sequence_restarted_by_admin",
+            payload=json.dumps({
+                "prior_run_count": prior_count,
+                "lead_name": lead.contact_name or "",
+            }),
+            actor=f"admin:{user.get('sub', '')}",
+            created_at=_now(),
+        ))
+        db.commit()
+
+        return {
+            "run_id": run_id,
+            "lead_id": lead_id,
+            "sequence_id": seq_id,
+            "prior_run_count": prior_count,
+            "note": (
+                f"Sequence restarted manually. This lead had {prior_count} "
+                f"prior run(s) on this sequence. Engine will fire on next tick."
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"restart_sequence_for_lead failed for lead={lead_id} seq={seq_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.post("/followups/tick")
 def run_engine_tick(user: dict = Depends(require_admin)):
     """Force a single engine tick immediately instead of waiting up to 5

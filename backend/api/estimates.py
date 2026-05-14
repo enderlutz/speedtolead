@@ -527,9 +527,12 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
             )
             add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)
 
-        # Add "estimate_sent" tag to GHL contact
+        # Add "estimate sent" tag to GHL contact. Space-form matches
+        # Alan's GHL vocabulary and is what P1 Sterling Estimate Sent +
+        # P04-REPLY both gate on. Previously we tagged "estimate_sent"
+        # with an underscore, which silently failed to trigger either.
         if lead.ghl_contact_id:
-            add_contact_tag(lead.ghl_contact_id, "estimate_sent", lead.ghl_location_id or None)
+            add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
 
         # Notify Alan + Olga (internal team)
         notify_estimate_sent(lead.to_dict(), tiers_dict)
@@ -948,9 +951,11 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'}: {proposal_url}")
 
-            # GHL tag + note
+            # GHL tag + note. "estimate sent" with a space matches Alan's
+            # GHL workflow vocabulary, which is what P1 Sterling Estimate
+            # Sent + P04-REPLY trigger off of.
             if lead.ghl_contact_id:
-                add_contact_tag(lead.ghl_contact_id, "estimate_sent", lead.ghl_location_id or None)
+                add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
                 tiers_dict = est.to_dict()["tiers"]
                 add_contact_note(lead.ghl_contact_id,
                     f"Estimate sent — Essential: ${tiers_dict.get('essential',0):,.0f} | "

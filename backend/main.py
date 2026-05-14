@@ -146,6 +146,27 @@ async def _followup_engine_loop():
         await asyncio.sleep(300)  # Every 5 minutes
 
 
+async def _followup_backfill_loop():
+    """Background task: every ~4 weeks, scan for leads stranded in a
+    stage-triggered sequence's target stage without ever having been
+    enrolled. Auto-enrolls them so legacy leads (in stage before
+    sequence activation) eventually get the nurture treatment.
+
+    Designed to prevent the "Alan flips P06 on, 50 leads already in
+    LTN never get a single nurture text" failure mode without
+    requiring admin to remember a manual backfill step."""
+    from services.followup_engine import backfill_stage_triggered_sequences
+    # Run once 10 minutes after boot so first deploy picks up the
+    # backlog right away, then settle into the ~monthly cadence.
+    await asyncio.sleep(600)
+    while True:
+        try:
+            await asyncio.to_thread(backfill_stage_triggered_sequences)
+        except Exception as e:
+            logger.error(f"Follow-up backfill loop error: {e}")
+        await asyncio.sleep(28 * 24 * 3600)  # 4 weeks
+
+
 async def _followup_learning_loop():
     """Background task: weekly pattern analysis. Cheap because it only
     runs once every 24h and writes thoughts only when anomalies clearly
@@ -216,6 +237,7 @@ async def lifespan(app: FastAPI):
     delay_detector = asyncio.create_task(_estimate_delay_loop())
     followup_engine = asyncio.create_task(_followup_engine_loop())
     followup_learning = asyncio.create_task(_followup_learning_loop())
+    followup_backfill = asyncio.create_task(_followup_backfill_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -228,6 +250,7 @@ async def lifespan(app: FastAPI):
     delay_detector.cancel()
     followup_engine.cancel()
     followup_learning.cancel()
+    followup_backfill.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)

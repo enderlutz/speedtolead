@@ -584,18 +584,15 @@ async def ghl_tag_added_webhook(request: Request):
             seq_tag = " ".join(te[len("tag_added:"):].strip().split())
             if seq_tag not in norm_tags:
                 continue
-            # Idempotency — don't double-start if a run is already active
-            # or paused on this lead+sequence.
-            existing = (
-                db.query(FollowUpRun)
-                .filter(
-                    FollowUpRun.lead_id == lead.id,
-                    FollowUpRun.sequence_id == seq.id,
-                    FollowUpRun.status.in_(["active", "paused"]),
-                )
-                .first()
-            )
-            if existing:
+            # No-duplicates rule — refuse to start a new run if this
+            # (lead, sequence) combo has ANY run history (active,
+            # paused, completed, stopped, or failed). Protects against
+            # operator tag re-fires AND GHL webhook re-deliveries from
+            # ever sending the same cadence twice to one customer. If
+            # Olga genuinely wants to re-engage a lead, she clicks the
+            # admin "Restart sequence" action which bypasses this gate.
+            from services.followup_engine import has_ever_been_enrolled
+            if has_ever_been_enrolled(db, lead.id, seq.id):
                 continue
             run_id = start_run(lead.id, seq.id, actor=f"trigger:tag_added:{seq_tag}")
             if run_id:

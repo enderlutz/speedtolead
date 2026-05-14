@@ -28,13 +28,17 @@ logger = logging.getLogger(__name__)
 
 
 # Stage IDs that count as terminal — entering any of these stops all
-# active follow-up runs on the lead. Spec list per Alan's U02 GHL
-# workflow (2026-05-14). To add/remove a terminal stage, edit this set.
+# active follow-up runs on the lead. The first 4 come from Alan's U02
+# GHL spec verbatim; "Cold Leads (Never answered)" is added as a
+# defensive measure so that if Olga ever moves a lead there manually
+# while a sequence is mid-flow (e.g. mid-P06 LTN nurture), the rest
+# of the cadence stops. To add/remove a terminal stage, edit this set.
 TERMINAL_STAGE_IDS: frozenset[str] = frozenset({
     "f207a600-81c9-4150-941c-e977ea876929",  # DECLINED ESTIMATE
     "147bd53b-3848-449d-b7c2-7a2cfad2a5f5",  # Top Priority-Responded to Estimate
     "bbebbdac-0011-4253-9ed7-65522bafde02",  # DEAL CLOSED & NOT SCHEDULED
     "3eed5964-573f-445e-a181-1ee28068f066",  # CLOSED & SCHEDULED
+    "0ca2e2a6-2990-4a5b-8ace-608393e39b5a",  # Cold Leads (Never answered)
 })
 
 

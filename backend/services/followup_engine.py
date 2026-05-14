@@ -837,6 +837,105 @@ def on_delivery_status(ghl_message_id: str, status: str, error: str = "") -> Non
 # Pause-on-reply
 # -----------------------------------------------------------------------
 
+def backfill_stage_triggered_sequences() -> dict:
+    """Periodic safety net: scan for leads currently sitting in a
+    pipeline stage that triggers an active sequence, but with no run on
+    that sequence ever started. Auto-enroll them.
+
+    Why this exists: the primary enrollment path is real-time (engine's
+    move_column action + poller stage-sync hook). But that misses leads
+    who entered the stage BEFORE the sequence was activated, or during
+    a deploy gap when the engine wasn't running. Without a backfill,
+    those leads sit stranded.
+
+    Scope is intentionally narrow:
+      - Only `stage_entered:<id>` triggered sequences (P06 today)
+      - Only leads where NO run on that seq has ever been created
+        (active, paused, completed, or failed). One nurture per lead,
+        per sequence — re-enrollment requires admin action.
+      - Skips test leads and do_not_contact leads.
+
+    Runs every ~4 weeks from the background loop. Returns a summary
+    dict the loop logs."""
+    summary = {
+        "checked_sequences": 0,
+        "leads_scanned": 0,
+        "enrolled": 0,
+        "skipped_already_enrolled": 0,
+    }
+    db = get_db()
+    try:
+        sequences = db.query(FollowUpSequence).filter(
+            FollowUpSequence.active.is_(True),
+            FollowUpSequence.trigger_event.like("stage_entered:%"),
+        ).all()
+        summary["checked_sequences"] = len(sequences)
+        if not sequences:
+            logger.info(f"Backfill tick: no stage-triggered sequences active; nothing to do")
+            return summary
+
+        for seq in sequences:
+            stage_id = (seq.trigger_event or "")[len("stage_entered:"):].strip()
+            if not stage_id:
+                continue
+
+            leads_in_stage = db.query(Lead).filter(
+                Lead.ghl_pipeline_stage_id == stage_id,
+                Lead.is_test.is_(False),
+                Lead.do_not_contact.is_(False),
+            ).all()
+            summary["leads_scanned"] += len(leads_in_stage)
+
+            for lead in leads_in_stage:
+                # Strict "ever enrolled" check — no run history at all.
+                existing = db.query(FollowUpRun).filter(
+                    FollowUpRun.lead_id == lead.id,
+                    FollowUpRun.sequence_id == seq.id,
+                ).first()
+                if existing:
+                    summary["skipped_already_enrolled"] += 1
+                    continue
+
+                run_id = start_run(
+                    lead.id, seq.id,
+                    actor=f"backfill:stage_entered:{stage_id[:8]}",
+                )
+                if run_id:
+                    summary["enrolled"] += 1
+                    logger.info(
+                        f"Backfill: enrolled lead {lead.id} ({lead.contact_name}) "
+                        f"in '{seq.name}'"
+                    )
+
+        logger.info(f"Backfill tick complete: {summary}")
+        return summary
+    except Exception as e:
+        logger.error(f"backfill_stage_triggered_sequences failed: {e}")
+        return summary
+    finally:
+        db.close()
+
+
+def has_ever_been_enrolled(db, lead_id: str, sequence_id: str) -> bool:
+    """True if the lead has ANY run history on this sequence — active,
+    paused, completed, stopped, or failed. Once this returns True, no
+    trigger (tag_added, stage_entered, lead_created) will start a new
+    run for this (lead, sequence) combo. Admin can still manually
+    re-enroll via /followups/sequences/{id}/restart/{lead_id}.
+
+    This is the strongest possible safeguard against duplicate
+    sequences — guarantees that no automated path can re-send the
+    same cadence to the same customer. Trade-off is that legitimate
+    re-engagement (returning leads) requires explicit admin action.
+    The trade is worthwhile: customer-side duplicates are a much worse
+    failure mode than "Olga clicks one extra button for a returning
+    lead."""
+    return db.query(FollowUpRun).filter(
+        FollowUpRun.lead_id == lead_id,
+        FollowUpRun.sequence_id == sequence_id,
+    ).first() is not None
+
+
 def on_stage_entered(lead_id: str, new_stage_id: str) -> int:
     """Start every active sequence whose trigger_event is
     `stage_entered:<new_stage_id>` for this lead. Used for P06 Long Term
@@ -869,16 +968,7 @@ def on_stage_entered(lead_id: str, new_stage_id: str) -> int:
             .all()
         )
         for seq in sequences:
-            existing = (
-                db.query(FollowUpRun)
-                .filter(
-                    FollowUpRun.lead_id == lead.id,
-                    FollowUpRun.sequence_id == seq.id,
-                    FollowUpRun.status.in_(["active", "paused"]),
-                )
-                .first()
-            )
-            if existing:
+            if has_ever_been_enrolled(db, lead.id, seq.id):
                 continue
             run_id = start_run(
                 lead.id, seq.id,
@@ -927,16 +1017,7 @@ def on_lead_created(lead_id: str, brand: str = "") -> int:
                 pass
             else:
                 continue
-            existing = (
-                db.query(FollowUpRun)
-                .filter(
-                    FollowUpRun.lead_id == lead.id,
-                    FollowUpRun.sequence_id == seq.id,
-                    FollowUpRun.status.in_(["active", "paused"]),
-                )
-                .first()
-            )
-            if existing:
+            if has_ever_been_enrolled(db, lead.id, seq.id):
                 continue
             actor = f"trigger:lead_created:{brand_key}" if brand_key else "trigger:lead_created"
             run_id = start_run(lead.id, seq.id, actor=actor)
