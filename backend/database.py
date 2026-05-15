@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, inspect, text
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker, deferred
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,11 @@ class Lead(Base):
 
     # Single Google-Maps measurement screenshot uploaded by the VA for admin
     # review. Single image at a time — re-upload replaces it; delete clears it.
-    measurement_image_data = Column(LargeBinary, nullable=True)
+    # Wrapped in deferred() — every Lead query in webhooks/poller is a
+    # single-row .first() lookup; without this, every one of those (90k+
+    # per week) would stream the full image BLOB. Now it loads only on
+    # explicit attribute access (the upload/view endpoints).
+    measurement_image_data = deferred(Column(LargeBinary, nullable=True))
     # Existence flag — set on upload so to_dict() can answer "is there an image?"
     # without triggering a BLOB load. Accessing measurement_image_data directly
     # (even `is not None`) forces SQLAlchemy to fetch the full BLOB from
@@ -256,7 +260,10 @@ class Proposal(Base):
     lead_id = Column(Text, nullable=False)
     status = Column(Text, default="sent")  # sent, viewed
     proposal_version = Column(Text, default="pdf")
-    pdf_data = Column(LargeBinary, nullable=True)
+    # Deferred — only loaded when the customer/admin actually downloads
+    # the full PDF. Every Proposal list/get query would otherwise stream
+    # the whole BLOB.
+    pdf_data = deferred(Column(LargeBinary, nullable=True))
     pdf_page_count = Column(Integer, default=0)
     first_viewed_at = Column(Text, nullable=True)
     last_viewed_at = Column(Text, nullable=True)
@@ -291,7 +298,10 @@ class ProposalPage(Base):
     proposal_id = Column(Text, nullable=False)
     token = Column(Text, nullable=False)
     page_num = Column(Integer, nullable=False)
-    image_data = Column(LargeBinary, nullable=False)  # JPEG bytes (legacy + fallback)
+    # Deferred — proposal page JPEGs only load when explicitly served
+    # via the page-image endpoint (Supabase Storage is the primary path
+    # now; this is legacy fallback).
+    image_data = deferred(Column(LargeBinary, nullable=False))  # JPEG bytes (legacy + fallback)
     # Path inside Supabase Storage (e.g. "<token>/page-0.jpg"). When set,
     # the customer-facing proposal view loads the image directly from the
     # Storage CDN — bypasses our backend entirely. Empty = serve from
@@ -432,7 +442,9 @@ class PdfTemplate(Base):
 
     id = Column(Text, primary_key=True)
     filename = Column(Text, default="")
-    pdf_data = Column(LargeBinary, nullable=True)
+    # Deferred — template PDF source bytes only loaded by the editor when
+    # admin opens the template for visual editing.
+    pdf_data = deferred(Column(LargeBinary, nullable=True))
     page_count = Column(Integer, default=0)
     field_map = Column(Text, default="{}")
     page_sizes_json = Column(Text, default="[]")
@@ -463,7 +475,9 @@ class ChatbotConfig(Base):
     id = Column(Text, primary_key=True, default="default")
     enabled = Column(Boolean, default=False)
     bot_name = Column(Text, default="Amy")
-    profile_picture = Column(LargeBinary, nullable=True)
+    # Deferred — chatbot avatar only loaded when /chatbot/profile-picture
+    # endpoint serves it.
+    profile_picture = deferred(Column(LargeBinary, nullable=True))
     google_review_link = Column(Text, default="")
     google_review_stars = Column(Float, default=5.0)
     google_review_count = Column(Integer, default=0)
@@ -491,7 +505,9 @@ class CallRecording(Base):
     ghl_location_id = Column(Text, default="")
     ghl_call_id = Column(Text, unique=True, nullable=True)
     recording_url = Column(Text, default="")
-    recording_data = Column(LargeBinary, nullable=True)
+    # Deferred — recording audio only loaded by the playback/download
+    # endpoint. Listings + has_recording_data flag cover the metadata case.
+    recording_data = deferred(Column(LargeBinary, nullable=True))
     # Set to True when recording_data BLOB is uploaded. Lets listing endpoints
     # answer "is there audio?" without loading the BLOB into memory — accessing
     # recording_data directly (even just `bool(self.recording_data)`) forces
@@ -650,7 +666,8 @@ class CallReview(Base):
     reviewer_user_id = Column(Text, default="")  # JWT sub
     reviewer_name = Column(Text, default="")
     text = Column(Text, default="")  # final transcript-or-typed body
-    audio_data = Column(LargeBinary, nullable=True)  # only set if reviewer spoke
+    # Deferred — reviewer voice-note only loaded when admin plays it back.
+    audio_data = deferred(Column(LargeBinary, nullable=True))  # only set if reviewer spoke
     # Existence flag set on upload — avoids loading the audio BLOB from
     # Postgres every time we serialize a review (egress hot path).
     has_audio_data = Column(Boolean, default=False, nullable=False)
@@ -700,7 +717,8 @@ class Employee(Base):
     address = Column(Text, default="")
     start_date = Column(Text, default="")            # YYYY-MM-DD
     status = Column(Text, default="active")          # active | inactive
-    w9_file_data = Column(LargeBinary, nullable=True)  # blob storage matches call recordings precedent
+    # Deferred — W9 PDF only loaded when admin downloads for 1099 prep.
+    w9_file_data = deferred(Column(LargeBinary, nullable=True))  # blob storage matches call recordings precedent
     # Existence flag set on upload. Crew listing endpoints serialized every
     # employee twice via bool(w9_file_data) — each access loaded the entire
     # W9 PDF blob from Postgres. This flag avoids that hit.
@@ -1061,7 +1079,9 @@ class Reimbursement(Base):
     expense_date = Column(Text, nullable=False)          # YYYY-MM-DD, when employee paid
     amount = Column(Numeric(10, 2), nullable=False, default=0)
     description = Column(Text, default="")               # e.g., "extra stain, paint roller"
-    receipt_data = Column(LargeBinary, nullable=True)    # photo blob (W9 pattern)
+    # Deferred — receipt photo only loaded when admin opens the
+    # reimbursement detail view.
+    receipt_data = deferred(Column(LargeBinary, nullable=True))    # photo blob (W9 pattern)
     # Existence flag set on upload — keeps the receipt photo BLOB out of
     # every reimbursement listing serialization.
     has_receipt_data = Column(Boolean, default=False, nullable=False)
@@ -1340,7 +1360,9 @@ class SopRunPhoto(Base):
     id = Column(Text, primary_key=True)
     sop_run_id = Column(Text, nullable=False)
     step_id = Column(Text, nullable=False)             # the step_id within steps_json
-    photo_data = Column(LargeBinary, nullable=True)
+    # Deferred — SOP step photo only loaded when the worker/admin opens
+    # that specific step's image.
+    photo_data = deferred(Column(LargeBinary, nullable=True))
     filename = Column(Text, default="")
     mime = Column(Text, default="")
     # Optional tag — "before" / "after" / "general". Currently informational
