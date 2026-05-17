@@ -180,6 +180,86 @@ def list_leads(
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Autocomplete endpoints — lightweight, used by <CustomerSearchInput>
+# ---------------------------------------------------------------------------
+#
+# These return minimal payloads (no BLOBs, no form_data, no estimates)
+# so typeahead can fire on every keystroke without hammering the
+# database. Used anywhere admin/VA picks a customer (reimbursements,
+# time-log task allocations, manual sequence enrollment, etc.).
+
+def _lean_lead_row(lead: Lead) -> dict:
+    return {
+        "id": lead.id,
+        "contact_name": lead.contact_name or "",
+        "contact_phone": lead.contact_phone or "",
+        "contact_email": lead.contact_email or "",
+        "address": lead.address or "",
+        "zip_code": lead.zip_code or "",
+        "status": lead.status or "",
+        "kanban_column": lead.kanban_column or "",
+        "location_label": lead.location_label or "",
+    }
+
+
+@router.get("/leads/search")
+def search_leads(
+    q: str = Query("", min_length=0, max_length=80),
+    limit: int = Query(10, ge=1, le=25),
+    include_archived: bool = Query(False),
+):
+    """Typeahead search for customer picker UIs. Matches name, phone,
+    email, address (ilike substring on each). Returns at most `limit`
+    rows ordered by most-recently-updated first so freshly-touched
+    customers float to the top."""
+    db = get_db()
+    try:
+        query = (
+            db.query(Lead)
+            .options(defer(Lead.measurement_image_data))
+        )
+        if not include_archived:
+            query = query.filter(Lead.status != "archived")
+        q = (q or "").strip()
+        if q:
+            pattern = f"%{q}%"
+            query = query.filter(
+                Lead.contact_name.ilike(pattern)
+                | Lead.contact_phone.ilike(pattern)
+                | Lead.contact_email.ilike(pattern)
+                | Lead.address.ilike(pattern)
+            )
+        rows = (
+            query.order_by(Lead.updated_at.desc().nullslast())
+            .limit(limit)
+            .all()
+        )
+        return {"results": [_lean_lead_row(l) for l in rows]}
+    finally:
+        db.close()
+
+
+@router.get("/leads/recent")
+def recent_leads(limit: int = Query(10, ge=1, le=25)):
+    """Empty-state dropdown for the customer picker. Shows the most
+    recently-updated leads so admin gets one-tap pick on the customers
+    they've been working with today."""
+    db = get_db()
+    try:
+        rows = (
+            db.query(Lead)
+            .options(defer(Lead.measurement_image_data))
+            .filter(Lead.status != "archived")
+            .order_by(Lead.updated_at.desc().nullslast())
+            .limit(limit)
+            .all()
+        )
+        return {"results": [_lean_lead_row(l) for l in rows]}
+    finally:
+        db.close()
+
+
 @router.get("/leads/{lead_id}")
 def get_lead(lead_id: str):
     db = get_db()

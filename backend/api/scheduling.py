@@ -18,6 +18,7 @@ from sqlalchemy import or_
 from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User
 from api.auth import require_admin, require_staff, get_current_user
 from services import google_calendar, weather, ghl, notifications
+from services.event_bus import publish
 from config import get_settings
 
 router = APIRouter()
@@ -439,6 +440,206 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Job lifecycle — start / complete (the right-side system flow)
+# ---------------------------------------------------------------------------
+
+def _notify_job_started(job: ScheduledJob, worker_name: str) -> None:
+    """Worker hit Start Job on their phone. SMS Alan + Fragne so admin can
+    prep the invoice while work is in progress. Olga is intentionally
+    excluded — this is an ops/operations event, not a customer-comms one
+    (which is her lane). User explicitly asked for Alan + Fragne on this
+    specific event during right-side-system planning."""
+    settings = get_settings()
+    customer = (job.customer_name or "(unnamed customer)").strip()
+    address = (job.address or "").strip()
+    msg = (
+        f"Job started: {customer}\n"
+        f"Worker: {worker_name or 'Unknown'}\n"
+        f"Address: {address}\n"
+        f"Time to prep the invoice."
+    )
+    for label, contact_id in (
+        ("alan", settings.owner_ghl_contact_id),
+        ("fragne", settings.fragne_ghl_contact_id),
+    ):
+        if not contact_id:
+            continue
+        try:
+            ghl.send_sms(contact_id, msg)
+        except Exception as e:
+            logger.warning(f"job_started SMS to {label} failed (non-fatal): {e}")
+
+
+def _notify_job_completed(job: ScheduledJob, worker_name: str) -> None:
+    """Worker hit Complete Job. SMS Alan + WhatsApp Olga — this matches
+    the standard operator-team notification pattern (Alan + Olga, no
+    Fragne) since at completion Olga's invoice/customer-follow-up
+    workflow kicks in."""
+    settings = get_settings()
+    customer = (job.customer_name or "(unnamed customer)").strip()
+    msg = (
+        f"Job complete: {customer}\n"
+        f"Worker: {worker_name or 'Unknown'}\n"
+        f"Ready for final invoice review."
+    )
+    if settings.owner_ghl_contact_id:
+        try:
+            ghl.send_sms(settings.owner_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"job_completed SMS to Alan failed (non-fatal): {e}")
+    if settings.olga_ghl_contact_id:
+        try:
+            ghl.send_whatsapp(settings.olga_ghl_contact_id, msg)
+        except Exception as e:
+            logger.warning(f"job_completed WhatsApp to Olga failed (non-fatal): {e}")
+
+
+def _resolve_worker_name(db, user: dict) -> str:
+    """Best-effort: look up the Employee row for the calling worker so
+    notifications carry a human name instead of a UUID. Falls back to
+    user.name / user.sub."""
+    name = (user.get("name") or "").strip()
+    if name:
+        return name
+    user_id = user.get("sub", "")
+    if user_id:
+        emp = db.query(Employee).filter(Employee.user_id == user_id).first()
+        if emp:
+            return f"{emp.first_name} {emp.last_name}".strip() or emp.first_name or ""
+    return ""
+
+
+def _assert_user_assigned_or_staff(db, user: dict, job_id: str) -> None:
+    """Workers can only start/complete jobs they're assigned to. Admin/VA
+    can act on any job (e.g. correcting an accidental tap). Raises 403
+    if a worker tries to act on someone else's job."""
+    role = (user.get("role") or "").lower()
+    if role in ("admin", "va"):
+        return
+    user_id = user.get("sub", "")
+    if not user_id:
+        raise HTTPException(403, "Not authorized")
+    emp = db.query(Employee).filter(Employee.user_id == user_id).first()
+    if not emp:
+        raise HTTPException(403, "No employee record for current user")
+    assignment = (
+        db.query(JobAssignment)
+        .filter(
+            JobAssignment.scheduled_job_id == job_id,
+            JobAssignment.employee_id == emp.id,
+        )
+        .first()
+    )
+    if not assignment:
+        raise HTTPException(403, "You're not assigned to this job")
+
+
+@router.post("/schedule/jobs/{job_id}/start")
+def start_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Worker (or admin) marks a job as in_progress. Fires team-arrival
+    SMS to Alan + Fragne so admin can stage the invoice while work
+    happens. Idempotent — re-calling on an in_progress job returns the
+    current state without re-sending notifications."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        if j.status == "in_progress":
+            return j.to_dict(role=user.get("role", "admin"))
+        if j.status in ("completed", "cancelled"):
+            raise HTTPException(
+                400,
+                f"Cannot start a {j.status} job. Reopen it first if this was a mistake.",
+            )
+
+        worker_name = _resolve_worker_name(db, user)
+        j.status = "in_progress"
+        j.started_at = _now()
+        j.started_by = user.get("sub", "") or worker_name
+        j.updated_at = _now()
+        db.commit()
+        db.refresh(j)
+
+        # Fire-and-forget notifications + event publish. Failures here
+        # never roll back the status transition — the DB state is the
+        # source of truth even if SMS is briefly down.
+        try:
+            _notify_job_started(j, worker_name)
+        except Exception as e:
+            logger.warning(f"job_started notification dispatch failed: {e}")
+        try:
+            publish("job_started", {
+                "job_id": j.id,
+                "lead_id": j.lead_id,
+                "customer_name": j.customer_name or "",
+                "worker_name": worker_name,
+                "started_at": j.started_at,
+            })
+        except Exception as e:
+            logger.warning(f"job_started event publish failed: {e}")
+
+        return j.to_dict(role=user.get("role", "admin"))
+    finally:
+        db.close()
+
+
+@router.post("/schedule/jobs/{job_id}/complete")
+def complete_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Worker (or admin) marks a job complete. Fires team-completion
+    notification (Alan SMS + Olga WhatsApp). Idempotent on completed
+    jobs. Refuses to complete a job that was never started — admin can
+    backfill via PUT /schedule/jobs/{id} if needed."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        if j.status == "completed":
+            return j.to_dict(role=user.get("role", "admin"))
+        if j.status == "cancelled":
+            raise HTTPException(400, "Cannot complete a cancelled job")
+        # Workers must start before they can complete — protects against
+        # bogus "complete" taps on jobs nobody actually worked. Admin can
+        # complete-without-start (legacy data, schedule corrections).
+        role = (user.get("role") or "").lower()
+        if j.status == "scheduled" and role not in ("admin", "va"):
+            raise HTTPException(
+                400,
+                "Job hasn't been started yet — hit Start Job first.",
+            )
+
+        worker_name = _resolve_worker_name(db, user)
+        j.status = "completed"
+        j.completed_at = _now()
+        j.completed_by = user.get("sub", "") or worker_name
+        j.updated_at = _now()
+        db.commit()
+        db.refresh(j)
+
+        try:
+            _notify_job_completed(j, worker_name)
+        except Exception as e:
+            logger.warning(f"job_completed notification dispatch failed: {e}")
+        try:
+            publish("job_completed", {
+                "job_id": j.id,
+                "lead_id": j.lead_id,
+                "customer_name": j.customer_name or "",
+                "worker_name": worker_name,
+                "completed_at": j.completed_at,
+            })
+        except Exception as e:
+            logger.warning(f"job_completed event publish failed: {e}")
+
+        return j.to_dict(role=user.get("role", "admin"))
+    finally:
+        db.close()
+
+
 @router.post("/schedule/jobs/{job_id}/mark-paid")
 def mark_scheduled_job_paid(job_id: str, body: MarkPaidBody, user: dict = Depends(require_staff)):
     """Manual payment status update. Used when admin collects cash/Zelle/check
@@ -453,6 +654,7 @@ def mark_scheduled_job_paid(job_id: str, body: MarkPaidBody, user: dict = Depend
         if body.payment_status not in valid:
             raise HTTPException(400, f"payment_status must be one of {valid}")
 
+        was_paid = j.payment_status == "paid"
         j.payment_status = body.payment_status
         j.amount_collected = body.amount_collected or 0
         j.payment_method = body.payment_method or ""
@@ -469,6 +671,16 @@ def mark_scheduled_job_paid(job_id: str, body: MarkPaidBody, user: dict = Depend
         j.updated_at = _now()
         db.commit()
         db.refresh(j)
+        # Fire the payment-received pipeline on the unpaid→paid transition
+        # (skip bnpl_financed — that's financed-not-paid). Mirrors the QB
+        # webhook behavior so cash/Zelle/check payments produce the same
+        # Alan-SMS + dashboard event as a QB invoice payment.
+        if not was_paid and body.payment_status == "paid":
+            try:
+                from api.quickbooks import _fire_payment_received_pipeline
+                _fire_payment_received_pipeline(db, j)
+            except Exception as e:
+                logger.warning(f"manual mark-paid notification dispatch failed: {e}")
         return j.to_dict(role="admin")
     finally:
         db.close()

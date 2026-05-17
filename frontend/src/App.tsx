@@ -20,6 +20,9 @@ import Calls from "@/pages/Calls";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
+import MyDay from "@/pages/MyDay";
+import JobSops from "@/pages/JobSops";
+import InvoiceQueue from "@/pages/InvoiceQueue";
 import Accounting from "@/pages/Accounting";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
@@ -34,10 +37,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Workers see only /calendar — any other URL bounces back.
+// Workers see only /my-day — any other URL bounces back. /calendar still
+// works for them as a read-only fallback but /my-day is the primary view.
 function StaffOnly({ children }: { children: React.ReactNode }) {
   const u = getCurrentUser();
-  if (u?.role === "worker") return <Navigate to="/calendar" replace />;
+  if (u?.role === "worker") return <Navigate to="/my-day" replace />;
   return <>{children}</>;
 }
 
@@ -98,6 +102,9 @@ function AppLayout() {
               <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
               <Route path="/accounting" element={<StaffOnly><Accounting /></StaffOnly>} />
               <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/my-day" element={<MyDay />} />
+              <Route path="/sops/job/:jobId" element={<JobSops />} />
+              <Route path="/invoice-queue" element={<StaffOnly><InvoiceQueue /></StaffOnly>} />
               <Route path="/pricing" element={<StaffOnly><Pricing /></StaffOnly>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<StaffOnly><Settings /></StaffOnly>} />

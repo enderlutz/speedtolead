@@ -200,6 +200,80 @@ def list_employees(
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Autocomplete endpoints — lightweight, used by <EmployeeSearchInput>
+# ---------------------------------------------------------------------------
+
+def _lean_employee_row(e: Employee) -> dict:
+    return {
+        "id": e.id,
+        "first_name": e.first_name or "",
+        "last_name": e.last_name or "",
+        "full_name": f"{e.first_name or ''} {e.last_name or ''}".strip(),
+        "phone": e.phone or "",
+        "email": e.email or "",
+        "pay_type": e.pay_type or "",
+        "pay_rate": float(e.pay_rate or 0),
+        "status": e.status or "",
+    }
+
+
+@router.get("/crew/employees/search")
+def search_employees(
+    q: str = Query("", min_length=0, max_length=80),
+    limit: int = Query(10, ge=1, le=25),
+    include_inactive: bool = Query(False),
+    user: dict = Depends(require_admin),
+):
+    """Typeahead search for employee picker UIs. Matches first/last name,
+    phone, email. Returns at most `limit` rows ordered by most-recently-
+    updated first."""
+    del user
+    db = get_db()
+    try:
+        query = db.query(Employee)
+        if not include_inactive:
+            query = query.filter(Employee.status == "active")
+        q = (q or "").strip()
+        if q:
+            pattern = f"%{q}%"
+            query = query.filter(
+                Employee.first_name.ilike(pattern)
+                | Employee.last_name.ilike(pattern)
+                | Employee.phone.ilike(pattern)
+                | Employee.email.ilike(pattern)
+            )
+        rows = (
+            query.order_by(Employee.updated_at.desc().nullslast())
+            .limit(limit)
+            .all()
+        )
+        return {"results": [_lean_employee_row(e) for e in rows]}
+    finally:
+        db.close()
+
+
+@router.get("/crew/employees/recent")
+def recent_employees(
+    limit: int = Query(10, ge=1, le=25),
+    user: dict = Depends(require_admin),
+):
+    """Empty-state dropdown for the employee picker."""
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(Employee)
+            .filter(Employee.status == "active")
+            .order_by(Employee.updated_at.desc().nullslast())
+            .limit(limit)
+            .all()
+        )
+        return {"results": [_lean_employee_row(e) for e in rows]}
+    finally:
+        db.close()
+
+
 @router.get("/crew/employees/{employee_id}")
 def get_employee(employee_id: str, user: dict = Depends(require_admin)):
     del user

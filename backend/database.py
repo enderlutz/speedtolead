@@ -719,6 +719,13 @@ class Employee(Base):
     status = Column(Text, default="active")          # active | inactive
     # Deferred — W9 PDF only loaded when admin downloads for 1099 prep.
     w9_file_data = deferred(Column(LargeBinary, nullable=True))  # blob storage matches call recordings precedent
+    # QuickBooks Payroll Elite linkage. qb_employee_id maps to Intuit's
+    # Employee.Id; qb_time_user_id maps to QB Time's User.Id (separate API
+    # at rest.tsheets.com). Empty until the employee is synced. Read by
+    # services/qb_payroll_sync.py — never edited from the dashboard UI.
+    qb_employee_id = Column(Text, default="")
+    qb_time_user_id = Column(Text, default="")
+    qb_synced_at = Column(Text, default="")
     # Existence flag set on upload. Crew listing endpoints serialized every
     # employee twice via bool(w9_file_data) — each access loaded the entire
     # W9 PDF blob from Postgres. This flag avoids that hit.
@@ -866,6 +873,14 @@ class ScheduledJob(Base):
     customer_invited = Column(Boolean, default=False)
     customer_thank_you_sent = Column(Boolean, default=False)
     status = Column(Text, default="scheduled")            # scheduled | in_progress | completed | cancelled
+    # Lifecycle timestamps + actors. started_at is set when a worker hits
+    # "Start Job" from the My Day view (also fires team SMS so admin can
+    # stage the invoice). completed_at on "Complete Job". started_by /
+    # completed_by capture the worker user_id for audit.
+    started_at = Column(Text, nullable=True)
+    completed_at = Column(Text, nullable=True)
+    started_by = Column(Text, default="")
+    completed_by = Column(Text, default="")
     # Materials (stain, sealer, brushes, etc.) consumed on the job. Single
     # number entered by admin after the crew finishes. Drops directly out of
     # gross profit so per-job margins reflect real material spend.
@@ -909,6 +924,8 @@ class ScheduledJob(Base):
             "gallons_estimate": float(self.gallons_estimate or 0),
             "job_description": self.job_description or "",
             "status": self.status or "scheduled",
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
             "google_event_id": self.google_event_id or "",
         }
         if role == "worker":
@@ -936,6 +953,8 @@ class ScheduledJob(Base):
             "qb_invoice_amount": float(self.qb_invoice_amount or 0),
             "qb_invoice_sent_at": self.qb_invoice_sent_at,
             "qb_invoice_paid_at": self.qb_invoice_paid_at,
+            "started_by": self.started_by or "",
+            "completed_by": self.completed_by or "",
             "created_at": self.created_at,
             "created_by": self.created_by or "",
             "updated_at": self.updated_at,
@@ -1975,6 +1994,10 @@ def _run_migrations():
             ("qb_invoice_amount", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_amount NUMERIC(10,2) DEFAULT 0"),
             ("qb_invoice_sent_at", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_sent_at TEXT"),
             ("qb_invoice_paid_at", "ALTER TABLE scheduled_jobs ADD COLUMN qb_invoice_paid_at TEXT"),
+            ("started_at", "ALTER TABLE scheduled_jobs ADD COLUMN started_at TEXT"),
+            ("completed_at", "ALTER TABLE scheduled_jobs ADD COLUMN completed_at TEXT"),
+            ("started_by", "ALTER TABLE scheduled_jobs ADD COLUMN started_by TEXT DEFAULT ''"),
+            ("completed_by", "ALTER TABLE scheduled_jobs ADD COLUMN completed_by TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:
@@ -1988,6 +2011,19 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE task_allocations ADD COLUMN flat_pay_amount NUMERIC(10,2) DEFAULT 0"))
             logger.info("Migration: added task_allocations.flat_pay_amount")
+
+    # QuickBooks Payroll Elite linkage columns on Employee
+    if inspector.has_table("employees"):
+        emp_cols = {c["name"] for c in inspector.get_columns("employees")}
+        for new_col, ddl in [
+            ("qb_employee_id",  "ALTER TABLE employees ADD COLUMN qb_employee_id TEXT DEFAULT ''"),
+            ("qb_time_user_id", "ALTER TABLE employees ADD COLUMN qb_time_user_id TEXT DEFAULT ''"),
+            ("qb_synced_at",    "ALTER TABLE employees ADD COLUMN qb_synced_at TEXT DEFAULT ''"),
+        ]:
+            if new_col not in emp_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added employees.{new_col}")
 
     # SOP V2 columns — section labels, branching, reference data
     if inspector.has_table("sop_templates"):

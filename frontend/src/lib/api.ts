@@ -999,6 +999,27 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Job lifecycle — worker hits these from the My Day view
+  startScheduledJob: (jobId: string) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${jobId}/start`, { method: "POST" }),
+  completeScheduledJob: (jobId: string) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${jobId}/complete`, { method: "POST" }),
+
+  // Autocomplete — typeahead + recent. Used by CustomerSearchInput +
+  // EmployeeSearchInput across reimbursements, time logs, etc.
+  searchLeads: (q: string, limit: number = 10) =>
+    request<{ results: LeanLead[] }>(
+      `/api/leads/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  recentLeads: (limit: number = 10) =>
+    request<{ results: LeanLead[] }>(`/api/leads/recent?limit=${limit}`),
+  searchEmployees: (q: string, limit: number = 10) =>
+    request<{ results: LeanEmployee[] }>(
+      `/api/crew/employees/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  recentEmployees: (limit: number = 10) =>
+    request<{ results: LeanEmployee[] }>(`/api/crew/employees/recent?limit=${limit}`),
+
   // QuickBooks
   getQuickBooksStatus: () => request<QuickBooksStatus>("/api/quickbooks/status"),
   getQuickBooksAuthUrl: () => request<{ url: string; mode: string; note?: string }>("/api/quickbooks/auth-url"),
@@ -1017,6 +1038,16 @@ export const api = {
     request<{ status: string; to_phone: string }>(`/api/quickbooks/jobs/${jobId}/send-invoice-sms`, {
       method: "POST",
     }),
+  /** Admin "Ready to Invoice" queue — jobs that started or completed
+   * but haven't been invoiced yet. Feeds the dedicated queue page. */
+  getReadyToInvoice: () =>
+    request<{
+      count: number;
+      in_progress_count: number;
+      completed_count: number;
+      jobs: ReadyToInvoiceJob[];
+    }>("/api/quickbooks/ready-to-invoice"),
+
   /** Mock-mode helper: pretend Intuit just told us a payment came in. */
   triggerMockQbPayment: (qbInvoiceId: string, amount: number) =>
     request<{ status: string; marked_paid?: string; reason?: string }>("/api/quickbooks/webhook", {
@@ -1662,7 +1693,11 @@ export interface ScheduledJob {
   needs_test_spots: boolean;
   gallons_estimate: number;
   job_description: string;
-  status: string;
+  status: string;  // scheduled | in_progress | completed | cancelled
+  started_at?: string | null;
+  completed_at?: string | null;
+  started_by?: string;
+  completed_by?: string;
   google_event_id: string;
   service_type?: string;  // "fence_staining" | "power_washing" — drives calendar chip color
   // Admin/VA only
@@ -2001,6 +2036,51 @@ export interface GenerateInvoiceResult {
   amount: number;
   status: string;
   job: ScheduledJob;
+}
+
+// Lean payloads used by the autocomplete components — much smaller than
+// the full Lead / Employee types so typeahead can fire on every
+// keystroke without measurable cost.
+export interface LeanLead {
+  id: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
+  address: string;
+  zip_code: string;
+  status: string;
+  kanban_column: string;
+  location_label: string;
+}
+
+export interface LeanEmployee {
+  id: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  phone: string;
+  email: string;
+  pay_type: string;
+  pay_rate: number;
+  status: string;
+}
+
+export interface ReadyToInvoiceJob {
+  id: string;
+  lead_id: string;
+  customer_name: string;
+  address: string;
+  job_date: string;
+  arrival_time: string;
+  status: "in_progress" | "completed";
+  started_at: string | null;
+  completed_at: string | null;
+  closed_price: number;
+  package_tier: string;
+  customer_email: string;
+  customer_phone: string;
+  qb_invoice_id: string;
+  qb_invoice_url: string;
 }
 
 export interface WrappedDigest {

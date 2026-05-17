@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type SearchableCustomer } from "@/lib/api";
+import { useMemo, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CustomerSearchInput } from "@/components/SearchInput";
 import { toast } from "sonner";
 import {
-  X, Search, Plus, Trash2, Upload, Image as ImageIcon, FileText,
+  X, Plus, Trash2, Upload, Image as ImageIcon, FileText,
 } from "lucide-react";
 
 const labelCls = "text-xs font-semibold text-muted-foreground";
@@ -45,7 +46,6 @@ export default function ReimbursementForm({
   const [leadId, setLeadId] = useState(defaultLeadId);
   const [leadLabel, setLeadLabel] = useState(defaultLeadName);
   const [customerQuery, setCustomerQuery] = useState("");
-  const [allCustomers, setAllCustomers] = useState<SearchableCustomer[]>([]);
   const [expenseDate, setExpenseDate] = useState(defaultDate || todayCentralISO());
 
   // Single-amount path (used when items list is empty)
@@ -61,22 +61,9 @@ export default function ReimbursementForm({
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load all customers for the search box. Uses the existing endpoint that
-  // also returns the per-employee unlogged backlog (we ignore that part here).
-  useEffect(() => {
-    if (!employeeId) return;
-    api.getCustomersToLog(employeeId)
-      .then((r) => setAllCustomers(r.all_customers))
-      .catch(() => {});
-  }, [employeeId]);
-
-  const searchResults = useMemo(() => {
-    const q = customerQuery.trim().toLowerCase();
-    if (!q) return [] as SearchableCustomer[];
-    return allCustomers
-      .filter((c) => c.name.toLowerCase().includes(q) || c.address.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [customerQuery, allCustomers]);
+  // Customer search is now backend-driven (debounced typeahead + recent
+  // dropdown on focus) via <CustomerSearchInput>. Old client-side filter
+  // over getCustomersToLog removed.
 
   const itemsTotal = useMemo(
     () => items.reduce((a, i) => a + (parseFloat(i.amount) || 0), 0),
@@ -101,14 +88,10 @@ export default function ReimbursementForm({
     setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
-  const pickCustomer = (c: SearchableCustomer) => {
-    setLeadId(c.lead_id);
-    setLeadLabel(c.name + (c.address ? ` · ${c.address}` : ""));
-    setCustomerQuery("");
-  };
   const clearCustomer = () => {
     setLeadId("");
     setLeadLabel("");
+    setCustomerQuery("");
   };
 
   const handleFile = (f: File | null) => {
@@ -191,7 +174,8 @@ export default function ReimbursementForm({
         </div>
       </div>
 
-      {/* Customer search */}
+      {/* Customer search — shared autocomplete component. Recent customers
+          appear on focus; typing triggers backend search (debounced). */}
       <div>
         <label className={labelCls}>Customer</label>
         {leadId ? (
@@ -202,38 +186,18 @@ export default function ReimbursementForm({
             </button>
           </div>
         ) : (
-          <>
-            <div className="relative mt-1">
-              <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-2.5" />
-              <Input
-                value={customerQuery}
-                onChange={(e) => setCustomerQuery(e.target.value)}
-                placeholder="Search customer name or address"
-                className="pl-8"
-                autoFocus
-              />
-            </div>
-            {searchResults.length > 0 && (
-              <div className="border rounded-md mt-1 divide-y max-h-40 overflow-y-auto bg-background">
-                {searchResults.map((c) => (
-                  <button
-                    key={c.lead_id}
-                    type="button"
-                    onClick={() => pickCustomer(c)}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2"
-                  >
-                    <span className="font-medium truncate flex-1">{c.name}</span>
-                    {c.address && (
-                      <span className="text-xs text-muted-foreground truncate hidden sm:inline">{c.address}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-            {customerQuery.trim() && searchResults.length === 0 && (
-              <p className="text-[11px] text-muted-foreground mt-1">No customers matched.</p>
-            )}
-          </>
+          <div className="mt-1">
+            <CustomerSearchInput
+              value={customerQuery}
+              onChange={setCustomerQuery}
+              onSelect={(c) => {
+                setLeadId(c.id);
+                setLeadLabel(c.contact_name + (c.address ? ` · ${c.address}` : ""));
+                setCustomerQuery("");
+              }}
+              placeholder="Search customer name, phone, or address"
+            />
+          </div>
         )}
       </div>
 
