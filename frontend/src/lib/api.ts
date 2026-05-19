@@ -1055,6 +1055,13 @@ export const api = {
       body: JSON.stringify({ qb_invoice_id: qbInvoiceId, amount }),
     }),
 
+  // QuickBooks Time (separate developer app at api.tsheets.com)
+  getQBTimeStatus: () => request<QBTimeStatus>("/api/quickbooks/qbtime/status"),
+  getQBTimeAuthUrl: () =>
+    request<{ url: string; mode: string; note?: string; state?: string }>("/api/quickbooks/qbtime/auth-url"),
+  disconnectQBTime: () =>
+    request<{ status: string }>("/api/quickbooks/qbtime/disconnect", { method: "POST" }),
+
   // Marketing source analytics
   getLeadSources: (days: number = 90, pipelineVersion?: string) => {
     const params = new URLSearchParams({ days: String(days) });
@@ -2027,6 +2034,20 @@ export interface QuickBooksStatus {
   needs_reconnect: boolean;
   reconnect_reason: string;
   ready_to_test: boolean;
+}
+
+export interface QBTimeStatus {
+  mode: "mock" | "live";
+  connected: boolean;
+  company_name: string;
+  company_id: string;
+  user_id: string;
+  current_user: { first_name?: string; last_name?: string; email?: string } | null;
+  connected_at: string;
+  access_token_expires_at: string;
+  needs_reconnect: boolean;
+  reconnect_reason: string;
+  credentials_configured: boolean;
 }
 
 export interface GenerateInvoiceResult {

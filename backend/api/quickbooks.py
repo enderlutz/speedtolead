@@ -370,6 +370,153 @@ def qb_payroll_status(user: dict = Depends(require_admin)):
     }
 
 
+# ────────────────────────────────────────────────────────────────────────
+# QB Time OAuth — separate developer app at api.tsheets.com
+# ────────────────────────────────────────────────────────────────────────
+#
+# QB Time runs on different infrastructure than QB Online. Its OAuth
+# surface lives at rest.tsheets.com and requires a SEPARATE developer
+# app registration. Once Alan registered the app + saved the Client ID/
+# Secret as Railway env vars (QB_TIME_CLIENT_ID, QB_TIME_CLIENT_SECRET,
+# QB_TIME_REDIRECT_URI), these endpoints drive the connection flow from
+# the Settings -> QuickBooks Time card.
+#
+# The callback path is hyphenated (qbtime-callback) to exactly match the
+# redirect URI registered in the QB Time developer app. The status /
+# auth-url / disconnect endpoints use slash separators for consistency
+# with the QBO endpoints above.
+
+@router.get("/quickbooks/qbtime/status")
+def qbtime_status(user: dict = Depends(require_admin)):
+    """Connection state for the QB Time OAuth app. Pings /current_user
+    when connected so the UI shows the authorized user's name."""
+    del user
+    from services import qb_time_client as qbt
+    db = get_db()
+    try:
+        from database import QBTimeToken
+        row = db.query(QBTimeToken).filter(QBTimeToken.id == "default").first()
+    finally:
+        db.close()
+    reconnect = qbt.get_reconnect_state()
+    # Best-effort ping when connected — failure here is fine, it'll
+    # surface in the UI as connected=true + current_user=None.
+    current_user = None
+    if qbt.qbt_mode() == "live" and row and row.refresh_token:
+        try:
+            ping = qbt.ping_current_user()
+            current_user = ping.get("user")
+        except Exception as e:
+            logger.warning(f"qbtime_status: ping failed: {e}")
+    return {
+        "mode": qbt.qbt_mode(),
+        "connected": bool(row and row.refresh_token) if qbt.qbt_mode() == "live" else False,
+        "company_name": row.company_name if row else "",
+        "company_id": row.company_id if row else "",
+        "user_id": row.user_id if row else "",
+        "current_user": current_user,
+        "connected_at": row.connected_at if row else "",
+        "access_token_expires_at": row.access_token_expires_at if row else "",
+        "needs_reconnect": bool(reconnect.get("needs_reconnect")),
+        "reconnect_reason": reconnect.get("reason", ""),
+        "credentials_configured": bool(qbt.qbt_client_credentials()[0] and qbt.qbt_client_credentials()[1] and qbt.qbt_redirect_uri()),
+    }
+
+
+@router.get("/quickbooks/qbtime/auth-url")
+def qbtime_auth_url(user: dict = Depends(require_admin)):
+    """Returns the QB Time OAuth URL for the admin to click. Refuses in
+    mock mode and when credentials aren't configured."""
+    del user
+    from services import qb_time_client as qbt
+    if qbt.qbt_mode() != "live":
+        return {
+            "url": "",
+            "mode": "mock",
+            "note": "Backend is in mock mode — set QB_TIME_MODE=live in Railway to enable real OAuth.",
+        }
+    client_id, client_secret = qbt.qbt_client_credentials()
+    if not client_id or not client_secret or not qbt.qbt_redirect_uri():
+        raise HTTPException(
+            400,
+            "QB Time credentials missing — set QB_TIME_CLIENT_ID, QB_TIME_CLIENT_SECRET, and QB_TIME_REDIRECT_URI in Railway.",
+        )
+    try:
+        state = qbt.make_state()
+        url = qbt.build_auth_url(state)
+        return {"url": url, "mode": "live", "state": state}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to build QB Time auth URL: {e}")
+
+
+@router.get("/quickbooks/qbtime-callback")
+def qbtime_oauth_callback(
+    code: str = Query(""),
+    state: str = Query(""),
+    error: str = Query(""),
+):
+    """OAuth redirect target — must match the QB Time developer app's
+    Redirect URI exactly. We:
+      1. Validate the state token (CSRF protection).
+      2. Exchange the code for access + refresh tokens.
+      3. Store encrypted, fetch the authorized user's name, redirect back
+         to /settings.
+    """
+    from fastapi.responses import RedirectResponse
+    from services import qb_time_client as qbt
+    s = get_settings()
+
+    if qbt.qbt_mode() != "live":
+        return RedirectResponse(url=f"{s.frontend_url}/settings?qbtime_connected=mock")
+
+    if error:
+        logger.warning(f"QB Time OAuth callback received error: {error}")
+        return RedirectResponse(url=f"{s.frontend_url}/settings?qbtime_error={error[:60]}")
+
+    if not code:
+        return RedirectResponse(url=f"{s.frontend_url}/settings?qbtime_error=missing_code")
+
+    if not qbt.consume_state(state):
+        logger.error("QB Time OAuth callback rejected: state mismatch (possible CSRF)")
+        return RedirectResponse(url=f"{s.frontend_url}/settings?qbtime_error=invalid_state")
+
+    try:
+        tokens = qbt.exchange_code(code)
+    except Exception as e:
+        logger.error(f"QB Time token exchange failed: {e}")
+        return RedirectResponse(url=f"{s.frontend_url}/settings?qbtime_error=token_exchange_failed")
+
+    # Persist tokens immediately so the post-connect ping can use them.
+    qbt._save_oauth_tokens(tokens)
+
+    # Best-effort: ping /current_user to capture the authorized user's name.
+    company_name = ""
+    try:
+        ping = qbt.ping_current_user()
+        u = ping.get("user") or {}
+        if isinstance(u, dict):
+            first = u.get("first_name", "")
+            last = u.get("last_name", "")
+            company_name = f"{first} {last}".strip() or u.get("company_name", "")
+    except Exception as e:
+        logger.warning(f"QB Time post-connect ping failed (non-fatal): {e}")
+
+    if company_name:
+        qbt._save_oauth_tokens(tokens, company_name=company_name)
+
+    return RedirectResponse(url=f"{s.frontend_url}/settings?qbtime_connected=1")
+
+
+@router.post("/quickbooks/qbtime/disconnect")
+def qbtime_disconnect(user: dict = Depends(require_admin)):
+    """Clear the stored QB Time OAuth tokens. The app stays registered on
+    Intuit's side — reconnecting reuses the same Client ID/Secret."""
+    del user
+    from services import qb_time_client as qbt
+    qbt.disconnect_oauth()
+    return {"status": "disconnected"}
+
+
 class PayrollSyncBody(BaseModel):
     # Each flag opts into one sync step. Default all-on for "Sync now"
     # but admin can also fire a targeted subset.

@@ -1457,6 +1457,28 @@ class QuickBooksToken(Base):
     updated_at = Column(Text, default="")
 
 
+class QBTimeToken(Base):
+    """Single-row OAuth token for the connected QuickBooks Time (formerly
+    TSheets) account. Separate from QuickBooksToken because QB Time runs
+    on different infrastructure (rest.tsheets.com) with its own developer
+    app + OAuth surface.
+
+    QB Time tokens are unusually long-lived — access tokens default to
+    1 year, refresh tokens never expire until next exchange. Refresh
+    logic is therefore much more relaxed than QBO."""
+    __tablename__ = "qbtime_tokens"
+
+    id = Column(Text, primary_key=True)                    # always "default"
+    company_id = Column(Text, default="")                  # QB Time company id (returned with token)
+    user_id = Column(Text, default="")                     # QB Time user id (the admin who authorized)
+    refresh_token = Column(Text, nullable=False)
+    access_token = Column(Text, default="")
+    access_token_expires_at = Column(Text, default="")     # ISO8601
+    company_name = Column(Text, default="")
+    connected_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 class OverheadEntry(Base):
     """Recurring monthly overhead — rent, insurance, fuel, software, etc.
     Used by the Accounting page to compute margins and net profit. Each row

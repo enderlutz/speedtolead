@@ -14,6 +14,7 @@ import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
+import QBTimeSettingsCard from "@/components/QBTimeSettingsCard";
 import SupportCard from "@/components/SupportCard";
 
 interface PdfTemplateInfo {
@@ -148,6 +149,9 @@ export default function Settings() {
 
       {/* QuickBooks Online — OAuth connection, mode, realm, reconnect banner */}
       <QuickBooksSettingsCard />
+
+      {/* QuickBooks Time — separate OAuth app for time tracking + payroll-adjacent sync */}
+      <QBTimeSettingsCard />
 
       {/* Support + legal — surfaces contact email + EULA / Privacy links */}
       <SupportCard />
