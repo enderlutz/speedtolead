@@ -363,15 +363,21 @@ def _build_tokenset_from_response(
 
 def ensure_valid_oauth_token() -> QBTimeTokenSet | None:
     """Returns a token set with a fresh access token, refreshing proactively
-    if within 7 days of expiry. Returns None when not connected via OAuth
-    or when refresh fails permanently."""
+    if within 1 hour of expiry. Returns None when not connected via OAuth
+    or when refresh fails permanently.
+
+    1-hour threshold works for any access-token lifetime from a few hours
+    on up. QB Time's actual lifetimes vary (we've observed ~7 days post-
+    Intuit acquisition; some apps still get a year). A fixed 1-hour
+    threshold refreshes close enough to expiry without thrashing on
+    every request when the token is short-lived. Reactive refresh in
+    _request() catches anything that slips past."""
     if qbt_mode() != "live":
         return None
     t = _load_oauth_tokens()
     if not t:
         return None
-    # QB Time tokens last a year; refresh when within 7 days of expiry.
-    if datetime.now(timezone.utc) + timedelta(days=7) >= t.access_expires_at:
+    if datetime.now(timezone.utc) + timedelta(hours=1) >= t.access_expires_at:
         try:
             t = refresh_oauth_token(t)
         except PermissionError:
