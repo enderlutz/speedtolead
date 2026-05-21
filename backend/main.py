@@ -193,6 +193,16 @@ async def _async_db_init():
             await asyncio.to_thread(init_db)
             await asyncio.to_thread(auth.seed_default_users)
             await asyncio.to_thread(auth.seed_fragned_user)
+            # Pre-warm the 16MB PDF template into module-level RAM so the
+            # first customer-facing request after deploy doesn't pay the
+            # cold-start tax (BLOB transfer + the retry-with-sleep loop in
+            # template_cache._reload_template). Off-thread so we don't
+            # block the event loop during the (network-bound) load.
+            try:
+                from services.template_cache import get_template
+                await asyncio.to_thread(get_template)
+            except Exception as warm_err:
+                logger.warning(f"PDF template prewarm skipped (will lazy-load on first request): {warm_err}")
             try:
                 from services.followup_engine import (
                     seed_test_sequence,

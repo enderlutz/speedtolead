@@ -676,6 +676,14 @@ def tick() -> dict:
         # would wait up to a full 5 minutes for the next background tick,
         # destroying the psychological pacing. Cap at 5 iterations so a
         # misconfigured sub-minute loop can't dominate the tick.
+        #
+        # Connection discipline: the per-iteration sleep can be up to 90s.
+        # Holding the DB session through that sleep monopolizes one of
+        # Supabase's pooler backend slots, starving every other request
+        # while we wait. We close the session before sleeping and reopen
+        # after, then re-query the batch (a) so the ORM objects are
+        # attached to the live session and (b) to honor any state changes
+        # that happened during the sleep (e.g. admin paused a run).
         import time as _t
         burst_window_s = 90
         for _ in range(5):
@@ -700,7 +708,24 @@ def tick() -> dict:
                 wait_s = max(0.0, (earliest - _now_dt()).total_seconds())
                 wait_s = min(wait_s, float(burst_window_s))
                 if wait_s > 0:
+                    db.close()
                     _t.sleep(wait_s)
+                    db = get_db()
+                    # Re-query — original soon_runs is now detached + may
+                    # be stale after a 90s sleep.
+                    soon_runs = (
+                        db.query(FollowUpRun)
+                        .filter(
+                            FollowUpRun.status == "active",
+                            FollowUpRun.next_due_at != "",
+                            FollowUpRun.next_due_at <= _now(),
+                        )
+                        .order_by(FollowUpRun.next_due_at.asc())
+                        .limit(50)
+                        .all()
+                    )
+                    if not soon_runs:
+                        break
             _process_batch(soon_runs)
 
         logger.info(f"Follow-up tick: master_on=True {summary}")
