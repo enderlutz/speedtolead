@@ -116,7 +116,8 @@ export default function Leads() {
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
-  // Auto-refresh every 30s
+  // Auto-refresh safety net. SSE handles real-time updates; this is just
+  // here to recover from missed events. 2 min is plenty.
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -129,18 +130,25 @@ export default function Leads() {
           prevCountRef.current = data.length;
         }).catch(() => {});
       }
-    }, 30000);
+    }, 120_000);
     return () => clearInterval(interval);
   }, []);
 
   // Real-time SSE: instant update + sounds for all event types
+  // Coalesce bursts of refetches — the GHL poller fires lead_updated per
+  // stage change, often dozens in a single tick. Debouncing to a single
+  // trailing refetch cuts /api/leads QPS without losing freshness.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useSSE(useCallback((event) => {
     const refresh = () => {
-      api.getLeads({ pipeline_version: "v1" }).then((data) => {
-        setLeads(data);
-        localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
-        prevCountRef.current = data.length;
-      }).catch(() => {});
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        api.getLeads({ pipeline_version: "v1" }).then((data) => {
+          setLeads(data);
+          localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
+          prevCountRef.current = data.length;
+        }).catch(() => {});
+      }, 1500);
     };
 
     switch (event.type) {
