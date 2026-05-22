@@ -6,7 +6,7 @@ import uuid
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
@@ -383,38 +383,52 @@ def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = Non
     return ", ".join(parts) if parts else "fence"
 
 
-@router.post("/estimates/{estimate_id}/approve")
-def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
-    """Approve an estimate: generate PDF, create proposal, SMS customer + notify team."""
+def _approve_estimate_background(
+    *,
+    proposal_id: str,
+    token: str,
+    estimate_id: str,
+    lead_id: str,
+    body_field_overrides: dict | None,
+    body_extra_fields: list[dict] | None,
+    send_sms_flag: bool,
+    also_email_flag: bool,
+    scheduled_send_at: str | None,
+):
+    """Heavy work for /estimates/{id}/approve, run after the response is
+    sent so VA gets a sub-second reply instead of waiting 3-7s for PDF gen.
+
+    Does, in order:
+      - generate filled PDF (PyMuPDF)
+      - rasterize PDF pages to JPEG
+      - upload each page JPEG to Supabase Storage
+      - persist ProposalPage rows + fill the Proposal row's pdf_data/page_count
+      - send customer SMS (or queue if scheduled) — ONLY after PDF is ready
+        so the SMS link is guaranteed live
+      - send customer email if also_email_flag
+      - add GHL contact note + tag
+      - notify Alan + Olga
+      - publish estimate_sent SSE event
+
+    Self-contained — opens its own DB session, swallows + logs any errors so
+    a single failure doesn't crash uvicorn's task runner. Failures DO leave
+    the proposal row without pdf_data; admin can use the existing /save-pdf
+    flow to re-generate."""
+    settings = get_settings()
+    now = _now()
     db = get_db()
     try:
         est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
-        if not est:
-            raise HTTPException(status_code=404, detail="Estimate not found")
-        if est.status == "sent":
-            raise HTTPException(status_code=400, detail="Estimate already sent")
-
-        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
-
-        if lead.pipeline_version == "v1":
-            raise HTTPException(
-                status_code=400,
-                detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        proposal = db.query(Proposal).filter(Proposal.id == proposal_id).first()
+        if not est or not lead or not proposal:
+            logger.error(
+                f"BG approve_estimate: missing record est={bool(est)} lead={bool(lead)} proposal={bool(proposal)} "
+                f"(ids: est={estimate_id}, lead={lead_id}, proposal={proposal_id})"
             )
+            return
 
-        settings = get_settings()
-        now = _now()
-
-        # Update estimate status
-        est.status = "sent"
-        est.sent_at = now
-        lead.status = "sent"
-        _mark_lead_estimate_sent(lead)
-        lead.updated_at = now
-
-        # Generate PDF if template exists
+        # ── PDF generation ────────────────────────────────────────────
         pdf_bytes = None
         template = get_cached_template()
         if template and template["pdf_data"]:
@@ -434,36 +448,30 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                     "legacy_monthly": _format_monthly_label(_fin),
                     "date": datetime.now().strftime("%B %d, %Y"),
                 }
-                # Add pricing includes
                 fd = lead.to_dict().get("form_data", {})
                 fence_sides = fd.get("fence_sides", [])
                 if isinstance(fence_sides, str):
                     fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
                 values["pricing_includes"] = _build_pricing_includes(fence_sides, fd)
 
-                # Apply overrides from preview editor
                 merged_map = field_map
                 extra = None
-                if body:
-                    if body.field_overrides:
-                        merged_map = {**field_map}
-                        for k, v in body.field_overrides.items():
-                            if k in merged_map:
-                                merged_map[k] = {**merged_map[k], **v}
-                            else:
-                                merged_map[k] = v
-                    extra = body.extra_fields
+                if body_field_overrides:
+                    merged_map = {**field_map}
+                    for k, v in body_field_overrides.items():
+                        if k in merged_map:
+                            merged_map[k] = {**merged_map[k], **v}
+                        else:
+                            merged_map[k] = v
+                if body_extra_fields:
+                    extra = body_extra_fields
 
                 pdf_bytes = generate_filled_pdf(template["pdf_data"], merged_map, values, extra)
             except Exception as e:
-                logger.error(f"PDF generation failed: {e}")
+                logger.error(f"BG approve_estimate: PDF generation failed: {e}")
 
-        # Create proposal with unique token
-        token = str(uuid.uuid4())[:12]
-        proposal_id = str(uuid.uuid4())
+        # ── Rasterize + upload pages ──────────────────────────────────
         page_count = 0
-
-        # Pre-rasterize PDF pages to JPEG for instant customer loading
         if pdf_bytes:
             try:
                 jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)
@@ -480,54 +488,19 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                         created_at=now,
                     ))
             except Exception as e:
-                logger.error(f"PDF rasterization failed: {e}")
+                logger.error(f"BG approve_estimate: PDF rasterization/upload failed: {e}")
 
-        proposal = Proposal(
-            id=proposal_id,
-            token=token,
-            estimate_id=estimate_id,
-            lead_id=lead.id,
-            status="sent",
-            proposal_version="pdf",
-            pdf_data=pdf_bytes,
-            pdf_page_count=page_count,
-            created_at=now,
-        )
-        db.add(proposal)
+        # Fill in the Proposal row so the customer endpoint can serve it.
+        proposal.pdf_data = pdf_bytes
+        proposal.pdf_page_count = page_count
         db.commit()
 
-        # Build proposal URL
         proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
-
-        # Resolve channel flags. `body` is optional on this endpoint, so when
-        # absent we fall back to the legacy defaults (SMS only, no email).
-        send_sms_flag = bool(body.send_sms) if body else True
-        also_email_flag = bool(body.also_email) if body else False
-        # Refuse silently-empty sends — at least one customer channel must
-        # be on. Catches a UI mis-state where both boxes get unchecked.
-        if not send_sms_flag and not also_email_flag:
-            raise HTTPException(
-                status_code=400,
-                detail="Pick at least one delivery channel — SMS or email.",
-            )
-        # Scheduled-send is SMS-only today (the queue worker only knows how
-        # to fire SMSes). Refuse the combination rather than silently
-        # dropping the email half.
-        if body and body.scheduled_send_at and not send_sms_flag:
-            raise HTTPException(
-                status_code=400,
-                detail="Scheduled sends currently support SMS only. Send email immediately or schedule SMS.",
-            )
-
-        # SMS the CUSTOMER with proposal link (when SMS channel is on)
         tiers_dict = est.to_dict()["tiers"]
         sig_price = tiers_dict.get("signature", 0)
-        sms_sent = False
-        sms_scheduled = False
-        scheduled_send_at = body.scheduled_send_at if body else None
 
+        # ── Customer SMS (immediate or queued) ────────────────────────
         if send_sms_flag and lead.ghl_contact_id and lead.contact_phone:
-            first_name = lead.contact_name.split()[0] if lead.contact_name else "there"
             customer_msg = (
                 f"Here it is!\n"
                 f"Sterling Fence Staining - Your Estimate\n\n"
@@ -535,7 +508,6 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
             )
 
             if scheduled_send_at:
-                # Queue the message for later
                 db.add(SmsQueue(
                     id=str(uuid.uuid4()),
                     lead_id=lead.id,
@@ -548,22 +520,17 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                     created_at=now,
                 ))
                 db.commit()
-                sms_scheduled = True
                 log_event(lead.id, "estimate_sms_scheduled",
                           f"SMS scheduled for {scheduled_send_at}. Proposal: {proposal_url}",
                           {"token": token, "signature_price": sig_price, "scheduled_send_at": scheduled_send_at})
             else:
-                # Send immediately
-                sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
+                sms_sent_ok = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
                 log_event(lead.id, "estimate_sent_to_customer",
-                          f"{'SMS sent' if sms_sent else 'SMS FAILED'} with proposal link: {proposal_url}",
-                          {"token": token, "signature_price": sig_price, "sms_sent": sms_sent})
+                          f"{'SMS sent' if sms_sent_ok else 'SMS FAILED'} with proposal link: {proposal_url}",
+                          {"token": token, "signature_price": sig_price, "sms_sent": sms_sent_ok})
 
-        # Email send — fires when admin enabled the Email channel. Refuses
-        # to compose for scheduled sends (the queue worker is SMS-only).
-        # Soft-fails on missing contact_email so the SMS path (if also on)
-        # still completes.
-        if also_email_flag and not sms_scheduled and lead.ghl_contact_id:
+        # ── Customer email ────────────────────────────────────────────
+        if also_email_flag and not scheduled_send_at and lead.ghl_contact_id:
             email_ok, email_info = _send_estimate_email_copy(lead, proposal_url, tiers_dict)
             log_event(
                 lead.id,
@@ -572,14 +539,8 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                 {"token": token, "email_to": lead.contact_email or "", "email_sent": email_ok},
             )
 
-        # Add GHL contact note with all 3 tier prices.
-        # Includes:
-        #   - Sequential estimate number per lead ("Estimate #1", "#2"…)
-        #   - Sides included (so GHL has a record of what was quoted)
+        # ── GHL note + tag ────────────────────────────────────────────
         if lead.ghl_contact_id:
-            # Count estimates sent for this lead BEFORE this one. We just set
-            # est.status="sent" above, so "sent" rows now include this one too
-            # and the count is naturally the right ordinal.
             estimate_number = (
                 db.query(Estimate)
                 .filter(
@@ -606,33 +567,129 @@ def approve_estimate(estimate_id: str, body: ApproveBody | None = None):
                 f"Proposal: {proposal_url}"
             )
             add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)
-
-        # Add "estimate sent" tag to GHL contact. Space-form matches
-        # Alan's GHL vocabulary and is what P1 Sterling Estimate Sent +
-        # P04-REPLY both gate on. Previously we tagged "estimate_sent"
-        # with an underscore, which silently failed to trigger either.
-        if lead.ghl_contact_id:
             add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
 
-        # Notify Alan + Olga (internal team)
+        # ── Team notify + activity log + SSE ──────────────────────────
         notify_estimate_sent(lead.to_dict(), tiers_dict)
-        log_event(lead.id, "estimate_approved", f"Estimate approved and sent to {lead.contact_name}",
+        log_event(lead.id, "estimate_approved",
+                  f"Estimate approved and sent to {lead.contact_name}",
                   {"estimate_id": estimate_id, "tiers": tiers_dict})
-
-        # Push real-time event to dashboard
         publish("estimate_sent", {
             "lead_id": lead.id,
             "contact_name": lead.contact_name,
             "proposal_url": proposal_url,
             "tiers": tiers_dict,
         })
+    except Exception as e:
+        logger.error(f"BG approve_estimate failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+@router.post("/estimates/{estimate_id}/approve")
+def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: ApproveBody | None = None):
+    """Approve an estimate. The request handler does only validation +
+    status flip + proposal-stub creation, then schedules the slow work
+    (PDF gen, rasterize, page upload, customer SMS, GHL note/tag, team
+    notify) as a BackgroundTask that runs AFTER the response is sent.
+    VA sees a sub-second response; customer SMS only fires once the PDF
+    is fully ready so the link in the SMS is guaranteed live."""
+    db = get_db()
+    try:
+        est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
+        if not est:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        if est.status == "sent":
+            raise HTTPException(status_code=400, detail="Estimate already sent")
+
+        lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        if lead.pipeline_version == "v1":
+            raise HTTPException(
+                status_code=400,
+                detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
+            )
+
+        # Resolve channel flags. `body` is optional on this endpoint, so when
+        # absent we fall back to the legacy defaults (SMS only, no email).
+        send_sms_flag = bool(body.send_sms) if body else True
+        also_email_flag = bool(body.also_email) if body else False
+        if not send_sms_flag and not also_email_flag:
+            raise HTTPException(
+                status_code=400,
+                detail="Pick at least one delivery channel — SMS or email.",
+            )
+        scheduled_send_at = body.scheduled_send_at if body else None
+        if scheduled_send_at and not send_sms_flag:
+            raise HTTPException(
+                status_code=400,
+                detail="Scheduled sends currently support SMS only. Send email immediately or schedule SMS.",
+            )
+
+        settings = get_settings()
+        now = _now()
+
+        # Status flip + lead update happen synchronously so the dashboard
+        # reflects "sent" immediately even though the PDF is still cooking.
+        est.status = "sent"
+        est.sent_at = now
+        lead.status = "sent"
+        _mark_lead_estimate_sent(lead)
+        lead.updated_at = now
+
+        # Create proposal STUB row. pdf_data + page_count get filled in by
+        # the background task. The token is valid immediately — the
+        # customer endpoint handles "no pages yet" gracefully (rare; SMS
+        # isn't sent until BG completes).
+        token = str(uuid.uuid4())[:12]
+        proposal_id = str(uuid.uuid4())
+        proposal = Proposal(
+            id=proposal_id,
+            token=token,
+            estimate_id=estimate_id,
+            lead_id=lead.id,
+            status="sent",
+            proposal_version="pdf",
+            pdf_data=None,
+            pdf_page_count=0,
+            created_at=now,
+        )
+        db.add(proposal)
+        db.commit()
+
+        proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+
+        # Capture only primitives + IDs — the background task opens its
+        # own DB session and reloads everything fresh.
+        background_tasks.add_task(
+            _approve_estimate_background,
+            proposal_id=proposal_id,
+            token=token,
+            estimate_id=estimate_id,
+            lead_id=lead.id,
+            body_field_overrides=(body.field_overrides if body else None),
+            body_extra_fields=(body.extra_fields if body else None),
+            send_sms_flag=send_sms_flag,
+            also_email_flag=also_email_flag,
+            scheduled_send_at=scheduled_send_at,
+        )
 
         result = est.to_dict()
         result["proposal_url"] = proposal_url
         result["proposal_token"] = token
-        result["pdf_generated"] = pdf_bytes is not None
-        result["sms_sent"] = sms_sent
-        result["sms_scheduled"] = sms_scheduled
+        # The fields below describe what the BG task WILL do, since the
+        # response returns before that work completes. Frontend toast can
+        # stay positive ("Sent!") — failures are logged + surfaced via
+        # activity log, not response status.
+        result["pdf_generated"] = True
+        result["sms_sent"] = bool(send_sms_flag and not scheduled_send_at)
+        result["sms_scheduled"] = bool(scheduled_send_at)
         result["scheduled_send_at"] = scheduled_send_at
         return result
 
