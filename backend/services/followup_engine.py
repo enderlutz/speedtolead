@@ -613,11 +613,11 @@ def tick() -> dict:
     Railway, so concurrent ticks across workers aren't possible. If we
     ever scale to multiple workers, this loop will need row-level
     locking (SELECT ... FOR UPDATE SKIP LOCKED) on the runs query so
-    different workers grab disjoint subsets of due runs. A whole-tick
-    advisory lock doesn't fit with the TRANSACTION-mode Supabase pooler
-    (port 6543) we're on — session-scoped locks need sticky connections
-    and transaction-scoped locks release on the first commit inside the
-    loop, so neither is correct here."""
+    different workers grab disjoint subsets of due runs. Session-scoped
+    advisory locks now work since we're on the SESSION-mode Supabase
+    pooler (port 5432), but SKIP LOCKED on a per-row basis is the more
+    idiomatic Postgres pattern for this and doesn't require holding a
+    sticky session."""
     summary = {"processed": 0, "sent": 0, "failed": 0, "skipped_master_off": 0,
                "due": 0, "total_active": 0}
     db = get_db()

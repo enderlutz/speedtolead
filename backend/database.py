@@ -1838,18 +1838,20 @@ def init_db():
 
     engine_kwargs: dict = {"echo": False}
 
-    # We're on Supabase's TRANSACTION-mode pooler (port 6543, IPv4 Shared
-    # Pooler). That pool handles ~500 concurrent clients via multiplexing,
-    # so our app-side pool can safely run much higher than the old 5+8=13
-    # cap that was sized for the 15-client session-mode pooler.
+    # Connection: Supabase's SESSION-mode pooler (port 5432, IPv4 Shared
+    # Pooler). This is what Supabase recommends for persistent long-running
+    # backends like ours — gives us proper prepared-statement caching,
+    # working LISTEN/NOTIFY, and no transaction-mode footguns (e.g. holding
+    # a connection through a time.sleep no longer monopolizes a backend
+    # slot via multiplexing surprises).
     #
-    # 20 baseline + 40 overflow = 60 concurrent app sessions. Handles ~10
-    # concurrent proposal viewers (each opens ~6 parallel image requests)
-    # plus dashboard + background jobs without queueing.
+    # 20 baseline + 40 overflow = 60 concurrent app sessions. Comfortably
+    # within Supabase Pro's 200-client session-pooler limit. Sized to
+    # cover anyio's 40-thread default plus background loops.
     engine_kwargs["pool_size"] = 20
     engine_kwargs["max_overflow"] = 40
     engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 300   # 5 min recycle is plenty on transaction-mode pooling
+    engine_kwargs["pool_recycle"] = 300   # 5 min recycle keeps stale connections out of rotation
     engine_kwargs["pool_timeout"] = 20    # tolerate a short burst rather than 500ing immediately
     _engine = create_engine(db_url, **engine_kwargs)
 
