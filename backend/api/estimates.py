@@ -387,21 +387,29 @@ def _alert_team_sms_failure(*, customer_name: str, customer_phone: str, proposal
     """Surface a permanent send_sms failure to Alan + Fragne so they can
     manually share the proposal link with the customer.
 
-    Background: send_sms already retries 3x with exponential backoff inside
-    services/ghl.py. When it still returns False, the failure is permanent
-    (typically GHL auth, contact validation, A2P 10DLC compliance, or a
-    deactivated number — none of which retrying helps with). Before this
-    alert, the VA saw 'Sent!' toast and moved on; the customer never got
-    the link; nobody knew until the customer complained days later.
+    Pulls the actual GHL error context (HTTP status + response body) from
+    services/ghl.last_send_error() so the alert + the persisted event
+    capture the WHY of the failure — not just that it failed. Without
+    this, retroactive diagnosis is impossible after Railway logs roll.
 
     Sends to Alan + Fragne (matches the existing 'worker arrived' alert
     pattern). Olga intentionally excluded — these are urgent action items
     for ops/dev, not the VA team."""
     settings = get_settings()
+    # Grab the failure context BEFORE we send our own SMSes (each of those
+    # calls overwrites _last_send_error).
+    from services import ghl as _ghl
+    err = _ghl.last_send_error() or {}
+    status_code = err.get("status_code")
+    body_excerpt = (err.get("response_excerpt") or "")[:200]
+    exception = err.get("exception") or "unknown"
+
     msg = (
         f"⚠️ Estimate SMS FAILED\n"
         f"Customer: {customer_name}\n"
         f"Phone: {customer_phone}\n"
+        f"GHL status: {status_code}\n"
+        f"Reason: {exception[:100]}\n"
         f"Action: text them the link manually:\n"
         f"{proposal_url}\n"
         f"(Lead {lead_id[:8]})"
@@ -413,11 +421,19 @@ def _alert_team_sms_failure(*, customer_name: str, customer_phone: str, proposal
             send_sms(contact_id, msg)
         except Exception as e:
             logger.warning(f"Could not alert {label} of SMS failure for lead {lead_id}: {e}")
-    # Persist a structured event so the dashboard can show a red banner.
+    # Persist full forensics in automation_log so we can query failures
+    # by GHL status code, error type, time window, etc. — even after
+    # Railway logs roll out.
     try:
         log_event(lead_id, "sms_delivery_failed",
-                  f"Customer SMS failed permanently after retries. Proposal: {proposal_url}",
-                  {"customer_phone": customer_phone, "proposal_url": proposal_url})
+                  f"GHL SMS failed: status={status_code} reason={exception[:120]}",
+                  {
+                      "customer_phone": customer_phone,
+                      "proposal_url": proposal_url,
+                      "ghl_status_code": status_code,
+                      "ghl_response_excerpt": body_excerpt,
+                      "exception": exception,
+                  })
     except Exception:
         pass
 

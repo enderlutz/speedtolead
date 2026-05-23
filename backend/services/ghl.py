@@ -123,8 +123,26 @@ def upsert_contact(
 import time
 
 
+# ── Last-error capture for forensics ──────────────────────────────────
+# After _send_message returns False, callers can read this to get the
+# actual HTTP status + GHL response body. Without this, the only signal
+# is a True/False return, which makes silent failures impossible to
+# diagnose retroactively. Set on every send attempt (cleared on success,
+# populated on failure). Single-process safe because uvicorn is single
+# worker — if we ever scale to multi-worker, swap this for a small
+# bounded ring buffer keyed by contact_id.
+_last_send_error: dict | None = None
+
+
+def last_send_error() -> dict | None:
+    """Return the most recent send_sms failure context, or None.
+    Shape: {status_code: int | None, response_excerpt: str, exception: str}"""
+    return _last_send_error
+
+
 def _send_message(msg_type: str, contact_id: str, message: str, location_id: str | None = None, max_retries: int = 3) -> bool:
     """Send a message via GHL with retry logic. msg_type: 'SMS' or 'WhatsApp'."""
+    global _last_send_error
     settings = get_settings()
     payload = {
         "type": msg_type,
@@ -132,6 +150,10 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
         "message": message,
         "locationId": location_id or settings.ghl_location_id,
     }
+
+    final_status: int | None = None
+    final_body: str = ""
+    final_exc: str = ""
 
     for attempt in range(max_retries):
         try:
@@ -141,29 +163,68 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
                 json=payload,
                 timeout=15,
             )
+            final_status = r.status_code
+            # Capture body excerpt before any raise so we have it in
+            # error logs no matter which branch we land in.
+            try:
+                final_body = r.text[:500]
+            except Exception:
+                final_body = ""
+
             if r.status_code == 429:
-                # Rate limited — back off and retry
                 wait = min(2 ** attempt, 10)
                 logger.warning(f"GHL rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait)
                 continue
             r.raise_for_status()
+            # Soft-fail detection — some GHL endpoints return 200 OK with
+            # {"success": false} or a missing message id. Treat those as
+            # failures so they show up in our logs + alerts rather than
+            # silently returning True.
+            try:
+                body_json = r.json() if r.text else {}
+            except Exception:
+                body_json = {}
+            if isinstance(body_json, dict):
+                explicit_success = body_json.get("success")
+                if explicit_success is False:
+                    raise RuntimeError(f"GHL 200 OK but success=false: {final_body}")
             logger.info(f"GHL {msg_type} sent to {contact_id} (attempt {attempt + 1})")
+            _last_send_error = None
             return True
         except Exception as e:
+            final_exc = f"{type(e).__name__}: {str(e)[:300]}"
             if attempt < max_retries - 1:
                 wait = min(2 ** attempt, 8)
-                logger.warning(f"GHL {msg_type} failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                logger.warning(
+                    f"GHL {msg_type} failed (attempt {attempt + 1}), retrying in {wait}s: "
+                    f"status={final_status} exc={final_exc} body={final_body[:200]}"
+                )
                 time.sleep(wait)
             else:
-                logger.error(f"GHL {msg_type} FAILED after {max_retries} attempts for {contact_id}: {e}")
+                logger.error(
+                    f"GHL {msg_type} FAILED after {max_retries} attempts for {contact_id}: "
+                    f"status={final_status} exc={final_exc} body={final_body[:200]}"
+                )
+                _last_send_error = {
+                    "status_code": final_status,
+                    "response_excerpt": final_body,
+                    "exception": final_exc,
+                }
                 return False
 
+    _last_send_error = {
+        "status_code": final_status,
+        "response_excerpt": final_body,
+        "exception": final_exc or "max_retries_exceeded",
+    }
     return False
 
 
 def send_sms(contact_id: str, message: str, location_id: str | None = None) -> bool:
-    """Send an SMS to a contact via GHL. Retries up to 3 times on failure."""
+    """Send an SMS to a contact via GHL. Retries up to 3 times on failure.
+    On failure, callers can call ghl.last_send_error() to retrieve the
+    actual HTTP status + response body for forensics + alerting."""
     return _send_message("SMS", contact_id, message, location_id)
 
 
