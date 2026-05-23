@@ -643,7 +643,14 @@ export const api = {
   getCohorts: (pv?: string) => request<Record<string, unknown>[]>(`/api/analytics/cohorts${pv ? `?pipeline_version=${pv}` : ""}`),
   getRevenueInsights: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/revenue-insights${pv ? `?pipeline_version=${pv}` : ""}`),
   getDealStats: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/deal-stats${pv ? `?pipeline_version=${pv}` : ""}`),
-  getTimingAnalytics: (pv?: string) => request<Record<string, unknown>>(`/api/analytics/timing${pv ? `?pipeline_version=${pv}` : ""}`),
+  getTimingAnalytics: (pv?: string, opts?: { start_date?: string; end_date?: string }) => {
+    const params = new URLSearchParams();
+    if (pv) params.set("pipeline_version", pv);
+    if (opts?.start_date) params.set("start_date", opts.start_date);
+    if (opts?.end_date) params.set("end_date", opts.end_date);
+    const qs = params.toString();
+    return request<Record<string, unknown>>(`/api/analytics/timing${qs ? `?${qs}` : ""}`);
+  },
 
   // AI Fence Estimation
   analyzeFence: (address: string, force?: boolean) =>

@@ -9,7 +9,31 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, PieChart, Pie, Cell,
 } from "recharts";
-import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb, ThumbsDown, ChevronDown, ChevronUp, Megaphone, Users as UsersIcon, Wrench } from "lucide-react";
+import { Zap, TrendingUp, MapPin, Clock, AlertTriangle, DollarSign, Lightbulb, ThumbsDown, ChevronDown, ChevronUp, Megaphone, Users as UsersIcon, Wrench, ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+// Compute Monday-Sunday window (UTC ISO) for a week relative to today's Monday.
+// offset 0 = this week, -1 = last week, -2 = two weeks ago, etc.
+function _weekRange(offset: number): { start: string; end: string; label: string } {
+  const now = new Date();
+  // ISO week starts Monday. Date.getDay(): 0=Sun, 1=Mon ... 6=Sat
+  const todayDay = now.getDay() || 7; // map Sunday (0) to 7
+  const mondayThisWeek = new Date(now);
+  mondayThisWeek.setDate(now.getDate() - (todayDay - 1));
+  mondayThisWeek.setHours(0, 0, 0, 0);
+
+  const start = new Date(mondayThisWeek);
+  start.setDate(mondayThisWeek.getDate() + offset * 7);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7); // exclusive end
+
+  const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const sundayInclusive = new Date(end);
+  sundayInclusive.setDate(end.getDate() - 1);
+  const label = `${fmt(start)} – ${fmt(sundayInclusive)}`;
+
+  return { start: start.toISOString(), end: end.toISOString(), label };
+}
 
 type PipelineFilter = "v2" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
@@ -24,6 +48,9 @@ export default function Analytics() {
   const [revenue, setRevenue] = useState<Record<string, unknown> | null>(null);
   const [dealStats, setDealStats] = useState<Record<string, unknown> | null>(null);
   const [timing, setTiming] = useState<Record<string, unknown> | null>(null);
+  // null = all-time aggregate (default). number = week offset relative to
+  // the Monday of the current week (0 = this week, -1 = last week, etc.)
+  const [timingWeekOffset, setTimingWeekOffset] = useState<number | null>(null);
   const [declineReasons, setDeclineReasons] = useState<Awaited<ReturnType<typeof api.getDeclineReasonsAnalytics>> | null>(null);
   const [expandedReason, setExpandedReason] = useState<string | null>(null);
   const [filter, setFilter] = useState<PipelineFilter>(() => {
@@ -41,9 +68,20 @@ export default function Analytics() {
     api.getCohorts(pv).then(setCohorts).catch(console.error);
     api.getRevenueInsights(pv).then(setRevenue).catch(console.error);
     api.getDealStats(pv).then(setDealStats).catch(console.error);
-    api.getTimingAnalytics(pv).then(setTiming).catch(console.error);
     api.getDeclineReasonsAnalytics(90, pv).then(setDeclineReasons).catch(console.error);
   }, [filter]);
+
+  // Timing has its own refetch so changing the week doesn't re-pull the
+  // 9 other endpoints. Re-runs whenever pipeline filter OR week offset
+  // changes.
+  useEffect(() => {
+    const pv = filter === "all" ? undefined : filter;
+    const opts = timingWeekOffset == null ? undefined : (() => {
+      const r = _weekRange(timingWeekOffset);
+      return { start_date: r.start, end_date: r.end };
+    })();
+    api.getTimingAnalytics(pv, opts).then(setTiming).catch(console.error);
+  }, [filter, timingWeekOffset]);
 
   const handleFilterChange = (next: PipelineFilter) => {
     setFilter(next);
@@ -426,6 +464,56 @@ export default function Analytics() {
 
         {/* ─── Timing Tab ─── */}
         <TabsContent value="timing" className="mt-4 space-y-4">
+          {/* Time window selector — drives the whole Timing tab (all KPIs +
+              charts below). All Time is the default (current behavior); the
+              week navigator restricts everything to a Monday-Sunday range. */}
+          <Card>
+            <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={timingWeekOffset == null ? "default" : "outline"}
+                  onClick={() => setTimingWeekOffset(null)}
+                >
+                  All Time
+                </Button>
+                <Button
+                  size="sm"
+                  variant={timingWeekOffset === 0 ? "default" : "outline"}
+                  onClick={() => setTimingWeekOffset(0)}
+                >
+                  This Week
+                </Button>
+                {timingWeekOffset != null && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setTimingWeekOffset((o) => (o ?? 0) - 1)}
+                      title="Previous week"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setTimingWeekOffset((o) => (o ?? 0) + 1)}
+                      disabled={(timingWeekOffset ?? 0) >= 0}
+                      title="Next week"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {timingWeekOffset == null
+                  ? "Showing all leads since the system started"
+                  : `Showing ${_weekRange(timingWeekOffset).label}${timingWeekOffset === 0 ? " (this week)" : ""}`}
+              </div>
+            </CardContent>
+          </Card>
+
           {timing ? (
             <>
               {/* Peak insights */}

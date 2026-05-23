@@ -673,15 +673,26 @@ def get_deal_stats(pipeline_version: str | None = Query(None)):
 # ─── Lead Timing & Proposal Engagement ──────────────────────────────────
 
 @router.get("/analytics/timing")
-def get_timing_analytics(pipeline_version: str | None = Query(None)):
-    """When leads come in, when proposals are opened, and response patterns."""
+def get_timing_analytics(
+    pipeline_version: str | None = Query(None),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """When leads come in, when proposals are opened, and response patterns.
+
+    start_date / end_date are ISO 8601 datetimes (timezone-aware). When both
+    are provided, leads + proposals are restricted to that range. When
+    omitted, behavior matches the original all-time aggregate so the
+    Timing dashboard still works without explicit filters."""
     db = get_db()
     try:
         # All non-test, non-archived leads
-        leads = _apply_pipeline_filter(
-            db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived"),
-            pipeline_version,
-        ).all()
+        lead_q = db.query(Lead).filter(Lead.is_test.is_(False), Lead.status != "archived")
+        if start_date:
+            lead_q = lead_q.filter(Lead.created_at >= start_date)
+        if end_date:
+            lead_q = lead_q.filter(Lead.created_at < end_date)
+        leads = _apply_pipeline_filter(lead_q, pipeline_version).all()
 
         # --- Lead arrival patterns ---
         leads_by_day = defaultdict(int)
@@ -709,14 +720,21 @@ def get_timing_analytics(pipeline_version: str | None = Query(None)):
         peak_hour = max(leads_by_hour.items(), key=lambda x: x[1])[0] if leads_by_hour else None
 
         # --- Proposal view patterns ---
-        proposals = _apply_pipeline_filter(
+        prop_q = (
             db.query(Proposal, Estimate)
             .options(defer(Proposal.pdf_data))
             .join(Estimate, Proposal.estimate_id == Estimate.id)
             .join(Lead, Proposal.lead_id == Lead.id)
-            .filter(Lead.is_test.is_(False), Proposal.first_viewed_at.isnot(None)),
-            pipeline_version,
-        ).all()
+            .filter(Lead.is_test.is_(False), Proposal.first_viewed_at.isnot(None))
+        )
+        # When the user filters by a specific week, scope proposals by the
+        # underlying lead's creation window so the views shown match the
+        # leads shown above.
+        if start_date:
+            prop_q = prop_q.filter(Lead.created_at >= start_date)
+        if end_date:
+            prop_q = prop_q.filter(Lead.created_at < end_date)
+        proposals = _apply_pipeline_filter(prop_q, pipeline_version).all()
 
         views_by_day = defaultdict(int)
         views_by_hour = defaultdict(int)
