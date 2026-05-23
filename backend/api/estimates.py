@@ -383,6 +383,45 @@ def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = Non
     return ", ".join(parts) if parts else "fence"
 
 
+def _alert_team_sms_failure(*, customer_name: str, customer_phone: str, proposal_url: str, lead_id: str) -> None:
+    """Surface a permanent send_sms failure to Alan + Fragne so they can
+    manually share the proposal link with the customer.
+
+    Background: send_sms already retries 3x with exponential backoff inside
+    services/ghl.py. When it still returns False, the failure is permanent
+    (typically GHL auth, contact validation, A2P 10DLC compliance, or a
+    deactivated number — none of which retrying helps with). Before this
+    alert, the VA saw 'Sent!' toast and moved on; the customer never got
+    the link; nobody knew until the customer complained days later.
+
+    Sends to Alan + Fragne (matches the existing 'worker arrived' alert
+    pattern). Olga intentionally excluded — these are urgent action items
+    for ops/dev, not the VA team."""
+    settings = get_settings()
+    msg = (
+        f"⚠️ Estimate SMS FAILED\n"
+        f"Customer: {customer_name}\n"
+        f"Phone: {customer_phone}\n"
+        f"Action: text them the link manually:\n"
+        f"{proposal_url}\n"
+        f"(Lead {lead_id[:8]})"
+    )
+    for label, contact_id in (("alan", settings.owner_ghl_contact_id), ("fragne", settings.fragne_ghl_contact_id)):
+        if not contact_id:
+            continue
+        try:
+            send_sms(contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Could not alert {label} of SMS failure for lead {lead_id}: {e}")
+    # Persist a structured event so the dashboard can show a red banner.
+    try:
+        log_event(lead_id, "sms_delivery_failed",
+                  f"Customer SMS failed permanently after retries. Proposal: {proposal_url}",
+                  {"customer_phone": customer_phone, "proposal_url": proposal_url})
+    except Exception:
+        pass
+
+
 def _approve_estimate_background(
     *,
     proposal_id: str,
@@ -528,6 +567,18 @@ def _approve_estimate_background(
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent_ok else 'SMS FAILED'} with proposal link: {proposal_url}",
                           {"token": token, "signature_price": sig_price, "sms_sent": sms_sent_ok})
+                # CRITICAL — send_sms already retries 3x internally. If it
+                # still returned False, that's a PERMANENT failure (GHL
+                # auth/contact-validation/A2P 10DLC/etc). VA already got
+                # the success toast and moved on, so nobody knows the
+                # customer didn't get the link unless we surface it here.
+                if not sms_sent_ok:
+                    _alert_team_sms_failure(
+                        customer_name=lead.contact_name or "(unnamed)",
+                        customer_phone=lead.contact_phone or "(no phone)",
+                        proposal_url=proposal_url,
+                        lead_id=lead.id,
+                    )
 
         # ── Customer email ────────────────────────────────────────────
         if also_email_flag and not scheduled_send_at and lead.ghl_contact_id:
@@ -1100,6 +1151,13 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                 sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'}: {proposal_url}")
+                if not sms_sent:
+                    _alert_team_sms_failure(
+                        customer_name=lead.contact_name or "(unnamed)",
+                        customer_phone=lead.contact_phone or "(no phone)",
+                        proposal_url=proposal_url,
+                        lead_id=lead.id,
+                    )
 
             # Email customer (when Email channel is on). Soft-fails on
             # missing contact_email.
