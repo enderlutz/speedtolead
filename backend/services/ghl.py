@@ -4,14 +4,116 @@ Handles contact fetching, webhook parsing, and sending messages (SMS + WhatsApp)
 """
 from __future__ import annotations
 import re
+import time
 import logging
+import threading
 import httpx
 from config import get_settings
 
 logger = logging.getLogger(__name__)
 GHL_BASE = "https://services.leadconnectorhq.com"
 
-_client = httpx.Client(timeout=30, limits=httpx.Limits(max_keepalive_connections=10, max_connections=20))
+_raw_client = httpx.Client(timeout=30, limits=httpx.Limits(max_keepalive_connections=10, max_connections=20))
+
+
+# ── Global token-bucket rate limiter ──────────────────────────────────
+# Why: GHL's documented OAuth v2 limit is 100 requests / 10s burst per
+# location. Without coordination, our 15+ producers (background loops +
+# webhooks + VA actions) collide on the same 10-second window because
+# every loop ticks on the same wall-clock minute. The fix isn't to slow
+# any one producer — it's to put one chokepoint in front of GHL so the
+# bouncer never sees more than our self-imposed ceiling in any 10s
+# window. Capacity=80 + refill=8/sec gives a steady-state of 480/min
+# (well under 600/min ceiling) and a burst headroom of 80 — leaves ~20%
+# under GHL's 100/10s limit for the inevitable retry traffic.
+#
+# Implementation: classic token-bucket. take() blocks until a token is
+# available OR max_wait expires. On timeout the caller proceeds anyway
+# (we don't want to deadlock customer-facing requests) but we log so we
+# can see when the limiter is actually saturating.
+#
+# Thread-safe: we hold the lock only for the math, never for sleep, so
+# multiple threads can queue without holding each other up.
+class _TokenBucket:
+    def __init__(self, capacity: float, refill_rate: float):
+        self.capacity = float(capacity)
+        self.refill_rate = float(refill_rate)
+        self._tokens = float(capacity)
+        self._last_refill = time.monotonic()
+        self._lock = threading.Lock()
+
+    def _refill(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._last_refill
+        if elapsed > 0:
+            self._tokens = min(self.capacity, self._tokens + elapsed * self.refill_rate)
+            self._last_refill = now
+
+    def take(self, tokens: float = 1.0, max_wait: float = 15.0) -> bool:
+        """Block until `tokens` are available or max_wait elapses. Returns
+        True if tokens were acquired, False if we timed out and the caller
+        is proceeding anyway. Never raises — degrades gracefully under
+        sustained pressure."""
+        deadline = time.monotonic() + max_wait
+        while True:
+            with self._lock:
+                self._refill()
+                if self._tokens >= tokens:
+                    self._tokens -= tokens
+                    return True
+                # Compute how long until enough tokens accumulate.
+                deficit = tokens - self._tokens
+                wait_for = deficit / self.refill_rate if self.refill_rate > 0 else max_wait
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    f"GHL rate limiter: max_wait={max_wait:.1f}s exceeded; "
+                    f"proceeding without token (caller will hit GHL anyway)"
+                )
+                return False
+            time.sleep(min(wait_for, remaining, 1.0))
+
+
+# Single process-wide bucket. Sized for GHL's 100/10s burst ceiling with
+# ~20% headroom for retry traffic. If we ever split into multiple worker
+# processes, this needs to move to Redis or Postgres advisory locks so
+# the limit is enforced across workers.
+_ghl_bucket = _TokenBucket(capacity=80.0, refill_rate=8.0)
+
+
+def _rate_limit(weight: float = 1.0, max_wait: float = 15.0) -> None:
+    """Call before every outbound GHL HTTP request. Blocks if the bucket
+    is empty. weight=1 for normal calls; bump for known-expensive paths
+    if we ever need to bias the budget."""
+    _ghl_bucket.take(weight, max_wait=max_wait)
+
+
+# Wrapper around the raw httpx.Client that runs every request through
+# the global bucket. Done at the client layer (not per call-site) so
+# new endpoints added to this file automatically inherit rate-limiting
+# without any caller having to remember to call _rate_limit().
+class _RateLimitedClient:
+    def __init__(self, client: httpx.Client):
+        self._c = client
+
+    def get(self, *args, **kwargs):
+        _rate_limit()
+        return self._c.get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        _rate_limit()
+        return self._c.post(*args, **kwargs)
+
+    def put(self, *args, **kwargs):
+        _rate_limit()
+        return self._c.put(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        _rate_limit()
+        return self._c.delete(*args, **kwargs)
+
+
+_client = _RateLimitedClient(_raw_client)
 
 
 def _headers(location_id: str | None = None) -> dict:
