@@ -650,6 +650,8 @@ def tick() -> dict:
         summary["due"] = len(runs)
         summary["total_active"] = total_active
 
+        import time as _t
+
         def _process_batch(due_runs):
             for run in due_runs:
                 summary["processed"] += 1
@@ -666,6 +668,13 @@ def tick() -> dict:
                 except Exception as e:
                     db.rollback()
                     logger.error(f"Follow-up engine: failed advancing run {run.id}: {e}")
+                # T1.4: 200ms inter-run pause as defense-in-depth on top of
+                # the global GHL token bucket. The bucket already serializes
+                # all sends across the process, but spacing them here also
+                # gives async tasks (SSE, customer-facing requests) breathing
+                # room between bursts of advances. Trivial cost: 200ms × 50
+                # runs = 10s added to a worst-case batch.
+                _t.sleep(0.2)
 
         _process_batch(runs)
 
@@ -674,8 +683,11 @@ def tick() -> dict:
         # `wait_kind="seconds"` pacing like P0 Sterling Intake's 15-second
         # gap between intro SMS and photo MMS). Without this, those steps
         # would wait up to a full 5 minutes for the next background tick,
-        # destroying the psychological pacing. Cap at 5 iterations so a
-        # misconfigured sub-minute loop can't dominate the tick.
+        # destroying the psychological pacing. Cap at 3 iterations (was 5)
+        # so a misconfigured sub-minute loop can't dominate the tick. With
+        # the T1.2 global token bucket in front of every GHL call, the old
+        # rate-limit risk is gone — this cap is now purely about bounding
+        # DB session churn during the tick.
         #
         # Connection discipline: the per-iteration sleep can be up to 90s.
         # Holding the DB session through that sleep monopolizes one of
@@ -684,9 +696,8 @@ def tick() -> dict:
         # after, then re-query the batch (a) so the ORM objects are
         # attached to the live session and (b) to honor any state changes
         # that happened during the sleep (e.g. admin paused a run).
-        import time as _t
         burst_window_s = 90
-        for _ in range(5):
+        for _ in range(3):
             now_dt = _now_dt()
             horizon_iso = (now_dt + timedelta(seconds=burst_window_s)).isoformat()
             soon_runs = (
