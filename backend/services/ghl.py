@@ -140,8 +140,15 @@ def last_send_error() -> dict | None:
     return _last_send_error
 
 
-def _send_message(msg_type: str, contact_id: str, message: str, location_id: str | None = None, max_retries: int = 3) -> bool:
-    """Send a message via GHL with retry logic. msg_type: 'SMS' or 'WhatsApp'."""
+def _send_message(msg_type: str, contact_id: str, message: str, location_id: str | None = None, max_retries: int = 6) -> bool:
+    """Send a message via GHL with retry logic. msg_type: 'SMS' or 'WhatsApp'.
+
+    max_retries=6 (up from 3) because 429 Too Many Requests is the dominant
+    failure mode we see in production. Six attempts with the backoff schedule
+    below gives roughly 2-3 minutes of total retry window, which is the
+    timescale GHL's rate limiter actually clears on. Three attempts with
+    1/2/4-second waits used to fail before the limit window even reset.
+    """
     global _last_send_error
     settings = get_settings()
     payload = {
@@ -154,6 +161,12 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
     final_status: int | None = None
     final_body: str = ""
     final_exc: str = ""
+
+    # 429 backoff schedule. Earlier waits chosen because GHL's burst-limit
+    # window is typically 10 seconds. With this we sleep 10s, 20s, 30s,
+    # 45s, 60s, 90s — total ~4 minutes worst case. Adds jitter to avoid
+    # synchronized retries from multiple workers (future-proof).
+    rate_limit_waits = [10, 20, 30, 45, 60, 90]
 
     for attempt in range(max_retries):
         try:
@@ -172,8 +185,22 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
                 final_body = ""
 
             if r.status_code == 429:
-                wait = min(2 ** attempt, 10)
-                logger.warning(f"GHL rate limited (429), retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                # Honor Retry-After header when GHL provides it (per
+                # RFC 6585 — value in seconds). Otherwise fall back to
+                # our own backoff schedule. Add small jitter to avoid
+                # collision with parallel retries.
+                import random
+                retry_after_raw = r.headers.get("retry-after") or r.headers.get("Retry-After") or ""
+                try:
+                    server_wait = int(float(retry_after_raw)) if retry_after_raw else 0
+                except Exception:
+                    server_wait = 0
+                fallback_wait = rate_limit_waits[min(attempt, len(rate_limit_waits) - 1)]
+                wait = max(server_wait, fallback_wait) + random.uniform(0, 2)
+                logger.warning(
+                    f"GHL rate limited (429), waiting {wait:.1f}s "
+                    f"(server_retry_after={server_wait}s, attempt {attempt + 1}/{max_retries})"
+                )
                 time.sleep(wait)
                 continue
             r.raise_for_status()

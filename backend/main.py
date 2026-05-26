@@ -22,13 +22,25 @@ logger = logging.getLogger(__name__)
 
 
 async def _poller_loop():
-    """Background task: sync GHL contacts every 60 seconds."""
+    """Background task: sync GHL contacts. Runs every 5 minutes (300s).
+
+    Was 60s previously. Slowed to 5 min on 2026-05-26 after observing
+    persistent 429 'Too Many Requests' from GHL even at low-traffic
+    times. The poller bursts ~20-30 GHL API calls per cycle (one per
+    stage in the pipeline + per-opportunity contact lookups). At 60s
+    cadence that's the dominant source of GHL API volume; at 300s
+    cadence it drops to ~1/5 the rate.
+
+    Webhooks remain the real-time path for new leads. The poller is
+    only a safety net for missed webhooks; 5 min max recovery delay
+    on a missed webhook is an acceptable trade for staying well under
+    GHL's rate ceiling."""
     while True:
         try:
             await asyncio.to_thread(poll_ghl_contacts)
         except Exception as e:
             logger.error(f"Poller error: {e}")
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
 
 
 async def _message_poller_loop():
