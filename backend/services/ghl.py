@@ -177,19 +177,32 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
                 time.sleep(wait)
                 continue
             r.raise_for_status()
-            # Soft-fail detection — some GHL endpoints return 200 OK with
-            # {"success": false} or a missing message id. Treat those as
-            # failures so they show up in our logs + alerts rather than
-            # silently returning True.
+            # Soft-fail detection — GHL can return 200 OK in several ways
+            # that mean "did not actually send":
+            #   {"success": false}                       — explicit
+            #   {"msg": "No phone number on contact"}    — implicit
+            #   {} / null / "" / no message id           — silent
+            # The only signal that the SMS was ACTUALLY queued is a real
+            # messageId in the response. Without that, treat the call as
+            # a failure (triggers retry + downstream alert) instead of
+            # silently returning True like we used to.
             try:
                 body_json = r.json() if r.text else {}
             except Exception:
                 body_json = {}
-            if isinstance(body_json, dict):
-                explicit_success = body_json.get("success")
-                if explicit_success is False:
-                    raise RuntimeError(f"GHL 200 OK but success=false: {final_body}")
-            logger.info(f"GHL {msg_type} sent to {contact_id} (attempt {attempt + 1})")
+            if not isinstance(body_json, dict):
+                raise RuntimeError(f"GHL 200 OK but response wasn't an object: {final_body[:200]}")
+            if body_json.get("success") is False:
+                raise RuntimeError(f"GHL 200 OK but success=false: {final_body[:200]}")
+            # Required marker of a real send. GHL's documented success shape
+            # returns either `messageId` or `id` (older endpoints). Accept
+            # either; reject anything else.
+            message_id = body_json.get("messageId") or body_json.get("id") or ""
+            if not message_id:
+                raise RuntimeError(
+                    f"GHL 200 OK but no messageId in response (likely silent drop): {final_body[:200]}"
+                )
+            logger.info(f"GHL {msg_type} sent to {contact_id} (attempt {attempt + 1}) messageId={message_id}")
             _last_send_error = None
             return True
         except Exception as e:
