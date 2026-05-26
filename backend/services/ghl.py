@@ -252,6 +252,7 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
     1/2/4-second waits used to fail before the limit window even reset.
     """
     global _last_send_error
+    import uuid as _uuid
     settings = get_settings()
     payload = {
         "type": msg_type,
@@ -259,6 +260,15 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
         "message": message,
         "locationId": location_id or settings.ghl_location_id,
     }
+
+    # T2.3: Generate one idempotency key per logical send (NOT per retry
+    # attempt). If GHL ever sees the same key twice — e.g. our retry
+    # arrives after they already processed the original we thought
+    # timed out — they dedupe instead of double-sending. Removes the
+    # "did the first attempt actually succeed?" ambiguity that drives
+    # accidental customer double-texts.
+    idem_key = str(_uuid.uuid4())
+    headers = {**_headers(location_id), "Idempotency-Key": idem_key}
 
     final_status: int | None = None
     final_body: str = ""
@@ -274,7 +284,7 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
         try:
             r = _client.post(
                 f"{GHL_BASE}/conversations/messages",
-                headers=_headers(location_id),
+                headers=headers,
                 json=payload,
                 timeout=15,
             )
@@ -403,6 +413,7 @@ def send_via_provider(
     """
     if not conversation_provider_id:
         return (False, "", "no conversation_provider_id configured")
+    import uuid as _uuid
     settings = get_settings()
     payload: dict = {
         "type": "Custom",
@@ -414,13 +425,17 @@ def send_via_provider(
         "locationId": location_id or settings.ghl_location_id,
         "attachments": [u for u in (attachments or []) if u],
     }
+    # T2.3: one idempotency key per logical send (shared across retries
+    # within this call). See _send_message for full rationale.
+    idem_key = str(_uuid.uuid4())
+    headers = {**_headers(location_id), "Idempotency-Key": idem_key}
 
     last_err = ""
     for attempt in range(max_retries):
         try:
             r = _client.post(
                 f"{GHL_BASE}/conversations/messages",
-                headers=_headers(location_id),
+                headers=headers,
                 json=payload,
                 timeout=15,
             )
@@ -487,6 +502,7 @@ def send_email(
 
     Returns True on success."""
     settings = get_settings()
+    import uuid as _uuid
     payload: dict = {
         "type": "Email",
         "contactId": contact_id,
@@ -497,12 +513,14 @@ def send_email(
     atts = [u for u in (attachments or []) if u]
     if atts:
         payload["attachments"] = atts
+    # T2.3: idempotency key shared across retries within this call.
+    headers = {**_headers(location_id), "Idempotency-Key": str(_uuid.uuid4())}
 
     for attempt in range(max_retries):
         try:
             r = _client.post(
                 f"{GHL_BASE}/conversations/messages",
-                headers=_headers(location_id),
+                headers=headers,
                 json=payload,
                 timeout=20,
             )
