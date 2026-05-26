@@ -74,6 +74,16 @@ class Settings(BaseSettings):
     port: int = 8000
     allowed_origins: str = "*"  # Comma-separated for production
 
+    # T2.2 (2026-05-26): The GHL InboundMessage webhook at
+    # POST /webhook/ghl/message is the real-time path for customer
+    # replies and handles everything the 5-min message poller did
+    # (storage, customer_responded flag, follow-up engine integration,
+    # SSE publish, opt-out detection). The poller is now a fallback,
+    # disabled by default. Flip this to True only if the webhook ever
+    # stops firing (deploy issue, GHL config drift, etc.). Saves ~20
+    # GHL API calls per 5-min cycle when off.
+    enable_message_poller: bool = False
+
     class Config:
         env_file = ".env"
 

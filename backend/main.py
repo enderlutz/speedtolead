@@ -252,8 +252,15 @@ async def _async_db_init():
 async def lifespan(app: FastAPI):
     init_task = asyncio.create_task(_async_db_init())
     poller = asyncio.create_task(_poller_loop())
-    # Message poller disabled — was consuming GHL rate limit and blocking lead poller
-    # msg_poller = asyncio.create_task(_message_poller_loop())
+    # T2.2: Message poller is now a fallback for the InboundMessage
+    # webhook (api/webhooks.py POST /webhook/ghl/message), which handles
+    # storage + customer_responded + follow-up engine integration + SSE
+    # + opt-out detection in real time. Default off — set
+    # ENABLE_MESSAGE_POLLER=true in env if the webhook ever stops firing.
+    msg_poller = None
+    if get_settings().enable_message_poller:
+        msg_poller = asyncio.create_task(_message_poller_loop())
+        logger.info("Message poller ENABLED via ENABLE_MESSAGE_POLLER env var")
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
@@ -270,6 +277,8 @@ async def lifespan(app: FastAPI):
     yield
     init_task.cancel()
     poller.cancel()
+    if msg_poller is not None:
+        msg_poller.cancel()
     sms_worker.cancel()
     weekly.cancel()
     wrapped_loop.cancel()
