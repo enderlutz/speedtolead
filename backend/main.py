@@ -21,20 +21,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 logger = logging.getLogger(__name__)
 
 
+# ── Background loop offset schedule (T1.1, 2026-05-26) ───────────────
+# Five loops share a 300s cadence. If they all start at t=0 (or any
+# clustered offsets), they tick at the same wall-clock minute every
+# cycle and pile their GHL traffic into the same 10-second burst window
+# — which is what we keep blowing through. Spread them every 60s across
+# the 300s window so no two co-fire:
+#   t+0    lead poller
+#   t+60   followup engine
+#   t+120  message poller
+#   t+180  nudge
+#   t+240  call recording poller
+# Longer-cadence loops (estimate delay 600s, correction escalator 900s,
+# weekly/wrapped/backfill/learning) align rarely enough that their
+# offsets don't need careful spacing.
+
 async def _poller_loop():
-    """Background task: sync GHL contacts. Runs every 5 minutes (300s).
-
-    Was 60s previously. Slowed to 5 min on 2026-05-26 after observing
-    persistent 429 'Too Many Requests' from GHL even at low-traffic
-    times. The poller bursts ~20-30 GHL API calls per cycle (one per
-    stage in the pipeline + per-opportunity contact lookups). At 60s
-    cadence that's the dominant source of GHL API volume; at 300s
-    cadence it drops to ~1/5 the rate.
-
-    Webhooks remain the real-time path for new leads. The poller is
-    only a safety net for missed webhooks; 5 min max recovery delay
-    on a missed webhook is an acceptable trade for staying well under
-    GHL's rate ceiling."""
+    """Background task: sync GHL contacts. Runs every 5 minutes (300s)."""
     while True:
         try:
             await asyncio.to_thread(poll_ghl_contacts)
@@ -44,26 +47,25 @@ async def _poller_loop():
 
 
 async def _message_poller_loop():
-    """Background task: sync GHL messages every 5 minutes (safety net for missed webhooks).
-    Delayed start to let lead poller run first without hitting rate limits."""
-    await asyncio.sleep(90)
+    """Background task: sync GHL messages every 5 minutes (safety net for missed webhooks)."""
+    await asyncio.sleep(120)
     while True:
         try:
             await asyncio.to_thread(poll_ghl_messages)
         except Exception as e:
             logger.error(f"Message poller error: {e}")
-        await asyncio.sleep(300)  # Every 5 minutes
+        await asyncio.sleep(300)
 
 
 async def _nudge_loop():
     """Background task: nudge Alan + Olga every 5 minutes about pending leads."""
-    await asyncio.sleep(30)
+    await asyncio.sleep(180)
     while True:
         try:
             await asyncio.to_thread(run_nudge_check)
         except Exception as e:
             logger.error(f"Nudge error: {e}")
-        await asyncio.sleep(300)  # Every 5 minutes
+        await asyncio.sleep(300)
 
 
 async def _sms_worker_loop():
@@ -102,7 +104,7 @@ async def _wrapped_dispatcher_loop():
 
 async def _call_recording_poller_loop():
     """Background task: check for new GHL call recordings every 5 minutes."""
-    await asyncio.sleep(120)  # Stagger after lead poller
+    await asyncio.sleep(240)
     while True:
         try:
             await asyncio.to_thread(poll_ghl_call_recordings)
@@ -146,16 +148,19 @@ async def _estimate_delay_loop():
 
 async def _followup_engine_loop():
     """Background task: advance due follow-up runs every 5 minutes.
-    Master-toggle gated — exits fast when off. Staggered startup so it
-    doesn't dogpile with the lead poller on first boot."""
+    Master-toggle gated — exits fast when off."""
     from services.followup_engine import tick as followup_tick
-    await asyncio.sleep(300)  # 5 min after boot — let other loops settle first
+    # Offset = 60s within the shared 300s window (see T1.1 schedule
+    # above). 300s used to be the offset, which after the first cycle
+    # aligned perfectly with the lead poller (t=0 + 300 = 300) — the
+    # single worst collision in the pre-fix layout.
+    await asyncio.sleep(60)
     while True:
         try:
             await asyncio.to_thread(followup_tick)
         except Exception as e:
             logger.error(f"Follow-up engine tick error: {e}")
-        await asyncio.sleep(300)  # Every 5 minutes
+        await asyncio.sleep(300)
 
 
 async def _followup_backfill_loop():
