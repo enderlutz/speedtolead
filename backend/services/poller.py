@@ -221,7 +221,8 @@ def _sync_location(location_id: str, label: str):
                     existing = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
                     if existing:
                         changed = False
-                        if stage_id and existing.ghl_pipeline_stage_id != stage_id:
+                        stage_changed = bool(stage_id and existing.ghl_pipeline_stage_id != stage_id)
+                        if stage_changed:
                             existing.ghl_pipeline_stage_id = stage_id
                             changed = True
                             logger.info(f"Poller: synced stage for lead {existing.id} -> {stage_id} ({stage_name})")
@@ -242,13 +243,34 @@ def _sync_location(location_id: str, label: str):
                             except Exception as e:
                                 logger.warning(f"Poller stage-change hooks failed for lead {existing.id}: {e}")
 
-                        # Pull the full contact + refresh anything that drifted.
-                        # We only do this once per opp per tick (skip if we
-                        # already touched this contact via another stage).
-                        try:
-                            contact = get_contact(contact_id, location_id)
-                        except Exception:
-                            contact = None
+                        # T1.3: Skip the per-opp get_contact() call when the
+                        # opportunity hasn't changed since the last successful
+                        # sync. The pre-fix code re-fetched the full contact
+                        # for every opp in the pipeline every 5 min — 30-50
+                        # wasted GHL calls per cycle. Skip when ALL of:
+                        #   - stage didn't change this cycle
+                        #   - opp's updatedAt is older than our last sync
+                        # If we can't determine an opp timestamp, fall back
+                        # to the old behavior (fetch every time) so the
+                        # tag-trigger fallback below still works.
+                        contact = None
+                        opp_updated_raw = opp.get("updatedAt") or opp.get("dateUpdated") or opp.get("lastStageChangeAt") or ""
+                        last_sync_raw = existing.dashboard_synced_at or ""
+                        should_skip_contact = False
+                        if not stage_changed and opp_updated_raw and last_sync_raw:
+                            try:
+                                opp_dt = datetime.fromisoformat(str(opp_updated_raw).replace("Z", "+00:00"))
+                                sync_dt = datetime.fromisoformat(str(last_sync_raw).replace("Z", "+00:00"))
+                                if opp_dt <= sync_dt:
+                                    should_skip_contact = True
+                            except Exception:
+                                should_skip_contact = False
+
+                        if not should_skip_contact:
+                            try:
+                                contact = get_contact(contact_id, location_id)
+                            except Exception:
+                                contact = None
                         if contact:
                             name = contact.get("contactName") or contact.get("name") or ""
                             if not name:
@@ -300,6 +322,14 @@ def _sync_location(location_id: str, label: str):
                                     existing.form_data = json.dumps(current_fd)
                                     changed = True
 
+                        # Stamp dashboard_synced_at whenever we successfully
+                        # touched this opp this cycle (even if no fields
+                        # changed). Without this stamp, the T1.3 skip-check
+                        # above can never fire — we'd re-fetch get_contact
+                        # forever because last_sync_raw stayed equal to
+                        # ghl_created at the original insert.
+                        if contact is not None or should_skip_contact:
+                            existing.dashboard_synced_at = _now()
                         if changed:
                             existing.updated_at = _now()
                             db.commit()
@@ -308,6 +338,11 @@ def _sync_location(location_id: str, label: str):
                                 publish("lead_updated", {"lead_id": existing.id})
                             except Exception:
                                 pass
+                        elif contact is not None or should_skip_contact:
+                            # Commit the sync timestamp even when no fields
+                            # changed — otherwise the skip-check is permanently
+                            # disabled.
+                            db.commit()
 
                         # Tag-trigger fallback for the follow-up engine.
                         # GHL's ContactTagUpdate webhook is preferred, but if
