@@ -864,6 +864,11 @@ class ScheduledJob(Base):
     gallons_estimate = Column(Numeric(10, 2), default=0)  # sqft / 175 default; editable
     address = Column(Text, default="")                    # snapshot from lead at schedule time
     zip_code = Column(Text, default="")                   # for weather lookup
+    # Geocoded coordinates for the worker map. Filled on job create from the
+    # address (Google Maps) or ZIP (Open-Meteo fallback). 0.0 means "not yet
+    # geocoded" — listScheduledJobs lazy-geocodes on first read.
+    lat = Column(Float, default=0.0)
+    lng = Column(Float, default=0.0)
     customer_email = Column(Text, default="")             # invite recipient
     customer_phone = Column(Text, default="")
     customer_name = Column(Text, default="")
@@ -918,6 +923,8 @@ class ScheduledJob(Base):
             "estimated_duration_hours": float(self.estimated_duration_hours or 0),
             "address": self.address or "",
             "zip_code": self.zip_code or "",
+            "lat": float(self.lat or 0.0),
+            "lng": float(self.lng or 0.0),
             "customer_name": self.customer_name or "",
             "color_choice": self.color_choice or "",
             "needs_test_spots": bool(self.needs_test_spots),
@@ -2022,6 +2029,8 @@ def _run_migrations():
             ("completed_at", "ALTER TABLE scheduled_jobs ADD COLUMN completed_at TEXT"),
             ("started_by", "ALTER TABLE scheduled_jobs ADD COLUMN started_by TEXT DEFAULT ''"),
             ("completed_by", "ALTER TABLE scheduled_jobs ADD COLUMN completed_by TEXT DEFAULT ''"),
+            ("lat", "ALTER TABLE scheduled_jobs ADD COLUMN lat DOUBLE PRECISION DEFAULT 0"),
+            ("lng", "ALTER TABLE scheduled_jobs ADD COLUMN lng DOUBLE PRECISION DEFAULT 0"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

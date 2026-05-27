@@ -17,12 +17,34 @@ from sqlalchemy import or_
 
 from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User
 from api.auth import require_admin, require_staff, get_current_user
-from services import google_calendar, weather, ghl, notifications
+from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
 from config import get_settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _geocode_job(address: str, zip_code: str) -> tuple[float, float]:
+    """Resolve a job address (or ZIP fallback) to lat/lng. Tries the
+    Google Maps geocoder first (precise), falls back to Open-Meteo's
+    ZIP-level geocoder (no API key needed). Returns (0.0, 0.0) when
+    neither path works — caller treats that as 'pin missing.'"""
+    if address:
+        try:
+            g = geocoder.geocode_address(address)
+            if g and g.get("lat") and g.get("lng"):
+                return float(g["lat"]), float(g["lng"])
+        except Exception as e:
+            logger.warning(f"Job geocode (address) failed: {e}")
+    if zip_code:
+        try:
+            coords = weather._zip_to_coords(zip_code)
+            if coords:
+                return float(coords[0]), float(coords[1])
+        except Exception as e:
+            logger.warning(f"Job geocode (zip) failed: {e}")
+    return 0.0, 0.0
 
 # GHL stage ID for "CLOSED & SCHEDULED" — confirmed in V2_STAGES on frontend.
 CLOSED_SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066"
@@ -214,6 +236,10 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
                 height = float(str(inputs.get("fence_height") or "6").replace("ft", "").strip() or 6)
                 gallons = _calc_default_gallons(lf * height)
 
+        # Geocode upfront so the worker's map has a pin immediately.
+        # Failures degrade gracefully — listScheduledJobs lazy-retries on read.
+        lat, lng = _geocode_job(address, zip_code)
+
         job = ScheduledJob(
             id=str(uuid.uuid4()),
             lead_id=body.lead_id,
@@ -227,6 +253,8 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             gallons_estimate=gallons,
             address=address,
             zip_code=zip_code,
+            lat=lat,
+            lng=lng,
             customer_email=customer_email,
             customer_phone=customer_phone,
             customer_name=customer_name,
@@ -341,6 +369,22 @@ def list_scheduled_jobs(
 
         jobs = q.order_by(ScheduledJob.job_date.asc(), ScheduledJob.arrival_time.asc()).all()
 
+        # Lazy-backfill: any job missing lat/lng (added pre-geocoding, or
+        # geocode failed at create time) gets a one-shot geocode here so
+        # the worker map renders a pin on the next refresh. Best-effort —
+        # silent failure leaves lat/lng at 0 and the frontend just skips
+        # the pin for that job.
+        backfilled = False
+        for j in jobs:
+            if (j.lat or 0.0) == 0.0 and (j.lng or 0.0) == 0.0 and (j.address or j.zip_code):
+                lat, lng = _geocode_job(j.address or "", j.zip_code or "")
+                if lat != 0.0 or lng != 0.0:
+                    j.lat = lat
+                    j.lng = lng
+                    backfilled = True
+        if backfilled:
+            db.commit()
+
         out = []
         # Cache lead service_type to avoid N+1 queries
         lead_ids = {j.lead_id for j in jobs}
@@ -348,12 +392,33 @@ def list_scheduled_jobs(
         if lead_ids:
             for l in db.query(Lead).filter(Lead.id.in_(lead_ids)).all():
                 service_by_lead[l.id] = l.service_type or "fence_staining"
+
+        # Weather lookup cache so we only call open-meteo once per unique
+        # zip in this response (it's already 30-min cached inside the
+        # weather service, but skipping the dict lookup is still cheaper).
+        weather_by_zip: dict[str, dict | None] = {}
+
         for j in jobs:
             row = j.to_dict(role=role)
             # Attach assignments (worker view: only own; admin/va: all)
             assigns = db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
             row["assigned_employee_ids"] = [a.employee_id for a in assigns]
             row["service_type"] = service_by_lead.get(j.lead_id, "fence_staining")
+
+            # Attach today's weather for the job's ZIP. Surfaces to workers
+            # as a per-card badge so they can see precip risk at a glance.
+            zip_for_weather = j.zip_code or ""
+            row["weather_today"] = None
+            if zip_for_weather:
+                if zip_for_weather not in weather_by_zip:
+                    try:
+                        weather_by_zip[zip_for_weather] = weather.get_day(
+                            zip_for_weather, j.job_date
+                        )
+                    except Exception as e:
+                        logger.warning(f"weather lookup failed for {zip_for_weather}: {e}")
+                        weather_by_zip[zip_for_weather] = None
+                row["weather_today"] = weather_by_zip[zip_for_weather]
             out.append(row)
         return {"jobs": out}
     finally:
