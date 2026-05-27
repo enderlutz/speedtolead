@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { api, getCurrentUser, type ScheduledJob } from "@/lib/api";
+import { api, getCurrentUser, type ScheduledJob, type WeatherDay } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera } from "lucide-react";
+import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow } from "lucide-react";
+import TodaysMap from "@/components/TodaysMap";
 
 // Worker "My Day" — the single screen workers see on their phone. Shows
 // only their assigned jobs for today, with a slide-to-start gesture to
@@ -44,6 +45,69 @@ function statusBadge(status: string) {
   };
   const cfg = map[status] || map.scheduled;
   return <Badge className={`${cfg.cls} text-xs`}>{cfg.label}</Badge>;
+}
+
+// Pick a weather glyph from the WMO summary text. We only care about the
+// outdoor-work-relevant buckets — clear, cloudy, rain, snow.
+function weatherIcon(summary: string | undefined) {
+  const s = (summary || "").toLowerCase();
+  if (s.includes("rain") || s.includes("drizzle") || s.includes("shower") || s.includes("thunder"))
+    return <CloudRain className="h-3.5 w-3.5" />;
+  if (s.includes("snow")) return <CloudSnow className="h-3.5 w-3.5" />;
+  if (s.includes("partly")) return <CloudSun className="h-3.5 w-3.5" />;
+  if (s.includes("overcast") || s.includes("cloud") || s.includes("fog"))
+    return <Cloud className="h-3.5 w-3.5" />;
+  return <Sun className="h-3.5 w-3.5" />;
+}
+
+// Inline weather badge for each job card. Highlights precipitation risk
+// in amber/red since rain ruins fresh stain — the single most important
+// signal for a stainer planning their day.
+function WeatherBadge({ w }: { w: WeatherDay | null | undefined }) {
+  if (!w) return null;
+  const pct = typeof w.precip_chance_pct === "number" ? w.precip_chance_pct : null;
+  const hi = typeof w.high_f === "number" ? Math.round(w.high_f) : null;
+  const lo = typeof w.low_f === "number" ? Math.round(w.low_f) : null;
+  const riskCls =
+    pct === null
+      ? "bg-slate-100 text-slate-700"
+      : pct >= 60
+      ? "bg-red-100 text-red-800"
+      : pct >= 30
+      ? "bg-amber-100 text-amber-900"
+      : "bg-emerald-100 text-emerald-800";
+  return (
+    <div className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] ${riskCls}`}>
+      {weatherIcon(w.summary)}
+      <span className="font-medium">{w.summary || "—"}</span>
+      {hi !== null && lo !== null && (
+        <span className="opacity-80">· {hi}°/{lo}°</span>
+      )}
+      {pct !== null && (
+        <span className="opacity-80">· {pct}% rain</span>
+      )}
+    </div>
+  );
+}
+
+// Build a Google Maps directions URL covering every job's address as a
+// waypoint, ordered by arrival_time. Workers tap "Today's Route" → native
+// Maps opens with the whole day's path + drive-time estimate. We deliberately
+// don't pass an origin so Google uses the worker's current location.
+//
+// Format reference: https://developers.google.com/maps/documentation/urls/get-started#directions-action
+function buildTodaysRouteUrl(jobs: ScheduledJob[]): string | null {
+  const ordered = [...jobs]
+    .filter((j) => j.address && j.status !== "cancelled")
+    .sort((a, b) => (a.arrival_time || "").localeCompare(b.arrival_time || ""));
+  if (ordered.length === 0) return null;
+  const destination = encodeURIComponent(ordered[ordered.length - 1].address);
+  const waypoints = ordered
+    .slice(0, -1)
+    .map((j) => encodeURIComponent(j.address))
+    .join("|");
+  const base = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+  return waypoints ? `${base}&waypoints=${waypoints}` : base;
 }
 
 // Slide-to-start gesture. Prevents accidental "I arrived" taps from a
@@ -203,6 +267,8 @@ export default function MyDay() {
     );
   }
 
+  const routeUrl = buildTodaysRouteUrl(sorted);
+
   return (
     <div className="p-4 max-w-md mx-auto pb-24">
       <div className="flex items-baseline justify-between mb-4">
@@ -223,6 +289,25 @@ export default function MyDay() {
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
       </div>
+
+      {sorted.length > 0 && (
+        <div className="mb-4 space-y-3">
+          <TodaysMap jobs={sorted} />
+          {routeUrl && (
+            <a
+              href={routeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block"
+            >
+              <Button className="w-full" variant="default">
+                <Navigation className="h-4 w-4 mr-2" />
+                Today's Route ({sorted.filter((j) => j.address).length} stop{sorted.filter((j) => j.address).length === 1 ? "" : "s"})
+              </Button>
+            </a>
+          )}
+        </div>
+      )}
 
       {sorted.length === 0 && (
         <Card>
@@ -246,6 +331,10 @@ export default function MyDay() {
                 </div>
                 {statusBadge(job.status)}
               </div>
+
+              {job.weather_today && (
+                <WeatherBadge w={job.weather_today} />
+              )}
 
               {job.address && (
                 <a
