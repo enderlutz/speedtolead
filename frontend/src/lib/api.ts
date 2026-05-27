@@ -1702,6 +1702,9 @@ export interface ScheduledJob {
   estimated_duration_hours: number;
   address: string;
   zip_code: string;
+  lat?: number;
+  lng?: number;
+  weather_today?: WeatherDay | null;
   customer_name: string;
   color_choice: string;
   needs_test_spots: boolean;
