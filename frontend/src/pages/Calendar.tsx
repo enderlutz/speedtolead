@@ -221,106 +221,15 @@ export default function Calendar() {
         </p>
       )}
 
-      {/* Mobile agenda view — phone-sized screens can't read a 7-column
-          month grid (forces horizontal scroll, jobs become unreadable).
-          Render a vertical agenda of days that actually have jobs/events
-          instead, matching the convention every major calendar app uses
-          on phones. Desktop/tablet keep the full grid below. */}
-      <Card className="md:hidden">
-        <CardContent className="p-3">
-          {loading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
-          ) : (() => {
-            // Flatten 6-week window, dedupe, keep only days with content.
-            const seen = new Set<string>();
-            const agendaDays: { iso: string; date: Date; jobs: ScheduledJob[]; events: GoogleEvent[] }[] = [];
-            for (const week of weeks) {
-              for (const d of week) {
-                const iso = d.toISOString().slice(0, 10);
-                if (seen.has(iso)) continue;
-                seen.add(iso);
-                const dayJobs = jobsByDate[iso] || [];
-                const dayEvents = externalEventsByDate[iso] || [];
-                if (dayJobs.length === 0 && dayEvents.length === 0) continue;
-                agendaDays.push({ iso, date: d, jobs: dayJobs, events: dayEvents });
-              }
-            }
-            if (agendaDays.length === 0) {
-              return (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  No jobs or events in {fmtMonth(year, monthIdx)}.
-                </div>
-              );
-            }
-            return (
-              <div className="space-y-4">
-                {agendaDays.map((day) => {
-                  const isToday = day.iso === todayISO();
-                  const dayZips = day.jobs.map((j) => j.zip_code).filter(Boolean);
-                  return (
-                    <div key={day.iso}>
-                      <div className="flex items-center justify-between mb-1.5 px-1">
-                        <h3 className={`text-sm font-semibold ${isToday ? "text-primary" : ""}`}>
-                          {day.date.toLocaleDateString("en-US", {
-                            weekday: "short", month: "short", day: "numeric",
-                          })}
-                          {isToday && <span className="ml-1.5 text-[10px] uppercase tracking-wide font-bold">Today</span>}
-                        </h3>
-                        <DayWeatherChip zips={dayZips} byZip={weatherByZip} iso={day.iso} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {day.jobs.map((j) => {
-                          const borderCls = SERVICE_BORDER[j.service_type || "fence_staining"] || DEFAULT_SERVICE_BORDER;
-                          return (
-                            <button
-                              key={j.id}
-                              onClick={() => openJob(j)}
-                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
-                            >
-                              {!showAsWorker && j.package_tier && (
-                                <span className={`h-2 w-2 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
-                              )}
-                              <span className="font-mono text-muted-foreground shrink-0">{j.arrival_time}</span>
-                              <span className="truncate flex-1">{j.customer_name || "Job"}</span>
-                            </button>
-                          );
-                        })}
-                        {day.events.map((ev) => {
-                          const startTime = ev.all_day ? "all day" : (ev.start.slice(11, 16) || "");
-                          const borderCls = SERVICE_BORDER[ev.service_type] || DEFAULT_SERVICE_BORDER;
-                          return (
-                            <button
-                              key={ev.google_event_id}
-                              onClick={() => setActiveGoogleEvent(ev)}
-                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
-                            >
-                              <span className="font-mono text-muted-foreground shrink-0">{startTime}</span>
-                              <span className="truncate flex-1">{ev.summary}</span>
-                              <span
-                                className="text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
-                                title="From Google Calendar"
-                              >
-                                G
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </CardContent>
-      </Card>
-
-      <Card className="hidden md:block">
+      <Card>
         <CardContent className="p-0 overflow-x-auto">
           {loading ? (
             <div className="h-96 grid place-items-center text-sm text-muted-foreground">Loading…</div>
           ) : (
-            <div className="min-w-[700px]">
+            // min-w gates only at md+ so the grid fits the phone viewport
+            // instead of forcing horizontal scroll. On phones each column
+            // collapses to ~50px; pills below tighten to match.
+            <div className="md:min-w-[700px]">
               {/* Day headers */}
               <div className="grid grid-cols-7 border-b">
                 {WEEKDAY_LABELS.map((d) => (
@@ -341,7 +250,7 @@ export default function Calendar() {
                     return (
                       <div
                         key={iso}
-                        className={`min-h-[105px] border-r last:border-r-0 p-1.5 flex flex-col gap-1 ${
+                        className={`min-h-[80px] md:min-h-[105px] border-r last:border-r-0 p-1 md:p-1.5 flex flex-col gap-0.5 md:gap-1 ${
                           inMonth ? "bg-background" : "bg-muted/20 text-muted-foreground"
                         }`}
                       >
@@ -364,13 +273,14 @@ export default function Calendar() {
                               <button
                                 key={j.id}
                                 onClick={() => openJob(j)}
-                                className={`text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
+                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
                                 title={`${j.customer_name} · ${j.arrival_time}${j.service_type ? ` · ${j.service_type.replace("_", " ")}` : ""}`}
                               >
                                 {!showAsWorker && j.package_tier && (
                                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
                                 )}
-                                <span className="font-mono text-muted-foreground">{j.arrival_time}</span>
+                                {/* Hide time on mobile — columns too narrow. Tooltip still shows it. */}
+                                <span className="font-mono text-muted-foreground hidden md:inline">{j.arrival_time}</span>
                                 <span className="truncate">{j.customer_name || "Job"}</span>
                               </button>
                             );
@@ -391,10 +301,10 @@ export default function Calendar() {
                               <button
                                 key={ev.google_event_id}
                                 onClick={() => setActiveGoogleEvent(ev)}
-                                className={`text-[10px] text-left rounded px-1.5 py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
+                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
                                 title={`${ev.summary} · from Google Calendar (${ev.service_type.replace("_", " ")})`}
                               >
-                                <span className="font-mono text-muted-foreground">{startTime}</span>
+                                <span className="font-mono text-muted-foreground hidden md:inline">{startTime}</span>
                                 <span className="truncate">{ev.summary}</span>
                                 <span
                                   className="ml-auto text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
