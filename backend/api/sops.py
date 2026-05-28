@@ -268,6 +268,40 @@ def _can_access_run(user: dict, run: SopRun, db) -> bool:
     return assignment is not None
 
 
+def _today_central_iso() -> str:
+    """Return today's date in Central Time as YYYY-MM-DD. Matches the
+    format ScheduledJob.job_date is stored in (per scheduling.py)."""
+    # America/Chicago handles DST automatically. Workers in Houston should
+    # see "today" flip at midnight local, not UTC midnight.
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d")
+
+
+def _assert_worker_can_write(user: dict, run: SopRun, db) -> None:
+    """Workers may only WRITE to SOP runs for jobs scheduled today (Central
+    Time). Reading is unrestricted (covered by _can_access_run). This is
+    what prevents a worker from accidentally pre-completing tomorrow's
+    checklist, or back-dating yesterday's photos.
+
+    Admin/VA can write any time — they need it for corrections + backfill.
+    Raises HTTPException(403) for workers trying to write to a non-today
+    job; safe to call after _can_access_run."""
+    role = user.get("role", "va")
+    if role in ("admin", "va"):
+        return
+    if role != "worker":
+        return  # Other roles fall through to whatever the endpoint chose
+    job = db.query(ScheduledJob).filter(ScheduledJob.id == run.scheduled_job_id).first()
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if (job.job_date or "") != _today_central_iso():
+        raise HTTPException(
+            403,
+            "SOPs are read-only for jobs not scheduled today. "
+            "You can view but not check off steps or upload photos.",
+        )
+
+
 # ─── Template CRUD (admin) ───────────────────────────────────────────────
 
 @router.get("/sops/templates")
@@ -573,6 +607,7 @@ def select_branch(run_id: str, body: SelectBranchBody, user: dict = Depends(get_
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         # Validate against snapshotted branches list
         try:
             available = json.loads(run.branches_snapshot or "[]")
@@ -599,6 +634,7 @@ def start_run(run_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         if not run.started_at:
             run.started_at = _now()
             run.started_by = user.get("name", "")
@@ -638,6 +674,7 @@ def check_step(run_id: str, step_id: str, body: StepCheckBody, user: dict = Depe
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
 
         try:
             steps = json.loads(run.steps_json or "[]")
@@ -697,6 +734,7 @@ def update_step_note(run_id: str, step_id: str, body: StepNoteBody, user: dict =
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         try:
             steps = json.loads(run.steps_json or "[]")
         except json.JSONDecodeError:
@@ -730,6 +768,7 @@ def request_help(run_id: str, step_id: str, body: StepHelpBody, user: dict = Dep
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         try:
             steps = json.loads(run.steps_json or "[]")
         except json.JSONDecodeError:
@@ -784,6 +823,7 @@ def submit_multiselect(
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
 
         try:
             steps = json.loads(run.steps_json or "[]")
@@ -877,6 +917,7 @@ def log_hours(run_id: str, body: LogHoursBody, user: dict = Depends(get_current_
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         job = db.query(ScheduledJob).filter(ScheduledJob.id == run.scheduled_job_id).first()
         if not job:
             raise HTTPException(404, "Scheduled job not found")
@@ -978,6 +1019,7 @@ async def upload_step_photo(
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
 
         data = await file.read()
         if not data:
@@ -1098,6 +1140,7 @@ def delete_run_photo_by_id(run_id: str, photo_id: str, user: dict = Depends(get_
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         photo = db.query(SopRunPhoto).filter(
             SopRunPhoto.id == photo_id, SopRunPhoto.sop_run_id == run_id
         ).first()
@@ -1165,6 +1208,7 @@ def delete_step_photo(run_id: str, step_id: str, user: dict = Depends(get_curren
             raise HTTPException(404, "Run not found")
         if not _can_access_run(user, run, db):
             raise HTTPException(403, "Not assigned to this job")
+        _assert_worker_can_write(user, run, db)
         try:
             steps = json.loads(run.steps_json or "[]")
         except json.JSONDecodeError:
