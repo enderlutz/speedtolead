@@ -18,7 +18,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/crew", icon: HardHat, label: "Payroll", allowedRoles: ["admin"] },
   { to: "/accounting", icon: Calculator, label: "Accounting", allowedRoles: ["admin"] },
   { to: "/calendar", icon: Calendar, label: "Job Calendar", allowedRoles: ["admin", "va", "worker"] },
-  { to: "/my-day", icon: Sun, label: "My Day", allowedRoles: ["worker"] },
+  { to: "/my-schedule", icon: Sun, label: "My Schedule", allowedRoles: ["worker"] },
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", allowedRoles: ["admin", "va"] },
   { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] },
   { to: "/pricing", icon: DollarSign, label: "Pricing" },

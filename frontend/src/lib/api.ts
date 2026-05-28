@@ -1136,7 +1136,7 @@ export const api = {
   /** Worker (or admin) loads the SOP run for a specific job. Returns
    * `{ run: null }` when no template is configured for the job's service yet. */
   getSopRunByJob: (scheduledJobId: string) =>
-    request<{ run: SopRun | null }>(`/api/sops/runs/by-job/${scheduledJobId}`),
+    request<{ run: SopRun | null; job_date?: string; editable?: boolean }>(`/api/sops/runs/by-job/${scheduledJobId}`),
   startSopRun: (runId: string) =>
     request<SopRun>(`/api/sops/runs/${runId}/start`, { method: "POST" }),
   checkSopStep: (runId: string, stepId: string, completed: boolean, note: string = "") =>

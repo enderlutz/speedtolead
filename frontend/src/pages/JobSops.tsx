@@ -6,17 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock } from "lucide-react";
 
 // Worker-facing SOP checklist for a single job. Reached via the SOP
-// Checklist button on the MyDay card while a job is in_progress. Lean,
-// mobile-first: tick steps, leave a note, upload a photo, hit Help.
-// Admin can use the same page to monitor live progress.
+// Checklist button on the My Schedule card while a job is in_progress,
+// or by tapping any job in the Upcoming/Past tabs. Lean, mobile-first:
+// tick steps, leave a note, upload a photo, hit Help.
+//
+// Read-only mode: workers can only edit SOPs for jobs happening TODAY.
+// The backend returns `editable: false` for past/future jobs (and rejects
+// writes outright); here we mirror that by disabling every input and
+// showing a banner. Admin/VA always get `editable: true`.
 
 export default function JobSops() {
   const { jobId = "" } = useParams<{ jobId: string }>();
   const user = getCurrentUser();
   const [run, setRun] = useState<SopRun | null>(null);
+  const [editable, setEditable] = useState(true);
+  const [jobDate, setJobDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
@@ -28,6 +35,8 @@ export default function JobSops() {
     try {
       const res = await api.getSopRunByJob(jobId);
       setRun(res.run);
+      setEditable(res.editable !== false);
+      setJobDate(res.job_date || "");
     } catch (e: any) {
       toast.error(e?.message || "Failed to load SOP");
     } finally {
@@ -99,7 +108,7 @@ export default function JobSops() {
     return <div className="p-4 text-center text-muted-foreground">Loading…</div>;
   }
 
-  const backTo = user?.role === "worker" ? "/my-day" : "/calendar";
+  const backTo = user?.role === "worker" ? "/my-schedule" : "/calendar";
 
   if (!run) {
     return (
@@ -141,7 +150,18 @@ export default function JobSops() {
         <span className="text-xs font-medium">{pct}%</span>
       </div>
 
-      {run.status === "pending" && (
+      {!editable && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 mb-4 text-sm text-amber-900">
+          <Lock className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            View only — this job is{" "}
+            {jobDate && jobDate > new Date().toISOString().slice(0, 10) ? "scheduled for a future date" : "from a past date"}.
+            You can review the checklist, but you can only check steps and upload photos on the day of the job.
+          </span>
+        </div>
+      )}
+
+      {run.status === "pending" && editable && (
         <Button className="w-full mb-4 bg-blue-600 hover:bg-blue-700" onClick={handleStartRun}>
           Start SOP
         </Button>
@@ -151,12 +171,13 @@ export default function JobSops() {
         {run.steps.map((step) => (
           <Card key={step.step_id} className={step.completed ? "opacity-70" : ""}>
             <CardContent className="p-3 space-y-2">
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className={`flex items-start gap-3 ${editable ? "cursor-pointer" : ""}`}>
                 <input
                   type="checkbox"
                   checked={step.completed}
+                  disabled={!editable}
                   onChange={(e) => handleToggle(step, e.target.checked)}
-                  className="mt-1 h-4 w-4 shrink-0"
+                  className="mt-1 h-4 w-4 shrink-0 disabled:opacity-50"
                 />
                 <div className="min-w-0 flex-1">
                   <div className={`text-sm font-medium ${step.completed ? "line-through" : ""}`}>
@@ -169,46 +190,64 @@ export default function JobSops() {
                 </div>
               </label>
 
-              <div className="flex gap-2 pl-7">
-                <input
-                  ref={(el) => { fileInputs.current[step.step_id] = el; }}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => handlePhotoPick(step, e.target.files?.[0] || null)}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputs.current[step.step_id]?.click()}
-                >
-                  <Camera className="h-3.5 w-3.5 mr-1" />
-                  {step.photo_id ? "Re-upload" : "Photo"}
-                  {step.photo_required && !step.photo_id && (
-                    <Badge className="ml-1 bg-amber-200 text-amber-900 text-[10px] py-0">required</Badge>
+              {editable && (
+                <div className="flex gap-2 pl-7">
+                  <input
+                    ref={(el) => { fileInputs.current[step.step_id] = el; }}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => handlePhotoPick(step, e.target.files?.[0] || null)}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputs.current[step.step_id]?.click()}
+                  >
+                    <Camera className="h-3.5 w-3.5 mr-1" />
+                    {step.photo_id ? "Re-upload" : "Photo"}
+                    {step.photo_required && !step.photo_id && (
+                      <Badge className="ml-1 bg-amber-200 text-amber-900 text-[10px] py-0">required</Badge>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setShowHelp(step.step_id); setHelpDraft(step.help_note || ""); }}
+                  >
+                    <AlertCircle className="h-3.5 w-3.5 mr-1" /> Help
+                  </Button>
+                  {step.help_requested_at && (
+                    <Badge className="bg-amber-500 text-white text-[10px] self-center">help req'd</Badge>
                   )}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setShowHelp(step.step_id); setHelpDraft(step.help_note || ""); }}
-                >
-                  <AlertCircle className="h-3.5 w-3.5 mr-1" /> Help
-                </Button>
-                {step.help_requested_at && (
-                  <Badge className="bg-amber-500 text-white text-[10px] self-center">help req'd</Badge>
-                )}
-              </div>
+                </div>
+              )}
 
-              <Textarea
-                placeholder="Add a note…"
-                value={notesDraft[step.step_id] ?? step.note ?? ""}
-                onChange={(e) => setNotesDraft((d) => ({ ...d, [step.step_id]: e.target.value }))}
-                onBlur={() => handleNoteBlur(step)}
-                rows={2}
-                className="text-sm ml-7"
-              />
+              {/* Photo-required hint stays visible in read-only mode so the
+                  worker knows what tomorrow's job will need. */}
+              {!editable && step.photo_required && (
+                <div className="pl-7 text-[11px] text-amber-700 flex items-center gap-1">
+                  <Camera className="h-3 w-3" /> Photo required on job day
+                </div>
+              )}
+
+              {editable ? (
+                <Textarea
+                  placeholder="Add a note…"
+                  value={notesDraft[step.step_id] ?? step.note ?? ""}
+                  onChange={(e) => setNotesDraft((d) => ({ ...d, [step.step_id]: e.target.value }))}
+                  onBlur={() => handleNoteBlur(step)}
+                  rows={2}
+                  className="text-sm ml-7"
+                />
+              ) : (
+                step.note ? (
+                  <div className="ml-7 text-xs text-muted-foreground bg-slate-50 rounded px-2 py-1.5 whitespace-pre-wrap">
+                    {step.note}
+                  </div>
+                ) : null
+              )}
 
               {showHelp === step.step_id && (
                 <div className="pl-7 space-y-2 border-t pt-2">

@@ -20,7 +20,7 @@ import Calls from "@/pages/Calls";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
-import MyDay from "@/pages/MyDay";
+import MySchedule from "@/pages/MySchedule";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Accounting from "@/pages/Accounting";
@@ -37,11 +37,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Workers see only /my-day — any other URL bounces back. /calendar still
-// works for them as a read-only fallback but /my-day is the primary view.
+// Workers see only /my-schedule — any other URL bounces back. /calendar
+// still works for them as a read-only fallback but /my-schedule is primary.
 function StaffOnly({ children }: { children: React.ReactNode }) {
   const u = getCurrentUser();
-  if (u?.role === "worker") return <Navigate to="/my-day" replace />;
+  if (u?.role === "worker") return <Navigate to="/my-schedule" replace />;
   return <>{children}</>;
 }
 
@@ -102,7 +102,9 @@ function AppLayout() {
               <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
               <Route path="/accounting" element={<StaffOnly><Accounting /></StaffOnly>} />
               <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/my-day" element={<MyDay />} />
+              <Route path="/my-schedule" element={<MySchedule />} />
+              {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
+              <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
               <Route path="/invoice-queue" element={<StaffOnly><InvoiceQueue /></StaffOnly>} />
               <Route path="/pricing" element={<StaffOnly><Pricing /></StaffOnly>} />

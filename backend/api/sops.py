@@ -589,7 +589,18 @@ def get_run_by_job(scheduled_job_id: str, user: dict = Depends(get_current_user)
             run = attach_default_run(db, job)
             if run:
                 db.commit()
-        return {"run": run.to_dict() if run else None}
+        # Surface job_date + an editable flag so the worker UI can render
+        # SOPs read-only for jobs not happening today. Mirrors the
+        # server-side _assert_worker_can_write gate — the frontend disables
+        # inputs, the backend enforces it.
+        editable = True
+        if user.get("role") == "worker":
+            editable = (job.job_date or "") == _today_central_iso()
+        return {
+            "run": run.to_dict() if run else None,
+            "job_date": job.job_date or "",
+            "editable": editable,
+        }
     finally:
         db.close()
 
