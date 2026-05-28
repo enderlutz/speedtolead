@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List } from "lucide-react";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import ReimbursementForm from "@/components/ReimbursementForm";
 import MarkPaidModal from "@/components/MarkPaidModal";
@@ -78,6 +78,19 @@ export default function Calendar() {
   // opens them in Google).
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
   const [activeGoogleEvent, setActiveGoogleEvent] = useState<GoogleEvent | null>(null);
+  // Grid vs agenda. Persisted per-browser so each user (workers on phones,
+  // admins on desktop) settles into their preference and it sticks across
+  // sessions. SSR-safe: localStorage check guarded for build envs.
+  const [view, setView] = useState<"grid" | "agenda">(() => {
+    if (typeof window === "undefined") return "grid";
+    const saved = window.localStorage.getItem("calendarView");
+    return saved === "agenda" ? "agenda" : "grid";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("calendarView", view);
+    }
+  }, [view]);
 
   const weeks = useMemo(() => monthMatrix(year, monthIdx), [year, monthIdx]);
   const monthStart = weeks[0][0].toISOString().slice(0, 10);
@@ -202,6 +215,27 @@ export default function Calendar() {
               {previewAsWorker ? "Admin view" : "Preview as worker"}
             </Button>
           )}
+          {/* View toggle — grid (calendar) vs agenda (list grouped by date). */}
+          <div className="inline-flex border rounded-md">
+            <button
+              onClick={() => setView("grid")}
+              className={`px-2 py-1.5 text-sm border-r flex items-center gap-1 ${view === "grid" ? "bg-muted" : "hover:bg-muted"}`}
+              title="Calendar grid view"
+              aria-pressed={view === "grid"}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline text-xs">Grid</span>
+            </button>
+            <button
+              onClick={() => setView("agenda")}
+              className={`px-2 py-1.5 text-sm flex items-center gap-1 ${view === "agenda" ? "bg-muted" : "hover:bg-muted"}`}
+              title="Agenda list view"
+              aria-pressed={view === "agenda"}
+            >
+              <List className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline text-xs">List</span>
+            </button>
+          </div>
           <div className="inline-flex border rounded-md">
             <button onClick={goPrev} className="px-2 py-1.5 hover:bg-muted text-sm border-r">
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -221,6 +255,7 @@ export default function Calendar() {
         </p>
       )}
 
+      {view === "grid" && (
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           {loading ? (
@@ -325,6 +360,99 @@ export default function Calendar() {
           )}
         </CardContent>
       </Card>
+      )}
+
+      {view === "agenda" && (
+      <Card>
+        <CardContent className="p-3 sm:p-4">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : (() => {
+            // Flatten the 6-week window, dedupe, and keep only days that
+            // actually have content so the agenda stays scannable.
+            const seen = new Set<string>();
+            const agendaDays: { iso: string; date: Date; jobs: ScheduledJob[]; events: GoogleEvent[] }[] = [];
+            for (const week of weeks) {
+              for (const d of week) {
+                const iso = d.toISOString().slice(0, 10);
+                if (seen.has(iso)) continue;
+                seen.add(iso);
+                const dayJobs = jobsByDate[iso] || [];
+                const dayEvents = externalEventsByDate[iso] || [];
+                if (dayJobs.length === 0 && dayEvents.length === 0) continue;
+                agendaDays.push({ iso, date: d, jobs: dayJobs, events: dayEvents });
+              }
+            }
+            if (agendaDays.length === 0) {
+              return (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  No jobs or events in {fmtMonth(year, monthIdx)}.
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-4">
+                {agendaDays.map((day) => {
+                  const isToday = day.iso === todayISO();
+                  const dayZips = day.jobs.map((j) => j.zip_code).filter(Boolean);
+                  return (
+                    <div key={day.iso}>
+                      <div className="flex items-center justify-between mb-1.5 px-1">
+                        <h3 className={`text-sm font-semibold ${isToday ? "text-primary" : ""}`}>
+                          {day.date.toLocaleDateString("en-US", {
+                            weekday: "short", month: "short", day: "numeric",
+                          })}
+                          {isToday && <span className="ml-1.5 text-[10px] uppercase tracking-wide font-bold">Today</span>}
+                        </h3>
+                        <DayWeatherChip zips={dayZips} byZip={weatherByZip} iso={day.iso} />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {day.jobs.map((j) => {
+                          const borderCls = SERVICE_BORDER[j.service_type || "fence_staining"] || DEFAULT_SERVICE_BORDER;
+                          return (
+                            <button
+                              key={j.id}
+                              onClick={() => openJob(j)}
+                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
+                            >
+                              {!showAsWorker && j.package_tier && (
+                                <span className={`h-2 w-2 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
+                              )}
+                              <span className="font-mono text-muted-foreground shrink-0">{j.arrival_time}</span>
+                              <span className="truncate flex-1">{j.customer_name || "Job"}</span>
+                            </button>
+                          );
+                        })}
+                        {day.events.map((ev) => {
+                          const startTime = ev.all_day ? "all day" : (ev.start.slice(11, 16) || "");
+                          const borderCls = SERVICE_BORDER[ev.service_type] || DEFAULT_SERVICE_BORDER;
+                          return (
+                            <button
+                              key={ev.google_event_id}
+                              onClick={() => setActiveGoogleEvent(ev)}
+                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
+                            >
+                              <span className="font-mono text-muted-foreground shrink-0">{startTime}</span>
+                              <span className="truncate flex-1">{ev.summary}</span>
+                              <span
+                                className="text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
+                                title="From Google Calendar"
+                              >
+                                G
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
+      )}
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground flex-wrap">
