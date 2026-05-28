@@ -221,7 +221,101 @@ export default function Calendar() {
         </p>
       )}
 
-      <Card>
+      {/* Mobile agenda view — phone-sized screens can't read a 7-column
+          month grid (forces horizontal scroll, jobs become unreadable).
+          Render a vertical agenda of days that actually have jobs/events
+          instead, matching the convention every major calendar app uses
+          on phones. Desktop/tablet keep the full grid below. */}
+      <Card className="md:hidden">
+        <CardContent className="p-3">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : (() => {
+            // Flatten 6-week window, dedupe, keep only days with content.
+            const seen = new Set<string>();
+            const agendaDays: { iso: string; date: Date; jobs: ScheduledJob[]; events: GoogleEvent[] }[] = [];
+            for (const week of weeks) {
+              for (const d of week) {
+                const iso = d.toISOString().slice(0, 10);
+                if (seen.has(iso)) continue;
+                seen.add(iso);
+                const dayJobs = jobsByDate[iso] || [];
+                const dayEvents = externalEventsByDate[iso] || [];
+                if (dayJobs.length === 0 && dayEvents.length === 0) continue;
+                agendaDays.push({ iso, date: d, jobs: dayJobs, events: dayEvents });
+              }
+            }
+            if (agendaDays.length === 0) {
+              return (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  No jobs or events in {fmtMonth(year, monthIdx)}.
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-4">
+                {agendaDays.map((day) => {
+                  const isToday = day.iso === todayISO();
+                  const dayZips = day.jobs.map((j) => j.zip_code).filter(Boolean);
+                  return (
+                    <div key={day.iso}>
+                      <div className="flex items-center justify-between mb-1.5 px-1">
+                        <h3 className={`text-sm font-semibold ${isToday ? "text-primary" : ""}`}>
+                          {day.date.toLocaleDateString("en-US", {
+                            weekday: "short", month: "short", day: "numeric",
+                          })}
+                          {isToday && <span className="ml-1.5 text-[10px] uppercase tracking-wide font-bold">Today</span>}
+                        </h3>
+                        <DayWeatherChip zips={dayZips} byZip={weatherByZip} iso={day.iso} />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {day.jobs.map((j) => {
+                          const borderCls = SERVICE_BORDER[j.service_type || "fence_staining"] || DEFAULT_SERVICE_BORDER;
+                          return (
+                            <button
+                              key={j.id}
+                              onClick={() => openJob(j)}
+                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
+                            >
+                              {!showAsWorker && j.package_tier && (
+                                <span className={`h-2 w-2 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
+                              )}
+                              <span className="font-mono text-muted-foreground shrink-0">{j.arrival_time}</span>
+                              <span className="truncate flex-1">{j.customer_name || "Job"}</span>
+                            </button>
+                          );
+                        })}
+                        {day.events.map((ev) => {
+                          const startTime = ev.all_day ? "all day" : (ev.start.slice(11, 16) || "");
+                          const borderCls = SERVICE_BORDER[ev.service_type] || DEFAULT_SERVICE_BORDER;
+                          return (
+                            <button
+                              key={ev.google_event_id}
+                              onClick={() => setActiveGoogleEvent(ev)}
+                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
+                            >
+                              <span className="font-mono text-muted-foreground shrink-0">{startTime}</span>
+                              <span className="truncate flex-1">{ev.summary}</span>
+                              <span
+                                className="text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
+                                title="From Google Calendar"
+                              >
+                                G
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
+
+      <Card className="hidden md:block">
         <CardContent className="p-0 overflow-x-auto">
           {loading ? (
             <div className="h-96 grid place-items-center text-sm text-muted-foreground">Loading…</div>
