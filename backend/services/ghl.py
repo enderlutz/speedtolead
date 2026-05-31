@@ -717,6 +717,63 @@ def update_opportunity_stage(opportunity_id: str, stage_id: str, location_id: st
     return False
 
 
+def update_opportunity_value(opportunity_id: str, monetary_value: float, location_id: str | None = None) -> bool:
+    """Write a monetary value onto a GHL opportunity (the GHL UI calls this
+    field 'Lead Value' or 'Opportunity Value' depending on view).
+
+    Used by the auto-populate flow: when we approve an estimate, we push
+    the signature-tier price here so sales reps can see deal size at a
+    glance in GHL. Same 429-retry pattern as update_opportunity_stage —
+    same endpoint, just a different field on the payload."""
+    if not opportunity_id or monetary_value is None:
+        return False
+    url = f"{GHL_BASE}/opportunities/{opportunity_id}"
+    # GHL expects a numeric value, not a string. Floats are accepted.
+    payload = {"monetaryValue": float(monetary_value)}
+    headers = _headers(location_id)
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            r = _client.put(url, headers=headers, json=payload, timeout=10)
+            if r.status_code == 429 and attempt < 2:
+                import time as _time
+                logger.warning(f"GHL value push rate-limited for {opportunity_id}, retrying in {delay}s (attempt {attempt + 1}/3)")
+                _time.sleep(delay)
+                delay *= 2
+                continue
+            r.raise_for_status()
+            logger.info(f"GHL opportunity_value updated for {opportunity_id}: ${monetary_value:,.2f}")
+            return True
+        except Exception as e:
+            logger.error(f"GHL update_opportunity_value failed for {opportunity_id}: {e}")
+            return False
+    return False
+
+
+def get_opportunity_value(opportunity_id: str, location_id: str | None = None) -> float | None:
+    """Read the current monetaryValue from a GHL opportunity. Returns None
+    on read failure (caller treats as 'unknown — don't push'). Returns 0.0
+    if the field exists but is unset, which is what the auto-populate
+    flow's 'only if zero' rule keys on.
+
+    Thin wrapper over get_opportunity() that locates the field. GHL's
+    response shape nests the opportunity under {opportunity: {...}} or
+    returns it at the root depending on endpoint version, so we extract
+    defensively."""
+    if not opportunity_id:
+        return None
+    opp = get_opportunity(opportunity_id, location_id=location_id)
+    if opp is None:
+        return None
+    raw = opp.get("monetaryValue")
+    if raw is None:
+        return 0.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def update_contact_core_fields(
     contact_id: str,
     *,

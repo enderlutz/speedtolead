@@ -636,6 +636,17 @@ def _approve_estimate_background(
             add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)
             add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
 
+        # ── Push signature price → GHL monetaryValue (only if unset) ──
+        # Lives in the BG task because it adds 1-2 extra GHL calls (read
+        # current value, optionally write new value). VA already got their
+        # response by now — this runs out-of-band. Wrapped in try/except so
+        # a failure never blocks the rest of the BG flow.
+        try:
+            from services.opportunity_value import push_signature_price_if_unset
+            push_signature_price_if_unset(lead, db)
+        except Exception as e:
+            logger.warning(f"opportunity_value push failed for lead {lead.id}: {e}")
+
         # ── Team notify + activity log + SSE ──────────────────────────
         notify_estimate_sent(lead.to_dict(), tiers_dict)
         log_event(lead.id, "estimate_approved",
