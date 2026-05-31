@@ -1789,6 +1789,7 @@ export interface CallListItem {
   stage_label: string;
   is_priority: boolean;
   ghl_opportunity_id: string;
+  came_in_at: string;  // ISO datetime — when the lead first arrived (ghl_created_at preferred)
 }
 
 export interface CallListResponse {

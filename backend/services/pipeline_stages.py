@@ -26,10 +26,23 @@ V2_STAGE_IDS_IN_ORDER: list[tuple[str, str]] = [
     ("616087fa-4144-454e-b3d3-ff3669cb9461", "HOT LEAD_SEND ESTIMATE"),
     ("86fd0197-38ee-4999-bd26-4cf175aeba6b", "Address Follow Up"),
     ("92585169-bbc1-42c5-945d-63caf780e0b1", "Responded to Address Follow Up"),
+    # Pre-estimate calling campaign — warm-up calls before quote sent.
+    ("1e8a52ac-a85a-4ee6-bcd5-0699ff64d3a7", "Call 1 Pre Estimate"),
+    ("fe74a5e6-e173-4783-a8a9-1f28168a6c1b", "Call 2 Pre Estimate"),
+    ("3020bb38-8c84-455d-a840-3650fbe50ecd", "Call 3 Pre Estimate"),
     ("dc3600f2-009b-4075-95fa-786823131416", "ESTIMATE SENT"),
     ("3ed8e7e3-6852-469c-bb72-effc1b6df76c", "ESTIMATE_FOLLOW UP LATER"),
     ("8e1eb2cd-b9db-4eb7-aacf-901945cfca9b", "RESPONDED TO ESTIMATE"),
     ("147bd53b-3848-449d-b7c2-7a2cfad2a5f5", "Top Priority-Responded to Estimate"),
+    # Post-estimate callback campaign — aggressive follow-up after quote
+    # sent. All seven feed into the Call List panel (see CALL_LIST_STAGE_IDS).
+    ("1cca8bd9-83a4-4138-84bf-10d38efa0e49", "Call 1 Post Estimate"),
+    ("1ad50871-3d2f-460a-bb38-6ca586aeef36", "Call 2 Post Estimate"),
+    ("9f348720-939a-4064-b50f-3b391fb7b281", "Call 3 Post Estimate"),
+    ("a2e09473-5711-4fbc-b246-2f5d70efc5d2", "Call 4 Post Estimate"),
+    ("f9b4c5d3-d72c-4a64-b799-d9fcab0624a8", "Call 5 Post Estimate"),
+    ("07de5d8f-11db-448c-9af8-1d92aa8d36d7", "Call 6 Post Estimate"),
+    ("73b2553d-4b42-461c-8857-48e7d9c73191", "Call 7 Post Estimate"),
     ("f207a600-81c9-4150-941c-e977ea876929", "DECLINED ESTIMATE"),
     ("bbebbdac-0011-4253-9ed7-65522bafde02", "DEAL CLOSED & NOT SCHEDULED"),
     ("3eed5964-573f-445e-a181-1ee28068f066", "CLOSED & SCHEDULED"),
@@ -45,14 +58,24 @@ KNOWN_STAGE_IDS: set[str] = {sid for sid, _ in V2_STAGE_IDS_IN_ORDER}
 STAGE_NAME_BY_ID: dict[str, str] = {sid: name for sid, name in V2_STAGE_IDS_IN_ORDER}
 
 # Stages where the Call List panel surfaces leads for the sales-call
-# campaign. Range: ESTIMATE SENT through DEAL CLOSED & NOT SCHEDULED.
+# campaign. Range: ESTIMATE SENT through DEAL CLOSED & NOT SCHEDULED,
+# including ALL seven "Call N Post Estimate" callback stages.
 # Explicitly EXCLUDES:
 #   - DECLINED ESTIMATE (per user — dead leads don't belong in a call queue)
+#   - Pre-estimate call stages (before ESTIMATE SENT — outside the range)
 #   - CLOSED & SCHEDULED and downstream (already won — no callback needed)
 CALL_LIST_STAGE_IDS: set[str] = {
     "dc3600f2-009b-4075-95fa-786823131416",  # ESTIMATE SENT
     "3ed8e7e3-6852-469c-bb72-effc1b6df76c",  # ESTIMATE_FOLLOW UP LATER
     "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b",  # RESPONDED TO ESTIMATE
     "147bd53b-3848-449d-b7c2-7a2cfad2a5f5",  # Top Priority-Responded to Estimate
+    # Post-estimate callback campaign (added 2026-05-31 — aggressive call sequence)
+    "1cca8bd9-83a4-4138-84bf-10d38efa0e49",  # Call 1 Post Estimate
+    "1ad50871-3d2f-460a-bb38-6ca586aeef36",  # Call 2 Post Estimate
+    "9f348720-939a-4064-b50f-3b391fb7b281",  # Call 3 Post Estimate
+    "a2e09473-5711-4fbc-b246-2f5d70efc5d2",  # Call 4 Post Estimate
+    "f9b4c5d3-d72c-4a64-b799-d9fcab0624a8",  # Call 5 Post Estimate
+    "07de5d8f-11db-448c-9af8-1d92aa8d36d7",  # Call 6 Post Estimate
+    "73b2553d-4b42-461c-8857-48e7d9c73191",  # Call 7 Post Estimate
     "bbebbdac-0011-4253-9ed7-65522bafde02",  # DEAL CLOSED & NOT SCHEDULED
 }

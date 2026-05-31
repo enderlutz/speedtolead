@@ -45,15 +45,34 @@ type StageDef = {
   dotCls: string;
 };
 
+// Pre/Post-estimate "Call X" stages share one color per group — uniform
+// cyan for pre-estimate warm-up calls, uniform indigo for post-estimate
+// callback campaign. The number in the shortLabel (e.g. "Pre 1") tells
+// you which call. Keeping the color uniform within each group avoids
+// turning the kanban into a rainbow.
 export const V2_STAGES: StageDef[] = [
   { id: "e77fa568-8dd1-4f66-83c3-fa70dbd4d570", label: "New Lead", shortLabel: "New", headerCls: "bg-gray-100 text-gray-800", bgCls: "bg-gray-50/50", dotCls: "bg-gray-400" },
   { id: "616087fa-4144-454e-b3d3-ff3669cb9461", label: "HOT LEAD_SEND ESTIMATE", shortLabel: "Hot", headerCls: "bg-red-100 text-red-800", bgCls: "bg-red-50/30", dotCls: "bg-red-500" },
   { id: "86fd0197-38ee-4999-bd26-4cf175aeba6b", label: "Address Follow Up", shortLabel: "Addr F/U", headerCls: "bg-orange-100 text-orange-800", bgCls: "bg-orange-50/30", dotCls: "bg-orange-500" },
   { id: "92585169-bbc1-42c5-945d-63caf780e0b1", label: "Responded to Address Follow Up", shortLabel: "Addr F/U+", headerCls: "bg-yellow-100 text-yellow-800", bgCls: "bg-yellow-50/30", dotCls: "bg-yellow-500" },
+  // ── Pre-estimate calling campaign (3 stages) ─────────────────────
+  { id: "1e8a52ac-a85a-4ee6-bcd5-0699ff64d3a7", label: "Call 1 Pre Estimate", shortLabel: "Pre 1", headerCls: "bg-cyan-100 text-cyan-800", bgCls: "bg-cyan-50/30", dotCls: "bg-cyan-500" },
+  { id: "fe74a5e6-e173-4783-a8a9-1f28168a6c1b", label: "Call 2 Pre Estimate", shortLabel: "Pre 2", headerCls: "bg-cyan-100 text-cyan-800", bgCls: "bg-cyan-50/30", dotCls: "bg-cyan-500" },
+  { id: "3020bb38-8c84-455d-a840-3650fbe50ecd", label: "Call 3 Pre Estimate", shortLabel: "Pre 3", headerCls: "bg-cyan-100 text-cyan-800", bgCls: "bg-cyan-50/30", dotCls: "bg-cyan-500" },
+  // ─────────────────────────────────────────────────────────────────
   { id: "dc3600f2-009b-4075-95fa-786823131416", label: "ESTIMATE SENT", shortLabel: "Sent", headerCls: "bg-sky-100 text-sky-800", bgCls: "bg-sky-50/30", dotCls: "bg-sky-500" },
   { id: "3ed8e7e3-6852-469c-bb72-effc1b6df76c", label: "ESTIMATE_FOLLOW UP LATER", shortLabel: "Est. F/U", headerCls: "bg-amber-100 text-amber-800", bgCls: "bg-amber-50/30", dotCls: "bg-amber-500" },
   { id: "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b", label: "RESPONDED TO ESTIMATE", shortLabel: "Responded", headerCls: "bg-blue-100 text-blue-800", bgCls: "bg-blue-50/30", dotCls: "bg-blue-500" },
   { id: "147bd53b-3848-449d-b7c2-7a2cfad2a5f5", label: "Top Priority-Responded to Estimate", shortLabel: "Top Pri", headerCls: "bg-rose-100 text-rose-800", bgCls: "bg-rose-50/30", dotCls: "bg-rose-500" },
+  // ── Post-estimate callback campaign (7 stages) ───────────────────
+  { id: "1cca8bd9-83a4-4138-84bf-10d38efa0e49", label: "Call 1 Post Estimate", shortLabel: "Post 1", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  { id: "1ad50871-3d2f-460a-bb38-6ca586aeef36", label: "Call 2 Post Estimate", shortLabel: "Post 2", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  { id: "9f348720-939a-4064-b50f-3b391fb7b281", label: "Call 3 Post Estimate", shortLabel: "Post 3", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  { id: "a2e09473-5711-4fbc-b246-2f5d70efc5d2", label: "Call 4 Post Estimate", shortLabel: "Post 4", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  { id: "f9b4c5d3-d72c-4a64-b799-d9fcab0624a8", label: "Call 5 Post Estimate", shortLabel: "Post 5", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  { id: "07de5d8f-11db-448c-9af8-1d92aa8d36d7", label: "Call 6 Post Estimate", shortLabel: "Post 6", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  { id: "73b2553d-4b42-461c-8857-48e7d9c73191", label: "Call 7 Post Estimate", shortLabel: "Post 7", headerCls: "bg-indigo-100 text-indigo-800", bgCls: "bg-indigo-50/30", dotCls: "bg-indigo-500" },
+  // ─────────────────────────────────────────────────────────────────
   { id: "f207a600-81c9-4150-941c-e977ea876929", label: "DECLINED ESTIMATE", shortLabel: "Declined", headerCls: "bg-slate-200 text-slate-700", bgCls: "bg-slate-50/40", dotCls: "bg-slate-500" },
   { id: "bbebbdac-0011-4253-9ed7-65522bafde02", label: "DEAL CLOSED & NOT SCHEDULED", shortLabel: "Closed", headerCls: "bg-emerald-100 text-emerald-800", bgCls: "bg-emerald-50/30", dotCls: "bg-emerald-500" },
   { id: "3eed5964-573f-445e-a181-1ee28068f066", label: "CLOSED & SCHEDULED", shortLabel: "Scheduled", headerCls: "bg-green-100 text-green-800", bgCls: "bg-green-50/30", dotCls: "bg-green-500" },

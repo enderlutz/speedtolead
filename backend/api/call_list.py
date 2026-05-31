@@ -97,6 +97,11 @@ def get_call_list(user: dict = Depends(require_staff)):
                 continue
             sig_price = _latest_signature_price(db, lead.id)
             stage_label = STAGE_NAME_BY_ID.get(lead.ghl_pipeline_stage_id or "", "")
+            # "Came in" date — prefer ghl_created_at (when GHL first saw
+            # the lead, the source of truth for "when the customer arrived")
+            # and fall back to our created_at for any lead that predates
+            # the ghl_created_at field being populated.
+            came_in_at = lead.ghl_created_at or lead.created_at or ""
             items.append({
                 "lead_id": lead.id,
                 "contact_name": lead.contact_name or "",
@@ -107,6 +112,7 @@ def get_call_list(user: dict = Depends(require_staff)):
                 "stage_label": stage_label,
                 "is_priority": sig_price >= PRIORITY_VALUE_THRESHOLD,
                 "ghl_opportunity_id": lead.ghl_opportunity_id or "",
+                "came_in_at": came_in_at,
             })
 
         # Priority bucket first (>= $1500), then standard. Within each

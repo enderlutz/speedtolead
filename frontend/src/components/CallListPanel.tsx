@@ -3,7 +3,29 @@ import { Link } from "react-router-dom";
 import { api, type CallListItem, type CallListResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { PhoneCall, X, RefreshCw, Check, MapPin, Star } from "lucide-react";
+import { PhoneCall, X, RefreshCw, Check, MapPin, Star, Clock } from "lucide-react";
+
+
+// Render a "came in N days ago" label from an ISO timestamp. Older leads
+// drift to grayer text. Returns empty string for missing/unparseable dates
+// so the caller can omit the line entirely.
+function relativeAge(iso: string): { label: string; days: number } | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const diffMs = Date.now() - t;
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  if (days < 0) return { label: "just now", days: 0 };
+  if (days === 0) {
+    const hours = Math.floor(diffMs / (60 * 60 * 1000));
+    if (hours <= 0) return { label: "just now", days: 0 };
+    return { label: `${hours}h ago`, days: 0 };
+  }
+  if (days === 1) return { label: "1 day ago", days };
+  if (days < 14) return { label: `${days} days ago`, days };
+  if (days < 60) return { label: `${Math.floor(days / 7)} weeks ago`, days };
+  return { label: `${Math.floor(days / 30)} months ago`, days };
+}
 
 // Sticky right-side panel — shared callback queue. Visible to admin + VA
 // only (parent gates the mount on role). Mirrors the layout pattern of
@@ -238,6 +260,23 @@ function CallRow({
               <span className="truncate">{item.address}</span>
             </div>
           )}
+          {(() => {
+            const age = relativeAge(item.came_in_at);
+            if (!age) return null;
+            // Stale leads (14+ days) get an amber tint so they catch the
+            // eye — they're the ones at highest risk of going cold.
+            const ageCls = age.days >= 30
+              ? "text-red-700"
+              : age.days >= 14
+              ? "text-amber-700"
+              : "text-muted-foreground";
+            return (
+              <div className={`flex items-center gap-1 text-[11px] mt-1 ${ageCls}`} title={item.came_in_at}>
+                <Clock className="h-3 w-3 shrink-0" />
+                <span>Came in {age.label}</span>
+              </div>
+            );
+          })()}
         </div>
         <div className="flex flex-col gap-1 shrink-0">
           {item.contact_phone && (
