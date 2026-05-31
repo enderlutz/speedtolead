@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
-  BarChart3, Database, Send, RefreshCw, Link2,
+  BarChart3, Database, Send, RefreshCw, Link2, GitCompare, AlertCircle, CheckCircle2,
 } from "lucide-react";
+import type { GhlStageDiff } from "@/lib/api";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
@@ -140,6 +141,10 @@ export default function Settings() {
 
       {/* GHL Maintenance */}
       <BackfillDashboardLinksCard />
+
+      {/* GHL stage diff — surfaces stages Alan added in GHL that we don't
+          know about. Run this any time the kanban looks "missing" a stage. */}
+      <StageDiffCard />
 
       {/* Call Script — VA's reading panel on Lead Detail pulls from here */}
       <CallScriptSettings />
@@ -566,6 +571,146 @@ function GoogleCalendarCard() {
             )}
             {!isAdmin && (
               <span className="text-xs text-muted-foreground">Only Alan can connect Google.</span>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function StageDiffCard() {
+  // Surfaces drift between live GHL stages and our hardcoded V2_STAGES.
+  // Admin only — same trust level as the other GHL diagnostic cards on
+  // this page. When the user spots a missing stage in the result, they
+  // share it with whoever maintains the codebase to add it to
+  // V2_STAGES (frontend) and pipeline_stages.py (backend).
+  const [loading, setLoading] = useState(false);
+  const [diff, setDiff] = useState<GhlStageDiff | null>(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const r = await api.getGhlStageDiff();
+      setDiff(r);
+      const missing = r.missing_from_dashboard.length;
+      if (missing === 0) {
+        toast.success("In sync — no missing stages");
+      } else {
+        toast.warning(`${missing} stage${missing === 1 ? "" : "s"} missing from dashboard`);
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Stage diff failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <GitCompare className="h-4 w-4" /> GHL Pipeline Stage Diff
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Compares the live GHL pipeline against the hardcoded stage list
+          in the dashboard. Use this whenever Alan adds new stages in GHL
+          and you want to know what to add to the codebase.
+        </p>
+        <Button size="sm" onClick={run} disabled={loading} variant="outline">
+          {loading ? (
+            <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Checking…</>
+          ) : (
+            <><GitCompare className="h-3.5 w-3.5 mr-1.5" /> Run diff</>
+          )}
+        </Button>
+
+        {diff && (
+          <div className="space-y-3 text-sm">
+            <div className="text-xs text-muted-foreground">
+              Pipeline: <span className="font-mono">{diff.pipeline_name}</span>
+              <span className="mx-1">·</span>
+              {diff.matched} stages matched
+            </div>
+
+            {diff.missing_from_dashboard.length > 0 ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <div className="flex items-center gap-1.5 text-amber-900 font-medium mb-2">
+                  <AlertCircle className="h-4 w-4" />
+                  Missing from dashboard ({diff.missing_from_dashboard.length})
+                </div>
+                <p className="text-xs text-amber-800 mb-2">
+                  These exist in GHL but NOT in <span className="font-mono">V2_STAGES</span>{" "}
+                  or <span className="font-mono">pipeline_stages.py</span>. Share these
+                  IDs + names with whoever maintains the code.
+                </p>
+                <ul className="space-y-1">
+                  {diff.missing_from_dashboard.map((s) => (
+                    <li key={s.id} className="text-xs">
+                      <span className="font-mono text-amber-900">{s.id}</span>
+                      <span className="mx-1.5">·</span>
+                      <span className="font-medium">{s.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 flex items-center gap-2 text-emerald-900 text-sm">
+                <CheckCircle2 className="h-4 w-4" />
+                Dashboard knows about every live GHL stage.
+              </div>
+            )}
+
+            {diff.extra_in_dashboard.length > 0 && (
+              <div className="rounded-lg border border-slate-300 bg-slate-50 p-3">
+                <div className="flex items-center gap-1.5 text-slate-700 font-medium mb-2">
+                  <AlertCircle className="h-4 w-4" />
+                  Extra in dashboard ({diff.extra_in_dashboard.length})
+                </div>
+                <p className="text-xs text-slate-600 mb-2">
+                  Defined in our code but NOT returned by GHL. Probably renamed,
+                  archived, or deleted on the GHL side. Safe to leave unless
+                  cleanup is wanted.
+                </p>
+                <ul className="space-y-1">
+                  {diff.extra_in_dashboard.map((s) => (
+                    <li key={s.id} className="text-xs">
+                      <span className="font-mono text-slate-700">{s.id}</span>
+                      <span className="mx-1.5">·</span>
+                      <span>{s.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowAll((v) => !v)}
+              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            >
+              {showAll ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {showAll ? "Hide" : "Show"} full live stage list (ordered, copy-pasteable)
+            </button>
+            {showAll && (
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground mb-2">
+                  All {diff.all_live_stages_in_order.length} live stages in their pipeline order:
+                </p>
+                <ol className="space-y-0.5 text-xs">
+                  {diff.all_live_stages_in_order.map((s, i) => (
+                    <li key={s.id}>
+                      <span className="text-muted-foreground">{i + 1}.</span>{" "}
+                      <span className="font-mono">{s.id}</span>
+                      <span className="mx-1.5">·</span>
+                      <span>{s.name}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             )}
           </div>
         )}

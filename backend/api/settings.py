@@ -102,6 +102,66 @@ def ghl_pipelines():
     return result
 
 
+# --- GHL stage diff (admin-only) ---
+#
+# Detects when Alan adds stages to GHL that we don't know about. The
+# dashboard's stage list is hand-maintained (see services/pipeline_stages.py
+# for rationale); this endpoint surfaces drift so we can update both
+# halves (frontend V2_STAGES + backend pipeline_stages.py) in one go.
+
+@router.get("/settings/ghl-stage-diff")
+def ghl_stage_diff():
+    """Compare live GHL stages for the fence staining pipeline against
+    services/pipeline_stages.py. Returns missing (in GHL but not in our
+    code) and extra (in our code but not in GHL) entries.
+
+    Admin-only via require_admin (matches sibling endpoints' convention)."""
+    from services.pipeline_stages import V2_STAGE_IDS_IN_ORDER, KNOWN_STAGE_IDS
+
+    settings = get_settings()
+    if not settings.ghl_location_id:
+        raise HTTPException(400, "GHL location 1 not configured")
+
+    # Same pipeline matching as the poller (services/poller.py:154):
+    # case-insensitive substring on the pipeline name.
+    TARGET_PIPELINE = "fence staining new automation flow"
+    pipelines = get_pipelines(settings.ghl_location_id)
+    target = None
+    for p in pipelines:
+        name = (p.get("name") or "").lower().strip()
+        if TARGET_PIPELINE in name:
+            target = p
+            break
+    if not target:
+        raise HTTPException(404, f"Pipeline '{TARGET_PIPELINE}' not found in GHL")
+
+    live_stages = target.get("stages", []) or []
+    live_by_id = {(s.get("id") or ""): (s.get("name") or "") for s in live_stages if s.get("id")}
+    live_ids = set(live_by_id.keys())
+
+    missing = [
+        {"id": sid, "name": live_by_id[sid]}
+        for sid in live_ids - KNOWN_STAGE_IDS
+    ]
+    extra = [
+        {"id": sid, "name": name}
+        for sid, name in V2_STAGE_IDS_IN_ORDER
+        if sid not in live_ids
+    ]
+    return {
+        "pipeline_name": target.get("name", ""),
+        "pipeline_id": target.get("id", ""),
+        "matched": len(KNOWN_STAGE_IDS & live_ids),
+        "missing_from_dashboard": missing,
+        "extra_in_dashboard": extra,
+        # Full ordered list for reference — useful when copy-pasting into V2_STAGES
+        "all_live_stages_in_order": [
+            {"id": s.get("id"), "name": s.get("name")}
+            for s in live_stages
+        ],
+    }
+
+
 # --- GHL Custom field discovery ---
 
 @router.get("/settings/ghl-fields")

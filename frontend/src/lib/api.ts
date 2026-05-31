@@ -705,6 +705,7 @@ export const api = {
 
   // Settings
   getGhlPipelines: () => request<Record<string, unknown[]>>("/api/settings/ghl-pipelines"),
+  getGhlStageDiff: () => request<GhlStageDiff>("/api/settings/ghl-stage-diff"),
   getGhlFields: () => request<Record<string, unknown[]>>("/api/settings/ghl-fields"),
   syncGhlFields: () => request<{ synced: number; fields: { ghl_field_id: string; ghl_field_name: string; ghl_field_key: string; field_type: string; options: string[]; location: string }[] }>("/api/settings/ghl-fields/sync", { method: "POST" }),
   getFieldMappings: () => request<{ mappings: { ghl_field_id: string; ghl_field_key: string; ghl_field_name: string; our_field_name: string }[]; our_field_options: { value: string; label: string }[] }>("/api/settings/ghl-fields/mappings"),
@@ -1759,6 +1760,20 @@ export interface WeatherForecast {
   days: WeatherDay[];
   accurate_through: string;
   note: string;
+}
+
+export interface GhlStageEntry {
+  id: string;
+  name: string;
+}
+
+export interface GhlStageDiff {
+  pipeline_name: string;
+  pipeline_id: string;
+  matched: number;
+  missing_from_dashboard: GhlStageEntry[];
+  extra_in_dashboard: GhlStageEntry[];
+  all_live_stages_in_order: GhlStageEntry[];
 }
 
 export interface UnloggedJob {
