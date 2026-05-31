@@ -709,6 +709,10 @@ export const api = {
   getCallList: () => request<CallListResponse>("/api/call-list"),
   markCalled: (leadId: string) =>
     request<CallTouchResult>(`/api/call-list/${leadId}/touch`, { method: "POST" }),
+  startOppValueBackfill: () =>
+    request<OppValueBackfillStartResult>("/api/settings/backfill-opportunity-values", { method: "POST" }),
+  getOppValueBackfillStatus: () =>
+    request<OppValueBackfillStatus>("/api/settings/backfill-opportunity-values/status"),
   getGhlFields: () => request<Record<string, unknown[]>>("/api/settings/ghl-fields"),
   syncGhlFields: () => request<{ synced: number; fields: { ghl_field_id: string; ghl_field_name: string; ghl_field_key: string; field_type: string; options: string[]; location: string }[] }>("/api/settings/ghl-fields/sync", { method: "POST" }),
   getFieldMappings: () => request<{ mappings: { ghl_field_id: string; ghl_field_key: string; ghl_field_name: string; our_field_name: string }[]; our_field_options: { value: string; label: string }[] }>("/api/settings/ghl-fields/mappings"),
@@ -1803,6 +1807,26 @@ export interface CallTouchResult {
   touch_id: string;
   marked_at: string;
   marked_by: string;
+}
+
+export interface OppValueBackfillStartResult {
+  status: string;
+  in_scope_leads: number;
+  note: string;
+}
+
+export interface OppValueBackfillStatus {
+  status: "never_run" | "running" | "completed";
+  started_at?: string;
+  completed_at?: string | null;
+  total?: number;
+  processed?: number;
+  pushed?: number;
+  skipped_existing?: number;
+  skipped_no_estimate?: number;
+  skipped_no_opportunity?: number;
+  failed_read?: number;
+  failed_write?: number;
 }
 
 export interface UnloggedJob {

@@ -79,3 +79,33 @@ CALL_LIST_STAGE_IDS: set[str] = {
     "73b2553d-4b42-461c-8857-48e7d9c73191",  # Call 7 Post Estimate
     "bbebbdac-0011-4253-9ed7-65522bafde02",  # DEAL CLOSED & NOT SCHEDULED
 }
+
+# Stages eligible for the one-time opportunity_value backfill. Broader
+# than CALL_LIST_STAGE_IDS because the backfill is about historical
+# data (leads that have ever had an estimate), not about active calling.
+# Includes terminal-ish stages (DECLINED, LONG TERM NURTURE, Cold Leads)
+# because GHL still benefits from knowing what the deal would have been
+# worth even if it's dormant.
+# EXCLUDES (per user) — these are explicitly NOT in scope:
+#   - CLOSED & SCHEDULED (post-sale, manual value likely set already)
+#   - COMPLETED JOB-HAPPY CUSTOMER
+#   - COMPLETED JOB- UNHAPPY CUSTOMER
+#   - Everything BEFORE ESTIMATE SENT (no estimate yet → no signature price)
+OPP_VALUE_BACKFILL_STAGE_IDS: set[str] = {
+    "dc3600f2-009b-4075-95fa-786823131416",  # ESTIMATE SENT
+    "3ed8e7e3-6852-469c-bb72-effc1b6df76c",  # ESTIMATE_FOLLOW UP LATER
+    "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b",  # RESPONDED TO ESTIMATE  ← user said "most important"
+    "147bd53b-3848-449d-b7c2-7a2cfad2a5f5",  # Top Priority-Responded to Estimate
+    "1cca8bd9-83a4-4138-84bf-10d38efa0e49",  # Call 1 Post Estimate
+    "1ad50871-3d2f-460a-bb38-6ca586aeef36",  # Call 2 Post Estimate
+    "9f348720-939a-4064-b50f-3b391fb7b281",  # Call 3 Post Estimate
+    "a2e09473-5711-4fbc-b246-2f5d70efc5d2",  # Call 4 Post Estimate
+    "f9b4c5d3-d72c-4a64-b799-d9fcab0624a8",  # Call 5 Post Estimate
+    "07de5d8f-11db-448c-9af8-1d92aa8d36d7",  # Call 6 Post Estimate
+    "73b2553d-4b42-461c-8857-48e7d9c73191",  # Call 7 Post Estimate
+    "f207a600-81c9-4150-941c-e977ea876929",  # DECLINED ESTIMATE
+    "bbebbdac-0011-4253-9ed7-65522bafde02",  # DEAL CLOSED & NOT SCHEDULED
+    "d836628c-3094-4a63-b95a-8a5358d251d0",  # LONG TERM NURTURE
+    "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01",  # Responded to long term nurture
+    "0ca2e2a6-2990-4a5b-8ace-608393e39b5a",  # Cold Leads (Never answered)
+}

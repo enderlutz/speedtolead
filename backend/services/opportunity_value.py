@@ -120,3 +120,88 @@ def push_signature_price_if_unset(lead: Lead, db: Session) -> str:
                "ghl_previous_value": current_value,
                "opportunity_id": lead.ghl_opportunity_id})
     return "pushed"
+
+
+# ─── One-shot backfill ──────────────────────────────────────────────────
+
+def run_opportunity_value_backfill() -> dict:
+    """One-shot loop: process every lead in OPP_VALUE_BACKFILL_STAGE_IDS,
+    calling push_signature_price_if_unset for each. Designed to be invoked
+    from a BackgroundTask so it can run minutes-long without blocking
+    the HTTP response.
+
+    Idempotent — the underlying helper's 'only if 0' rule means re-running
+    is safe. Already-pushed leads return 'skipped_existing_value' on the
+    second run and we just count them.
+
+    Returns a stats dict the caller logs to automation_log. Status
+    progress is also visible via SELECT on automation_log for live
+    monitoring."""
+    from database import get_db, Lead
+    from services.pipeline_stages import OPP_VALUE_BACKFILL_STAGE_IDS
+    import time as _time
+
+    started_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+
+    # Mark the run START in automation_log so the status endpoint can
+    # compute "events since the most recent backfill start."
+    db = get_db()
+    try:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.ghl_pipeline_stage_id.in_(list(OPP_VALUE_BACKFILL_STAGE_IDS)))
+            .filter(Lead.pipeline_version == "v2")
+            .filter(Lead.ghl_opportunity_id != "")
+            .all()
+        )
+        total = len(leads)
+    finally:
+        db.close()
+
+    log_event(None, "opp_value_backfill_started",
+              f"Starting backfill across {total} in-scope v2 leads",
+              {"action": "run_opportunity_value_backfill",
+               "total": total,
+               "started_at": started_iso})
+
+    stats = {
+        "total": total,
+        "pushed": 0,
+        "skipped_existing_value": 0,
+        "skipped_no_estimate": 0,
+        "skipped_no_opportunity": 0,
+        "failed_read": 0,
+        "failed_write": 0,
+    }
+
+    for lead in leads:
+        # Fresh db session per lead so a long-running loop doesn't hold
+        # a single connection for minutes (the global rate limiter
+        # already paces the GHL calls).
+        d = get_db()
+        try:
+            fresh_lead = d.query(Lead).filter(Lead.id == lead.id).first()
+            if not fresh_lead:
+                continue
+            try:
+                result = push_signature_price_if_unset(fresh_lead, d)
+            except Exception as e:
+                logger.error(f"Backfill exception for lead {lead.id}: {e}")
+                result = "failed_write"
+            if result in stats:
+                stats[result] += 1
+        finally:
+            d.close()
+
+    completed_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+    log_event(None, "opp_value_backfill_completed",
+              f"Backfill complete: pushed={stats['pushed']} "
+              f"skipped_existing={stats['skipped_existing_value']} "
+              f"skipped_no_estimate={stats['skipped_no_estimate']} "
+              f"failed_read={stats['failed_read']} failed_write={stats['failed_write']}",
+              {"action": "run_opportunity_value_backfill",
+               "started_at": started_iso,
+               "completed_at": completed_iso,
+               **stats})
+
+    return {"started_at": started_iso, "completed_at": completed_iso, **stats}

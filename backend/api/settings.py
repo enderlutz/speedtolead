@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from database import get_db, PricingConfig, GhlFieldMapping
 from services.ghl import get_pipelines, get_custom_fields
@@ -297,6 +297,117 @@ def update_field_mapping(body: FieldMappingUpdate):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+# --- Opportunity-value backfill (one-shot admin) ---
+#
+# Writes signature price → GHL monetaryValue for every in-scope v2 lead
+# whose current GHL value is $0. NEVER overwrites existing values. Heavy
+# enough (1-2 GHL calls per lead, hundreds of leads) that it runs in a
+# BackgroundTask so the HTTP response returns instantly. Status endpoint
+# below polls automation_log for progress.
+
+@router.post("/settings/backfill-opportunity-values")
+def start_opportunity_value_backfill(background_tasks: BackgroundTasks):
+    """Start the backfill in the background and return immediately. The
+    BG task logs progress events to automation_log; the status endpoint
+    computes a running tally from those events."""
+    from services.opportunity_value import run_opportunity_value_backfill
+    from services.pipeline_stages import OPP_VALUE_BACKFILL_STAGE_IDS
+    from database import Lead
+
+    db = get_db()
+    try:
+        in_scope = (
+            db.query(Lead)
+            .filter(Lead.ghl_pipeline_stage_id.in_(list(OPP_VALUE_BACKFILL_STAGE_IDS)))
+            .filter(Lead.pipeline_version == "v2")
+            .filter(Lead.ghl_opportunity_id != "")
+            .count()
+        )
+    finally:
+        db.close()
+
+    background_tasks.add_task(run_opportunity_value_backfill)
+    return {
+        "status": "started",
+        "in_scope_leads": in_scope,
+        "note": "Backfill running in background. Poll /settings/backfill-opportunity-values/status for progress.",
+    }
+
+
+@router.get("/settings/backfill-opportunity-values/status")
+def get_opportunity_value_backfill_status():
+    """Compute progress of the most recent backfill run from automation_log.
+    Returns running/completed status + per-result-type counts so the UI
+    can render a live progress display."""
+    from database import AutomationLog
+    import json as _json
+
+    db = get_db()
+    try:
+        # Find the most recent backfill_started event — anchors the
+        # window we count events in.
+        started = (
+            db.query(AutomationLog)
+            .filter(AutomationLog.event_type == "opp_value_backfill_started")
+            .order_by(AutomationLog.created_at.desc())
+            .first()
+        )
+        if not started:
+            return {"status": "never_run"}
+
+        # Did it complete? Check for a matching completed event after start.
+        completed = (
+            db.query(AutomationLog)
+            .filter(AutomationLog.event_type == "opp_value_backfill_completed")
+            .filter(AutomationLog.created_at > started.created_at)
+            .order_by(AutomationLog.created_at.desc())
+            .first()
+        )
+
+        # Per-lead push outcomes since the run started.
+        per_lead_event_types = (
+            "opp_value_pushed",
+            "opp_value_skipped_existing",
+            "opp_value_skipped_no_estimate",
+            "opp_value_skipped_no_opportunity",
+            "opp_value_failed_read",
+            "opp_value_failed_write",
+        )
+        events = (
+            db.query(AutomationLog)
+            .filter(AutomationLog.event_type.in_(per_lead_event_types))
+            .filter(AutomationLog.created_at > started.created_at)
+            .all()
+        )
+
+        counts = {t: 0 for t in per_lead_event_types}
+        for ev in events:
+            counts[ev.event_type] = counts.get(ev.event_type, 0) + 1
+        processed = sum(counts.values())
+
+        try:
+            started_meta = _json.loads(started.metadata_json or "{}")
+        except Exception:
+            started_meta = {}
+        total = int(started_meta.get("total") or 0)
+
+        return {
+            "status": "completed" if completed else "running",
+            "started_at": started.created_at,
+            "completed_at": completed.created_at if completed else None,
+            "total": total,
+            "processed": processed,
+            "pushed": counts.get("opp_value_pushed", 0),
+            "skipped_existing": counts.get("opp_value_skipped_existing", 0),
+            "skipped_no_estimate": counts.get("opp_value_skipped_no_estimate", 0),
+            "skipped_no_opportunity": counts.get("opp_value_skipped_no_opportunity", 0),
+            "failed_read": counts.get("opp_value_failed_read", 0),
+            "failed_write": counts.get("opp_value_failed_write", 0),
+        }
     finally:
         db.close()
 

@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
-  BarChart3, Database, Send, RefreshCw, Link2, GitCompare, AlertCircle, CheckCircle2,
+  BarChart3, Database, Send, RefreshCw, Link2, GitCompare, AlertCircle, CheckCircle2, DollarSign,
 } from "lucide-react";
-import type { GhlStageDiff } from "@/lib/api";
+import type { GhlStageDiff, OppValueBackfillStatus } from "@/lib/api";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
@@ -145,6 +145,10 @@ export default function Settings() {
       {/* GHL stage diff — surfaces stages Alan added in GHL that we don't
           know about. Run this any time the kanban looks "missing" a stage. */}
       <StageDiffCard />
+
+      {/* Opportunity-value backfill — one-shot fill of signature price
+          into GHL monetaryValue for in-scope leads currently at $0. */}
+      <OppValueBackfillCard />
 
       {/* Call Script — VA's reading panel on Lead Detail pulls from here */}
       <CallScriptSettings />
@@ -716,5 +720,151 @@ function StageDiffCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+function OppValueBackfillCard() {
+  // One-shot backfill: writes signature price → GHL monetaryValue for
+  // every in-scope v2 lead whose current value is $0. NEVER overwrites
+  // an existing non-zero value (GHL stays source of truth — Alan often
+  // negotiates a different number that we don't want to wipe).
+  //
+  // BG-task'd because hundreds of leads × 1-2 GHL calls each can run
+  // for minutes. The status endpoint polls automation_log so the user
+  // sees live progress without holding an HTTP connection open.
+  const [starting, setStarting] = useState(false);
+  const [status, setStatus] = useState<OppValueBackfillStatus | null>(null);
+  const [inScopeOverride, setInScopeOverride] = useState<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api.getOppValueBackfillStatus();
+      setStatus(s);
+    } catch {
+      // Silent — status query failure shouldn't surface as toast spam
+      // during polling.
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Auto-poll while a backfill is running so the progress bar updates.
+  useEffect(() => {
+    if (status?.status !== "running") return;
+    const t = setInterval(refresh, 3000);
+    return () => clearInterval(t);
+  }, [status?.status, refresh]);
+
+  const handleRun = async () => {
+    const confirmMsg = inScopeOverride !== null
+      ? `Run opportunity-value backfill across ~${inScopeOverride} in-scope v2 leads? This is idempotent — only leads with $0 in GHL get touched. Safe to re-run.`
+      : "Run opportunity-value backfill? Only leads with $0 in GHL get touched. Safe to re-run.";
+    if (!confirm(confirmMsg)) return;
+    setStarting(true);
+    try {
+      const r = await api.startOppValueBackfill();
+      setInScopeOverride(r.in_scope_leads);
+      toast.success(`Backfill started — ${r.in_scope_leads} leads queued.`);
+      setTimeout(refresh, 800);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to start backfill");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const isRunning = status?.status === "running";
+  const isCompleted = status?.status === "completed";
+  const total = status?.total ?? 0;
+  const processed = status?.processed ?? 0;
+  const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <DollarSign className="h-4 w-4" /> GHL Opportunity Value Backfill
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Pushes signature-tier price into GHL's monetaryValue for every
+          in-scope v2 lead that currently shows $0. Stages covered:
+          ESTIMATE SENT → COLD LEADS (skips CLOSED &amp; SCHEDULED and
+          COMPLETED JOB stages). Never overwrites a non-zero value.
+        </p>
+
+        <Button
+          size="sm"
+          onClick={handleRun}
+          disabled={starting || isRunning}
+          variant="outline"
+        >
+          {starting ? (
+            <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Starting…</>
+          ) : isRunning ? (
+            <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Running…</>
+          ) : (
+            <><DollarSign className="h-3.5 w-3.5 mr-1.5" /> Run backfill</>
+          )}
+        </Button>
+
+        {status?.status === "never_run" && (
+          <p className="text-xs text-muted-foreground italic">
+            No backfill has been run yet.
+          </p>
+        )}
+
+        {(isRunning || isCompleted) && (
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2 text-sm">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium">
+                {isCompleted ? "Last backfill complete" : "Backfill in progress"}
+              </span>
+              <span className="text-muted-foreground">
+                {processed} / {total} leads
+              </span>
+            </div>
+            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all ${isCompleted ? "bg-emerald-500" : "bg-blue-500"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs pt-1">
+              <Stat label="Pushed" value={status?.pushed ?? 0} cls="text-emerald-700" />
+              <Stat label="Skipped (had value)" value={status?.skipped_existing ?? 0} cls="text-slate-600" />
+              <Stat label="Skipped (no estimate)" value={status?.skipped_no_estimate ?? 0} cls="text-slate-600" />
+              <Stat label="Skipped (no opportunity)" value={status?.skipped_no_opportunity ?? 0} cls="text-slate-600" />
+              {(status?.failed_read ?? 0) > 0 && (
+                <Stat label="Failed (read)" value={status?.failed_read ?? 0} cls="text-red-700" />
+              )}
+              {(status?.failed_write ?? 0) > 0 && (
+                <Stat label="Failed (write)" value={status?.failed_write ?? 0} cls="text-red-700" />
+              )}
+            </div>
+            {status?.started_at && (
+              <p className="text-[11px] text-muted-foreground pt-1">
+                Started {new Date(status.started_at).toLocaleString()}
+                {status.completed_at && ` · finished ${new Date(status.completed_at).toLocaleString()}`}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+function Stat({ label, value, cls }: { label: string; value: number; cls?: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-semibold ${cls || ""}`}>{value}</span>
+    </div>
   );
 }
