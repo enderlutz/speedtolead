@@ -969,6 +969,27 @@ class ScheduledJob(Base):
         return base
 
 
+class CallTouch(Base):
+    """One row per 'marked as called' click in the Call List panel.
+
+    Append-only log — we don't update existing rows when a lead is called
+    again, we INSERT a new touch. The call-list query suppresses leads
+    that have a touch in the last 24 hours (rolling window), so calling
+    a lead drops them off the queue for a day, then they reappear if
+    still in-range. Audit trail also lets us answer 'who called this
+    customer and when' at any point in the future."""
+    __tablename__ = "call_touches"
+    __table_args__ = (
+        Index("idx_call_touches_lead", "lead_id"),
+        Index("idx_call_touches_marked_at", "marked_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    marked_at = Column(Text, default="")     # ISO datetime UTC
+    marked_by = Column(Text, default="")     # display name from JWT
+
+
 class JobAssignment(Base):
     """Many-to-many: which workers are assigned to which scheduled job.
     Workers' calendar view filters on this table."""
