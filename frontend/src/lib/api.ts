@@ -706,6 +706,9 @@ export const api = {
   // Settings
   getGhlPipelines: () => request<Record<string, unknown[]>>("/api/settings/ghl-pipelines"),
   getGhlStageDiff: () => request<GhlStageDiff>("/api/settings/ghl-stage-diff"),
+  getCallList: () => request<CallListResponse>("/api/call-list"),
+  markCalled: (leadId: string) =>
+    request<CallTouchResult>(`/api/call-list/${leadId}/touch`, { method: "POST" }),
   getGhlFields: () => request<Record<string, unknown[]>>("/api/settings/ghl-fields"),
   syncGhlFields: () => request<{ synced: number; fields: { ghl_field_id: string; ghl_field_name: string; ghl_field_key: string; field_type: string; options: string[]; location: string }[] }>("/api/settings/ghl-fields/sync", { method: "POST" }),
   getFieldMappings: () => request<{ mappings: { ghl_field_id: string; ghl_field_key: string; ghl_field_name: string; our_field_name: string }[]; our_field_options: { value: string; label: string }[] }>("/api/settings/ghl-fields/mappings"),
@@ -1774,6 +1777,31 @@ export interface GhlStageDiff {
   missing_from_dashboard: GhlStageEntry[];
   extra_in_dashboard: GhlStageEntry[];
   all_live_stages_in_order: GhlStageEntry[];
+}
+
+export interface CallListItem {
+  lead_id: string;
+  contact_name: string;
+  contact_phone: string;
+  address: string;
+  signature_price: number;
+  stage_id: string;
+  stage_label: string;
+  is_priority: boolean;
+  ghl_opportunity_id: string;
+}
+
+export interface CallListResponse {
+  items: CallListItem[];
+  priority_threshold: number;
+  suppression_hours: number;
+}
+
+export interface CallTouchResult {
+  status: string;
+  touch_id: string;
+  marked_at: string;
+  marked_by: string;
 }
 
 export interface UnloggedJob {

@@ -21,6 +21,7 @@ import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import MySchedule from "@/pages/MySchedule";
+import CallListPanel from "@/components/CallListPanel";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Accounting from "@/pages/Accounting";
@@ -62,6 +63,10 @@ function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLocation();
+  const currentUser = getCurrentUser();
+  // Call List panel — shared callback queue. Admin + VA only. Workers
+  // see it as a dead pill so we hide it entirely for them.
+  const showCallList = !!currentUser && currentUser.role !== "worker";
 
   // Public pages without sidebar or auth
   const isPublic =
@@ -115,6 +120,7 @@ function AppLayout() {
             </Routes>
           </main>
         </div>
+        {showCallList && <CallListPanel />}
       </div>
     </RequireAuth>
   );
