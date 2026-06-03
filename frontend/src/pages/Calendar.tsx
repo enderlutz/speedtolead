@@ -4,7 +4,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus } from "lucide-react";
+import { CustomerSearchInput } from "@/components/SearchInput";
+import type { LeanLead } from "@/lib/api";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import ReimbursementForm from "@/components/ReimbursementForm";
 import MarkPaidModal from "@/components/MarkPaidModal";
@@ -78,6 +80,15 @@ export default function Calendar() {
   // opens them in Google).
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
   const [activeGoogleEvent, setActiveGoogleEvent] = useState<GoogleEvent | null>(null);
+  // "Schedule Job" flow from the Calendar header. Admin/VA only — the
+  // existing kanban + Lead Detail entry points still work; this one
+  // saves a navigate when you're already on the calendar planning the
+  // week. Lead picker fetches the full lead before opening the modal
+  // so the modal receives the same Lead shape it expects from edit mode.
+  const [showLeadPicker, setShowLeadPicker] = useState(false);
+  const [leadPickerQuery, setLeadPickerQuery] = useState("");
+  const [creatingJobForLead, setCreatingJobForLead] = useState<Lead | null>(null);
+  const [loadingLeadForCreate, setLoadingLeadForCreate] = useState(false);
   // Grid vs agenda. Persisted per-browser so each user (workers on phones,
   // admins on desktop) settles into their preference and it sticks across
   // sessions. SSR-safe: localStorage check guarded for build envs.
@@ -222,6 +233,20 @@ export default function Calendar() {
             >
               {previewAsWorker ? <EyeOff className="h-3.5 w-3.5 mr-1" /> : <Eye className="h-3.5 w-3.5 mr-1" />}
               {previewAsWorker ? "Admin view" : "Preview as worker"}
+            </Button>
+          )}
+          {/* Schedule Job button — admin/VA only. Opens a lead picker
+              then the existing ScheduleJobModal in create mode. Saves the
+              navigate to /leads/:id for a quick add from the calendar. */}
+          {!showAsWorker && (
+            <Button
+              size="sm"
+              onClick={() => { setLeadPickerQuery(""); setShowLeadPicker(true); }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              title="Schedule a job — pick a lead to start"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Schedule Job
             </Button>
           )}
           {/* View toggle — grid (calendar) vs agenda (list grouped by date). */}
@@ -536,6 +561,65 @@ export default function Calendar() {
           existing={editJob}
           onClose={() => { setEditJob(null); setActiveJobLead(null); }}
           onSaved={() => { setEditJob(null); setActiveJobLead(null); load(); }}
+        />
+      )}
+
+      {/* Create-mode: lead picker → ScheduleJobModal with no `existing`. */}
+      {showLeadPicker && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 sm:pt-24"
+          onClick={() => { if (!loadingLeadForCreate) setShowLeadPicker(false); }}
+        >
+          <div
+            className="bg-background rounded-lg shadow-2xl w-full max-w-md p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold">Schedule a job for…</h3>
+              <button
+                onClick={() => setShowLeadPicker(false)}
+                className="text-muted-foreground hover:text-foreground"
+                disabled={loadingLeadForCreate}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Pick the customer this job is for. Their address + estimate
+              defaults will pre-fill the schedule form.
+            </p>
+            <CustomerSearchInput
+              value={leadPickerQuery}
+              onChange={setLeadPickerQuery}
+              placeholder="Search customers by name…"
+              disabled={loadingLeadForCreate}
+              onSelect={async (l: LeanLead) => {
+                setLoadingLeadForCreate(true);
+                try {
+                  const full = await api.getLead(l.id);
+                  setCreatingJobForLead(full);
+                  setShowLeadPicker(false);
+                  setLeadPickerQuery("");
+                } catch {
+                  toast.error("Couldn't load the lead — try again");
+                } finally {
+                  setLoadingLeadForCreate(false);
+                }
+              }}
+            />
+            {loadingLeadForCreate && (
+              <p className="text-xs text-muted-foreground mt-2">Loading lead…</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {creatingJobForLead && (
+        <ScheduleJobModal
+          lead={creatingJobForLead}
+          // No `existing` → modal opens in create mode with lead defaults
+          onClose={() => setCreatingJobForLead(null)}
+          onSaved={() => { setCreatingJobForLead(null); load(); }}
         />
       )}
       {editJob && !activeJobLead && (
