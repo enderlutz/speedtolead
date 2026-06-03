@@ -155,11 +155,23 @@ export default function Calendar() {
     return map;
   }, [jobs]);
 
+  // Worker view (whether actual or admin preview): hide internal data
+  const showAsWorker = isWorker || (isAdmin && previewAsWorker);
+
   // Drop Google events that we already render as ScheduledJob (we created
   // them via the dashboard's create_event flow — they're already in `jobs`).
   // Whatever's left was created directly in Alan's Google Calendar.
+  //
+  // EXCEPTION for workers: don't dedupe. Workers see ScheduledJob entries
+  // with admin-typed job_description (sanitized), but the linked Google
+  // event has the rich customer-facing description with bullet lists,
+  // marketing copy, fence sides, etc. Showing the Google event lets
+  // them tap it to see that richer detail (price + URL stripped by the
+  // backend role-aware sanitizer). Mild visual dup is the trade-off.
   const externalEventsByDate = useMemo(() => {
-    const ourGoogleIds = new Set(jobs.map((j) => j.google_event_id).filter(Boolean));
+    const ourGoogleIds = showAsWorker
+      ? new Set<string>()  // don't dedupe — keep linked Google events visible
+      : new Set(jobs.map((j) => j.google_event_id).filter(Boolean));
     const map: Record<string, GoogleEvent[]> = {};
     for (const ev of googleEvents) {
       if (ev.google_event_id && ourGoogleIds.has(ev.google_event_id)) continue;
@@ -169,10 +181,7 @@ export default function Calendar() {
       map[dateKey].push(ev);
     }
     return map;
-  }, [googleEvents, jobs]);
-
-  // Worker view (whether actual or admin preview): hide internal data
-  const showAsWorker = isWorker || (isAdmin && previewAsWorker);
+  }, [googleEvents, jobs, showAsWorker]);
 
   const goPrev = () => setNow(new Date(year, monthIdx - 1, 1));
   const goNext = () => setNow(new Date(year, monthIdx + 1, 1));
