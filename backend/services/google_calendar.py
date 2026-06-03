@@ -386,3 +386,135 @@ def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
     except Exception as e:
         logger.warning(f"GCal list_events failed: {e}")
         return []
+
+
+# ─── Diagnostic helpers (admin-only callers) ────────────────────────────
+# These return raw Google API data so we can debug why events aren't
+# surfacing in the dashboard. Not used by the live Calendar page —
+# scheduling.py exposes them under /api/google/*-debug endpoints.
+
+def list_calendars_debug(db: Session) -> dict:
+    """Return every Google calendar visible to Alan's connected account
+    plus the calendar we're currently configured to query. Helps identify
+    the case where Alan books jobs in a non-primary calendar (e.g. a
+    dedicated "Fence Jobs" calendar) that our integration is ignoring."""
+    try:
+        access = _get_access_token(db)
+    except Exception as e:
+        return {"error": f"token unavailable: {e}", "configured_calendar_id": None, "calendars": []}
+
+    configured = _calendar_id(db)
+    try:
+        r = _client.get(
+            f"{CALENDAR_BASE}/users/me/calendarList",
+            headers={"Authorization": f"Bearer {access}"},
+            params={"maxResults": "250", "minAccessRole": "reader"},
+        )
+        if r.status_code != 200:
+            return {
+                "error": f"HTTP {r.status_code}: {r.text[:300]}",
+                "configured_calendar_id": configured,
+                "calendars": [],
+            }
+        items = r.json().get("items", [])
+        # Strip down to the fields that actually matter for the diagnosis.
+        calendars = [
+            {
+                "id": it.get("id", ""),
+                "summary": it.get("summary", ""),
+                "description": (it.get("description") or "")[:200],
+                "primary": bool(it.get("primary")),
+                "background_color": it.get("backgroundColor", ""),
+                "foreground_color": it.get("foregroundColor", ""),
+                "color_id": it.get("colorId", ""),
+                "access_role": it.get("accessRole", ""),
+                "selected": bool(it.get("selected")),
+                "is_currently_syncing": it.get("id", "") == configured
+                    or (it.get("primary") and configured == "primary"),
+            }
+            for it in items
+        ]
+        return {
+            "configured_calendar_id": configured,
+            "calendar_count": len(calendars),
+            "calendars": calendars,
+        }
+    except Exception as e:
+        return {
+            "error": f"exception: {e}",
+            "configured_calendar_id": configured,
+            "calendars": [],
+        }
+
+
+def list_events_debug(db: Session, *, time_min: str, time_max: str, calendar_id: str | None = None) -> dict:
+    """Return the raw Google API response for events in the given window,
+    UNFILTERED. Lets us see exactly what colorId values (if any) come
+    back, whether events are returned at all, and whether they look like
+    they should be passing the live filter.
+
+    `calendar_id` overrides the configured one for ad-hoc probing of a
+    different calendar without touching the OAuth token row."""
+    try:
+        access = _get_access_token(db)
+    except Exception as e:
+        return {"error": f"token unavailable: {e}", "items": []}
+
+    cal_id = calendar_id or _calendar_id(db)
+    try:
+        r = _client.get(
+            f"{CALENDAR_BASE}/calendars/{cal_id}/events",
+            headers={"Authorization": f"Bearer {access}"},
+            params={
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": "250",
+            },
+        )
+        if r.status_code != 200:
+            return {
+                "error": f"HTTP {r.status_code}: {r.text[:500]}",
+                "queried_calendar_id": cal_id,
+                "items": [],
+            }
+        raw = r.json()
+        items = raw.get("items", []) or []
+
+        # Color-distribution histogram is the key diagnostic — tells us
+        # whether events have colorId set (good — filter logic is the
+        # problem) or not (bad — calendar-level color inheritance, the
+        # filter never sees the color).
+        color_histogram: dict[str, int] = {}
+        for it in items:
+            cid = str(it.get("colorId") or "(none)")
+            color_histogram[cid] = color_histogram.get(cid, 0) + 1
+
+        # Slim each item to the fields that matter for diagnosis. Strip
+        # the full payload because Google's responses are noisy (description
+        # HTML, attendee lists, etc.) and we just need the signal.
+        slim_items = [
+            {
+                "id": it.get("id", ""),
+                "summary": it.get("summary", "(no title)"),
+                "color_id": str(it.get("colorId") or "") or None,
+                "start": (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or "",
+                "end": (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or "",
+                "creator": (it.get("creator") or {}).get("email", ""),
+                "organizer": (it.get("organizer") or {}).get("email", ""),
+                "status": it.get("status", ""),
+                "passes_current_filter": str(it.get("colorId") or "") in JOB_COLOR_IDS,
+            }
+            for it in items
+        ]
+        return {
+            "queried_calendar_id": cal_id,
+            "total_events_in_window": len(items),
+            "passing_current_filter": sum(1 for s in slim_items if s["passes_current_filter"]),
+            "filter_rule": f"colorId must be in {sorted(JOB_COLOR_IDS)}",
+            "color_histogram": color_histogram,
+            "items": slim_items,
+        }
+    except Exception as e:
+        return {"error": f"exception: {e}", "queried_calendar_id": cal_id, "items": []}

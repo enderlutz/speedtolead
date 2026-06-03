@@ -826,6 +826,53 @@ def google_events(start: str = Query(...), end: str = Query(...), user: dict = D
         db.close()
 
 
+# ─── Google Calendar diagnostics (admin-only, read-only) ───────────────
+# Surfaces raw API data so we can see why events aren't reaching the
+# dashboard. Useful when the live /google/events endpoint returns []
+# despite Alan having events on his calendar.
+
+@router.get("/google/calendars-debug")
+def google_calendars_debug(user: dict = Depends(require_admin)):
+    """List every Google calendar visible to Alan's connected account +
+    the calendar ID we're currently configured to sync. Use this to find
+    out whether Alan has a dedicated 'Fence Jobs' calendar that our
+    integration isn't querying."""
+    del user
+    db = get_db()
+    try:
+        return google_calendar.list_calendars_debug(db)
+    finally:
+        db.close()
+
+
+@router.get("/google/events-debug")
+def google_events_debug(
+    start: str = Query(..., description="YYYY-MM-DD inclusive"),
+    end: str = Query(..., description="YYYY-MM-DD inclusive"),
+    calendar_id: str | None = Query(None, description="Override the configured calendar"),
+    user: dict = Depends(require_admin),
+):
+    """Return RAW unfiltered Google API events + a colorId histogram so
+    we can see exactly what comes back. Surfaces:
+      - Total events in the window
+      - How many would pass the live filter (colorId in {5, 11})
+      - Histogram of colorId values present (none/5/11/3/etc.)
+      - Per-event slim payload (id, summary, color_id, start, etc.)
+
+    `calendar_id` override lets us probe a non-default calendar without
+    flipping the OAuth row."""
+    del user
+    db = get_db()
+    try:
+        time_min = f"{start}T00:00:00Z"
+        time_max = f"{end}T23:59:59Z"
+        return google_calendar.list_events_debug(
+            db, time_min=time_min, time_max=time_max, calendar_id=calendar_id,
+        )
+    finally:
+        db.close()
+
+
 @router.get("/google/status")
 def google_status(user: dict = Depends(require_staff)):
     del user
