@@ -88,6 +88,11 @@ class ApproveBody(BaseModel):
     # Defaults preserve historical behavior: SMS only.
     send_sms: bool = True
     also_email: bool = False  # If true + lead has contact_email, also email a copy
+    # When False, the "estimate sent" GHL tag is NOT applied. Used by the
+    # "Send Without Tag" button to fire the proposal without triggering
+    # tag-driven GHL workflows (P1 Sterling Estimate Sent, P04-REPLY,
+    # etc). Default True preserves the historical send behavior.
+    apply_tag: bool = True
 
 
 class PreviewBody(BaseModel):
@@ -449,6 +454,7 @@ def _approve_estimate_background(
     send_sms_flag: bool,
     also_email_flag: bool,
     scheduled_send_at: str | None,
+    apply_tag: bool = True,
 ):
     """Heavy work for /estimates/{id}/approve, run after the response is
     sent so VA gets a sub-second reply instead of waiting 3-7s for PDF gen.
@@ -634,7 +640,17 @@ def _approve_estimate_background(
                 f"Proposal: {proposal_url}"
             )
             add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)
-            add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
+            # Tag gates whether the GHL P1/P04 follow-up automations fire.
+            # When VA picks "Send Without Tag", we still send the proposal +
+            # update stage + log everything, but suppress this tag so the
+            # GHL workflows don't kick in.
+            if apply_tag:
+                add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
+            else:
+                log_event(lead.id, "estimate_sent_tag_skipped",
+                          "Estimate sent without applying 'estimate sent' GHL tag "
+                          "(GHL automations P1 / P04-REPLY will not fire for this send)",
+                          {"estimate_id": estimate_id, "reason": "user_requested_no_tag"})
 
         # ── Push signature price → GHL monetaryValue (only if unset) ──
         # Lives in the BG task because it adds 1-2 extra GHL calls (read
@@ -756,6 +772,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
             send_sms_flag=send_sms_flag,
             also_email_flag=also_email_flag,
             scheduled_send_at=scheduled_send_at,
+            apply_tag=(bool(body.apply_tag) if body else True),
         )
 
         result = est.to_dict()

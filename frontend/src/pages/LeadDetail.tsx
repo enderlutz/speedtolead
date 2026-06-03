@@ -329,7 +329,7 @@ export default function LeadDetail() {
     return cst.toISOString().slice(0, 10);
   };
 
-  const handleApprove = async (scheduledSendAt?: string) => {
+  const handleApprove = async (scheduledSendAt?: string, applyTag: boolean = true) => {
     if (!estimate) return;
     if (!sendSms && !alsoEmail) {
       toast.error("Pick at least one channel — SMS or email.");
@@ -339,34 +339,47 @@ export default function LeadDetail() {
       toast.error("Scheduled sends support SMS only. Send email immediately or schedule SMS.");
       return;
     }
+    if (!applyTag) {
+      const ok = window.confirm(
+        "Send WITHOUT applying the 'estimate sent' GHL tag?\n\n" +
+        "The customer SMS + proposal will go out normally, but GHL " +
+        "automations (P1 Sterling, P04 reply handler, etc.) won't fire " +
+        "for this send.\n\nProceed?"
+      );
+      if (!ok) return;
+    }
     setApproving(true);
     try {
       const result = await api.approveEstimate(estimate.id, {
         scheduledSendAt,
         sendSms,
         alsoEmail: alsoEmail && !!lead?.contact_email,
+        applyTag,
       });
       const data = await api.getLead(id!);
       setLead(data);
       const url = result.proposal_url;
       const smsScheduled = result.sms_scheduled;
       const smsSent = result.sms_sent;
+      // Surface the no-tag mode in every toast so VA knows the automation
+      // skip actually applied.
+      const tagNote = applyTag ? "" : " (no GHL tag)";
       if (smsScheduled) {
         playSuccessSound();
         const sendTime = new Date(scheduledSendAt!).toLocaleString("en-US", {
           timeZone: "America/Chicago", month: "short", day: "numeric",
           hour: "numeric", minute: "2-digit", hour12: true,
         });
-        toast.success(`SMS scheduled for ${sendTime}! Proposal: ${url}`, { duration: 8000 });
+        toast.success(`SMS scheduled for ${sendTime}${tagNote}! Proposal: ${url}`, { duration: 8000 });
       } else if (smsSent) {
         playSuccessSound();
-        toast.success(`SMS sent to customer! Proposal: ${url}`, { duration: 8000 });
+        toast.success(`SMS sent to customer${tagNote}! Proposal: ${url}`, { duration: 8000 });
       } else if (url) {
         playWarningSound();
-        toast.warning(`Estimate approved but SMS failed to send. Proposal link: ${url}`, { duration: 10000 });
+        toast.warning(`Estimate approved${tagNote} but SMS failed to send. Proposal link: ${url}`, { duration: 10000 });
       } else {
         playSuccessSound();
-        toast.success("Estimate approved!");
+        toast.success(`Estimate approved${tagNote}!`);
       }
       setShowScheduler(false);
     } catch {
@@ -1314,7 +1327,7 @@ export default function LeadDetail() {
                 <Button
                   onClick={() => handleApprove()}
                   disabled={approving || lead.pipeline_version === "v1"}
-                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : undefined}
+                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : "Sends the proposal + applies the 'estimate sent' GHL tag (triggers P1 / P04 automations)"}
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-300"
                 >
                   <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
@@ -1333,6 +1346,20 @@ export default function LeadDetail() {
                   <Clock className="h-4 w-4 mr-1" /> Schedule
                 </Button>
               </div>
+              {/* Second send path — same proposal + customer SMS, but skips
+                  the "estimate sent" GHL tag so the P1/P04 follow-up
+                  automations don't fire for this send. Confirmation prompt
+                  inside handleApprove guards against accidental clicks. */}
+              <Button
+                variant="outline"
+                onClick={() => handleApprove(undefined, false)}
+                disabled={approving || lead.pipeline_version === "v1"}
+                title="Send the proposal without applying the 'estimate sent' GHL tag (no GHL automation fires)"
+                className="w-full border-amber-300 text-amber-900 hover:bg-amber-50 hover:text-amber-900"
+              >
+                <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
+                {approving ? "Sending..." : "Send Without Tag (no automation)"}
+              </Button>
               {estimate.approval_status === "red" && (
                 <>
                   <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full">

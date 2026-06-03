@@ -485,13 +485,17 @@ export const api = {
     const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
     return request<PendingEstimate[]>(`/api/estimates/pending-action${qs}`);
   },
-  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean }) => {
+  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean; applyTag?: boolean }) => {
     const body: Record<string, unknown> = {};
     if (opts?.scheduledSendAt) body.scheduled_send_at = opts.scheduledSendAt;
     if (opts?.alsoEmail) body.also_email = true;
     // Only include send_sms when caller wants to flip it off — backend
     // defaults to true so omitting it preserves the legacy SMS-only behavior.
     if (opts && opts.sendSms === false) body.send_sms = false;
+    // Same pattern for apply_tag: only send when caller wants to flip OFF
+    // the GHL "estimate sent" tag (which would otherwise trigger P1 / P04
+    // automations). Default behavior unchanged.
+    if (opts && opts.applyTag === false) body.apply_tag = false;
     return request<EstimateDetail & { proposal_url?: string; sms_sent?: boolean; sms_scheduled?: boolean; scheduled_send_at?: string }>(
       `/api/estimates/${id}/approve`,
       {
