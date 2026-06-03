@@ -29,7 +29,14 @@ logger = logging.getLogger(__name__)
 OAUTH_AUTHZ = "https://accounts.google.com/o/oauth2/v2/auth"
 OAUTH_TOKEN = "https://oauth2.googleapis.com/token"
 CALENDAR_BASE = "https://www.googleapis.com/calendar/v3"
-SCOPES = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email"
+# Full calendar scope (read + write all calendars and events). Previously
+# we requested only `calendar.events`, but Google's scope enforcement
+# tightened — `calendar.events` no longer covers reads against
+# /calendarList or /calendars/{id}/events. Result was silent 403s on
+# every read (live /google/events returned [] instead of erroring).
+# `calendar` is the documented minimum that lets us list calendars, read
+# any event, and continue creating/updating/deleting our scheduled jobs.
+SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email"
 
 _client = httpx.Client(timeout=15)
 
