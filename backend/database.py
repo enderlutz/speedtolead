@@ -936,6 +936,12 @@ class ScheduledJob(Base):
             "google_event_id": self.google_event_id or "",
         }
         if role == "worker":
+            # Strip price / proposal URLs / sales vocab from the description
+            # before workers see it. Same sanitizer is applied to Google
+            # event descriptions over in google_calendar.list_events when
+            # role=worker so both sources are consistent.
+            from services.role_sanitizer import sanitize_for_worker
+            base["job_description"] = sanitize_for_worker(base.get("job_description") or "")
             return base  # workers see only what's needed to do the job
         # admin / va get everything
         base.update({

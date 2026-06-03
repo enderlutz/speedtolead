@@ -327,7 +327,14 @@ SERVICE_TYPE_BY_COLOR = {
 }
 
 
-def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
+def list_events(
+    db: Session,
+    *,
+    time_min: str,
+    time_max: str,
+    role: str = "admin",
+    worker_event_ids: set[str] | None = None,
+) -> list[dict]:
     """Pull Alan's calendar events between time_min and time_max (RFC 3339
     timestamps, e.g. 2026-05-01T00:00:00Z). Returns a flat list of dicts,
     one per event. Recurring events are expanded into their instances so the
@@ -338,8 +345,13 @@ def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
     Lavender lunches, gray reminders, etc. are dropped so the dashboard
     only shows actionable work.
 
-    Used by the Calendar page to show jobs Alan booked directly in Google
-    Calendar (on-the-go) alongside the ones scheduled in the dashboard.
+    Role-aware behavior:
+      - role="worker": only events whose id is in `worker_event_ids` are
+        returned (the caller computes this from the worker's assigned
+        ScheduledJobs). Descriptions are sanitized to strip price /
+        proposal URLs / sales vocabulary before being returned.
+      - role="admin" / "va" (default): no worker filtering, raw description.
+
     Returns an empty list (not an exception) when not connected — keeps the
     page render stable."""
     try:
@@ -370,16 +382,28 @@ def list_events(db: Session, *, time_min: str, time_max: str) -> list[dict]:
             color_id = str(it.get("colorId") or "")
             if color_id not in JOB_COLOR_IDS:
                 continue  # skip non-job-colored events per spec
+            event_id = it.get("id", "")
+            # Worker filter — only events linked to their assigned
+            # ScheduledJobs. Personal events (Alan's lunch, vendor
+            # meetings) never reach a worker because they aren't in any
+            # ScheduledJob.google_event_id.
+            if role == "worker":
+                if not worker_event_ids or event_id not in worker_event_ids:
+                    continue
             start = it.get("start", {}) or {}
             end = it.get("end", {}) or {}
             # All-day events use {date}, timed use {dateTime}. Normalize.
             start_iso = start.get("dateTime") or start.get("date") or ""
             end_iso = end.get("dateTime") or end.get("date") or ""
             all_day = not start.get("dateTime")
+            description = it.get("description", "") or ""
+            if role == "worker":
+                from services.role_sanitizer import sanitize_for_worker
+                description = sanitize_for_worker(description)
             out.append({
-                "google_event_id": it.get("id", ""),
+                "google_event_id": event_id,
                 "summary": it.get("summary", "(no title)"),
-                "description": it.get("description", "") or "",
+                "description": description,
                 "location": it.get("location", "") or "",
                 "start": start_iso,
                 "end": end_iso,

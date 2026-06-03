@@ -808,19 +808,62 @@ def google_oauth_callback(code: str = Query(...)):
 
 
 @router.get("/google/events")
-def google_events(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_staff)):
+def google_events(
+    start: str = Query(...),
+    end: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
     """Pull events directly from Alan's Google Calendar for the given range
     (YYYY-MM-DD, treated as inclusive). Used by the Calendar page so jobs
     Alan books on the fly via Google show up in the dashboard alongside
     jobs scheduled here. Returns an empty list when Google isn't connected
-    rather than failing — keeps the page from breaking."""
-    del user
+    rather than failing — keeps the page from breaking.
+
+    Role-aware:
+      - Admin / VA: every Banana/Tomato-colored event in the window
+      - Worker: only events whose Google ID is linked to one of the
+        worker's assigned ScheduledJobs. Descriptions are sanitized
+        (price + proposal URL + sales vocab stripped) before return.
+        Personal events (Alan's lunch, vendor meetings) never leak."""
     db = get_db()
     try:
-        # Convert YYYY-MM-DD to RFC 3339. Google wants UTC, so use 00:00 → 24:00 UTC.
         time_min = f"{start}T00:00:00Z"
         time_max = f"{end}T23:59:59Z"
-        events = google_calendar.list_events(db, time_min=time_min, time_max=time_max)
+
+        role = user.get("role", "va")
+        worker_event_ids: set[str] | None = None
+        if role == "worker":
+            emp_id = user.get("employee_id")
+            if not emp_id:
+                return {"events": []}
+            # Look up every ScheduledJob the worker is assigned to that has
+            # a google_event_id linked. That set is the only Google events
+            # they can see.
+            assigned_job_ids = [
+                a.scheduled_job_id
+                for a in db.query(JobAssignment)
+                    .filter(JobAssignment.employee_id == emp_id).all()
+            ]
+            if not assigned_job_ids:
+                return {"events": []}
+            worker_event_ids = {
+                j.google_event_id
+                for j in db.query(ScheduledJob)
+                    .filter(ScheduledJob.id.in_(assigned_job_ids))
+                    .filter(ScheduledJob.google_event_id != "")
+                    .all()
+                if j.google_event_id
+            }
+            if not worker_event_ids:
+                return {"events": []}
+
+        events = google_calendar.list_events(
+            db,
+            time_min=time_min,
+            time_max=time_max,
+            role=role,
+            worker_event_ids=worker_event_ids,
+        )
         return {"events": events}
     finally:
         db.close()
