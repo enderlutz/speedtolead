@@ -346,7 +346,14 @@ def _compute_digest(start: date_cls, end: date_cls, prev_start: date_cls, prev_e
 
         jobs = (
             db.query(ScheduledJob)
-            .filter(ScheduledJob.job_date >= s, ScheduledJob.job_date <= e)
+            .filter(
+                ScheduledJob.job_date >= s,
+                ScheduledJob.job_date <= e,
+                # Cancelled jobs never produced revenue or materials cost,
+                # so they shouldn't show up in the year-end "most profitable
+                # job" or aggregate margin metrics.
+                ScheduledJob.status != "cancelled",
+            )
             .all()
         )
         completed = [j for j in jobs if (j.status or "").lower() == "completed"]

@@ -133,6 +133,10 @@ def _materials_cost_for_lead(db, lead_id: str, start_date: str, end_date: str) -
             ScheduledJob.lead_id == lead_id,
             ScheduledJob.job_date >= start_date,
             ScheduledJob.job_date <= end_date,
+            # Cancelled jobs never had material spend in reality — the
+            # admin had typed in a number while planning, but the crew
+            # never showed up. Keep them out of the rollup.
+            ScheduledJob.status != "cancelled",
         )
         .all()
     )
@@ -164,10 +168,16 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
     try:
         start, end, months = _period_bounds(period)
 
-        # Pull jobs whose job_date is in range
+        # Pull jobs whose job_date is in range. Cancelled jobs are excluded
+        # from every aggregate below — no revenue was earned, no materials
+        # were bought, so the books should never see them.
         jobs = (
             db.query(ScheduledJob)
-            .filter(ScheduledJob.job_date >= start, ScheduledJob.job_date <= end)
+            .filter(
+                ScheduledJob.job_date >= start,
+                ScheduledJob.job_date <= end,
+                ScheduledJob.status != "cancelled",
+            )
             .all()
         )
 
@@ -245,7 +255,11 @@ def list_job_profitability(period: str = Query("this_month"), user: dict = Depen
         start, end, _ = _period_bounds(period)
         jobs = (
             db.query(ScheduledJob)
-            .filter(ScheduledJob.job_date >= start, ScheduledJob.job_date <= end)
+            .filter(
+                ScheduledJob.job_date >= start,
+                ScheduledJob.job_date <= end,
+                ScheduledJob.status != "cancelled",
+            )
             .order_by(ScheduledJob.job_date.desc())
             .all()
         )
@@ -298,6 +312,9 @@ def list_outstanding(user: dict = Depends(require_admin)):
             db.query(ScheduledJob)
             .filter(ScheduledJob.payment_status == "unpaid")
             .filter(ScheduledJob.closed_price > 0)
+            # Cancelled jobs aren't outstanding revenue — no service was
+            # delivered, no invoice will be collected on them.
+            .filter(ScheduledJob.status != "cancelled")
             .order_by(ScheduledJob.job_date.asc())
             .all()
         )
@@ -363,10 +380,16 @@ def employee_revenue(period: str = Query("this_month"), user: dict = Depends(req
             emp_total_hours[alloc.employee_id] = emp_total_hours.get(alloc.employee_id, 0.0) + float(alloc.hours or 0)
             lead_total_cost[alloc.lead_id] = lead_total_cost.get(alloc.lead_id, 0.0) + cost
 
-        # Revenue per lead (sum over jobs in the period for that lead)
+        # Revenue per lead (sum over jobs in the period for that lead).
+        # Cancelled jobs are excluded so per-employee margin reports don't
+        # credit revenue against a job that didn't actually happen.
         jobs = (
             db.query(ScheduledJob)
-            .filter(ScheduledJob.job_date >= start, ScheduledJob.job_date <= end)
+            .filter(
+                ScheduledJob.job_date >= start,
+                ScheduledJob.job_date <= end,
+                ScheduledJob.status != "cancelled",
+            )
             .all()
         )
         lead_revenue: dict[str, float] = {}
