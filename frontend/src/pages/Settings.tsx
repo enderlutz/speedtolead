@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
-  BarChart3, Database, Send, RefreshCw, Link2, GitCompare, AlertCircle, CheckCircle2, DollarSign,
+  BarChart3, Database, Send, RefreshCw, Link2, GitCompare, AlertCircle, CheckCircle2, DollarSign, Calendar,
 } from "lucide-react";
-import type { GhlStageDiff, OppValueBackfillStatus } from "@/lib/api";
+import type { GhlStageDiff, OppValueBackfillStatus, GCalAttendeeBackfillResult } from "@/lib/api";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
@@ -149,6 +149,10 @@ export default function Settings() {
       {/* Opportunity-value backfill — one-shot fill of signature price
           into GHL monetaryValue for in-scope leads currently at $0. */}
       <OppValueBackfillCard />
+
+      {/* Google Calendar attendee backfill — add a guest email to past
+          yellow events to mirror them onto a business calendar. */}
+      <GCalAttendeeBackfillCard />
 
       {/* Call Script — VA's reading panel on Lead Detail pulls from here */}
       <CallScriptSettings />
@@ -866,5 +870,133 @@ function Stat({ label, value, cls }: { label: string; value: number; cls?: strin
       <span className="text-muted-foreground">{label}</span>
       <span className={`font-semibold ${cls || ""}`}>{value}</span>
     </div>
+  );
+}
+
+
+function GCalAttendeeBackfillCard() {
+  // One-shot backfill: walks past yellow (fence-staining) Google Calendar
+  // events in a date window and adds an email address as a guest. Used
+  // to mirror past events onto a business calendar without re-creating
+  // them. Idempotent — already-attendees are reported as skipped.
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const [email, setEmail] = useState("sterlingfencestaining@gmail.com");
+  const [fromDate, setFromDate] = useState("2026-05-01");
+  const [toDate, setToDate] = useState(todayISO);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<GCalAttendeeBackfillResult | null>(null);
+
+  const handleRun = async () => {
+    if (!email.trim()) {
+      toast.error("Attendee email is required");
+      return;
+    }
+    const confirmMsg =
+      `Add ${email} as a guest on every yellow event from ${fromDate} → ${toDate}? ` +
+      `No email notifications are sent (silent backfill). Safe to re-run — already-attendees are skipped.`;
+    if (!confirm(confirmMsg)) return;
+    setRunning(true);
+    setResult(null);
+    try {
+      const r = await api.backfillGoogleAttendee({
+        attendee_email: email.trim(),
+        from_date: fromDate,
+        to_date: toDate,
+        color_id: "5", // yellow / fence staining
+        send_updates: "none",
+      });
+      setResult(r);
+      if (r.error) {
+        toast.error(r.error);
+      } else if (r.updated > 0) {
+        toast.success(`Added attendee to ${r.updated} event${r.updated === 1 ? "" : "s"}.`);
+      } else if (r.matched_color > 0 && r.skipped_already === r.matched_color) {
+        toast.success("All yellow events already had this attendee — nothing to do.");
+      } else {
+        toast.success("Backfill finished — no yellow events in range.");
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Backfill failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <Calendar className="h-4 w-4" /> Google Calendar — Backfill Business Email as Guest
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Walks every yellow (fence-staining) event in the date window and adds the email below
+          as a calendar guest. Useful for phasing off a personal calendar without re-creating
+          jobs — the business calendar gets the events automatically. Already-attendees are
+          skipped. No notification emails are sent.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div>
+            <label className="text-[11px] font-semibold text-muted-foreground">Attendee email</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-muted-foreground">From</label>
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-muted-foreground">To</label>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+        </div>
+
+        <Button size="sm" variant="outline" onClick={handleRun} disabled={running}>
+          {running ? (
+            <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Running…</>
+          ) : (
+            <><Calendar className="h-3.5 w-3.5 mr-1.5" /> Run backfill</>
+          )}
+        </Button>
+
+        {result && !result.error && (
+          <div className="text-xs space-y-1 border rounded-md p-3 bg-muted/30">
+            <Stat label="Events scanned" value={result.scanned} />
+            <Stat label="Yellow events matched" value={result.matched_color} />
+            <Stat label="Attendee added" value={result.updated} cls="text-emerald-700" />
+            <Stat label="Already a guest (skipped)" value={result.skipped_already} cls="text-amber-700" />
+            <Stat label="Failed" value={result.failed} cls={result.failed > 0 ? "text-red-700" : ""} />
+            {result.failed > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-red-700">Show failure details</summary>
+                <ul className="mt-1 space-y-1">
+                  {result.details.filter((d) => d.outcome === "failed").map((d) => (
+                    <li key={d.event_id} className="text-[11px]">
+                      <span className="font-mono">{d.summary}</span> — {d.error}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

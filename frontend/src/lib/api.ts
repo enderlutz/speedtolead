@@ -989,6 +989,14 @@ export const api = {
    * an empty array when Google isn't connected so the caller doesn't crash. */
   getGoogleEvents: (start: string, end: string) =>
     request<{ events: GoogleEvent[] }>(`/api/google/events?start=${start}&end=${end}`),
+  /** One-shot backfill: add an email as a guest to every yellow (or
+   *  color_id-matched) job event in the date window. Used to migrate
+   *  past events from the personal calendar onto a business calendar. */
+  backfillGoogleAttendee: (body: GCalAttendeeBackfillBody) =>
+    request<GCalAttendeeBackfillResult>("/api/google/backfill-attendee", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // Accounting
   getAccountingSummary: (period: string) =>
@@ -1739,6 +1747,32 @@ export interface GoogleEvent {
   status: string;
   color_id: string;            // "5" = banana, "11" = tomato
   service_type: string;        // "fence_staining" | "power_washing"
+}
+
+export interface GCalAttendeeBackfillBody {
+  attendee_email: string;
+  from_date?: string;          // YYYY-MM-DD, defaults to 2026-05-01
+  to_date?: string;            // YYYY-MM-DD, defaults to today (Central Time)
+  color_id?: string;           // defaults to "5" (yellow / fence staining)
+  send_updates?: "none" | "all" | "externalOnly";  // defaults to "none"
+}
+
+export interface GCalAttendeeBackfillResult {
+  scanned: number;
+  matched_color: number;
+  updated: number;
+  skipped_already: number;
+  failed: number;
+  details: Array<{
+    event_id: string;
+    summary: string;
+    start: string;
+    outcome: "updated" | "skipped_already" | "failed";
+    error?: string;
+  }>;
+  window?: { from: string; to: string };
+  attendee_email?: string;
+  error?: string;
 }
 
 export interface ScheduledJob {

@@ -1264,6 +1264,71 @@ def google_disconnect(user: dict = Depends(require_admin)):
         db.close()
 
 
+class GCalAttendeeBackfillBody(BaseModel):
+    """One-shot backfill: add an email as a guest to every yellow (or
+    other color) job event in a date range. Used to migrate from Alan's
+    personal calendar to the business calendar by inviting the business
+    address as an attendee on past events."""
+    attendee_email: str
+    # Default window covers the user's literal request: May 1, 2026 → today.
+    # Caller can override either side per run.
+    from_date: str = "2026-05-01"      # YYYY-MM-DD, Central Time
+    to_date: str | None = None         # YYYY-MM-DD; None → today's date
+    color_id: str = "5"                # "5" = banana/yellow = fence staining
+    # Quiet by default — backfilling 30+ past events with sendUpdates="all"
+    # would flood the new attendee's inbox with stale invites. Admin can
+    # flip to "all" if they want notifications fired.
+    send_updates: str = "none"
+
+
+@router.post("/google/backfill-attendee")
+def backfill_calendar_attendee(
+    body: GCalAttendeeBackfillBody,
+    user: dict = Depends(require_admin),
+):
+    """Walk yellow (or color_id-matched) Google Calendar events in the
+    date window and add `attendee_email` as a guest. Idempotent — events
+    where the email is already an attendee are reported as skipped.
+
+    Used to migrate from a personal calendar to a business calendar
+    without re-creating events: by adding the business email as a guest
+    on past events, every yellow job appears on the business calendar
+    too. Requires admin auth."""
+    del user
+    db = get_db()
+    try:
+        # Build RFC3339 datetime bounds in Central Time. Start of from_date
+        # at 00:00, end of to_date at 23:59:59. `singleEvents=true` in the
+        # listing call expands recurring events to instances.
+        from_date = body.from_date
+        to_date = body.to_date or _ct_today_iso()
+        time_min = f"{from_date}T00:00:00-05:00"
+        time_max = f"{to_date}T23:59:59-05:00"
+        result = google_calendar.backfill_add_attendee_to_color(
+            db,
+            time_min=time_min,
+            time_max=time_max,
+            attendee_email=body.attendee_email,
+            color_id=body.color_id,
+            send_updates=body.send_updates,
+        )
+        result["window"] = {"from": from_date, "to": to_date}
+        result["attendee_email"] = body.attendee_email
+        return result
+    finally:
+        db.close()
+
+
+def _ct_today_iso() -> str:
+    """Today's date in America/Chicago, YYYY-MM-DD — matches the format
+    job_date uses across the dashboard."""
+    now = datetime.now(timezone.utc)
+    # Simple offset: CT is UTC-5 (CDT) for most of the year. Good enough
+    # for "today" boundaries on an admin one-shot endpoint.
+    ct = now - timedelta(hours=5)
+    return ct.strftime("%Y-%m-%d")
+
+
 # ---------------------------------------------------------------------------
 # Weather
 # ---------------------------------------------------------------------------

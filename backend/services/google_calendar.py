@@ -330,6 +330,158 @@ SERVICE_TYPE_BY_COLOR = {
 }
 
 
+def backfill_add_attendee_to_color(
+    db: Session,
+    *,
+    time_min: str,            # RFC3339 datetime, e.g. "2026-05-01T00:00:00-05:00"
+    time_max: str,            # RFC3339 datetime
+    attendee_email: str,
+    color_id: str = GCAL_COLOR_BANANA,
+    send_updates: str = "none",   # "none" | "all" | "externalOnly"
+) -> dict:
+    """One-shot backfill: walk every event in [time_min, time_max] with
+    the given colorId, and add `attendee_email` as a guest if they aren't
+    already on the attendee list.
+
+    Idempotent — already-attendees are reported under skipped_already.
+    `send_updates="none"` is the safe default for past events: the
+    attendee still sees the events on their calendar once added, but no
+    invitation emails fire (otherwise a backfill of 30+ past events
+    would flood the inbox).
+
+    Returns:
+        {
+          "scanned": total events seen in the date range (any color),
+          "matched_color": events that matched the color filter,
+          "updated": events where the attendee was successfully added,
+          "skipped_already": events where the attendee was already on the list,
+          "failed": events where the PATCH errored,
+          "details": [{event_id, summary, start, outcome, error?}, ...],
+        }
+    """
+    summary = {
+        "scanned": 0,
+        "matched_color": 0,
+        "updated": 0,
+        "skipped_already": 0,
+        "failed": 0,
+        "details": [],
+    }
+    try:
+        access = _get_access_token(db)
+    except Exception as e:
+        logger.error(f"backfill_add_attendee: token unavailable: {e}")
+        summary["error"] = f"Google Calendar not connected: {e}"
+        return summary
+
+    cal_id = _calendar_id(db)
+    target_email = (attendee_email or "").strip().lower()
+    if not target_email:
+        summary["error"] = "attendee_email is required"
+        return summary
+
+    # Paginate through all events in the date window. Google caps
+    # maxResults at 250; for ~5 weeks of jobs we'd expect well under one
+    # page, but the loop survives larger windows too.
+    page_token: str | None = None
+    while True:
+        params: dict[str, Any] = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": "250",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        try:
+            r = _client.get(
+                f"{CALENDAR_BASE}/calendars/{cal_id}/events",
+                headers={"Authorization": f"Bearer {access}"},
+                params=params,
+            )
+            if r.status_code != 200:
+                logger.warning(f"backfill list HTTP {r.status_code}: {r.text[:200]}")
+                summary["error"] = f"List events failed: HTTP {r.status_code}"
+                return summary
+            payload = r.json()
+        except Exception as e:
+            logger.error(f"backfill list call failed: {e}")
+            summary["error"] = f"List events errored: {e}"
+            return summary
+
+        for it in payload.get("items", []):
+            summary["scanned"] += 1
+            ev_color = str(it.get("colorId") or "")
+            if ev_color != color_id:
+                continue
+            summary["matched_color"] += 1
+
+            event_id = it.get("id", "")
+            ev_summary = it.get("summary", "(no title)")
+            start = it.get("start", {}) or {}
+            start_iso = start.get("dateTime") or start.get("date") or ""
+
+            existing_attendees = it.get("attendees", []) or []
+            already = any(
+                (a.get("email") or "").strip().lower() == target_email
+                for a in existing_attendees
+            )
+            if already:
+                summary["skipped_already"] += 1
+                summary["details"].append({
+                    "event_id": event_id,
+                    "summary": ev_summary,
+                    "start": start_iso,
+                    "outcome": "skipped_already",
+                })
+                continue
+
+            # PATCH the event with the merged attendees list. Google's
+            # PATCH for attendees replaces the array, so we resend the
+            # existing entries plus the new one.
+            new_attendees = list(existing_attendees) + [{"email": target_email}]
+            try:
+                pr = _client.patch(
+                    f"{CALENDAR_BASE}/calendars/{cal_id}/events/{event_id}",
+                    headers={"Authorization": f"Bearer {access}"},
+                    params={"sendUpdates": send_updates},
+                    json={"attendees": new_attendees},
+                )
+                if pr.status_code in (200, 204):
+                    summary["updated"] += 1
+                    summary["details"].append({
+                        "event_id": event_id,
+                        "summary": ev_summary,
+                        "start": start_iso,
+                        "outcome": "updated",
+                    })
+                else:
+                    summary["failed"] += 1
+                    summary["details"].append({
+                        "event_id": event_id,
+                        "summary": ev_summary,
+                        "start": start_iso,
+                        "outcome": "failed",
+                        "error": f"HTTP {pr.status_code}: {pr.text[:200]}",
+                    })
+            except Exception as e:
+                summary["failed"] += 1
+                summary["details"].append({
+                    "event_id": event_id,
+                    "summary": ev_summary,
+                    "start": start_iso,
+                    "outcome": "failed",
+                    "error": str(e),
+                })
+
+        page_token = payload.get("nextPageToken")
+        if not page_token:
+            break
+
+    return summary
+
+
 def list_events(
     db: Session,
     *,
