@@ -1717,6 +1717,10 @@ export interface ScheduledJob {
   lat?: number;
   lng?: number;
   weather_today?: WeatherDay | null;
+  // Formatted fence-sides label from the lead's form_data, e.g.
+  // "Inside Fences, Outside Front, Back". Empty string when not set.
+  // Workers need this on the calendar so they know which surfaces to stain.
+  fence_sides_label?: string;
   customer_name: string;
   color_choice: string;
   needs_test_spots: boolean;

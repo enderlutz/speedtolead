@@ -218,6 +218,13 @@ function TodayJobCard({
           </a>
         )}
 
+        {job.fence_sides_label && (
+          <div className="text-sm bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
+            <span className="text-xs font-semibold text-emerald-900 uppercase tracking-wide block mb-0.5">Sides to stain</span>
+            <span className="text-emerald-900">{job.fence_sides_label}</span>
+          </div>
+        )}
+
         {job.job_description && (
           <div className="text-sm bg-slate-50 rounded px-3 py-2 whitespace-pre-wrap">
             {job.job_description}
@@ -282,6 +289,11 @@ function ListJobCard({ job }: { job: ScheduledJob }) {
                   </>
                 )}
               </div>
+              {job.fence_sides_label && (
+                <div className="text-[11px] text-emerald-800 mt-1 truncate">
+                  <span className="font-semibold">Sides:</span> {job.fence_sides_label}
+                </div>
+              )}
               {job.weather_today && <div className="mt-1.5"><WeatherBadge w={job.weather_today} /></div>}
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />

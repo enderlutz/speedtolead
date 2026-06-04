@@ -386,12 +386,30 @@ def list_scheduled_jobs(
             db.commit()
 
         out = []
-        # Cache lead service_type to avoid N+1 queries
+        # Cache lead service_type + fence-sides label to avoid N+1 queries.
+        # fence_sides lives on the lead's form_data; workers need to see
+        # it on the calendar so they know what surfaces to stain.
         lead_ids = {j.lead_id for j in jobs}
         service_by_lead: dict[str, str] = {}
+        fence_sides_by_lead: dict[str, str] = {}
         if lead_ids:
+            from api.estimates import _build_pricing_includes
+            import json as _json
             for l in db.query(Lead).filter(Lead.id.in_(lead_ids)).all():
                 service_by_lead[l.id] = l.service_type or "fence_staining"
+                # Pull fence_sides from form_data and run it through the same
+                # _build_pricing_includes helper the proposal PDF uses, so
+                # the calendar label reads exactly like the customer's quote
+                # ("Inside Fences, Outside Front, Back").
+                try:
+                    fd = _json.loads(l.form_data or "{}")
+                except (TypeError, ValueError):
+                    fd = {}
+                raw_sides = fd.get("fence_sides", [])
+                if isinstance(raw_sides, str):
+                    raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
+                if isinstance(raw_sides, list) and raw_sides:
+                    fence_sides_by_lead[l.id] = _build_pricing_includes(raw_sides, fd)
 
         # Weather lookup cache so we only call open-meteo once per unique
         # zip in this response (it's already 30-min cached inside the
@@ -404,6 +422,7 @@ def list_scheduled_jobs(
             assigns = db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
             row["assigned_employee_ids"] = [a.employee_id for a in assigns]
             row["service_type"] = service_by_lead.get(j.lead_id, "fence_staining")
+            row["fence_sides_label"] = fence_sides_by_lead.get(j.lead_id, "")
 
             # Attach today's weather for the job's ZIP. Surfaces to workers
             # as a per-card badge so they can see precip risk at a glance.
@@ -445,6 +464,25 @@ def get_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
         row = j.to_dict(role=role)
         assigns = db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
         row["assigned_employee_ids"] = [a.employee_id for a in assigns]
+        # Same fence_sides lookup as the list endpoint so single-job
+        # detail panels get the surfaces label too.
+        try:
+            from api.estimates import _build_pricing_includes
+            import json as _json
+            lead = db.query(Lead).filter(Lead.id == j.lead_id).first()
+            if lead:
+                fd = _json.loads(lead.form_data or "{}")
+                raw_sides = fd.get("fence_sides", [])
+                if isinstance(raw_sides, str):
+                    raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
+                if isinstance(raw_sides, list) and raw_sides:
+                    row["fence_sides_label"] = _build_pricing_includes(raw_sides, fd)
+                else:
+                    row["fence_sides_label"] = ""
+            else:
+                row["fence_sides_label"] = ""
+        except Exception:
+            row["fence_sides_label"] = ""
         return row
     finally:
         db.close()

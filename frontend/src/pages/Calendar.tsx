@@ -819,6 +819,9 @@ function JobDetailModal({
               <span>{weather.summary || "—"} · {Math.round(weather.high_f)}°F · {weather.precip_chance_pct ?? 0}% rain</span>
             </div>
           )}
+          {job.fence_sides_label && (
+            <p><span className="text-muted-foreground">Sides:</span> {job.fence_sides_label}</p>
+          )}
           {job.color_choice && (
             <p><span className="text-muted-foreground">Color:</span> {job.color_choice}</p>
           )}
