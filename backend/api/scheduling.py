@@ -162,42 +162,69 @@ _INVITE_REBRAND_FOOTER = (
 _INVITE_COLOR_FALLBACK = "We will bring you multiple different colors to test!"
 
 
+# Side names _build_pricing_includes knows how to group ("Inside Fences"
+# when all four inside are present). Anything outside this set survives
+# in the output as-is — admin-added custom labels like "Pool gate" or
+# whatever the lead's form_data happens to carry shouldn't be silently
+# dropped just because the proposal formatter doesn't recognize them.
+_KNOWN_FENCE_SIDES = {
+    "Inside Front", "Inside Left", "Inside Back", "Inside Right",
+    "Outside Front", "Outside Left", "Outside Back", "Outside Right",
+}
+
+
+def _format_sides_for_display(side_names: list[str]) -> str:
+    """Run a raw side list through the proposal formatter for the
+    standard 8 sides, then tack on any non-standard names. Empty
+    selection returns ''."""
+    from api.estimates import _build_pricing_includes
+
+    standard = [s for s in side_names if s in _KNOWN_FENCE_SIDES]
+    custom = [s for s in side_names if s not in _KNOWN_FENCE_SIDES]
+
+    parts: list[str] = []
+    if standard:
+        formatted = _build_pricing_includes(standard, None)
+        # The formatter returns "fence" when no recognized side was
+        # found; with the membership filter above that can't happen
+        # for a non-empty `standard`, but guard anyway.
+        if formatted and formatted != "fence":
+            parts.append(formatted)
+    parts.extend(custom)
+    return ", ".join(parts)
+
+
 def _resolve_fence_sides_label(job: ScheduledJob, lead) -> str:
     """Resolve the final 'Sides: …' text for a job.
 
     Order of precedence:
       1. job.fence_sides_override — admin's checkbox selection at
-         schedule time (CSV of raw side names like
-         "Inside Front, Inside Left, Inside Back, Inside Right"). We
-         run those names through _build_pricing_includes (same helper
-         the proposal renders with), so the output reads as
-         "Inside Fences" when all four inside are checked, etc.
-      2. lead.form_data.fence_sides — same formatter, fallback when
-         the admin didn't touch the override.
+         schedule time (CSV of raw side names). Standard sides get
+         grouped via _build_pricing_includes ("Inside Fences" for the
+         full quartet); non-standard names survive verbatim.
+      2. lead.form_data.fence_sides — the proposal's sides, same
+         formatter. THIS IS THE FALLBACK when admin leaves every
+         checkbox unticked: an empty override falls through to the
+         lead's proposal data so the invite never silently loses
+         sides info.
 
     job.additional_sides_text is appended last, comma-separated, so
-    one-off services like 'Fence by the pool' show up:
+    one-off services like 'Fence by the pool' show up at the tail:
         Inside Fences, Outside Fences, Fence by the pool"""
-    from api.estimates import _build_pricing_includes
-
     override_csv = (job.fence_sides_override or "").strip()
     additional = (job.additional_sides_text or "").strip()
 
-    label = ""
+    # Parse override into a list; empty CSV or whitespace-only stays
+    # empty so the lead-fallback branch triggers.
+    selected = [s.strip() for s in override_csv.split(",") if s.strip()] if override_csv else []
 
-    if override_csv:
-        # Parse the admin's selected raw side names, then format via the
-        # same grouping logic the proposal uses.
-        selected = [s.strip() for s in override_csv.split(",") if s.strip()]
-        if selected:
-            formatted = _build_pricing_includes(selected, None)
-            # _build_pricing_includes returns the sentinel "fence" when
-            # nothing it recognized was selected. For an empty selection
-            # we'd rather render nothing (or just the additional text)
-            # than the literal word "fence".
-            if formatted and formatted != "fence":
-                label = formatted
+    label = ""
+    if selected:
+        label = _format_sides_for_display(selected)
     elif lead:
+        # No checkboxes ticked → defer to the proposal's sides. Customer
+        # sees the same wording on the invite that they saw on their
+        # quote, which is the point of this fallback.
         try:
             import json as _json
             fd = _json.loads(lead.form_data or "{}")
@@ -205,9 +232,7 @@ def _resolve_fence_sides_label(job: ScheduledJob, lead) -> str:
             if isinstance(raw_sides, str):
                 raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
             if isinstance(raw_sides, list) and raw_sides:
-                formatted = _build_pricing_includes(raw_sides, fd)
-                if formatted and formatted != "fence":
-                    label = formatted
+                label = _format_sides_for_display(raw_sides)
         except Exception as e:
             logger.warning(f"fence_sides resolve failed for job {job.id}: {e}")
 
