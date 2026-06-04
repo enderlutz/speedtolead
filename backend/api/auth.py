@@ -117,6 +117,32 @@ def seed_fragned_user():
         db.close()
 
 
+def seed_eduardo_user():
+    """Create EduardoElvir admin account if it doesn't exist. One-shot
+    addition per client request (2026-06-04). Idempotent: subsequent
+    boots no-op once the row exists, so this is safe to leave in the
+    startup chain. If Eduardo ever changes his password through a real
+    flow, this function should NOT overwrite — and it doesn't, because
+    the `if existing: return` branch covers that case."""
+    db = get_db()
+    try:
+        existing = db.query(User).filter(User.username == "EduardoElvir").first()
+        if existing:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="EduardoElvir",
+            display_name="Eduardo",
+            password_hash=bcrypt.hashpw(b"atpressurewash4", bcrypt.gensalt()).decode(),
+            role="admin",
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def seed_default_users():
     """Create default admin + VA users if none exist."""
     db = get_db()
