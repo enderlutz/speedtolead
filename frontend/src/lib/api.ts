@@ -1642,12 +1642,19 @@ export interface ScheduleJobBody {
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
+  /** Cleaning step. Admin-input, no auto-formula. */
+  bleach_gallons?: number;
   address?: string;
   zip_code?: string;
   customer_email?: string;
   customer_phone?: string;
   customer_name?: string;
+  /** Legacy single-text field — kept for back-compat; new flows use worker/customer notes. */
   job_description?: string;
+  /** Worker-facing notes. Sanitized server-side before workers read it. */
+  worker_notes?: string;
+  /** Customer-facing notes — rendered into the Google invite description block. */
+  customer_notes?: string;
   admin_notes?: string;
   materials_cost?: number;
   materials_notes?: string;
@@ -1665,12 +1672,15 @@ export interface UpdateJobBody {
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
+  bleach_gallons?: number;
   address?: string;
   zip_code?: string;
   customer_email?: string;
   customer_phone?: string;
   customer_name?: string;
   job_description?: string;
+  worker_notes?: string;
+  customer_notes?: string;
   admin_notes?: string;
   materials_cost?: number;
   materials_notes?: string;
@@ -1722,10 +1732,17 @@ export interface ScheduledJob {
   // Workers need this on the calendar so they know which surfaces to stain.
   fence_sides_label?: string;
   customer_name: string;
+  /** essential | signature | legacy | custom — workers also see this now */
+  package_tier?: string;
   color_choice: string;
   needs_test_spots: boolean;
   gallons_estimate: number;
+  bleach_gallons?: number;
   job_description: string;
+  /** Worker-facing notes (sanitized when role=worker on backend). */
+  worker_notes?: string;
+  /** Customer-facing notes — only returned for admin/va, never to workers. */
+  customer_notes?: string;
   status: string;  // scheduled | in_progress | completed | cancelled
   started_at?: string | null;
   completed_at?: string | null;
@@ -1733,8 +1750,7 @@ export interface ScheduledJob {
   completed_by?: string;
   google_event_id: string;
   service_type?: string;  // "fence_staining" | "power_washing" — drives calendar chip color
-  // Admin/VA only
-  package_tier?: string;
+  // Admin/VA only (package_tier is now in the worker-visible block above)
   closed_price?: number;
   customer_email?: string;
   customer_phone?: string;

@@ -828,21 +828,32 @@ function JobDetailModal({
           {job.needs_test_spots && (
             <Badge className="bg-amber-100 text-amber-800 text-[10px]">Test patches first (same day)</Badge>
           )}
+          {/* Package is visible to admin AND worker — the crew needs to know
+              which scope of work they're doing (essential vs signature etc). */}
+          {job.package_tier && (
+            <p><span className="text-muted-foreground">Package:</span> <span className="capitalize">{job.package_tier}</span></p>
+          )}
           {job.gallons_estimate > 0 && (
-            <p><span className="text-muted-foreground">Gallons:</span> {job.gallons_estimate}</p>
+            <p><span className="text-muted-foreground">Stain gallons:</span> {job.gallons_estimate}</p>
+          )}
+          {(job.bleach_gallons || 0) > 0 && (
+            <p><span className="text-muted-foreground">Bleach gallons:</span> {job.bleach_gallons}</p>
+          )}
+          {job.worker_notes && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded p-2">
+              <p className="text-xs font-semibold text-emerald-900 mb-1">Worker notes</p>
+              <p className="text-xs whitespace-pre-wrap">{job.worker_notes}</p>
+            </div>
           )}
           {job.job_description && (
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1">Job description</p>
-              <p>{job.job_description}</p>
+              <p className="whitespace-pre-wrap">{job.job_description}</p>
             </div>
           )}
 
           {!showAsWorker && (
             <>
-              {job.package_tier && (
-                <p><span className="text-muted-foreground">Package:</span> <span className="capitalize">{job.package_tier}</span></p>
-              )}
               {(job.closed_price || 0) > 0 && (
                 <p><span className="text-muted-foreground">Closed price:</span> ${job.closed_price?.toFixed(2)}</p>
               )}
@@ -897,10 +908,16 @@ function JobDetailModal({
               {job.customer_phone && (
                 <p><span className="text-muted-foreground">Customer phone:</span> {job.customer_phone}</p>
               )}
+              {job.customer_notes && (
+                <div className="bg-sky-50 border border-sky-200 rounded p-2">
+                  <p className="text-xs font-semibold text-sky-900 mb-1">Customer notes (on invite)</p>
+                  <p className="text-xs whitespace-pre-wrap">{job.customer_notes}</p>
+                </div>
+              )}
               {job.admin_notes && (
                 <div className="bg-amber-50 border border-amber-200 rounded p-2">
                   <p className="text-xs font-semibold text-amber-900 mb-1">Admin notes</p>
-                  <p className="text-xs">{job.admin_notes}</p>
+                  <p className="text-xs whitespace-pre-wrap">{job.admin_notes}</p>
                 </div>
               )}
             </>

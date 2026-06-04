@@ -48,12 +48,19 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [color, setColor] = useState(existing?.color_choice || "");
   const [needsTestSpots, setNeedsTestSpots] = useState(!!existing?.needs_test_spots);
   const [gallons, setGallons] = useState(String(existing?.gallons_estimate || 0));
+  // Bleach is admin-input only — no auto-formula. Defaults to 0.
+  const [bleach, setBleach] = useState(String(existing?.bleach_gallons || 0));
   const [address, setAddress] = useState(existing?.address || lead.address || "");
   const [zip, setZip] = useState(existing?.zip_code || lead.zip_code || "");
   const [customerName, setCustomerName] = useState(existing?.customer_name || lead.contact_name || "");
   const [customerEmail, setCustomerEmail] = useState(existing?.customer_email || lead.contact_email || "");
   const [customerPhone, setCustomerPhone] = useState(existing?.customer_phone || lead.contact_phone || "");
+  // Legacy single-field description — kept for back-compat with older rows that
+  // were saved before the worker/customer split. New jobs leave this empty and
+  // use the two split fields below instead.
   const [jobDescription, setJobDescription] = useState(existing?.job_description || "");
+  const [workerNotes, setWorkerNotes] = useState(existing?.worker_notes || "");
+  const [customerNotes, setCustomerNotes] = useState(existing?.customer_notes || "");
   const [adminNotes, setAdminNotes] = useState(existing?.admin_notes || "");
   const [materialsCost, setMaterialsCost] = useState(String(existing?.materials_cost || 0));
   const [materialsNotes, setMaterialsNotes] = useState(existing?.materials_notes || "");
@@ -92,12 +99,15 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           color_choice: color,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
+          bleach_gallons: parseFloat(bleach) || 0,
           address,
           zip_code: zip,
           customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_name: customerName,
           job_description: jobDescription,
+          worker_notes: workerNotes,
+          customer_notes: customerNotes,
           admin_notes: adminNotes,
           materials_cost: parseFloat(materialsCost) || 0,
           materials_notes: materialsNotes,
@@ -115,12 +125,15 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           color_choice: color,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
+          bleach_gallons: parseFloat(bleach) || 0,
           address,
           zip_code: zip,
           customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_name: customerName,
           job_description: jobDescription,
+          worker_notes: workerNotes,
+          customer_notes: customerNotes,
           admin_notes: adminNotes,
           materials_cost: parseFloat(materialsCost) || 0,
           materials_notes: materialsNotes,
@@ -199,21 +212,47 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
                 </datalist>
               </div>
               <div>
-                <label className={labelCls}>Gallons (sqft ÷ 175)</label>
+                <label className={labelCls}>Stain Gallons (sqft ÷ 175)</label>
                 <Input type="number" step="0.1" value={gallons} onChange={(e) => setGallons(e.target.value)} className="mt-1" />
+              </div>
+              <div>
+                <label className={labelCls}>Bleach Gallons</label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={bleach}
+                  onChange={(e) => setBleach(e.target.value)}
+                  placeholder="0"
+                  className="mt-1"
+                />
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm mt-3 cursor-pointer">
               <input type="checkbox" checked={needsTestSpots} onChange={(e) => setNeedsTestSpots(e.target.checked)} />
               Customer wants test stain patches first (same day, before final color)
             </label>
+
+            {/* Notes split into 3 audiences: workers (on the job), customer
+                (lands in Google invite description above marketing copy), and
+                admin-only (never leaves the dashboard). */}
             <div className="mt-3">
-              <label className={labelCls}>Job Description (shown on customer invite + worker view)</label>
+              <label className={labelCls}>Worker Notes (shown to the crew — sanitized of price/proposal language)</label>
               <textarea
-                value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
+                value={workerNotes}
+                onChange={(e) => setWorkerNotes(e.target.value)}
                 rows={2}
-                placeholder="e.g. Stain 120ft cedar privacy fence, both sides"
+                placeholder="e.g. Gate code 1234, dog in backyard until 10am, stain inside + outside"
+                className={`${inputCls} mt-1 resize-none`}
+              />
+            </div>
+            <div className="mt-3">
+              <label className={labelCls}>Customer Notes (rendered on the Google Calendar invite they receive)</label>
+              <textarea
+                value={customerNotes}
+                onChange={(e) => setCustomerNotes(e.target.value)}
+                rows={2}
+                placeholder="e.g. We bring samples to test colors on your fence before final coats!"
                 className={`${inputCls} mt-1 resize-none`}
               />
             </div>
@@ -227,6 +266,20 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
                 className={`${inputCls} mt-1 resize-none`}
               />
             </div>
+
+            {/* Legacy single-field description — shown only when an older job
+                already has it filled in, so it can be edited / migrated away. */}
+            {jobDescription ? (
+              <div className="mt-3">
+                <label className={labelCls}>Job Description (legacy — consider moving to Worker / Customer Notes above)</label>
+                <textarea
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  rows={2}
+                  className={`${inputCls} mt-1 resize-none`}
+                />
+              </div>
+            ) : null}
           </section>
 
           {/* Materials cost — drops directly out of gross profit on Accounting */}

@@ -225,6 +225,45 @@ function TodayJobCard({
           </div>
         )}
 
+        {/* Job specs — package + color + materials. Workers need all four to
+            prep the truck in the morning. Renders only if at least one value
+            is set, to keep the card tight on empty jobs. */}
+        {(job.package_tier || job.color_choice || job.gallons_estimate > 0 || (job.bleach_gallons || 0) > 0) && (
+          <div className="text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2 space-y-1">
+            {job.package_tier && (
+              <div>
+                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Package: </span>
+                <span className="capitalize">{job.package_tier}</span>
+              </div>
+            )}
+            {job.color_choice && (
+              <div>
+                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Color: </span>
+                {job.color_choice}
+              </div>
+            )}
+            {(job.gallons_estimate > 0 || (job.bleach_gallons || 0) > 0) && (
+              <div className="flex gap-4 text-xs pt-0.5">
+                {job.gallons_estimate > 0 && (
+                  <span><span className="font-semibold text-slate-700">Stain:</span> {job.gallons_estimate} gal</span>
+                )}
+                {(job.bleach_gallons || 0) > 0 && (
+                  <span><span className="font-semibold text-slate-700">Bleach:</span> {job.bleach_gallons} gal</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Worker notes — admin-typed instructions for the crew. Sanitized
+            server-side so any stray price/proposal language is stripped. */}
+        {job.worker_notes && (
+          <div className="text-sm bg-blue-50 border border-blue-200 rounded px-3 py-2">
+            <span className="text-xs font-semibold text-blue-900 uppercase tracking-wide block mb-0.5">Notes from the office</span>
+            <span className="text-blue-900 whitespace-pre-wrap">{job.worker_notes}</span>
+          </div>
+        )}
+
         {job.job_description && (
           <div className="text-sm bg-slate-50 rounded px-3 py-2 whitespace-pre-wrap">
             {job.job_description}
@@ -292,6 +331,22 @@ function ListJobCard({ job }: { job: ScheduledJob }) {
               {job.fence_sides_label && (
                 <div className="text-[11px] text-emerald-800 mt-1 truncate">
                   <span className="font-semibold">Sides:</span> {job.fence_sides_label}
+                </div>
+              )}
+              {(job.package_tier || job.color_choice) && (
+                <div className="text-[11px] text-slate-700 mt-0.5 truncate">
+                  {job.package_tier && (
+                    <>
+                      <span className="font-semibold">Pkg:</span>{" "}
+                      <span className="capitalize">{job.package_tier}</span>
+                    </>
+                  )}
+                  {job.package_tier && job.color_choice && <span className="mx-1">·</span>}
+                  {job.color_choice && (
+                    <>
+                      <span className="font-semibold">Color:</span> {job.color_choice}
+                    </>
+                  )}
                 </div>
               )}
               {job.weather_today && <div className="mt-1.5"><WeatherBadge w={job.weather_today} /></div>}
