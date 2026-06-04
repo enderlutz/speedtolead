@@ -86,10 +86,18 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
     return csv.split(",").map((s) => s.trim()).filter(Boolean);
   }, [existing?.fence_sides_override]);
   const availableSides = useMemo<string[]>(() => {
-    // Stable order: lead's sides first, then any extras the override mentions.
+    // Always show the full 8 standard sides (4 inside, 4 outside) so the
+    // admin can add sides that weren't on the original proposal — e.g.
+    // the customer agreed to add Inside Left after the quote. Anything
+    // non-standard from the lead's form_data or a saved override is
+    // appended after, deduped, in the order it appeared.
+    const STANDARD: string[] = [
+      "Inside Front", "Inside Left", "Inside Back", "Inside Right",
+      "Outside Front", "Outside Left", "Outside Back", "Outside Right",
+    ];
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const s of [...leadFenceSides, ...initialOverrideSides]) {
+    for (const s of [...STANDARD, ...leadFenceSides, ...initialOverrideSides]) {
       const t = s.trim();
       if (t && !seen.has(t)) { seen.add(t); out.push(t); }
     }
