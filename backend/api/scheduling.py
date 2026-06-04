@@ -166,30 +166,51 @@ def _resolve_fence_sides_label(job: ScheduledJob, lead) -> str:
     """Resolve the final 'Sides: …' text for a job.
 
     Order of precedence:
-      1. job.fence_sides_override (CSV the admin selected/edited at
-         schedule time) — wins whenever non-empty.
-      2. lead.form_data.fence_sides, run through _build_pricing_includes
-         so the wording matches what the customer saw on their proposal.
+      1. job.fence_sides_override — admin's checkbox selection at
+         schedule time (CSV of raw side names like
+         "Inside Front, Inside Left, Inside Back, Inside Right"). We
+         run those names through _build_pricing_includes (same helper
+         the proposal renders with), so the output reads as
+         "Inside Fences" when all four inside are checked, etc.
+      2. lead.form_data.fence_sides — same formatter, fallback when
+         the admin didn't touch the override.
 
-    Then job.additional_sides_text is appended (comma-separated) so the
-    crew sees one-off additions ('+ back deck rails') without having to
-    re-architect the side picker."""
-    override = (job.fence_sides_override or "").strip()
-    label = override
-    if not label and lead:
+    job.additional_sides_text is appended last, comma-separated, so
+    one-off services like 'Fence by the pool' show up:
+        Inside Fences, Outside Fences, Fence by the pool"""
+    from api.estimates import _build_pricing_includes
+
+    override_csv = (job.fence_sides_override or "").strip()
+    additional = (job.additional_sides_text or "").strip()
+
+    label = ""
+
+    if override_csv:
+        # Parse the admin's selected raw side names, then format via the
+        # same grouping logic the proposal uses.
+        selected = [s.strip() for s in override_csv.split(",") if s.strip()]
+        if selected:
+            formatted = _build_pricing_includes(selected, None)
+            # _build_pricing_includes returns the sentinel "fence" when
+            # nothing it recognized was selected. For an empty selection
+            # we'd rather render nothing (or just the additional text)
+            # than the literal word "fence".
+            if formatted and formatted != "fence":
+                label = formatted
+    elif lead:
         try:
             import json as _json
-            from api.estimates import _build_pricing_includes
             fd = _json.loads(lead.form_data or "{}")
             raw_sides = fd.get("fence_sides", [])
             if isinstance(raw_sides, str):
                 raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
             if isinstance(raw_sides, list) and raw_sides:
-                label = _build_pricing_includes(raw_sides, fd)
+                formatted = _build_pricing_includes(raw_sides, fd)
+                if formatted and formatted != "fence":
+                    label = formatted
         except Exception as e:
             logger.warning(f"fence_sides resolve failed for job {job.id}: {e}")
 
-    additional = (job.additional_sides_text or "").strip()
     if additional:
         label = f"{label}, {additional}" if label else additional
     return label
