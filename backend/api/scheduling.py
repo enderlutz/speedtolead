@@ -478,17 +478,18 @@ def list_scheduled_jobs(
     db = get_db()
     try:
         role = user.get("role", "va")
-        q = db.query(ScheduledJob)
+        # Cancelled jobs stay in the DB for audit but never appear in the
+        # list view — admin Calendar, MySchedule, and the worker map all
+        # filter them out. To resurrect a cancelled job, flip its status
+        # back via direct DB write or the PUT update endpoint.
+        q = db.query(ScheduledJob).filter(ScheduledJob.status != "cancelled")
         if start:
             q = q.filter(ScheduledJob.job_date >= start)
         if end:
             q = q.filter(ScheduledJob.job_date <= end)
 
         if role == "worker":
-            # Workers can only see jobs they're assigned to, and never
-            # cancelled ones — those are dead and would just confuse the
-            # crew's My Schedule view. Admin Calendar still shows cancelled
-            # rows so the office can audit history.
+            # Workers can only see jobs they're assigned to.
             emp_id = user.get("employee_id")
             if not emp_id:
                 return {"jobs": []}
@@ -499,7 +500,6 @@ def list_scheduled_jobs(
             if not assigned_ids:
                 return {"jobs": []}
             q = q.filter(ScheduledJob.id.in_(assigned_ids))
-            q = q.filter(ScheduledJob.status != "cancelled")
         elif employee_id:
             assigned_ids = [
                 a.scheduled_job_id for a in
