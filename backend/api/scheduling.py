@@ -485,7 +485,10 @@ def list_scheduled_jobs(
             q = q.filter(ScheduledJob.job_date <= end)
 
         if role == "worker":
-            # Workers can only see jobs they're assigned to
+            # Workers can only see jobs they're assigned to, and never
+            # cancelled ones — those are dead and would just confuse the
+            # crew's My Schedule view. Admin Calendar still shows cancelled
+            # rows so the office can audit history.
             emp_id = user.get("employee_id")
             if not emp_id:
                 return {"jobs": []}
@@ -496,6 +499,7 @@ def list_scheduled_jobs(
             if not assigned_ids:
                 return {"jobs": []}
             q = q.filter(ScheduledJob.id.in_(assigned_ids))
+            q = q.filter(ScheduledJob.status != "cancelled")
         elif employee_id:
             assigned_ids = [
                 a.scheduled_job_id for a in
@@ -985,20 +989,44 @@ def mark_scheduled_job_paid(job_id: str, body: MarkPaidBody, user: dict = Depend
 
 @router.delete("/schedule/jobs/{job_id}")
 def delete_scheduled_job(job_id: str, user: dict = Depends(require_staff)):
+    """Soft-archive: flips the job to status='cancelled' rather than
+    hard-deleting the row. Preserves audit history (who scheduled it,
+    when, materials/labor that may have been logged before cancel) and
+    works with the accounting-side filter we added so cancelled jobs
+    stay out of the books anyway.
+
+    Side-effects on cancel:
+      - Google Calendar event is deleted (the customer's attendee invite
+        triggers a Google cancellation email automatically).
+      - JobAssignment rows are KEPT so we can still answer "who was on
+        this cancelled job" later. The list_scheduled_jobs endpoint
+        filters cancelled out of worker views so the crew doesn't see
+        dead jobs on their phone.
+      - GHL opportunity stage is NOT moved. If you want to roll back to
+        an earlier stage on cancel, that's a separate ticket."""
     del user
     db = get_db()
     try:
         j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
         if not j:
             raise HTTPException(404, "Job not found")
-        # Cancel Google event
+        if j.status == "cancelled":
+            # Idempotent — re-cancelling a cancelled job is a no-op
+            # rather than a 404 once Google event is already gone.
+            return {"status": "cancelled"}
+
+        # Pull the Google event so the customer's attendee invite vanishes.
+        # Best-effort — if Google's flaky we still proceed with the local
+        # cancel so the dashboard stays consistent.
         if j.google_event_id:
             try:
                 google_calendar.delete_event(db, j.google_event_id)
             except Exception as e:
                 logger.warning(f"Google delete_event non-fatal failure: {e}")
-        db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).delete()
-        db.delete(j)
+            j.google_event_id = ""
+
+        j.status = "cancelled"
+        j.updated_at = _now()
         db.commit()
         return {"status": "cancelled"}
     finally:
