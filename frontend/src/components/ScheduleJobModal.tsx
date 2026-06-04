@@ -45,11 +45,22 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [duration, setDuration] = useState(String(existing?.estimated_duration_hours || 6));
   const [pkg, setPkg] = useState(existing?.package_tier || "signature");
   const [price, setPrice] = useState(String(existing?.closed_price || 0));
+  // Defaults true on brand-new jobs so the invite reads "Price: X + Tax"
+  // the way the manual template does. Existing rows respect their stored value.
+  const [plusTax, setPlusTax] = useState(
+    existing ? existing.closed_price_plus_tax !== false : true,
+  );
   const [color, setColor] = useState(existing?.color_choice || "");
   const [needsTestSpots, setNeedsTestSpots] = useState(!!existing?.needs_test_spots);
-  const [gallons, setGallons] = useState(String(existing?.gallons_estimate || 0));
-  // Bleach is admin-input only — no auto-formula. Defaults to 0.
-  const [bleach, setBleach] = useState(String(existing?.bleach_gallons || 0));
+  // Gallons + bleach default to blank, NOT "0" — the crew fills these in
+  // from the My Day card after the job's done, so an admin scheduling
+  // shouldn't be forced to guess upfront.
+  const [gallons, setGallons] = useState(
+    existing?.gallons_estimate ? String(existing.gallons_estimate) : "",
+  );
+  const [bleach, setBleach] = useState(
+    existing?.bleach_gallons ? String(existing.bleach_gallons) : "",
+  );
   const [address, setAddress] = useState(existing?.address || lead.address || "");
   const [zip, setZip] = useState(existing?.zip_code || lead.zip_code || "");
   const [customerName, setCustomerName] = useState(existing?.customer_name || lead.contact_name || "");
@@ -96,6 +107,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           estimated_duration_hours: parseFloat(duration) || 6,
           package_tier: pkg,
           closed_price: parseFloat(price) || 0,
+          closed_price_plus_tax: plusTax,
           color_choice: color,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -122,6 +134,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           estimated_duration_hours: parseFloat(duration) || 6,
           package_tier: pkg,
           closed_price: parseFloat(price) || 0,
+          closed_price_plus_tax: plusTax,
           color_choice: color,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -197,33 +210,54 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
               <div>
                 <label className={labelCls}>Closed Price ($)</label>
                 <Input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className="mt-1" />
+                {/* "+ Tax" toggle — defaults on. When off, the invite
+                    price line drops the "+ Tax" suffix. Bookkeeping only. */}
+                <label className="flex items-center gap-1.5 text-xs mt-1 cursor-pointer text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={plusTax}
+                    onChange={(e) => setPlusTax(e.target.checked)}
+                  />
+                  + Tax on invite
+                </label>
               </div>
               <div>
-                <label className={labelCls}>Stain Color</label>
+                <label className={labelCls}>Color/s</label>
                 <Input
                   list="stain-colors"
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
-                  placeholder="Type or pick"
+                  placeholder='Type or pick — comma-separate for multiple'
                   className="mt-1"
                 />
                 <datalist id="stain-colors">
                   {STAIN_COLORS.map((c) => <option key={c} value={c} />)}
                 </datalist>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Leave blank if undecided — the invite will say "we'll bring colors to test."
+                </p>
               </div>
               <div>
-                <label className={labelCls}>Stain Gallons (sqft ÷ 175)</label>
-                <Input type="number" step="0.1" value={gallons} onChange={(e) => setGallons(e.target.value)} className="mt-1" />
+                <label className={labelCls}>Stain Gallons (optional)</label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={gallons}
+                  onChange={(e) => setGallons(e.target.value)}
+                  placeholder="Crew fills in at end of day"
+                  className="mt-1"
+                />
               </div>
               <div>
-                <label className={labelCls}>Bleach Gallons</label>
+                <label className={labelCls}>Bleach Gallons (optional)</label>
                 <Input
                   type="number"
                   step="0.1"
                   min="0"
                   value={bleach}
                   onChange={(e) => setBleach(e.target.value)}
-                  placeholder="0"
+                  placeholder="Crew fills in at end of day"
                   className="mt-1"
                 />
               </div>

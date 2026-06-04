@@ -859,6 +859,10 @@ class ScheduledJob(Base):
     estimated_duration_hours = Column(Numeric(10, 2), default=0)
     package_tier = Column(Text, default="")               # essential | signature | legacy | custom
     closed_price = Column(Numeric(10, 2), default=0)
+    # Whether the closed_price line on the Google invite should show "+ Tax".
+    # Internal bookkeeping signal — does NOT actually calculate tax. Default
+    # True to match the manual template Alan was already using.
+    closed_price_plus_tax = Column(Boolean, default=True)
     color_choice = Column(Text, default="")               # stain color (free text + dropdown)
     needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
     gallons_estimate = Column(Numeric(10, 2), default=0)  # sqft / 175 default; editable
@@ -963,6 +967,7 @@ class ScheduledJob(Base):
         # workers also see it; the other admin-only fields land here).
         base.update({
             "closed_price": float(self.closed_price or 0),
+            "closed_price_plus_tax": bool(self.closed_price_plus_tax),
             "customer_email": self.customer_email or "",
             "customer_phone": self.customer_phone or "",
             "customer_notes": self.customer_notes or "",
@@ -2078,6 +2083,7 @@ def _run_migrations():
             ("bleach_gallons", "ALTER TABLE scheduled_jobs ADD COLUMN bleach_gallons NUMERIC(10,2) DEFAULT 0"),
             ("worker_notes", "ALTER TABLE scheduled_jobs ADD COLUMN worker_notes TEXT DEFAULT ''"),
             ("customer_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_notes TEXT DEFAULT ''"),
+            ("closed_price_plus_tax", "ALTER TABLE scheduled_jobs ADD COLUMN closed_price_plus_tax BOOLEAN DEFAULT TRUE"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

@@ -823,7 +823,7 @@ function JobDetailModal({
             <p><span className="text-muted-foreground">Sides:</span> {job.fence_sides_label}</p>
           )}
           {job.color_choice && (
-            <p><span className="text-muted-foreground">Color:</span> {job.color_choice}</p>
+            <p><span className="text-muted-foreground">Color/s:</span> {job.color_choice}</p>
           )}
           {job.needs_test_spots && (
             <Badge className="bg-amber-100 text-amber-800 text-[10px]">Test patches first (same day)</Badge>
@@ -855,7 +855,13 @@ function JobDetailModal({
           {!showAsWorker && (
             <>
               {(job.closed_price || 0) > 0 && (
-                <p><span className="text-muted-foreground">Closed price:</span> ${job.closed_price?.toFixed(2)}</p>
+                <p>
+                  <span className="text-muted-foreground">Closed price:</span>{" "}
+                  ${job.closed_price?.toFixed(2)}
+                  {job.closed_price_plus_tax !== false && (
+                    <span className="text-xs text-muted-foreground"> + Tax</span>
+                  )}
+                </p>
               )}
               {(job.materials_cost || 0) > 0 && (
                 <p>

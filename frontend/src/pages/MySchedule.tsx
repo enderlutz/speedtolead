@@ -183,12 +183,95 @@ function SlideToConfirm({
 }
 
 // Full interactive card — only used on the Today tab.
+// Materials editor — workers report actual stain + bleach gallons used.
+// Renders only on in_progress/completed jobs; pre-fills from the job's
+// current values so the worker can correct rather than re-enter. Save
+// button stays disabled while no change is pending so we don't write a
+// no-op row.
+function MaterialsEditor({
+  job, onSaved,
+}: {
+  job: ScheduledJob;
+  onSaved: (updated: ScheduledJob) => void;
+}) {
+  const initialStain = job.gallons_estimate ? String(job.gallons_estimate) : "";
+  const initialBleach = job.bleach_gallons ? String(job.bleach_gallons) : "";
+  const [stain, setStain] = useState(initialStain);
+  const [bleach, setBleach] = useState(initialBleach);
+  const [saving, setSaving] = useState(false);
+
+  const changed = stain !== initialStain || bleach !== initialBleach;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const body: { stain_gallons?: number; bleach_gallons?: number } = {};
+      // Only send fields the worker actually touched, so blanks left
+      // alone don't accidentally overwrite admin-entered values.
+      if (stain !== initialStain) body.stain_gallons = parseFloat(stain) || 0;
+      if (bleach !== initialBleach) body.bleach_gallons = parseFloat(bleach) || 0;
+      const updated = await api.updateJobMaterials(job.id, body);
+      onSaved(updated);
+      toast.success("Materials saved");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save materials");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="text-sm bg-amber-50 border border-amber-200 rounded px-3 py-2 space-y-2">
+      <span className="text-xs font-semibold text-amber-900 uppercase tracking-wide block">
+        Materials used
+      </span>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-xs">
+          <span className="block text-amber-900 mb-0.5">Stain (gal)</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={stain}
+            onChange={(e) => setStain(e.target.value)}
+            placeholder="0"
+            className="w-full rounded border border-amber-300 px-2 py-1 text-sm bg-white"
+          />
+        </label>
+        <label className="text-xs">
+          <span className="block text-amber-900 mb-0.5">Bleach (gal)</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={bleach}
+            onChange={(e) => setBleach(e.target.value)}
+            placeholder="0"
+            className="w-full rounded border border-amber-300 px-2 py-1 text-sm bg-white"
+          />
+        </label>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={!changed || saving}
+        onClick={save}
+        className="w-full"
+      >
+        {saving ? "Saving…" : changed ? "Save materials" : "Saved"}
+      </Button>
+    </div>
+  );
+}
+
 function TodayJobCard({
-  job, onStart, onComplete,
+  job, onStart, onComplete, onMaterialsSaved,
 }: {
   job: ScheduledJob;
   onStart: (j: ScheduledJob) => void;
   onComplete: (j: ScheduledJob) => void;
+  onMaterialsSaved: (updated: ScheduledJob) => void;
 }) {
   return (
     <Card className="overflow-hidden">
@@ -268,6 +351,13 @@ function TodayJobCard({
           <div className="text-sm bg-slate-50 rounded px-3 py-2 whitespace-pre-wrap">
             {job.job_description}
           </div>
+        )}
+
+        {/* Materials editor — once work's underway (or wrapped), let the
+            crew type the actual gallons used. Hidden on "scheduled" since
+            they haven't touched the truck yet. */}
+        {(job.status === "in_progress" || job.status === "completed") && (
+          <MaterialsEditor job={job} onSaved={onMaterialsSaved} />
         )}
 
         {job.status === "scheduled" && (
@@ -429,6 +519,13 @@ export default function MySchedule() {
     }
   };
 
+  // Crew submitted materials-used from the inline editor — swap the job
+  // in place so the values render back in the "Job specs" block without
+  // a refetch.
+  const handleMaterialsSaved = (updated: ScheduledJob) => {
+    setJobs((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+  };
+
   // Today tab keeps the in_progress-first ordering so the active job floats up.
   const todaySorted = useMemo(() => {
     const order = (j: ScheduledJob) =>
@@ -508,7 +605,7 @@ export default function MySchedule() {
           ) : (
             <div className="space-y-4">
               {todaySorted.map((job) => (
-                <TodayJobCard key={job.id} job={job} onStart={handleStart} onComplete={handleComplete} />
+                <TodayJobCard key={job.id} job={job} onStart={handleStart} onComplete={handleComplete} onMaterialsSaved={handleMaterialsSaved} />
               ))}
             </div>
           )}

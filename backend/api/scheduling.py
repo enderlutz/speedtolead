@@ -65,6 +65,7 @@ class ScheduleJobBody(BaseModel):
     estimated_duration_hours: float = 6.0
     package_tier: str = ""              # essential | signature | legacy | custom
     closed_price: float = 0
+    closed_price_plus_tax: bool = True  # controls "+ Tax" on the invite price line
     color_choice: str = ""
     needs_test_spots: bool = False
     gallons_estimate: float = 0
@@ -91,6 +92,7 @@ class UpdateJobBody(BaseModel):
     estimated_duration_hours: float | None = None
     package_tier: str | None = None
     closed_price: float | None = None
+    closed_price_plus_tax: bool | None = None
     color_choice: str | None = None
     needs_test_spots: bool | None = None
     gallons_estimate: float | None = None
@@ -126,37 +128,72 @@ class GoogleCallbackBody(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Hardcoded marketing copy block. Three "What's Included" bullets +
+# four "Why Customers Choose Us" bullets — matches the template the
+# client signed off on. If they want this editable later, lift to
+# Settings.
 _INVITE_INCLUDED_BLOCK = (
     "✅ What's Included:\n"
-    "• Cleaning of fence\n"
-    "• Two professional coats of your choice of stain 🎨\n"
-    "• Maximum penetration & long-lasting results 🖌️\n"
+    "• Cleaning of fence 🫧\n"
+    "• Your choice of stain 🎨\n"
     "• Professional prep & cleanup included ✔️"
 )
 _INVITE_WHY_BLOCK = (
     "🌟 Why Customers Choose Us:\n"
-    "• Rich finish\n"
+    "• Even, rich finish with no streaking\n"
     "• High-quality professional products\n"
     "• Attention to detail on every board\n"
     "• Clean communication & reliable scheduling"
 )
+# Footer line, runs while the LLC paperwork for the new brand is in
+# progress. Pull this out when the rebrand is final.
+_INVITE_REBRAND_FOOTER = (
+    "- We are currently in the process of rebranding from "
+    "A&T's Pressure Washing to Sterling Fence Staining"
+)
+# Fallback shown when the admin leaves the color field blank — the
+# crew brings test patches and the customer picks at the door.
+_INVITE_COLOR_FALLBACK = "We will bring you multiple different colors to test!"
+
+
+def _package_label(tier: str) -> str:
+    """Map a package_tier slug to the customer-facing label that lands on
+    the invite line "Package: …". Unknown tiers fall back to title-case
+    of the slug so something always renders."""
+    return {
+        "essential": "Essential finish",
+        "signature": "Signature finish",
+        "legacy": "Legacy finish",
+        "custom": "Custom finish",
+    }.get((tier or "").strip().lower(), (tier or "").title())
 
 
 def _customer_invite_description(job: ScheduledJob, db) -> str:
     """Build the customer-facing Google Calendar invite description.
 
-    Format mirrors the manual template Alan was pasting into events:
-    "Here it is!" intro, brand + Your Estimate header, proposal URL,
-    price line, fence sides, custom customer_notes (if any), then a
-    hardcoded marketing copy block (What's Included + Why Customers
-    Choose Us). Sections separated by a single blank line per user's
-    "remove the spaces in between" note.
+    Layout (client-signed-off template):
+      Estimate Link:
+      {proposal_url}
 
-    Customer gets the FULL detail here (including price + proposal URL).
-    When a worker views the same event through our dashboard the
-    sanitize_for_worker pass in google_calendar.list_events strips the
-    price and proposal link from what they see, so the same event is
-    safe for both audiences."""
+      Package: {Signature finish | …}
+
+      Price: {1075.36}[ + Tax]   ← "+ Tax" only when job.closed_price_plus_tax
+
+      Color/s: {admin-typed colors, or fallback "We will bring multiple…"}
+
+      Sides: {fence_sides_label}
+
+      Additional notes: {customer_notes, if any}
+
+      ✅ What's Included: …
+      🌟 Why Customers Choose Us: …
+
+      - Rebranding footer line
+
+    Customer sees price + proposal URL here in full. When a worker views
+    the same event through our dashboard, the sanitize_for_worker pass
+    in google_calendar.list_events strips price and proposal language
+    from what they see — same event, two audiences."""
     # Pull lead + latest proposal + fence sides up front — every section
     # below either uses them or skips silently if missing.
     lead = db.query(Lead).filter(Lead.id == job.lead_id).first() if job.lead_id else None
@@ -188,25 +225,47 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
         except Exception as e:
             logger.warning(f"Invite description: fence sides build failed: {e}")
 
-    parts: list[str] = [
-        "Here it is!",
-        "Sterling Fence Staining - Your Estimate",
-    ]
-    if proposal_url:
-        parts += ["", proposal_url]
+    parts: list[str] = []
 
+    # Estimate Link block — always present, even if URL isn't ready yet,
+    # so the layout doesn't shift visibly between jobs. If the URL is
+    # blank we just emit the header alone (rare).
+    parts.append("Estimate Link:")
+    if proposal_url:
+        parts.append(proposal_url)
+
+    # Package line. Skip cleanly when no tier was set rather than show
+    # "Package: " with nothing after.
+    pkg_label = _package_label(job.package_tier or "")
+    if pkg_label:
+        parts += ["", f"Package: {pkg_label}"]
+
+    # Price line. Two-decimal format (1075.36, not 1,075). "+ Tax"
+    # suffix is opt-in via the closed_price_plus_tax flag — defaults
+    # True so existing rows render the same as the manual template.
     price = float(job.closed_price or 0)
     if price > 0:
-        parts += ["", f"${price:,.0f} + Tax"]
+        suffix = " + Tax" if bool(job.closed_price_plus_tax) else ""
+        parts += ["", f"Price: {price:.2f}{suffix}"]
+
+    # Color/s line. Whatever the admin typed lands verbatim — supports
+    # comma-separated multiples ("Cabot Cedar, Behr Padre Brown"). When
+    # blank, we drop in the "we'll bring samples" fallback so the
+    # customer always sees a color line.
+    color_text = (job.color_choice or "").strip() or _INVITE_COLOR_FALLBACK
+    parts += ["", f"Color/s: {color_text}"]
 
     if fence_sides_label:
         parts += ["", f"Sides: {fence_sides_label}"]
 
-    # Admin-curated customer note — slots in above the marketing copy
-    # so the customer reads "personal note about your job" before the
-    # generic value-prop bullets.
-    if (job.customer_notes or "").strip():
-        parts += ["", job.customer_notes.strip()]
+    # Additional notes header always renders — that's how the template
+    # reads even when the box is empty (Alan leaves it on intentionally
+    # to make manual edits later from inside Google Calendar). When the
+    # admin DID type a note, it lands directly under the header.
+    additional = (job.customer_notes or "").strip()
+    parts += ["", "Additional notes:"]
+    if additional:
+        parts.append(additional)
 
     if job.needs_test_spots:
         parts += [
@@ -214,7 +273,11 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
             "We'll do test stain patches first; you can approve a final color the same day.",
         ]
 
-    parts += ["", _INVITE_INCLUDED_BLOCK, "", _INVITE_WHY_BLOCK]
+    parts += [
+        "", _INVITE_INCLUDED_BLOCK,
+        "", _INVITE_WHY_BLOCK,
+        "", _INVITE_REBRAND_FOOTER,
+    ]
     return "\n".join(parts)
 
 
@@ -324,6 +387,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             estimated_duration_hours=body.estimated_duration_hours,
             package_tier=body.package_tier,
             closed_price=body.closed_price,
+            closed_price_plus_tax=body.closed_price_plus_tax,
             color_choice=body.color_choice,
             needs_test_spots=body.needs_test_spots,
             gallons_estimate=gallons,
@@ -578,8 +642,9 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
 
         for field in (
             "job_date", "arrival_time", "estimated_duration_hours", "package_tier",
-            "closed_price", "color_choice", "needs_test_spots", "gallons_estimate",
-            "bleach_gallons", "address", "zip_code", "customer_email", "customer_phone",
+            "closed_price", "closed_price_plus_tax", "color_choice",
+            "needs_test_spots", "gallons_estimate", "bleach_gallons",
+            "address", "zip_code", "customer_email", "customer_phone",
             "customer_name", "job_description", "worker_notes", "customer_notes",
             "admin_notes", "materials_cost", "materials_notes", "status",
         ):
@@ -618,6 +683,63 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
 
         db.refresh(j)
         return j.to_dict(role="admin")
+    finally:
+        db.close()
+
+
+class MaterialsBody(BaseModel):
+    """Worker-facing materials report. Both fields optional — submit only
+    what you've measured. None means "leave that one alone." Use 0 to
+    explicitly clear a previous value."""
+    stain_gallons: float | None = None
+    bleach_gallons: float | None = None
+
+
+@router.post("/schedule/jobs/{job_id}/materials")
+def update_job_materials(
+    job_id: str,
+    body: MaterialsBody,
+    user: dict = Depends(get_current_user),
+):
+    """Update stain + bleach gallons on a job.
+
+    Auth: staff (admin/va) OR the worker who's assigned to this specific
+    job. Other workers can't touch a job they weren't assigned to. The
+    admin can leave both fields blank when scheduling and the crew fills
+    them in here at the end of the day with what they actually used.
+
+    Doesn't refresh the Google Calendar event — materials are an
+    internal/operational signal, not customer-facing copy."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+
+        role = (user.get("role") or "").lower()
+        if role not in ("admin", "va"):
+            # Worker can only update jobs they're assigned to. Look up
+            # their employee_id from the User row, then check assignment.
+            emp_id = (user.get("employee_id") or "").strip()
+            if not emp_id:
+                raise HTTPException(403, "Not authorized — no linked employee")
+            assigned = db.query(JobAssignment).filter(
+                JobAssignment.scheduled_job_id == job_id,
+                JobAssignment.employee_id == emp_id,
+            ).first()
+            if not assigned:
+                raise HTTPException(403, "Not assigned to this job")
+
+        if body.stain_gallons is not None:
+            j.gallons_estimate = body.stain_gallons
+        if body.bleach_gallons is not None:
+            j.bleach_gallons = body.bleach_gallons
+        j.updated_at = _now()
+        db.commit()
+        db.refresh(j)
+        # Return the role-aware shape so the worker UI can drop the
+        # response straight back into the same job card it called from.
+        return j.to_dict(role=role if role else "worker")
     finally:
         db.close()
 

@@ -1023,6 +1023,16 @@ export const api = {
     request<ScheduledJob>(`/api/schedule/jobs/${jobId}/start`, { method: "POST" }),
   completeScheduledJob: (jobId: string) =>
     request<ScheduledJob>(`/api/schedule/jobs/${jobId}/complete`, { method: "POST" }),
+  /** Worker (or staff) submits actual stain + bleach gallons used on a job.
+   *  Either field can be omitted to leave it unchanged. */
+  updateJobMaterials: (
+    jobId: string,
+    body: { stain_gallons?: number; bleach_gallons?: number },
+  ) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${jobId}/materials`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // Autocomplete — typeahead + recent. Used by CustomerSearchInput +
   // EmployeeSearchInput across reimbursements, time logs, etc.
@@ -1639,6 +1649,9 @@ export interface ScheduleJobBody {
   estimated_duration_hours?: number;
   package_tier?: string;
   closed_price?: number;
+  /** When true, the invite price line renders "Price: X + Tax". Default true. */
+  closed_price_plus_tax?: boolean;
+  /** Free text — supports multiple colors (e.g. "Cabot Cedar, Behr Padre"). */
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
@@ -1669,6 +1682,7 @@ export interface UpdateJobBody {
   estimated_duration_hours?: number;
   package_tier?: string;
   closed_price?: number;
+  closed_price_plus_tax?: boolean;
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
@@ -1752,6 +1766,8 @@ export interface ScheduledJob {
   service_type?: string;  // "fence_staining" | "power_washing" — drives calendar chip color
   // Admin/VA only (package_tier is now in the worker-visible block above)
   closed_price?: number;
+  /** Only sent for admin/va. True = invite shows "Price: X + Tax". */
+  closed_price_plus_tax?: boolean;
   customer_email?: string;
   customer_phone?: string;
   admin_notes?: string;
