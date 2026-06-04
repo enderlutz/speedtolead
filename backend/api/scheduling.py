@@ -799,13 +799,17 @@ def _notify_job_completed(job: ScheduledJob, worker_name: str) -> None:
 def _resolve_worker_name(db, user: dict) -> str:
     """Best-effort: look up the Employee row for the calling worker so
     notifications carry a human name instead of a UUID. Falls back to
-    user.name / user.sub."""
+    user.name / user.sub.
+
+    The User → Employee link lives on the User side (User.employee_id),
+    not on Employee. Read it via the JWT's employee_id claim — Employee
+    itself has no user_id column."""
     name = (user.get("name") or "").strip()
     if name:
         return name
-    user_id = user.get("sub", "")
-    if user_id:
-        emp = db.query(Employee).filter(Employee.user_id == user_id).first()
+    emp_id = (user.get("employee_id") or "").strip()
+    if emp_id:
+        emp = db.query(Employee).filter(Employee.id == emp_id).first()
         if emp:
             return f"{emp.first_name} {emp.last_name}".strip() or emp.first_name or ""
     return ""
@@ -814,21 +818,22 @@ def _resolve_worker_name(db, user: dict) -> str:
 def _assert_user_assigned_or_staff(db, user: dict, job_id: str) -> None:
     """Workers can only start/complete jobs they're assigned to. Admin/VA
     can act on any job (e.g. correcting an accidental tap). Raises 403
-    if a worker tries to act on someone else's job."""
+    if a worker tries to act on someone else's job.
+
+    Worker → Employee lookup uses the JWT's employee_id claim. (We used
+    to do `Employee.user_id == user_id` here, but Employee has no
+    user_id column — that path threw 500 instead of 403.)"""
     role = (user.get("role") or "").lower()
     if role in ("admin", "va"):
         return
-    user_id = user.get("sub", "")
-    if not user_id:
-        raise HTTPException(403, "Not authorized")
-    emp = db.query(Employee).filter(Employee.user_id == user_id).first()
-    if not emp:
-        raise HTTPException(403, "No employee record for current user")
+    emp_id = (user.get("employee_id") or "").strip()
+    if not emp_id:
+        raise HTTPException(403, "No employee record linked to this user")
     assignment = (
         db.query(JobAssignment)
         .filter(
             JobAssignment.scheduled_job_id == job_id,
-            JobAssignment.employee_id == emp.id,
+            JobAssignment.employee_id == emp_id,
         )
         .first()
     )
