@@ -920,6 +920,19 @@ function JobDetailModal({
                   <p className="text-xs whitespace-pre-wrap">{job.customer_notes}</p>
                 </div>
               )}
+              {job.custom_proposal_url && (
+                <div className="bg-violet-50 border border-violet-200 rounded p-2">
+                  <p className="text-xs font-semibold text-violet-900 mb-1">Custom proposal link (override)</p>
+                  <a
+                    href={job.custom_proposal_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-violet-700 hover:underline break-all"
+                  >
+                    {job.custom_proposal_url}
+                  </a>
+                </div>
+              )}
               {job.admin_notes && (
                 <div className="bg-amber-50 border border-amber-200 rounded p-2">
                   <p className="text-xs font-semibold text-amber-900 mb-1">Admin notes</p>

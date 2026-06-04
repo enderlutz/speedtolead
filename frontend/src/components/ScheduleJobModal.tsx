@@ -45,10 +45,16 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [duration, setDuration] = useState(String(existing?.estimated_duration_hours || 6));
   const [pkg, setPkg] = useState(existing?.package_tier || "signature");
   const [price, setPrice] = useState(String(existing?.closed_price || 0));
-  // Defaults true on brand-new jobs so the invite reads "Price: X + Tax"
-  // the way the manual template does. Existing rows respect their stored value.
+  // Defaults OFF on brand-new jobs — admin opts in per-job. Existing rows
+  // respect whatever was saved (undefined treated as off so legacy rows
+  // don't surprise-flip on first edit).
   const [plusTax, setPlusTax] = useState(
-    existing ? existing.closed_price_plus_tax !== false : true,
+    existing ? !!existing.closed_price_plus_tax : false,
+  );
+  // Optional override for the proposal URL on the customer invite. Blank
+  // → backend auto-resolves from the lead's latest Proposal row.
+  const [customProposalUrl, setCustomProposalUrl] = useState(
+    existing?.custom_proposal_url || "",
   );
   // Color picker is now a list — admin can add multiple colors via "+ Add"
   // when the customer wants samples. Backend column is still a single text
@@ -121,6 +127,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           package_tier: pkg,
           closed_price: parseFloat(price) || 0,
           closed_price_plus_tax: plusTax,
+          custom_proposal_url: customProposalUrl.trim(),
           color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -148,6 +155,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           package_tier: pkg,
           closed_price: parseFloat(price) || 0,
           closed_price_plus_tax: plusTax,
+          custom_proposal_url: customProposalUrl.trim(),
           color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -330,6 +338,19 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
                 placeholder="e.g. We bring samples to test colors on your fence before final coats!"
                 className={`${inputCls} mt-1 resize-none`}
               />
+            </div>
+            <div className="mt-3">
+              <label className={labelCls}>Custom Proposal Link (optional — overrides auto-generated)</label>
+              <Input
+                type="url"
+                value={customProposalUrl}
+                onChange={(e) => setCustomProposalUrl(e.target.value)}
+                placeholder="https://proposal.atpressurewash.com/proposal/…"
+                className="mt-1"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Leave blank to use the lead's most recent proposal URL automatically.
+              </p>
             </div>
             <div className="mt-3">
               <label className={labelCls}>Admin Notes (internal only — not on customer invite)</label>

@@ -1649,8 +1649,11 @@ export interface ScheduleJobBody {
   estimated_duration_hours?: number;
   package_tier?: string;
   closed_price?: number;
-  /** When true, the invite price line renders "Price: X + Tax". Default true. */
+  /** When true, the invite price line renders "Price: X + Tax". Default off. */
   closed_price_plus_tax?: boolean;
+  /** Admin-pasted override for the proposal URL on the Google invite. When
+   *  set, the invite uses this instead of the auto-resolved Proposal URL. */
+  custom_proposal_url?: string;
   /** Free text — supports multiple colors (e.g. "Cabot Cedar, Behr Padre"). */
   color_choice?: string;
   needs_test_spots?: boolean;
@@ -1683,6 +1686,7 @@ export interface UpdateJobBody {
   package_tier?: string;
   closed_price?: number;
   closed_price_plus_tax?: boolean;
+  custom_proposal_url?: string;
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
@@ -1768,6 +1772,8 @@ export interface ScheduledJob {
   closed_price?: number;
   /** Only sent for admin/va. True = invite shows "Price: X + Tax". */
   closed_price_plus_tax?: boolean;
+  /** Admin-only. When set, overrides the auto-resolved proposal URL on the invite. */
+  custom_proposal_url?: string;
   customer_email?: string;
   customer_phone?: string;
   admin_notes?: string;

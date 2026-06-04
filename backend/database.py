@@ -860,9 +860,14 @@ class ScheduledJob(Base):
     package_tier = Column(Text, default="")               # essential | signature | legacy | custom
     closed_price = Column(Numeric(10, 2), default=0)
     # Whether the closed_price line on the Google invite should show "+ Tax".
-    # Internal bookkeeping signal — does NOT actually calculate tax. Default
-    # True to match the manual template Alan was already using.
-    closed_price_plus_tax = Column(Boolean, default=True)
+    # Internal bookkeeping signal — does NOT actually calculate tax. New jobs
+    # default off; admin opts in per-job via the schedule modal checkbox.
+    closed_price_plus_tax = Column(Boolean, default=False)
+    # Optional override for the proposal URL on the Google invite. When set,
+    # the invite uses this verbatim instead of auto-resolving from the lead's
+    # latest Proposal row. Lets admin paste a manual link (e.g. a re-sent or
+    # reformatted proposal) without disturbing the source data.
+    custom_proposal_url = Column(Text, default="")
     color_choice = Column(Text, default="")               # stain color (free text + dropdown)
     needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
     gallons_estimate = Column(Numeric(10, 2), default=0)  # sqft / 175 default; editable
@@ -968,6 +973,7 @@ class ScheduledJob(Base):
         base.update({
             "closed_price": float(self.closed_price or 0),
             "closed_price_plus_tax": bool(self.closed_price_plus_tax),
+            "custom_proposal_url": self.custom_proposal_url or "",
             "customer_email": self.customer_email or "",
             "customer_phone": self.customer_phone or "",
             "customer_notes": self.customer_notes or "",
@@ -2084,6 +2090,7 @@ def _run_migrations():
             ("worker_notes", "ALTER TABLE scheduled_jobs ADD COLUMN worker_notes TEXT DEFAULT ''"),
             ("customer_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_notes TEXT DEFAULT ''"),
             ("closed_price_plus_tax", "ALTER TABLE scheduled_jobs ADD COLUMN closed_price_plus_tax BOOLEAN DEFAULT TRUE"),
+            ("custom_proposal_url", "ALTER TABLE scheduled_jobs ADD COLUMN custom_proposal_url TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

@@ -65,7 +65,8 @@ class ScheduleJobBody(BaseModel):
     estimated_duration_hours: float = 6.0
     package_tier: str = ""              # essential | signature | legacy | custom
     closed_price: float = 0
-    closed_price_plus_tax: bool = True  # controls "+ Tax" on the invite price line
+    closed_price_plus_tax: bool = False # controls "+ Tax" on the invite price line; opt-in
+    custom_proposal_url: str = ""       # if set, overrides the auto-resolved proposal URL on the invite
     color_choice: str = ""
     needs_test_spots: bool = False
     gallons_estimate: float = 0
@@ -93,6 +94,7 @@ class UpdateJobBody(BaseModel):
     package_tier: str | None = None
     closed_price: float | None = None
     closed_price_plus_tax: bool | None = None
+    custom_proposal_url: str | None = None
     color_choice: str | None = None
     needs_test_spots: bool | None = None
     gallons_estimate: float | None = None
@@ -198,8 +200,13 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
     # below either uses them or skips silently if missing.
     lead = db.query(Lead).filter(Lead.id == job.lead_id).first() if job.lead_id else None
 
-    proposal_url = ""
-    if lead:
+    # Proposal URL resolution order:
+    #   1) admin-pasted custom_proposal_url on the job (override) — wins
+    #      whenever set, even if the auto-lookup would have worked too.
+    #   2) auto-resolved from the lead's latest Proposal row.
+    # Falls back to "" silently if neither is available.
+    proposal_url = (job.custom_proposal_url or "").strip()
+    if not proposal_url and lead:
         prop = (db.query(Proposal)
                   .filter(Proposal.lead_id == lead.id)
                   .order_by(Proposal.created_at.desc())
@@ -381,6 +388,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             package_tier=body.package_tier,
             closed_price=body.closed_price,
             closed_price_plus_tax=body.closed_price_plus_tax,
+            custom_proposal_url=body.custom_proposal_url or "",
             color_choice=body.color_choice,
             needs_test_spots=body.needs_test_spots,
             gallons_estimate=gallons,
@@ -639,8 +647,8 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
 
         for field in (
             "job_date", "arrival_time", "estimated_duration_hours", "package_tier",
-            "closed_price", "closed_price_plus_tax", "color_choice",
-            "needs_test_spots", "gallons_estimate", "bleach_gallons",
+            "closed_price", "closed_price_plus_tax", "custom_proposal_url",
+            "color_choice", "needs_test_spots", "gallons_estimate", "bleach_gallons",
             "address", "zip_code", "customer_email", "customer_phone",
             "customer_name", "job_description", "worker_notes", "customer_notes",
             "admin_notes", "materials_cost", "materials_notes", "status",
