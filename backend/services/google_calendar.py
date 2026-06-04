@@ -223,6 +223,10 @@ def create_event(
         "description": customer_description,
         "start": {"dateTime": start_iso, "timeZone": timezone_str},
         "end": {"dateTime": end_iso, "timeZone": timezone_str},
+        # Banana / yellow — matches Alan's convention for fence-staining
+        # jobs. Also keeps these events visible when the dashboard list
+        # filters Google Calendar to job colors (banana + tomato only).
+        "colorId": GCAL_COLOR_BANANA,
     }
     if customer_email:
         body["attendees"] = [{"email": customer_email, "displayName": customer_name}]
