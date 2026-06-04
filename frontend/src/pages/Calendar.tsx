@@ -686,8 +686,8 @@ function GoogleEventModal({ event, onClose }: { event: GoogleEvent; onClose: () 
   };
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b flex items-center justify-between">
+      <div className="bg-background rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold flex items-center gap-2">
             <span className="text-[10px] uppercase tracking-wide bg-blue-500 text-white px-1.5 py-0.5 rounded font-bold">Google Calendar</span>
             <span className="truncate">{event.summary || "Event"}</span>
@@ -696,7 +696,7 @@ function GoogleEventModal({ event, onClose }: { event: GoogleEvent; onClose: () 
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="p-4 space-y-3 text-sm">
+        <div className="p-4 space-y-3 text-sm overflow-y-auto flex-1 min-h-0">
           <div className="flex items-center gap-2">
             <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
             <span>
@@ -789,14 +789,14 @@ function JobDetailModal({
       : { cls: "bg-amber-100 text-amber-800 border border-amber-200", icon: <DollarSign className="h-3 w-3" />, label: "UNPAID" };
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b flex items-center justify-between">
+      <div className="bg-background rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold">{job.customer_name || "Job"}</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="p-4 space-y-3 text-sm">
+        <div className="p-4 space-y-3 text-sm overflow-y-auto flex-1 min-h-0">
           <div className="flex items-center gap-2">
             <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
             <span>{job.job_date} at {job.arrival_time}</span>
@@ -909,7 +909,7 @@ function JobDetailModal({
           <SopChecklistPanel scheduledJobId={job.id} asWorker={showAsWorker} />
         </div>
         {(onEdit || onDelete || onLogTime || onReimburse || onViewPL || onMarkPaid || onGenerateInvoice) && (
-          <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
+          <div className="p-3 border-t flex justify-end gap-2 flex-wrap shrink-0">
             {onDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={onDelete}>Cancel job</Button>}
             {onViewPL && (
               <Button variant="outline" size="sm" onClick={onViewPL} title="See revenue, labor, reimbursements, and margin for this job">
