@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import or_
 
-from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User
+from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User, Proposal
 from api.auth import require_admin, require_staff, get_current_user
 from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
@@ -68,12 +68,15 @@ class ScheduleJobBody(BaseModel):
     color_choice: str = ""
     needs_test_spots: bool = False
     gallons_estimate: float = 0
+    bleach_gallons: float = 0           # admin-input, no formula
     address: str = ""
     zip_code: str = ""
     customer_email: str = ""
     customer_phone: str = ""
     customer_name: str = ""
-    job_description: str = ""
+    job_description: str = ""           # legacy single-text field
+    worker_notes: str = ""              # worker-facing notes (sanitized on read)
+    customer_notes: str = ""             # rendered into Google invite description
     admin_notes: str = ""
     materials_cost: float = 0
     materials_notes: str = ""
@@ -91,12 +94,15 @@ class UpdateJobBody(BaseModel):
     color_choice: str | None = None
     needs_test_spots: bool | None = None
     gallons_estimate: float | None = None
+    bleach_gallons: float | None = None
     address: str | None = None
     zip_code: str | None = None
     customer_email: str | None = None
     customer_phone: str | None = None
     customer_name: str | None = None
     job_description: str | None = None
+    worker_notes: str | None = None
+    customer_notes: str | None = None
     admin_notes: str | None = None
     materials_cost: float | None = None
     materials_notes: str | None = None
@@ -120,25 +126,95 @@ class GoogleCallbackBody(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _customer_invite_description(job: ScheduledJob) -> str:
-    """Sanitized — what the customer sees in their Google invite. No price,
-    no package, no admin notes."""
-    arrival = job.arrival_time or "07:30"
-    parts = [
-        f"Sterling Fence Staining will be at your property on {job.job_date}.",
-        f"The crew typically arrives between 7:00–8:00 AM (scheduled for {arrival}).",
-        "",
+_INVITE_INCLUDED_BLOCK = (
+    "✅ What's Included:\n"
+    "• Cleaning of fence\n"
+    "• Two professional coats of your choice of stain 🎨\n"
+    "• Maximum penetration & long-lasting results 🖌️\n"
+    "• Professional prep & cleanup included ✔️"
+)
+_INVITE_WHY_BLOCK = (
+    "🌟 Why Customers Choose Us:\n"
+    "• Rich finish\n"
+    "• High-quality professional products\n"
+    "• Attention to detail on every board\n"
+    "• Clean communication & reliable scheduling"
+)
+
+
+def _customer_invite_description(job: ScheduledJob, db) -> str:
+    """Build the customer-facing Google Calendar invite description.
+
+    Format mirrors the manual template Alan was pasting into events:
+    "Here it is!" intro, brand + Your Estimate header, proposal URL,
+    price line, fence sides, custom customer_notes (if any), then a
+    hardcoded marketing copy block (What's Included + Why Customers
+    Choose Us). Sections separated by a single blank line per user's
+    "remove the spaces in between" note.
+
+    Customer gets the FULL detail here (including price + proposal URL).
+    When a worker views the same event through our dashboard the
+    sanitize_for_worker pass in google_calendar.list_events strips the
+    price and proposal link from what they see, so the same event is
+    safe for both audiences."""
+    # Pull lead + latest proposal + fence sides up front — every section
+    # below either uses them or skips silently if missing.
+    lead = db.query(Lead).filter(Lead.id == job.lead_id).first() if job.lead_id else None
+
+    proposal_url = ""
+    if lead:
+        prop = (db.query(Proposal)
+                  .filter(Proposal.lead_id == lead.id)
+                  .order_by(Proposal.created_at.desc())
+                  .first())
+        if prop and prop.token:
+            try:
+                base = get_settings().proposal_base_url.rstrip("/")
+                proposal_url = f"{base}/proposal/{prop.token}"
+            except Exception:
+                proposal_url = ""
+
+    fence_sides_label = ""
+    if lead:
+        try:
+            import json as _json
+            from api.estimates import _build_pricing_includes
+            fd = _json.loads(lead.form_data or "{}")
+            raw_sides = fd.get("fence_sides", [])
+            if isinstance(raw_sides, str):
+                raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
+            if isinstance(raw_sides, list) and raw_sides:
+                fence_sides_label = _build_pricing_includes(raw_sides, fd)
+        except Exception as e:
+            logger.warning(f"Invite description: fence sides build failed: {e}")
+
+    parts: list[str] = [
+        "Here it is!",
+        "Sterling Fence Staining - Your Estimate",
     ]
-    if job.job_description:
-        parts.append(f"Job overview: {job.job_description}")
+    if proposal_url:
+        parts += ["", proposal_url]
+
+    price = float(job.closed_price or 0)
+    if price > 0:
+        parts += ["", f"${price:,.0f} + Tax"]
+
+    if fence_sides_label:
+        parts += ["", f"Sides: {fence_sides_label}"]
+
+    # Admin-curated customer note — slots in above the marketing copy
+    # so the customer reads "personal note about your job" before the
+    # generic value-prop bullets.
+    if (job.customer_notes or "").strip():
+        parts += ["", job.customer_notes.strip()]
+
     if job.needs_test_spots:
-        parts.append("We'll do test stain patches first; you can approve a final color the same day.")
-    parts += [
-        "",
-        "Reply to this invite to confirm. Questions? Reach out anytime.",
-        "",
-        "— Sterling Fence Staining",
-    ]
+        parts += [
+            "",
+            "We'll do test stain patches first; you can approve a final color the same day.",
+        ]
+
+    parts += ["", _INVITE_INCLUDED_BLOCK, "", _INVITE_WHY_BLOCK]
     return "\n".join(parts)
 
 
@@ -251,6 +327,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             color_choice=body.color_choice,
             needs_test_spots=body.needs_test_spots,
             gallons_estimate=gallons,
+            bleach_gallons=body.bleach_gallons or 0,
             address=address,
             zip_code=zip_code,
             lat=lat,
@@ -259,6 +336,8 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             customer_phone=customer_phone,
             customer_name=customer_name,
             job_description=body.job_description,
+            worker_notes=body.worker_notes or "",
+            customer_notes=body.customer_notes or "",
             admin_notes=body.admin_notes,
             materials_cost=body.materials_cost or 0,
             materials_notes=body.materials_notes or "",
@@ -310,7 +389,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
                     customer_name=customer_name or "Customer",
                     customer_email=customer_email,
                     address=address,
-                    customer_description=_customer_invite_description(job),
+                    customer_description=_customer_invite_description(job, db),
                 )
                 if event_id:
                     job.google_event_id = event_id
@@ -500,9 +579,9 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
         for field in (
             "job_date", "arrival_time", "estimated_duration_hours", "package_tier",
             "closed_price", "color_choice", "needs_test_spots", "gallons_estimate",
-            "address", "zip_code", "customer_email", "customer_phone",
-            "customer_name", "job_description", "admin_notes",
-            "materials_cost", "materials_notes", "status",
+            "bleach_gallons", "address", "zip_code", "customer_email", "customer_phone",
+            "customer_name", "job_description", "worker_notes", "customer_notes",
+            "admin_notes", "materials_cost", "materials_notes", "status",
         ):
             v = getattr(body, field)
             if v is not None:
@@ -532,7 +611,7 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
                     duration_hours=float(j.estimated_duration_hours or 6),
                     customer_name=j.customer_name or "",
                     address=j.address or "",
-                    customer_description=_customer_invite_description(j),
+                    customer_description=_customer_invite_description(j, db),
                 )
             except Exception as e:
                 logger.warning(f"Google update_event non-fatal failure: {e}")

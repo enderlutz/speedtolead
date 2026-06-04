@@ -862,6 +862,7 @@ class ScheduledJob(Base):
     color_choice = Column(Text, default="")               # stain color (free text + dropdown)
     needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
     gallons_estimate = Column(Numeric(10, 2), default=0)  # sqft / 175 default; editable
+    bleach_gallons = Column(Numeric(10, 2), default=0)    # cleaning step; admin-input, no formula
     address = Column(Text, default="")                    # snapshot from lead at schedule time
     zip_code = Column(Text, default="")                   # for weather lookup
     # Geocoded coordinates for the worker map. Filled on job create from the
@@ -872,7 +873,12 @@ class ScheduledJob(Base):
     customer_email = Column(Text, default="")             # invite recipient
     customer_phone = Column(Text, default="")
     customer_name = Column(Text, default="")
-    job_description = Column(Text, default="")            # what employees see
+    job_description = Column(Text, default="")            # LEGACY single-text field; new flows use worker_notes + customer_notes below
+    # Split notes: worker_notes ends up on My Day + worker calendar view (sanitized);
+    # customer_notes ends up in the Google invite description block above the
+    # marketing copy. admin_notes is internal-only and never leaves the dashboard.
+    worker_notes = Column(Text, default="")
+    customer_notes = Column(Text, default="")
     admin_notes = Column(Text, default="")                # admin-only, not on customer invite
     google_event_id = Column(Text, default="")            # Calendar event id for updates/deletes
     customer_invited = Column(Boolean, default=False)
@@ -914,7 +920,11 @@ class ScheduledJob(Base):
     updated_at = Column(Text, default="")
 
     def to_dict(self, *, role: str = "admin") -> dict:
-        """Role-aware serialization. Workers don't see price/package/admin_notes."""
+        """Role-aware serialization. Workers don't see price/customer_notes/admin_notes,
+        but DO see package_tier, color_choice, bleach_gallons + worker_notes — they
+        need those to do the job. Anything free-text that workers receive is run
+        through sanitize_for_worker so a stray "$1859" or proposal URL pasted by
+        an admin doesn't leak."""
         base = {
             "id": self.id,
             "lead_id": self.lead_id,
@@ -926,29 +936,36 @@ class ScheduledJob(Base):
             "lat": float(self.lat or 0.0),
             "lng": float(self.lng or 0.0),
             "customer_name": self.customer_name or "",
+            "package_tier": self.package_tier or "",
             "color_choice": self.color_choice or "",
             "needs_test_spots": bool(self.needs_test_spots),
             "gallons_estimate": float(self.gallons_estimate or 0),
+            "bleach_gallons": float(self.bleach_gallons or 0),
             "job_description": self.job_description or "",
+            "worker_notes": self.worker_notes or "",
             "status": self.status or "scheduled",
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "google_event_id": self.google_event_id or "",
         }
         if role == "worker":
-            # Strip price / proposal URLs / sales vocab from the description
-            # before workers see it. Same sanitizer is applied to Google
-            # event descriptions over in google_calendar.list_events when
-            # role=worker so both sources are consistent.
+            # Strip price / proposal URLs / sales vocab from anything free-text
+            # before workers see it. Same sanitizer is applied to Google event
+            # descriptions over in google_calendar.list_events when role=worker
+            # so both sources are consistent. customer_notes never leaves the
+            # backend for workers — that block is customer-facing copy and
+            # often includes the price/proposal language we'd just strip.
             from services.role_sanitizer import sanitize_for_worker
             base["job_description"] = sanitize_for_worker(base.get("job_description") or "")
+            base["worker_notes"] = sanitize_for_worker(base.get("worker_notes") or "")
             return base  # workers see only what's needed to do the job
-        # admin / va get everything
+        # admin / va get everything (package_tier already in base now since
+        # workers also see it; the other admin-only fields land here).
         base.update({
-            "package_tier": self.package_tier or "",
             "closed_price": float(self.closed_price or 0),
             "customer_email": self.customer_email or "",
             "customer_phone": self.customer_phone or "",
+            "customer_notes": self.customer_notes or "",
             "admin_notes": self.admin_notes or "",
             "customer_invited": bool(self.customer_invited),
             "customer_thank_you_sent": bool(self.customer_thank_you_sent),
@@ -2058,6 +2075,9 @@ def _run_migrations():
             ("completed_by", "ALTER TABLE scheduled_jobs ADD COLUMN completed_by TEXT DEFAULT ''"),
             ("lat", "ALTER TABLE scheduled_jobs ADD COLUMN lat DOUBLE PRECISION DEFAULT 0"),
             ("lng", "ALTER TABLE scheduled_jobs ADD COLUMN lng DOUBLE PRECISION DEFAULT 0"),
+            ("bleach_gallons", "ALTER TABLE scheduled_jobs ADD COLUMN bleach_gallons NUMERIC(10,2) DEFAULT 0"),
+            ("worker_notes", "ALTER TABLE scheduled_jobs ADD COLUMN worker_notes TEXT DEFAULT ''"),
+            ("customer_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_notes TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:
