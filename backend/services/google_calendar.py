@@ -198,18 +198,20 @@ def create_event(
     address: str,
     customer_description: str,
     timezone_str: str = "America/Chicago",
-) -> str | None:
-    """Create a Google Calendar event. Returns the event ID. The customer is
-    added as an attendee, which causes Google to send them an invite email.
+) -> tuple[str | None, str]:
+    """Create a Google Calendar event. Returns (event_id, html_link). The
+    customer is added as an attendee, which causes Google to send them an
+    invite email. html_link is the viewable Google Calendar URL — empty
+    string when create fails or the response omits it.
 
-    `customer_description` is the SANITIZED description — what the customer
-    sees. Internal details (price, package, gallons, admin notes) live on
-    our DB row only, never on the Google event."""
+    `customer_description` is the description the customer sees. Internal
+    details (admin notes, materials_cost) live on our DB row only — never
+    on the Google event."""
     try:
         access = _get_access_token(db)
     except Exception as e:
         logger.error(f"Google Calendar create_event: token unavailable: {e}")
-        return None
+        return (None, "")
 
     start_iso = f"{job_date}T{arrival_time}:00"
     end_dt = datetime.fromisoformat(start_iso) + timedelta(hours=max(duration_hours, 1))
@@ -234,10 +236,11 @@ def create_event(
             json=body,
         )
         r.raise_for_status()
-        return r.json().get("id")
+        data = r.json()
+        return (data.get("id"), data.get("htmlLink", "") or "")
     except Exception as e:
         logger.error(f"Google Calendar create_event failed: {e}")
-        return None
+        return (None, "")
 
 
 def update_event(

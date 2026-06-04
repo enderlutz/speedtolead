@@ -1654,6 +1654,11 @@ export interface ScheduleJobBody {
   /** Admin-pasted override for the proposal URL on the Google invite. When
    *  set, the invite uses this instead of the auto-resolved Proposal URL. */
   custom_proposal_url?: string;
+  /** CSV of selected fence sides. When set, overrides lead.form_data.fence_sides
+   *  on both the invite "Sides:" line and the worker view label. */
+  fence_sides_override?: string;
+  /** Free-form addendum appended to the Sides line on the invite + worker view. */
+  additional_sides_text?: string;
   /** Free text — supports multiple colors (e.g. "Cabot Cedar, Behr Padre"). */
   color_choice?: string;
   needs_test_spots?: boolean;
@@ -1687,6 +1692,8 @@ export interface UpdateJobBody {
   closed_price?: number;
   closed_price_plus_tax?: boolean;
   custom_proposal_url?: string;
+  fence_sides_override?: string;
+  additional_sides_text?: string;
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
@@ -1774,6 +1781,12 @@ export interface ScheduledJob {
   closed_price_plus_tax?: boolean;
   /** Admin-only. When set, overrides the auto-resolved proposal URL on the invite. */
   custom_proposal_url?: string;
+  /** Admin-only. CSV of selected fence sides; overrides lead.form_data on display. */
+  fence_sides_override?: string;
+  /** Admin-only. Free-form addendum appended to Sides on the invite + worker view. */
+  additional_sides_text?: string;
+  /** Admin-only. Viewable Google Calendar URL captured at event-create time. */
+  google_event_html_link?: string;
   customer_email?: string;
   customer_phone?: string;
   admin_notes?: string;

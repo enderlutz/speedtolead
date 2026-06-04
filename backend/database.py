@@ -882,6 +882,15 @@ class ScheduledJob(Base):
     customer_email = Column(Text, default="")             # invite recipient
     customer_phone = Column(Text, default="")
     customer_name = Column(Text, default="")
+    # Admin-curated override for the "Sides:" line on the Google invite +
+    # worker view. CSV of selected sides ("Inside of fence, Outside Back").
+    # When non-empty, beats the auto-resolution from lead.form_data.fence_sides.
+    # Use case: customer removes a side after the proposal, admin checks
+    # boxes to reflect what the crew will actually stain.
+    fence_sides_override = Column(Text, default="")
+    # Free-form addendum appended to the Sides line. Catches one-off sides
+    # the proposal didn't enumerate ("includes back deck rails").
+    additional_sides_text = Column(Text, default="")
     job_description = Column(Text, default="")            # LEGACY single-text field; new flows use worker_notes + customer_notes below
     # Split notes: worker_notes ends up on My Day + worker calendar view (sanitized);
     # customer_notes ends up in the Google invite description block above the
@@ -890,6 +899,10 @@ class ScheduledJob(Base):
     customer_notes = Column(Text, default="")
     admin_notes = Column(Text, default="")                # admin-only, not on customer invite
     google_event_id = Column(Text, default="")            # Calendar event id for updates/deletes
+    # The viewable Google Calendar URL (htmlLink in Google's response). Stored
+    # so the customer thank-you SMS can include a tap-to-view link to the
+    # event — handy when the customer wants to add it to their phone calendar.
+    google_event_html_link = Column(Text, default="")
     customer_invited = Column(Boolean, default=False)
     customer_thank_you_sent = Column(Boolean, default=False)
     status = Column(Text, default="scheduled")            # scheduled | in_progress | completed | cancelled
@@ -974,6 +987,9 @@ class ScheduledJob(Base):
             "closed_price": float(self.closed_price or 0),
             "closed_price_plus_tax": bool(self.closed_price_plus_tax),
             "custom_proposal_url": self.custom_proposal_url or "",
+            "fence_sides_override": self.fence_sides_override or "",
+            "additional_sides_text": self.additional_sides_text or "",
+            "google_event_html_link": self.google_event_html_link or "",
             "customer_email": self.customer_email or "",
             "customer_phone": self.customer_phone or "",
             "customer_notes": self.customer_notes or "",
@@ -2091,6 +2107,9 @@ def _run_migrations():
             ("customer_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_notes TEXT DEFAULT ''"),
             ("closed_price_plus_tax", "ALTER TABLE scheduled_jobs ADD COLUMN closed_price_plus_tax BOOLEAN DEFAULT TRUE"),
             ("custom_proposal_url", "ALTER TABLE scheduled_jobs ADD COLUMN custom_proposal_url TEXT DEFAULT ''"),
+            ("fence_sides_override", "ALTER TABLE scheduled_jobs ADD COLUMN fence_sides_override TEXT DEFAULT ''"),
+            ("additional_sides_text", "ALTER TABLE scheduled_jobs ADD COLUMN additional_sides_text TEXT DEFAULT ''"),
+            ("google_event_html_link", "ALTER TABLE scheduled_jobs ADD COLUMN google_event_html_link TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

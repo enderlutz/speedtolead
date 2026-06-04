@@ -933,6 +933,29 @@ function JobDetailModal({
                   </a>
                 </div>
               )}
+              {(job.fence_sides_override || job.additional_sides_text) && (
+                <div className="bg-violet-50 border border-violet-200 rounded p-2">
+                  <p className="text-xs font-semibold text-violet-900 mb-1">Sides override</p>
+                  {job.fence_sides_override && (
+                    <p className="text-xs"><span className="font-semibold">Selected:</span> {job.fence_sides_override}</p>
+                  )}
+                  {job.additional_sides_text && (
+                    <p className="text-xs"><span className="font-semibold">Additional:</span> {job.additional_sides_text}</p>
+                  )}
+                </div>
+              )}
+              {job.google_event_html_link && (
+                <p className="text-xs">
+                  <a
+                    href={job.google_event_html_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    Open in Google Calendar →
+                  </a>
+                </p>
+              )}
               {job.admin_notes && (
                 <div className="bg-amber-50 border border-amber-200 rounded p-2">
                   <p className="text-xs font-semibold text-amber-900 mb-1">Admin notes</p>

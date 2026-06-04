@@ -56,6 +56,64 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [customProposalUrl, setCustomProposalUrl] = useState(
     existing?.custom_proposal_url || "",
   );
+
+  // Fence-sides override: admin checks the sides the crew will actually
+  // stain (defaults to whatever the lead's proposal listed). Useful when
+  // the customer drops a side post-sale. Backend stores selected as CSV
+  // in fence_sides_override; if non-empty it beats the lead-data lookup.
+  //
+  // availableSides is the union of (lead form_data sides ∪ override),
+  // so an override referencing a side the lead no longer carries still
+  // renders a checkbox the admin can act on.
+  const leadFenceSides = useMemo<string[]>(() => {
+    const raw = (lead.form_data as Record<string, unknown> | undefined)?.fence_sides;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return (raw as unknown[]).map(String).filter(Boolean);
+    const s = String(raw).trim();
+    if (!s) return [];
+    // JSON-array string? ("[\"Inside Fences\",\"Back\"]")
+    if (s.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+      } catch { /* fall through to CSV */ }
+    }
+    return s.split(",").map((x) => x.trim()).filter(Boolean);
+  }, [lead.form_data]);
+  const initialOverrideSides = useMemo<string[]>(() => {
+    const csv = (existing?.fence_sides_override || "").trim();
+    if (!csv) return [];
+    return csv.split(",").map((s) => s.trim()).filter(Boolean);
+  }, [existing?.fence_sides_override]);
+  const availableSides = useMemo<string[]>(() => {
+    // Stable order: lead's sides first, then any extras the override mentions.
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const s of [...leadFenceSides, ...initialOverrideSides]) {
+      const t = s.trim();
+      if (t && !seen.has(t)) { seen.add(t); out.push(t); }
+    }
+    return out;
+  }, [leadFenceSides, initialOverrideSides]);
+  // Initial selection: if this is an existing job with an override, use
+  // exactly that. Otherwise (new job, or no override saved), pre-check
+  // every lead side so the admin starts from "as proposed."
+  const [selectedSides, setSelectedSides] = useState<Set<string>>(() => {
+    if (initialOverrideSides.length > 0) return new Set(initialOverrideSides);
+    return new Set(leadFenceSides);
+  });
+  const toggleSide = (s: string) =>
+    setSelectedSides((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s); else next.add(s);
+      return next;
+    });
+  const [additionalSides, setAdditionalSides] = useState(
+    existing?.additional_sides_text || "",
+  );
+  // Stable serialization for the payload — keep availableSides order so
+  // the rendered string matches what the admin saw checked top-to-bottom.
+  const fenceSidesOverrideCsv = availableSides.filter((s) => selectedSides.has(s)).join(", ");
   // Color picker is now a list — admin can add multiple colors via "+ Add"
   // when the customer wants samples. Backend column is still a single text
   // field; we join with ", " on save and split on ", " on load.
@@ -128,6 +186,8 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           closed_price: parseFloat(price) || 0,
           closed_price_plus_tax: plusTax,
           custom_proposal_url: customProposalUrl.trim(),
+          fence_sides_override: fenceSidesOverrideCsv,
+          additional_sides_text: additionalSides.trim(),
           color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -156,6 +216,8 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           closed_price: parseFloat(price) || 0,
           closed_price_plus_tax: plusTax,
           custom_proposal_url: customProposalUrl.trim(),
+          fence_sides_override: fenceSidesOverrideCsv,
+          additional_sides_text: additionalSides.trim(),
           color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -294,7 +356,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
                   min="0"
                   value={gallons}
                   onChange={(e) => setGallons(e.target.value)}
-                  placeholder="Crew fills in at end of day"
+                  placeholder="Project coordinator fills in at the start"
                   className="mt-1"
                 />
               </div>
@@ -306,7 +368,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
                   min="0"
                   value={bleach}
                   onChange={(e) => setBleach(e.target.value)}
-                  placeholder="Crew fills in at end of day"
+                  placeholder="Project coordinator fills in at the start"
                   className="mt-1"
                 />
               </div>
@@ -315,6 +377,42 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
               <input type="checkbox" checked={needsTestSpots} onChange={(e) => setNeedsTestSpots(e.target.checked)} />
               Customer wants test stain patches first (same day, before final color)
             </label>
+
+            {/* Fence sides override — check the sides the crew will stain.
+                Pre-checked from the lead's proposal data. Unchecking removes
+                a side from the invite + worker view (e.g. customer dropped a
+                side after the proposal). Free-form "Additional sides" input
+                catches the long tail. */}
+            <div className="mt-3">
+              <label className={labelCls}>Fence Sides for this Job</label>
+              {availableSides.length > 0 ? (
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  {availableSides.map((side) => (
+                    <label key={side} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedSides.has(side)}
+                        onChange={() => toggleSide(side)}
+                      />
+                      <span className="break-words">{side}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  No sides on file for this lead. Use "Additional sides" below.
+                </p>
+              )}
+              <Input
+                value={additionalSides}
+                onChange={(e) => setAdditionalSides(e.target.value)}
+                placeholder="Additional sides (e.g. back deck rails)"
+                className="mt-2"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Overrides the Sides line on the customer invite + worker view.
+              </p>
+            </div>
 
             {/* Notes split into 3 audiences: workers (on the job), customer
                 (lands in Google invite description above marketing copy), and

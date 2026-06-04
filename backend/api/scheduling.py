@@ -67,6 +67,8 @@ class ScheduleJobBody(BaseModel):
     closed_price: float = 0
     closed_price_plus_tax: bool = False # controls "+ Tax" on the invite price line; opt-in
     custom_proposal_url: str = ""       # if set, overrides the auto-resolved proposal URL on the invite
+    fence_sides_override: str = ""      # CSV of selected sides; empty falls back to lead.form_data.fence_sides
+    additional_sides_text: str = ""     # free-form addendum appended to the Sides line
     color_choice: str = ""
     needs_test_spots: bool = False
     gallons_estimate: float = 0
@@ -95,6 +97,8 @@ class UpdateJobBody(BaseModel):
     closed_price: float | None = None
     closed_price_plus_tax: bool | None = None
     custom_proposal_url: str | None = None
+    fence_sides_override: str | None = None
+    additional_sides_text: str | None = None
     color_choice: str | None = None
     needs_test_spots: bool | None = None
     gallons_estimate: float | None = None
@@ -158,6 +162,39 @@ _INVITE_REBRAND_FOOTER = (
 _INVITE_COLOR_FALLBACK = "We will bring you multiple different colors to test!"
 
 
+def _resolve_fence_sides_label(job: ScheduledJob, lead) -> str:
+    """Resolve the final 'Sides: …' text for a job.
+
+    Order of precedence:
+      1. job.fence_sides_override (CSV the admin selected/edited at
+         schedule time) — wins whenever non-empty.
+      2. lead.form_data.fence_sides, run through _build_pricing_includes
+         so the wording matches what the customer saw on their proposal.
+
+    Then job.additional_sides_text is appended (comma-separated) so the
+    crew sees one-off additions ('+ back deck rails') without having to
+    re-architect the side picker."""
+    override = (job.fence_sides_override or "").strip()
+    label = override
+    if not label and lead:
+        try:
+            import json as _json
+            from api.estimates import _build_pricing_includes
+            fd = _json.loads(lead.form_data or "{}")
+            raw_sides = fd.get("fence_sides", [])
+            if isinstance(raw_sides, str):
+                raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
+            if isinstance(raw_sides, list) and raw_sides:
+                label = _build_pricing_includes(raw_sides, fd)
+        except Exception as e:
+            logger.warning(f"fence_sides resolve failed for job {job.id}: {e}")
+
+    additional = (job.additional_sides_text or "").strip()
+    if additional:
+        label = f"{label}, {additional}" if label else additional
+    return label
+
+
 def _package_label(tier: str) -> str:
     """Map a package_tier slug to the customer-facing label that lands on
     the invite line "Package: …". Unknown tiers fall back to title-case
@@ -218,19 +255,7 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
             except Exception:
                 proposal_url = ""
 
-    fence_sides_label = ""
-    if lead:
-        try:
-            import json as _json
-            from api.estimates import _build_pricing_includes
-            fd = _json.loads(lead.form_data or "{}")
-            raw_sides = fd.get("fence_sides", [])
-            if isinstance(raw_sides, str):
-                raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
-            if isinstance(raw_sides, list) and raw_sides:
-                fence_sides_label = _build_pricing_includes(raw_sides, fd)
-        except Exception as e:
-            logger.warning(f"Invite description: fence sides build failed: {e}")
+    fence_sides_label = _resolve_fence_sides_label(job, lead)
 
     parts: list[str] = []
 
@@ -327,6 +352,11 @@ def _send_customer_thank_you(job: ScheduledJob) -> bool:
             f"{job.job_date}. We'll be at {job.address} between 7:00–8:00 AM. "
             f"A calendar invite has been sent to your email."
         )
+        # If we got an htmlLink back when creating the Google event, drop
+        # it in as a tap-to-view link so the customer can add the event
+        # to their phone calendar without rummaging through email.
+        if (job.google_event_html_link or "").strip():
+            msg = f"{msg}\n\nView on Google Calendar: {job.google_event_html_link.strip()}"
         return ghl.send_sms(lead.ghl_contact_id, msg, location_id=lead.ghl_location_id)
     finally:
         db.close()
@@ -389,6 +419,8 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             closed_price=body.closed_price,
             closed_price_plus_tax=body.closed_price_plus_tax,
             custom_proposal_url=body.custom_proposal_url or "",
+            fence_sides_override=body.fence_sides_override or "",
+            additional_sides_text=body.additional_sides_text or "",
             color_choice=body.color_choice,
             needs_test_spots=body.needs_test_spots,
             gallons_estimate=gallons,
@@ -446,7 +478,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         # Google Calendar event (best-effort — don't fail the schedule if Google fails)
         if body.send_calendar_invite:
             try:
-                event_id = google_calendar.create_event(
+                event_id, html_link = google_calendar.create_event(
                     db,
                     job_date=job.job_date,
                     arrival_time=job.arrival_time or "07:30",
@@ -458,6 +490,9 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
                 )
                 if event_id:
                     job.google_event_id = event_id
+                    # Stored so the customer thank-you SMS can ship a
+                    # tap-to-view link. Empty when Google didn't return one.
+                    job.google_event_html_link = html_link
                     job.customer_invited = bool(customer_email)
                     db.commit()
             except Exception as e:
@@ -534,30 +569,16 @@ def list_scheduled_jobs(
             db.commit()
 
         out = []
-        # Cache lead service_type + fence-sides label to avoid N+1 queries.
-        # fence_sides lives on the lead's form_data; workers need to see
-        # it on the calendar so they know what surfaces to stain.
+        # Cache Lead rows so we can look up form_data + service_type once
+        # per lead, but resolve fence_sides PER JOB so per-job overrides
+        # (job.fence_sides_override + job.additional_sides_text) are honored.
         lead_ids = {j.lead_id for j in jobs}
         service_by_lead: dict[str, str] = {}
-        fence_sides_by_lead: dict[str, str] = {}
+        leads_by_id: dict[str, Lead] = {}
         if lead_ids:
-            from api.estimates import _build_pricing_includes
-            import json as _json
             for l in db.query(Lead).filter(Lead.id.in_(lead_ids)).all():
                 service_by_lead[l.id] = l.service_type or "fence_staining"
-                # Pull fence_sides from form_data and run it through the same
-                # _build_pricing_includes helper the proposal PDF uses, so
-                # the calendar label reads exactly like the customer's quote
-                # ("Inside Fences, Outside Front, Back").
-                try:
-                    fd = _json.loads(l.form_data or "{}")
-                except (TypeError, ValueError):
-                    fd = {}
-                raw_sides = fd.get("fence_sides", [])
-                if isinstance(raw_sides, str):
-                    raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
-                if isinstance(raw_sides, list) and raw_sides:
-                    fence_sides_by_lead[l.id] = _build_pricing_includes(raw_sides, fd)
+                leads_by_id[l.id] = l
 
         # Weather lookup cache so we only call open-meteo once per unique
         # zip in this response (it's already 30-min cached inside the
@@ -570,7 +591,7 @@ def list_scheduled_jobs(
             assigns = db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
             row["assigned_employee_ids"] = [a.employee_id for a in assigns]
             row["service_type"] = service_by_lead.get(j.lead_id, "fence_staining")
-            row["fence_sides_label"] = fence_sides_by_lead.get(j.lead_id, "")
+            row["fence_sides_label"] = _resolve_fence_sides_label(j, leads_by_id.get(j.lead_id))
 
             # Attach today's weather for the job's ZIP. Surfaces to workers
             # as a per-card badge so they can see precip risk at a glance.
@@ -612,25 +633,11 @@ def get_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
         row = j.to_dict(role=role)
         assigns = db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
         row["assigned_employee_ids"] = [a.employee_id for a in assigns]
-        # Same fence_sides lookup as the list endpoint so single-job
-        # detail panels get the surfaces label too.
-        try:
-            from api.estimates import _build_pricing_includes
-            import json as _json
-            lead = db.query(Lead).filter(Lead.id == j.lead_id).first()
-            if lead:
-                fd = _json.loads(lead.form_data or "{}")
-                raw_sides = fd.get("fence_sides", [])
-                if isinstance(raw_sides, str):
-                    raw_sides = [s.strip() for s in raw_sides.split(",") if s.strip()]
-                if isinstance(raw_sides, list) and raw_sides:
-                    row["fence_sides_label"] = _build_pricing_includes(raw_sides, fd)
-                else:
-                    row["fence_sides_label"] = ""
-            else:
-                row["fence_sides_label"] = ""
-        except Exception:
-            row["fence_sides_label"] = ""
+        # Single-job detail panel — resolve fence_sides via the same
+        # helper as the list endpoint so per-job overrides + additional
+        # sides text apply here too.
+        lead = db.query(Lead).filter(Lead.id == j.lead_id).first() if j.lead_id else None
+        row["fence_sides_label"] = _resolve_fence_sides_label(j, lead)
         return row
     finally:
         db.close()
@@ -648,6 +655,7 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
         for field in (
             "job_date", "arrival_time", "estimated_duration_hours", "package_tier",
             "closed_price", "closed_price_plus_tax", "custom_proposal_url",
+            "fence_sides_override", "additional_sides_text",
             "color_choice", "needs_test_spots", "gallons_estimate", "bleach_gallons",
             "address", "zip_code", "customer_email", "customer_phone",
             "customer_name", "job_description", "worker_notes", "customer_notes",
