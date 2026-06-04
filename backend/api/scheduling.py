@@ -318,7 +318,7 @@ def _send_customer_thank_you(job: ScheduledJob) -> bool:
         msg = (
             f"Thanks for choosing Sterling Fence Staining! You're scheduled for "
             f"{job.job_date}. We'll be at {job.address} between 7:00–8:00 AM. "
-            f"A calendar invite has been sent to your email — reply YES to confirm."
+            f"A calendar invite has been sent to your email."
         )
         return ghl.send_sms(lead.ghl_contact_id, msg, location_id=lead.ghl_location_id)
     finally:
