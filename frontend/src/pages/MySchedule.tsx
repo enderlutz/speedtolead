@@ -353,10 +353,11 @@ function TodayJobCard({
           </div>
         )}
 
-        {/* Materials editor — once work's underway (or wrapped), let the
-            crew type the actual gallons used. Hidden on "scheduled" since
-            they haven't touched the truck yet. */}
-        {(job.status === "in_progress" || job.status === "completed") && (
+        {/* Materials editor — workers see and edit stain + bleach gallons.
+            Renders on scheduled / in_progress / completed (skips cancelled
+            since the job's dead). Pre-fills from admin's input when set,
+            blank otherwise. Crew tweaks before, during, or after. */}
+        {job.status !== "cancelled" && (
           <MaterialsEditor job={job} onSaved={onMaterialsSaved} />
         )}
 

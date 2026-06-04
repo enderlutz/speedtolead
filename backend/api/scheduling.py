@@ -360,20 +360,13 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         customer_phone = body.customer_phone or lead.contact_phone or ""
         customer_email = body.customer_email or lead.contact_email or ""
 
-        # Default gallons from latest estimate sqft if not supplied
-        gallons = body.gallons_estimate
-        if gallons <= 0:
-            est = db.query(Estimate).filter(Estimate.lead_id == lead.id).order_by(Estimate.created_at.desc()).first()
-            if est:
-                import json
-                inputs = {}
-                try:
-                    inputs = json.loads(est.inputs or "{}")
-                except Exception:
-                    inputs = {}
-                lf = float(inputs.get("linear_feet") or 0)
-                height = float(str(inputs.get("fence_height") or "6").replace("ft", "").strip() or 6)
-                gallons = _calc_default_gallons(lf * height)
+        # Stain + bleach gallons are admin-optional. We used to auto-fill stain
+        # from the estimate's sqft when admin left it blank, but that silently
+        # made the "blank = crew fills in actual" UX confusing — the materials
+        # editor on My Schedule would pre-load a number the crew didn't enter
+        # and couldn't distinguish from an admin value. Now blank stays blank;
+        # the crew types the actual amount post-job via the inline editor.
+        gallons = body.gallons_estimate or 0
 
         # Geocode upfront so the worker's map has a pin immediately.
         # Failures degrade gracefully — listScheduledJobs lazy-retries on read.

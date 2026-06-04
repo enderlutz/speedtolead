@@ -3,7 +3,7 @@ import { api, type Employee, type ScheduledJob, type Lead } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus } from "lucide-react";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
 const STAIN_COLORS = [
@@ -50,7 +50,20 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [plusTax, setPlusTax] = useState(
     existing ? existing.closed_price_plus_tax !== false : true,
   );
-  const [color, setColor] = useState(existing?.color_choice || "");
+  // Color picker is now a list — admin can add multiple colors via "+ Add"
+  // when the customer wants samples. Backend column is still a single text
+  // field; we join with ", " on save and split on ", " on load.
+  const [colors, setColors] = useState<string[]>(() => {
+    const raw = existing?.color_choice || "";
+    const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : [""];
+  });
+  const updateColor = (i: number, v: string) =>
+    setColors((prev) => prev.map((c, idx) => (idx === i ? v : c)));
+  const addColor = () => setColors((prev) => [...prev, ""]);
+  const removeColor = (i: number) =>
+    setColors((prev) => (prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i)));
+  const colorChoiceJoined = colors.map((c) => c.trim()).filter(Boolean).join(", ");
   const [needsTestSpots, setNeedsTestSpots] = useState(!!existing?.needs_test_spots);
   // Gallons + bleach default to blank, NOT "0" — the crew fills these in
   // from the My Day card after the job's done, so an admin scheduling
@@ -108,7 +121,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           package_tier: pkg,
           closed_price: parseFloat(price) || 0,
           closed_price_plus_tax: plusTax,
-          color_choice: color,
+          color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
           bleach_gallons: parseFloat(bleach) || 0,
@@ -135,7 +148,7 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
           package_tier: pkg,
           closed_price: parseFloat(price) || 0,
           closed_price_plus_tax: plusTax,
-          color_choice: color,
+          color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
           bleach_gallons: parseFloat(bleach) || 0,
@@ -223,13 +236,41 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
               </div>
               <div>
                 <label className={labelCls}>Color/s</label>
-                <Input
-                  list="stain-colors"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  placeholder='Type or pick — comma-separate for multiple'
-                  className="mt-1"
-                />
+                <div className="space-y-1.5 mt-1">
+                  {colors.map((c, i) => (
+                    <div key={i} className="flex gap-1.5">
+                      <Input
+                        list="stain-colors"
+                        value={c}
+                        onChange={(e) => updateColor(i, e.target.value)}
+                        placeholder={i === 0 ? "Type or pick" : "Another color"}
+                      />
+                      {/* Remove only renders for additional rows OR when the
+                          single row has content — keeps the empty initial
+                          state from showing a meaningless X. */}
+                      {(colors.length > 1 || c.trim()) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => removeColor(i)}
+                          aria-label="Remove color"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addColor}
+                    className="w-full"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add color
+                  </Button>
+                </div>
                 <datalist id="stain-colors">
                   {STAIN_COLORS.map((c) => <option key={c} value={c} />)}
                 </datalist>
