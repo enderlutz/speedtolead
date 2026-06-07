@@ -8,11 +8,23 @@ import { formatCurrency } from "@/lib/utils";
 // `allowedRoles` (if set) restricts visibility to listed roles. Items without
 // it are visible to admin + va but hidden from workers — workers only see
 // items that explicitly include "worker" in allowedRoles.
+//
+// NAV DECLUTTER — 2026-06-07
+// Four items hidden from the sidebar per client direction (post-first-principles
+// audit). Routes are still mounted in App.tsx and pages are intact, so old
+// bookmarks keep working; we just don't surface them in nav while the team
+// focuses on the active sales/scheduling flow. To restore any of them, uncomment
+// the matching line below.
+// Hidden:
+//   - A&T Leads ("/old-leads")     — legacy v1 lead view
+//   - Sent Log ("/sent-log")       — older lead-state view
+//   - Agents ("/agents")           — experimental AI agents page
+//   - AI Fence Est. ("/ai-fence")  — internal dev tool
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; allowedRoles?: string[] }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/leads", icon: Users, label: "Sterling Leads" },
-  { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },
-  { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" },
+  // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
+  // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/calls", icon: Mic, label: "Call Coach" },
   { to: "/crew", icon: HardHat, label: "Payroll", allowedRoles: ["admin"] },
@@ -20,9 +32,9 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/calendar", icon: Calendar, label: "Job Calendar", allowedRoles: ["admin", "va", "worker"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", allowedRoles: ["worker"] },
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", allowedRoles: ["admin", "va"] },
-  { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] },
+  // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
   { to: "/pricing", icon: DollarSign, label: "Pricing" },
-  { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" },
+  // { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" }, // hidden 2026-06-07
   { to: "/internal", icon: Gauge, label: "Internal", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings" },
 ];
