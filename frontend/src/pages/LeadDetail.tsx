@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -628,6 +628,12 @@ export default function LeadDetail() {
           }}
         />
       )}
+
+      {/* Call disposition picker (Sprint 2 T2.A, 2026-06-07).
+          Captures the why-didn't-this-close data the audit said is the
+          single biggest measurement gap. Sits high on the page because
+          it's a 10-second action after every call. */}
+      <CallDispositionCard leadId={lead.id} contactName={lead.contact_name || ""} />
 
       {/* Deposit gate ($250 non-refundable). Anti-cancellation feature
           added 2026-06-07. Renders in 4 modes based on lead.deposit_status:
@@ -2554,6 +2560,195 @@ function DepositCard({
         {status === "waived" && (
           <p className="text-xs text-slate-700">
             Deposit waived for this lead. Schedule freely — no gate warning will appear.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// Sprint 2 T2.A — Call disposition picker. One-tap after every call so
+// we finally have why-didn't-this-close data. Renders the option grid +
+// optional notes input + a compact timeline of past dispositions for
+// this lead.
+const DISPOSITION_OPTIONS: Array<{
+  value: CallDispositionOutcome;
+  label: string;
+  icon: string;
+  cls: string;
+}> = [
+  { value: "closed",           label: "Closed",            icon: "✅", cls: "bg-emerald-600 hover:bg-emerald-700 text-white" },
+  { value: "objection_price",  label: "Objection: Price",  icon: "💵", cls: "bg-amber-600 hover:bg-amber-700 text-white" },
+  { value: "objection_timing", label: "Objection: Timing", icon: "⏳", cls: "bg-amber-600 hover:bg-amber-700 text-white" },
+  { value: "callback",         label: "Call back",         icon: "📞", cls: "bg-blue-600 hover:bg-blue-700 text-white" },
+  { value: "voicemail",        label: "Voicemail",         icon: "📭", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
+  { value: "no_answer",        label: "No answer",         icon: "🤷", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
+  { value: "other",            label: "Other",             icon: "✏️", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
+];
+
+function CallDispositionCard({ leadId, contactName }: { leadId: string; contactName: string }) {
+  const [history, setHistory] = useState<CallDispositionEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [picked, setPicked] = useState<CallDispositionOutcome | null>(null);
+  const [notes, setNotes] = useState("");
+  const [callbackAt, setCallbackAt] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api.listCallDispositions(leadId);
+      setHistory(r.dispositions);
+    } catch {
+      // Silent — empty history is a fine default.
+    } finally {
+      setLoading(false);
+    }
+  }, [leadId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const save = async () => {
+    if (!picked) return;
+    setSaving(true);
+    try {
+      await api.logCallDisposition(leadId, {
+        outcome: picked,
+        notes: notes.trim(),
+        callback_at: picked === "callback" && callbackAt ? new Date(callbackAt).toISOString() : null,
+      });
+      toast.success("Call logged");
+      setPicked(null);
+      setNotes("");
+      setCallbackAt("");
+      await refresh();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to log call");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const lastCall = history[0];
+  const optionLabel = (o: CallDispositionOutcome) =>
+    DISPOSITION_OPTIONS.find((d) => d.value === o)?.label || o;
+  const optionIcon = (o: CallDispositionOutcome) =>
+    DISPOSITION_OPTIONS.find((d) => d.value === o)?.icon || "•";
+
+  return (
+    <Card className="border-blue-200 bg-blue-50/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <Phone className="h-4 w-4" /> Log a Call
+          {lastCall && (
+            <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+              Last: {optionIcon(lastCall.outcome)} {optionLabel(lastCall.outcome)} · {timeAgo(lastCall.disposed_at)}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Picker row */}
+        <div className="flex flex-wrap gap-1.5">
+          {DISPOSITION_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setPicked(opt.value === picked ? null : opt.value)}
+              className={`text-xs px-2.5 py-1.5 rounded-md font-medium transition-all border ${
+                picked === opt.value
+                  ? `${opt.cls} border-transparent shadow-sm`
+                  : "bg-white hover:bg-muted/40 border-input text-foreground"
+              }`}
+            >
+              <span className="mr-1">{opt.icon}</span>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Conditional inputs once an outcome is picked */}
+        {picked && (
+          <div className="space-y-2 pt-1">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              placeholder={picked === "closed"
+                ? `Optional: how ${contactName.split(" ")[0] || "they"} decided to close (price, sides, etc.)`
+                : "Optional: notes for follow-up context"}
+              className="w-full border border-input rounded-md px-2.5 py-1.5 text-sm bg-background resize-none"
+            />
+            {picked === "callback" && (
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-muted-foreground">Callback when:</label>
+                <input
+                  type="datetime-local"
+                  value={callbackAt}
+                  onChange={(e) => setCallbackAt(e.target.value)}
+                  className="border border-input rounded-md px-2 py-1 text-xs bg-background"
+                />
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => { setPicked(null); setNotes(""); setCallbackAt(""); }}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Logging…</> : "Log call"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* History toggle */}
+        {history.length > 0 && (
+          <div className="pt-1 border-t">
+            <button
+              type="button"
+              onClick={() => setShowHistory((v) => !v)}
+              className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+            >
+              {showHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              {showHistory ? "Hide" : "Show"} call history ({history.length})
+            </button>
+            {showHistory && (
+              <ul className="mt-2 space-y-1.5">
+                {history.map((d) => (
+                  <li key={d.id} className="text-xs bg-white border rounded-md px-2.5 py-1.5">
+                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                      <span>{optionIcon(d.outcome)}</span>
+                      <span className="font-semibold">{optionLabel(d.outcome)}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">{timeAgo(d.disposed_at)}</span>
+                      {d.disposed_by && (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground">by {d.disposed_by}</span>
+                        </>
+                      )}
+                      {d.callback_at && (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-blue-700">callback {formatDateTime(d.callback_at)}</span>
+                        </>
+                      )}
+                    </div>
+                    {d.notes && (
+                      <p className="text-muted-foreground mt-0.5 whitespace-pre-wrap">{d.notes}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {!loading && history.length === 0 && !picked && (
+          <p className="text-[11px] text-muted-foreground italic">
+            No calls logged yet for this lead. Tap an outcome above after your next call — it takes 5 seconds and finally gives us the data to ask "why don't calls close?"
           </p>
         )}
       </CardContent>

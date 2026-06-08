@@ -1068,6 +1068,60 @@ class CallTouch(Base):
     marked_by = Column(Text, default="")     # display name from JWT
 
 
+class CallDisposition(Base):
+    """One row per call Alan (or any staff) logs after talking to a lead.
+    Append-only history — every call gets a new row so we can track
+    multi-touch sales sequences and compute outcome metrics.
+
+    The audit (2026-06-04) identified this as the single biggest data
+    gap blocking measurement: without it, we couldn't answer 'why don't
+    calls close?' or 'how many touches before a deal?'. Sprint 2 T2.A
+    closes the gap.
+
+    `outcome` is a short enum string:
+      closed           — deal closed on the call (good)
+      objection_price  — customer balked at price
+      objection_timing — not ready yet, life thing, etc.
+      no_answer        — didn't pick up
+      voicemail        — left a voicemail
+      callback         — customer asked to be called back later
+      other            — anything else (notes-only)
+    """
+    __tablename__ = "call_dispositions"
+    __table_args__ = (
+        Index("idx_call_dispositions_lead", "lead_id"),
+        Index("idx_call_dispositions_disposed_at", "disposed_at"),
+        Index("idx_call_dispositions_outcome", "outcome"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    outcome = Column(Text, nullable=False)
+    notes = Column(Text, default="")
+    # Who logged the disposition + when. disposed_at is the call-end time
+    # the staff member taps the button — close enough to "when the call
+    # happened" for funnel metrics.
+    disposed_at = Column(Text, default="")        # ISO datetime UTC
+    disposed_by = Column(Text, default="")        # JWT display name
+    disposed_by_sub = Column(Text, default="")    # JWT sub (username) for audit
+    # Optional callback scheduling: when outcome == "callback", admin can
+    # set the date/time they intend to retry. Surfaces in the call list
+    # panel so the lead reappears at the right moment.
+    callback_at = Column(Text, nullable=True)     # ISO datetime UTC
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "outcome": self.outcome,
+            "notes": self.notes or "",
+            "disposed_at": self.disposed_at or "",
+            "disposed_by": self.disposed_by or "",
+            "disposed_by_sub": self.disposed_by_sub or "",
+            "callback_at": self.callback_at,
+        }
+
+
 class JobAssignment(Base):
     """Many-to-many: which workers are assigned to which scheduled job.
     Workers' calendar view filters on this table."""

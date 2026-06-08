@@ -131,6 +131,27 @@ export interface BreakdownItem {
 }
 
 // --- Call Recording types ---
+/** Sprint 2 T2.A — Call disposition enum. Server-side enforced. */
+export type CallDispositionOutcome =
+  | "closed"
+  | "objection_price"
+  | "objection_timing"
+  | "no_answer"
+  | "voicemail"
+  | "callback"
+  | "other";
+
+export interface CallDispositionEntry {
+  id: string;
+  lead_id: string;
+  outcome: CallDispositionOutcome;
+  notes: string;
+  disposed_at: string;
+  disposed_by: string;
+  disposed_by_sub: string;
+  callback_at: string | null;
+}
+
 export interface CallRecordingEntry {
   id: string;
   lead_id: string | null;
@@ -1097,6 +1118,19 @@ export const api = {
     request<{ status: string; lead: Lead }>(`/api/quickbooks/leads/${leadId}/waive-deposit`, {
       method: "POST",
     }),
+
+  /** Sprint 2 — Call dispositions. Log the outcome of a sales call so the
+   *  funnel finally has why-didn't-this-close data. Append-only history. */
+  logCallDisposition: (
+    leadId: string,
+    body: { outcome: CallDispositionOutcome; notes?: string; callback_at?: string | null },
+  ) =>
+    request<CallDispositionEntry>(`/api/leads/${leadId}/call-dispositions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listCallDispositions: (leadId: string) =>
+    request<{ dispositions: CallDispositionEntry[] }>(`/api/leads/${leadId}/call-dispositions`),
   /** Admin "Ready to Invoice" queue — jobs that started or completed
    * but haven't been invoiced yet. Feeds the dedicated queue page. */
   getReadyToInvoice: () =>
