@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping
+from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
@@ -305,6 +305,88 @@ def get_lead(lead_id: str):
         result = lead.to_dict()
         result["estimates"] = est_list
         return result
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/nearby-jobs")
+def get_nearby_jobs(
+    lead_id: str,
+    days: int = Query(14, ge=1, le=90),
+    user: dict = Depends(get_current_user),
+):
+    """Sprint 3 T3.B — return scheduled jobs that would be route-stacked
+    if this lead were booked. Two-tier ranking via services/geo.py:
+    same ZIP first, then within ~15 mi.
+
+    Window: today through `days` days ahead. Cancelled jobs excluded.
+
+    Lazy-geocodes the lead's address on first call when no coords are
+    saved — same pattern ScheduledJob uses. Falls back gracefully when
+    geocoding is unavailable so the endpoint never breaks the page."""
+    del user
+    from services.geo import cluster_nearby_jobs
+    from datetime import date as date_cls, timedelta
+
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+
+        # Lazy geocode — only fires when coords are missing AND address
+        # is present. Best-effort: if geocoding fails we proceed with
+        # zero coords; ZIP-match still works so same-ZIP jobs still
+        # show up, distance just renders as null in the UI.
+        if (not lead.lat or not lead.lng) and (lead.address or "").strip():
+            try:
+                from services.geocoder import geocode_address
+                geo = geocode_address(lead.address)
+                if geo and geo.get("lat") and geo.get("lng"):
+                    lead.lat = float(geo["lat"])
+                    lead.lng = float(geo["lng"])
+                    lead.geocoded_at = datetime.now(timezone.utc).isoformat()
+                    # If ZIP was missing on the lead but the geocoder
+                    # discovered it from the formatted address, fill it
+                    # in so future nearby-jobs calls hit ZIP tier 1.
+                    if not (lead.zip_code or "").strip() and geo.get("zip_code"):
+                        lead.zip_code = geo["zip_code"]
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"Lazy geocode for lead {lead_id} failed: {e}")
+
+        today = date_cls.today().isoformat()
+        end = (date_cls.today() + timedelta(days=days)).isoformat()
+
+        # Candidate set: every non-cancelled job from today through the
+        # window end. Small enough volume (~10/wk × 2 wk window = ~20
+        # rows typical) that we don't need pagination.
+        candidates = (
+            db.query(ScheduledJob)
+            .filter(ScheduledJob.job_date >= today)
+            .filter(ScheduledJob.job_date <= end)
+            .filter(ScheduledJob.status != "cancelled")
+            .all()
+        )
+
+        nearby = cluster_nearby_jobs(
+            target_lat=float(lead.lat or 0),
+            target_lng=float(lead.lng or 0),
+            target_zip=lead.zip_code or "",
+            candidate_jobs=candidates,
+        )
+
+        return {
+            "target": {
+                "lead_id": lead.id,
+                "zip_code": lead.zip_code or "",
+                "lat": float(lead.lat or 0),
+                "lng": float(lead.lng or 0),
+                "address": lead.address or "",
+            },
+            "window_days": days,
+            "nearby_jobs": nearby,
+        }
     finally:
         db.close()
 
