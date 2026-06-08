@@ -658,6 +658,13 @@ export default function LeadDetail() {
           it's a 10-second action after every call. */}
       <CallDispositionCard leadId={lead.id} contactName={lead.contact_name || ""} />
 
+      {/* Last call intel strip (Sprint 4 T4.C, 2026-06-08). Surfaces the
+          score / sentiment / next_action from the AI analysis of the
+          most recent CALL recording so admin sees Alan's previous-call
+          context before pinning the next one. Hidden when no calls
+          have been analyzed yet — keeps the cockpit clean for fresh leads. */}
+      <LastCallIntelStrip leadId={lead.id} />
+
       {/* Route-stack panel (Sprint 3 T3.C, 2026-06-07). Surfaces existing
           scheduled jobs near this lead so Alan can pitch a same-day
           appointment during the call. Same-ZIP jobs are tier 1 (best),
@@ -2604,6 +2611,121 @@ function DepositCard({
             Deposit waived for this lead. Schedule freely — no gate warning will appear.
           </p>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// Sprint 4 T4.C — Last call intel strip. Compact AI-analysis summary
+// of the most recent CALL recording on this lead. Renders the score,
+// sentiment, one-line summary, and the next_action so admin sees the
+// bottom-line context BEFORE calling again. Hidden until an analyzed
+// call exists — fresh leads stay clean. Pending states render a
+// muted 'analyzing…' line so admin knows the pipeline is running.
+function LastCallIntelStrip({ leadId }: { leadId: string }) {
+  const [recordings, setRecordings] = useState<CallRecordingEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getLeadCalls(leadId)
+      .then((r) => { if (!cancelled) setRecordings(r); })
+      .catch(() => { /* silent */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  // No calls at all → render nothing. The full CallRecordingsCard below
+  // handles the empty state with its own upload-prompt UI.
+  if (loading || recordings.length === 0) return null;
+
+  // Find the most recent recording that's either analyzed OR in flight.
+  // Skip archived rows — those have been intentionally hidden from the
+  // standard surfaces.
+  const candidate = recordings.find((r) => !r.is_archived);
+  if (!candidate) return null;
+
+  // Status flavors:
+  //   "analyzed" + has analysis  → render the intel
+  //   "pending" / "transcribed"  → render an analyzing strip
+  //   "failed"                   → render a soft failure note + retry link
+  const status = (candidate.status || "").toLowerCase();
+  const analysis = candidate.analysis;
+
+  const sentColor = (s?: string) => {
+    const v = (s || "").toLowerCase();
+    if (v.includes("pos")) return "text-emerald-700";
+    if (v.includes("neg")) return "text-red-700";
+    return "text-slate-700";
+  };
+  const scoreColor = (n?: number) => {
+    if (!n) return "text-slate-500";
+    if (n >= 8) return "text-emerald-700";
+    if (n >= 5) return "text-amber-700";
+    return "text-red-700";
+  };
+
+  if (status === "analyzed" && analysis) {
+    return (
+      <Card className="border-violet-200 bg-violet-50/40">
+        <CardContent className="py-3 px-4 space-y-2">
+          <div className="flex items-baseline gap-2 flex-wrap text-sm">
+            <Mic className="h-3.5 w-3.5 text-violet-700 shrink-0 self-center" />
+            <span className="font-semibold text-violet-900">Last call intel</span>
+            {(analysis.call_score ?? 0) > 0 && (
+              <span className={`font-mono font-bold ${scoreColor(analysis.call_score)}`}>
+                {analysis.call_score}/10
+              </span>
+            )}
+            <span className={`text-xs ${sentColor(analysis.sentiment)}`}>
+              · {analysis.sentiment || "neutral"} sentiment
+            </span>
+            <span className="text-xs text-muted-foreground">
+              · {Math.round((candidate.duration_seconds || 0) / 60)} min
+            </span>
+            <span className="text-xs text-muted-foreground">· {timeAgo(candidate.created_at)}</span>
+            <span className="ml-auto text-[11px] text-violet-700 capitalize">
+              {analysis.close_likelihood?.replace(/_/g, " ") || ""}
+            </span>
+          </div>
+          {analysis.summary_one_line && (
+            <p className="text-sm whitespace-pre-wrap">{analysis.summary_one_line}</p>
+          )}
+          {analysis.next_action && (
+            <p className="text-sm">
+              <span className="font-semibold text-violet-900">→ Next: </span>
+              {analysis.next_action}
+            </p>
+          )}
+          {analysis.objections && analysis.objections.length > 0 && (
+            <p className="text-xs">
+              <span className="text-muted-foreground">Objections raised: </span>
+              {analysis.objections.join(", ")}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (status === "pending" || status === "transcribed") {
+    return (
+      <Card className="border-slate-200 bg-slate-50/60">
+        <CardContent className="py-2 px-4 text-xs text-muted-foreground flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Last call captured {timeAgo(candidate.created_at)} — analyzing now ({Math.round((candidate.duration_seconds || 0) / 60)} min recording). The full transcript + analysis appear in the Call Recordings card below once ready.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // status === "failed" — soft fail. CallRecordingsCard below has the
+  // retry button so we don't duplicate it here.
+  return (
+    <Card className="border-amber-200 bg-amber-50/60">
+      <CardContent className="py-2 px-4 text-xs text-amber-900">
+        Last call (from {timeAgo(candidate.created_at)}) couldn't be transcribed. See Call Recordings below to retry.
       </CardContent>
     </Card>
   );
