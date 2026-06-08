@@ -1,5 +1,9 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, UsersRound, ClipboardCheck, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Brain, Mic, HardHat, Calendar, Calculator, Sparkles, Gauge, FileText, Sun } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun } from "lucide-react";
+// Icons removed from this import when their nav items were hidden 2026-06-07:
+//   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
+//   Sparkles (Agents). When restoring any of those nav rows, re-add the
+//   matching icon here.
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
