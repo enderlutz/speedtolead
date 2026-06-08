@@ -12,6 +12,7 @@ import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowR
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
 import WrappedModal from "@/components/WrappedModal";
+import RecentPaymentsCard from "@/components/RecentPaymentsCard";
 
 const PRIORITY_CLS: Record<string, string> = {
   HOT: "bg-red-500/10 text-red-600 border-red-200",
@@ -264,6 +265,13 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* W2 (2026-06-08) — Live payment activity. Subscribes to the
+          payment_received + deposit_paid SSE events so the feed updates
+          the instant the QB webhook fires. Today's running tally lives
+          in the badge so the moment-by-moment "money is flowing in"
+          signal is always visible. */}
+      <RecentPaymentsCard />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
         {/* Pending Action Queue */}

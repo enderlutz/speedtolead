@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     # manual fallback.
     enable_call_recording_poller: bool = True
 
+    # W3 (2026-06-08). QuickBooks payment reconciliation. The QB webhook
+    # is the primary push path that marks jobs + deposits paid; this
+    # nightly loop is the safety net for missed webhooks. Runs at 3am CST
+    # (low traffic), walks every outstanding invoice, pulls QB state,
+    # applies the same canonical update. Idempotent. Mock mode no-ops.
+    # Set False to disable the cron — the manual /api/quickbooks/reconcile
+    # endpoint still works as a fallback.
+    enable_qb_reconcile_poller: bool = True
+
     class Config:
         env_file = ".env"
 

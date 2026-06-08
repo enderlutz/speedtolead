@@ -70,6 +70,20 @@ def qb_status(user: dict = Depends(require_admin)):
     try:
         tok = db.query(QuickBooksToken).filter(QuickBooksToken.id == "default").first()
         reconnect = qb.get_reconnect_state()
+        # W4 (2026-06-08) — Webhook health signal. We count outstanding
+        # job invoices (have qb_invoice_id, payment_status != 'paid'),
+        # which is the "if this number is > 0 and the webhook is quiet,
+        # we have a problem" benchmark.
+        outstanding_invoices = (
+            db.query(ScheduledJob)
+            .filter(
+                ScheduledJob.qb_invoice_id.isnot(None),
+                ScheduledJob.qb_invoice_id != "",
+                ScheduledJob.payment_status != "paid",
+                ScheduledJob.status != "cancelled",
+            )
+            .count()
+        )
         return {
             "mode": qb.qb_mode(),
             "environment": qb.qb_environment(),
@@ -81,6 +95,9 @@ def qb_status(user: dict = Depends(require_admin)):
             "refresh_token_expires_at": tok.refresh_token_expires_at if tok else "",
             "needs_reconnect": bool(reconnect.get("needs_reconnect")),
             "reconnect_reason": reconnect.get("reason", ""),
+            # W4: webhook health signals consumed by the Accounting page.
+            "last_webhook_received_at": tok.last_webhook_received_at if tok else "",
+            "outstanding_invoices": outstanding_invoices,
             # Mock mode is the "ready to test without Intuit creds" state.
             "ready_to_test": qb.qb_mode() == "mock",
         }
@@ -959,6 +976,42 @@ def waive_deposit(lead_id: str, user: dict = Depends(require_admin)):
 
 
 # ────────────────────────────────────────────────────────────────────────
+# Reconciliation (W3, 2026-06-08) — manual + per-job endpoints
+# ────────────────────────────────────────────────────────────────────────
+
+@router.post("/quickbooks/reconcile")
+def reconcile_qb(user: dict = Depends(require_admin)):
+    """Force-pull QB invoice state for every outstanding job + deposit
+    locally. The QB webhook is the primary sync path; this endpoint
+    exists as the manual safety net Alan can hit when he suspects a
+    missed payment didn't sync. Same logic runs nightly at 3am CST.
+
+    Returns the stats from both passes so the Settings UI can show
+    'Checked X, updated Y' immediately."""
+    del user
+    from services.qb_reconcile import reconcile_all
+    db = get_db()
+    try:
+        return reconcile_all(db)
+    finally:
+        db.close()
+
+
+@router.post("/quickbooks/jobs/{job_id}/refresh-from-qb")
+def refresh_job_from_qb_endpoint(job_id: str, user: dict = Depends(require_admin)):
+    """Refresh a single job's payment state from QB. Powers the per-row
+    '↻ sync' button on the Accounting page so admin can spot-check a
+    suspicious row without running the full reconcile pass."""
+    del user
+    from services.qb_reconcile import refresh_job_from_qb
+    db = get_db()
+    try:
+        return refresh_job_from_qb(db, job_id)
+    finally:
+        db.close()
+
+
+# ────────────────────────────────────────────────────────────────────────
 # Webhook — payment received
 # ────────────────────────────────────────────────────────────────────────
 
@@ -993,6 +1046,13 @@ async def qb_webhook(request: Request):
         if not qb.verify_webhook_signature(raw, signature):
             logger.warning("QB webhook signature verification failed; rejecting")
             raise HTTPException(401, "Invalid signature")
+
+        # W4 (2026-06-08) — Webhook health heartbeat. We only bump after
+        # the signature passes so a noisy attacker can't fake "healthy".
+        # Committed inline with the same transaction as the entity work.
+        tok = db.query(QuickBooksToken).filter(QuickBooksToken.id == "default").first()
+        if tok is not None:
+            tok.last_webhook_received_at = _now()
 
         # 2. Walk the Intuit event envelope. Shape:
         #   {"eventNotifications": [{"realmId": "...", "dataChangeEvent": {"entities": [
@@ -1251,6 +1311,18 @@ def _mark_deposit_paid_from_webhook(db, invoice_id: str, payment_id: str) -> dic
                 ghl.send_sms(alan_id, msg, location_id=lead.ghl_location_id)
         except Exception as e:
             logger.warning(f"deposit_paid SMS to owner failed (non-fatal): {e}")
+        # W2 (2026-06-08) — Publish to SSE so the Dashboard's Payment Activity
+        # widget toasts and pops the new deposit into the feed in real time.
+        # Best-effort: a publish failure never rolls back the deposit write.
+        try:
+            publish("deposit_paid", {
+                "lead_id": lead.id,
+                "customer_name": lead.contact_name or "",
+                "amount": float(lead.deposit_amount or 250),
+                "paid_at": lead.deposit_paid_at,
+            })
+        except Exception as e:
+            logger.warning(f"deposit_paid event publish failed: {e}")
     return {
         "status": "ok",
         "marked_deposit_paid": lead.id,

@@ -1624,6 +1624,12 @@ class QuickBooksToken(Base):
     environment = Column(Text, default="sandbox")          # sandbox | production
     connected_at = Column(Text, default="")
     updated_at = Column(Text, default="")
+    # W4 (2026-06-08). Last time Intuit POSTed to /quickbooks/webhook AND
+    # the signature verified. Bumped on every successful webhook receipt.
+    # Surfaced via /quickbooks/status so the Accounting page can render a
+    # health pill — if this gets stale (>24h) while outstanding invoices
+    # exist, the webhook is probably broken. Empty string = never received.
+    last_webhook_received_at = Column(Text, default="")
 
 
 class QBTimeToken(Base):
@@ -2395,6 +2401,18 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added wrapped_cache.{new_col}")
+
+    # QuickBooksToken — last_webhook_received_at (W4, 2026-06-08). Bumped
+    # whenever Intuit posts a signature-verified webhook so the Accounting
+    # page can render a "webhook is healthy" pill. Empty = never received.
+    if inspector.has_table("quickbooks_tokens"):
+        qb_cols = {c["name"] for c in inspector.get_columns("quickbooks_tokens")}
+        if "last_webhook_received_at" not in qb_cols:
+            with _engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE quickbooks_tokens ADD COLUMN last_webhook_received_at TEXT DEFAULT ''"
+                ))
+            logger.info("Migration: added quickbooks_tokens.last_webhook_received_at")
 
 
 def get_db() -> Session:

@@ -2,12 +2,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from database import init_db
+from database import init_db, get_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
 from services.correction_escalator import check_escalations
@@ -121,6 +122,54 @@ async def _call_recording_poller_loop():
         # is what drives Alan's real-time behavior. The pipeline here
         # is for downstream analytics.
         await asyncio.sleep(600)
+
+
+async def _qb_reconcile_loop():
+    """Background task: nightly QB reconciliation pass (W3, 2026-06-08).
+
+    The QB webhook is the primary push path that marks jobs + deposits
+    paid. This loop is the safety net for missed webhooks — it walks
+    every outstanding invoice in the local DB, pulls QB's view of each,
+    and applies the same logic the webhook does. Idempotent.
+
+    Schedule: roughly every 24h with a long initial sleep so the cron
+    doesn't race the app's first request. We compute a delay-until-3am
+    rather than running on a fixed offset so the pass lands during
+    Texas overnight regardless of when the deploy happened.
+
+    Mock mode → the service no-ops. Disabling the flag in config also
+    no-ops without a redeploy."""
+    from services.qb_reconcile import reconcile_all
+
+    # Stagger start so this never races other startup work.
+    await asyncio.sleep(300)
+    while True:
+        try:
+            # Find the next 3am CST. Approximate (no DST transition
+            # logic — close enough; the pass is idempotent so a 1-hour
+            # drift twice a year doesn't matter).
+            now = datetime.now(timezone.utc)
+            is_dst = 3 <= now.month <= 10
+            cst_now = now + timedelta(hours=(-5 if is_dst else -6))
+            next_3am_cst = cst_now.replace(hour=3, minute=0, second=0, microsecond=0)
+            if cst_now >= next_3am_cst:
+                next_3am_cst = next_3am_cst + timedelta(days=1)
+            delay_seconds = max(60, (next_3am_cst - cst_now).total_seconds())
+            await asyncio.sleep(delay_seconds)
+
+            def _run_reconcile():
+                db = get_db()
+                try:
+                    return reconcile_all(db)
+                finally:
+                    db.close()
+
+            stats = await asyncio.to_thread(_run_reconcile)
+            logger.info(f"[QB RECONCILE CRON] completed — {stats}")
+        except Exception as e:
+            logger.error(f"QB reconcile poller error: {e}")
+            # On error, sleep an hour and try again so we don't spin tight.
+            await asyncio.sleep(3600)
 
 
 async def _correction_escalator_loop():
@@ -281,6 +330,12 @@ async def lifespan(app: FastAPI):
     call_poller = None
     if get_settings().enable_call_recording_poller:
         call_poller = asyncio.create_task(_call_recording_poller_loop())
+    # W3 (2026-06-08). Nightly QB reconciliation safety net. Catches any
+    # invoice payments that arrived but whose webhook delivery failed.
+    # Mock mode no-ops at the service level. Default: ON.
+    qb_reconcile = None
+    if get_settings().enable_qb_reconcile_poller:
+        qb_reconcile = asyncio.create_task(_qb_reconcile_loop())
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
     delay_detector = asyncio.create_task(_estimate_delay_loop())
     followup_engine = asyncio.create_task(_followup_engine_loop())
@@ -298,6 +353,8 @@ async def lifespan(app: FastAPI):
     wrapped_loop.cancel()
     if call_poller is not None:
         call_poller.cancel()
+    if qb_reconcile is not None:
+        qb_reconcile.cancel()
     correction_escalator.cancel()
     delay_detector.cancel()
     followup_engine.cancel()
@@ -354,6 +411,7 @@ app.include_router(call_script.router, prefix="/api")
 app.include_router(operator.router, prefix="/api")
 app.include_router(followups.router, prefix="/api")
 app.include_router(call_list.router, prefix="/api")
+app.include_router(payments.router, prefix="/api")
 app.include_router(call_dispositions.router, prefix="/api")
 app.include_router(internal.router, prefix="/api")
 
