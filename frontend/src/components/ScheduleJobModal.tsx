@@ -3,7 +3,7 @@ import { api, type Employee, type ScheduledJob, type Lead } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle } from "lucide-react";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
 const STAIN_COLORS = [
@@ -583,6 +583,27 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
             </section>
           )}
         </div>
+
+        {/* Deposit soft-warning — anti-cancellation gate added 2026-06-07.
+            Visible whenever the lead hasn't paid (or waived) the $250
+            deposit yet. Soft only: Alan can still click Save. Hides on
+            'paid' and 'waived' so the modal stays clean for the happy path. */}
+        {(() => {
+          const dep = (lead.deposit_status || "").toLowerCase();
+          if (dep === "paid" || dep === "waived") return null;
+          const msg = dep === "pending"
+            ? "Deposit invoice sent but not yet paid. The customer is not fully committed to this date."
+            : "No deposit invoice sent for this lead yet. Cancellations are easier without skin in the game.";
+          return (
+            <div className="px-4 py-2 border-t bg-amber-50 text-amber-900 text-xs flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold">⚠ Deposit not collected. </span>
+                <span>{msg} You can still schedule, but consider sending the $250 deposit invoice from the lead detail first.</span>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="p-4 border-t flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
