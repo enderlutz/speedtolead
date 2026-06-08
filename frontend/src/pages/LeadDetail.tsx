@@ -12,12 +12,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
+import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
@@ -101,6 +103,21 @@ export default function LeadDetail() {
   const [selectedEstimateId, setSelectedEstimateId] = useState<string | null>(null);
   const [creatingNewEstimate, setCreatingNewEstimate] = useState(false);
 
+  // Two-tab layout (2026-06-08). Estimate is the default landing tab — it's
+  // what VAs hit when refining inputs and sending. Call is the cockpit Alan
+  // opens before / during / after a sales call.
+  //
+  // The "N new" counter on the Call tab counts inbound SMS arrived since the
+  // user last opened the Call tab for THIS lead. Stored per-lead in
+  // localStorage so the badge resets correctly when you actually look at the
+  // messages, not just when you load the page.
+  const [activeTab, setActiveTab] = useState<"estimate" | "call">("estimate");
+  const callTabSeenKey = id ? `at_lead_${id}_call_seen_at` : "";
+  const [callTabSeenAt, setCallTabSeenAt] = useState<string>(() => {
+    if (!callTabSeenKey) return "1970-01-01T00:00:00.000Z";
+    return localStorage.getItem(callTabSeenKey) || "1970-01-01T00:00:00.000Z";
+  });
+
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -179,6 +196,16 @@ export default function LeadDetail() {
       toast(`${lead?.contact_name || "Customer"} is viewing their estimate right now!`, { duration: 6000 });
     }
   }, [id]));
+
+  // Call-tab unread counter. Counts inbound SMS that arrived after the
+  // user's last visit to the Call tab for this lead. Outbound and our own
+  // chatbot replies don't count — only new messages FROM the customer.
+  const unreadCallCount = useMemo(() => {
+    if (!messages.length) return 0;
+    return messages.filter(
+      (m) => m.direction === "inbound" && (m.created_at || "") > callTabSeenAt,
+    ).length;
+  }, [messages, callTabSeenAt]);
 
   // Sorted newest-first for the switcher tabs.
   const sortedEstimates: EstimateDetail[] = useMemo(() => {
@@ -299,6 +326,11 @@ export default function LeadDetail() {
   const [scheduledTime, setScheduledTime] = useState("08:00");
   const [showScheduleJob, setShowScheduleJob] = useState(false);
   const [existingScheduledJob, setExistingScheduledJob] = useState<import("@/lib/api").ScheduledJob | null>(null);
+  // Phase 3 (2026-06-08) — Calendar Glimpse precedes the Schedule modal on
+  // brand-new jobs. When editing an existing job we skip the glimpse and
+  // jump straight to the modal (the date is already locked).
+  const [showCalendarGlimpse, setShowCalendarGlimpse] = useState(false);
+  const [glimpsePickedDate, setGlimpsePickedDate] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (urlParams.get("schedule") === "1" && lead) {
@@ -542,7 +574,8 @@ export default function LeadDetail() {
           open/closed state so the VA's choice survives navigation. */}
       <CallScriptPanel lead={lead} estimate={estimate} />
 
-      {/* Header */}
+      {/* Header — always visible above the Estimate / Call tabs so Alan never
+          loses sight of "who am I looking at" when flipping between them. */}
       <div className="flex items-center gap-3">
         <Link to="/leads" className="text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="h-5 w-5" />
@@ -622,14 +655,25 @@ export default function LeadDetail() {
           <Button
             size="sm"
             onClick={async () => {
+              // Phase 3 (2026-06-08) — if there's already a scheduled job for
+              // this lead we're editing it, so go straight to the modal. If
+              // it's a new schedule, open the Calendar Glimpse first so the
+              // user picks a date in full month context.
               try {
                 const r = await api.listScheduledJobs({});
                 const existing = r.jobs.find((j) => j.lead_id === lead.id) || null;
                 setExistingScheduledJob(existing);
+                if (existing) {
+                  setGlimpsePickedDate(undefined);
+                  setShowScheduleJob(true);
+                } else {
+                  setShowCalendarGlimpse(true);
+                }
               } catch {
                 setExistingScheduledJob(null);
+                // Network hiccup → fall back to the old direct-modal path.
+                setShowScheduleJob(true);
               }
-              setShowScheduleJob(true);
             }}
           >
             <Calendar className="h-3.5 w-3.5 mr-1" />
@@ -638,89 +682,88 @@ export default function LeadDetail() {
         </div>
       </div>
 
+      {showCalendarGlimpse && (
+        <CalendarGlimpse
+          lead={lead}
+          onClose={() => setShowCalendarGlimpse(false)}
+          onPickDate={(date) => {
+            // Close the glimpse, stash the date, open the existing modal.
+            // ScheduleJobModal's `initialDate` prop seeds its jobDate state
+            // so the user lands on the picked date but can still edit it.
+            setGlimpsePickedDate(date);
+            setShowCalendarGlimpse(false);
+            setShowScheduleJob(true);
+          }}
+        />
+      )}
+
       {showScheduleJob && (
         <ScheduleJobModal
           lead={lead}
           existing={existingScheduledJob}
-          onClose={() => { setShowScheduleJob(false); setExistingScheduledJob(null); }}
+          initialDate={glimpsePickedDate}
+          onClose={() => {
+            setShowScheduleJob(false);
+            setExistingScheduledJob(null);
+            setGlimpsePickedDate(undefined);
+          }}
           onSaved={() => {
             setShowScheduleJob(false);
             setExistingScheduledJob(null);
+            setGlimpsePickedDate(undefined);
             api.getLead(id!).then(setLead).catch(() => {});
             toast.success("Schedule saved");
           }}
         />
       )}
 
-      {/* Call disposition picker (Sprint 2 T2.A, 2026-06-07).
-          Captures the why-didn't-this-close data the audit said is the
-          single biggest measurement gap. Sits high on the page because
-          it's a 10-second action after every call. */}
-      <CallDispositionCard leadId={lead.id} contactName={lead.contact_name || ""} />
-
-      {/* Last call intel strip (Sprint 4 T4.C, 2026-06-08). Surfaces the
-          score / sentiment / next_action from the AI analysis of the
-          most recent CALL recording so admin sees Alan's previous-call
-          context before pinning the next one. Hidden when no calls
-          have been analyzed yet — keeps the cockpit clean for fresh leads. */}
-      <LastCallIntelStrip leadId={lead.id} />
-
-      {/* Route-stack panel (Sprint 3 T3.C, 2026-06-07). Surfaces existing
-          scheduled jobs near this lead so Alan can pitch a same-day
-          appointment during the call. Same-ZIP jobs are tier 1 (best),
-          nearby-but-different-ZIP are tier 2. */}
-      <NearbyJobsCard leadId={lead.id} />
-
-      {/* Deposit gate ($250 non-refundable). Anti-cancellation feature
-          added 2026-06-07. Renders in 4 modes based on lead.deposit_status:
-          blank (send/waive controls), pending (link + waive), paid (badge),
-          waived (badge). Refetches the lead on every action so the schedule
-          modal's soft warning sees the latest status. */}
-      <DepositCard lead={lead} onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})} />
-
-      {/* 24h delay panel — only renders if a delay row exists for this lead */}
+      {/* 24h delay alarm — auto-hides when no active delay. Above the tabs
+          because it's an SLA emergency Alan must resolve regardless of tab.
+          (The $250 deposit gate moved to the Contact Information card's
+          Payment Links section in Phase 2.) */}
       <LeadDelayPanel leadId={lead.id} />
 
-      {/* Time Spent card — collapsed by default; shows worker breakdown +
-          job-total breakdown + reimbursements */}
-      <TimeSpentCard leadId={lead.id} />
-
-      {/* Measurement screenshot — VA's Google Maps screenshot for admin review */}
-      <MeasurementCard
-        leadId={lead.id}
-        hasMeasurement={!!lead.measurement_uploaded}
-        uploadedAt={lead.measurement_uploaded_at}
-        uploadedBy={lead.measurement_uploaded_by}
-        filename={lead.measurement_filename}
-        onChange={() => {
-          // Re-fetch the lead to refresh measurement metadata
-          api.getLead(lead.id).then(setLead).catch(() => {});
+      {/* Two-tab cockpit (2026-06-08). Estimate is the default — building /
+          pricing / sending the proposal. Call is the sales-call cockpit:
+          last-call intel, dispositions, conversations, recordings, follow-up
+          automation. The "N new" badge on Call counts inbound SMS that
+          arrived since the last time this user opened the Call tab for
+          THIS lead. */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          const next = v as "estimate" | "call";
+          setActiveTab(next);
+          if (next === "call" && callTabSeenKey) {
+            const now = new Date().toISOString();
+            localStorage.setItem(callTabSeenKey, now);
+            setCallTabSeenAt(now);
+          }
         }}
-      />
+      >
+        <TabsList className="w-full sm:w-auto">
+          <TabsTrigger value="estimate">Estimate</TabsTrigger>
+          <TabsTrigger value="call">
+            Call
+            {unreadCallCount > 0 && (
+              <Badge className="ml-1.5 bg-rose-600 text-white text-[10px] h-4 px-1.5 leading-none">
+                {unreadCallCount} new
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Mobile: approval status */}
-      {approvalCfg && (
-        <div className={`rounded-lg border p-3 sm:p-4 lg:hidden ${approvalCfg.cls}`}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`h-2.5 w-2.5 rounded-full ${approvalCfg.dot}`} />
-            <span className="text-sm font-semibold">{approvalCfg.label}</span>
-          </div>
-          <p className="text-xs">{estimate?.approval_reason}</p>
-        </div>
-      )}
-
-      {/* Sprint 2 T2.D — Recent conversation preview. The audit's biggest
-          tab-switch friction: Alan opens GHL for customer notes mid-call.
-          By surfacing the last 3 messages prominently right here (above the
-          fold, above the grid), he never needs to leave the dashboard.
-          Auto-updates via the existing customer_reply SSE event in the
-          page-level subscriber; manual Check button forces a GHL pull. */}
-      <RecentConversationCard
-        messages={messages}
-        leadPipelineVersion={lead.pipeline_version}
-        checking={checkingResponse}
-        onCheck={handleCheckResponse}
-      />
+        <TabsContent value="estimate" className="space-y-4 sm:space-y-6 mt-4">
+          {/* Mobile: approval status */}
+          {approvalCfg && (
+            <div className={`rounded-lg border p-3 sm:p-4 lg:hidden ${approvalCfg.cls}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`h-2.5 w-2.5 rounded-full ${approvalCfg.dot}`} />
+                <span className="text-sm font-semibold">{approvalCfg.label}</span>
+              </div>
+              <p className="text-xs">{estimate?.approval_reason}</p>
+            </div>
+          )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Left column */}
@@ -850,22 +893,24 @@ export default function LeadDetail() {
                 </div>
               )}
 
-              {/* Generate Invoice — only when there's a scheduled job and it's not paid */}
-              {latestScheduledJob && latestScheduledJob.payment_status !== "paid" && (
-                <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
-                  <Button size="sm" onClick={() => setInvoiceModalOpen(true)}>
-                    {latestScheduledJob.qb_invoice_id ? "Update Invoice" : "Generate Invoice"}
-                  </Button>
-                  {latestScheduledJob.qb_invoice_url && (
-                    <a href={latestScheduledJob.qb_invoice_url} target="_blank" rel="noreferrer" className="text-xs text-blue-700 hover:underline">
-                      View {latestScheduledJob.qb_invoice_status || "invoice"}
-                    </a>
-                  )}
-                  <span className="text-[11px] text-muted-foreground italic ml-auto">
-                    Send a QuickBooks invoice link by SMS — auto-marks paid when the customer pays.
-                  </span>
-                </div>
-              )}
+              {/* Payment Links (Phase 2, 2026-06-08). Unified controls for the
+                  $250 deposit + full job invoice. Replaces the standalone
+                  DepositCard above the tabs and the Generate-Invoice button
+                  strip that used to live here. Deposit always shows; Full
+                  Invoice prompts admin to schedule first if no job exists. */}
+              <div className="mt-3 pt-3 border-t space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Payment Links
+                </p>
+                <DepositRow
+                  lead={lead}
+                  onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
+                />
+                <FullInvoiceRow
+                  job={latestScheduledJob}
+                  onGenerate={() => setInvoiceModalOpen(true)}
+                />
+              </div>
             </CardContent>
           </Card>
 
@@ -901,6 +946,21 @@ export default function LeadDetail() {
               </CardContent>
             </Card>
           )}
+
+          {/* Measurement screenshot — VA's Google Maps screenshot. Sits between
+              the satellite view and the estimator because it's the artifact
+              that translates "the property" into "the number" Alan inputs. */}
+          <MeasurementCard
+            leadId={lead.id}
+            hasMeasurement={!!lead.measurement_uploaded}
+            uploadedAt={lead.measurement_uploaded_at}
+            uploadedBy={lead.measurement_uploaded_by}
+            filename={lead.measurement_filename}
+            onChange={() => {
+              // Re-fetch the lead to refresh measurement metadata
+              api.getLead(lead.id).then(setLead).catch(() => {});
+            }}
+          />
 
           {/* Estimate input form */}
           <Card>
@@ -1070,49 +1130,8 @@ export default function LeadDetail() {
             </CardContent>
           </Card>
 
-          {/* Follow-up runs (admin-only — component self-gates) */}
-          <FollowUpStatusPanel
-            lead={lead}
-            onLeadUpdated={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
-          />
-
-          {/* Message History */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" /> Messages
-                </CardTitle>
-                <Button
-                  variant="outline" size="sm"
-                  onClick={handleCheckResponse}
-                  disabled={checkingResponse || lead.pipeline_version === "v1"}
-                  title={lead.pipeline_version === "v1" ? "Old pipeline — export to load messages" : undefined}
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${checkingResponse ? "animate-spin" : ""}`} />
-                  Check
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {lead.pipeline_version === "v1" ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Messages won't load — the old GHL account is no longer reachable.
-                  Export to the new pipeline to enable message sync.
-                </p>
-              ) : messages.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No messages yet</p>
-              ) : (
-                <MessageList messages={messages} />
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Chatbot Messages */}
-          <ChatbotMessagesCard leadId={id!} />
-
-          {/* Call Recordings */}
-          <CallRecordingsCard leadId={id!} />
+          {/* (Follow-up automation, Messages, Chatbot, Call Recordings all
+              relocated to the Call tab below.) */}
         </div>
 
         {/* Right column */}
@@ -1516,6 +1535,76 @@ export default function LeadDetail() {
           )}
         </div>
       </div>
+
+          {/* Below the grid (full width inside the Estimate tab): route
+              stacking hints + worker hours. NearbyJobsCard gets the wider
+              canvas it couldn't have when stuffed above the grid. */}
+          <NearbyJobsCard leadId={lead.id} />
+          <TimeSpentCard leadId={lead.id} />
+        </TabsContent>
+
+        <TabsContent value="call" className="space-y-4 sm:space-y-6 mt-4">
+          {/* Last AI call intel (Sprint 4 T4.C) — pinned at top so Alan sees
+              previous-call context before pinning the next disposition. */}
+          <LastCallIntelStrip leadId={lead.id} />
+
+          {/* Disposition picker (Sprint 2 T2.A) — 10-second log post-call. */}
+          <CallDispositionCard leadId={lead.id} contactName={lead.contact_name || ""} />
+
+          {/* Recent SMS preview (Sprint 2 T2.D) — last 3 messages with a
+              Check button for manual GHL pulls. */}
+          <RecentConversationCard
+            messages={messages}
+            leadPipelineVersion={lead.pipeline_version}
+            checking={checkingResponse}
+            onCheck={handleCheckResponse}
+          />
+
+          {/* Full message history */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" /> Messages
+                </CardTitle>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={handleCheckResponse}
+                  disabled={checkingResponse || lead.pipeline_version === "v1"}
+                  title={lead.pipeline_version === "v1" ? "Old pipeline — export to load messages" : undefined}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1 ${checkingResponse ? "animate-spin" : ""}`} />
+                  Check
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {lead.pipeline_version === "v1" ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Messages won't load — the old GHL account is no longer reachable.
+                  Export to the new pipeline to enable message sync.
+                </p>
+              ) : messages.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No messages yet</p>
+              ) : (
+                <MessageList messages={messages} />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Chatbot conversation */}
+          <ChatbotMessagesCard leadId={id!} />
+
+          {/* Call recordings + AI analysis (Sprint 4) */}
+          <CallRecordingsCard leadId={id!} />
+
+          {/* Automated follow-up runs (admin-only — self-gates) */}
+          <FollowUpStatusPanel
+            lead={lead}
+            onLeadUpdated={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* PDF Preview Modal */}
       {estimate && lead && (
@@ -2479,11 +2568,16 @@ function DeclineReasonsModal({
 }
 
 
-// $250 non-refundable scheduling deposit card. Sits high on the lead
-// detail page because it's a gate on the rest of the workflow — Alan
-// can't schedule until this is paid or waived. Four render states keyed
-// off lead.deposit_status: "" (not started), "pending", "paid", "waived".
-function DepositCard({
+// Phase 2 (2026-06-08): Payment Links section. Two compact rows that live
+// inside the Contact Information card — one for the $250 deposit, one for
+// the full job invoice. Replaces the standalone DepositCard that used to
+// sit above the tabs. The 4-state deposit logic ("" / pending / paid /
+// waived) and the API calls are unchanged — only the UI footprint shrunk
+// so a busy lead detail page doesn't get dominated by payment widgets.
+//
+// The schedule-job soft warning in ScheduleJobModal still reads
+// lead.deposit_status the same way, so the gate behavior is untouched.
+function DepositRow({
   lead,
   onChange,
 }: {
@@ -2546,92 +2640,142 @@ function DepositCard({
     }
   };
 
-  // Styling per state — same Card shell, accent color shifts so admin can
-  // see status from across the room.
-  const accent =
-    status === "paid"   ? "border-emerald-300 bg-emerald-50/60"
-    : status === "pending" ? "border-amber-300 bg-amber-50/60"
-    : status === "waived"  ? "border-slate-300 bg-slate-50/60"
-    : "border-blue-300 bg-blue-50/60";
+  const badgeCls =
+    status === "paid"    ? "bg-emerald-600 text-white"
+    : status === "pending" ? "bg-amber-600 text-white"
+    : status === "waived"  ? "bg-slate-500 text-white"
+                           : "bg-blue-600 text-white";
+  const badgeLabel =
+    status === "paid"    ? "PAID"
+    : status === "pending" ? "PENDING"
+    : status === "waived"  ? "WAIVED"
+                           : "NOT STARTED";
 
   return (
-    <Card className={accent}>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-          <DollarSign className="h-4 w-4" />
-          Deposit
-          {status === "paid" && <Badge className="ml-auto bg-emerald-600 text-white">PAID</Badge>}
-          {status === "pending" && <Badge className="ml-auto bg-amber-600 text-white">PENDING</Badge>}
-          {status === "waived" && <Badge className="ml-auto bg-slate-500 text-white">WAIVED</Badge>}
-          {!status && <Badge className="ml-auto bg-blue-600 text-white">NOT STARTED</Badge>}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm space-y-3">
-        {!status && (
-          <>
-            <p className="text-xs text-muted-foreground">
-              Customer needs to pay <span className="font-semibold">${amount.toFixed(0)}</span> (non-refundable)
-              before we'll schedule. Sends a QuickBooks invoice with the deposit line item and a tap-to-pay link.
-            </p>
-            <div className="flex gap-2 flex-wrap">
-              <Button size="sm" onClick={handleSend} disabled={sending}>
-                {sending ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Sending…</> : <><Send className="h-3.5 w-3.5 mr-1" /> Send ${amount.toFixed(0)} Deposit Invoice</>}
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving} title="Skip the gate for trusted repeat customers">
-                {waiving ? "Waiving…" : "Waive (trusted customer)"}
-              </Button>
-            </div>
-          </>
+    <div className="rounded-md border p-2.5 space-y-2 bg-muted/20">
+      <div className="flex items-center gap-2 flex-wrap">
+        <DollarSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold">Deposit · ${amount.toFixed(0)}</span>
+        <Badge className={`${badgeCls} text-[10px] h-5`}>{badgeLabel}</Badge>
+        {status === "paid" && paidAt && (
+          <span className="text-[11px] text-emerald-700 ml-auto">paid {timeAgo(paidAt)}</span>
         )}
+        {status === "pending" && sentAt && (
+          <span className="text-[11px] text-amber-700 ml-auto">sent {timeAgo(sentAt)}</span>
+        )}
+      </div>
 
-        {status === "pending" && (
-          <>
-            <p className="text-xs text-muted-foreground">
-              Invoice sent {sentAt ? timeAgo(sentAt) : ""}. Waiting for ${amount.toFixed(0)} payment.
-            </p>
-            {link && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <Input
-                  readOnly
-                  value={link}
-                  className="text-xs flex-1 min-w-[200px] font-mono"
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <Button size="sm" variant="outline" onClick={handleCopy}>
-                  <Copy className="h-3.5 w-3.5 mr-1" /> Copy
-                </Button>
-                <a href={link} target="_blank" rel="noreferrer">
-                  <Button size="sm" variant="outline">
-                    <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
-                  </Button>
-                </a>
-              </div>
+      {!status && (
+        <div className="flex gap-2 flex-wrap">
+          <Button size="sm" onClick={handleSend} disabled={sending}>
+            {sending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Sending…</>
+            ) : (
+              <><Send className="h-3.5 w-3.5 mr-1" /> Send ${amount.toFixed(0)} Deposit Link</>
             )}
-            <div className="flex gap-2 flex-wrap pt-1">
-              <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving}>
-                {waiving ? "Waiving…" : "Waive instead"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving} title="Skip the gate for trusted repeat customers">
+            {waiving ? "Waiving…" : "Waive (trusted)"}
+          </Button>
+        </div>
+      )}
+
+      {status === "pending" && (
+        <div className="space-y-2">
+          {link && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                readOnly
+                value={link}
+                className="text-xs flex-1 min-w-[200px] font-mono h-8"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <Button size="sm" variant="outline" onClick={handleCopy}>
+                <Copy className="h-3.5 w-3.5 mr-1" /> Copy
               </Button>
+              <a href={link} target="_blank" rel="noreferrer">
+                <Button size="sm" variant="outline">
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
+                </Button>
+              </a>
             </div>
-          </>
-        )}
+          )}
+          <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving}>
+            {waiving ? "Waiving…" : "Waive instead"}
+          </Button>
+        </div>
+      )}
 
-        {status === "paid" && (
-          <p className="text-xs text-emerald-800">
-            <CheckCircle2 className="h-3.5 w-3.5 inline mr-1" />
-            ${amount.toFixed(0)} paid{paidAt ? ` ${timeAgo(paidAt)}` : ""}. Ready to schedule.
-          </p>
-        )}
-
-        {status === "waived" && (
-          <p className="text-xs text-slate-700">
-            Deposit waived for this lead. Schedule freely — no gate warning will appear.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      {status === "waived" && (
+        <p className="text-[11px] text-slate-700">Schedule freely — no gate warning will appear.</p>
+      )}
+    </div>
   );
 }
 
+// Full-job invoice row. Mirrors the old standalone Generate Invoice button
+// strip that used to live below the contact fields. Only meaningful once a
+// ScheduledJob exists for the lead — before scheduling, the row tells admin
+// to schedule first rather than disappearing silently.
+function FullInvoiceRow({
+  job,
+  onGenerate,
+}: {
+  job: ScheduledJob | null;
+  onGenerate: () => void;
+}) {
+  if (!job) {
+    return (
+      <div className="rounded-md border p-2.5 bg-muted/20">
+        <div className="flex items-center gap-2 flex-wrap">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-xs font-semibold">Full Invoice</span>
+          <Badge className="bg-slate-300 text-slate-800 text-[10px] h-5">N/A YET</Badge>
+          <span className="text-[11px] text-muted-foreground ml-auto">Schedule a job to enable.</span>
+        </div>
+      </div>
+    );
+  }
+  const status = (job.payment_status || "").toLowerCase();
+  const badgeCls =
+    status === "paid"    ? "bg-emerald-600 text-white"
+    : status === "pending" ? "bg-amber-600 text-white"
+                           : "bg-blue-600 text-white";
+  const badgeLabel =
+    status === "paid"    ? "PAID"
+    : status === "pending" ? "PENDING"
+                           : (job.qb_invoice_id ? "DRAFT" : "NOT GENERATED");
+
+  return (
+    <div className="rounded-md border p-2.5 space-y-2 bg-muted/20">
+      <div className="flex items-center gap-2 flex-wrap">
+        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs font-semibold">Full Invoice</span>
+        <Badge className={`${badgeCls} text-[10px] h-5`}>{badgeLabel}</Badge>
+        {job.qb_invoice_url && (
+          <a
+            href={job.qb_invoice_url}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-auto text-[11px] text-blue-700 hover:underline"
+          >
+            View {job.qb_invoice_status || "invoice"}
+          </a>
+        )}
+      </div>
+      {status !== "paid" && (
+        <div className="flex gap-2 flex-wrap items-center">
+          <Button size="sm" onClick={onGenerate}>
+            {job.qb_invoice_id ? "Update Invoice" : "Generate Invoice"}
+          </Button>
+          <span className="text-[11px] text-muted-foreground italic">
+            Tap-to-pay SMS link · auto-marks paid on payment.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Sprint 4 T4.C — Last call intel strip. Compact AI-analysis summary
 // of the most recent CALL recording on this lead. Renders the score,

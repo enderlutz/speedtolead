@@ -24,21 +24,27 @@ const labelCls = "text-xs font-semibold text-muted-foreground";
 interface Props {
   lead: Lead;
   existing?: ScheduledJob | null;
+  /** Phase 3 (2026-06-08) — pre-selected date from CalendarGlimpse. When
+   *  provided on a NEW job, the date input starts here instead of the
+   *  default "one week from today". Ignored when editing an existing job. */
+  initialDate?: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: Props) {
+export default function ScheduleJobModal({ lead, existing, initialDate, onClose, onSaved }: Props) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Defaults — pull from lead if creating, from existing if editing
+  // Defaults — existing job wins, then CalendarGlimpse pre-pick, then "one
+  // week from today" as the safety fallback.
   const defaultDate = useMemo(() => {
     if (existing) return existing.job_date;
+    if (initialDate) return initialDate;
     const t = new Date();
     t.setDate(t.getDate() + 7);
     return t.toISOString().slice(0, 10);
-  }, [existing]);
+  }, [existing, initialDate]);
 
   const [jobDate, setJobDate] = useState(existing?.job_date || defaultDate);
   const [arrivalTime, setArrivalTime] = useState(existing?.arrival_time || "07:30");
