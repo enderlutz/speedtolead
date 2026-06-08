@@ -1993,6 +1993,19 @@ export interface CallListItem {
   came_in_at: string;  // ISO datetime — when the lead first arrived (ghl_created_at preferred)
   /** Sprint 2 T2.E — Follow-up flag boosts this row in the queue sort + drives a UI badge. */
   follow_up_flag?: FollowUpFlag | null;
+  /** Sprint 3 T3.E — Set when this lead's ZIP matches an upcoming scheduled
+   *  job. Lifts the row in the sort and drives an inline 'near Smith Tue'
+   *  hint so admin sees why this lead is ranked high. */
+  nearby_match?: CallListNearbyMatch | null;
+}
+
+export interface CallListNearbyMatch {
+  match_kind: "same_zip";
+  job_id: string;
+  customer_name: string;
+  job_date: string;
+  distance_miles: number | null;
+  zip_code: string;
 }
 
 export interface CallListResponse {

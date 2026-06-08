@@ -25,10 +25,11 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import desc
 
-from database import get_db, Lead, Estimate, CallTouch, CallDisposition
+from database import get_db, Lead, Estimate, CallTouch, CallDisposition, ScheduledJob
 from api.auth import require_staff
 from services.pipeline_stages import CALL_LIST_STAGE_IDS, STAGE_NAME_BY_ID
 from services.follow_up_flags import compute_follow_up_flag
+from services.geo import haversine
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -92,6 +93,34 @@ def get_call_list(user: dict = Depends(require_staff)):
             .all()
         )
 
+        # Sprint 3 T3.E (2026-06-07). Pre-load upcoming scheduled jobs
+        # (today → 14 days ahead, non-cancelled) once so each call-list
+        # row can check for ZIP-match proximity in O(1). ZIP-only by
+        # design: same-ZIP is the strongest signal per client, distance
+        # is computed only for display when both sides have coords. No
+        # geocoder calls fired in the hot path here.
+        from datetime import date as _date_cls
+        today_iso = _date_cls.today().isoformat()
+        end_iso = (_date_cls.today() + timedelta(days=14)).isoformat()
+        upcoming_jobs = (
+            db.query(ScheduledJob)
+            .filter(ScheduledJob.job_date >= today_iso)
+            .filter(ScheduledJob.job_date <= end_iso)
+            .filter(ScheduledJob.status != "cancelled")
+            .all()
+        )
+        # Bucket by ZIP for O(1) lookup per lead.
+        upcoming_by_zip: dict[str, list] = {}
+        for j in upcoming_jobs:
+            z = (j.zip_code or "").strip()
+            if not z:
+                continue
+            upcoming_by_zip.setdefault(z, []).append(j)
+        # Sort each ZIP bucket by job_date ascending so 'closest in time'
+        # is also 'first in list' when there are multiple matches.
+        for z in upcoming_by_zip:
+            upcoming_by_zip[z].sort(key=lambda j: j.job_date or "")
+
         # Batch-load latest disposition + latest estimate for every in-list
         # lead so the follow-up flag compute is O(1) per lead, not N+1.
         # Sprint 2 T2.E (2026-06-07).
@@ -141,6 +170,29 @@ def get_call_list(user: dict = Depends(require_staff)):
                 latest_estimate_sent_at=est.sent_at if est else None,
             )
 
+            # T3.E — Proximity match. ZIP-only for ranking; distance is
+            # informational only (computed when both sides have coords).
+            nearby_match = None
+            lead_zip = (lead.zip_code or "").strip()
+            if lead_zip and lead_zip in upcoming_by_zip:
+                soonest = upcoming_by_zip[lead_zip][0]
+                # Best-effort distance: both sides need coords. Falls back
+                # to None when missing — UI renders without the (4.2 mi) bit.
+                dist = None
+                if lead.lat and lead.lng and soonest.lat and soonest.lng:
+                    dist = round(haversine(
+                        float(lead.lat), float(lead.lng),
+                        float(soonest.lat), float(soonest.lng),
+                    ), 1)
+                nearby_match = {
+                    "match_kind": "same_zip",
+                    "job_id": soonest.id,
+                    "customer_name": soonest.customer_name or "",
+                    "job_date": soonest.job_date or "",
+                    "distance_miles": dist,
+                    "zip_code": lead_zip,
+                }
+
             items.append({
                 "lead_id": lead.id,
                 "contact_name": lead.contact_name or "",
@@ -153,17 +205,22 @@ def get_call_list(user: dict = Depends(require_staff)):
                 "ghl_opportunity_id": lead.ghl_opportunity_id or "",
                 "came_in_at": came_in_at,
                 "follow_up_flag": flag,
+                "nearby_match": nearby_match,
             })
 
-        # Sort order: follow-up boost first (HOT > callback due > warm
-        # > standard > stale > cold), then $1500+ priority bucket, then
-        # signature price desc, then name asc. The follow-up flag's
-        # priority_boost is the dominant axis so intent beats dollars
-        # — a $400 lead viewing the proposal right now is more
-        # valuable than a $2000 lead who's never opened it.
+        # Sort order:
+        #   1. follow-up flag boost (HOT > callback due > warm > stale > cold)
+        #   2. proximity boost — same-ZIP match adds 200 (T3.E)
+        #   3. $1500+ priority bucket
+        #   4. signature price desc
+        #   5. name asc
+        # Intent (flag) still dominates so a HOT lead always beats a same-
+        # ZIP cold lead. Proximity is the tie-breaker that lifts an
+        # otherwise-standard lead into a 'we're in the area' slot.
         items.sort(
             key=lambda x: (
                 -((x.get("follow_up_flag") or {}).get("priority_boost") or 0),
+                -(200 if x.get("nearby_match") else 0),
                 0 if x["is_priority"] else 1,
                 -x["signature_price"],
                 x["contact_name"].lower(),

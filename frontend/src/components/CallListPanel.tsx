@@ -271,6 +271,23 @@ function CallRow({
               </Badge>
             )}
           </div>
+          {/* Sprint 3 T3.E — Proximity hint. Renders when this lead's ZIP
+              matches an upcoming scheduled job. Visual signal: 'why is
+              this ranked here even though signature_price is lower than
+              the one below?' */}
+          {item.nearby_match && (
+            <div className="text-[11px] text-cyan-800 mt-1 flex items-baseline gap-1">
+              <MapPin className="h-3 w-3 shrink-0 self-center" />
+              <span>
+                Same ZIP as{" "}
+                <span className="font-semibold">{item.nearby_match.customer_name || "scheduled job"}</span>
+                {" "}on {item.nearby_match.job_date}
+                {item.nearby_match.distance_miles !== null && (
+                  <> ({item.nearby_match.distance_miles} mi)</>
+                )}
+              </span>
+            </div>
+          )}
           {item.address && (
             <div className="flex items-start gap-1 text-[11px] text-muted-foreground mt-1">
               <MapPin className="h-3 w-3 mt-0.5 shrink-0" />
