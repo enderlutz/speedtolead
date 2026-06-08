@@ -2042,17 +2042,33 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
                         {isFailed && <Badge className="text-[10px] bg-red-100 text-red-800">Failed</Badge>}
                       </div>
                       {analysis && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${scoreColor(analysis.call_score)}`}>
-                            {analysis.call_score}/10
-                          </span>
-                          <span className="text-xs text-muted-foreground capitalize">
-                            Sentiment: {analysis.customer_sentiment}
-                          </span>
-                          <span className="text-xs text-muted-foreground capitalize">
-                            Close: {analysis.close_likelihood}
-                          </span>
-                        </div>
+                        <>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${scoreColor(analysis.call_score)}`}>
+                              {analysis.call_score}/10
+                            </span>
+                            <span className="text-xs text-muted-foreground capitalize">
+                              Sentiment: {analysis.customer_sentiment}
+                            </span>
+                            <span className="text-xs text-muted-foreground capitalize">
+                              Close: {(analysis.close_likelihood || "").replace(/_/g, " ")}
+                            </span>
+                          </div>
+                          {/* Sprint 4 T4.E (2026-06-08) — Scannable summary
+                              + next action inline so admin can browse past
+                              calls without expanding each row. Each line is
+                              clamped to 2 lines to keep the row tight. */}
+                          {analysis.summary_one_line && (
+                            <p className="text-xs text-foreground mt-1 line-clamp-2 whitespace-normal">
+                              {analysis.summary_one_line}
+                            </p>
+                          )}
+                          {analysis.next_action && (
+                            <p className="text-xs text-violet-700 mt-0.5 line-clamp-2 whitespace-normal">
+                              <span className="font-semibold">→ Next:</span> {analysis.next_action}
+                            </p>
+                          )}
+                        </>
                       )}
                     </button>
                     <div className="flex items-center gap-0.5 shrink-0">
