@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, inspect, text
+from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, Numeric, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker, deferred
 from config import get_settings
 
