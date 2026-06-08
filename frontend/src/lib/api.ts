@@ -162,6 +162,35 @@ export interface FollowUpFlag {
   since: string;
 }
 
+/** Sprint 3 T3.B — Route-stack candidate. One scheduled job that
+ *  would share a route with this lead if booked. */
+export interface NearbyJob {
+  job_id: string;
+  customer_name: string;
+  address: string;
+  zip_code: string;
+  job_date: string;         // YYYY-MM-DD
+  arrival_time: string;     // HH:MM
+  lat: number;
+  lng: number;
+  /** Miles to the target lead. null when one side has no coords (same-ZIP
+   *  rows can still surface this way — ZIP match alone is enough). */
+  distance_miles: number | null;
+  same_zip: boolean;
+}
+
+export interface NearbyJobsResponse {
+  target: {
+    lead_id: string;
+    zip_code: string;
+    lat: number;
+    lng: number;
+    address: string;
+  };
+  window_days: number;
+  nearby_jobs: NearbyJob[];
+}
+
 export interface CallRecordingEntry {
   id: string;
   lead_id: string | null;
@@ -1145,6 +1174,11 @@ export const api = {
    *  Returns null when no rule fires. */
   getFollowUpFlag: (leadId: string) =>
     request<{ flag: FollowUpFlag | null }>(`/api/leads/${leadId}/follow-up-flag`),
+  /** Sprint 3 T3.B — Route-stack candidates near a lead. Returns scheduled
+   *  jobs in the next N days (default 14) ranked same-ZIP-first then by
+   *  distance. Lazy-geocodes the lead on first call. */
+  getNearbyJobs: (leadId: string, days = 14) =>
+    request<NearbyJobsResponse>(`/api/leads/${leadId}/nearby-jobs?days=${days}`),
   /** Admin "Ready to Invoice" queue — jobs that started or completed
    * but haven't been invoiced yet. Feeds the dedicated queue page. */
   getReadyToInvoice: () =>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -657,6 +657,12 @@ export default function LeadDetail() {
           single biggest measurement gap. Sits high on the page because
           it's a 10-second action after every call. */}
       <CallDispositionCard leadId={lead.id} contactName={lead.contact_name || ""} />
+
+      {/* Route-stack panel (Sprint 3 T3.C, 2026-06-07). Surfaces existing
+          scheduled jobs near this lead so Alan can pitch a same-day
+          appointment during the call. Same-ZIP jobs are tier 1 (best),
+          nearby-but-different-ZIP are tier 2. */}
+      <NearbyJobsCard leadId={lead.id} />
 
       {/* Deposit gate ($250 non-refundable). Anti-cancellation feature
           added 2026-06-07. Renders in 4 modes based on lead.deposit_status:
@@ -2600,6 +2606,128 @@ function DepositCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+// Sprint 3 T3.C — Nearby jobs card. Surfaces existing scheduled jobs in
+// the same ZIP (tier 1) and within ~15 mi (tier 2) so Alan can pitch
+// route-stacking during the sales call ("we're already at 21730
+// Southern Valley on Tuesday — schedule for Tuesday too and we knock
+// 30 min off each drive"). Empty + collapsed states are friendly stubs
+// — the card always renders so admin can see at a glance whether
+// route-stacking is available.
+function NearbyJobsCard({ leadId }: { leadId: string }) {
+  const [data, setData] = useState<{ nearby_jobs: NearbyJob[]; window_days: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getNearbyJobs(leadId, 14)
+      .then((r) => { if (!cancelled) setData(r); })
+      .catch(() => { /* silent — empty state is fine */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  const jobs = data?.nearby_jobs || [];
+  const sameZip = jobs.filter((j) => j.same_zip);
+  const nearby = jobs.filter((j) => !j.same_zip);
+  const topPick = jobs[0]; // first row is already the closest same-ZIP or closest nearby
+
+  return (
+    <Card className="border-cyan-200 bg-cyan-50/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <MapPin className="h-4 w-4" /> Route-Stack — Nearby Jobs
+          <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+            Next {data?.window_days ?? 14} days
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading && (
+          <p className="text-xs text-muted-foreground italic">Loading…</p>
+        )}
+
+        {!loading && jobs.length === 0 && (
+          <p className="text-xs text-muted-foreground italic">
+            No scheduled jobs in this lead's ZIP or within 15 mi over the next 2 weeks.
+            Schedule freely — no route-stacking opportunity here.
+          </p>
+        )}
+
+        {/* Top pick highlight — only shown when there's a same-ZIP match.
+            The 'pitch this date' callout is a one-line shortcut admin
+            can read mid-call. */}
+        {!loading && topPick?.same_zip && (
+          <div className="bg-white border border-emerald-300 rounded-md p-2.5">
+            <p className="text-xs font-semibold text-emerald-900 mb-0.5">
+              💡 Route-stack suggestion
+            </p>
+            <p className="text-sm">
+              Schedule for <span className="font-semibold">{formatDate(topPick.job_date)}</span> —
+              {" "}we're already at <span className="font-semibold">{topPick.customer_name || topPick.address}</span>
+              {topPick.distance_miles !== null && (
+                <> ({topPick.distance_miles} mi away)</>
+              )}.
+            </p>
+          </div>
+        )}
+
+        {/* Same-ZIP tier */}
+        {!loading && sameZip.length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wide mb-1">
+              Same ZIP ({sameZip.length})
+            </p>
+            <ul className="space-y-1">
+              {sameZip.map((j) => <NearbyJobRow key={j.job_id} job={j} />)}
+            </ul>
+          </div>
+        )}
+
+        {/* Within-15-mi tier */}
+        {!loading && nearby.length > 0 && (
+          <div>
+            <p className="text-[11px] font-semibold text-cyan-800 uppercase tracking-wide mb-1">
+              Nearby ({nearby.length})
+            </p>
+            <ul className="space-y-1">
+              {nearby.map((j) => <NearbyJobRow key={j.job_id} job={j} />)}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function NearbyJobRow({ job }: { job: NearbyJob }) {
+  return (
+    <li className="text-xs bg-white border rounded-md px-2.5 py-1.5 flex items-baseline gap-2 flex-wrap">
+      <span className="font-semibold">{job.customer_name || "(no name)"}</span>
+      <span className="text-muted-foreground">·</span>
+      <span>{formatDate(job.job_date)}</span>
+      {job.distance_miles !== null && (
+        <>
+          <span className="text-muted-foreground">·</span>
+          <span className="font-mono">{job.distance_miles} mi</span>
+        </>
+      )}
+      {job.zip_code && (
+        <>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-muted-foreground">{job.zip_code}</span>
+        </>
+      )}
+      {job.address && (
+        <span className="text-muted-foreground truncate ml-auto" title={job.address}>
+          {job.address}
+        </span>
+      )}
+    </li>
   );
 }
 
