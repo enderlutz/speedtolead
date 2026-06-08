@@ -36,6 +36,42 @@ def _parse_dt(s: str | None):
         return None
 
 
+@router.post("/calls/ingest/{lead_id}")
+def ingest_calls_for_lead_endpoint(lead_id: str, user: dict = Depends(require_admin)):
+    """Sprint 4 T4.A (2026-06-08). Manually trigger the GHL call
+    recording fetcher for one lead. Returns the per-lead summary so
+    admin can see new_recordings / dedup / failures without tailing
+    the deploy logs. Used to dogfood T4.A before the scheduled poller
+    (T4.B) is wired, and as a 'pull this lead's calls now' override
+    once the schedule exists."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        if not (lead.ghl_contact_id or "").strip():
+            raise HTTPException(400, "Lead has no ghl_contact_id — nothing to ingest")
+        from services.call_poller import _ingest_calls_for_lead
+        stats = _ingest_calls_for_lead(db, lead)
+        db.commit()
+        return {"lead_id": lead_id, **stats}
+    finally:
+        db.close()
+
+
+@router.post("/calls/ingest-all")
+def ingest_all_recent_calls_endpoint(user: dict = Depends(require_admin)):
+    """Sprint 4 T4.A (2026-06-08). Fire the full poll cycle manually —
+    walks every lead updated/created in the last 60 days and ingests
+    new TYPE_CALL recordings. Synchronous; returns the aggregate
+    summary. T4.B will wire this to a scheduled job; until then it's
+    admin-triggered."""
+    del user
+    from services.call_poller import poll_ghl_call_recordings
+    return poll_ghl_call_recordings()
+
+
 @router.get("/calls/ghl-probe/{lead_id}")
 def ghl_call_probe(lead_id: str, user: dict = Depends(require_admin)):
     """Sprint 4 T4.A probe (2026-06-07). Admin-only diagnostic that hits

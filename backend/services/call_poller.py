@@ -224,63 +224,214 @@ def probe_ghl_call_endpoints(lead) -> dict:
     return out
 
 
-def poll_ghl_call_recordings():
-    """
-    Poll GHL for new call recordings.
+def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 200) -> dict:
+    """Sprint 4 T4.A (2026-06-08). Walk recent leads, fetch new
+    TYPE_CALL messages from GHL, download the WAV audio via the
+    /conversations/messages/{id}/locations/{lid}/recording endpoint
+    (confirmed by the 2026-06-07 probe — returns audio/x-wav binary
+    directly), persist as CallRecording rows, and kick the existing
+    transcribe→analyze pipeline.
 
-    TODO: Once GHL call recording API endpoint is confirmed, implement:
-    1. Fetch recent calls for each location
-    2. Match to leads by ghl_contact_id
-    3. Download recording
-    4. Create CallRecording row (dedup by ghl_call_id)
-    5. Trigger transcription + analysis pipeline
-    """
+    Scope (intentional cost control — every lead = a GHL API call):
+      - Leads created OR updated in the last `lookback_days` days
+      - Excludes is_test leads
+      - Caps at `max_leads` per run to avoid burning quota when a
+        large backlog appears
+      - Idempotent: dedupes by ghl_call_id, skips calls already in our DB
+
+    Returns a per-run summary the caller (poller schedule / admin
+    trigger endpoint) can log."""
     settings = get_settings()
     if not settings.ghl_api_key:
-        return
+        return {"status": "skipped", "reason": "ghl_api_key not set"}
+
+    from datetime import timedelta
+    cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
 
     db = get_db()
+    summary = {
+        "leads_scanned": 0,
+        "calls_found": 0,
+        "new_recordings": 0,
+        "skipped_dedup": 0,
+        "skipped_incomplete": 0,
+        "audio_fetch_failed": 0,
+        "errors": [],
+    }
     try:
-        # Get leads that have GHL contact IDs (potential call targets)
-        leads_with_contacts = (
+        leads = (
             db.query(Lead)
             .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
-            .limit(50)
+            .filter(Lead.is_test == False)  # noqa: E712 SQLAlchemy needs ==
+            .filter(
+                (Lead.updated_at >= cutoff_iso) | (Lead.created_at >= cutoff_iso)
+            )
+            .limit(max_leads)
             .all()
         )
 
-        if not leads_with_contacts:
-            return
+        for lead in leads:
+            try:
+                lead_stats = _ingest_calls_for_lead(db, lead)
+                summary["calls_found"] += lead_stats["calls_found"]
+                summary["new_recordings"] += lead_stats["new_recordings"]
+                summary["skipped_dedup"] += lead_stats["skipped_dedup"]
+                summary["skipped_incomplete"] += lead_stats["skipped_incomplete"]
+                summary["audio_fetch_failed"] += lead_stats["audio_fetch_failed"]
+                summary["leads_scanned"] += 1
+            except Exception as e:
+                logger.warning(f"poll_ghl_call_recordings: lead {lead.id} ingest failed: {e}")
+                summary["errors"].append({"lead_id": lead.id, "error": str(e)})
 
-        # TODO: Replace with actual GHL call recording API call
-        # Example of what it would look like:
-        #
-        # for location_id, api_key in locations:
-        #     headers = {"Authorization": f"Bearer {api_key}", "Version": "2021-07-28"}
-        #     resp = httpx.get(
-        #         f"https://services.leadconnectorhq.com/conversations/calls",
-        #         params={"locationId": location_id, "limit": 50},
-        #         headers=headers,
-        #     )
-        #     for call in resp.json().get("calls", []):
-        #         ghl_call_id = call["id"]
-        #         # Check if already in DB
-        #         existing = db.query(CallRecording).filter(
-        #             CallRecording.ghl_call_id == ghl_call_id
-        #         ).first()
-        #         if existing:
-        #             continue
-        #         # Download recording
-        #         recording_resp = httpx.get(call["recordingUrl"])
-        #         # Create record + trigger pipeline
-        #         _process_new_recording(db, recording_resp.content, call, lead)
-
-        logger.debug("Call recording poller: GHL endpoint not yet configured")
+        db.commit()
+        logger.info(
+            f"[call poller] scanned={summary['leads_scanned']} "
+            f"new_recordings={summary['new_recordings']} "
+            f"dedup={summary['skipped_dedup']} "
+            f"incomplete={summary['skipped_incomplete']} "
+            f"fetch_failed={summary['audio_fetch_failed']}"
+        )
+        return summary
 
     except Exception as e:
-        logger.error(f"Call recording poller error: {e}")
+        logger.error(f"poll_ghl_call_recordings outer error: {e}")
+        summary["error"] = str(e)
+        return summary
     finally:
         db.close()
+
+
+def _ingest_calls_for_lead(db, lead) -> dict:
+    """Fetch one lead's conversations + their messages, persist new
+    TYPE_CALL completed-status messages as CallRecording rows, and
+    fire the transcribe→analyze pipeline for each. Returns per-lead
+    counts the caller aggregates."""
+    from services.ghl import get_conversations, get_conversation_messages
+    import uuid as _uuid
+
+    stats = {
+        "calls_found": 0,
+        "new_recordings": 0,
+        "skipped_dedup": 0,
+        "skipped_incomplete": 0,
+        "audio_fetch_failed": 0,
+    }
+
+    contact_id = (lead.ghl_contact_id or "").strip()
+    location_id = (lead.ghl_location_id or "").strip() or None
+    if not contact_id:
+        return stats
+
+    conversations = get_conversations(contact_id, location_id)
+    for convo in conversations:
+        convo_id = convo.get("id")
+        if not convo_id:
+            continue
+        messages = get_conversation_messages(convo_id, location_id)
+        for msg in messages:
+            msg_type = (msg.get("messageType") or "").upper()
+            if msg_type != "TYPE_CALL":
+                continue
+            stats["calls_found"] += 1
+
+            msg_id = msg.get("id", "")
+            if not msg_id:
+                continue
+
+            # Dedupe — we already have this call in the DB.
+            existing = (
+                db.query(CallRecording)
+                .filter(CallRecording.ghl_call_id == msg_id)
+                .first()
+            )
+            if existing:
+                stats["skipped_dedup"] += 1
+                continue
+
+            # Skip incomplete calls — no recording to download.
+            call_meta = (msg.get("meta") or {}).get("call") or {}
+            call_status = (call_meta.get("status") or "").lower()
+            if call_status != "completed":
+                stats["skipped_incomplete"] += 1
+                continue
+
+            duration = int(call_meta.get("duration") or 0)
+            # Skip really short calls (< 5 sec) — usually instant hangups
+            # with no useful audio. Keeps Deepgram tokens from being
+            # burned on silence.
+            if duration < 5:
+                stats["skipped_incomplete"] += 1
+                continue
+
+            audio_bytes = _fetch_recording_audio(msg_id, location_id)
+            if not audio_bytes:
+                stats["audio_fetch_failed"] += 1
+                continue
+
+            # Persist. recording_data is deferred at the model level so
+            # this row only loads the BLOB on explicit access — listing
+            # endpoints stay cheap.
+            recording = CallRecording(
+                id=str(_uuid.uuid4()),
+                lead_id=lead.id,
+                ghl_contact_id=contact_id,
+                ghl_location_id=location_id or "",
+                ghl_call_id=msg_id,
+                recording_data=audio_bytes,
+                has_recording_data=True,
+                duration_seconds=duration,
+                call_direction=(msg.get("direction") or "outbound"),
+                caller_name="",  # T4.D will resolve userId → User.name later
+                status="pending",
+                created_at=msg.get("dateAdded") or _now(),
+            )
+            db.add(recording)
+            db.flush()
+            stats["new_recordings"] += 1
+
+            # Kick the pipeline. Best-effort — failures here don't
+            # roll back the row write since the manual analyze endpoint
+            # can retry later if Deepgram is having a moment.
+            try:
+                process_recording_pipeline(recording.id)
+            except Exception as e:
+                logger.warning(f"Pipeline kick failed for {recording.id}: {e}")
+
+    return stats
+
+
+def _fetch_recording_audio(message_id: str, location_id: str | None) -> bytes | None:
+    """GET the WAV audio for a GHL call message via the endpoint the
+    2026-06-07 probe confirmed:
+        /conversations/messages/{messageId}/locations/{locationId}/recording
+    Returns the binary bytes on success, None on any failure (logged)."""
+    if not message_id:
+        return None
+    try:
+        if location_id:
+            url = f"{GHL_BASE}/conversations/messages/{message_id}/locations/{location_id}/recording"
+        else:
+            # Fallback when somehow a lead has no location_id — unlikely
+            # but don't crash on it.
+            url = f"{GHL_BASE}/conversations/messages/{message_id}/recording"
+        r = httpx.get(url, headers=_headers(location_id), timeout=60)
+        if r.status_code != 200:
+            logger.warning(
+                f"GHL recording fetch HTTP {r.status_code} for msg {message_id}: "
+                f"{r.text[:200]}"
+            )
+            return None
+        ctype = (r.headers.get("content-type") or "").lower()
+        if "audio" not in ctype:
+            logger.warning(
+                f"GHL recording for {message_id} returned non-audio content-type: {ctype} "
+                f"(body preview: {r.text[:200]})"
+            )
+            return None
+        return r.content
+    except Exception as e:
+        logger.error(f"GHL recording fetch errored for {message_id}: {e}")
+        return None
 
 
 def process_recording_pipeline(recording_id: str):
