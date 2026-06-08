@@ -67,55 +67,14 @@ export default function Dashboard() {
   useEffect(() => { refreshAll(); }, [refreshAll]);
 
   // Auto-pop the Wrapped digest. Two triggers:
-  //   - Weekly: any time it's Saturday and we haven't shown it for this
-  //     week's Saturday key yet (localStorage flag).
-  //   - Monthly: any time it's the last day of the current month and we
-  //     haven't shown it for this YYYY-MM yet.
-  // First-ever wrap: spec says today's wrap (2026-05-08) should pop the
-  // FIRST time admin opens the dashboard, regardless of weekday. We honor
-  // that by treating the seed key as unseen until first load.
-  useEffect(() => {
-    if (!isAdmin) return;
-    const now = new Date();
-    const isSaturday = now.getDay() === 6;
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const isLastDayOfMonth = now.getDate() === lastDay;
-
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const saturday = new Date(now);
-    saturday.setDate(saturday.getDate() + (6 - saturday.getDay()));
-    const weekKey = saturday.toISOString().slice(0, 10);
-
-    // First-time seed: if user has never seen ANY wrap, treat today as the
-    // initial pop. Per spec — "Pop today's wrap (May 8) the first time."
-    const everSeen = localStorage.getItem("at_wrapped_ever_seen");
-
-    // Monthly takes precedence on its day (heavier reveal)
-    if (isLastDayOfMonth) {
-      const seenMonthly = localStorage.getItem(`at_wrapped_monthly_seen_${monthKey}`);
-      if (!seenMonthly) {
-        setWrappedOpen({ cadence: "monthly", period: monthKey, manual: false });
-        return;
-      }
-    }
-    if (isSaturday || !everSeen) {
-      const seenWeekly = localStorage.getItem(`at_wrapped_weekly_seen_${weekKey}`);
-      if (!seenWeekly) {
-        setWrappedOpen({ cadence: "weekly", period: weekKey, manual: false });
-      }
-    }
-  }, [isAdmin]);
-
-  /** Marks the auto-pop as "seen" so it doesn't re-fire next page load.
-   * Manual previews don't write the flag — admin can re-preview anytime. */
+  //
+  // 2026-06-07: The auto-pop logic was MOVED OUT to <WrappedAutoPop /> at
+  // the App layout level so it fires on any page, not just /. Reason:
+  // Alan rarely opens the home dashboard, so Saturday digests went
+  // unseen for weeks. The manual preview buttons below remain here and
+  // use this local state — they're admin self-serve and intentionally
+  // never write the "seen" flag so admin can re-preview anytime.
   const closeWrapped = () => {
-    if (wrappedOpen && !wrappedOpen.manual) {
-      localStorage.setItem("at_wrapped_ever_seen", "1");
-      const key = wrappedOpen.cadence === "weekly"
-        ? `at_wrapped_weekly_seen_${wrappedOpen.period || ""}`
-        : `at_wrapped_monthly_seen_${wrappedOpen.period || ""}`;
-      if (wrappedOpen.period) localStorage.setItem(key, "1");
-    }
     setWrappedOpen(null);
   };
 

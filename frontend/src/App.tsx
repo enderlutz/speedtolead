@@ -22,6 +22,7 @@ import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import MySchedule from "@/pages/MySchedule";
 import CallListPanel from "@/components/CallListPanel";
+import WrappedAutoPop from "@/components/WrappedAutoPop";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Accounting from "@/pages/Accounting";
@@ -121,6 +122,9 @@ function AppLayout() {
           </main>
         </div>
         {showCallList && <CallListPanel />}
+        {/* Saturday / last-of-month CEO digest. Mounted at AppLayout so
+            it fires on any page, not just Dashboard. Admin-only inside. */}
+        <WrappedAutoPop />
       </div>
     </RequireAuth>
   );
