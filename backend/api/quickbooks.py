@@ -1148,12 +1148,21 @@ def _handle_payment_event(db, payment_id: str) -> dict | None:
 
 def _handle_invoice_event(db, invoice_id: str) -> dict | None:
     """Invoice update — usually means status changed (sent/viewed/paid).
-    We refresh the local job's qb_invoice_status field for visibility."""
+    We refresh the local job's qb_invoice_status field for visibility.
+
+    Also handles deposit invoices (on Lead, not ScheduledJob) via the
+    deposit fallback when the job lookup misses."""
     inv = qb.fetch_invoice(invoice_id)
     if not inv:
         return None
     job = db.query(ScheduledJob).filter(ScheduledJob.qb_invoice_id == invoice_id).first()
     if not job:
+        # Fall through to deposit handler — same QB invoice envelope,
+        # different local target (Lead instead of ScheduledJob).
+        balance = float(inv.get("Balance") or 0)
+        total = float(inv.get("TotalAmt") or 0)
+        if total > 0 and balance == 0:
+            return _mark_deposit_paid_from_webhook(db, invoice_id, payment_id="")
         return None
     # Capture pre-state so we can detect the newly-paid transition
     # without re-firing on subsequent webhook redeliveries.
@@ -1185,7 +1194,13 @@ def _handle_invoice_event(db, invoice_id: str) -> dict | None:
 def _mark_job_paid_from_webhook(db, invoice_id: str, amount: float, payment_id: str) -> dict:
     job = db.query(ScheduledJob).filter(ScheduledJob.qb_invoice_id == invoice_id).first()
     if not job:
-        return {"status": "ignored", "reason": "no_matching_job", "invoice_id": invoice_id}
+        # Not a job invoice — might be a Lead deposit invoice. The fallback
+        # keeps the webhook a single entry point regardless of which kind of
+        # invoice landed in QB.
+        dep_result = _mark_deposit_paid_from_webhook(db, invoice_id, payment_id)
+        if dep_result:
+            return dep_result
+        return {"status": "ignored", "reason": "no_matching_job_or_deposit", "invoice_id": invoice_id}
     was_paid = job.payment_status == "paid"
     job.payment_status = "paid"
     job.amount_collected = amount or float(job.qb_invoice_amount or 0)
@@ -1201,3 +1216,44 @@ def _mark_job_paid_from_webhook(db, invoice_id: str, amount: float, payment_id: 
     if not was_paid:
         _fire_payment_received_pipeline(db, job)
     return {"status": "ok", "marked_paid": job.id, "invoice_id": invoice_id, "payment_id": payment_id}
+
+
+def _mark_deposit_paid_from_webhook(db, invoice_id: str, payment_id: str) -> dict | None:
+    """Mirror of _mark_job_paid_from_webhook, but for the $250 deposit
+    invoice that lives on Lead. Returns None if the invoice_id doesn't
+    match any deposit (so the caller falls through to its 'ignored'
+    return). Idempotent: if deposit_status is already 'paid' we skip the
+    SMS but still return a result so the webhook response counts it."""
+    lead = db.query(Lead).filter(Lead.deposit_qb_invoice_id == invoice_id).first()
+    if not lead:
+        return None
+    was_paid = lead.deposit_status == "paid"
+    lead.deposit_status = "paid"
+    lead.deposit_paid_at = lead.deposit_paid_at or _now()
+    lead.updated_at = _now()
+    logger.info(
+        f"[QB WEBHOOK] Marked lead {lead.id} deposit paid via invoice {invoice_id} payment {payment_id}"
+    )
+    if not was_paid:
+        # Tell Alan it's time to schedule. Best-effort: a GHL flake never
+        # rolls back the deposit-paid write — DB state is the source of truth.
+        try:
+            settings = get_settings()
+            alan_id = (settings.owner_ghl_contact_id or "").strip()
+            if alan_id:
+                customer = (lead.contact_name or "Customer").strip()
+                frontend_url = (settings.frontend_url or "").rstrip("/")
+                lead_url = f"{frontend_url}/leads/{lead.id}" if frontend_url else ""
+                msg = (
+                    f"✅ {customer} paid the $250 deposit — ready to schedule.\n"
+                    f"{lead_url}"
+                ).strip()
+                ghl.send_sms(alan_id, msg, location_id=lead.ghl_location_id)
+        except Exception as e:
+            logger.warning(f"deposit_paid SMS to owner failed (non-fatal): {e}")
+    return {
+        "status": "ok",
+        "marked_deposit_paid": lead.id,
+        "invoice_id": invoice_id,
+        "payment_id": payment_id,
+    }
