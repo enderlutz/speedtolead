@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy,
 } from "lucide-react";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
@@ -628,6 +628,13 @@ export default function LeadDetail() {
           }}
         />
       )}
+
+      {/* Deposit gate ($250 non-refundable). Anti-cancellation feature
+          added 2026-06-07. Renders in 4 modes based on lead.deposit_status:
+          blank (send/waive controls), pending (link + waive), paid (badge),
+          waived (badge). Refetches the lead on every action so the schedule
+          modal's soft warning sees the latest status. */}
+      <DepositCard lead={lead} onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})} />
 
       {/* 24h delay panel — only renders if a delay row exists for this lead */}
       <LeadDelayPanel leadId={lead.id} />
@@ -2397,5 +2404,159 @@ function DeclineReasonsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+
+// $250 non-refundable scheduling deposit card. Sits high on the lead
+// detail page because it's a gate on the rest of the workflow — Alan
+// can't schedule until this is paid or waived. Four render states keyed
+// off lead.deposit_status: "" (not started), "pending", "paid", "waived".
+function DepositCard({
+  lead,
+  onChange,
+}: {
+  lead: LeadDetailType;
+  onChange: () => void;
+}) {
+  const [sending, setSending] = useState(false);
+  const [waiving, setWaiving] = useState(false);
+  const status = (lead.deposit_status || "").toLowerCase();
+  const link = lead.deposit_payment_link || "";
+  const sentAt = lead.deposit_invoice_sent_at || "";
+  const paidAt = lead.deposit_paid_at || "";
+  const amount = lead.deposit_amount || 250;
+
+  const handleSend = async () => {
+    if (!confirm(`Send a $${amount.toFixed(0)} non-refundable deposit invoice to ${lead.contact_name || "this customer"}?`)) return;
+    setSending(true);
+    try {
+      const r = await api.sendDepositInvoice(lead.id);
+      if (r.status === "sent") {
+        toast.success("Deposit invoice created — payment link is ready to share.");
+      } else if (r.status === "already_sent") {
+        toast.info("This lead already has a deposit invoice — link refreshed.");
+      } else if (r.status === "already_paid") {
+        toast.success("Deposit already paid.");
+      } else if (r.status === "waived") {
+        toast.info("Deposit was waived for this lead.");
+      } else {
+        toast.success("Done.");
+      }
+      onChange();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to send deposit invoice");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleWaive = async () => {
+    if (!confirm(`Waive the $${amount.toFixed(0)} deposit for ${lead.contact_name || "this customer"}? Use this for trusted repeats only — the schedule gate's warning goes away.`)) return;
+    setWaiving(true);
+    try {
+      await api.waiveDeposit(lead.id);
+      toast.success("Deposit waived.");
+      onChange();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to waive deposit");
+    } finally {
+      setWaiving(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Payment link copied");
+    } catch {
+      toast.error("Couldn't copy — select and copy manually");
+    }
+  };
+
+  // Styling per state — same Card shell, accent color shifts so admin can
+  // see status from across the room.
+  const accent =
+    status === "paid"   ? "border-emerald-300 bg-emerald-50/60"
+    : status === "pending" ? "border-amber-300 bg-amber-50/60"
+    : status === "waived"  ? "border-slate-300 bg-slate-50/60"
+    : "border-blue-300 bg-blue-50/60";
+
+  return (
+    <Card className={accent}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <DollarSign className="h-4 w-4" />
+          Deposit
+          {status === "paid" && <Badge className="ml-auto bg-emerald-600 text-white">PAID</Badge>}
+          {status === "pending" && <Badge className="ml-auto bg-amber-600 text-white">PENDING</Badge>}
+          {status === "waived" && <Badge className="ml-auto bg-slate-500 text-white">WAIVED</Badge>}
+          {!status && <Badge className="ml-auto bg-blue-600 text-white">NOT STARTED</Badge>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm space-y-3">
+        {!status && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Customer needs to pay <span className="font-semibold">${amount.toFixed(0)}</span> (non-refundable)
+              before we'll schedule. Sends a QuickBooks invoice with the deposit line item and a tap-to-pay link.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <Button size="sm" onClick={handleSend} disabled={sending}>
+                {sending ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Sending…</> : <><Send className="h-3.5 w-3.5 mr-1" /> Send ${amount.toFixed(0)} Deposit Invoice</>}
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving} title="Skip the gate for trusted repeat customers">
+                {waiving ? "Waiving…" : "Waive (trusted customer)"}
+              </Button>
+            </div>
+          </>
+        )}
+
+        {status === "pending" && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Invoice sent {sentAt ? timeAgo(sentAt) : ""}. Waiting for ${amount.toFixed(0)} payment.
+            </p>
+            {link && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Input
+                  readOnly
+                  value={link}
+                  className="text-xs flex-1 min-w-[200px] font-mono"
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <Button size="sm" variant="outline" onClick={handleCopy}>
+                  <Copy className="h-3.5 w-3.5 mr-1" /> Copy
+                </Button>
+                <a href={link} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="outline">
+                    <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
+                  </Button>
+                </a>
+              </div>
+            )}
+            <div className="flex gap-2 flex-wrap pt-1">
+              <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving}>
+                {waiving ? "Waiving…" : "Waive instead"}
+              </Button>
+            </div>
+          </>
+        )}
+
+        {status === "paid" && (
+          <p className="text-xs text-emerald-800">
+            <CheckCircle2 className="h-3.5 w-3.5 inline mr-1" />
+            ${amount.toFixed(0)} paid{paidAt ? ` ${timeAgo(paidAt)}` : ""}. Ready to schedule.
+          </p>
+        )}
+
+        {status === "waived" && (
+          <p className="text-xs text-slate-700">
+            Deposit waived for this lead. Schedule freely — no gate warning will appear.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

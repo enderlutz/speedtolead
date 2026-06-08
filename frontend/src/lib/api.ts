@@ -68,6 +68,15 @@ export interface Lead {
   measurement_uploaded_at?: string | null;
   measurement_uploaded_by?: string;
   lead_source?: LeadSource;
+  /** Deposit flow ($250 down to schedule). Empty when not started.
+   *  States: "" | "pending" | "paid" | "waived" */
+  deposit_status?: string;
+  deposit_amount?: number;
+  deposit_invoice_sent_at?: string | null;
+  deposit_paid_at?: string | null;
+  /** Hosted QB payment-link URL the customer taps to pay. */
+  deposit_payment_link?: string;
+  deposit_qb_invoice_id?: string;
 }
 
 export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
@@ -1073,6 +1082,19 @@ export const api = {
     }),
   sendInvoiceSms: (jobId: string) =>
     request<{ status: string; to_phone: string }>(`/api/quickbooks/jobs/${jobId}/send-invoice-sms`, {
+      method: "POST",
+    }),
+  /** Send the $250 non-refundable scheduling deposit invoice for a Lead.
+   *  Returns the hosted QB payment link. Idempotent — re-calling on a
+   *  lead that already has one returns the existing record. */
+  sendDepositInvoice: (leadId: string) =>
+    request<DepositInvoiceResult>(`/api/quickbooks/leads/${leadId}/send-deposit-invoice`, {
+      method: "POST",
+    }),
+  /** Mark a lead's deposit as waived (Alan's call for trusted repeat
+   *  customers). Frees the soft schedule gate without taking payment. */
+  waiveDeposit: (leadId: string) =>
+    request<{ status: string; lead: Lead }>(`/api/quickbooks/leads/${leadId}/waive-deposit`, {
       method: "POST",
     }),
   /** Admin "Ready to Invoice" queue — jobs that started or completed
@@ -2228,6 +2250,20 @@ export interface GenerateInvoiceResult {
   amount: number;
   status: string;
   job: ScheduledJob;
+}
+
+export interface DepositInvoiceResult {
+  mode?: "mock" | "live";
+  /** "sent" (new), "already_sent" (idempotent return), "already_paid",
+   *  "waived". Frontend uses this to decide whether to re-show the link. */
+  status: string;
+  deposit_qb_invoice_id?: string;
+  deposit_payment_link?: string;
+  deposit_invoice_sent_at?: string | null;
+  deposit_paid_at?: string | null;
+  amount?: number;
+  invoice_number?: string;
+  lead?: Lead;
 }
 
 // Lean payloads used by the autocomplete components — much smaller than
