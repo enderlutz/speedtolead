@@ -103,14 +103,24 @@ async def _wrapped_dispatcher_loop():
 
 
 async def _call_recording_poller_loop():
-    """Background task: check for new GHL call recordings every 5 minutes."""
+    """Background task: check for new GHL call recordings every 10 minutes.
+    Re-enabled 2026-06-08 (Sprint 4 T4.B) now that T4.A's fetcher is
+    real. Gated on settings.enable_call_recording_poller so it can be
+    flipped off via env var without a redeploy if Deepgram or BLOB
+    ingest needs to be paused."""
+    # Longer initial sleep — let the app fully warm before the first
+    # poll fires through the rate-limited GHL client.
     await asyncio.sleep(240)
     while True:
         try:
             await asyncio.to_thread(poll_ghl_call_recordings)
         except Exception as e:
             logger.error(f"Call recording poller error: {e}")
-        await asyncio.sleep(300)
+        # 10 min between polls. Calls aren't time-critical — the rest
+        # of the dashboard (proposal-viewed SMS, call disposition UI)
+        # is what drives Alan's real-time behavior. The pipeline here
+        # is for downstream analytics.
+        await asyncio.sleep(600)
 
 
 async def _correction_escalator_loop():
@@ -265,9 +275,12 @@ async def lifespan(app: FastAPI):
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
-    # Call recording poller disabled — recordings now happen exclusively
-    # in-browser via the dashboard, no longer pulling from GHL
-    # call_poller = asyncio.create_task(_call_recording_poller_loop())
+    # Sprint 4 T4.B (2026-06-08). Call recording poller re-enabled now
+    # that T4.A's GHL fetcher is shipping. Gated on the config flag so
+    # it can be turned off without redeploying. Default: ON.
+    call_poller = None
+    if get_settings().enable_call_recording_poller:
+        call_poller = asyncio.create_task(_call_recording_poller_loop())
     correction_escalator = asyncio.create_task(_correction_escalator_loop())
     delay_detector = asyncio.create_task(_estimate_delay_loop())
     followup_engine = asyncio.create_task(_followup_engine_loop())
@@ -283,6 +296,8 @@ async def lifespan(app: FastAPI):
     sms_worker.cancel()
     weekly.cancel()
     wrapped_loop.cancel()
+    if call_poller is not None:
+        call_poller.cancel()
     correction_escalator.cancel()
     delay_detector.cancel()
     followup_engine.cancel()

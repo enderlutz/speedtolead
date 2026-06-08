@@ -84,6 +84,14 @@ class Settings(BaseSettings):
     # GHL API calls per 5-min cycle when off.
     enable_message_poller: bool = False
 
+    # Sprint 4 T4.B (2026-06-08). Call recording poller (T4.A's fetcher
+    # wrapped in a 10-min loop). Defaults ON now that the GHL endpoint
+    # is confirmed and T4.A is shipping in production. Flip to False
+    # via env var if Deepgram or DB blob ingest causes issues — the
+    # admin POST /api/calls/ingest-all endpoint still works as a
+    # manual fallback.
+    enable_call_recording_poller: bool = True
+
     class Config:
         env_file = ".env"
 
