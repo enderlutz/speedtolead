@@ -25,9 +25,10 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import desc
 
-from database import get_db, Lead, Estimate, CallTouch
+from database import get_db, Lead, Estimate, CallTouch, CallDisposition
 from api.auth import require_staff
 from services.pipeline_stages import CALL_LIST_STAGE_IDS, STAGE_NAME_BY_ID
+from services.follow_up_flags import compute_follow_up_flag
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -91,6 +92,32 @@ def get_call_list(user: dict = Depends(require_staff)):
             .all()
         )
 
+        # Batch-load latest disposition + latest estimate for every in-list
+        # lead so the follow-up flag compute is O(1) per lead, not N+1.
+        # Sprint 2 T2.E (2026-06-07).
+        lead_ids = [l.id for l in leads if l.id not in recently_touched_lead_ids]
+        latest_disp_by_lead: dict[str, CallDisposition] = {}
+        if lead_ids:
+            # Newest-first over the whole set; first row per lead_id wins.
+            for d in (
+                db.query(CallDisposition)
+                .filter(CallDisposition.lead_id.in_(lead_ids))
+                .order_by(desc(CallDisposition.disposed_at))
+                .all()
+            ):
+                if d.lead_id not in latest_disp_by_lead:
+                    latest_disp_by_lead[d.lead_id] = d
+        latest_est_by_lead: dict[str, Estimate] = {}
+        if lead_ids:
+            for e in (
+                db.query(Estimate)
+                .filter(Estimate.lead_id.in_(lead_ids))
+                .order_by(desc(Estimate.sent_at))
+                .all()
+            ):
+                if e.lead_id not in latest_est_by_lead and e.sent_at:
+                    latest_est_by_lead[e.lead_id] = e
+
         items = []
         for lead in leads:
             if lead.id in recently_touched_lead_ids:
@@ -102,6 +129,18 @@ def get_call_list(user: dict = Depends(require_staff)):
             # and fall back to our created_at for any lead that predates
             # the ghl_created_at field being populated.
             came_in_at = lead.ghl_created_at or lead.created_at or ""
+
+            disp = latest_disp_by_lead.get(lead.id)
+            est = latest_est_by_lead.get(lead.id)
+            flag = compute_follow_up_flag(
+                proposal_last_viewed_at=lead.proposal_last_viewed_at or lead.proposal_viewed_at,
+                proposal_view_count=lead.proposal_view_count or 0,
+                latest_disposition_outcome=disp.outcome if disp else None,
+                latest_disposition_disposed_at=disp.disposed_at if disp else None,
+                latest_disposition_callback_at=disp.callback_at if disp else None,
+                latest_estimate_sent_at=est.sent_at if est else None,
+            )
+
             items.append({
                 "lead_id": lead.id,
                 "contact_name": lead.contact_name or "",
@@ -113,13 +152,18 @@ def get_call_list(user: dict = Depends(require_staff)):
                 "is_priority": sig_price >= PRIORITY_VALUE_THRESHOLD,
                 "ghl_opportunity_id": lead.ghl_opportunity_id or "",
                 "came_in_at": came_in_at,
+                "follow_up_flag": flag,
             })
 
-        # Priority bucket first (>= $1500), then standard. Within each
-        # bucket, highest signature_price first. Ties broken by name for
-        # stable ordering.
+        # Sort order: follow-up boost first (HOT > callback due > warm
+        # > standard > stale > cold), then $1500+ priority bucket, then
+        # signature price desc, then name asc. The follow-up flag's
+        # priority_boost is the dominant axis so intent beats dollars
+        # — a $400 lead viewing the proposal right now is more
+        # valuable than a $2000 lead who's never opened it.
         items.sort(
             key=lambda x: (
+                -((x.get("follow_up_flag") or {}).get("priority_boost") or 0),
                 0 if x["is_priority"] else 1,
                 -x["signature_price"],
                 x["contact_name"].lower(),

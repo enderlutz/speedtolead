@@ -29,8 +29,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import desc
 
-from database import get_db, Lead, CallDisposition
+from database import get_db, Lead, CallDisposition, Estimate
 from api.auth import require_staff
+from services.follow_up_flags import compute_follow_up_flag
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -115,5 +116,46 @@ def list_dispositions(
             .all()
         )
         return {"dispositions": [r.to_dict() for r in rows]}
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/follow-up-flag")
+def get_follow_up_flag(
+    lead_id: str,
+    user: dict = Depends(require_staff),
+):
+    """Compute the current follow-up flag for one lead. Used by the lead
+    detail header to render a 🔥 hot / cold / etc. badge so admin sees
+    at a glance what kind of touch this lead needs next.
+
+    Returns {flag: {kind, label, priority_boost, since} | null}."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        disp = (
+            db.query(CallDisposition)
+            .filter(CallDisposition.lead_id == lead_id)
+            .order_by(desc(CallDisposition.disposed_at))
+            .first()
+        )
+        est = (
+            db.query(Estimate)
+            .filter(Estimate.lead_id == lead_id)
+            .order_by(desc(Estimate.sent_at))
+            .first()
+        )
+        flag = compute_follow_up_flag(
+            proposal_last_viewed_at=lead.proposal_last_viewed_at or lead.proposal_viewed_at,
+            proposal_view_count=lead.proposal_view_count or 0,
+            latest_disposition_outcome=disp.outcome if disp else None,
+            latest_disposition_disposed_at=disp.disposed_at if disp else None,
+            latest_disposition_callback_at=disp.callback_at if disp else None,
+            latest_estimate_sent_at=est.sent_at if est else None,
+        )
+        return {"flag": flag}
     finally:
         db.close()

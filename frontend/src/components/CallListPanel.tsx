@@ -245,7 +245,7 @@ function CallRow({
           >
             {item.contact_name || "(no name)"}
           </Link>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
             <span className="font-semibold text-foreground">
               ${item.signature_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             </span>
@@ -253,6 +253,23 @@ function CallRow({
             <Badge variant="outline" className="text-[10px] py-0 h-auto">
               {item.stage_label || "—"}
             </Badge>
+            {/* Sprint 2 T2.E — Follow-up flag badge in each row. Backend
+                already sorted hot leads to the top via priority_boost; this
+                surfaces the "why this is at the top" reason in the UI. */}
+            {item.follow_up_flag && (
+              <Badge
+                className={`text-[10px] py-0 h-auto ${
+                  item.follow_up_flag.kind === "hot" ? "bg-red-600 text-white animate-pulse" :
+                  item.follow_up_flag.kind === "callback_due" ? "bg-blue-600 text-white" :
+                  item.follow_up_flag.kind === "warm" ? "bg-emerald-600 text-white" :
+                  item.follow_up_flag.kind === "stale" ? "bg-amber-200 text-amber-900" :
+                  "bg-slate-200 text-slate-600"
+                }`}
+                title={`Follow-up signal: ${item.follow_up_flag.kind}`}
+              >
+                {item.follow_up_flag.label}
+              </Badge>
+            )}
           </div>
           {item.address && (
             <div className="flex items-start gap-1 text-[11px] text-muted-foreground mt-1">

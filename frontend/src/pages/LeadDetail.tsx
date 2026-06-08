@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -562,6 +562,11 @@ export default function LeadDetail() {
               firstViewedAt={lead.proposal_viewed_at}
               lastViewedAt={lead.proposal_last_viewed_at}
             />
+            {/* Sprint 2 T2.E — Smart follow-up flag. Reads call dispositions
+                + proposal views + estimate sent timestamps to surface
+                "what kind of touch does this lead need next?" Renders
+                only when a rule fires (most won't, keeping the header tidy). */}
+            <FollowUpFlagBadge leadId={lead.id} />
             {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? (
               <Badge className="text-xs bg-slate-200 text-slate-700">
                 Declined ({(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length} reason{(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length === 1 ? "" : "s"})
@@ -2595,6 +2600,35 @@ function DepositCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+// Sprint 2 T2.E — Follow-up flag badge for the lead detail header.
+// Fetches the rule-engine output via /follow-up-flag and renders the
+// label in a color appropriate to the kind. Hot leads pulse to draw the
+// eye; cold leads are muted so they don't distract.
+function FollowUpFlagBadge({ leadId }: { leadId: string }) {
+  const [flag, setFlag] = useState<FollowUpFlag | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getFollowUpFlag(leadId)
+      .then((r) => { if (!cancelled) setFlag(r.flag); })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [leadId]);
+  if (!flag) return null;
+  const cls = {
+    hot:          "bg-red-600 text-white animate-pulse",
+    callback_due: "bg-blue-600 text-white",
+    warm:         "bg-emerald-600 text-white",
+    stale:        "bg-amber-200 text-amber-900",
+    cold:         "bg-slate-200 text-slate-600",
+  }[flag.kind];
+  return (
+    <Badge className={`text-xs ${cls}`} title={`Follow-up signal: ${flag.kind}`}>
+      {flag.label}
+    </Badge>
   );
 }
 

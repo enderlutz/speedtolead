@@ -152,6 +152,16 @@ export interface CallDispositionEntry {
   callback_at: string | null;
 }
 
+/** Sprint 2 T2.E — Follow-up rule engine output. Surfaces on the lead
+ *  detail badge + boosts the call list panel sort order. */
+export type FollowUpFlagKind = "hot" | "callback_due" | "warm" | "stale" | "cold";
+export interface FollowUpFlag {
+  kind: FollowUpFlagKind;
+  label: string;
+  priority_boost: number;
+  since: string;
+}
+
 export interface CallRecordingEntry {
   id: string;
   lead_id: string | null;
@@ -1131,6 +1141,10 @@ export const api = {
     }),
   listCallDispositions: (leadId: string) =>
     request<{ dispositions: CallDispositionEntry[] }>(`/api/leads/${leadId}/call-dispositions`),
+  /** Sprint 2 T2.E — Compute the current follow-up flag for a lead.
+   *  Returns null when no rule fires. */
+  getFollowUpFlag: (leadId: string) =>
+    request<{ flag: FollowUpFlag | null }>(`/api/leads/${leadId}/follow-up-flag`),
   /** Admin "Ready to Invoice" queue — jobs that started or completed
    * but haven't been invoiced yet. Feeds the dedicated queue page. */
   getReadyToInvoice: () =>
@@ -1943,6 +1957,8 @@ export interface CallListItem {
   is_priority: boolean;
   ghl_opportunity_id: string;
   came_in_at: string;  // ISO datetime — when the lead first arrived (ghl_created_at preferred)
+  /** Sprint 2 T2.E — Follow-up flag boosts this row in the queue sort + drives a UI badge. */
+  follow_up_flag?: FollowUpFlag | null;
 }
 
 export interface CallListResponse {
