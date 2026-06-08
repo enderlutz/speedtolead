@@ -97,6 +97,28 @@ class Lead(Base):
     do_not_contact = Column(Boolean, default=False)
     last_send_failure = Column(Text, default="")
 
+    # Deposit flow — anti-cancellation gate added 2026-06-07 after Alan
+    # reported 3 customer cancellations in 3 days. Flat $250, non-refundable.
+    # Lives on Lead (not ScheduledJob) because the deposit invoice is sent
+    # BEFORE the job is scheduled — once the customer agrees on a sales call,
+    # before any ScheduledJob row exists.
+    #
+    # deposit_status state machine:
+    #   ""          — default; no deposit flow started for this lead
+    #   "pending"   — invoice + payment link sent, awaiting customer payment
+    #   "paid"      — QB webhook confirmed receipt
+    #   "waived"    — Alan explicitly skipped (trusted customer)
+    deposit_status = Column(Text, default="")
+    deposit_amount = Column(Numeric(10, 2), default=0)
+    deposit_invoice_sent_at = Column(Text, nullable=True)
+    deposit_paid_at = Column(Text, nullable=True)
+    # Public URL the customer taps to pay. Comes from QuickBooks when the
+    # deposit invoice is created.
+    deposit_payment_link = Column(Text, default="")
+    # QB invoice id for the deposit — used by the webhook handler to map
+    # an incoming payment confirmation back to the right Lead row.
+    deposit_qb_invoice_id = Column(Text, default="")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -135,6 +157,12 @@ class Lead(Base):
             "delivery_method": self.delivery_method or "unknown",
             "do_not_contact": bool(self.do_not_contact),
             "last_send_failure": self.last_send_failure or "",
+            "deposit_status": self.deposit_status or "",
+            "deposit_amount": float(self.deposit_amount or 0),
+            "deposit_invoice_sent_at": self.deposit_invoice_sent_at,
+            "deposit_paid_at": self.deposit_paid_at,
+            "deposit_payment_link": self.deposit_payment_link or "",
+            "deposit_qb_invoice_id": self.deposit_qb_invoice_id or "",
         }
 
 
@@ -2077,6 +2105,21 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN last_send_failure TEXT DEFAULT ''"))
         logger.info("Migration: added leads.last_send_failure")
+
+    # Deposit flow (T1.B, 2026-06-07). Six columns to support the
+    # $250-down-to-schedule anti-cancellation gate. Idempotent.
+    for new_col, ddl in [
+        ("deposit_status", "ALTER TABLE leads ADD COLUMN deposit_status TEXT DEFAULT ''"),
+        ("deposit_amount", "ALTER TABLE leads ADD COLUMN deposit_amount NUMERIC(10,2) DEFAULT 0"),
+        ("deposit_invoice_sent_at", "ALTER TABLE leads ADD COLUMN deposit_invoice_sent_at TEXT"),
+        ("deposit_paid_at", "ALTER TABLE leads ADD COLUMN deposit_paid_at TEXT"),
+        ("deposit_payment_link", "ALTER TABLE leads ADD COLUMN deposit_payment_link TEXT DEFAULT ''"),
+        ("deposit_qb_invoice_id", "ALTER TABLE leads ADD COLUMN deposit_qb_invoice_id TEXT DEFAULT ''"),
+    ]:
+        if new_col not in existing:
+            with _engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Migration: added leads.{new_col}")
 
     # ScheduledJob: materials_cost, payment fields, QuickBooks invoice link
     if inspector.has_table("scheduled_jobs"):
