@@ -772,6 +772,193 @@ def send_invoice_sms(job_id: str, user: dict = Depends(require_admin)):
 
 
 # ────────────────────────────────────────────────────────────────────────
+# Deposit flow — $250 down to schedule. Sends a QB invoice for the deposit
+# amount with the customer's hosted payment link, and stores the link +
+# invoice id on the Lead so the dashboard can surface status before the
+# job is scheduled. Anti-cancellation gate added 2026-06-07.
+# ────────────────────────────────────────────────────────────────────────
+
+
+# Hardcoded by client direction: flat $250, non-refundable, no per-job
+# variation. If this ever becomes configurable, lift to a Settings field.
+DEPOSIT_AMOUNT_USD = 250.0
+
+
+@router.post("/quickbooks/leads/{lead_id}/send-deposit-invoice")
+def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
+    """Create a QuickBooks invoice for the $250 non-refundable deposit and
+    return the hosted payment link. Idempotent — if an invoice was
+    already created for this lead's deposit, return the existing record
+    instead of creating a duplicate. If the deposit is already paid or
+    waived, refuse (200 with explanation) so admin can see the state."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+
+        # Already-resolved guards — don't waste a QB API call to recreate.
+        if lead.deposit_status == "paid":
+            return {
+                "status": "already_paid",
+                "deposit_payment_link": lead.deposit_payment_link or "",
+                "deposit_paid_at": lead.deposit_paid_at,
+                "lead": lead.to_dict(),
+            }
+        if lead.deposit_status == "waived":
+            return {
+                "status": "waived",
+                "lead": lead.to_dict(),
+            }
+
+        # Idempotent: an invoice already exists for this lead's deposit.
+        # Return the existing link rather than racing QB on duplicates.
+        if lead.deposit_qb_invoice_id:
+            return {
+                "status": "already_sent",
+                "deposit_qb_invoice_id": lead.deposit_qb_invoice_id,
+                "deposit_payment_link": lead.deposit_payment_link or "",
+                "deposit_invoice_sent_at": lead.deposit_invoice_sent_at,
+                "lead": lead.to_dict(),
+            }
+
+        # ─── Mock mode ──────────────────────────────────────────────
+        if qb.qb_mode() == "mock":
+            invoice_id = f"MOCK-DEP-{uuid.uuid4().hex[:10].upper()}"
+            invoice_url = f"https://quickbooks.example.com/invoice/{invoice_id}"
+            lead.deposit_qb_invoice_id = invoice_id
+            lead.deposit_payment_link = invoice_url
+            lead.deposit_amount = DEPOSIT_AMOUNT_USD
+            lead.deposit_status = "pending"
+            lead.deposit_invoice_sent_at = _now()
+            lead.updated_at = _now()
+            db.commit()
+            db.refresh(lead)
+            return {
+                "mode": "mock",
+                "status": "sent",
+                "deposit_qb_invoice_id": invoice_id,
+                "deposit_payment_link": invoice_url,
+                "amount": DEPOSIT_AMOUNT_USD,
+                "lead": lead.to_dict(),
+            }
+
+        # ─── Live mode ──────────────────────────────────────────────
+        try:
+            customer_name = (lead.contact_name or "").strip() or "Customer"
+            email = (lead.contact_email or "").strip()
+            phone = (lead.contact_phone or "").strip()
+            address = (lead.address or "").strip()
+            zip_code = (lead.zip_code or "").strip()
+            service_label = _service_label(lead.service_type or "")
+            frontend_url = (get_settings().frontend_url or "").rstrip("/")
+            lead_url = f"{frontend_url}/leads/{lead.id}" if frontend_url else ""
+
+            customer_notes_lines = ["Lead source: A&T dashboard (deposit invoice)"]
+            if lead_url:
+                customer_notes_lines.append(f"Dashboard URL: {lead_url}")
+            customer_notes = "\n".join(customer_notes_lines)
+
+            customer_id = qb.ensure_customer(
+                customer_name,
+                email=email,
+                phone=phone,
+                address=address,
+                zip_code=zip_code,
+                notes=customer_notes,
+            )
+            if not customer_id:
+                raise HTTPException(502, "Could not create or find QB customer record")
+
+            # Customer-facing memo on the invoice page — make it crystal-
+            # clear this is a non-refundable scheduling deposit so there's
+            # no surprise when they tap to pay.
+            memo_lines = [
+                "Thanks for choosing A&T's Fence Staining!",
+                f"This is a non-refundable $250 deposit to lock in your "
+                f"{service_label} appointment.",
+            ]
+            if address:
+                memo_lines.append(f"Service address: {address}")
+            memo_lines.append(
+                "The remaining balance will be invoiced after the job is complete."
+            )
+            customer_memo = "\n".join(memo_lines)
+
+            # Internal-only private note so Alan can trace this invoice
+            # back to the right Lead in our dashboard.
+            private_parts = [
+                f"Lead ID: {lead.id}",
+                "Type: scheduling deposit (non-refundable)",
+            ]
+            if lead_url:
+                private_parts.append(f"Dashboard: {lead_url}")
+            private_note = "\n".join(private_parts)
+
+            inv = qb.create_invoice(
+                customer_id=customer_id,
+                amount=DEPOSIT_AMOUNT_USD,
+                description="Non-refundable scheduling deposit",
+                line_items=None,
+                due_in_days=7,
+                customer_email=email,
+                customer_memo=customer_memo,
+                private_note=private_note,
+            )
+        except PermissionError as e:
+            raise HTTPException(
+                400,
+                f"QuickBooks isn't connected yet. Open Settings → QuickBooks Online → Connect. ({e})",
+            )
+        except Exception as e:
+            logger.error(f"QB deposit invoice create failed: {e}")
+            raise HTTPException(502, f"QuickBooks invoice creation failed: {e}")
+
+        lead.deposit_qb_invoice_id = inv["invoice_id"]
+        lead.deposit_payment_link = inv.get("invoice_url", "") or ""
+        lead.deposit_amount = float(inv.get("total_amount") or DEPOSIT_AMOUNT_USD)
+        lead.deposit_status = "pending"
+        lead.deposit_invoice_sent_at = _now()
+        lead.updated_at = _now()
+        db.commit()
+        db.refresh(lead)
+        return {
+            "mode": "live",
+            "status": "sent",
+            "deposit_qb_invoice_id": inv["invoice_id"],
+            "deposit_payment_link": inv.get("invoice_url", ""),
+            "invoice_number": inv.get("invoice_number"),
+            "amount": float(inv.get("total_amount") or DEPOSIT_AMOUNT_USD),
+            "lead": lead.to_dict(),
+        }
+    finally:
+        db.close()
+
+
+@router.post("/quickbooks/leads/{lead_id}/waive-deposit")
+def waive_deposit(lead_id: str, user: dict = Depends(require_admin)):
+    """Mark the deposit as waived without sending an invoice. Used for
+    trusted repeat customers Alan decides to skip the gate on. Records
+    the waiver so the audit trail captures who/when."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        if lead.deposit_status == "paid":
+            raise HTTPException(400, "Deposit already paid — cannot waive a paid deposit.")
+        lead.deposit_status = "waived"
+        lead.updated_at = _now()
+        db.commit()
+        db.refresh(lead)
+        return {"status": "waived", "lead": lead.to_dict()}
+    finally:
+        db.close()
+
+
+# ────────────────────────────────────────────────────────────────────────
 # Webhook — payment received
 # ────────────────────────────────────────────────────────────────────────
 
