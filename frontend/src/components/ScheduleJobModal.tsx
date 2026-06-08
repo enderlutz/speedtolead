@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Employee, type ScheduledJob, type Lead } from "@/lib/api";
+import { api, type Employee, type ScheduledJob, type Lead, type NearbyJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus, AlertTriangle } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin } from "lucide-react";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
 const STAIN_COLORS = [
@@ -164,11 +164,25 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
   const [sendInvite, setSendInvite] = useState(true);
   const [sendThankYou, setSendThankYou] = useState(true);
 
+  // Sprint 3 T3.D — Route-stack candidates. Loaded once on mount; UI
+  // surfaces top suggestion + the count of other nearby jobs over the
+  // next 14 days. Empty state hides the strip entirely so the modal
+  // stays clean when route-stacking isn't an option.
+  const [nearbyJobs, setNearbyJobs] = useState<NearbyJob[]>([]);
+
   useEffect(() => {
     api.listCrew("this_week", false)
       .then((r) => setEmployees(r.employees))
       .catch(() => toast.error("Failed to load crew list"));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getNearbyJobs(lead.id, 14)
+      .then((r) => { if (!cancelled) setNearbyJobs(r.nearby_jobs); })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [lead.id]);
 
   const toggleEmployee = (id: string) => {
     setAssignedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -269,6 +283,49 @@ export default function ScheduleJobModal({ lead, existing, onClose, onSaved }: P
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Sprint 3 T3.D — Route-stack suggestion. Shown only when nearby
+              jobs exist for the next 14 days. Two states:
+                - Top pick same-ZIP → green callout with one-click date fill
+                - Nearby-only → muted info note (still useful awareness) */}
+          {nearbyJobs.length > 0 && (() => {
+            const top = nearbyJobs[0];
+            const others = nearbyJobs.length - 1;
+            if (top.same_zip) {
+              return (
+                <div className="rounded-md border border-emerald-300 bg-emerald-50 p-2.5 flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-emerald-700 mt-0.5 shrink-0" />
+                  <div className="flex-1 text-sm">
+                    <span className="font-semibold text-emerald-900">💡 Route-stack:</span>{" "}
+                    <span>
+                      We're already at <span className="font-semibold">{top.customer_name || top.address}</span>
+                      {top.distance_miles !== null && <> ({top.distance_miles} mi)</>} on {top.job_date}.
+                    </span>
+                    {others > 0 && (
+                      <span className="text-xs text-emerald-800 ml-1">+ {others} more nearby this window.</span>
+                    )}
+                  </div>
+                  {jobDate !== top.job_date && (
+                    <Button size="sm" variant="outline" onClick={() => setJobDate(top.job_date)}>
+                      Use this date
+                    </Button>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <div className="rounded-md border border-cyan-300 bg-cyan-50 p-2.5 text-sm flex items-start gap-2">
+                <MapPin className="h-4 w-4 text-cyan-700 mt-0.5 shrink-0" />
+                <div className="text-cyan-900">
+                  {nearbyJobs.length} nearby job{nearbyJobs.length === 1 ? "" : "s"} already scheduled in this window
+                  {top && (
+                    <> — closest: {top.customer_name || top.address}
+                    {top.distance_miles !== null && <> ({top.distance_miles} mi)</>} on {top.job_date}</>
+                  )}.
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Schedule */}
           <section>
             <h3 className="text-sm font-semibold mb-2">Schedule</h3>
