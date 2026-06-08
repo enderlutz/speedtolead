@@ -36,6 +36,26 @@ def _parse_dt(s: str | None):
         return None
 
 
+@router.get("/calls/ghl-probe/{lead_id}")
+def ghl_call_probe(lead_id: str, user: dict = Depends(require_admin)):
+    """Sprint 4 T4.A probe (2026-06-07). Admin-only diagnostic that hits
+    three candidate GHL endpoints for call recordings against the given
+    lead's ghl_contact_id and returns the raw response shape. Used to
+    confirm which endpoint exposes call recordings before we wire the
+    poller for real. Not part of the long-term API surface — once the
+    fetcher is implemented, this stays as a debug tool."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        from services.call_poller import probe_ghl_call_endpoints
+        return probe_ghl_call_endpoints(lead)
+    finally:
+        db.close()
+
+
 @router.get("/calls/lead/{lead_id}")
 def get_lead_calls(lead_id: str, include_archived: bool = False):
     """Get all call recordings for a lead with transcripts and analyses."""

@@ -13,12 +13,132 @@ import httpx
 from datetime import datetime, timezone
 from config import get_settings
 from database import get_db, CallRecording, Lead
+from services.ghl import GHL_BASE, _headers
 
 logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def probe_ghl_call_endpoints(lead) -> dict:
+    """Sprint 4 T4.A probe (2026-06-07). Hits the three most likely GHL
+    endpoints for finding call recordings and returns the raw response
+    shape from each so we can see what GHL actually exposes for this
+    account before committing to a code path. Admin-only via the
+    /calls/ghl-call-probe endpoint that wraps this.
+
+    Probes (in order):
+      1. /conversations/search?contactId=...  (lists conversation IDs)
+      2. /conversations/{cid}/messages         (per-conversation messages,
+          calls usually arrive as messageType TYPE_CALL with a recordingUrl)
+      3. /conversations/calls?contactId=...    (guess — a direct calls list)
+
+    Returns a structured dict with status codes + body snippets for each."""
+    contact_id = (lead.ghl_contact_id or "").strip()
+    location_id = (lead.ghl_location_id or "").strip() or None
+    if not contact_id:
+        return {"error": "Lead has no ghl_contact_id"}
+
+    out: dict = {
+        "lead_id": lead.id,
+        "ghl_contact_id": contact_id,
+        "ghl_location_id": location_id or "",
+        "probes": [],
+    }
+    headers = _headers(location_id)
+
+    # --- Probe 1: list conversations for this contact ---
+    convo_id_for_step_2 = None
+    try:
+        r = httpx.get(
+            f"{GHL_BASE}/conversations/search",
+            params={"contactId": contact_id, "limit": 20},
+            headers=headers,
+            timeout=15,
+        )
+        body_preview = r.text[:600]
+        try:
+            payload = r.json()
+        except Exception:
+            payload = None
+        # Try to grab a conversation id to use in probe 2
+        if payload and isinstance(payload, dict):
+            convos = payload.get("conversations") or []
+            if convos:
+                convo_id_for_step_2 = convos[0].get("id")
+        out["probes"].append({
+            "name": "1_conversations_search",
+            "url": f"{GHL_BASE}/conversations/search?contactId={contact_id}&limit=20",
+            "status_code": r.status_code,
+            "body_preview": body_preview,
+            "first_conversation_id": convo_id_for_step_2,
+        })
+    except Exception as e:
+        out["probes"].append({"name": "1_conversations_search", "error": str(e)})
+
+    # --- Probe 2: fetch messages for that first conversation (calls usually
+    #              arrive here as TYPE_CALL message records with a recordingUrl) ---
+    if convo_id_for_step_2:
+        try:
+            r = httpx.get(
+                f"{GHL_BASE}/conversations/{convo_id_for_step_2}/messages",
+                params={"limit": 50},
+                headers=headers,
+                timeout=15,
+            )
+            body_preview = r.text[:2000]   # bigger preview here — we want to see the call shape
+            # Hunt for any messageType that smells like a call
+            call_message_samples: list = []
+            try:
+                payload = r.json()
+                msgs = (payload.get("messages") or {}).get("messages") or []
+                for m in msgs:
+                    mt = (m.get("messageType") or m.get("type") or "").upper()
+                    if "CALL" in mt or m.get("recordingUrl") or m.get("attachments"):
+                        call_message_samples.append({
+                            "messageType": mt,
+                            "direction": m.get("direction"),
+                            "dateAdded": m.get("dateAdded"),
+                            "duration": m.get("duration"),
+                            "recordingUrl": m.get("recordingUrl"),
+                            "attachments": m.get("attachments"),
+                            "meta": m.get("meta"),
+                            "raw_keys": list(m.keys()),
+                        })
+                        if len(call_message_samples) >= 3:
+                            break
+            except Exception:
+                pass
+            out["probes"].append({
+                "name": "2_conversation_messages",
+                "url": f"{GHL_BASE}/conversations/{convo_id_for_step_2}/messages",
+                "status_code": r.status_code,
+                "body_preview": body_preview,
+                "call_message_samples": call_message_samples,
+            })
+        except Exception as e:
+            out["probes"].append({"name": "2_conversation_messages", "error": str(e)})
+
+    # --- Probe 3: speculative direct calls endpoint ---
+    try:
+        r = httpx.get(
+            f"{GHL_BASE}/conversations/calls",
+            params={"contactId": contact_id, "limit": 20},
+            headers=headers,
+            timeout=15,
+        )
+        out["probes"].append({
+            "name": "3_direct_calls_endpoint_guess",
+            "url": f"{GHL_BASE}/conversations/calls?contactId={contact_id}",
+            "status_code": r.status_code,
+            "body_preview": r.text[:600],
+        })
+    except Exception as e:
+        out["probes"].append({"name": "3_direct_calls_endpoint_guess", "error": str(e)})
+
+    return out
 
 
 def poll_ghl_call_recordings():
