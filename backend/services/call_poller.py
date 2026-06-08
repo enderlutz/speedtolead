@@ -80,6 +80,7 @@ def probe_ghl_call_endpoints(lead) -> dict:
 
     # --- Probe 2: fetch messages for that first conversation (calls usually
     #              arrive here as TYPE_CALL message records with a recordingUrl) ---
+    first_call_message_id: str | None = None
     if convo_id_for_step_2:
         try:
             r = httpx.get(
@@ -96,8 +97,13 @@ def probe_ghl_call_endpoints(lead) -> dict:
                 msgs = (payload.get("messages") or {}).get("messages") or []
                 for m in msgs:
                     mt = (m.get("messageType") or m.get("type") or "").upper()
-                    if "CALL" in mt or m.get("recordingUrl") or m.get("attachments"):
+                    if "CALL" in mt:
+                        # Cache the first CALL id so probes 4–6 can use it
+                        # to find the recording endpoint.
+                        if first_call_message_id is None:
+                            first_call_message_id = m.get("id")
                         call_message_samples.append({
+                            "id": m.get("id"),
                             "messageType": mt,
                             "direction": m.get("direction"),
                             "dateAdded": m.get("dateAdded"),
@@ -138,6 +144,83 @@ def probe_ghl_call_endpoints(lead) -> dict:
     except Exception as e:
         out["probes"].append({"name": "3_direct_calls_endpoint_guess", "error": str(e)})
 
+    # --- Probes 4–6: ONLY fire when we have a real TYPE_CALL message id from
+    #                 probe 2. These pinpoint the recording URL location.
+    if first_call_message_id:
+        # 4 — single message detail endpoint. Some GHL accounts return the
+        #     recordingUrl ONLY here, not in the list response.
+        try:
+            r = httpx.get(
+                f"{GHL_BASE}/conversations/messages/{first_call_message_id}",
+                headers=headers,
+                timeout=15,
+            )
+            # Try to surface keys + key recording-relevant fields cleanly.
+            sample = None
+            try:
+                pj = r.json()
+                if isinstance(pj, dict):
+                    sample = {
+                        "raw_keys": list(pj.keys()),
+                        "recordingUrl": pj.get("recordingUrl"),
+                        "attachments": pj.get("attachments"),
+                        "meta": pj.get("meta"),
+                        # Some GHL accounts nest under .message
+                        "nested_message_keys": list((pj.get("message") or {}).keys()) if isinstance(pj.get("message"), dict) else None,
+                    }
+            except Exception:
+                pass
+            out["probes"].append({
+                "name": "4_single_message_detail",
+                "url": f"{GHL_BASE}/conversations/messages/{first_call_message_id}",
+                "status_code": r.status_code,
+                "body_preview": r.text[:1200],
+                "sample": sample,
+            })
+        except Exception as e:
+            out["probes"].append({"name": "4_single_message_detail", "error": str(e)})
+
+        # 5 — the documented recording endpoint shape. If 200 with audio
+        #     content-type, this is our integration path: stream the body
+        #     to disk and feed it into the existing transcriber.
+        try:
+            url_5 = (
+                f"{GHL_BASE}/conversations/messages/{first_call_message_id}"
+                f"/locations/{location_id}/recording" if location_id
+                else f"{GHL_BASE}/conversations/messages/{first_call_message_id}/recording"
+            )
+            r = httpx.get(url_5, headers=headers, timeout=20)
+            out["probes"].append({
+                "name": "5_recording_endpoint",
+                "url": url_5,
+                "status_code": r.status_code,
+                "content_type": r.headers.get("content-type", ""),
+                "content_length_bytes": len(r.content),
+                # Tiny preview — first 200 chars only since this might be binary.
+                "body_preview": r.text[:200] if "json" in r.headers.get("content-type", "").lower() else f"<binary, {len(r.content)} bytes>",
+            })
+        except Exception as e:
+            out["probes"].append({"name": "5_recording_endpoint", "error": str(e)})
+
+        # 6 — transcription endpoint (bonus). If GHL transcribes calls
+        #     server-side we can skip Deepgram entirely.
+        try:
+            url_6 = (
+                f"{GHL_BASE}/conversations/messages/{first_call_message_id}"
+                f"/locations/{location_id}/transcription" if location_id
+                else f"{GHL_BASE}/conversations/messages/{first_call_message_id}/transcription"
+            )
+            r = httpx.get(url_6, headers=headers, timeout=15)
+            out["probes"].append({
+                "name": "6_transcription_endpoint",
+                "url": url_6,
+                "status_code": r.status_code,
+                "body_preview": r.text[:600],
+            })
+        except Exception as e:
+            out["probes"].append({"name": "6_transcription_endpoint", "error": str(e)})
+
+    out["first_call_message_id"] = first_call_message_id
     return out
 
 
