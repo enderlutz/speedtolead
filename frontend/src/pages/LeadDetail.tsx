@@ -568,6 +568,15 @@ export default function LeadDetail() {
               </Badge>
             ) : null}
           </div>
+          {/* Sprint 2 T2.C — Last-contact line. Tells Alan/Olga at a glance
+              when this lead was last touched so multi-person teams don't
+              double-dial. Pulls from call dispositions (T2.A) + estimate.sent_at
+              + lead.proposal_last_viewed_at — whichever is most recent. */}
+          <LastContactLine
+            leadId={lead.id}
+            estimateSentAt={estimate?.sent_at}
+            proposalLastViewedAt={lead.proposal_last_viewed_at}
+          />
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           {lead.pipeline_version === "v2" && lead.ghl_opportunity_id && (
@@ -2573,6 +2582,68 @@ function DepositCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+// Sprint 2 T2.C — Last contact line for the lead detail header. Composes
+// the most recent touch across (call disposition, estimate sent, proposal
+// view). Shows up to 2 touchpoints so admin can see "called 14 min ago ·
+// estimate sent 2d ago" at a glance — the call answers 'did anyone
+// already work this?', the estimate answers 'how stale is it?'.
+function LastContactLine({
+  leadId,
+  estimateSentAt,
+  proposalLastViewedAt,
+}: {
+  leadId: string;
+  estimateSentAt?: string | null;
+  proposalLastViewedAt?: string | null;
+}) {
+  const [lastCall, setLastCall] = useState<CallDispositionEntry | null>(null);
+  // Fire and forget: fetch the latest disposition for this lead. The
+  // CallDispositionCard below also fetches; this duplicate query is
+  // cheap (1-row index lookup) and avoids prop-drilling state up.
+  useEffect(() => {
+    let cancelled = false;
+    api.listCallDispositions(leadId)
+      .then((r) => { if (!cancelled) setLastCall(r.dispositions[0] || null); })
+      .catch(() => { /* silent — empty is a fine default */ });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  type Touch = { kind: "call" | "viewed" | "estimate"; at: string; label: string; icon: string };
+  const touches: Touch[] = [];
+  if (lastCall?.disposed_at) {
+    const optLabel = DISPOSITION_OPTIONS.find((d) => d.value === lastCall.outcome)?.label || lastCall.outcome;
+    touches.push({ kind: "call", at: lastCall.disposed_at, label: `Called (${optLabel})`, icon: "📞" });
+  }
+  if (proposalLastViewedAt) {
+    touches.push({ kind: "viewed", at: proposalLastViewedAt, label: "Proposal viewed", icon: "👁" });
+  }
+  if (estimateSentAt) {
+    touches.push({ kind: "estimate", at: estimateSentAt, label: "Estimate sent", icon: "✉️" });
+  }
+  touches.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+  if (touches.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground italic mt-1">
+        No contact logged yet — first touch will show here.
+      </p>
+    );
+  }
+  // Show top 2 touchpoints to give context without crowding the header.
+  return (
+    <p className="text-[11px] text-muted-foreground mt-1 flex items-baseline gap-2 flex-wrap">
+      {touches.slice(0, 2).map((t, i) => (
+        <span key={`${t.kind}-${i}`} className={i === 0 ? "font-semibold text-foreground" : ""}>
+          <span className="mr-0.5">{t.icon}</span>
+          {t.label} {timeAgo(t.at)}
+          {i === 0 && touches.length > 1 && <span className="mx-1.5 text-muted-foreground">·</span>}
+        </span>
+      ))}
+    </p>
   );
 }
 
