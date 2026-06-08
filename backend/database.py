@@ -119,6 +119,15 @@ class Lead(Base):
     # an incoming payment confirmation back to the right Lead row.
     deposit_qb_invoice_id = Column(Text, default="")
 
+    # Sprint 3 T3.A (2026-06-07). Geocoded lat/lng for route-clustering
+    # against ScheduledJob.lat/lng. Lazy-filled the first time the
+    # nearby-jobs endpoint is hit for a lead that has an address but no
+    # coords yet — same pattern ScheduledJob uses. ZIP is already on
+    # Lead via the existing zip_code column, so no duplicate column here.
+    lat = Column(Float, default=0.0)
+    lng = Column(Float, default=0.0)
+    geocoded_at = Column(Text, nullable=True)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -2169,6 +2178,10 @@ def _run_migrations():
         ("deposit_paid_at", "ALTER TABLE leads ADD COLUMN deposit_paid_at TEXT"),
         ("deposit_payment_link", "ALTER TABLE leads ADD COLUMN deposit_payment_link TEXT DEFAULT ''"),
         ("deposit_qb_invoice_id", "ALTER TABLE leads ADD COLUMN deposit_qb_invoice_id TEXT DEFAULT ''"),
+        # Sprint 3 T3.A (2026-06-07) — geocoding columns for route clustering.
+        ("lat", "ALTER TABLE leads ADD COLUMN lat DOUBLE PRECISION DEFAULT 0"),
+        ("lng", "ALTER TABLE leads ADD COLUMN lng DOUBLE PRECISION DEFAULT 0"),
+        ("geocoded_at", "ALTER TABLE leads ADD COLUMN geocoded_at TEXT"),
     ]:
         if new_col not in existing:
             with _engine.begin() as conn:
