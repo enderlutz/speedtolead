@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   DollarSign, TrendingUp, Plus, Trash2, Pencil, Check, X, Calculator, Receipt, Users as UsersIcon, FileText, AlertCircle, Wrench,
@@ -140,11 +140,12 @@ export default function Accounting() {
                   <th className="px-2 py-1.5 font-medium">Date</th>
                   <th className="px-2 py-1.5 font-medium">Customer</th>
                   <th className="px-2 py-1.5 font-medium">Service</th>
-                  <th className="px-2 py-1.5 font-medium text-right">Revenue</th>
+                  <th className="px-2 py-1.5 font-medium text-right" title="What the customer agreed to pay (contract value)">Contracted</th>
+                  <th className="px-2 py-1.5 font-medium text-right" title="Cash actually collected via QuickBooks">Collected</th>
                   <th className="px-2 py-1.5 font-medium text-right">Labor</th>
                   <th className="px-2 py-1.5 font-medium text-right">Materials</th>
                   <th className="px-2 py-1.5 font-medium text-right">Reimb.</th>
-                  <th className="px-2 py-1.5 font-medium text-right">Profit</th>
+                  <th className="px-2 py-1.5 font-medium text-right" title="Collected − costs">Profit</th>
                   <th className="px-2 py-1.5 font-medium text-right">Margin</th>
                   <th className="px-2 py-1.5 font-medium text-center">Paid?</th>
                 </tr>
@@ -152,6 +153,11 @@ export default function Accounting() {
               <tbody>
                 {jobs.map((j) => {
                   const isFocus = focusJobId && (j.scheduled_job_id === focusJobId || j.lead_id === focusJobId);
+                  const contracted = j.contracted_price || 0;
+                  // Unpaid-but-already-run jobs show a loss; that's the honest view.
+                  // Highlight the Collected column when it lags Contracted so admin's
+                  // eye lands on the cashflow gap.
+                  const underCollected = contracted > 0 && j.revenue < contracted;
                   return (
                     <tr
                       key={j.scheduled_job_id}
@@ -167,7 +173,10 @@ export default function Accounting() {
                         {j.service_type.replace("_", " ")}
                         {j.package_tier && ` · ${j.package_tier}`}
                       </td>
-                      <td className="px-2 py-2 text-right font-medium">{formatCurrency(j.revenue)}</td>
+                      <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(contracted)}</td>
+                      <td className={`px-2 py-2 text-right font-medium ${underCollected ? "text-amber-700" : "text-emerald-700"}`}>
+                        {formatCurrency(j.revenue)}
+                      </td>
                       <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(j.labor_cost)}</td>
                       <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(j.materials_cost || 0)}</td>
                       <td className="px-2 py-2 text-right text-muted-foreground">{formatCurrency(j.reimbursement_cost)}</td>
@@ -193,6 +202,7 @@ export default function Accounting() {
               <tfoot>
                 <tr className="border-t-2 font-semibold bg-muted/20">
                   <td colSpan={3} className="px-2 py-2 text-right text-xs text-muted-foreground">Totals</td>
+                  <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + (j.contracted_price || 0), 0))}</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + j.revenue, 0))}</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + j.labor_cost, 0))}</td>
                   <td className="px-2 py-2 text-right">{formatCurrency(jobs.reduce((a, j) => a + (j.materials_cost || 0), 0))}</td>
@@ -205,8 +215,8 @@ export default function Accounting() {
             </table>
           )}
           <p className="text-[11px] text-muted-foreground mt-2">
-            Click any row to open the lead. Margin is gross (revenue − labor − reimbursements);
-            overhead is applied at the summary level above, not per-job.
+            Click any row to open the lead. Profit + margin use the <strong>Collected</strong> column (cash you actually received).
+            Jobs that already ran but haven't been paid show a loss until QuickBooks confirms the payment.
           </p>
         </CardContent>
       </Card>
@@ -228,15 +238,61 @@ function QuickBooksStatusCard({ status, onChange }: { status: QuickBooksStatus |
   }
   const connected = status.connected;
   const isMock = status.mode === "mock";
+
+  // W4 (2026-06-08) — Webhook health pill. Three states, derived from
+  // last_webhook_received_at + outstanding_invoices:
+  //   • green   — webhook within 24h OR nothing outstanding (idle is fine)
+  //   • yellow  — 24-72h quiet with outstanding > 0
+  //   • red     — 72h+ quiet OR never-received with outstanding > 0
+  // Only renders in live + connected mode (no point in mock/disconnected).
+  let healthPill: React.ReactNode = null;
+  if (!isMock && connected) {
+    const last = status.last_webhook_received_at || "";
+    const outstanding = status.outstanding_invoices || 0;
+    const ageMs = last
+      ? Math.max(0, Date.now() - new Date(last).getTime())
+      : Number.POSITIVE_INFINITY;
+    const ageHours = ageMs / 3600000;
+    const labelTime = last ? timeAgo(last) : "never";
+    let tone: "green" | "yellow" | "red" = "green";
+    if (outstanding > 0) {
+      if (!last || ageHours >= 72) tone = "red";
+      else if (ageHours >= 24) tone = "yellow";
+    } else if (!last) {
+      // Connected but no webhook ever — that's normal until the first
+      // customer pays. Stay green with an "idle" label rather than scaring
+      // Alan with a red pill on a fresh integration.
+      tone = "green";
+    }
+    const toneCls =
+      tone === "red" ? "bg-red-100 text-red-800"
+      : tone === "yellow" ? "bg-amber-100 text-amber-800"
+      : "bg-emerald-100 text-emerald-800";
+    const toneLabel =
+      tone === "red" ? "Stale" : tone === "yellow" ? "Quiet" : (last ? "Healthy" : "Idle");
+    const detail = outstanding > 0
+      ? `${labelTime} · ${outstanding} outstanding`
+      : (last ? labelTime : "no payments yet");
+    healthPill = (
+      <span
+        className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded font-bold ${toneCls}`}
+        title={`Webhook health · ${toneLabel} (${detail})`}
+      >
+        {toneLabel} · webhook {detail}
+      </span>
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
+        <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
           <FileText className="h-4 w-4 text-primary" />
           QuickBooks Online
           {isMock && <span className="text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">TEST MODE</span>}
           {!isMock && connected && <span className="text-[10px] uppercase tracking-wide bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">LIVE</span>}
           {!isMock && !connected && <span className="text-[10px] uppercase tracking-wide bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-bold">DISCONNECTED</span>}
+          {healthPill}
         </CardTitle>
       </CardHeader>
       <CardContent className="text-sm space-y-2">
@@ -259,14 +315,21 @@ function QuickBooksStatusCard({ status, onChange }: { status: QuickBooksStatus |
               Connected to <span className="font-medium">{status.company_name || "QuickBooks company"}</span>
               {status.connected_at && ` · since ${status.connected_at.slice(0, 10)}`}.
             </p>
-            <Button variant="outline" size="sm" onClick={async () => {
-              if (!confirm("Disconnect QuickBooks? Generate Invoice will stop working until you reconnect.")) return;
-              try {
-                await api.disconnectQuickBooks();
-                toast.success("Disconnected");
-                onChange();
-              } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
-            }}>Disconnect</Button>
+            <div className="flex flex-wrap gap-2">
+              {/* W3 (2026-06-08) — manual reconcile. The webhook is the primary
+                  sync path; this is the "I think QB knows something we don't"
+                  escape hatch + the demo button that proves the integration
+                  actually pulls live state from QB. */}
+              <ReconcileButton onComplete={onChange} />
+              <Button variant="outline" size="sm" onClick={async () => {
+                if (!confirm("Disconnect QuickBooks? Generate Invoice will stop working until you reconnect.")) return;
+                try {
+                  await api.disconnectQuickBooks();
+                  toast.success("Disconnected");
+                  onChange();
+                } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+              }}>Disconnect</Button>
+            </div>
           </>
         ) : (
           <>
@@ -284,6 +347,49 @@ function QuickBooksStatusCard({ status, onChange }: { status: QuickBooksStatus |
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+function ReconcileButton({ onComplete }: { onComplete: () => void }) {
+  // W3 (2026-06-08) — "Sync from QB now" button. Calls the reconcile
+  // endpoint and shows a toast summarizing how many jobs / deposits
+  // changed state. If QB is in mock mode the endpoint returns
+  // skipped_mock:true and we surface that explicitly.
+  const [syncing, setSyncing] = useState(false);
+  const handle = async () => {
+    setSyncing(true);
+    try {
+      const r = await api.reconcileQuickBooks();
+      const skipped = r.skipped_mock || r.jobs.skipped_mock || r.deposits.skipped_mock;
+      if (skipped) {
+        toast.info("QB is in test mode — no live invoices to reconcile.");
+        return;
+      }
+      const totalChecked = r.jobs.checked + r.deposits.checked;
+      const totalUpdated = r.jobs.updated + r.deposits.updated;
+      const totalErrors = r.jobs.errors + r.deposits.errors;
+      if (totalUpdated > 0) {
+        toast.success(
+          `Synced — ${totalUpdated} new payment${totalUpdated === 1 ? "" : "s"} found (checked ${totalChecked}).`,
+        );
+      } else {
+        toast.success(`In sync — checked ${totalChecked}, no changes.`);
+      }
+      if (totalErrors > 0) {
+        toast.warning(`${totalErrors} invoice${totalErrors === 1 ? "" : "s"} couldn't be reached. Check QB logs.`);
+      }
+      onComplete();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reconcile failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+  return (
+    <Button variant="outline" size="sm" onClick={handle} disabled={syncing}>
+      {syncing ? "Syncing…" : "Sync from QB now"}
+    </Button>
   );
 }
 
@@ -383,13 +489,46 @@ function KpiGrid({ summary, loading }: { summary: AccountingSummary | null; load
   const profitColor = summary.net_profit < 0 ? "text-red-600" : "text-emerald-700";
   const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 
+  // W1 (2026-06-08): three new revenue tiles up top. Revenue = collected
+  // cash (the honest number). Pipeline = contracted closed_price (future
+  // money). Collection Rate = how much of what we billed has hit the bank.
+  // Deposit subtotal surfaces as a subtitle so Alan can see the split.
+  const depositPart = summary.revenue_from_deposits || 0;
+  const depositSubtitle = depositPart > 0
+    ? `${summary.jobs_count} job${summary.jobs_count === 1 ? "" : "s"} · incl. ${formatCurrency(depositPart)} deposits`
+    : `${summary.jobs_count} job${summary.jobs_count === 1 ? "" : "s"}`;
+
+  const contracted = summary.contracted_revenue || 0;
+  const contractedDelta = contracted - (summary.revenue_from_jobs || 0);
+
+  const collectionRateColor =
+    summary.collection_rate_pct >= 90 ? "text-emerald-700"
+    : summary.collection_rate_pct >= 60 ? "text-foreground"
+    : "text-amber-700";
+
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {tile("Revenue", formatCurrency(summary.revenue),
-          `${summary.jobs_count} job${summary.jobs_count === 1 ? "" : "s"}`,
+      {/* Revenue picture — collected, pipeline, collection rate */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {tile("Revenue (Collected)", formatCurrency(summary.revenue),
+          depositSubtitle,
+          "text-emerald-700",
+          <DollarSign className="h-3.5 w-3.5 text-emerald-700" />)}
+        {tile("Pipeline (Contracted)", formatCurrency(contracted),
+          contracted > 0
+            ? `${formatCurrency(Math.max(0, contractedDelta))} still to collect on closed deals`
+            : "No deals booked yet this period",
           "text-foreground",
-          <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />)}
+          <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />)}
+        {tile("Collection Rate", `${(summary.collection_rate_pct || 0).toFixed(1)}%`,
+          contracted > 0
+            ? `${formatCurrency(summary.revenue_from_jobs || 0)} of ${formatCurrency(contracted)} contracted`
+            : "Nothing contracted to collect against",
+          collectionRateColor,
+          <Receipt className={`h-3.5 w-3.5 ${collectionRateColor}`} />)}
+      </div>
+      {/* Costs */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {tile("Labor", formatCurrency(summary.labor_cost),
           summary.revenue > 0 ? `${(summary.labor_cost / summary.revenue * 100).toFixed(0)}% of rev` : "—",
           "text-muted-foreground",
@@ -407,9 +546,10 @@ function KpiGrid({ summary, loading }: { summary: AccountingSummary | null; load
           "text-muted-foreground",
           <Calculator className="h-3.5 w-3.5 text-muted-foreground" />)}
       </div>
+      {/* Profit + AR */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {tile("Gross Profit", formatCurrency(summary.gross_profit),
-          `${fmtPct(summary.gross_margin_pct)} margin · before overhead`,
+          `${fmtPct(summary.gross_margin_pct)} margin · vs collected`,
           summary.gross_profit < 0 ? "text-red-600" : "text-emerald-700",
           <TrendingUp className="h-3.5 w-3.5 text-emerald-700" />)}
         {tile("Net Profit", formatCurrency(summary.net_profit),
@@ -417,7 +557,7 @@ function KpiGrid({ summary, loading }: { summary: AccountingSummary | null; load
           profitColor,
           <TrendingUp className={`h-3.5 w-3.5 ${profitColor}`} />)}
         {tile("Outstanding A/R", formatCurrency(summary.outstanding_revenue || 0),
-          (summary.outstanding_revenue || 0) > 0 ? "Customers still owe you this" : "All paid up",
+          (summary.outstanding_revenue || 0) > 0 ? "Closed deals still owing" : "All collected",
           (summary.outstanding_revenue || 0) > 0 ? "text-amber-700" : "text-emerald-700",
           <AlertCircle className={`h-3.5 w-3.5 ${(summary.outstanding_revenue || 0) > 0 ? "text-amber-600" : "text-emerald-600"}`} />)}
       </div>

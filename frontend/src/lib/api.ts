@@ -1080,6 +1080,31 @@ export const api = {
     request<{ period: string; start: string; end: string; total_company_revenue: number; employees: EmployeeRevenueRow[] }>(
       `/api/accounting/employee-revenue?period=${encodeURIComponent(period)}`,
     ),
+  // W2 (2026-06-08) — Recent payment activity for the Dashboard widget.
+  // Merges job invoices + deposit payments, newest first, plus a
+  // collected-today running total.
+  getRecentPayments: (limit: number = 10) =>
+    request<{ events: PaymentEvent[]; collected_today: number; today_iso: string }>(
+      `/api/payments/recent?limit=${limit}`,
+    ),
+  // W3 (2026-06-08) — manual reconciliation safety-net trigger.
+  // Returns per-pass stats. Skipped_mock=true means QB_MODE isn't 'live'
+  // and nothing was checked — caller should surface that to the user.
+  reconcileQuickBooks: () =>
+    request<{
+      jobs: { checked: number; updated: number; errors: number; skipped_mock: boolean };
+      deposits: { checked: number; updated: number; errors: number; skipped_mock: boolean };
+      skipped_mock?: boolean;
+    }>("/api/quickbooks/reconcile", { method: "POST" }),
+  // Per-job force refresh — for the per-row sync button.
+  refreshJobFromQB: (jobId: string) =>
+    request<{
+      status: string;
+      changed?: boolean;
+      payment_status?: string;
+      qb_invoice_status?: string;
+      amount_collected?: number;
+    }>(`/api/quickbooks/jobs/${jobId}/refresh-from-qb`, { method: "POST" }),
   listOverhead: () => request<{ entries: OverheadEntry[] }>("/api/accounting/overhead"),
   createOverhead: (body: OverheadBody) =>
     request<OverheadEntry>("/api/accounting/overhead", { method: "POST", body: JSON.stringify(body) }),
@@ -2245,13 +2270,25 @@ export interface AccountingSummary {
   end: string;
   months_in_period: number;
   jobs_count: number;
+  /** W1 (2026-06-08): collected cash this period (jobs + deposits). The
+   *  honest revenue number. */
   revenue: number;
+  /** Subtotal: collected against scheduled-job invoices. */
+  revenue_from_jobs: number;
+  /** Subtotal: $250 (or custom) deposits paid this period. */
+  revenue_from_deposits: number;
+  /** Pipeline / future money — sum of closed_price across jobs in period. */
+  contracted_revenue: number;
+  /** revenue_from_jobs ÷ contracted_revenue × 100. */
+  collection_rate_pct: number;
   labor_cost: number;
   reimbursement_cost: number;
   materials_cost: number;
+  /** Contracted − collected on jobs that aren't fully paid yet (period scope). */
   outstanding_revenue: number;
   overhead_monthly: number;
   overhead_cost: number;
+  /** Computed against collected revenue (honest margin). */
   gross_profit: number;
   net_profit: number;
   gross_margin_pct: number;
@@ -2266,14 +2303,35 @@ export interface JobProfitabilityRow {
   service_type: string;
   package_tier: string;
   address: string;
+  /** W1: collected cash on this job (0 when unpaid). */
   revenue: number;
+  /** What the customer agreed to pay — the pipeline number. */
+  contracted_price: number;
   labor_cost: number;
   reimbursement_cost: number;
   materials_cost: number;
+  /** Collected − costs. Unpaid jobs that already ran show as a loss. */
   profit: number;
   margin_pct: number;
   payment_status: PaymentStatus;
   amount_collected: number;
+  qb_invoice_status: string;
+  qb_invoice_url: string;
+}
+
+/** W2 (2026-06-08) — One payment event in the Dashboard's Recent Payments
+ *  widget. Source distinguishes a full job invoice from a $250 deposit. */
+export interface PaymentEvent {
+  /** Composite id: "job:<scheduled_job_id>" | "deposit:<lead_id>" */
+  id: string;
+  source: "job" | "deposit";
+  lead_id: string;
+  customer_name: string;
+  amount: number;
+  /** ISO timestamp. Sort descending = newest first. */
+  paid_at: string;
+  /** "quickbooks_invoice" | "cash" | "zelle" | "check" | "bnpl" | ... */
+  payment_method: string;
 }
 
 export interface OutstandingJob {
@@ -2324,6 +2382,14 @@ export interface QuickBooksStatus {
   needs_reconnect: boolean;
   reconnect_reason: string;
   ready_to_test: boolean;
+  /** W4 (2026-06-08) — ISO timestamp of the last signature-verified
+   *  webhook receipt. Empty string when none has arrived yet. Powers
+   *  the health pill on the QB status card. */
+  last_webhook_received_at?: string;
+  /** Count of ScheduledJob rows that have a QB invoice id but aren't
+   *  marked paid locally yet. If this is > 0 and the webhook has been
+   *  quiet for a long time, the pill goes yellow / red. */
+  outstanding_invoices?: number;
 }
 
 export interface QBTimeStatus {

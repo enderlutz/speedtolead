@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, Query
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Proposal
+from database import get_db, Lead, Estimate, Proposal, ScheduledJob
 
 router = APIRouter()
 
@@ -39,6 +39,62 @@ def _parse_dt(iso: str | None) -> datetime | None:
         return datetime.fromisoformat(iso.replace("Z", "+00:00"))
     except Exception:
         return None
+
+
+# ─── Collected-revenue helpers (W1 2026-06-08) ───────────────────────────
+# Analytics endpoints used to report "revenue" as Estimate.closed_price
+# (i.e., contracted). Under the new philosophy (revenue = cash actually
+# collected) we need a per-lead view of QB-collected cash so funnel /
+# revenue-insights / lead-sources can show the honest number.
+#
+# The accounting.py module owns the canonical helpers; we inline the same
+# logic here rather than cross-import to keep these modules independent
+# (and to avoid a circular dependency if accounting.py ever wants to
+# import from analytics.py).
+
+def _job_collected(job) -> float:
+    """Cash collected against a single ScheduledJob. Mirrors
+    accounting._job_revenue_collected — kept inline to avoid coupling."""
+    amt = float(job.amount_collected or 0)
+    if amt > 0:
+        return amt
+    status = (job.payment_status or "unpaid").lower()
+    if status in ("paid", "bnpl_financed"):
+        return float(job.closed_price or 0)
+    return 0.0
+
+
+def _collected_by_lead(db, lead_ids: list[str]) -> dict[str, float]:
+    """Bulk-compute collected cash per lead across both ScheduledJob
+    invoices and Lead.deposit. Returns {lead_id: total_collected}.
+    Used by revenue-insights and lead-sources for cash-realized rollups.
+
+    Cancelled jobs are excluded — no work was delivered, no revenue
+    realized. Deposits stay even on cancelled leads because the $250 is
+    non-refundable per Alan's policy."""
+    out: dict[str, float] = {}
+    if not lead_ids:
+        return out
+    jobs = (
+        db.query(ScheduledJob)
+        .filter(
+            ScheduledJob.lead_id.in_(lead_ids),
+            ScheduledJob.status != "cancelled",
+        )
+        .all()
+    )
+    for j in jobs:
+        amt = _job_collected(j)
+        if amt > 0:
+            out[j.lead_id] = out.get(j.lead_id, 0.0) + amt
+    leads_with_paid_deposit = (
+        db.query(Lead.id, Lead.deposit_amount)
+        .filter(Lead.id.in_(lead_ids), Lead.deposit_status == "paid")
+        .all()
+    )
+    for lid, amount in leads_with_paid_deposit:
+        out[lid] = out.get(lid, 0.0) + float(amount or 250)
+    return out
 
 
 # ─── KPIs ────────────────────────────────────────────────────────────────
@@ -492,29 +548,61 @@ def get_cohort_analysis(pipeline_version: str | None = Query(None)):
 
 @router.get("/analytics/revenue-insights")
 def get_revenue_insights(pipeline_version: str | None = Query(None)):
-    """Actionable insights: where to focus to double revenue."""
+    """Actionable insights with three honest revenue numbers (W1 2026-06-08):
+
+      • potential   — sum of signature tier across all leads. "If everything
+                      went right, this is the ceiling."
+      • contracted  — sum of closed_price for booked deals. "What we sold."
+      • collected   — actual cash from QB-paid invoices + paid deposits.
+                      "What hit the bank."
+
+    Two failure gaps fall out of that:
+
+      • closing_gap     = potential − contracted  (sales-process problem)
+      • collection_gap  = contracted − collected  (payment-process problem)
+
+    Backward compat: total_captured_revenue / capture_rate_pct still ship,
+    but they're aliased to the contracted view since that's what the old
+    UI labelled as "Captured Revenue" — it always meant "estimate sent."
+    Collected fields are new."""
     db = get_db()
     try:
         all_est = _apply_pipeline_filter(db.query(Estimate, Lead).join(Lead, Estimate.lead_id == Lead.id).filter(Estimate.estimate_low > 0, Lead.is_test.is_(False), Lead.status != "archived"), pipeline_version).all()
 
         total_leads = len(all_est)
         sent_leads = sum(1 for e, _ in all_est if e.status == "sent")
-        total_potential = 0
-        total_captured = 0
+        total_potential = 0.0
+        total_contracted = 0.0  # closed_price across closed deals
 
         by_zone_potential = defaultdict(float)
-        by_zone_captured = defaultdict(float)
+        by_zone_contracted = defaultdict(float)
         missed_reasons = defaultdict(int)
+
+        # Track the lead set we'll need collected revenue for. We bulk-load
+        # collected after the loop to avoid N queries.
+        lead_ids: list[str] = []
+        by_lead_zone: dict[str, str] = {}
 
         for est, lead in all_est:
             tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
             sig = float(tiers.get("signature", 0))
             total_potential += sig
 
-            if est.status == "sent":
-                total_captured += sig
+            inputs = json.loads(est.inputs) if isinstance(est.inputs, str) else (est.inputs or {})
+            zone = inputs.get("_zone", "Unknown")
+            by_zone_potential[zone] += sig
+
+            # Contracted = closed deals only. closed_price beats tier fallback
+            # but we keep the tier fallback for legacy data hygiene.
+            is_closed = est.closed_at is not None
+            if is_closed:
+                price = float(est.closed_price) if est.closed_price is not None else sig
+                total_contracted += price
+                by_zone_contracted[zone] += price
+                lead_ids.append(lead.id)
+                by_lead_zone[lead.id] = zone
             else:
-                # Track why we didn't close
+                # Why didn't this close?
                 if est.approval_status == "red":
                     missed_reasons[est.approval_reason or "Unknown red reason"] += 1
                 elif lead.kanban_column == "no_address":
@@ -524,37 +612,65 @@ def get_revenue_insights(pipeline_version: str | None = Query(None)):
                 else:
                     missed_reasons["Pending/not yet sent"] += 1
 
-            inputs = json.loads(est.inputs) if isinstance(est.inputs, str) else (est.inputs or {})
-            zone = inputs.get("_zone", "Unknown")
-            by_zone_potential[zone] += sig
-            if est.status == "sent":
-                by_zone_captured[zone] += sig
+        # Collected: actual cash via QB on the leads with a closed deal.
+        # Deposits are included because they're real money even if the
+        # full job invoice hasn't been paid yet.
+        collected_by_lead = _collected_by_lead(db, lead_ids)
+        total_collected = round(sum(collected_by_lead.values()), 2)
+        by_zone_collected: dict[str, float] = defaultdict(float)
+        for lid, amt in collected_by_lead.items():
+            z = by_lead_zone.get(lid, "Unknown")
+            by_zone_collected[z] += amt
 
-        capture_rate = round(total_captured / total_potential * 100, 1) if total_potential > 0 else 0
-        missed_revenue = total_potential - total_captured
+        closing_gap = max(0.0, total_potential - total_contracted)
+        collection_gap = max(0.0, total_contracted - total_collected)
+        # Headline rates: closing_rate = sales effort, collection_rate = cash.
+        closing_rate = round(total_contracted / total_potential * 100, 1) if total_potential > 0 else 0.0
+        collection_rate = round(total_collected / total_contracted * 100, 1) if total_contracted > 0 else 0.0
 
         # Top missed reasons sorted by frequency
         top_missed = sorted(missed_reasons.items(), key=lambda x: x[1], reverse=True)[:10]
 
-        # Zone opportunity gaps
+        # Zone opportunity gaps — keep the existing "sales effort" angle
+        # (potential vs contracted), plus add a collected column so Alan
+        # can see which zones have the worst payment realization too.
         zone_gaps = []
-        for zone in set(list(by_zone_potential.keys()) + list(by_zone_captured.keys())):
+        for zone in set(list(by_zone_potential.keys()) + list(by_zone_contracted.keys())):
             pot = by_zone_potential.get(zone, 0)
-            cap = by_zone_captured.get(zone, 0)
-            gap = pot - cap
+            con = by_zone_contracted.get(zone, 0)
+            col = by_zone_collected.get(zone, 0)
+            gap = pot - con
             if gap > 0:
-                zone_gaps.append({"zone": zone, "potential": round(pot, 0), "captured": round(cap, 0), "gap": round(gap, 0), "capture_rate": round(cap / pot * 100, 1) if pot > 0 else 0})
+                zone_gaps.append({
+                    "zone": zone,
+                    "potential": round(pot, 0),
+                    "captured": round(con, 0),   # backward-compat name
+                    "contracted": round(con, 0),
+                    "collected": round(col, 0),
+                    "gap": round(gap, 0),
+                    "capture_rate": round(con / pot * 100, 1) if pot > 0 else 0,
+                })
         zone_gaps.sort(key=lambda x: x["gap"], reverse=True)
 
         return {
             "total_potential_revenue": round(total_potential, 0),
-            "total_captured_revenue": round(total_captured, 0),
-            "missed_revenue": round(missed_revenue, 0),
-            "capture_rate_pct": capture_rate,
-            "to_double_revenue": round(total_captured, 0),  # need to capture this much more
+            # New W1 fields — collected is the honest revenue number.
+            "total_contracted_revenue": round(total_contracted, 0),
+            "total_collected_revenue": total_collected,
+            "closing_gap": round(closing_gap, 0),
+            "collection_gap": round(collection_gap, 0),
+            "closing_rate_pct": closing_rate,
+            "collection_rate_pct": collection_rate,
+            # Backward compat — old UI keys keep working until C2 rewires.
+            # "captured" historically meant "contracted" (estimate sent),
+            # not collected. Keep that semantic for the legacy key.
+            "total_captured_revenue": round(total_contracted, 0),
+            "missed_revenue": round(closing_gap, 0),
+            "capture_rate_pct": closing_rate,
+            "to_double_revenue": round(total_collected, 0),
             "top_missed_reasons": [{"reason": r, "count": c} for r, c in top_missed],
             "zone_opportunity_gaps": zone_gaps,
-            "actionable_insights": _generate_insights(total_leads, sent_leads, capture_rate, top_missed, zone_gaps),
+            "actionable_insights": _generate_insights(total_leads, sent_leads, closing_rate, top_missed, zone_gaps),
         }
     finally:
         db.close()
@@ -564,7 +680,13 @@ def get_revenue_insights(pipeline_version: str | None = Query(None)):
 
 @router.get("/analytics/deal-stats")
 def get_deal_stats(pipeline_version: str | None = Query(None)):
-    """Tier selection breakdown, average deal size, and view-to-close rate."""
+    """Tier selection breakdown, average deal size, and view-to-close rate.
+
+    W1 (2026-06-08): tier_revenue / avg_deal_size still mean CONTRACTED
+    ("the customer agreed to pay this much for the Signature tier") —
+    these are size/popularity metrics, not cash metrics. New fields
+    tier_collected_revenue + avg_collected_per_close surface the realized
+    cash side so the frontend can show both views side by side."""
     db = get_db()
     try:
         # All closed estimates
@@ -577,7 +699,13 @@ def get_deal_stats(pipeline_version: str | None = Query(None)):
 
         tier_counts = {"essential": 0, "signature": 0, "legacy": 0, "custom": 0}
         tier_revenue = {"essential": 0.0, "signature": 0.0, "legacy": 0.0, "custom": 0.0}
+        tier_collected = {"essential": 0.0, "signature": 0.0, "legacy": 0.0, "custom": 0.0}
         deal_sizes: list[float] = []
+
+        # Bulk-load collected cash per closed lead so we can attribute it
+        # back to the tier the customer chose.
+        closed_lead_ids = [l.id for _, l in closed]
+        collected_by_lead = _collected_by_lead(db, closed_lead_ids)
 
         for est, lead in closed:
             tier = est.closed_tier
@@ -589,6 +717,7 @@ def get_deal_stats(pipeline_version: str | None = Query(None)):
                     price = float(tiers.get(tier, 0))
                 tier_counts[tier] += 1
                 tier_revenue[tier] += price
+                tier_collected[tier] += collected_by_lead.get(lead.id, 0.0)
                 if price > 0:
                     deal_sizes.append(price)
 
@@ -598,14 +727,19 @@ def get_deal_stats(pipeline_version: str | None = Query(None)):
             tier_breakdown[t] = {
                 "count": tier_counts[t],
                 "pct": round(tier_counts[t] / total_closed * 100, 1) if total_closed > 0 else 0,
-                "revenue": round(tier_revenue[t], 2),
+                "revenue": round(tier_revenue[t], 2),                # contracted (sales meaning)
+                "collected_revenue": round(tier_collected[t], 2),    # cash actually in the bank
                 "avg_deal": round(tier_revenue[t] / tier_counts[t], 2) if tier_counts[t] > 0 else 0,
+                "avg_collected": round(tier_collected[t] / tier_counts[t], 2) if tier_counts[t] > 0 else 0,
             }
 
         avg_deal_size = round(sum(deal_sizes) / len(deal_sizes), 2) if deal_sizes else 0
         median_deal_size = round(sorted(deal_sizes)[len(deal_sizes) // 2], 2) if deal_sizes else 0
         min_deal = round(min(deal_sizes), 2) if deal_sizes else 0
         max_deal = round(max(deal_sizes), 2) if deal_sizes else 0
+        # Realized average — actual cash per closed deal.
+        total_collected_across_closed = sum(tier_collected.values())
+        avg_collected_per_close = round(total_collected_across_closed / total_closed, 2) if total_closed > 0 else 0
 
         # View-to-close rate: of proposals that were viewed, how many closed?
         sent_estimates = _apply_pipeline_filter(
@@ -654,11 +788,13 @@ def get_deal_stats(pipeline_version: str | None = Query(None)):
         return {
             "total_closed": total_closed,
             "tier_breakdown": tier_breakdown,
-            "avg_deal_size": avg_deal_size,
+            "avg_deal_size": avg_deal_size,                     # contracted (sales meaning)
+            "avg_collected_per_close": avg_collected_per_close, # actual cash per close
             "median_deal_size": median_deal_size,
             "min_deal_size": min_deal,
             "max_deal_size": max_deal,
-            "total_revenue": round(sum(tier_revenue.values()), 2),
+            "total_revenue": round(sum(tier_revenue.values()), 2),               # backward-compat name (contracted)
+            "total_collected_revenue": round(total_collected_across_closed, 2),  # cash realized
             "view_rate_pct": view_rate,
             "view_to_close_rate_pct": view_to_close_rate,
             "proposals_sent": total_sent,
@@ -921,9 +1057,16 @@ _SOURCE_LABELS: dict[str, str] = {
 @router.get("/analytics/lead-sources")
 def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90):
     """Breakdown of leads by `lead_source` for the last N days. Returns
-    counts + close rate + revenue per source so the team can see what
-    actually pays back. Each row also lists up to 10 representative leads
-    so the Ops analytics view can drill in."""
+    counts + close rate + COLLECTED revenue per source so the team can see
+    what actually pays back. Each row also lists up to 10 representative
+    leads so the Ops analytics view can drill in.
+
+    W1 (2026-06-08): the `revenue` field now means COLLECTED cash, not
+    contracted closed_price. A separate `contracted_revenue` field
+    surfaces the booked-but-uncollected number so the contracted vs
+    collected comparison is one query away. Deposits count toward
+    collected (real cash); they don't change contracted (deposits are
+    pre-job events, not contract value)."""
     db = get_db()
     try:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -931,20 +1074,18 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
         q = _apply_pipeline_filter(q, pipeline_version)
         leads = q.all()
 
-        # Pre-pull all closed estimates for these leads in one go
         lead_ids = [l.id for l in leads]
-        revenue_by_lead: dict[str, float] = {}
+        contracted_by_lead: dict[str, float] = {}
         sent_lead_ids: set[str] = set()
         closed_lead_ids: set[str] = set()
         if lead_ids:
-            # Sent
             sent_estimates = (
                 db.query(Estimate.lead_id)
                 .filter(Estimate.lead_id.in_(lead_ids), Estimate.sent_at.isnot(None))
                 .all()
             )
             sent_lead_ids = {row[0] for row in sent_estimates}
-            # Closed
+            # Closed — contracted view (what the customer agreed to pay).
             closed_estimates = (
                 db.query(Estimate.lead_id, Estimate.closed_price)
                 .filter(Estimate.lead_id.in_(lead_ids), Estimate.closed_at.isnot(None))
@@ -953,7 +1094,11 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
             for lid, price in closed_estimates:
                 closed_lead_ids.add(lid)
                 if price:
-                    revenue_by_lead[lid] = revenue_by_lead.get(lid, 0.0) + float(price)
+                    contracted_by_lead[lid] = contracted_by_lead.get(lid, 0.0) + float(price)
+
+        # Collected — actual cash via QB on these leads (any job + deposit).
+        # Bulk-loaded so we don't pay N queries.
+        collected_by_lead = _collected_by_lead(db, lead_ids)
 
         buckets: dict[str, dict] = {}
         for l in leads:
@@ -965,7 +1110,8 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
                     "leads": 0,
                     "sent": 0,
                     "closed": 0,
-                    "revenue": 0.0,
+                    "revenue": 0.0,             # collected (W1 — headline)
+                    "contracted_revenue": 0.0,  # pipeline / future money
                     "examples": [],
                 }
             b = buckets[src]
@@ -974,7 +1120,8 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
                 b["sent"] += 1
             if l.id in closed_lead_ids:
                 b["closed"] += 1
-            b["revenue"] += revenue_by_lead.get(l.id, 0.0)
+            b["revenue"] += collected_by_lead.get(l.id, 0.0)
+            b["contracted_revenue"] += contracted_by_lead.get(l.id, 0.0)
             if len(b["examples"]) < 10:
                 b["examples"].append({
                     "lead_id": l.id,
@@ -985,6 +1132,7 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
 
         total_leads = sum(b["leads"] for b in buckets.values())
         total_revenue = round(sum(b["revenue"] for b in buckets.values()), 2)
+        total_contracted = round(sum(b["contracted_revenue"] for b in buckets.values()), 2)
         out = []
         for src, b in buckets.items():
             close_rate = round((b["closed"] / b["leads"] * 100), 1) if b["leads"] > 0 else 0.0
@@ -992,6 +1140,11 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
             out.append({
                 **b,
                 "revenue": round(b["revenue"], 2),
+                "contracted_revenue": round(b["contracted_revenue"], 2),
+                "collection_rate": (
+                    round(b["revenue"] / b["contracted_revenue"] * 100, 1)
+                    if b["contracted_revenue"] > 0 else 0.0
+                ),
                 "close_rate": close_rate,
                 "send_rate": send_rate,
                 "share_pct": round((b["leads"] / total_leads * 100), 1) if total_leads > 0 else 0.0,
@@ -1000,7 +1153,8 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
         return {
             "days": days,
             "total_leads": total_leads,
-            "total_revenue": total_revenue,
+            "total_revenue": total_revenue,            # collected
+            "total_contracted_revenue": total_contracted,
             "sources": out,
         }
     finally:

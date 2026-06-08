@@ -4,11 +4,26 @@ Accounting API.
 Surfaces revenue, labor costs, reimbursements, overhead, and per-job
 profitability so admin can see the business's margins at a glance.
 
-Revenue source: ScheduledJob.closed_price (the contract value at the time
-the job was scheduled). When a lead has no scheduled job yet, we fall back
-to the most recent closed Estimate's closed_price.
+Revenue philosophy (2026-06-08 W1): revenue = CASH ACTUALLY COLLECTED.
+A job that closed at $5,000 but hasn't been paid contributes $0 to
+revenue. The contract price is tracked separately as "contracted" /
+"pipeline" so Alan can still see the booked-but-uncollected delta.
 
-Direct costs per job:
+Collected sources:
+  • ScheduledJob.amount_collected   ← set by the QB webhook
+                                      (services/quickbooks.py) including
+                                      partial-pay scenarios.
+  • ScheduledJob.closed_price       ← fallback when payment_status is
+                                      "paid" or "bnpl_financed" but
+                                      amount_collected wasn't stamped
+                                      (cash/check/Zelle mark-paid flows).
+  • Lead.deposit_amount             ← when deposit_status == "paid".
+                                      The $250 non-refundable scheduling
+                                      deposit is real cash; we include
+                                      it in headline revenue and surface
+                                      a subtotal so it's transparent.
+
+Direct costs per job (unchanged):
   labor       = sum(TaskAllocation.hours × TimeEntry.rate_at_entry)
   reimbursed  = sum(Reimbursement.amount where status='approved')
 
@@ -16,6 +31,10 @@ Overhead is a flat monthly burden — sum of active OverheadEntry rows
 multiplied by the number of months in the period. We don't allocate it
 per-job at the row level (would require a methodology call from Alan); it
 shows up as a top-level cost that reduces gross profit to net profit.
+
+Margin math (gross / net / margin_pct) is computed against COLLECTED
+revenue. A job that's been worked but not paid will show a loss until
+the cash arrives — that's the honest view Alan asked for.
 """
 from __future__ import annotations
 import uuid
@@ -78,10 +97,31 @@ def _period_bounds(period: str) -> tuple[str, str, int]:
     return (start, end, 1)
 
 
-def _job_revenue(job: ScheduledJob, db) -> float:
-    """Closed price from the scheduled job is the source of truth. Falls
-    back to the latest closed estimate on the same lead if the scheduled
-    job is missing one (legacy data)."""
+def _job_revenue_collected(job: ScheduledJob) -> float:
+    """Actual cash collected against this job. Partial payments included.
+
+    Priority:
+      1. amount_collected (set by the QB webhook for both fully-paid and
+         partial-pay invoices). Source of truth for QB-collected cash.
+      2. closed_price when payment_status is 'paid' or 'bnpl_financed' and
+         amount_collected wasn't populated — cash/Zelle/check mark-paid
+         flows on /schedule/jobs/{id}/mark-paid that stamp status but not
+         amount, plus BNPL where the financing partner remits closed_price.
+      3. Zero otherwise (unpaid, draft, voided)."""
+    amt = float(job.amount_collected or 0)
+    if amt > 0:
+        return round(amt, 2)
+    status = (job.payment_status or "unpaid").lower()
+    if status in ("paid", "bnpl_financed"):
+        return round(float(job.closed_price or 0), 2)
+    return 0.0
+
+
+def _job_contracted(job: ScheduledJob, db) -> float:
+    """Contracted (pipeline) value — what the customer agreed to pay.
+    The 'future money' bucket. Falls back to the latest closed estimate on
+    the same lead if the scheduled job is missing a closed_price (legacy
+    data). Identical logic to the pre-W1 `_job_revenue` helper."""
     cp = float(job.closed_price or 0)
     if cp > 0:
         return cp
@@ -92,6 +132,38 @@ def _job_revenue(job: ScheduledJob, db) -> float:
         .first()
     )
     return float(est.closed_price or 0) if est else 0.0
+
+
+def _deposits_collected_in_period(db, start: str, end: str) -> float:
+    """Sum of $250 (or custom) deposits actually paid by customers in the
+    period. Uses Lead.deposit_paid_at as the date so deposits land in the
+    period they were COLLECTED, not the period the lead was created.
+
+    The timestamp is an ISO datetime ('2026-06-08T14:30:00Z'); start/end
+    are YYYY-MM-DD. We compare the first 10 chars of deposit_paid_at to
+    keep this a clean string range — same pattern the rest of the file
+    uses for date-typed-as-string columns."""
+    rows = (
+        db.query(Lead)
+        .filter(
+            Lead.deposit_status == "paid",
+            Lead.deposit_paid_at.isnot(None),
+            func.substr(Lead.deposit_paid_at, 1, 10) >= start,
+            func.substr(Lead.deposit_paid_at, 1, 10) <= end,
+        )
+        .all()
+    )
+    return round(sum(float(l.deposit_amount or 250) for l in rows), 2)
+
+
+# Backward-compat shim. Some other modules (e.g. analytics, exports) may
+# still call _job_revenue; until they migrate, keep it pointing at the
+# contracted (pipeline) helper so behavior matches the pre-W1 expectation.
+def _job_revenue(job: ScheduledJob, db) -> float:
+    """DEPRECATED — use _job_contracted for pipeline math or
+    _job_revenue_collected for actual cash. Kept temporarily for
+    out-of-module callers."""
+    return _job_contracted(job, db)
 
 
 def _allocation_cost(alloc: TaskAllocation, te: TimeEntry) -> float:
@@ -181,18 +253,39 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
             .all()
         )
 
-        revenue = 0.0
+        # Three buckets we now track per period:
+        #   revenue_from_jobs  = collected against ScheduledJob.qb_invoice
+        #   contracted_jobs    = closed_price across jobs (pipeline / future $)
+        #   outstanding        = contracted - collected on still-unpaid jobs
+        # Costs are always real-spent regardless of collection status.
+        revenue_from_jobs = 0.0
+        contracted_jobs = 0.0
         labor_cost = 0.0
         reimb_cost = 0.0
         materials_cost = 0.0
-        outstanding_revenue = 0.0  # contracted but not yet collected
+        outstanding_revenue = 0.0
         for j in jobs:
-            revenue += _job_revenue(j, db)
+            collected = _job_revenue_collected(j)
+            contracted = _job_contracted(j, db)
+            revenue_from_jobs += collected
+            contracted_jobs += contracted
             labor_cost += _labor_cost_for_lead(db, j.lead_id, start, end)
             reimb_cost += _reimbursement_cost_for_lead(db, j.lead_id, start, end)
             materials_cost += float(j.materials_cost or 0)
-            if (j.payment_status or "unpaid") == "unpaid":
-                outstanding_revenue += float(j.closed_price or 0)
+            # Outstanding = the contracted-vs-collected gap on jobs that
+            # aren't fully paid yet. Captures partial-pay correctly: a job
+            # contracted at $5k with $2k collected shows $3k outstanding.
+            if collected < contracted:
+                outstanding_revenue += (contracted - collected)
+
+        # Deposits: $250 (or custom) cash that hit the account in this
+        # period. The Lead.deposit_paid_at timestamp is when QB confirmed
+        # the deposit invoice was paid (webhook-driven), so this counts
+        # real cash. Included in headline revenue + surfaced separately
+        # so Alan can see the split.
+        revenue_from_deposits = _deposits_collected_in_period(db, start, end)
+
+        revenue = revenue_from_jobs + revenue_from_deposits
 
         # If period is "all", figure out the span so overhead is sensible.
         if period == "all" and jobs:
@@ -215,10 +308,20 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
         overhead_monthly = float(overhead_monthly)
         overhead_cost = round(overhead_monthly * months, 2)
 
+        # Margins computed against COLLECTED revenue. A job that's been
+        # worked but the customer hasn't paid yet shows a loss until cash
+        # arrives — that's the honest view Alan asked for.
         gross_profit = round(revenue - labor_cost - reimb_cost - materials_cost, 2)
         net_profit = round(gross_profit - overhead_cost, 2)
         gross_margin_pct = round((gross_profit / revenue * 100), 1) if revenue > 0 else 0.0
         net_margin_pct = round((net_profit / revenue * 100), 1) if revenue > 0 else 0.0
+        # Collection rate: how much of what we billed we've actually been
+        # paid. Excludes deposits from the denominator (deposits aren't
+        # contracted job revenue — they're a pre-job cash event).
+        collection_rate_pct = (
+            round((revenue_from_jobs / contracted_jobs * 100), 1)
+            if contracted_jobs > 0 else 0.0
+        )
 
         return {
             "period": period,
@@ -226,7 +329,14 @@ def get_summary(period: str = Query("this_month"), user: dict = Depends(require_
             "end": end,
             "months_in_period": months,
             "jobs_count": len(jobs),
+            # W1 headline: collected cash this period.
             "revenue": round(revenue, 2),
+            "revenue_from_jobs": round(revenue_from_jobs, 2),
+            "revenue_from_deposits": round(revenue_from_deposits, 2),
+            # The pipeline / future-money number — same scope (jobs in
+            # period) so it's apples to apples with revenue_from_jobs.
+            "contracted_revenue": round(contracted_jobs, 2),
+            "collection_rate_pct": collection_rate_pct,
             "labor_cost": round(labor_cost, 2),
             "reimbursement_cost": round(reimb_cost, 2),
             "materials_cost": round(materials_cost, 2),
@@ -265,12 +375,15 @@ def list_job_profitability(period: str = Query("this_month"), user: dict = Depen
         )
         out = []
         for j in jobs:
-            revenue = _job_revenue(j, db)
+            collected = _job_revenue_collected(j)
+            contracted = _job_contracted(j, db)
             labor = _labor_cost_for_lead(db, j.lead_id, start, end)
             reimb = _reimbursement_cost_for_lead(db, j.lead_id, start, end)
             materials = float(j.materials_cost or 0)
-            profit = round(revenue - labor - reimb - materials, 2)
-            margin = round((profit / revenue * 100), 1) if revenue > 0 else 0.0
+            # Profit + margin = collected − costs. Unpaid jobs that already
+            # ran show as a loss until the cash arrives.
+            profit = round(collected - labor - reimb - materials, 2)
+            margin = round((profit / collected * 100), 1) if collected > 0 else 0.0
             # Customer name: prefer the scheduled job snapshot, fallback to lead
             customer_name = j.customer_name or ""
             if not customer_name:
@@ -284,7 +397,10 @@ def list_job_profitability(period: str = Query("this_month"), user: dict = Depen
                 "service_type": j.service_type or "fence_staining",
                 "package_tier": j.package_tier or "",
                 "address": j.address or "",
-                "revenue": round(revenue, 2),
+                # W1: "revenue" now means collected — the honest cash number.
+                "revenue": round(collected, 2),
+                # New: the contract value, for the pipeline / future-money view.
+                "contracted_price": round(contracted, 2),
                 "labor_cost": labor,
                 "reimbursement_cost": reimb,
                 "materials_cost": round(materials, 2),
@@ -292,6 +408,8 @@ def list_job_profitability(period: str = Query("this_month"), user: dict = Depen
                 "margin_pct": margin,
                 "payment_status": j.payment_status or "unpaid",
                 "amount_collected": float(j.amount_collected or 0),
+                "qb_invoice_status": j.qb_invoice_status or "",
+                "qb_invoice_url": j.qb_invoice_url or "",
             })
         return {"jobs": out, "period": period, "start": start, "end": end}
     finally:
@@ -351,7 +469,13 @@ def employee_revenue(period: str = Query("this_month"), user: dict = Depends(req
     (their labor cost on that job ÷ total labor on that job × job revenue).
     That's the "your share of revenue earned" view — fair when multiple
     employees worked the same job and each gets credit proportional to
-    their cost contribution."""
+    their cost contribution.
+
+    W1 (2026-06-08): we attribute share against CONTRACTED revenue, not
+    collected. An employee who finished a job earned their share whether
+    or not the customer has paid yet — that's the value they built. We
+    also surface a `collected_share` field so the frontend can show the
+    realized-cash view alongside the contracted-value view."""
     del user
     db = get_db()
     try:
@@ -392,20 +516,27 @@ def employee_revenue(period: str = Query("this_month"), user: dict = Depends(req
             )
             .all()
         )
-        lead_revenue: dict[str, float] = {}
+        # Two lead-level revenue maps: contracted (what we sold) and
+        # collected (what was paid). We attribute employee share against
+        # contracted because that's the work-done credit; collected is
+        # surfaced as a secondary number for the cash-realized view.
+        lead_contracted: dict[str, float] = {}
+        lead_collected: dict[str, float] = {}
         for j in jobs:
-            lead_revenue[j.lead_id] = lead_revenue.get(j.lead_id, 0.0) + _job_revenue(j, db)
+            lead_contracted[j.lead_id] = lead_contracted.get(j.lead_id, 0.0) + _job_contracted(j, db)
+            lead_collected[j.lead_id] = lead_collected.get(j.lead_id, 0.0) + _job_revenue_collected(j)
 
         # Build per-employee rows
-        emp_revenue_share: dict[str, float] = {}
+        emp_revenue_share: dict[str, float] = {}     # contracted share (work-done credit)
+        emp_collected_share: dict[str, float] = {}   # cash-realized share
         for (emp_id, lead_id), cost in emp_lead_cost.items():
             total_lead_cost = lead_total_cost.get(lead_id, 0.0)
-            rev = lead_revenue.get(lead_id, 0.0)
-            if total_lead_cost > 0 and rev > 0:
-                share = (cost / total_lead_cost) * rev
-            else:
-                share = 0.0
-            emp_revenue_share[emp_id] = emp_revenue_share.get(emp_id, 0.0) + share
+            contracted = lead_contracted.get(lead_id, 0.0)
+            collected = lead_collected.get(lead_id, 0.0)
+            if total_lead_cost > 0:
+                share_factor = cost / total_lead_cost
+                emp_revenue_share[emp_id] = emp_revenue_share.get(emp_id, 0.0) + share_factor * contracted
+                emp_collected_share[emp_id] = emp_collected_share.get(emp_id, 0.0) + share_factor * collected
 
         # Look up employee names
         emp_ids = set(emp_total_cost.keys())
@@ -415,23 +546,32 @@ def employee_revenue(period: str = Query("this_month"), user: dict = Depends(req
                 names[e.id] = e.display_name or f"{e.first_name} {e.last_name}".strip()
 
         out = []
-        total_company_revenue = round(sum(lead_revenue.values()), 2)
+        total_company_contracted = round(sum(lead_contracted.values()), 2)
+        total_company_collected = round(sum(lead_collected.values()), 2)
         for emp_id in sorted(emp_total_cost.keys(), key=lambda i: -emp_total_cost.get(i, 0)):
             paid = round(emp_total_cost[emp_id], 2)
             rev_share = round(emp_revenue_share.get(emp_id, 0.0), 2)
+            collected_share = round(emp_collected_share.get(emp_id, 0.0), 2)
             out.append({
                 "employee_id": emp_id,
                 "name": names.get(emp_id, "(unknown)"),
                 "labor_cost": paid,
                 "hours": round(emp_total_hours.get(emp_id, 0.0), 2),
+                # Work-done credit (against contracted). Backward-compatible
+                # field name so the existing pie chart keeps rendering.
                 "revenue_share": rev_share,
+                # New: cash actually collected on jobs this employee touched.
+                "collected_share": collected_share,
                 "pay_pct_of_revenue": round((paid / rev_share * 100), 1) if rev_share > 0 else 0.0,
             })
         return {
             "period": period,
             "start": start,
             "end": end,
-            "total_company_revenue": total_company_revenue,
+            # Backward-compatible: still means contracted (the work-done pie).
+            "total_company_revenue": total_company_contracted,
+            # New: the realized-cash version for honest revenue display.
+            "total_company_collected": total_company_collected,
             "employees": out,
         }
     finally:

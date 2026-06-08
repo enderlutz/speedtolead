@@ -318,12 +318,45 @@ export default function Analytics() {
         <TabsContent value="revenue" className="mt-4 space-y-4">
           {revenue ? (
             <>
-              {/* Revenue KPIs */}
+              {/* Revenue KPIs — W1 (2026-06-08) split into three numbers + two gaps.
+                  Potential = upper-bound ceiling (signature for everyone).
+                  Contracted = deals actually booked (sales effort outcome).
+                  Collected = cash actually in the bank (payment realization outcome).
+                  Two gaps fall out: closing (sales) and collection (payment). */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <KPI
+                  label="Potential Ceiling"
+                  value={formatCurrency(revenue.total_potential_revenue as number)}
+                />
+                <KPI
+                  label="Contracted (Booked)"
+                  value={formatCurrency((revenue.total_contracted_revenue ?? revenue.total_captured_revenue) as number)}
+                />
+                <KPI
+                  label="Collected (Cash)"
+                  value={formatCurrency((revenue.total_collected_revenue ?? 0) as number)}
+                  good={(revenue.total_collected_revenue as number ?? 0) > 0}
+                />
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <KPI label="Total Potential" value={formatCurrency(revenue.total_potential_revenue as number)} />
-                <KPI label="Captured" value={formatCurrency(revenue.total_captured_revenue as number)} good />
-                <KPI label="Missed" value={formatCurrency(revenue.missed_revenue as number)} />
-                <KPI label="Capture Rate" value={`${revenue.capture_rate_pct}%`} good={(revenue.capture_rate_pct as number) >= 50} />
+                <KPI
+                  label="Closing Rate"
+                  value={`${(revenue.closing_rate_pct ?? revenue.capture_rate_pct) as number}%`}
+                  good={((revenue.closing_rate_pct ?? revenue.capture_rate_pct) as number) >= 50}
+                />
+                <KPI
+                  label="Collection Rate"
+                  value={`${(revenue.collection_rate_pct ?? 0) as number}%`}
+                  good={(revenue.collection_rate_pct as number ?? 0) >= 80}
+                />
+                <KPI
+                  label="Closing Gap"
+                  value={formatCurrency((revenue.closing_gap ?? revenue.missed_revenue) as number)}
+                />
+                <KPI
+                  label="Collection Gap"
+                  value={formatCurrency((revenue.collection_gap ?? 0) as number)}
+                />
               </div>
 
               {/* Deal Stats */}
