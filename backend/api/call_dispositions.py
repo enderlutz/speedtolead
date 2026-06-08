@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import desc
 
@@ -63,10 +63,18 @@ def _now_iso() -> str:
 def log_disposition(
     lead_id: str,
     body: LogDispositionBody,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(require_staff),
 ):
     """Append a new disposition row for this lead. Never updates existing
-    rows — every call gets its own record so we keep multi-touch history."""
+    rows — every call gets its own record so we keep multi-touch history.
+
+    Sprint 4 T4.D side-effect (2026-06-08): after the disposition saves,
+    fire a background ingest for this lead's GHL conversations. Pulls
+    any newly-completed call recording from GHL within seconds (vs.
+    waiting up to 10 min for the T4.B poll cycle). Best-effort — if
+    GHL hasn't finalized the recording yet, the poll cycle catches it
+    on the next pass."""
     outcome = (body.outcome or "").strip().lower()
     if outcome not in ALLOWED_OUTCOMES:
         raise HTTPException(
@@ -93,9 +101,45 @@ def log_disposition(
         db.add(row)
         db.commit()
         db.refresh(row)
-        return row.to_dict()
+        result = row.to_dict()
+
+        # T4.D — Schedule the ingest AFTER the response is sent. We
+        # snapshot the lead's ghl_contact_id + location_id rather than
+        # passing the live ORM object since the request session is
+        # closing in the finally block.
+        if (lead.ghl_contact_id or "").strip():
+            background_tasks.add_task(
+                _ingest_calls_in_background,
+                lead_id,
+            )
+        return result
     finally:
         db.close()
+
+
+def _ingest_calls_in_background(lead_id: str) -> None:
+    """T4.D worker — runs after the disposition response is sent. Opens
+    a fresh DB session and walks GHL conversations for the lead. Logs
+    the outcome but never raises — a failure here doesn't roll back
+    the disposition that already saved."""
+    try:
+        from services.call_poller import _ingest_calls_for_lead
+        db = get_db()
+        try:
+            lead = db.query(Lead).filter(Lead.id == lead_id).first()
+            if not lead:
+                return
+            stats = _ingest_calls_for_lead(db, lead)
+            db.commit()
+            if stats.get("new_recordings", 0) > 0:
+                logger.info(
+                    f"[T4.D] Disposition-triggered ingest pulled "
+                    f"{stats['new_recordings']} new recording(s) for lead {lead_id}"
+                )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[T4.D] background ingest for lead {lead_id} failed: {e}")
 
 
 @router.get("/leads/{lead_id}/call-dispositions")
