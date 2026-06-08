@@ -553,6 +553,15 @@ export default function LeadDetail() {
             <Badge variant="outline" className="text-xs">{lead.location_label}</Badge>
             <Badge variant="outline" className="text-xs capitalize">{lead.status}</Badge>
             {lead.customer_responded && <Badge className="text-xs bg-blue-100 text-blue-800">Responded</Badge>}
+            {/* Sprint 2 T2.B — Proposal view status badge. Highest-leverage
+                intent signal in the funnel: green when viewed (call now),
+                gray when not (still waiting). Click count + last-viewed
+                relative time give Alan everything he needs at a glance. */}
+            <ProposalViewBadge
+              viewCount={lead.proposal_view_count || 0}
+              firstViewedAt={lead.proposal_viewed_at}
+              lastViewedAt={lead.proposal_last_viewed_at}
+            />
             {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? (
               <Badge className="text-xs bg-slate-200 text-slate-700">
                 Declined ({(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length} reason{(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length === 1 ? "" : "s"})
@@ -2564,6 +2573,40 @@ function DepositCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+// Sprint 2 T2.B — Proposal view badge for the lead header. Three states:
+//   gray   "Proposal not viewed"            — never opened
+//   green  "Viewed 3× · 4 min ago"          — opened recently (hot intent)
+//   blue   "Viewed 5× · 2 days ago"         — opened but cold
+// 'Recently' threshold: 60 minutes. Past that, the customer's attention
+// is gone — no longer a real-time intent signal.
+function ProposalViewBadge({
+  viewCount,
+  firstViewedAt,
+  lastViewedAt,
+}: {
+  viewCount: number;
+  firstViewedAt?: string | null;
+  lastViewedAt?: string | null;
+}) {
+  if (viewCount <= 0 && !firstViewedAt) {
+    return <Badge className="text-xs bg-slate-200 text-slate-700">Proposal not viewed</Badge>;
+  }
+  const ts = lastViewedAt || firstViewedAt;
+  let hot = false;
+  if (ts) {
+    const minutesAgo = (Date.now() - new Date(ts).getTime()) / 60000;
+    hot = minutesAgo <= 60;
+  }
+  const count = viewCount || 1;
+  return (
+    <Badge className={`text-xs ${hot ? "bg-emerald-600 text-white" : "bg-blue-100 text-blue-800"}`}>
+      <Eye className="h-3 w-3 mr-1 inline" />
+      Viewed {count}×{ts ? ` · ${timeAgo(ts)}` : ""}{hot ? " · 🔥" : ""}
+    </Badge>
   );
 }
 
