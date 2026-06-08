@@ -15,7 +15,7 @@ from database import get_db, Proposal, ProposalPage, Estimate, Lead, EstimateCor
 from services.activity_log import log_event
 from services.event_bus import publish
 from services.notifications import notify_correction_requested
-from services.ghl import update_opportunity_stage
+from services.ghl import update_opportunity_stage, send_sms
 from services import supabase_storage
 from config import get_settings
 from api.estimates import V2_REQUOTE_REQUESTED_STAGE_ID
@@ -164,6 +164,28 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
                     "contact_name": lead.contact_name,
                     "token": token,
                 })
+
+                # 🔥 Intent signal — fire SMS to Alan the second a customer
+                # opens their proposal. Highest-conversion moment in the
+                # funnel: customer just looked, attention is captured, the
+                # 90-second window after this is when a call closes hardest.
+                # Idempotent by construction — only inside the
+                # status == "sent" branch, which transitions once per
+                # proposal. Best-effort: SMS failure must not roll back
+                # the view tracking, so try/except.
+                try:
+                    _settings = get_settings()
+                    alan_id = (_settings.owner_ghl_contact_id or "").strip()
+                    if alan_id:
+                        customer = (lead.contact_name or "Unknown lead").strip()
+                        lead_url = f"{_settings.frontend_url.rstrip('/')}/leads/{lead.id}"
+                        msg = (
+                            f"🔥 {customer} just opened their proposal — "
+                            f"best window to call.\n{lead_url}"
+                        )
+                        send_sms(alan_id, msg, location_id=lead.ghl_location_id)
+                except Exception as e:
+                    logger.warning(f"proposal_viewed SMS to owner failed (non-fatal): {e}")
 
             db.commit()
         else:
