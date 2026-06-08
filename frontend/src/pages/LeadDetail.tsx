@@ -691,6 +691,19 @@ export default function LeadDetail() {
         </div>
       )}
 
+      {/* Sprint 2 T2.D — Recent conversation preview. The audit's biggest
+          tab-switch friction: Alan opens GHL for customer notes mid-call.
+          By surfacing the last 3 messages prominently right here (above the
+          fold, above the grid), he never needs to leave the dashboard.
+          Auto-updates via the existing customer_reply SSE event in the
+          page-level subscriber; manual Check button forces a GHL pull. */}
+      <RecentConversationCard
+        messages={messages}
+        leadPipelineVersion={lead.pipeline_version}
+        checking={checkingResponse}
+        onCheck={handleCheckResponse}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Left column */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
@@ -2579,6 +2592,86 @@ function DepositCard({
           <p className="text-xs text-slate-700">
             Deposit waived for this lead. Schedule freely — no gate warning will appear.
           </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// Sprint 2 T2.D — Recent conversation preview. Compact at-a-glance view
+// of the last 3 messages so Alan never has to tab-switch to GHL during a
+// sales call. Shares the `messages` state with the deeper Messages card
+// further down the page — when one updates (via SSE or manual Check),
+// both update together. Empty + v1-pipeline states are friendly stubs.
+function RecentConversationCard({
+  messages,
+  leadPipelineVersion,
+  checking,
+  onCheck,
+}: {
+  messages: MessageEntry[];
+  leadPipelineVersion: string;
+  checking: boolean;
+  onCheck: () => void;
+}) {
+  const last = useMemo(() => {
+    // Backend returns newest-first. Slice to 3, then re-reverse to render
+    // chronologically (oldest at top, newest at bottom) like a real chat.
+    return [...messages.slice(0, 3)].reverse();
+  }, [messages]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <MessageSquare className="h-4 w-4" /> Recent Conversation
+          {messages.length > 3 && (
+            <span className="text-[11px] font-normal text-muted-foreground ml-1">
+              (last 3 of {messages.length}, full history below)
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCheck}
+            disabled={checking || leadPipelineVersion === "v1"}
+            className="ml-auto"
+            title={leadPipelineVersion === "v1" ? "Old pipeline — export to load messages" : "Pull latest from GHL"}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${checking ? "animate-spin" : ""}`} />
+            Check
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {leadPipelineVersion === "v1" ? (
+          <p className="text-xs text-muted-foreground italic">
+            Messages won't load — the old GHL account is no longer reachable.
+            Export this lead to the new pipeline to enable message sync.
+          </p>
+        ) : messages.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            No messages yet. When the customer texts (or you reply through GHL), it shows up here automatically.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {last.map((msg) => (
+              <div
+                key={msg.id}
+                className={`rounded-lg px-3 py-1.5 text-sm max-w-[85%] ${
+                  msg.direction === "inbound"
+                    ? "bg-muted mr-auto"
+                    : "bg-primary/10 ml-auto text-right"
+                }`}
+              >
+                <p className="text-[10px] font-medium text-muted-foreground mb-0.5">
+                  {msg.direction === "inbound" ? "Customer" : "Sent"} — {timeAgo(msg.created_at)}
+                </p>
+                <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+              </div>
+            ))}
+          </div>
         )}
       </CardContent>
     </Card>
