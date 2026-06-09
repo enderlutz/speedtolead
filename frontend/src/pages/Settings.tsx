@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { api, getCurrentUser } from "@/lib/api";
+import { api, getCurrentUser, type SterlingBackfillStatus } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -149,6 +149,12 @@ export default function Settings() {
       {/* Opportunity-value backfill — one-shot fill of signature price
           into GHL monetaryValue for in-scope leads currently at $0. */}
       <OppValueBackfillCard />
+
+      {/* 2026-06-08 — One-shot Sterling call recording backfill the owner
+          asked for. Pulls historical TYPE_CALL audio + transcripts + AI
+          analysis for every v2 lead in the lookback window. Remove this
+          card once the run has completed in production. */}
+      <SterlingBackfillCard />
 
       {/* Google Calendar attendee backfill — add a guest email to past
           yellow events to mirror them onto a business calendar. */}
@@ -492,6 +498,175 @@ function BackfillDashboardLinksCard() {
             <p>Already had a link: <span className="font-semibold">{result.skipped}</span></p>
             {result.failed > 0 && <p>Failed: <span className="font-semibold text-red-700">{result.failed}</span></p>}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// 2026-06-08 — One-shot Sterling call recording backfill. Kicks off the
+// historical pull as a background task, then polls /status every 5s
+// until running flips to false. Renders a progress bar + the running
+// list of customer names whose calls were collected.
+//
+// Designed to be deleted once the one-time backfill has run in prod:
+//   • Remove this component definition
+//   • Remove the <SterlingBackfillCard /> mount above
+//   • Remove the api.startSterlingBackfill + api.getSterlingBackfillStatus
+//     client methods + SterlingBackfillStatus type (also in api.ts)
+//   • Remove POST/GET /api/calls/backfill-sterling endpoints
+function SterlingBackfillCard() {
+  const [status, setStatus] = useState<SterlingBackfillStatus | null>(null);
+  const [starting, setStarting] = useState(false);
+  const pollRef = useRef<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const r = await api.getSterlingBackfillStatus();
+      setStatus(r);
+      return r;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Initial fetch + cleanup any leftover poll on unmount.
+  useEffect(() => {
+    refresh();
+    return () => {
+      if (pollRef.current != null) window.clearInterval(pollRef.current);
+    };
+  }, [refresh]);
+
+  // Start a 5s poll whenever we know a run is in flight; tear it down
+  // the moment running goes false so we're not hammering the endpoint
+  // for nothing.
+  useEffect(() => {
+    if (!status?.running) {
+      if (pollRef.current != null) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    if (pollRef.current != null) return;
+    pollRef.current = window.setInterval(() => {
+      refresh();
+    }, 5000);
+    return () => {
+      if (pollRef.current != null) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [status?.running, refresh]);
+
+  const handleStart = async () => {
+    if (!confirm("Pull historical call recordings + transcripts for every Sterling lead in the last 90 days? Idempotent — won't re-download what we already have. Takes 30-90 min in the background.")) return;
+    setStarting(true);
+    try {
+      const r = await api.startSterlingBackfill(90);
+      if (r.status === "already_running") {
+        toast.info("A backfill is already in progress.");
+      } else {
+        toast.success("Backfill started — progress will update below every few seconds.");
+      }
+      // Force-refresh so the UI flips to "running" immediately rather
+      // than waiting for the next poll tick.
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start backfill");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const running = status?.running ?? false;
+  const completed = !!status?.completed_at && !running;
+  const total = status?.total ?? 0;
+  const scanned = status?.scanned ?? 0;
+  const progressPct = total > 0 ? Math.round((scanned / total) * 100) : 0;
+  const collected = status?.collected_leads ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <RefreshCw className={`h-4 w-4 ${running ? "animate-spin" : ""}`} />
+          Sterling Call Recording Backfill
+          <Badge variant="outline" className="text-[10px] ml-auto">One-time</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Pulls historical call recordings, transcripts, and AI analysis for every
+          v2 (Sterling) lead in the last 90 days. Skips archived + test leads.
+          Idempotent — already-ingested calls are skipped, so re-running is safe.
+          Runs in the background; you can leave this page open or come back later.
+        </p>
+
+        <Button onClick={handleStart} disabled={starting || running} size="sm">
+          <RefreshCw className={`h-4 w-4 mr-2 ${starting || running ? "animate-spin" : ""}`} />
+          {running ? "Running…" : starting ? "Starting…" : completed ? "Run again" : "Start backfill"}
+        </Button>
+
+        {/* Progress strip — only shows once a run has been started this session */}
+        {(running || completed) && (
+          <div className="space-y-2 rounded border bg-muted/30 p-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                {running ? "Scanning…" : "Completed"}
+              </span>
+              <span className="font-mono">
+                {scanned}/{total} leads · {status?.new_recordings ?? 0} new recordings
+              </span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full ${running ? "bg-blue-500" : "bg-emerald-500"} transition-all`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            {status?.error && (
+              <p className="text-xs text-red-600">Error: {status.error}</p>
+            )}
+          </div>
+        )}
+
+        {/* Collected leads list — the "list of names" the owner asked for.
+            Grows live as the backfill processes each lead with new recordings. */}
+        {collected.length > 0 && (
+          <div className="rounded border bg-background">
+            <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Leads with collected transcripts ({collected.length})
+              </span>
+            </div>
+            <ul className="max-h-72 overflow-y-auto divide-y text-sm">
+              {collected.map((c) => (
+                <li
+                  key={c.lead_id}
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/30"
+                >
+                  <span className="flex-1 truncate font-medium">
+                    {c.contact_name}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground shrink-0">
+                    {c.new_recordings} new · {c.calls_found} total
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Empty-state nudge once the run is done with nothing collected */}
+        {completed && collected.length === 0 && !status?.error && (
+          <p className="text-xs text-muted-foreground italic">
+            Run complete — no new recordings found. Everything Sterling has called
+            in the last 90 days was already ingested by the 10-min poller.
+          </p>
         )}
       </CardContent>
     </Card>

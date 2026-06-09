@@ -780,6 +780,15 @@ export const api = {
   getGhlPipelines: () => request<Record<string, unknown[]>>("/api/settings/ghl-pipelines"),
   getGhlStageDiff: () => request<GhlStageDiff>("/api/settings/ghl-stage-diff"),
   getCallList: () => request<CallListResponse>("/api/call-list"),
+  // 2026-06-08 — one-shot Sterling backfill the owner asked for. Kicks
+  // off a BackgroundTask; UI polls /status until running flips to false.
+  startSterlingBackfill: (lookbackDays: number = 90) =>
+    request<{ status: string; lookback_days?: number; sleep_between_leads?: number; message: string }>(
+      `/api/calls/backfill-sterling?lookback_days=${lookbackDays}`,
+      { method: "POST" },
+    ),
+  getSterlingBackfillStatus: () =>
+    request<SterlingBackfillStatus>("/api/calls/backfill-sterling/status"),
   markCalled: (leadId: string) =>
     request<CallTouchResult>(`/api/call-list/${leadId}/touch`, { method: "POST" }),
   startOppValueBackfill: () =>
@@ -2044,6 +2053,27 @@ export interface CallTouchResult {
   touch_id: string;
   marked_at: string;
   marked_by: string;
+}
+
+// 2026-06-08 one-shot Sterling backfill state polled by the Settings card.
+// `collected_leads` is the answer to "give me a list of names" — only
+// leads that contributed at least one new recording show up here.
+export interface SterlingBackfillCollectedLead {
+  lead_id: string;
+  contact_name: string;
+  new_recordings: number;
+  calls_found: number;
+}
+
+export interface SterlingBackfillStatus {
+  running: boolean;
+  started_at: string | null;
+  completed_at: string | null;
+  scanned: number;
+  total: number;
+  new_recordings: number;
+  collected_leads: SterlingBackfillCollectedLead[];
+  error: string | null;
 }
 
 export interface OppValueBackfillStartResult {

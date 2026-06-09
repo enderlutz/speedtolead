@@ -224,6 +224,34 @@ def probe_ghl_call_endpoints(lead) -> dict:
     return out
 
 
+# Module-level state for the one-shot Sterling backfill. Lives in memory
+# only — survives mid-run with per-lead commits, but a process restart
+# loses the progress dict (the DB rows persist either way). Operator can
+# re-fire the endpoint; idempotency makes that safe.
+_backfill_status: dict = {
+    "running": False,
+    "started_at": None,
+    "completed_at": None,
+    "scanned": 0,
+    "total": 0,
+    "new_recordings": 0,
+    # [{lead_id, contact_name, new_recordings, calls_found}] — populated
+    # as soon as a lead's ingest finishes with > 0 new recordings.
+    "collected_leads": [],
+    "error": None,
+}
+
+
+def get_backfill_status() -> dict:
+    """Snapshot of the current Sterling-backfill state for the UI poll
+    endpoint. Returns a shallow copy so the caller can't mutate the
+    live dict."""
+    snap = dict(_backfill_status)
+    # The list is the only mutable nested value — copy it explicitly.
+    snap["collected_leads"] = list(_backfill_status["collected_leads"])
+    return snap
+
+
 def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: float = 1.0) -> dict:
     """One-shot backfill for Sterling (v2 pipeline) leads.
 
@@ -249,6 +277,19 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
         return {"status": "skipped", "reason": "ghl_api_key not set"}
 
     cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    # Initialize the live status the UI polls. Reset on every fresh run
+    # so the previous run's state doesn't bleed through.
+    _backfill_status.update({
+        "running": True,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "scanned": 0,
+        "total": 0,
+        "new_recordings": 0,
+        "collected_leads": [],
+        "error": None,
+    })
+
     db = get_db()
     summary = {
         "lookback_days": lookback_days,
@@ -273,6 +314,7 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
             .all()
         )
         total = len(leads)
+        _backfill_status["total"] = total
         logger.info(f"[backfill v2] starting — {total} Sterling leads in window")
 
         for i, lead in enumerate(leads, start=1):
@@ -287,10 +329,23 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
                 # Commit per-lead so progress survives a mid-run crash —
                 # no need to redo the first 200 leads if lead 201 explodes.
                 db.commit()
+                # Live status update for the UI poll. Only leads that
+                # actually contributed new recordings show up in the
+                # collected_leads list — the "give me a list of names
+                # we got transcripts for" the owner asked for.
+                if lead_stats["new_recordings"] > 0:
+                    _backfill_status["collected_leads"].append({
+                        "lead_id": lead.id,
+                        "contact_name": lead.contact_name or "(no name)",
+                        "new_recordings": lead_stats["new_recordings"],
+                        "calls_found": lead_stats["calls_found"],
+                    })
+                _backfill_status["new_recordings"] = summary["new_recordings"]
             except Exception as e:
                 logger.warning(f"[backfill v2] lead {lead.id} ingest failed: {e}")
                 summary["errors"].append({"lead_id": lead.id, "error": str(e)})
                 db.rollback()
+            _backfill_status["scanned"] = i
 
             # Progress every 25 leads keeps Railway log noise manageable
             # while still letting Alan watch it churn.
@@ -315,10 +370,15 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
             f"fetch_failed={summary['audio_fetch_failed']} "
             f"errors={len(summary['errors'])}"
         )
+        _backfill_status["running"] = False
+        _backfill_status["completed_at"] = datetime.now(timezone.utc).isoformat()
         return summary
     except Exception as e:
         logger.error(f"[backfill v2] outer error: {e}")
         summary["error"] = str(e)
+        _backfill_status["running"] = False
+        _backfill_status["completed_at"] = datetime.now(timezone.utc).isoformat()
+        _backfill_status["error"] = str(e)
         return summary
     finally:
         db.close()
