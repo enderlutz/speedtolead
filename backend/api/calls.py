@@ -9,7 +9,7 @@ import logging
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Response, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Form, Depends, Response, Request
 from sqlalchemy import func
 from sqlalchemy.orm import defer
 from pydantic import BaseModel
@@ -70,6 +70,53 @@ def ingest_all_recent_calls_endpoint(user: dict = Depends(require_admin)):
     del user
     from services.call_poller import poll_ghl_call_recordings
     return poll_ghl_call_recordings()
+
+
+@router.post("/calls/backfill-sterling")
+def backfill_sterling_calls_endpoint(
+    background_tasks: BackgroundTasks,
+    lookback_days: int = 90,
+    sleep_between_leads: float = 1.0,
+    user: dict = Depends(require_admin),
+):
+    """One-shot historical backfill of v2 Sterling lead call recordings
+    (2026-06-08). Owner-requested: ingest every existing call from the
+    last `lookback_days` so we have transcripts + AI analysis for the
+    whole sales history, not just calls made after Sprint 4 shipped.
+
+    Fires as a BackgroundTask because a 90-day backfill can take
+    30-90 minutes — well past the HTTP timeout. Returns immediately
+    with {"status": "started"}; watch Railway logs for "[backfill v2]"
+    progress + the final COMPLETE summary.
+
+    Filters:
+      • pipeline_version == "v2" (Sterling only — v1 GHL is dead)
+      • status != "archived"
+      • is_test == False
+      • created_at OR updated_at within lookback_days
+
+    Idempotent — re-running won't re-download anything we already have."""
+    del user
+    from services.call_poller import backfill_v2_call_recordings
+
+    def _run():
+        # New DB session lives inside backfill_v2_call_recordings — we
+        # just kick it off here.
+        try:
+            backfill_v2_call_recordings(
+                lookback_days=lookback_days,
+                sleep_between_leads=sleep_between_leads,
+            )
+        except Exception as e:
+            logger.error(f"[backfill v2] background task crashed: {e}")
+
+    background_tasks.add_task(_run)
+    return {
+        "status": "started",
+        "lookback_days": lookback_days,
+        "sleep_between_leads": sleep_between_leads,
+        "message": "Watch Railway logs for '[backfill v2]' progress lines.",
+    }
 
 
 @router.get("/calls/ghl-probe/{lead_id}")

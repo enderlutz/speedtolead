@@ -224,6 +224,106 @@ def probe_ghl_call_endpoints(lead) -> dict:
     return out
 
 
+def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: float = 1.0) -> dict:
+    """One-shot backfill for Sterling (v2 pipeline) leads.
+
+    Walks every NON-test, NON-archived v2 lead with a GHL contact id whose
+    created_at or updated_at falls in the lookback window, ingests every
+    new TYPE_CALL recording, and hands each off to the existing
+    transcribe-then-analyze pipeline. Same idempotency guarantees as the
+    10-min poller (`_ingest_calls_for_lead` dedupes by ghl_call_id), so
+    re-running is safe and won't double-bill Deepgram.
+
+    Throttling: `sleep_between_leads` seconds between leads so a large
+    batch doesn't trip GHL's per-key rate limits and collateral-damage
+    the live dashboard. Default 1.0s — at 500 leads that's ~8 min of
+    pure sleep plus the actual fetch time.
+
+    Intended for the admin POST /api/calls/backfill-sterling endpoint,
+    fired as a BackgroundTask (the run can take 30-90 min for a full
+    90-day backfill, well past any HTTP request timeout)."""
+    import time
+    from datetime import timedelta
+    settings = get_settings()
+    if not settings.ghl_api_key:
+        return {"status": "skipped", "reason": "ghl_api_key not set"}
+
+    cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    db = get_db()
+    summary = {
+        "lookback_days": lookback_days,
+        "leads_scanned": 0,
+        "calls_found": 0,
+        "new_recordings": 0,
+        "skipped_dedup": 0,
+        "skipped_incomplete": 0,
+        "audio_fetch_failed": 0,
+        "errors": [],
+    }
+    try:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
+            .filter(Lead.is_test == False)                      # noqa: E712
+            .filter(Lead.pipeline_version == "v2")              # Sterling only
+            .filter(Lead.status != "archived")                  # skip archived
+            .filter(
+                (Lead.updated_at >= cutoff_iso) | (Lead.created_at >= cutoff_iso)
+            )
+            .all()
+        )
+        total = len(leads)
+        logger.info(f"[backfill v2] starting — {total} Sterling leads in window")
+
+        for i, lead in enumerate(leads, start=1):
+            try:
+                lead_stats = _ingest_calls_for_lead(db, lead)
+                summary["calls_found"] += lead_stats["calls_found"]
+                summary["new_recordings"] += lead_stats["new_recordings"]
+                summary["skipped_dedup"] += lead_stats["skipped_dedup"]
+                summary["skipped_incomplete"] += lead_stats["skipped_incomplete"]
+                summary["audio_fetch_failed"] += lead_stats["audio_fetch_failed"]
+                summary["leads_scanned"] += 1
+                # Commit per-lead so progress survives a mid-run crash —
+                # no need to redo the first 200 leads if lead 201 explodes.
+                db.commit()
+            except Exception as e:
+                logger.warning(f"[backfill v2] lead {lead.id} ingest failed: {e}")
+                summary["errors"].append({"lead_id": lead.id, "error": str(e)})
+                db.rollback()
+
+            # Progress every 25 leads keeps Railway log noise manageable
+            # while still letting Alan watch it churn.
+            if i % 25 == 0 or i == total:
+                logger.info(
+                    f"[backfill v2] progress {i}/{total} — "
+                    f"new_recordings={summary['new_recordings']} "
+                    f"dedup={summary['skipped_dedup']} "
+                    f"fetch_failed={summary['audio_fetch_failed']}"
+                )
+
+            # Throttle between leads. Skip the sleep on the very last
+            # iteration so we don't add unnecessary latency at the tail.
+            if i < total and sleep_between_leads > 0:
+                time.sleep(sleep_between_leads)
+
+        logger.info(
+            f"[backfill v2] COMPLETE — scanned={summary['leads_scanned']} "
+            f"calls_found={summary['calls_found']} "
+            f"new_recordings={summary['new_recordings']} "
+            f"dedup={summary['skipped_dedup']} "
+            f"fetch_failed={summary['audio_fetch_failed']} "
+            f"errors={len(summary['errors'])}"
+        )
+        return summary
+    except Exception as e:
+        logger.error(f"[backfill v2] outer error: {e}")
+        summary["error"] = str(e)
+        return summary
+    finally:
+        db.close()
+
+
 def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 200) -> dict:
     """Sprint 4 T4.A (2026-06-08). Walk recent leads, fetch new
     TYPE_CALL messages from GHL, download the WAV audio via the
