@@ -1,12 +1,32 @@
+import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Loader2, ThumbsUp, AlertTriangle, Lightbulb } from "lucide-react";
+import { api } from "@/lib/api";
 
 export type TranscriptTurn = {
   role: "user" | "assistant";
   content: string;
   ts?: string;
+};
+
+type DimensionScore = { score: number; note: string };
+
+type Highlight = {
+  turn_index: number;
+  kind: "good" | "missed";
+  note: string;
+};
+
+type Score = {
+  status?: string;
+  skip_reason?: string;
+  dimensions?: Record<string, DimensionScore>;
+  overall_score?: number;
+  summary?: string;
+  highlights?: Highlight[];
+  next_time?: string[];
 };
 
 export type TrainingSessionRow = {
@@ -22,8 +42,16 @@ export type TrainingSessionRow = {
   ended_at: string;
   duration_seconds: number;
   transcript: TranscriptTurn[];
-  score: Record<string, unknown>;
+  score: Score;
 };
+
+const DIMENSION_LABELS: { key: string; label: string }[] = [
+  { key: "discovery", label: "Discovery" },
+  { key: "rapport", label: "Rapport" },
+  { key: "objection_handling", label: "Objection Handling" },
+  { key: "closing", label: "Closing" },
+  { key: "confidence", label: "Confidence" },
+];
 
 function formatDuration(seconds: number): string {
   if (!seconds) return "—";
@@ -32,18 +60,71 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function scoreColor(score: number): string {
+  if (score >= 8) return "text-emerald-600 bg-emerald-500/10 border-emerald-500/30";
+  if (score >= 6) return "text-blue-600 bg-blue-500/10 border-blue-500/30";
+  if (score >= 4) return "text-amber-600 bg-amber-500/10 border-amber-500/30";
+  return "text-rose-600 bg-rose-500/10 border-rose-500/30";
+}
+
 export default function CallSummary({
-  session,
+  session: initialSession,
   onClose,
 }: {
   session: TrainingSessionRow;
   onClose: () => void;
 }) {
+  const [session, setSession] = useState<TrainingSessionRow>(initialSession);
+  const pollRef = useRef<number | null>(null);
+
+  // Poll while score is pending. Backend background task usually finishes
+  // in 3-6s; cap at 30s of polling so a stuck job doesn't loop forever.
+  useEffect(() => {
+    const status = session.score?.status;
+    if (status && status !== "pending") return;
+
+    let attempts = 0;
+    const tick = async () => {
+      attempts += 1;
+      try {
+        const updated = await api.getTrainingSession(session.id);
+        setSession(updated);
+        if (updated.score?.status && updated.score.status !== "pending") {
+          if (pollRef.current) {
+            window.clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          return;
+        }
+      } catch {
+        // ignore — keep polling
+      }
+      if (attempts >= 15) {
+        if (pollRef.current) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }
+    };
+
+    pollRef.current = window.setInterval(tick, 2000);
+    return () => {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [session.id, session.score?.status]);
+
   const repName = "You";
   const personaName = session.persona?.name || "Persona";
+  const score = session.score || {};
+  const isPending = score.status === "pending";
+  const isScored = score.status === "scored";
+  const isSkipped = score.status === "skipped";
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-4">
+    <div className="max-w-4xl mx-auto p-6 space-y-4">
       <Button variant="ghost" size="sm" onClick={onClose} className="-ml-2">
         <ChevronLeft className="h-4 w-4 mr-1" />
         Back to training
@@ -58,54 +139,163 @@ export default function CallSummary({
                 {session.persona?.headline}
               </p>
             </div>
-            <Badge variant="outline" className="text-xs">
-              {formatDuration(session.duration_seconds)}
-            </Badge>
+            <div className="flex items-center gap-2">
+              {session.mood && (
+                <Badge variant="secondary" className="text-[10px] uppercase">
+                  {session.mood}
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-xs">
+                {formatDuration(session.duration_seconds)}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground italic mb-4">
+          <p className="text-xs text-muted-foreground italic mb-5">
             {session.persona?.fence_context}
           </p>
 
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-            {session.transcript.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No conversation recorded.
-              </p>
-            )}
-            {session.transcript.map((turn, idx) => (
-              <div
-                key={idx}
-                className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                    turn.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground"
-                  }`}
-                >
-                  <p className="text-[10px] uppercase tracking-wide opacity-60 mb-0.5">
-                    {turn.role === "user" ? repName : personaName}
-                  </p>
-                  <p className="whitespace-pre-wrap">{turn.content}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Phase 4 scoring slot (empty for now) */}
-          {session.score && Object.keys(session.score).length > 0 && (
-            <div className="mt-6 pt-6 border-t">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                Coaching
-              </p>
-              <pre className="text-xs whitespace-pre-wrap">
-                {JSON.stringify(session.score, null, 2)}
-              </pre>
+          {/* Score card */}
+          {isPending && (
+            <div className="rounded-lg border bg-muted/30 p-6 mb-6 flex items-center justify-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Generating coaching review…
             </div>
           )}
+
+          {isSkipped && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 mb-6 text-xs text-amber-700">
+              Coaching review skipped — {score.skip_reason || "scorer unavailable"}.
+            </div>
+          )}
+
+          {isScored && score.dimensions && (
+            <div className="space-y-5 mb-6">
+              {/* Overall + summary */}
+              <div className="flex items-center gap-6 p-5 rounded-lg border bg-card">
+                <div className="text-center shrink-0">
+                  <div className="text-4xl font-bold tracking-tight">
+                    {(score.overall_score ?? 0).toFixed(1)}
+                    <span className="text-base text-muted-foreground font-normal"> /10</span>
+                  </div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">
+                    Overall
+                  </p>
+                </div>
+                <p className="text-sm leading-relaxed">{score.summary}</p>
+              </div>
+
+              {/* Dimensions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {DIMENSION_LABELS.map(({ key, label }) => {
+                  const d = score.dimensions?.[key];
+                  if (!d) return null;
+                  return (
+                    <div key={key} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs font-semibold">{label}</p>
+                        <Badge variant="outline" className={`text-xs ${scoreColor(d.score)}`}>
+                          {d.score}/10
+                        </Badge>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden mb-2">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary"
+                          style={{ width: `${(d.score / 10) * 100}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-snug">{d.note}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Highlights */}
+              {score.highlights && score.highlights.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Moments
+                  </p>
+                  <div className="space-y-2">
+                    {score.highlights.map((h, idx) => {
+                      const Icon = h.kind === "good" ? ThumbsUp : AlertTriangle;
+                      const tone =
+                        h.kind === "good"
+                          ? "border-emerald-500/30 bg-emerald-500/5"
+                          : "border-amber-500/30 bg-amber-500/5";
+                      return (
+                        <div key={idx} className={`rounded-lg border p-3 flex gap-3 ${tone}`}>
+                          <Icon
+                            className={`h-4 w-4 shrink-0 mt-0.5 ${
+                              h.kind === "good" ? "text-emerald-600" : "text-amber-600"
+                            }`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-muted-foreground mb-0.5">
+                              Turn #{h.turn_index} · {h.kind === "good" ? "Strong" : "Missed"}
+                            </p>
+                            <p className="text-sm">{h.note}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Next time tips */}
+              {score.next_time && score.next_time.length > 0 && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Lightbulb className="h-4 w-4 text-primary" />
+                    <p className="text-xs font-semibold uppercase tracking-wide">Next time</p>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {score.next_time.map((tip, idx) => (
+                      <li key={idx} className="text-sm leading-relaxed flex gap-2">
+                        <span className="text-primary font-bold">{idx + 1}.</span>
+                        <span>{tip}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Transcript */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Transcript
+            </p>
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto rounded-lg border bg-muted/20 p-3">
+              {session.transcript.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  No conversation recorded.
+                </p>
+              )}
+              {session.transcript.map((turn, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
+                      turn.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card border text-foreground"
+                    }`}
+                  >
+                    <p className="text-[10px] uppercase tracking-wide opacity-60 mb-0.5">
+                      #{idx} · {turn.role === "user" ? repName : personaName}
+                    </p>
+                    <p className="whitespace-pre-wrap">{turn.content}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

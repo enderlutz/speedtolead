@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from jose import jwt, JWTError
 from pydantic import BaseModel
 
@@ -37,6 +37,7 @@ from services.training_personas import (
 from services.training_orchestrator import (
     generate_opening_line,
     respond_to_rep,
+    score_call,
 )
 from services.training_persona_seeder import seed_persona_bank
 from services.elevenlabs_client import tts_to_mp3, is_configured as tts_configured
@@ -149,7 +150,19 @@ def create_session(body: CreateSessionBody, user: dict = Depends(require_staff))
 
 
 @router.post("/training/session/{session_id}/end")
-def end_session(session_id: str, user: dict = Depends(require_staff)):
+def end_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_staff),
+):
+    """Close the session + kick off Claude-driven coaching in the background.
+
+    The response returns immediately with `score.status: "pending"` so the
+    frontend can show the summary page right away. The background task
+    rewrites `score_json` once Claude finishes (typically 3-6s); the
+    summary page polls GET /sessions/{id} until status flips to "scored"
+    or "skipped".
+    """
     db = get_db()
     try:
         row = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
@@ -166,8 +179,47 @@ def end_session(session_id: str, user: dict = Depends(require_staff)):
                 row.duration_seconds = int((end_dt - start_dt).total_seconds())
             except Exception:
                 pass
+            # Mark scoring as pending so the frontend renders a loading
+            # state instead of an empty score card. The background task
+            # overwrites this once Claude returns.
+            row.score_json = json.dumps({"status": "pending"})
             db.commit()
+            # Only schedule the scorer on first end — re-hitting end is a no-op
+            background_tasks.add_task(_score_session_async, session_id)
         return row.to_dict()
+    finally:
+        db.close()
+
+
+def _score_session_async(session_id: str):
+    """Background worker — pull the session, run Claude coach, persist."""
+    db = get_db()
+    try:
+        row = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+        if not row:
+            return
+        try:
+            transcript = json.loads(row.transcript_json or "[]")
+        except Exception:
+            transcript = []
+        try:
+            persona = json.loads(row.persona_snapshot_json or "{}")
+        except Exception:
+            persona = {}
+        score = score_call(transcript, persona, row.mood or "")
+        row.score_json = json.dumps(score)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Background scoring failed for session {session_id}: {e}")
+        try:
+            row = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+            if row:
+                row.score_json = json.dumps(
+                    {"status": "skipped", "skip_reason": f"scorer crashed: {e}"}
+                )
+                db.commit()
+        except Exception:
+            pass
     finally:
         db.close()
 

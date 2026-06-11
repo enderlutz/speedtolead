@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Brain, AlertTriangle, History, Loader2, Shuffle, RefreshCw } from "lucide-react";
+import { Brain, AlertTriangle, History, Loader2, Shuffle, RefreshCw, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { api, getCurrentUser } from "@/lib/api";
 import PersonaCard, { type Persona } from "@/components/training/PersonaCard";
@@ -146,6 +146,8 @@ export default function Training() {
           </p>
         </div>
       </div>
+
+      {history.length > 0 && <StatsCard history={history} />}
 
       {!ttsConfigured && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 flex items-start gap-3">
@@ -306,6 +308,8 @@ function HistoryRow({
     ? `${Math.floor(session.duration_seconds / 60)}:${String(session.duration_seconds % 60).padStart(2, "0")}`
     : "—";
   const date = session.started_at ? new Date(session.started_at).toLocaleString() : "";
+  const score = session.score as { overall_score?: number; status?: string } | undefined;
+  const showScore = score?.status === "scored" && typeof score.overall_score === "number";
 
   return (
     <Card>
@@ -316,6 +320,20 @@ function HistoryRow({
             <p className="text-xs text-muted-foreground truncate">{date}</p>
           </div>
           <div className="flex items-center gap-2">
+            {showScore && (
+              <Badge
+                variant="outline"
+                className={
+                  (score!.overall_score ?? 0) >= 7
+                    ? "text-xs text-emerald-600 bg-emerald-500/10 border-emerald-500/30"
+                    : (score!.overall_score ?? 0) >= 5
+                    ? "text-xs text-blue-600 bg-blue-500/10 border-blue-500/30"
+                    : "text-xs text-amber-600 bg-amber-500/10 border-amber-500/30"
+                }
+              >
+                {(score!.overall_score ?? 0).toFixed(1)}/10
+              </Badge>
+            )}
             <Badge variant="outline" className="text-xs">
               {minutes}
             </Badge>
@@ -328,6 +346,92 @@ function HistoryRow({
           </div>
         </div>
       </CardHeader>
+    </Card>
+  );
+}
+
+const STAT_DIMENSION_LABELS: Record<string, string> = {
+  discovery: "Discovery",
+  rapport: "Rapport",
+  objection_handling: "Objection Handling",
+  closing: "Closing",
+  confidence: "Confidence",
+};
+
+function StatsCard({ history }: { history: TrainingSessionRow[] }) {
+  const scored = history.filter((h) => {
+    const s = h.score as { status?: string } | undefined;
+    return s?.status === "scored";
+  });
+
+  if (scored.length === 0) return null;
+
+  const overallSum = scored.reduce((acc, h) => {
+    const s = h.score as { overall_score?: number };
+    return acc + (s.overall_score ?? 0);
+  }, 0);
+  const avgOverall = overallSum / scored.length;
+
+  // Per-dimension averages
+  const dimSums: Record<string, { sum: number; count: number }> = {};
+  for (const h of scored) {
+    const dims = (h.score as { dimensions?: Record<string, { score?: number }> }).dimensions || {};
+    for (const [key, val] of Object.entries(dims)) {
+      const v = (val as { score?: number }).score ?? 0;
+      if (!dimSums[key]) dimSums[key] = { sum: 0, count: 0 };
+      dimSums[key].sum += v;
+      dimSums[key].count += 1;
+    }
+  }
+  const dimAvgs = Object.entries(dimSums).map(([key, { sum, count }]) => ({
+    key,
+    avg: count > 0 ? sum / count : 0,
+  }));
+  dimAvgs.sort((a, b) => a.avg - b.avg);
+  const weakest = dimAvgs[0];
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            <p className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+              Your stats
+            </p>
+          </div>
+          <div className="flex items-center gap-8 flex-wrap">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Avg score
+              </p>
+              <p className="text-xl font-bold">
+                {avgOverall.toFixed(1)}
+                <span className="text-sm text-muted-foreground font-normal">/10</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Sessions
+              </p>
+              <p className="text-xl font-bold">{scored.length}</p>
+            </div>
+            {weakest && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Work on
+                </p>
+                <p className="text-xl font-bold">
+                  {STAT_DIMENSION_LABELS[weakest.key] || weakest.key}
+                  <span className="text-sm text-muted-foreground font-normal ml-1.5">
+                    {weakest.avg.toFixed(1)}/10
+                  </span>
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
     </Card>
   );
 }
