@@ -1564,7 +1564,59 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+
+  // Voice sales training simulator
+  listTrainingPersonas: () =>
+    request<{ curated: TrainingPersona[]; tts_configured: boolean }>(`/api/training/personas`),
+  createTrainingSession: (persona_id: string, mood?: string) =>
+    request<{ id: string; ws_path: string; persona: TrainingPersona; tts_configured: boolean }>(
+      `/api/training/session`,
+      { method: "POST", body: JSON.stringify({ persona_id, mood: mood || "" }) },
+    ),
+  endTrainingSession: (id: string) =>
+    request<TrainingSessionRecord>(`/api/training/session/${id}/end`, { method: "POST" }),
+  listTrainingSessions: () =>
+    request<{ items: TrainingSessionRecord[] }>(`/api/training/sessions`),
+  getTrainingSession: (id: string) =>
+    request<TrainingSessionRecord>(`/api/training/sessions/${id}`),
 };
+
+// --- Training simulator types ---
+
+export interface TrainingPersona {
+  id: string;
+  name: string;
+  headline: string;
+  age: number;
+  gender: string;
+  location: string;
+  fence_context: string;
+  default_mood: string;
+  traits: string[];
+  source: string;
+}
+
+export interface TrainingTranscriptTurn {
+  role: "user" | "assistant";
+  content: string;
+  ts?: string;
+}
+
+export interface TrainingSessionRecord {
+  id: string;
+  rep_user_id: string;
+  rep_display_name: string;
+  persona_id: string;
+  persona_source: string;
+  persona: Partial<TrainingPersona>;
+  mood: string;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  transcript: TrainingTranscriptTurn[];
+  score: Record<string, unknown>;
+  audio_seconds: number;
+}
 
 // --- Internal dashboard types ---
 

@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -31,6 +31,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
   { to: "/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/calls", icon: Mic, label: "Call Coach" },
+  { to: "/training", icon: Brain, label: "Training", allowedRoles: ["admin", "va"] },
   { to: "/crew", icon: HardHat, label: "Payroll", allowedRoles: ["admin"] },
   { to: "/accounting", icon: Calculator, label: "Accounting", allowedRoles: ["admin"] },
   { to: "/calendar", icon: Calendar, label: "Job Calendar", allowedRoles: ["admin", "va", "worker"] },

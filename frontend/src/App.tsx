@@ -17,6 +17,7 @@ import ProposalView from "@/pages/ProposalView";
 import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
+import Training from "@/pages/Training";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
@@ -104,6 +105,7 @@ function AppLayout() {
               <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
               <Route path="/analytics" element={<StaffOnly><Analytics /></StaffOnly>} />
               <Route path="/calls" element={<StaffOnly><Calls /></StaffOnly>} />
+              <Route path="/training" element={<StaffOnly><Training /></StaffOnly>} />
               <Route path="/crew" element={<StaffOnly><Crew /></StaffOnly>} />
               <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
               <Route path="/accounting" element={<StaffOnly><Accounting /></StaffOnly>} />

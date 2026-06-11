@@ -2000,6 +2000,64 @@ class AIThought(Base):
         }
 
 
+class TrainingSession(Base):
+    """One voice sales-training practice call.
+
+    Created when a rep clicks Start on the Training page; closed when
+    they hit End (or the WS drops). transcript_json holds the full
+    Anthropic-shape conversation; score_json holds the Phase 4 coaching
+    rubric (empty in earlier phases). persona_snapshot_json freezes the
+    persona at session start so later persona edits don't rewrite history.
+    """
+    __tablename__ = "training_sessions"
+    __table_args__ = (
+        Index("idx_training_sessions_rep_started", "rep_user_id", "started_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    rep_user_id = Column(Text, default="", nullable=False)   # User.username (the rep who practiced)
+    rep_display_name = Column(Text, default="")
+    persona_id = Column(Text, default="", nullable=False)    # curated id or persona_bank id
+    persona_source = Column(Text, default="curated")         # "curated" | "real_lead" (phase 3)
+    persona_snapshot_json = Column(Text, default="{}")        # full persona dict at session start
+    mood = Column(Text, default="")                          # phase 2 mood variant ("busy"/"friendly"/"skeptical")
+    started_at = Column(Text, default="", nullable=False)
+    ended_at = Column(Text, default="")
+    duration_seconds = Column(Integer, default=0)
+    transcript_json = Column(Text, default="[]")              # [{"role": "...", "content": "...", "ts": "..."}]
+    score_json = Column(Text, default="{}")                   # phase 4 coaching rubric
+    audio_seconds = Column(Integer, default=0)                # total TTS audio synthesized (for cost tracking)
+
+    def to_dict(self) -> dict:
+        try:
+            transcript = json.loads(self.transcript_json or "[]")
+        except Exception:
+            transcript = []
+        try:
+            score = json.loads(self.score_json or "{}")
+        except Exception:
+            score = {}
+        try:
+            persona = json.loads(self.persona_snapshot_json or "{}")
+        except Exception:
+            persona = {}
+        return {
+            "id": self.id,
+            "rep_user_id": self.rep_user_id or "",
+            "rep_display_name": self.rep_display_name or "",
+            "persona_id": self.persona_id or "",
+            "persona_source": self.persona_source or "curated",
+            "persona": persona,
+            "mood": self.mood or "",
+            "started_at": self.started_at or "",
+            "ended_at": self.ended_at or "",
+            "duration_seconds": int(self.duration_seconds or 0),
+            "transcript": transcript,
+            "score": score,
+            "audio_seconds": int(self.audio_seconds or 0),
+        }
+
+
 # --- Engine / Session ---
 
 _engine = None

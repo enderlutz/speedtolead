@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training
+from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
 from services.correction_escalator import check_escalations
@@ -413,7 +414,16 @@ app.include_router(followups.router, prefix="/api")
 app.include_router(call_list.router, prefix="/api")
 app.include_router(payments.router, prefix="/api")
 app.include_router(call_dispositions.router, prefix="/api")
+app.include_router(training.router, prefix="/api")
 app.include_router(internal.router, prefix="/api")
+
+
+# Voice training simulator WebSocket. Lives at root (not /api) because
+# the browser WebSocket API can't set Authorization headers — the rep's
+# JWT comes as a ?token=... query param, validated inside the handler.
+@app.websocket("/ws/training/{session_id}")
+async def training_ws(websocket, session_id: str):
+    await training_ws_handler(websocket, session_id)
 
 
 @app.get("/health")
