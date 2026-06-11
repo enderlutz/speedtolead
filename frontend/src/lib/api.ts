@@ -1567,7 +1567,9 @@ export const api = {
 
   // Voice sales training simulator
   listTrainingPersonas: () =>
-    request<{ curated: TrainingPersona[]; tts_configured: boolean }>(`/api/training/personas`),
+    request<{ curated: TrainingPersona[]; moods: TrainingMood[]; tts_configured: boolean }>(
+      `/api/training/personas`,
+    ),
   createTrainingSession: (persona_id: string, mood?: string) =>
     request<{ id: string; ws_path: string; persona: TrainingPersona; tts_configured: boolean }>(
       `/api/training/session`,
@@ -1592,8 +1594,15 @@ export interface TrainingPersona {
   location: string;
   fence_context: string;
   default_mood: string;
+  available_moods: string[];
   traits: string[];
   source: string;
+}
+
+export interface TrainingMood {
+  id: string;
+  label: string;
+  subtitle: string;
 }
 
 export interface TrainingTranscriptTurn {

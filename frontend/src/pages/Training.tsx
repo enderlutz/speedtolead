@@ -8,17 +8,22 @@ import { api } from "@/lib/api";
 import PersonaCard, { type Persona } from "@/components/training/PersonaCard";
 import CallSession from "@/components/training/CallSession";
 import CallSummary, { type TrainingSessionRow } from "@/components/training/CallSummary";
+import MoodPicker from "@/components/training/MoodPicker";
+import type { TrainingMood } from "@/lib/api";
 
 type ActiveSession = {
   id: string;
   persona: Persona;
+  mood: string;
 };
 
 export default function Training() {
   const [curated, setCurated] = useState<Persona[]>([]);
+  const [moods, setMoods] = useState<TrainingMood[]>([]);
   const [history, setHistory] = useState<TrainingSessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [ttsConfigured, setTtsConfigured] = useState(false);
+  const [pendingPersona, setPendingPersona] = useState<Persona | null>(null);
   const [active, setActive] = useState<ActiveSession | null>(null);
   const [summary, setSummary] = useState<TrainingSessionRow | null>(null);
 
@@ -29,6 +34,7 @@ export default function Training() {
         api.listTrainingSessions(),
       ]);
       setCurated(list.curated);
+      setMoods(list.moods);
       setTtsConfigured(list.tts_configured);
       setHistory(sessions.items);
     } catch (e) {
@@ -42,10 +48,17 @@ export default function Training() {
     refreshAll();
   }, [refreshAll]);
 
-  const handlePick = async (persona: Persona) => {
+  const handlePick = (persona: Persona) => {
+    setPendingPersona(persona);
+  };
+
+  const handleStart = async (mood: string) => {
+    if (!pendingPersona) return;
+    const persona = pendingPersona;
+    setPendingPersona(null);
     try {
-      const sess = await api.createTrainingSession(persona.id);
-      setActive({ id: sess.id, persona });
+      const sess = await api.createTrainingSession(persona.id, mood);
+      setActive({ id: sess.id, persona, mood });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to start session");
     }
@@ -73,6 +86,7 @@ export default function Training() {
       <CallSession
         sessionId={active.id}
         persona={active.persona}
+        mood={active.mood}
         ttsConfigured={ttsConfigured}
         onEnd={handleEnd}
       />
@@ -128,6 +142,15 @@ export default function Training() {
           </div>
         )}
       </section>
+
+      {pendingPersona && (
+        <MoodPicker
+          persona={pendingPersona}
+          moods={moods}
+          onStart={handleStart}
+          onCancel={() => setPendingPersona(null)}
+        />
+      )}
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">

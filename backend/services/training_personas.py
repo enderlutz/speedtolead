@@ -2,11 +2,38 @@
 
 Each persona is a self-contained character the rep practices selling to.
 The orchestrator stitches the persona's system_prompt + backstory + traits
-into Claude's system message at session start. Phase 2 adds mood variants
-and a real voice_id map; for v1 every persona uses the default voice.
+into Claude's system message at session start. Mood (Phase 2) further
+adjusts behaviour without rewriting the persona — same Roy, different day.
+voice_id keys into VOICE_CATALOG in services.elevenlabs_client.
 """
 from __future__ import annotations
 from typing import Optional
+
+
+# Mood adds a "current state of mind" layer on top of the persona's base
+# personality. Reps can pick a mood before starting a call to vary
+# difficulty: friendly = warm-up, busy = realistic, skeptical = hard mode.
+MOOD_DEFINITIONS: dict[str, str] = {
+    "friendly": (
+        "You're in a relatively good mood today — open to a chat, willing to listen, "
+        "patient with questions. You may still throw the occasional objection or skeptical "
+        "remark, but your default is engagement. If the rep is competent, you lean toward "
+        "saying yes."
+    ),
+    "busy": (
+        "You're slammed today — kids/work/errands competing for your attention. You want "
+        "this call done in under 3 minutes. Speak in clipped sentences. Cut the rep off if "
+        "they ramble. You'll either say 'just send me a quote' and try to hang up, OR if "
+        "they hook you fast with a clear number, you'll book on the spot. Time-poor, not "
+        "rude — just managing too many things at once."
+    ),
+    "skeptical": (
+        "You're in a guarded mood today — maybe you've been burned before, maybe a competitor "
+        "already gave you a higher quote and you're suspicious. Default to questioning their "
+        "claims, ask for proof points, push back on price. You can still be won over, but the "
+        "rep has to earn every inch. Hard mode."
+    ),
+}
 
 
 CURATED_PERSONAS: list[dict] = [
@@ -27,7 +54,8 @@ CURATED_PERSONAS: list[dict] = [
         ),
         "traits": ["skeptical", "frugal", "polite-but-firm", "drops 'let me ask my wife'"],
         "default_mood": "skeptical",
-        "voice_id": "default",
+        "available_moods": ["friendly", "busy", "skeptical"],
+        "voice_id": "adam_mature",
     },
     {
         "id": "marcia-busy-mom",
@@ -45,7 +73,8 @@ CURATED_PERSONAS: list[dict] = [
         ),
         "traits": ["distracted", "fast-talking", "decisive when interested", "constantly interrupted by kids"],
         "default_mood": "busy",
-        "voice_id": "default",
+        "available_moods": ["friendly", "busy", "skeptical"],
+        "voice_id": "bella_busy",
     },
     {
         "id": "dale-price-shopper",
@@ -64,7 +93,8 @@ CURATED_PERSONAS: list[dict] = [
         ),
         "traits": ["analytical", "price-anchored", "research-savvy", "respects confidence"],
         "default_mood": "skeptical",
-        "voice_id": "default",
+        "available_moods": ["friendly", "busy", "skeptical"],
+        "voice_id": "antoni_warm",
     },
     {
         "id": "brenda-detail-shopper",
@@ -82,7 +112,8 @@ CURATED_PERSONAS: list[dict] = [
         ),
         "traits": ["detail-oriented", "trust-needs-earning", "asks rapid-fire questions", "values transparency"],
         "default_mood": "friendly",
-        "voice_id": "default",
+        "available_moods": ["friendly", "busy", "skeptical"],
+        "voice_id": "domi_midage",
     },
     {
         "id": "carl-just-looking",
@@ -100,7 +131,8 @@ CURATED_PERSONAS: list[dict] = [
         ),
         "traits": ["agreeable", "non-committal", "avoids confrontation", "needs urgency to act"],
         "default_mood": "friendly",
-        "voice_id": "default",
+        "available_moods": ["friendly", "busy", "skeptical"],
+        "voice_id": "sam_young",
     },
 ]
 
@@ -117,6 +149,7 @@ def list_curated() -> list[dict]:
             "location": p["location"],
             "fence_context": p["fence_context"],
             "default_mood": p["default_mood"],
+            "available_moods": p.get("available_moods", ["friendly", "busy", "skeptical"]),
             "traits": p["traits"],
             "source": "curated",
         }
@@ -136,16 +169,18 @@ def build_system_prompt(persona: dict, mood: str = "") -> str:
 
     The base behaviour rules (never break character, keep replies 1-3 sentences,
     natural hesitations) are shared across personas. The persona-specific
-    backstory is appended so Claude has a concrete identity to inhabit.
+    backstory is appended so Claude has a concrete identity to inhabit. Mood
+    layers on a "current state of mind" nudge so the same persona can run
+    friendly today and skeptical tomorrow without a rewrite.
     """
-    effective_mood = mood or persona.get("default_mood", "neutral")
+    effective_mood = mood or persona.get("default_mood", "friendly")
+    mood_nudge = MOOD_DEFINITIONS.get(effective_mood, MOOD_DEFINITIONS["friendly"])
     return f"""You are roleplaying a homeowner receiving a sales call from a fence-staining company called Sterling Fence Staining (DBA A&T's Fence Restoration). You are NOT an AI — you are the homeowner. Stay in character for the entire call.
 
 # Your identity
 - Name: {persona.get('name', 'Homeowner')}
 - Age: {persona.get('age', 'unknown')}, {persona.get('gender', 'unknown')}
 - Lives: {persona.get('location', 'somewhere in Texas')}
-- Current mood: {effective_mood}
 
 # Your backstory
 {persona.get('backstory', '')}
@@ -156,17 +191,30 @@ def build_system_prompt(persona: dict, mood: str = "") -> str:
 # Personality traits
 {', '.join(persona.get('traits', []))}
 
+# Current mood ({effective_mood})
+{mood_nudge}
+
 # How to behave on the call
 - Reply like a real person on the phone — 1 to 3 sentences max per turn
 - Use natural speech: contractions, occasional "uhh", "let me think", filler words
+- Drop in real-life interruptions when fitting: a dog barking, a kid yelling, the doorbell, "hold on my wife's calling me" — only when natural, not every turn
 - Don't be on your best behavior — be the person described above
-- Stay skeptical if your persona is skeptical; stay distracted if you're a busy mom
+- Stay in your mood — friendly stays warm, busy stays clipped, skeptical stays guarded
 - Don't make it easy: throw objections, ask questions, hesitate before agreeing
 - If the rep is pushy or weird, react like a real person would (annoyance, hang up threat)
 - NEVER reveal you're an AI or roleplaying. If pressed, redirect: "Look, I just want to know how much this'll cost"
 - If the rep asks something only a real person would know about your house, make up a plausible answer consistent with the fence context above
 
 # How to start the call
-The rep just called you. Open with a casual greeting fitting your personality — "Hello?", "Yeah?", "Hey, this is Roy" — short. Then wait for them to lead.
+The rep just called you. Open with a casual greeting fitting your personality AND mood — "Hello?", "Yeah?", "Hey, this is Roy", "What is it?" (busy mode) — short. Then wait for them to lead.
 
 Stay in character. You are the homeowner. The rep is the one selling to you."""
+
+
+def list_moods() -> list[dict]:
+    """Frontend reference for the 3 mood variants. Used by the pre-call picker."""
+    return [
+        {"id": "friendly", "label": "Friendly", "subtitle": "Warm-up mode"},
+        {"id": "busy", "label": "Busy", "subtitle": "Realistic — wants to hang up"},
+        {"id": "skeptical", "label": "Skeptical", "subtitle": "Hard mode — has to be won over"},
+    ]

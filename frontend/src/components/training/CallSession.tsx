@@ -8,11 +8,12 @@ import type { Persona } from "./PersonaCard";
 type Props = {
   sessionId: string;
   persona: Persona;
+  mood: string;
   ttsConfigured: boolean;
   onEnd: () => void;
 };
 
-export default function CallSession({ sessionId, persona, ttsConfigured, onEnd }: Props) {
+export default function CallSession({ sessionId, persona, mood, ttsConfigured, onEnd }: Props) {
   const clientRef = useRef<TrainingClient | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -103,6 +104,11 @@ export default function CallSession({ sessionId, persona, ttsConfigured, onEnd }
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {mood && (
+            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+              {mood}
+            </Badge>
+          )}
           <Badge variant="outline" className={`text-xs ${statusColor}`}>
             {(status === "thinking" || status === "transcribing") && (
               <Loader2 className="h-3 w-3 mr-1 animate-spin" />

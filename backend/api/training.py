@@ -31,6 +31,7 @@ from api.auth import require_staff, get_current_user, SECRET_ALGORITHM
 from services.training_personas import (
     list_curated,
     get_curated,
+    list_moods,
     build_system_prompt,
 )
 from services.training_orchestrator import (
@@ -54,9 +55,10 @@ class CreateSessionBody(BaseModel):
 
 @router.get("/training/personas")
 def list_personas(user: dict = Depends(require_staff)):
-    """Curated personas. Phase 3 adds a `real_leads` section."""
+    """Curated personas + mood catalog. Phase 3 adds a `real_leads` section."""
     return {
         "curated": list_curated(),
+        "moods": list_moods(),
         "tts_configured": tts_configured(),
     }
 
