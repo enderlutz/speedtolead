@@ -1,39 +1,37 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mic, MicOff, PhoneOff, Loader2, MessageCircle } from "lucide-react";
-import { TrainingClient, type TranscriptEntry, type CallStatus } from "@/lib/training";
-import type { Persona } from "./PersonaCard";
+import {
+  Mic,
+  MicOff,
+  PhoneOff,
+  Loader2,
+  MessageCircle,
+  Minimize2,
+} from "lucide-react";
+import { useTrainingMode } from "@/lib/training_mode_context";
 
-type Props = {
-  sessionId: string;
-  persona: Persona;
-  mood: string;
-  ttsConfigured: boolean;
-  onEnd: () => void;
-};
+/**
+ * Fullscreen expanded view of the active practice call. Consumes the
+ * global TrainingMode context — no props, no internal WS/mic state.
+ * The persistent CallBar mounts the call across navigation; this is
+ * just the "tap to expand" detail view of it.
+ */
+export default function CallSession() {
+  const {
+    activeCall,
+    callStatus,
+    recording,
+    transcript,
+    error,
+    expanded,
+    collapse,
+    pressTalk,
+    releaseTalk,
+    endCall,
+  } = useTrainingMode();
 
-export default function CallSession({ sessionId, persona, mood, ttsConfigured, onEnd }: Props) {
-  const clientRef = useRef<TrainingClient | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [status, setStatus] = useState<CallStatus>("connecting");
-  const [recording, setRecording] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const client = new TrainingClient(sessionId, {
-      onTranscript: (e) => setTranscript((prev) => [...prev, e]),
-      onStatus: (s) => setStatus(s),
-      onError: (msg) => setError(msg),
-      onClose: () => setStatus("closed"),
-    });
-    clientRef.current = client;
-    client.connect().catch(() => {});
-    return () => {
-      client.cleanup();
-    };
-  }, [sessionId]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({
@@ -42,30 +40,15 @@ export default function CallSession({ sessionId, persona, mood, ttsConfigured, o
     });
   }, [transcript]);
 
-  const handlePushToTalkDown = async () => {
-    if (status === "closed") return;
-    try {
-      await clientRef.current?.startRecording();
-      setRecording(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Mic access denied");
-    }
-  };
+  if (!activeCall || !expanded) return null;
 
-  const handlePushToTalkUp = () => {
-    if (!recording) return;
-    clientRef.current?.stopRecording();
-    setRecording(false);
-  };
-
-  const handleEnd = () => {
-    clientRef.current?.endCall();
-    onEnd();
-  };
+  const persona = activeCall.persona;
+  const mood = activeCall.mood;
+  const ttsConfigured = activeCall.ttsConfigured;
 
   const statusLabel = (() => {
     if (error) return "Error";
-    switch (status) {
+    switch (callStatus) {
       case "connecting":
         return "Connecting…";
       case "thinking":
@@ -78,25 +61,31 @@ export default function CallSession({ sessionId, persona, mood, ttsConfigured, o
         return recording ? "Listening…" : "Your turn";
       case "closed":
         return "Call ended";
+      default:
+        return "";
     }
   })();
 
   const statusColor = (() => {
     if (error) return "bg-red-500/10 text-red-600 border-red-500/30";
-    if (status === "speaking") return "bg-purple-500/10 text-purple-600 border-purple-500/30";
-    if (status === "thinking" || status === "transcribing")
+    if (callStatus === "speaking") return "bg-purple-500/10 text-purple-600 border-purple-500/30";
+    if (callStatus === "thinking" || callStatus === "transcribing")
       return "bg-amber-500/10 text-amber-600 border-amber-500/30";
     if (recording) return "bg-rose-500/10 text-rose-600 border-rose-500/30 animate-pulse";
     return "bg-emerald-500/10 text-emerald-600 border-emerald-500/30";
   })();
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+    <div className="fixed inset-0 z-[58] bg-background flex flex-col">
       {/* Header */}
       <div className="border-b px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center text-xs font-bold text-primary">
-            {persona.name.split(" ").map((p) => p[0]).join("").toUpperCase()}
+            {persona.name
+              .split(" ")
+              .map((p) => p[0])
+              .join("")
+              .toUpperCase()}
           </div>
           <div>
             <p className="text-sm font-semibold leading-tight">{persona.name}</p>
@@ -110,12 +99,15 @@ export default function CallSession({ sessionId, persona, mood, ttsConfigured, o
             </Badge>
           )}
           <Badge variant="outline" className={`text-xs ${statusColor}`}>
-            {(status === "thinking" || status === "transcribing") && (
+            {(callStatus === "thinking" || callStatus === "transcribing") && (
               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
             )}
             {statusLabel}
           </Badge>
-          <Button variant="destructive" size="sm" onClick={handleEnd}>
+          <Button variant="ghost" size="sm" onClick={collapse} title="Minimize">
+            <Minimize2 className="h-4 w-4" />
+          </Button>
+          <Button variant="destructive" size="sm" onClick={endCall}>
             <PhoneOff className="h-4 w-4 mr-1" />
             End Call
           </Button>
@@ -142,13 +134,13 @@ export default function CallSession({ sessionId, persona, mood, ttsConfigured, o
 
       {/* Transcript */}
       <div ref={transcriptRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-        {transcript.length === 0 && status === "connecting" && (
+        {transcript.length === 0 && callStatus === "connecting" && (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
             <Loader2 className="h-6 w-6 animate-spin" />
             <p className="text-sm">Setting up the call…</p>
           </div>
         )}
-        {transcript.length === 0 && status !== "connecting" && (
+        {transcript.length === 0 && callStatus !== "connecting" && (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2 max-w-md mx-auto text-center">
             <MessageCircle className="h-8 w-8 opacity-50" />
             <p className="text-sm">
@@ -181,22 +173,28 @@ export default function CallSession({ sessionId, persona, mood, ttsConfigured, o
       <div className="border-t bg-card px-6 py-5">
         <div className="flex items-center justify-center">
           <button
-            onMouseDown={handlePushToTalkDown}
-            onMouseUp={handlePushToTalkUp}
-            onMouseLeave={handlePushToTalkUp}
+            onMouseDown={pressTalk}
+            onMouseUp={releaseTalk}
+            onMouseLeave={releaseTalk}
             onTouchStart={(ev) => {
               ev.preventDefault();
-              handlePushToTalkDown();
+              pressTalk();
             }}
             onTouchEnd={(ev) => {
               ev.preventDefault();
-              handlePushToTalkUp();
+              releaseTalk();
             }}
-            disabled={status === "closed" || status === "connecting" || status === "speaking"}
+            disabled={
+              callStatus === "closed" ||
+              callStatus === "connecting" ||
+              callStatus === "speaking"
+            }
             className={`flex flex-col items-center justify-center gap-2 h-24 w-24 rounded-full transition-all select-none ${
               recording
                 ? "bg-rose-500 text-white scale-110 shadow-2xl shadow-rose-500/40"
-                : status === "closed" || status === "connecting" || status === "speaking"
+                : callStatus === "closed" ||
+                  callStatus === "connecting" ||
+                  callStatus === "speaking"
                 ? "bg-muted text-muted-foreground cursor-not-allowed"
                 : "bg-primary text-primary-foreground hover:scale-105 shadow-lg shadow-primary/30"
             }`}

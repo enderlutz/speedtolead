@@ -24,6 +24,11 @@ import CalendarPage from "@/pages/Calendar";
 import MySchedule from "@/pages/MySchedule";
 import CallListPanel from "@/components/CallListPanel";
 import WrappedAutoPop from "@/components/WrappedAutoPop";
+import TrainingBorder from "@/components/training/TrainingBorder";
+import CallBar from "@/components/training/CallBar";
+import CallSession from "@/components/training/CallSession";
+import TrainingSummaryModal from "@/components/training/TrainingSummaryModal";
+import { TrainingModeProvider } from "@/lib/training_mode_context";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Accounting from "@/pages/Accounting";
@@ -127,6 +132,15 @@ function AppLayout() {
         {/* Saturday / last-of-month CEO digest. Mounted at AppLayout so
             it fires on any page, not just Dashboard. Admin-only inside. */}
         <WrappedAutoPop />
+
+        {/* Training Mode — global red border + persistent call bar +
+            fullscreen expand view + post-call summary modal. All driven
+            by TrainingModeProvider state, so the rep can navigate any
+            page while a practice call is running. */}
+        <TrainingBorder />
+        <CallBar />
+        <CallSession />
+        <TrainingSummaryModal />
       </div>
     </RequireAuth>
   );
@@ -135,8 +149,10 @@ function AppLayout() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppLayout />
-      <Toaster position="top-right" richColors />
+      <TrainingModeProvider>
+        <AppLayout />
+        <Toaster position="top-right" richColors />
+      </TrainingModeProvider>
     </BrowserRouter>
   );
 }

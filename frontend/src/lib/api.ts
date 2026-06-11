@@ -1,4 +1,45 @@
+import { toast } from "sonner";
+
 const BASE = import.meta.env.VITE_API_URL || "";
+
+// --- Training mode mutation guard ----------------------------------------
+// When the rep flips on Training Mode (see lib/training_mode_context.tsx),
+// we read the localStorage flag synchronously from inside request() and
+// reject any call that would contact a real customer (SMS, payment link,
+// estimate-approve, deposit invoice, immediate follow-up send). Safer than
+// touching every send button individually.
+//
+// Hybrid posture: block customer-facing sends, allow internal mutations
+// (notes, drafts, status updates) because reps still need to navigate
+// real lead detail pages while practicing.
+
+const TRAINING_BLOCKED_PATTERNS: { method: string; pattern: RegExp; label: string }[] = [
+  // Estimate approve sends customer SMS + email + PDF
+  { method: "POST", pattern: /\/api\/estimates\/[^/]+\/approve$/, label: "Approve & Send" },
+  { method: "POST", pattern: /\/api\/estimates\/[^/]+\/request-review$/, label: "Send Review Link" },
+  // Deposit + invoice SMS sends payment link to the customer
+  { method: "POST", pattern: /\/api\/quickbooks\/leads\/[^/]+\/send-deposit-invoice$/, label: "Send Deposit Invoice" },
+  { method: "POST", pattern: /\/api\/quickbooks\/jobs\/[^/]+\/send-invoice-sms$/, label: "Send Invoice SMS" },
+  // Follow-up engine immediate send fires SMS/iMessage
+  { method: "POST", pattern: /\/api\/followups\/runs\/[^/]+\/send-now$/, label: "Send Follow-up Now" },
+];
+
+function isTrainingModeOn(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("at_training_mode") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function trainingBlocks(path: string, method: string): string | null {
+  const m = (method || "GET").toUpperCase();
+  for (const { method: bm, pattern, label } of TRAINING_BLOCKED_PATTERNS) {
+    if (bm === m && pattern.test(path)) return label;
+  }
+  return null;
+}
 
 // --- Auth helpers ---
 
@@ -456,6 +497,16 @@ export interface QuickApproveInfo {
 // --- API client ---
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  // Training-mode mutation guard — fail fast before hitting the network
+  // for customer-contacting endpoints.
+  if (isTrainingModeOn()) {
+    const blocked = trainingBlocks(path, options?.method || "GET");
+    if (blocked) {
+      toast.error(`Disabled in training mode — would have sent "${blocked}" to a real customer.`);
+      throw new Error(`Blocked in training mode: ${blocked}`);
+    }
+  }
+
   const token = getToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;

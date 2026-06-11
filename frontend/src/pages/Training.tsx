@@ -3,22 +3,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Brain, AlertTriangle, History, Loader2, Shuffle, RefreshCw, TrendingUp } from "lucide-react";
+import {
+  Brain,
+  AlertTriangle,
+  History,
+  Loader2,
+  Shuffle,
+  RefreshCw,
+  TrendingUp,
+  GraduationCap,
+  Power,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api, getCurrentUser } from "@/lib/api";
 import PersonaCard, { type Persona } from "@/components/training/PersonaCard";
-import CallSession from "@/components/training/CallSession";
-import CallSummary, { type TrainingSessionRow } from "@/components/training/CallSummary";
+import { type TrainingSessionRow } from "@/components/training/CallSummary";
+import CallSummary from "@/components/training/CallSummary";
 import MoodPicker from "@/components/training/MoodPicker";
 import type { TrainingMood } from "@/lib/api";
-
-type ActiveSession = {
-  id: string;
-  persona: Persona;
-  mood: string;
-};
+import { useTrainingMode } from "@/lib/training_mode_context";
 
 export default function Training() {
+  const {
+    trainingModeOn,
+    enableTrainingMode,
+    disableTrainingMode,
+    activeCall,
+    startCall,
+  } = useTrainingMode();
+
   const [curated, setCurated] = useState<Persona[]>([]);
   const [bank, setBank] = useState<Persona[]>([]);
   const [moods, setMoods] = useState<TrainingMood[]>([]);
@@ -26,8 +39,7 @@ export default function Training() {
   const [loading, setLoading] = useState(true);
   const [ttsConfigured, setTtsConfigured] = useState(false);
   const [pendingPersona, setPendingPersona] = useState<Persona | null>(null);
-  const [active, setActive] = useState<ActiveSession | null>(null);
-  const [summary, setSummary] = useState<TrainingSessionRow | null>(null);
+  const [reviewing, setReviewing] = useState<TrainingSessionRow | null>(null);
   const [seeding, setSeeding] = useState(false);
   const user = getCurrentUser();
   const isAdmin = user?.role === "admin";
@@ -50,8 +62,51 @@ export default function Training() {
     }
   }, []);
 
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  // After a call ends the user lands back here; refresh history to pick
+  // up the new session row (which the global summary modal also shows).
+  useEffect(() => {
+    if (!activeCall) refreshAll();
+  }, [activeCall, refreshAll]);
+
+  const handlePick = (persona: Persona) => {
+    if (!trainingModeOn) {
+      toast.error("Turn on Training Mode first");
+      return;
+    }
+    if (activeCall) {
+      toast.error("End the current practice call before starting a new one");
+      return;
+    }
+    setPendingPersona(persona);
+  };
+
+  const handleStart = async (mood: string) => {
+    if (!pendingPersona) return;
+    const persona = pendingPersona;
+    setPendingPersona(null);
+    try {
+      const sess = await api.createTrainingSession(persona.id, mood);
+      await startCall({
+        sessionId: sess.id,
+        persona,
+        mood,
+        ttsConfigured: sess.tts_configured,
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to start session");
+    }
+  };
+
   const handleSeed = async () => {
-    if (!confirm("This will wipe the current real-lead persona bank and generate ~30 fresh ones from your DB (~30s + Claude tokens). Continue?")) {
+    if (
+      !confirm(
+        "This will wipe the current real-lead persona bank and generate ~30 fresh ones from your DB (~30s + Claude tokens). Continue?",
+      )
+    ) {
       return;
     }
     setSeeding(true);
@@ -70,6 +125,10 @@ export default function Training() {
   };
 
   const handleRandom = () => {
+    if (!trainingModeOn) {
+      toast.error("Turn on Training Mode first");
+      return;
+    }
     const pool = [...curated, ...bank];
     if (pool.length === 0) {
       toast.error("No personas available");
@@ -79,62 +138,13 @@ export default function Training() {
     setPendingPersona(pick);
   };
 
-  useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
-
-  const handlePick = (persona: Persona) => {
-    setPendingPersona(persona);
-  };
-
-  const handleStart = async (mood: string) => {
-    if (!pendingPersona) return;
-    const persona = pendingPersona;
-    setPendingPersona(null);
-    try {
-      const sess = await api.createTrainingSession(persona.id, mood);
-      setActive({ id: sess.id, persona, mood });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to start session");
-    }
-  };
-
-  const handleEnd = async () => {
-    if (!active) return;
-    try {
-      const ended = await api.endTrainingSession(active.id);
-      setSummary(ended);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to end session");
-    } finally {
-      setActive(null);
-      refreshAll();
-    }
-  };
-
-  const handleCloseSummary = () => {
-    setSummary(null);
-  };
-
-  if (active) {
-    return (
-      <CallSession
-        sessionId={active.id}
-        persona={active.persona}
-        mood={active.mood}
-        ttsConfigured={ttsConfigured}
-        onEnd={handleEnd}
-      />
-    );
-  }
-
-  if (summary) {
-    return <CallSummary session={summary} onClose={handleCloseSummary} />;
+  if (reviewing) {
+    return <CallSummary session={reviewing} onClose={() => setReviewing(null)} />;
   }
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Brain className="h-5 w-5 text-primary" />
@@ -146,6 +156,49 @@ export default function Training() {
           </p>
         </div>
       </div>
+
+      {/* Training Mode toggle — the big switch */}
+      <Card
+        className={
+          trainingModeOn
+            ? "border-rose-500/40 bg-rose-500/5"
+            : "border-border"
+        }
+      >
+        <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div
+              className={`h-10 w-10 rounded-full flex items-center justify-center ${
+                trainingModeOn
+                  ? "bg-rose-500/15 text-rose-600"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              <GraduationCap className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold leading-tight">
+                Training Mode {trainingModeOn ? "is ON" : "is OFF"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {trainingModeOn
+                  ? "Red border is visible on every page. Customer-contacting actions (send estimate, SMS, payment links) are blocked. You can browse the dashboard freely while a practice call is running."
+                  : "Flip this on to start a practice call. You'll still see the dashboard but customer sends will be disabled until you exit."}
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={trainingModeOn ? disableTrainingMode : enableTrainingMode}
+            variant={trainingModeOn ? "destructive" : "default"}
+            size="lg"
+            disabled={trainingModeOn && !!activeCall}
+            title={trainingModeOn && activeCall ? "End the active call first" : undefined}
+          >
+            <Power className="h-4 w-4 mr-2" />
+            {trainingModeOn ? "Exit Training Mode" : "Enter Training Mode"}
+          </Button>
+        </CardContent>
+      </Card>
 
       {history.length > 0 && <StatsCard history={history} />}
 
@@ -277,17 +330,13 @@ export default function Training() {
         {history.length === 0 ? (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              No practice calls yet. Pick a persona above to get started.
+              No practice calls yet. {trainingModeOn ? "Pick a persona above to get started." : "Turn on Training Mode and pick a persona."}
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-2">
             {history.map((s) => (
-              <HistoryRow
-                key={s.id}
-                session={s}
-                onOpen={() => setSummary(s)}
-              />
+              <HistoryRow key={s.id} session={s} onOpen={() => setReviewing(s)} />
             ))}
           </div>
         )}
@@ -372,7 +421,6 @@ function StatsCard({ history }: { history: TrainingSessionRow[] }) {
   }, 0);
   const avgOverall = overallSum / scored.length;
 
-  // Per-dimension averages
   const dimSums: Record<string, { sum: number; count: number }> = {};
   for (const h of scored) {
     const dims = (h.score as { dimensions?: Record<string, { score?: number }> }).dimensions || {};
@@ -393,7 +441,7 @@ function StatsCard({ history }: { history: TrainingSessionRow[] }) {
   return (
     <Card>
       <CardContent className="p-5">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-primary" />
             <p className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">
