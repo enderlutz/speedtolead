@@ -1567,8 +1567,16 @@ export const api = {
 
   // Voice sales training simulator
   listTrainingPersonas: () =>
-    request<{ curated: TrainingPersona[]; moods: TrainingMood[]; tts_configured: boolean }>(
-      `/api/training/personas`,
+    request<{
+      curated: TrainingPersona[];
+      bank: TrainingPersona[];
+      moods: TrainingMood[];
+      tts_configured: boolean;
+    }>(`/api/training/personas`),
+  seedTrainingPersonaBank: (count: number) =>
+    request<{ created: number; skipped: number; errors: string[] }>(
+      `/api/training/personas/seed-from-db`,
+      { method: "POST", body: JSON.stringify({ count }) },
     ),
   createTrainingSession: (persona_id: string, mood?: string) =>
     request<{ id: string; ws_path: string; persona: TrainingPersona; tts_configured: boolean }>(

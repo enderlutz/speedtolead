@@ -2000,6 +2000,62 @@ class AIThought(Base):
         }
 
 
+class TrainingPersonaBank(Base):
+    """A persona derived from a real (anonymized) lead.
+
+    Seeded by `services.training_persona_seeder` against a sample of
+    real leads pulled from the DB. PII is scrubbed at generation time —
+    only the fence shape, zip area, and any captured tone/notes flow
+    into the persona. The source_lead_id is kept for forensics so we
+    can re-roll a stale persona if a lead's data changes materially.
+    """
+    __tablename__ = "training_persona_bank"
+    __table_args__ = (
+        Index("idx_training_persona_bank_created", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    created_at = Column(Text, default="", nullable=False)
+    source_lead_id = Column(Text, default="")              # the real lead this was derived from
+    name = Column(Text, default="")                         # anonymized display name (e.g. "Customer A")
+    headline = Column(Text, default="")
+    age = Column(Integer, default=0)
+    gender = Column(Text, default="")
+    location = Column(Text, default="")                     # zip-level fuzz only
+    fence_context = Column(Text, default="")
+    backstory = Column(Text, default="")
+    traits_json = Column(Text, default="[]")
+    default_mood = Column(Text, default="friendly")
+    available_moods_json = Column(Text, default='["friendly","busy","skeptical"]')
+    voice_id = Column(Text, default="default")
+    active = Column(Boolean, default=True, nullable=False)
+
+    def to_persona_dict(self) -> dict:
+        try:
+            traits = json.loads(self.traits_json or "[]")
+        except Exception:
+            traits = []
+        try:
+            moods = json.loads(self.available_moods_json or "[]")
+        except Exception:
+            moods = ["friendly", "busy", "skeptical"]
+        return {
+            "id": self.id,
+            "name": self.name or "",
+            "headline": self.headline or "",
+            "age": int(self.age or 0),
+            "gender": self.gender or "",
+            "location": self.location or "",
+            "fence_context": self.fence_context or "",
+            "backstory": self.backstory or "",
+            "default_mood": self.default_mood or "friendly",
+            "available_moods": moods,
+            "traits": traits,
+            "voice_id": self.voice_id or "default",
+            "source": "real_lead",
+        }
+
+
 class TrainingSession(Base):
     """One voice sales-training practice call.
 

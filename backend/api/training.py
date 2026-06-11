@@ -25,9 +25,9 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from jose import jwt, JWTError
 from pydantic import BaseModel
 
-from database import get_db, TrainingSession
+from database import get_db, TrainingSession, TrainingPersonaBank
 from config import get_settings
-from api.auth import require_staff, get_current_user, SECRET_ALGORITHM
+from api.auth import require_staff, require_admin, get_current_user, SECRET_ALGORITHM
 from services.training_personas import (
     list_curated,
     get_curated,
@@ -38,6 +38,7 @@ from services.training_orchestrator import (
     generate_opening_line,
     respond_to_rep,
 )
+from services.training_persona_seeder import seed_persona_bank
 from services.elevenlabs_client import tts_to_mp3, is_configured as tts_configured
 
 logger = logging.getLogger(__name__)
@@ -51,34 +52,83 @@ class CreateSessionBody(BaseModel):
     mood: Optional[str] = ""
 
 
+class SeedBankBody(BaseModel):
+    count: int = 30
+
+
+def _resolve_persona(persona_id: str, db) -> Optional[tuple[dict, str]]:
+    """Look up a persona by id from either the curated list or the
+    real-lead bank. Returns (persona_dict, source) or None."""
+    curated = get_curated(persona_id)
+    if curated:
+        return (curated, "curated")
+    bank_row = db.query(TrainingPersonaBank).filter(
+        TrainingPersonaBank.id == persona_id,
+        TrainingPersonaBank.active == True,  # noqa: E712
+    ).first()
+    if bank_row:
+        return (bank_row.to_persona_dict(), "real_lead")
+    return None
+
+
 # ---------- REST ----------
 
 @router.get("/training/personas")
 def list_personas(user: dict = Depends(require_staff)):
-    """Curated personas + mood catalog. Phase 3 adds a `real_leads` section."""
+    """Curated personas + real-lead bank + mood catalog."""
+    db = get_db()
+    try:
+        bank_rows = (
+            db.query(TrainingPersonaBank)
+            .filter(TrainingPersonaBank.active == True)  # noqa: E712
+            .order_by(TrainingPersonaBank.created_at.desc())
+            .all()
+        )
+        bank = [r.to_persona_dict() for r in bank_rows]
+    finally:
+        db.close()
     return {
         "curated": list_curated(),
+        "bank": bank,
         "moods": list_moods(),
         "tts_configured": tts_configured(),
     }
 
 
-@router.post("/training/session")
-def create_session(body: CreateSessionBody, user: dict = Depends(require_staff)):
-    persona = get_curated(body.persona_id)
-    if not persona:
-        raise HTTPException(status_code=404, detail="Persona not found")
+@router.post("/training/personas/seed-from-db")
+def seed_bank(body: SeedBankBody, user: dict = Depends(require_admin)):
+    """Wipe + re-seed the real-lead persona bank from a sample of DB leads.
 
-    session_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    Admin only. Uses Claude to invent plausible homeowners consistent with
+    each lead's fence shape; PII is scrubbed at generation time.
+    """
+    if body.count < 1 or body.count > 80:
+        raise HTTPException(status_code=400, detail="count must be 1-80")
     db = get_db()
     try:
+        result = seed_persona_bank(db, target_count=body.count)
+    finally:
+        db.close()
+    return result
+
+
+@router.post("/training/session")
+def create_session(body: CreateSessionBody, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        resolved = _resolve_persona(body.persona_id, db)
+        if not resolved:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        persona, source = resolved
+
+        session_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
         row = TrainingSession(
             id=session_id,
             rep_user_id=user.get("sub", ""),
             rep_display_name=user.get("name", ""),
             persona_id=persona["id"],
-            persona_source="curated",
+            persona_source=source,
             persona_snapshot_json=json.dumps(persona),
             mood=(body.mood or persona.get("default_mood") or ""),
             started_at=now,

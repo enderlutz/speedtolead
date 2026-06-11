@@ -2,9 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Brain, AlertTriangle, History, Loader2 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Brain, AlertTriangle, History, Loader2, Shuffle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, getCurrentUser } from "@/lib/api";
 import PersonaCard, { type Persona } from "@/components/training/PersonaCard";
 import CallSession from "@/components/training/CallSession";
 import CallSummary, { type TrainingSessionRow } from "@/components/training/CallSummary";
@@ -19,6 +20,7 @@ type ActiveSession = {
 
 export default function Training() {
   const [curated, setCurated] = useState<Persona[]>([]);
+  const [bank, setBank] = useState<Persona[]>([]);
   const [moods, setMoods] = useState<TrainingMood[]>([]);
   const [history, setHistory] = useState<TrainingSessionRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,9 @@ export default function Training() {
   const [pendingPersona, setPendingPersona] = useState<Persona | null>(null);
   const [active, setActive] = useState<ActiveSession | null>(null);
   const [summary, setSummary] = useState<TrainingSessionRow | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const user = getCurrentUser();
+  const isAdmin = user?.role === "admin";
 
   const refreshAll = useCallback(async () => {
     try {
@@ -34,6 +39,7 @@ export default function Training() {
         api.listTrainingSessions(),
       ]);
       setCurated(list.curated);
+      setBank(list.bank);
       setMoods(list.moods);
       setTtsConfigured(list.tts_configured);
       setHistory(sessions.items);
@@ -43,6 +49,35 @@ export default function Training() {
       setLoading(false);
     }
   }, []);
+
+  const handleSeed = async () => {
+    if (!confirm("This will wipe the current real-lead persona bank and generate ~30 fresh ones from your DB (~30s + Claude tokens). Continue?")) {
+      return;
+    }
+    setSeeding(true);
+    try {
+      const result = await api.seedTrainingPersonaBank(30);
+      toast.success(`Created ${result.created} personas (skipped ${result.skipped})`);
+      if (result.errors.length > 0) {
+        toast.warning(`${result.errors.length} errors during seed — check logs`);
+      }
+      await refreshAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Seed failed");
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleRandom = () => {
+    const pool = [...curated, ...bank];
+    if (pool.length === 0) {
+      toast.error("No personas available");
+      return;
+    }
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    setPendingPersona(pick);
+  };
 
   useEffect(() => {
     refreshAll();
@@ -127,19 +162,99 @@ export default function Training() {
       )}
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-          Curated personas
-        </h2>
         {loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {curated.map((p) => (
-              <PersonaCard key={p.id} persona={p} onPick={() => handlePick(p)} />
-            ))}
-          </div>
+          <Tabs defaultValue="curated" className="w-full">
+            <div className="flex items-center justify-between mb-4">
+              <TabsList>
+                <TabsTrigger value="curated">
+                  Curated <Badge variant="secondary" className="ml-2 text-[10px]">{curated.length}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="bank">
+                  Real Leads <Badge variant="secondary" className="ml-2 text-[10px]">{bank.length}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="random">
+                  <Shuffle className="h-3 w-3 mr-1.5" />
+                  Random
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="curated">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {curated.map((p) => (
+                  <PersonaCard key={p.id} persona={p} onPick={() => handlePick(p)} />
+                ))}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="bank">
+              <div className="flex items-center justify-between mb-4 px-1">
+                <p className="text-xs text-muted-foreground">
+                  Personas generated from your real (anonymized) leads. Each one is a fictional
+                  homeowner consistent with a real fence shape on file.
+                </p>
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSeed}
+                    disabled={seeding}
+                  >
+                    {seeding ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    {bank.length === 0 ? "Seed from DB" : "Re-roll bank"}
+                  </Button>
+                )}
+              </div>
+              {bank.length === 0 ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                    <p>No real-lead personas yet.</p>
+                    {isAdmin ? (
+                      <p className="mt-1 text-xs">
+                        Click "Seed from DB" to generate ~30 from your live leads.
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs">Ask an admin to seed the bank.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {bank.map((p) => (
+                    <PersonaCard key={p.id} persona={p} onPick={() => handlePick(p)} />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="random">
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Shuffle className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
+                  <h3 className="text-base font-semibold mb-1">Roulette mode</h3>
+                  <p className="text-sm text-muted-foreground mb-5 max-w-md mx-auto">
+                    Get a random persona from the entire pool (curated + real leads). Best
+                    way to keep yourself sharp.
+                  </p>
+                  <Button onClick={handleRandom} size="lg">
+                    <Shuffle className="h-4 w-4 mr-2" />
+                    Spin and call
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Pool: {curated.length + bank.length} personas
+                  </p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         )}
       </section>
 
