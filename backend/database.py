@@ -2083,6 +2083,7 @@ class TrainingSession(Base):
     transcript_json = Column(Text, default="[]")              # [{"role": "...", "content": "...", "ts": "..."}]
     score_json = Column(Text, default="{}")                   # phase 4 coaching rubric
     audio_seconds = Column(Integer, default=0)                # total TTS audio synthesized (for cost tracking)
+    audio_segments_json = Column(Text, default="[]")          # phase 5: [{turn_index, role, url, content_type, ts}]
 
     def to_dict(self) -> dict:
         try:
@@ -2097,6 +2098,10 @@ class TrainingSession(Base):
             persona = json.loads(self.persona_snapshot_json or "{}")
         except Exception:
             persona = {}
+        try:
+            segments = json.loads(self.audio_segments_json or "[]")
+        except Exception:
+            segments = []
         return {
             "id": self.id,
             "rep_user_id": self.rep_user_id or "",
@@ -2111,6 +2116,7 @@ class TrainingSession(Base):
             "transcript": transcript,
             "score": score,
             "audio_seconds": int(self.audio_seconds or 0),
+            "audio_segments": segments,
         }
 
 
@@ -2527,6 +2533,18 @@ def _run_migrations():
                     "ALTER TABLE quickbooks_tokens ADD COLUMN last_webhook_received_at TEXT DEFAULT ''"
                 ))
             logger.info("Migration: added quickbooks_tokens.last_webhook_received_at")
+
+    # Training simulator — audio_segments_json (Phase 5). Per-turn audio
+    # segments uploaded to Supabase Storage; this column holds the URL +
+    # metadata list. Empty default lets older sessions render without audio.
+    if inspector.has_table("training_sessions"):
+        ts_cols = {c["name"] for c in inspector.get_columns("training_sessions")}
+        if "audio_segments_json" not in ts_cols:
+            with _engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE training_sessions ADD COLUMN audio_segments_json TEXT DEFAULT '[]'"
+                ))
+            logger.info("Migration: added training_sessions.audio_segments_json")
 
 
 def get_db() -> Session:

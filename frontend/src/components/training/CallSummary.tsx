@@ -1,9 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, Loader2, ThumbsUp, AlertTriangle, Lightbulb } from "lucide-react";
-import { api } from "@/lib/api";
+import { ChevronLeft, Loader2, ThumbsUp, AlertTriangle, Lightbulb, Play, Pause, Square } from "lucide-react";
+import { api, type TrainingAudioSegment } from "@/lib/api";
 
 export type TranscriptTurn = {
   role: "user" | "assistant";
@@ -43,6 +43,7 @@ export type TrainingSessionRow = {
   duration_seconds: number;
   transcript: TranscriptTurn[];
   score: Score;
+  audio_segments?: TrainingAudioSegment[];
 };
 
 const DIMENSION_LABELS: { key: string; label: string }[] = [
@@ -76,6 +77,110 @@ export default function CallSummary({
 }) {
   const [session, setSession] = useState<TrainingSessionRow>(initialSession);
   const pollRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingTurn, setPlayingTurn] = useState<number | null>(null);
+  const [playAllActive, setPlayAllActive] = useState(false);
+  const playAllQueueRef = useRef<TrainingAudioSegment[]>([]);
+
+  const segmentByTurn = useMemo(() => {
+    const map = new Map<number, TrainingAudioSegment>();
+    for (const seg of session.audio_segments || []) {
+      map.set(seg.turn_index, seg);
+    }
+    return map;
+  }, [session.audio_segments]);
+
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+      } catch {
+        // ignore
+      }
+      audioRef.current = null;
+    }
+    setPlayingTurn(null);
+    setPlayAllActive(false);
+    playAllQueueRef.current = [];
+  }, []);
+
+  const playSegment = useCallback(
+    (seg: TrainingAudioSegment, onEnded?: () => void) => {
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch {
+          // ignore
+        }
+      }
+      const audio = new Audio(seg.url);
+      audioRef.current = audio;
+      setPlayingTurn(seg.turn_index);
+      audio.addEventListener("ended", () => {
+        setPlayingTurn((cur) => (cur === seg.turn_index ? null : cur));
+        if (onEnded) onEnded();
+      });
+      audio.addEventListener("error", () => {
+        setPlayingTurn((cur) => (cur === seg.turn_index ? null : cur));
+        if (onEnded) onEnded();
+      });
+      audio.play().catch(() => {
+        setPlayingTurn(null);
+        if (onEnded) onEnded();
+      });
+    },
+    [],
+  );
+
+  const playOne = useCallback(
+    (turnIndex: number) => {
+      const seg = segmentByTurn.get(turnIndex);
+      if (!seg) return;
+      if (playingTurn === turnIndex) {
+        stopAudio();
+        return;
+      }
+      setPlayAllActive(false);
+      playAllQueueRef.current = [];
+      playSegment(seg);
+    },
+    [segmentByTurn, playingTurn, stopAudio, playSegment],
+  );
+
+  const playAll = useCallback(() => {
+    const sorted = [...(session.audio_segments || [])].sort(
+      (a, b) => a.turn_index - b.turn_index,
+    );
+    if (sorted.length === 0) return;
+    if (playAllActive) {
+      stopAudio();
+      return;
+    }
+    playAllQueueRef.current = sorted;
+    setPlayAllActive(true);
+    const playNext = () => {
+      const next = playAllQueueRef.current.shift();
+      if (!next) {
+        setPlayAllActive(false);
+        setPlayingTurn(null);
+        return;
+      }
+      playSegment(next, playNext);
+    };
+    playNext();
+  }, [session.audio_segments, playAllActive, stopAudio, playSegment]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   // Poll while score is pending. Backend background task usually finishes
   // in 3-6s; cap at 30s of polling so a stuck job doesn't loop forever.
@@ -266,34 +371,82 @@ export default function CallSummary({
 
           {/* Transcript */}
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-              Transcript
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Transcript
+              </p>
+              {(session.audio_segments || []).length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={playAll}
+                  className="h-8 text-xs"
+                >
+                  {playAllActive ? (
+                    <>
+                      <Square className="h-3 w-3 mr-1.5 fill-current" />
+                      Stop
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-3 w-3 mr-1.5 fill-current" />
+                      Play full call
+                    </>
+                  )}
+                  <Badge variant="secondary" className="ml-2 text-[10px] font-normal">
+                    {(session.audio_segments || []).length} clips
+                  </Badge>
+                </Button>
+              )}
+            </div>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto rounded-lg border bg-muted/20 p-3">
               {session.transcript.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   No conversation recorded.
                 </p>
               )}
-              {session.transcript.map((turn, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
-                >
+              {session.transcript.map((turn, idx) => {
+                const seg = segmentByTurn.get(idx);
+                const isThisPlaying = playingTurn === idx;
+                return (
                   <div
-                    className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                      turn.role === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-card border text-foreground"
-                    }`}
+                    key={idx}
+                    className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
                   >
-                    <p className="text-[10px] uppercase tracking-wide opacity-60 mb-0.5">
-                      #{idx} · {turn.role === "user" ? repName : personaName}
-                    </p>
-                    <p className="whitespace-pre-wrap">{turn.content}</p>
+                    <div
+                      className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
+                        turn.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-card border text-foreground"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <p className="text-[10px] uppercase tracking-wide opacity-60">
+                          #{idx} · {turn.role === "user" ? repName : personaName}
+                        </p>
+                        {seg && (
+                          <button
+                            onClick={() => playOne(idx)}
+                            className={`p-1 rounded-full transition-colors ${
+                              turn.role === "user"
+                                ? "hover:bg-primary-foreground/20"
+                                : "hover:bg-muted"
+                            } ${isThisPlaying ? "animate-pulse" : ""}`}
+                            aria-label={isThisPlaying ? "Stop" : "Play this turn"}
+                          >
+                            {isThisPlaying ? (
+                              <Pause className="h-3 w-3 fill-current" />
+                            ) : (
+                              <Play className="h-3 w-3 fill-current" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <p className="whitespace-pre-wrap">{turn.content}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </CardContent>

@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
     # Bucket name for proposal page JPEGs. Must exist + be public.
     supabase_proposal_pages_bucket: str = "proposal-pages"
+    # Bucket name for voice training simulator audio segments. Must
+    # exist + be public. Each practice call uploads one segment per
+    # rep utterance + one per persona reply. Tiny files (~50-300KB)
+    # so storage cost is negligible — ~$0.001 per call.
+    supabase_training_audio_bucket: str = "training-audio"
 
     # Server
     port: int = 8000

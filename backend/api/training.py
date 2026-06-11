@@ -41,6 +41,7 @@ from services.training_orchestrator import (
 )
 from services.training_persona_seeder import seed_persona_bank
 from services.elevenlabs_client import tts_to_mp3, is_configured as tts_configured
+from services.training_audio_store import save_segment as save_audio_segment
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -355,18 +356,25 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
             history: list[dict] = json.loads(row.transcript_json or "[]")
         except Exception:
             history = []
+        try:
+            segments: list[dict] = json.loads(row.audio_segments_json or "[]")
+        except Exception:
+            segments = []
     finally:
         db.close()
 
     await websocket.accept()
 
-    # Persist transcript helper (called on every turn + on disconnect)
-    def _save_transcript(updated: list[dict]):
+    # Persist transcript + audio segment list together (one row write per
+    # turn keeps the call resilient — a mid-call crash never loses more
+    # than one exchange + its audio links).
+    def _save_state(updated_history: list[dict], updated_segments: list[dict]):
         db2 = get_db()
         try:
             r = db2.query(TrainingSession).filter(TrainingSession.id == session_id).first()
             if r:
-                r.transcript_json = json.dumps(updated)
+                r.transcript_json = json.dumps(updated_history)
+                r.audio_segments_json = json.dumps(updated_segments)
                 db2.commit()
         finally:
             db2.close()
@@ -389,12 +397,19 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
             audio = await asyncio.to_thread(tts_to_mp3, opening, (persona.get("voice_id") or "default"))
             if audio:
                 await websocket.send_bytes(audio)
+                # Upload greeting audio (turn 0) to Supabase Storage
+                greeting_idx = len(history)  # 0 on fresh session
+                seg = await asyncio.to_thread(
+                    save_audio_segment, session_id, greeting_idx, audio, "persona", "audio/mpeg"
+                )
+                if seg:
+                    segments.append(seg)
             history.append({
                 "role": "assistant",
                 "content": opening,
                 "ts": datetime.now(timezone.utc).isoformat(),
             })
-            await asyncio.to_thread(_save_transcript, history)
+            await asyncio.to_thread(_save_state, history, segments)
             await websocket.send_json({"type": "status", "state": "idle"})
         except Exception as e:
             logger.error(f"Training WS greeting failed: {e}")
@@ -425,6 +440,7 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
                     continue
 
                 ts_rep = datetime.now(timezone.utc).isoformat()
+                rep_turn_index = len(history)
                 await websocket.send_json({
                     "type": "transcript",
                     "speaker": "rep",
@@ -432,12 +448,20 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
                     "ts": ts_rep,
                 })
 
+                # Upload rep audio for this turn
+                rep_seg = await asyncio.to_thread(
+                    save_audio_segment, session_id, rep_turn_index, rep_audio, "rep", "audio/webm"
+                )
+                if rep_seg:
+                    segments.append(rep_seg)
+
                 await websocket.send_json({"type": "status", "state": "thinking"})
                 persona_text = await asyncio.to_thread(
                     respond_to_rep, persona, history, rep_text, mood
                 )
 
                 ts_persona = datetime.now(timezone.utc).isoformat()
+                persona_turn_index = rep_turn_index + 1
                 await websocket.send_json({
                     "type": "transcript",
                     "speaker": "persona",
@@ -451,12 +475,17 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
                 )
                 if audio:
                     await websocket.send_bytes(audio)
+                    persona_seg = await asyncio.to_thread(
+                        save_audio_segment, session_id, persona_turn_index, audio, "persona", "audio/mpeg"
+                    )
+                    if persona_seg:
+                        segments.append(persona_seg)
 
-                # Update transcript + persist after every full turn so a
-                # mid-session crash never loses more than one exchange.
+                # Update transcript + segments + persist after every full turn
+                # so a mid-session crash never loses more than one exchange.
                 history.append({"role": "user", "content": rep_text, "ts": ts_rep})
                 history.append({"role": "assistant", "content": persona_text, "ts": ts_persona})
-                await asyncio.to_thread(_save_transcript, history)
+                await asyncio.to_thread(_save_state, history, segments)
 
                 await websocket.send_json({"type": "status", "state": "idle"})
                 continue

@@ -1619,6 +1619,14 @@ export interface TrainingTranscriptTurn {
   ts?: string;
 }
 
+export interface TrainingAudioSegment {
+  turn_index: number;
+  role: "rep" | "persona";
+  url: string;
+  content_type: string;
+  bytes?: number;
+}
+
 export interface TrainingSessionRecord {
   id: string;
   rep_user_id: string;
@@ -1633,6 +1641,7 @@ export interface TrainingSessionRecord {
   transcript: TrainingTranscriptTurn[];
   score: Record<string, unknown>;
   audio_seconds: number;
+  audio_segments: TrainingAudioSegment[];
 }
 
 // --- Internal dashboard types ---
