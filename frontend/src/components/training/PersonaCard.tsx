@@ -10,6 +10,7 @@ export type Persona = {
   location: string;
   fence_context: string;
   default_mood: string;
+  available_moods: string[];
   traits: string[];
   source: string;
 };
