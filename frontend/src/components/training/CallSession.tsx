@@ -1,4 +1,16 @@
-import { useEffect, useRef } from "react";
+// Fullscreen "phone call" expanded view of the active practice call.
+// Matches the GHL outbound-call aesthetic the user pointed at:
+//   - thin top bar (back / mood / info)
+//   - big persona name + headline + status text
+//   - large circular avatar in the middle (pulses while persona speaks)
+//   - floating transcript bubble on the left edge
+//   - bottom sheet with call info + push-to-talk + end call
+//
+// Consumes the global TrainingMode context — no props, no internal WS
+// or mic state. The persistent CallBar mounts the call across nav; this
+// is the "tap to expand" detail view.
+
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -6,17 +18,13 @@ import {
   MicOff,
   PhoneOff,
   Loader2,
-  MessageCircle,
-  Minimize2,
+  MessageSquare,
+  ChevronLeft,
+  Info,
+  X,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 
-/**
- * Fullscreen expanded view of the active practice call. Consumes the
- * global TrainingMode context — no props, no internal WS/mic state.
- * The persistent CallBar mounts the call across navigation; this is
- * just the "tap to expand" detail view of it.
- */
 export default function CallSession() {
   const {
     activeCall,
@@ -31,14 +39,20 @@ export default function CallSession() {
     endCall,
   } = useTrainingMode();
 
-  const transcriptRef = useRef<HTMLDivElement>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const lastReadCountRef = useRef(0);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll the transcript to the bottom when it opens and as new
+  // messages arrive while it's open. Reset the unread counter on open.
   useEffect(() => {
-    transcriptRef.current?.scrollTo({
-      top: transcriptRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [transcript]);
+    if (transcriptOpen) {
+      lastReadCountRef.current = transcript.length;
+      const el = transcriptScrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [transcript, transcriptOpen]);
 
   if (!activeCall || !expanded) return null;
 
@@ -46,132 +60,146 @@ export default function CallSession() {
   const mood = activeCall.mood;
   const ttsConfigured = activeCall.ttsConfigured;
 
-  const statusLabel = (() => {
-    if (error) return "Error";
+  const initials = persona.name
+    .split(" ")
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const unreadCount = transcriptOpen
+    ? 0
+    : Math.max(0, transcript.length - lastReadCountRef.current);
+
+  const status = (() => {
+    if (error) return { label: "Error", tone: "text-rose-600" };
     switch (callStatus) {
       case "connecting":
-        return "Connecting…";
+        return { label: "Ringing...", tone: "text-slate-500" };
       case "thinking":
-        return `${persona.name} is thinking…`;
+        return { label: "Thinking...", tone: "text-amber-600" };
       case "transcribing":
-        return "Transcribing…";
+        return { label: "Heard you, working on it...", tone: "text-amber-600" };
       case "speaking":
-        return `${persona.name} is speaking`;
+        return { label: "Speaking", tone: "text-purple-600" };
       case "idle":
-        return recording ? "Listening…" : "Your turn";
+        return recording
+          ? { label: "Listening to you...", tone: "text-rose-600" }
+          : { label: "Your turn", tone: "text-emerald-600" };
       case "closed":
-        return "Call ended";
+        return { label: "Call ended", tone: "text-slate-500" };
       default:
-        return "";
+        return { label: "", tone: "text-slate-500" };
     }
   })();
 
-  const statusColor = (() => {
-    if (error) return "bg-red-500/10 text-red-600 border-red-500/30";
-    if (callStatus === "speaking") return "bg-purple-500/10 text-purple-600 border-purple-500/30";
-    if (callStatus === "thinking" || callStatus === "transcribing")
-      return "bg-amber-500/10 text-amber-600 border-amber-500/30";
-    if (recording) return "bg-rose-500/10 text-rose-600 border-rose-500/30 animate-pulse";
-    return "bg-emerald-500/10 text-emerald-600 border-emerald-500/30";
-  })();
+  const avatarPulse = callStatus === "speaking" || recording;
+  const ptDisabled =
+    callStatus === "closed" || callStatus === "connecting" || callStatus === "speaking";
 
   return (
-    <div className="fixed inset-0 z-[58] bg-background flex flex-col">
-      {/* Header */}
-      <div className="border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 flex items-center justify-center text-xs font-bold text-primary">
-            {persona.name
-              .split(" ")
-              .map((p) => p[0])
-              .join("")
-              .toUpperCase()}
-          </div>
-          <div>
-            <p className="text-sm font-semibold leading-tight">{persona.name}</p>
-            <p className="text-xs text-muted-foreground">{persona.headline}</p>
-          </div>
-        </div>
+    <div className="fixed inset-0 z-[58] bg-gradient-to-b from-slate-50 via-white to-white flex flex-col overflow-hidden">
+      {/* ── Top bar ──────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={collapse}
+          className="h-10 w-10 rounded-full"
+          aria-label="Minimize"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
         <div className="flex items-center gap-2">
           {mood && (
-            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide font-semibold">
               {mood}
             </Badge>
           )}
-          <Badge variant="outline" className={`text-xs ${statusColor}`}>
-            {(callStatus === "thinking" || callStatus === "transcribing") && (
-              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-            )}
-            {statusLabel}
-          </Badge>
-          <Button variant="ghost" size="sm" onClick={collapse} title="Minimize">
-            <Minimize2 className="h-4 w-4" />
-          </Button>
-          <Button variant="destructive" size="sm" onClick={endCall}>
-            <PhoneOff className="h-4 w-4 mr-1" />
-            End Call
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setInfoOpen(true)}
+            className="h-10 w-10 rounded-full"
+            aria-label="Persona info"
+          >
+            <Info className="h-5 w-5" />
           </Button>
         </div>
       </div>
 
-      {/* Persona context strip */}
-      <div className="border-b bg-muted/30 px-6 py-2 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">Their fence:</span> {persona.fence_context}
+      {/* ── Persona name + status ─────────────────────────────────── */}
+      <div className="text-center mt-4 px-6 shrink-0">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          {persona.name}
+        </h1>
+        <p className="text-sm text-slate-500 mt-1.5">{persona.headline}</p>
+        <p className={`text-base mt-5 font-medium flex items-center justify-center gap-1.5 ${status.tone}`}>
+          {(callStatus === "thinking" || callStatus === "transcribing") && (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          )}
+          {status.label}
+        </p>
       </div>
 
-      {!ttsConfigured && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-6 py-2 text-xs text-amber-700">
-          ElevenLabs API key not configured — running in text-only mode. Audio will activate
-          once the key is set.
+      {/* ── Big avatar ────────────────────────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center px-6 py-8 min-h-0">
+        <div className="relative">
+          {avatarPulse && (
+            <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+          )}
+          <div
+            className={`relative h-44 w-44 sm:h-52 sm:w-52 rounded-full bg-gradient-to-br from-primary/15 to-primary/5 border-4 border-white shadow-2xl flex items-center justify-center text-5xl sm:text-6xl font-bold text-primary transition-transform ${
+              avatarPulse ? "scale-105" : ""
+            }`}
+          >
+            {initials}
+          </div>
         </div>
-      )}
+      </div>
 
+      {/* ── Floating transcript bubble ────────────────────────────── */}
+      <button
+        onClick={() => setTranscriptOpen(true)}
+        className="fixed left-4 top-1/2 -translate-y-1/2 h-14 w-14 rounded-full bg-white/95 backdrop-blur shadow-lg border border-slate-200 flex items-center justify-center hover:bg-white hover:scale-105 transition-all"
+        aria-label="Open transcript"
+      >
+        <MessageSquare className="h-5 w-5 text-slate-600" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 h-5 min-w-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+            {unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* ── Optional warnings ─────────────────────────────────────── */}
       {error && (
-        <div className="bg-red-500/10 border-b border-red-500/30 px-6 py-2 text-xs text-red-600">
+        <div className="mx-6 mb-3 rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 shrink-0">
           {error}
         </div>
       )}
+      {!ttsConfigured && !error && (
+        <div className="mx-6 mb-3 rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-700 shrink-0">
+          Voice off — text-only mode (set <code className="font-mono text-[11px]">ELEVENLABS_API_KEY</code> to enable)
+        </div>
+      )}
 
-      {/* Transcript */}
-      <div ref={transcriptRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-        {transcript.length === 0 && callStatus === "connecting" && (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            <p className="text-sm">Setting up the call…</p>
-          </div>
-        )}
-        {transcript.length === 0 && callStatus !== "connecting" && (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2 max-w-md mx-auto text-center">
-            <MessageCircle className="h-8 w-8 opacity-50" />
-            <p className="text-sm">
-              Hold the mic button and introduce yourself. {persona.name.split(" ")[0]} will respond.
-            </p>
-          </div>
-        )}
-        {transcript.map((e, idx) => (
-          <div
-            key={idx}
-            className={`flex ${e.speaker === "rep" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                e.speaker === "rep"
-                  ? "bg-primary text-primary-foreground rounded-br-sm"
-                  : "bg-muted text-foreground rounded-bl-sm"
-              }`}
-            >
-              <p className="text-[10px] uppercase tracking-wide opacity-60 mb-0.5">
-                {e.speaker === "rep" ? "You" : persona.name}
-              </p>
-              <p>{e.text}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* ── Bottom sheet ──────────────────────────────────────────── */}
+      <div className="bg-white border-t shadow-[0_-8px_32px_rgba(0,0,0,0.08)] rounded-t-3xl px-6 pt-3 pb-8 shrink-0 safe-bottom">
+        {/* drag handle indicator (decorative) */}
+        <div className="h-1.5 w-12 bg-slate-200 rounded-full mx-auto mb-4" />
 
-      {/* Mic control */}
-      <div className="border-t bg-card px-6 py-5">
-        <div className="flex items-center justify-center">
+        <div className="text-center mb-5">
+          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">
+            Practice Call
+          </p>
+          <p className="text-xs text-slate-600 mt-1 line-clamp-1">
+            {persona.fence_context}
+          </p>
+        </div>
+
+        <div className="flex items-end justify-center gap-6">
+          {/* Push-to-talk — the main interaction */}
           <button
             onMouseDown={pressTalk}
             onMouseUp={releaseTalk}
@@ -184,27 +212,163 @@ export default function CallSession() {
               ev.preventDefault();
               releaseTalk();
             }}
-            disabled={
-              callStatus === "closed" ||
-              callStatus === "connecting" ||
-              callStatus === "speaking"
-            }
-            className={`flex flex-col items-center justify-center gap-2 h-24 w-24 rounded-full transition-all select-none ${
+            disabled={ptDisabled}
+            className={`flex flex-col items-center justify-center gap-1 h-24 w-24 rounded-full transition-all select-none ${
               recording
                 ? "bg-rose-500 text-white scale-110 shadow-2xl shadow-rose-500/40"
-                : callStatus === "closed" ||
-                  callStatus === "connecting" ||
-                  callStatus === "speaking"
-                ? "bg-muted text-muted-foreground cursor-not-allowed"
-                : "bg-primary text-primary-foreground hover:scale-105 shadow-lg shadow-primary/30"
+                : ptDisabled
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                : "bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:scale-105"
             }`}
+            aria-label={recording ? "Release to send" : "Hold to talk"}
           >
-            {recording ? <Mic className="h-8 w-8" /> : <MicOff className="h-8 w-8" />}
+            {recording ? <Mic className="h-7 w-7" /> : <MicOff className="h-7 w-7" />}
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              {recording ? "Release" : "Talk"}
+            </span>
+          </button>
+
+          {/* End call */}
+          <button
+            onClick={endCall}
+            className="flex flex-col items-center justify-center gap-1 h-16 w-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/30 hover:bg-rose-600 transition-colors"
+            aria-label="End call"
+          >
+            <PhoneOff className="h-6 w-6" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">End</span>
           </button>
         </div>
-        <p className="text-center text-xs text-muted-foreground mt-3">
-          {recording ? "Release to send" : "Hold to talk"}
+
+        <p className="text-center text-xs text-slate-400 mt-4">
+          {recording
+            ? "Release to send your message"
+            : ptDisabled
+            ? callStatus === "speaking"
+              ? `Wait for ${persona.name.split(" ")[0]} to finish...`
+              : callStatus === "connecting"
+              ? "Connecting..."
+              : "Call ended"
+            : `Hold to talk to ${persona.name.split(" ")[0]}`}
         </p>
+      </div>
+
+      {/* ── Transcript modal ──────────────────────────────────────── */}
+      {transcriptOpen && (
+        <SlideUpSheet onClose={() => setTranscriptOpen(false)} title="Transcript">
+          <div ref={transcriptScrollRef} className="px-5 py-4 space-y-3 overflow-y-auto flex-1">
+            {transcript.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-8">
+                No messages yet — hold the mic to start talking.
+              </p>
+            ) : (
+              transcript.map((e, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${e.speaker === "rep" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
+                      e.speaker === "rep"
+                        ? "bg-primary text-primary-foreground rounded-br-sm"
+                        : "bg-slate-100 text-slate-800 rounded-bl-sm"
+                    }`}
+                  >
+                    <p className="text-[10px] uppercase tracking-wide opacity-60 mb-0.5">
+                      {e.speaker === "rep" ? "You" : persona.name}
+                    </p>
+                    <p>{e.text}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </SlideUpSheet>
+      )}
+
+      {/* ── Persona info modal ────────────────────────────────────── */}
+      {infoOpen && (
+        <SlideUpSheet onClose={() => setInfoOpen(false)} title={persona.name}>
+          <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
+            <p className="text-sm text-slate-600 italic">{persona.headline}</p>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1.5">
+                Background
+              </p>
+              <p className="text-sm text-slate-700">
+                {persona.age} years old, lives in {persona.location}.
+              </p>
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1.5">
+                Their fence
+              </p>
+              <p className="text-sm text-slate-700">{persona.fence_context}</p>
+            </div>
+
+            {persona.traits?.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1.5">
+                  Traits
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {persona.traits.map((t) => (
+                    <Badge key={t} variant="secondary" className="text-xs font-normal">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {mood && (
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1.5">
+                  Current mood
+                </p>
+                <Badge className="text-sm bg-rose-500/10 text-rose-700 border-rose-500/30 uppercase">
+                  {mood}
+                </Badge>
+              </div>
+            )}
+          </div>
+        </SlideUpSheet>
+      )}
+    </div>
+  );
+}
+
+// Shared slide-up sheet pattern — used for both Transcript and Persona Info.
+// Click outside to dismiss; the sheet itself stops click propagation.
+function SlideUpSheet({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/50 flex items-end animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full rounded-t-3xl max-h-[80vh] flex flex-col animate-in slide-in-from-bottom"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 pt-3 pb-3 border-b shrink-0">
+          <div className="h-1.5 w-12 bg-slate-200 rounded-full mx-auto mb-3" />
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">{title}</h2>
+            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        {children}
       </div>
     </div>
   );
