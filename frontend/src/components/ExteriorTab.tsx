@@ -646,7 +646,7 @@ function EstimateCard({
                   {estimate.windows_count ?? 0} windows · {estimate.doors_count ?? 0} doors
                 </p>
               </div>
-              {estimate.satellite_url && (
+              {estimate.satellite_url ? (
                 <a
                   href={estimate.satellite_url}
                   target="_blank"
@@ -659,6 +659,18 @@ function EstimateCard({
                     className="w-full h-full object-cover"
                   />
                 </a>
+              ) : (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[11px] font-semibold text-amber-700">
+                      No satellite view
+                    </p>
+                    <p className="text-[10px] text-amber-700 leading-snug mt-0.5">
+                      Couldn't geocode this address. Footprint estimated from photos alone — verify before quoting.
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
 

@@ -1768,6 +1768,10 @@ export interface ExteriorEstimate {
    *  confidence floor (1-2 photos = forced "low" regardless of what
    *  Claude self-reported). */
   photo_count?: number;
+  /** False when the lead's address couldn't be geocoded and the
+   *  estimator ran in photos-only mode (no Google Satellite tile).
+   *  Used to widen the confidence band + warn the VA in the UI. */
+  had_satellite?: boolean;
   vision_notes?: string;
   satellite_url?: string;
   va_overrides?: ExteriorOverrides;

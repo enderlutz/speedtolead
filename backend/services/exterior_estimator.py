@@ -86,23 +86,33 @@ def run_estimate(lead: Lead, db) -> dict:
             "No photos uploaded yet. Ask the customer to send at least one."
         )
 
+    # Satellite tile is HELPFUL (gives Claude a top-down view to estimate
+    # building footprint perimeter) but not strictly required. If we can't
+    # geocode the address — common for new construction, garbled inputs,
+    # or PO-box-only properties — fall back to a photo-only estimate. The
+    # confidence band tightens around what's actually visible.
     coords = _resolve_coords(lead, db)
-    if not coords:
-        return _skipped("Couldn't geocode the lead's address")
-    lat, lng = coords
-
-    satellite_url = (
-        "https://maps.googleapis.com/maps/api/staticmap"
-        f"?center={lat},{lng}&zoom={SATELLITE_ZOOM}&size={SATELLITE_SIZE}"
-        f"&maptype=satellite&key={settings.google_maps_api_key}"
-    )
-
-    try:
-        satellite_bytes = _fetch_bytes(satellite_url)
-    except Exception as e:
-        return _skipped(f"Couldn't fetch satellite image: {e}")
-    if not satellite_bytes:
-        return _skipped("Empty satellite image from Google")
+    satellite_url: Optional[str] = None
+    satellite_bytes: bytes = b""
+    if coords:
+        lat, lng = coords
+        satellite_url = (
+            "https://maps.googleapis.com/maps/api/staticmap"
+            f"?center={lat},{lng}&zoom={SATELLITE_ZOOM}&size={SATELLITE_SIZE}"
+            f"&maptype=satellite&key={settings.google_maps_api_key}"
+        )
+        try:
+            satellite_bytes = _fetch_bytes(satellite_url)
+        except Exception as e:
+            logger.warning(
+                f"Satellite fetch failed for lead {lead.id}, proceeding photos-only: {e}"
+            )
+            satellite_url = None
+            satellite_bytes = b""
+    else:
+        logger.info(
+            f"Couldn't geocode {lead.address!r} for lead {lead.id} — running photos-only"
+        )
 
     customer_photo_bytes: list[tuple[str, bytes]] = []
     for p in photos[:12]:  # cap photo count per call to keep token cost sane
@@ -131,6 +141,7 @@ def run_estimate(lead: Lead, db) -> dict:
         vision_result,
         satellite_url=satellite_url,
         photo_count=len(customer_photo_bytes),
+        had_satellite=bool(satellite_bytes),
     )
 
 
@@ -177,15 +188,18 @@ def _call_claude_vision(
     address: str,
     zoom_level: int,
 ) -> dict:
-    """Send the satellite + customer photos in one multimodal turn.
+    """Send the satellite (when available) + customer photos in one
+    multimodal turn. Returns the validated JSON dict Claude produced.
 
-    Returns the validated JSON dict Claude produced.
+    When satellite_bytes is empty we run photos-only — Claude has to
+    estimate the building footprint perimeter from the side photos
+    alone (rougher, but it works).
     """
     settings = get_settings()
     import anthropic
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    sat_b64 = base64.standard_b64encode(satellite_bytes).decode("ascii")
+    has_satellite = bool(satellite_bytes)
     # Google Static Maps at zoom 20 is ~0.075 m/px at the equator. Slightly
     # different at higher latitudes (TX is ~30°N → ~0.064 m/px). Tell
     # Claude this so it can scale its perimeter estimate.
@@ -197,9 +211,9 @@ def _call_claude_vision(
         sparsity_hint = (
             f"\n\nIMPORTANT: only {photo_n} customer photo{'s' if photo_n != 1 else ''} "
             "available. You may be missing entire sides of the house. Make your best "
-            "estimate from the satellite + what you can see, but mark "
-            "overall_confidence as 'low' — and note in the 'notes' field exactly which "
-            "sides you could NOT see so the VA knows what's a guess."
+            "estimate from what you can see, but mark overall_confidence as 'low' — "
+            "and note in the 'notes' field exactly which sides you could NOT see so "
+            "the VA knows what's a guess."
         )
     elif photo_n <= 4:
         sparsity_hint = (
@@ -207,15 +221,29 @@ def _call_claude_vision(
             "overall_confidence as 'medium' at best and call out gaps in the notes."
         )
 
+    if has_satellite:
+        intro = (
+            f"You're estimating the exterior wall sqft of a home at {address}. "
+            "Below: one Google satellite tile of the property, followed by photos "
+            "the customer took. Use the satellite to estimate building footprint "
+            "perimeter; use the photos to estimate stories + wall height + window/door count. "
+            f"\n\n{scale_hint}"
+        )
+    else:
+        intro = (
+            f"You're estimating the exterior wall sqft of a home at {address}. "
+            "No satellite tile is available for this property (geocoding failed). "
+            "Work from the customer photos ALONE: estimate footprint perimeter by "
+            "looking at corner-to-corner spans in wide shots and inferring the rough "
+            "rectangle of the home. Be conservative — mark overall_confidence 'low' "
+            "in your notes since you can't independently verify the footprint."
+        )
+
     content_blocks: list = [
         {
             "type": "text",
             "text": (
-                f"You're estimating the exterior wall sqft of a home at {address}. "
-                "Below: one Google satellite tile of the property, followed by photos "
-                "the customer took. Use the satellite to estimate building footprint "
-                "perimeter; use the photos to estimate stories + wall height + window/door count. "
-                f"\n\n{scale_hint}\n\n"
+                f"{intro}\n\n"
                 "Reference: a standard front door is 80 inches (~6.7 ft) tall. Use any "
                 "visible door or door-sized object as your height reference. A typical "
                 "story (floor-to-ceiling + structure) is ~9-10 ft."
@@ -236,19 +264,17 @@ def _call_claude_vision(
                 "}"
             ),
         },
-        {
-            "type": "text",
-            "text": "=== Satellite tile (top-down view) ===",
-        },
-        {
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": sat_b64},
-        },
-        {
-            "type": "text",
-            "text": "=== Customer photos (side views) ===",
-        },
     ]
+    if has_satellite:
+        sat_b64 = base64.standard_b64encode(satellite_bytes).decode("ascii")
+        content_blocks.extend([
+            {"type": "text", "text": "=== Satellite tile (top-down view) ==="},
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": sat_b64},
+            },
+        ])
+    content_blocks.append({"type": "text", "text": "=== Customer photos (side views) ==="})
     for idx, (ct, raw) in enumerate(customer_photos):
         media_type = "image/jpeg"
         if "png" in ct:
@@ -295,7 +321,12 @@ def _safe_json_loads(text: str) -> dict:
             return {}
 
 
-def _finalize(vision: dict, satellite_url: str, photo_count: int = 0) -> dict:
+def _finalize(
+    vision: dict,
+    satellite_url: Optional[str],
+    photo_count: int = 0,
+    had_satellite: bool = True,
+) -> dict:
     if not vision:
         return _skipped("Claude returned malformed JSON")
 
@@ -331,6 +362,12 @@ def _finalize(vision: dict, satellite_url: str, photo_count: int = 0) -> dict:
     if overall not in ("high", "medium", "low"):
         overall = "medium"
     overall, band = _photo_count_confidence_band(overall, photo_count)
+    # No satellite = no independent footprint check. Widen the band an
+    # extra 5pp and cap confidence at 'medium' to surface that gap.
+    if not had_satellite:
+        band = min(0.45, band + 0.05)
+        if overall == "high":
+            overall = "medium"
 
     sqft_min = int(round(paintable * (1 - band)))
     sqft_max = int(round(paintable * (1 + band)))
@@ -350,8 +387,9 @@ def _finalize(vision: dict, satellite_url: str, photo_count: int = 0) -> dict:
         "sqft_max": sqft_max,
         "confidence": overall,
         "photo_count": photo_count,
+        "had_satellite": had_satellite,
         "vision_notes": (vision.get("notes") or "")[:1000],
-        "satellite_url": satellite_url,
+        "satellite_url": satellite_url or "",
         "va_overrides": {},
         "applied_sqft": paintable,
     }
