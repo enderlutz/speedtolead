@@ -13,8 +13,10 @@ import {
   TrendingUp,
   GraduationCap,
   Power,
+  Dices,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 import { api, getCurrentUser } from "@/lib/api";
 import PersonaCard, { type Persona } from "@/components/training/PersonaCard";
 import { type TrainingSessionRow } from "@/components/training/CallSummary";
@@ -24,6 +26,7 @@ import type { TrainingMood } from "@/lib/api";
 import { useTrainingMode } from "@/lib/training_mode_context";
 
 export default function Training() {
+  const navigate = useNavigate();
   const {
     trainingModeOn,
     enableTrainingMode,
@@ -31,6 +34,7 @@ export default function Training() {
     activeCall,
     startCall,
   } = useTrainingMode();
+  const [pickingRandom, setPickingRandom] = useState(false);
 
   const [curated, setCurated] = useState<Persona[]>([]);
   const [bank, setBank] = useState<Persona[]>([]);
@@ -138,6 +142,26 @@ export default function Training() {
     setPendingPersona(pick);
   };
 
+  const handleRandomLead = async () => {
+    if (!trainingModeOn) {
+      toast.error("Turn on Training Mode first");
+      return;
+    }
+    if (activeCall) {
+      toast.error("End the current practice call before starting a new one");
+      return;
+    }
+    setPickingRandom(true);
+    try {
+      const r = await api.getRandomTrainingLead();
+      navigate(`/leads/${r.lead_id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't find a lead");
+    } finally {
+      setPickingRandom(false);
+    }
+  };
+
   if (reviewing) {
     return <CallSummary session={reviewing} onClose={() => setReviewing(null)} />;
   }
@@ -196,6 +220,38 @@ export default function Training() {
           >
             <Power className="h-4 w-4 mr-2" />
             {trainingModeOn ? "Exit Training Mode" : "Enter Training Mode"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Mode 1 — Real Lead Simulation */}
+      <Card>
+        <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Dices className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold leading-tight">Real Lead Simulation</p>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+                Practice on a real lead from your CRM. The persona knows their name, address,
+                and fence on file — but you have to discover which sides they want done, how
+                urgent it is, their mood, and whether they've got other quotes. Browse to any
+                lead and tap "Practice call".
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleRandomLead}
+            disabled={!trainingModeOn || pickingRandom || !!activeCall}
+            size="lg"
+          >
+            {pickingRandom ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Dices className="h-4 w-4 mr-2" />
+            )}
+            Call a random lead
           </Button>
         </CardContent>
       </Card>

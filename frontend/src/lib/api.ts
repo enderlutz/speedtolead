@@ -1634,6 +1634,14 @@ export const api = {
       `/api/training/session`,
       { method: "POST", body: JSON.stringify({ persona_id, mood: mood || "" }) },
     ),
+  // Real-lead simulator — builds a fresh persona from a specific real lead
+  createTrainingSessionFromLead: (lead_id: string, mood?: string) =>
+    request<{ id: string; ws_path: string; persona: TrainingPersona; tts_configured: boolean }>(
+      `/api/training/session/from-lead`,
+      { method: "POST", body: JSON.stringify({ lead_id, mood: mood || "" }) },
+    ),
+  getRandomTrainingLead: () =>
+    request<{ lead_id: string; name: string; address: string }>(`/api/training/random-lead`),
   endTrainingSession: (id: string) =>
     request<TrainingSessionRecord>(`/api/training/session/${id}/end`, { method: "POST" }),
   listTrainingSessions: () =>

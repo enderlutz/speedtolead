@@ -25,7 +25,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, WebSocke
 from jose import jwt, JWTError
 from pydantic import BaseModel
 
-from database import get_db, TrainingSession, TrainingPersonaBank
+import random as _random
+from database import get_db, TrainingSession, TrainingPersonaBank, Lead
 from config import get_settings
 from api.auth import require_staff, require_admin, get_current_user, SECRET_ALGORITHM
 from services.training_personas import (
@@ -40,6 +41,7 @@ from services.training_orchestrator import (
     score_call,
 )
 from services.training_persona_seeder import seed_persona_bank
+from services.training_lead_simulator import build_persona_from_lead
 from services.elevenlabs_client import tts_to_mp3, is_configured as tts_configured
 from services.training_audio_store import save_segment as save_audio_segment
 
@@ -56,6 +58,11 @@ class CreateSessionBody(BaseModel):
 
 class SeedBankBody(BaseModel):
     count: int = 30
+
+
+class CreateFromLeadBody(BaseModel):
+    lead_id: str
+    mood: Optional[str] = ""
 
 
 def _resolve_persona(persona_id: str, db) -> Optional[tuple[dict, str]]:
@@ -112,6 +119,77 @@ def seed_bank(body: SeedBankBody, user: dict = Depends(require_admin)):
     finally:
         db.close()
     return result
+
+
+@router.get("/training/random-lead")
+def random_lead(user: dict = Depends(require_staff)):
+    """Return the id of a random real lead for the 'practice random lead'
+    flow. Filters: not archived, not a test lead, has a contact_name.
+    Caller navigates to /leads/<id> and starts the practice call there."""
+    db = get_db()
+    try:
+        # Pull a small pool then pick from it — cheaper than COUNT + OFFSET
+        # against the full table, and the diversity is plenty for "random".
+        candidates = (
+            db.query(Lead)
+            .filter(Lead.status != "archived")
+            .filter(Lead.is_test == False)  # noqa: E712
+            .filter(Lead.contact_name != "")
+            .order_by(Lead.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        if not candidates:
+            raise HTTPException(status_code=404, detail="No real leads available")
+        pick = _random.choice(candidates)
+        return {"lead_id": pick.id, "name": pick.contact_name or "", "address": pick.address or ""}
+    finally:
+        db.close()
+
+
+@router.post("/training/session/from-lead")
+def create_session_from_lead(
+    body: CreateFromLeadBody, user: dict = Depends(require_staff)
+):
+    """Start a practice session against a specific real lead.
+
+    Persona uses the lead's real name, address, and fence on file. The
+    discovery facts (which sides, urgency, other quotes, decision
+    authority) are randomized per session, so calling the same lead
+    twice yields a different practice scenario.
+    """
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == body.lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        persona = build_persona_from_lead(lead, mood=(body.mood or None))
+        session_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        row = TrainingSession(
+            id=session_id,
+            rep_user_id=user.get("sub", ""),
+            rep_display_name=user.get("name", ""),
+            persona_id=persona["id"],
+            persona_source="real_lead_live",
+            persona_snapshot_json=json.dumps(persona),
+            mood=persona.get("default_mood", ""),
+            started_at=now,
+            transcript_json="[]",
+            score_json="{}",
+        )
+        db.add(row)
+        db.commit()
+    finally:
+        db.close()
+
+    return {
+        "id": session_id,
+        "ws_path": f"/ws/training/{session_id}",
+        "persona": persona,
+        "tts_configured": tts_configured(),
+    }
 
 
 @router.post("/training/session")

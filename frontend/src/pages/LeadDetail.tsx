@@ -15,8 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap,
 } from "lucide-react";
+import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import CalendarGlimpse from "@/components/CalendarGlimpse";
@@ -60,6 +61,8 @@ export default function LeadDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [urlParams] = useSearchParams();
+  const { trainingModeOn, activeCall, startCall } = useTrainingMode();
+  const [practicing, setPracticing] = useState(false);
   const [lead, setLead] = useState<LeadDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -617,6 +620,38 @@ export default function LeadDetail() {
           />
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {trainingModeOn && !activeCall && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={practicing}
+              onClick={async () => {
+                if (!lead) return;
+                setPracticing(true);
+                try {
+                  const sess = await api.createTrainingSessionFromLead(lead.id);
+                  await startCall({
+                    sessionId: sess.id,
+                    persona: sess.persona as unknown as import("@/components/training/PersonaCard").Persona,
+                    mood: sess.persona.default_mood || "",
+                    ttsConfigured: sess.tts_configured,
+                  });
+                } catch (e: any) {
+                  toast.error(e?.message || "Couldn't start practice call");
+                } finally {
+                  setPracticing(false);
+                }
+              }}
+              className="border-rose-500/40 text-rose-700 hover:bg-rose-500/10"
+            >
+              {practicing ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <GraduationCap className="h-4 w-4 mr-1.5" />
+              )}
+              Practice call
+            </Button>
+          )}
           {lead.pipeline_version === "v2" && lead.ghl_opportunity_id && (
             <Button
               variant="outline"
