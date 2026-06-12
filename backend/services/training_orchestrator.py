@@ -78,6 +78,31 @@ def _claude_turn(persona: dict, mood: str, history: list[dict]) -> Optional[str]
         if role in ("user", "assistant") and isinstance(content, str):
             cleaned.append({"role": role, "content": content})
 
+    # Anthropic also requires the FIRST message to be role=user. Our flow
+    # stores the persona's greeting (Claude's opening line) as the first
+    # assistant message — so on turn 2, history starts with assistant
+    # and Anthropic 400s. Prepend a synthetic "phone is ringing" user
+    # message so the alternation works without changing how the WS
+    # handler persists history.
+    if cleaned and cleaned[0]["role"] == "assistant":
+        cleaned = [
+            {"role": "user", "content": "[The phone just rang. You picked up.]"}
+        ] + cleaned
+
+    # Defensive: merge consecutive same-role messages. Shouldn't happen in
+    # our flow (every rep utterance pairs with a persona reply) but if
+    # ever it does, Anthropic rejects the whole call.
+    merged: list[dict] = []
+    for m in cleaned:
+        if merged and merged[-1]["role"] == m["role"]:
+            merged[-1]["content"] = merged[-1]["content"] + "\n\n" + m["content"]
+        else:
+            merged.append({"role": m["role"], "content": m["content"]})
+    cleaned = merged
+
+    if not cleaned:
+        return None
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -92,7 +117,13 @@ def _claude_turn(persona: dict, mood: str, history: list[dict]) -> Optional[str]
             return text or None
         return None
     except Exception as e:
-        logger.error(f"Claude turn failed in training orchestrator: {e}")
+        # Log the message shape too — a bad alternation or missing field
+        # is the most common cause and we want to see it in Railway logs.
+        try:
+            roles = ",".join(m.get("role", "?") for m in cleaned)
+        except Exception:
+            roles = "?"
+        logger.error(f"Claude turn failed in training orchestrator: {e} (roles={roles}, n={len(cleaned)})")
         return None
 
 
