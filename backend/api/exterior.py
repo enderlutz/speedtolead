@@ -57,11 +57,11 @@ def _build_capture_sms(first_name: str, url: str) -> str:
     """The default outbound copy. Short + casual + brand-attributed.
     Kept here (not on the frontend) so future edits land everywhere
     that sends this template at once."""
-    greeting = f"Hi {first_name}," if first_name else "Hi,"
+    greeting = f"Hey {first_name}," if first_name else "Hey,"
     return (
-        f"{greeting} A&T's Fence Restoration here. To quote your exterior paint "
-        f"job we need ~10 photos of your home. Tap to send them — takes 5 min, no "
-        f"app to download: {url}"
+        f"{greeting} A&T's Fence Restoration here! To quote your exterior paint "
+        f"job we need ~10 photos of your home. Tap to send them takes 5 min, no "
+        f"app to download, there are instructions there to help you and us out: {url}"
     )
 
 
