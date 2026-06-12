@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Pencil,
+  Send,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type ExteriorEstimate, type ExteriorPhoto, type LeadDetail } from "@/lib/api";
@@ -35,6 +37,8 @@ type Props = {
 export default function ExteriorTab({ lead, onChange }: Props) {
   const [captureUrl, setCaptureUrl] = useState<string | null>(null);
   const [issuingLink, setIssuingLink] = useState(false);
+  const [sendingLink, setSendingLink] = useState(false);
+  const [lastSentBody, setLastSentBody] = useState<string | null>(null);
   const [runningEstimate, setRunningEstimate] = useState(false);
   const [savingOverride, setSavingOverride] = useState(false);
   const [overrideDraft, setOverrideDraft] = useState<{
@@ -69,6 +73,25 @@ export default function ExteriorTab({ lead, onChange }: Props) {
       toast.error(e instanceof Error ? e.message : "Couldn't issue link");
     } finally {
       setIssuingLink(false);
+    }
+  };
+
+  const issueLinkAndSendSms = async () => {
+    if (!lead.contact_phone) {
+      toast.error("No phone on file for this lead — generate the link manually instead.");
+      return;
+    }
+    setSendingLink(true);
+    try {
+      const r = await api.issueExteriorCaptureLinkAndSendSms(lead.id);
+      setCaptureUrl(r.url);
+      setLastSentBody(r.body);
+      onChange({ ...lead, exterior_capture_token: r.token });
+      toast.success(`Text sent to ${lead.contact_name || "customer"}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't text the customer");
+    } finally {
+      setSendingLink(false);
     }
   };
 
@@ -137,10 +160,14 @@ export default function ExteriorTab({ lead, onChange }: Props) {
       <CaptureLinkCard
         captureUrl={captureUrl}
         issuingLink={issuingLink}
+        sendingLink={sendingLink}
+        lastSentBody={lastSentBody}
         onIssue={issueLink}
+        onIssueAndSend={issueLinkAndSendSms}
         onCopy={copyLink}
         photosByCustomer={photosByCustomer}
         customerSubmittedAt={estimate.customer_submitted_at}
+        hasPhone={!!lead.contact_phone}
       />
 
       {photos.length > 0 && (
@@ -166,17 +193,25 @@ export default function ExteriorTab({ lead, onChange }: Props) {
 function CaptureLinkCard({
   captureUrl,
   issuingLink,
+  sendingLink,
+  lastSentBody,
   onIssue,
+  onIssueAndSend,
   onCopy,
   photosByCustomer,
   customerSubmittedAt,
+  hasPhone,
 }: {
   captureUrl: string | null;
   issuingLink: boolean;
+  sendingLink: boolean;
+  lastSentBody: string | null;
   onIssue: () => void;
+  onIssueAndSend: () => void;
   onCopy: () => void;
   photosByCustomer: number;
   customerSubmittedAt?: string;
+  hasPhone: boolean;
 }) {
   return (
     <Card>
@@ -190,17 +225,36 @@ function CaptureLinkCard({
         {!captureUrl ? (
           <>
             <p className="text-sm text-muted-foreground">
-              Generate a link the customer can tap on their phone to send photos. They get a
+              Send the customer a link they tap on their phone to send photos. They get a
               guided experience with tips — no app to download.
             </p>
-            <Button onClick={onIssue} disabled={issuingLink}>
-              {issuingLink ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <LinkIcon className="h-4 w-4 mr-2" />
-              )}
-              Generate capture link
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onIssue} variant="outline" disabled={issuingLink || sendingLink}>
+                {issuingLink ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                )}
+                Generate link
+              </Button>
+              <Button
+                onClick={onIssueAndSend}
+                disabled={issuingLink || sendingLink || !hasPhone}
+                title={!hasPhone ? "No phone on file" : undefined}
+              >
+                {sendingLink ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4 mr-2" />
+                )}
+                Generate &amp; Text
+              </Button>
+            </div>
+            {!hasPhone && (
+              <p className="text-xs text-amber-700">
+                No phone on file for this lead — only the manual "Generate link" path will work.
+              </p>
+            )}
           </>
         ) : (
           <>
@@ -212,6 +266,36 @@ function CaptureLinkCard({
                 Copy
               </Button>
             </div>
+
+            {lastSentBody && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 flex gap-2">
+                <MessageSquare className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold mb-1">Text just sent:</p>
+                  <p className="leading-relaxed whitespace-pre-wrap">{lastSentBody}</p>
+                </div>
+              </div>
+            )}
+
+            {!lastSentBody && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onIssueAndSend}
+                  disabled={sendingLink || !hasPhone}
+                  title={!hasPhone ? "No phone on file" : undefined}
+                >
+                  {sendingLink ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Text the link to customer
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center gap-3 text-xs">
               <Badge variant="outline" className="text-xs">
                 {photosByCustomer} customer photos
@@ -224,8 +308,7 @@ function CaptureLinkCard({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Paste the link into a text/email to the customer. The same link stays valid —
-              they can come back anytime to add more photos.
+              The same link stays valid — customer can come back anytime to add more photos.
             </p>
           </>
         )}

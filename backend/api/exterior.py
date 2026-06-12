@@ -26,6 +26,7 @@ from services.exterior_capture import (
     remove_photo,
 )
 from services.exterior_estimator import run_estimate
+from services.ghl import send_sms as ghl_send_sms
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,25 +47,83 @@ class OverrideBody(BaseModel):
 # ---------- Internal (VA) ----------
 
 
+def _build_capture_url(token: str) -> str:
+    settings = get_settings()
+    base = settings.frontend_url or "http://localhost:5173"
+    return f"{base.rstrip('/')}/capture/{token}"
+
+
+def _build_capture_sms(first_name: str, url: str) -> str:
+    """The default outbound copy. Short + casual + brand-attributed.
+    Kept here (not on the frontend) so future edits land everywhere
+    that sends this template at once."""
+    greeting = f"Hi {first_name}," if first_name else "Hi,"
+    return (
+        f"{greeting} A&T's Fence Restoration here. To quote your exterior paint "
+        f"job we need ~10 photos of your home. Tap to send them — takes 5 min, no "
+        f"app to download: {url}"
+    )
+
+
 @router.post("/leads/{lead_id}/exterior/capture-link")
 def issue_link(lead_id: str, user: dict = Depends(require_staff)):
     """Generate (or fetch existing) capture link for this lead.
 
-    Returns the public URL the customer should be SMS'd. VA copies it
-    and pastes into a GHL conversation; we don't auto-send to avoid
-    surprising the customer mid-conversation.
+    Returns the public URL the rep can copy and paste into a text/email.
+    Use POST /capture-link/send-sms when you want the dashboard to fire
+    the text for you in the same shot.
     """
-    settings = get_settings()
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
         token = issue_capture_token(db, lead)
-        base = settings.frontend_url or "http://localhost:5173"
         return {
             "token": token,
-            "url": f"{base.rstrip('/')}/capture/{token}",
+            "url": _build_capture_url(token),
+        }
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/exterior/capture-link/send-sms")
+def issue_link_and_send_sms(lead_id: str, user: dict = Depends(require_staff)):
+    """Generate the capture link AND text it to the customer in one step.
+
+    Uses the same SMS pipeline as the rest of the dashboard (services.ghl.send_sms).
+    Fails with 400 if the lead has no ghl_contact_id — the rep can fall
+    back to the plain "generate link" path and paste it manually."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.ghl_contact_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Lead has no GHL contact — generate the link and paste it manually.",
+            )
+
+        token = issue_capture_token(db, lead)
+        url = _build_capture_url(token)
+        first_name = (lead.contact_name or "").split()[0] if lead.contact_name else ""
+        body = _build_capture_sms(first_name, url)
+        ok = ghl_send_sms(
+            contact_id=lead.ghl_contact_id,
+            message=body,
+            location_id=lead.ghl_location_id or None,
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=502,
+                detail="SMS send failed (GHL returned an error). Link is still valid — copy it and send manually.",
+            )
+        return {
+            "token": token,
+            "url": url,
+            "sent": True,
+            "body": body,
         }
     finally:
         db.close()

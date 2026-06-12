@@ -1654,6 +1654,11 @@ export const api = {
       `/api/leads/${leadId}/exterior/capture-link`,
       { method: "POST" },
     ),
+  issueExteriorCaptureLinkAndSendSms: (leadId: string) =>
+    request<{ token: string; url: string; sent: boolean; body: string }>(
+      `/api/leads/${leadId}/exterior/capture-link/send-sms`,
+      { method: "POST" },
+    ),
   deleteExteriorPhoto: (leadId: string, photoId: string) =>
     request<{ photos: ExteriorPhoto[] }>(
       `/api/leads/${leadId}/exterior/photos/${photoId}`,
