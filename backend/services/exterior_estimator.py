@@ -35,7 +35,12 @@ logger = logging.getLogger(__name__)
 CLAUDE_MODEL = "claude-sonnet-4-6"
 SATELLITE_ZOOM = 20  # ~0.075 m/px at equator, good for residential
 SATELLITE_SIZE = "640x640"
-MIN_PHOTOS_REQUIRED = 4
+# Per the user (2026-06-12): the AI should still produce a number even
+# with a single photo — sometimes the customer only wants the front
+# painted, sometimes they're bad at following instructions. We compensate
+# by widening the confidence band and forcing the confidence label down
+# when the photo set is sparse (_photo_count_confidence_band below).
+MIN_PHOTOS_REQUIRED = 1
 
 # Per-photo input fetch cap. Claude vision is happiest with smaller
 # images; we trust Supabase Storage to deliver pre-resized photos but
@@ -78,8 +83,7 @@ def run_estimate(lead: Lead, db) -> dict:
     photos = [p for p in photos if p.get("url")]
     if len(photos) < MIN_PHOTOS_REQUIRED:
         return _skipped(
-            f"Need at least {MIN_PHOTOS_REQUIRED} photos to run estimate "
-            f"(have {len(photos)}). Ask the customer for more."
+            "No photos uploaded yet. Ask the customer to send at least one."
         )
 
     coords = _resolve_coords(lead, db)
@@ -123,7 +127,11 @@ def run_estimate(lead: Lead, db) -> dict:
         logger.error(f"Claude vision exterior estimate failed: {e}")
         return _skipped(f"Vision call failed: {e}")
 
-    return _finalize(vision_result, satellite_url=satellite_url)
+    return _finalize(
+        vision_result,
+        satellite_url=satellite_url,
+        photo_count=len(customer_photo_bytes),
+    )
 
 
 # ---------- internals ----------
@@ -183,6 +191,22 @@ def _call_claude_vision(
     # Claude this so it can scale its perimeter estimate.
     scale_hint = "At zoom 20 in Texas, ~1 pixel ≈ 0.21 ft (0.064 m). The image is 640×640 pixels."
 
+    photo_n = len(customer_photos)
+    sparsity_hint = ""
+    if photo_n <= 2:
+        sparsity_hint = (
+            f"\n\nIMPORTANT: only {photo_n} customer photo{'s' if photo_n != 1 else ''} "
+            "available. You may be missing entire sides of the house. Make your best "
+            "estimate from the satellite + what you can see, but mark "
+            "overall_confidence as 'low' — and note in the 'notes' field exactly which "
+            "sides you could NOT see so the VA knows what's a guess."
+        )
+    elif photo_n <= 4:
+        sparsity_hint = (
+            f"\n\nNote: only {photo_n} photos — likely missing close-ups. Mark "
+            "overall_confidence as 'medium' at best and call out gaps in the notes."
+        )
+
     content_blocks: list = [
         {
             "type": "text",
@@ -194,7 +218,8 @@ def _call_claude_vision(
                 f"\n\n{scale_hint}\n\n"
                 "Reference: a standard front door is 80 inches (~6.7 ft) tall. Use any "
                 "visible door or door-sized object as your height reference. A typical "
-                "story (floor-to-ceiling + structure) is ~9-10 ft.\n\n"
+                "story (floor-to-ceiling + structure) is ~9-10 ft."
+                f"{sparsity_hint}\n\n"
                 "Output the JSON schema below — NO prose, NO backticks, JSON ONLY:\n\n"
                 "{\n"
                 '  "perimeter_ft": <int — estimated exterior wall perimeter>,\n'
@@ -270,7 +295,7 @@ def _safe_json_loads(text: str) -> dict:
             return {}
 
 
-def _finalize(vision: dict, satellite_url: str) -> dict:
+def _finalize(vision: dict, satellite_url: str, photo_count: int = 0) -> dict:
     if not vision:
         return _skipped("Claude returned malformed JSON")
 
@@ -299,10 +324,14 @@ def _finalize(vision: dict, satellite_url: str) -> dict:
     gross = perimeter * height
     paintable = max(0, gross - opening)
 
+    # Confidence floor + band scaled by how many photos we actually had.
+    # If the customer sent 1 photo, Claude is guessing about everything
+    # off-camera — force confidence down regardless of what it claimed.
     overall = (vision.get("overall_confidence") or "medium").lower()
     if overall not in ("high", "medium", "low"):
         overall = "medium"
-    band = {"high": 0.10, "medium": 0.15, "low": 0.25}.get(overall, 0.15)
+    overall, band = _photo_count_confidence_band(overall, photo_count)
+
     sqft_min = int(round(paintable * (1 - band)))
     sqft_max = int(round(paintable * (1 + band)))
 
@@ -320,8 +349,36 @@ def _finalize(vision: dict, satellite_url: str) -> dict:
         "sqft_min": sqft_min,
         "sqft_max": sqft_max,
         "confidence": overall,
+        "photo_count": photo_count,
         "vision_notes": (vision.get("notes") or "")[:1000],
         "satellite_url": satellite_url,
         "va_overrides": {},
         "applied_sqft": paintable,
     }
+
+
+def _photo_count_confidence_band(claude_overall: str, photo_count: int) -> tuple[str, float]:
+    """Reconcile Claude's self-reported confidence with the brute reality
+    of how many photos it had to work with.
+
+    Photo count ceiling on confidence (you can't be 'high' with 2 pics):
+      1 photo      → low,    ±35%
+      2-3 photos   → low,    ±25%
+      4-7 photos   → medium, ±18% (or claude_overall if 'low')
+      8+ photos    → trust claude_overall: high ±10%, medium ±15%, low ±25%
+    """
+    rank = {"low": 0, "medium": 1, "high": 2}
+    claude_rank = rank.get(claude_overall, 1)
+
+    if photo_count <= 1:
+        return ("low", 0.35)
+    if photo_count <= 3:
+        return ("low", 0.25)
+    if photo_count <= 7:
+        capped = min(claude_rank, rank["medium"])
+        label = ["low", "medium", "high"][capped]
+        band = 0.25 if label == "low" else 0.18
+        return (label, band)
+    # 8+
+    band = {"high": 0.10, "medium": 0.15, "low": 0.25}.get(claude_overall, 0.15)
+    return (claude_overall, band)

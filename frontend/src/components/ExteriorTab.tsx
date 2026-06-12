@@ -160,9 +160,17 @@ export default function ExteriorTab({ lead, onChange }: Props) {
   // ---------- Estimator actions ----------
 
   const runEstimate = async () => {
-    if (photos.length < 4) {
-      toast.error("Need at least 4 photos to run an estimate");
+    if (photos.length === 0) {
+      toast.error("Need at least 1 photo to run an estimate");
       return;
+    }
+    // Soft warning when running with very few photos — the AI will
+    // still produce a number, just with a wider confidence band.
+    if (photos.length < 4) {
+      const ok = confirm(
+        `Only ${photos.length} photo${photos.length === 1 ? "" : "s"} uploaded — the AI can still produce an estimate but the confidence will be low and the range wide. Continue?`,
+      );
+      if (!ok) return;
     }
     setRunningEstimate(true);
     try {
@@ -594,8 +602,11 @@ function EstimateCard({
       <CardContent className="space-y-4">
         {!ready && !skipped && (
           <div className="text-sm text-muted-foreground">
-            Run the AI estimator after the customer sends enough photos.{" "}
-            {photoCount > 0 ? `(${photoCount} on file)` : "(no photos yet)"}
+            {photoCount === 0
+              ? "Waiting on photos — the customer hasn't uploaded anything yet."
+              : photoCount < 4
+              ? `${photoCount} photo${photoCount === 1 ? "" : "s"} on file. You can still run the estimator but the range will be wide — more photos = tighter range.`
+              : `${photoCount} photos on file. Ready to run when you are.`}
           </div>
         )}
 
@@ -713,7 +724,7 @@ function EstimateCard({
         )}
 
         <div className="flex items-center gap-2 pt-2 border-t">
-          <Button onClick={onRun} disabled={running || photoCount < 4}>
+          <Button onClick={onRun} disabled={running || photoCount === 0}>
             {running ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (

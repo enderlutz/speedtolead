@@ -1764,6 +1764,10 @@ export interface ExteriorEstimate {
   sqft_min?: number;
   sqft_max?: number;
   confidence?: "high" | "medium" | "low";
+  /** How many photos this estimate was computed from — drives the
+   *  confidence floor (1-2 photos = forced "low" regardless of what
+   *  Claude self-reported). */
+  photo_count?: number;
   vision_notes?: string;
   satellite_url?: string;
   va_overrides?: ExteriorOverrides;
