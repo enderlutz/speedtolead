@@ -9,15 +9,17 @@ Two surfaces:
 from __future__ import annotations
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from database import get_db, Lead
 from config import get_settings
-from api.auth import require_staff
+from api.auth import require_staff, require_admin
 from services.exterior_capture import (
     issue_capture_token,
     lookup_lead_by_token,
@@ -42,6 +44,95 @@ class OverrideBody(BaseModel):
     opening_sqft: Optional[int] = None
     applied_sqft: Optional[int] = None
     confidence_note: Optional[str] = ""
+
+
+# ---------- Diagnostic ----------
+
+
+@router.get("/exterior/storage-status")
+def storage_status(user: dict = Depends(require_admin)):
+    """Test the Supabase Storage chain for exterior-photos uploads.
+
+    Surfaces (1) whether env vars are set, (2) what bucket name we're
+    targeting, and (3) what Supabase says when we POST a tiny test
+    object. Lets you debug 503s on the customer capture page without
+    digging through Railway logs."""
+    settings = get_settings()
+    bucket = settings.supabase_exterior_photos_bucket or "exterior-photos"
+    out: dict = {
+        "bucket_name": bucket,
+        "supabase_url_set": bool(settings.supabase_url),
+        "supabase_service_key_set": bool(settings.supabase_service_key),
+    }
+
+    if not (settings.supabase_url and settings.supabase_service_key):
+        out["status"] = "config_missing"
+        out["detail"] = (
+            "SUPABASE_URL and SUPABASE_SERVICE_KEY must both be set on the "
+            "backend env. (These already work for proposal pages — if you "
+            "see this, the env vars aren't reaching this service.)"
+        )
+        return out
+
+    test_path = f"_diagnostic/test-{uuid.uuid4().hex[:8]}.txt"
+    upload_url = (
+        f"{settings.supabase_url.rstrip('/')}/storage/v1/object/{bucket}/{test_path}"
+    )
+    headers = {
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+        "Content-Type": "text/plain",
+        "x-upsert": "true",
+    }
+    try:
+        with httpx.Client(timeout=10) as c:
+            r = c.post(upload_url, headers=headers, content=b"diagnostic ok")
+    except Exception as e:
+        out["status"] = "exception"
+        out["detail"] = f"Network/transport error: {e}"
+        return out
+
+    out["http_status"] = r.status_code
+    body_preview = r.text[:500] if r.text else ""
+
+    if r.is_success:
+        # Best-effort cleanup of the test object
+        try:
+            with httpx.Client(timeout=5) as c:
+                c.delete(
+                    upload_url,
+                    headers={"Authorization": f"Bearer {settings.supabase_service_key}"},
+                )
+        except Exception:
+            pass
+        out["status"] = "ok"
+        out["detail"] = (
+            f"Test upload to bucket '{bucket}' succeeded. Customer uploads should now work."
+        )
+        return out
+
+    out["detail"] = body_preview
+    lower = body_preview.lower()
+    if r.status_code == 404 or "not_found" in lower or "bucket not found" in lower:
+        out["status"] = "bucket_missing"
+        out["hint"] = (
+            f"Supabase says bucket '{bucket}' doesn't exist. Create a public "
+            f"bucket named exactly '{bucket}' (no underscores, no caps) in "
+            f"Supabase Storage. Or set SUPABASE_EXTERIOR_PHOTOS_BUCKET to the "
+            f"name you actually used."
+        )
+    elif r.status_code in (401, 403):
+        out["status"] = "auth_failed"
+        out["hint"] = (
+            "Supabase rejected the service key. Verify SUPABASE_SERVICE_KEY is "
+            "the service_role key (not the anon key) and hasn't been rotated."
+        )
+    else:
+        out["status"] = "upload_failed"
+        out["hint"] = (
+            "Supabase returned an unexpected error — paste the detail field "
+            "into a search to look it up."
+        )
+    return out
 
 
 # ---------- Internal (VA) ----------
