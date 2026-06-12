@@ -22,7 +22,7 @@ import json
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import desc
 
 from database import get_db, Lead, Estimate, CallTouch, CallDisposition, ScheduledJob
@@ -30,6 +30,7 @@ from api.auth import require_staff
 from services.pipeline_stages import CALL_LIST_STAGE_IDS, STAGE_NAME_BY_ID
 from services.follow_up_flags import compute_follow_up_flag
 from services.geo import haversine
+from services.geocoder import geocode_address
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -70,13 +71,49 @@ def _latest_signature_price(db, lead_id: str) -> float:
 
 
 @router.get("/call-list")
-def get_call_list(user: dict = Depends(require_staff)):
+def get_call_list(
+    user: dict = Depends(require_staff),
+    near_zip: str = Query("", description="5-digit ZIP. When provided, leads are sorted by distance from that ZIP ascending."),
+):
     """Return leads in the post-estimate range, sorted by signature price.
     Excludes leads called in the last 24h. Excludes DECLINED ESTIMATE and
-    everything past DEAL CLOSED & NOT SCHEDULED per pipeline_stages.CALL_LIST_STAGE_IDS."""
+    everything past DEAL CLOSED & NOT SCHEDULED per pipeline_stages.CALL_LIST_STAGE_IDS.
+
+    When `near_zip` is provided, distance from that ZIP's centroid is
+    computed per lead and the list is re-sorted by distance ascending
+    (overrides the priority sort). Useful when the rep wants to plan
+    a route through a specific neighborhood."""
     del user
     db = get_db()
     try:
+        # near_zip filter — geocode the target zip ONCE up front, then
+        # compare every lead's coords against it. Geocode failures
+        # (invalid ZIP, Maps key missing) degrade to "no filter applied"
+        # rather than erroring — we just don't decorate distance and
+        # the list keeps the default sort.
+        near_target: tuple[float, float] | None = None
+        near_zip_clean = (near_zip or "").strip()
+        if near_zip_clean:
+            geo = geocode_address(near_zip_clean)
+            if geo and geo.get("lat") and geo.get("lng"):
+                near_target = (float(geo["lat"]), float(geo["lng"]))
+        # Per-zip centroid cache for lead-side fallback when a lead has
+        # no lat/lng yet but does have a zip_code.
+        zip_centroid_cache: dict[str, tuple[float, float] | None] = {}
+
+        def _zip_centroid(z: str) -> tuple[float, float] | None:
+            z = (z or "").strip()
+            if not z:
+                return None
+            if z in zip_centroid_cache:
+                return zip_centroid_cache[z]
+            g = geocode_address(z)
+            coords = None
+            if g and g.get("lat") and g.get("lng"):
+                coords = (float(g["lat"]), float(g["lng"]))
+            zip_centroid_cache[z] = coords
+            return coords
+
         # Suppression cutoff — lead reappears once 24h have passed since
         # their most recent touch.
         cutoff_iso = (_now_utc() - timedelta(hours=SUPPRESSION_HOURS)).isoformat()
@@ -193,11 +230,32 @@ def get_call_list(user: dict = Depends(require_staff)):
                     "zip_code": lead_zip,
                 }
 
+            # Distance from the rep's input ZIP when near_zip is active.
+            # Uses lead lat/lng when available; falls back to lead's own
+            # ZIP centroid so a not-yet-geocoded lead still gets a rough
+            # rank. None when neither path resolves — those leads sink to
+            # the bottom of the near-zip-sorted list.
+            distance_from_near = None
+            if near_target:
+                lead_coords: tuple[float, float] | None = None
+                if lead.lat and lead.lng:
+                    lead_coords = (float(lead.lat), float(lead.lng))
+                elif lead_zip:
+                    lead_coords = _zip_centroid(lead_zip)
+                if lead_coords:
+                    d = haversine(
+                        near_target[0], near_target[1],
+                        lead_coords[0], lead_coords[1],
+                    )
+                    if d != float("inf"):
+                        distance_from_near = round(d, 1)
+
             items.append({
                 "lead_id": lead.id,
                 "contact_name": lead.contact_name or "",
                 "contact_phone": lead.contact_phone or "",
                 "address": lead.address or "",
+                "zip_code": lead_zip,
                 "signature_price": sig_price,
                 "stage_id": lead.ghl_pipeline_stage_id or "",
                 "stage_label": stage_label,
@@ -206,31 +264,49 @@ def get_call_list(user: dict = Depends(require_staff)):
                 "came_in_at": came_in_at,
                 "follow_up_flag": flag,
                 "nearby_match": nearby_match,
+                "distance_from_near_zip_miles": distance_from_near,
             })
 
         # Sort order:
-        #   1. follow-up flag boost (HOT > callback due > warm > stale > cold)
-        #   2. proximity boost — same-ZIP match adds 200 (T3.E)
-        #   3. $1500+ priority bucket
-        #   4. signature price desc
-        #   5. name asc
-        # Intent (flag) still dominates so a HOT lead always beats a same-
-        # ZIP cold lead. Proximity is the tie-breaker that lifts an
-        # otherwise-standard lead into a 'we're in the area' slot.
-        items.sort(
-            key=lambda x: (
-                -((x.get("follow_up_flag") or {}).get("priority_boost") or 0),
-                -(200 if x.get("nearby_match") else 0),
-                0 if x["is_priority"] else 1,
-                -x["signature_price"],
-                x["contact_name"].lower(),
+        #   When near_zip is active: distance ascending. The rep is route-
+        #   planning; they want the closest house first. Priority + flag +
+        #   value badges stay visible in the row so the high-leverage leads
+        #   are still obvious, but the order serves the geographic intent.
+        #
+        #   Default (no near_zip):
+        #     1. follow-up flag boost (HOT > callback due > warm > stale > cold)
+        #     2. proximity boost — same-ZIP-match-with-upcoming-job adds 200
+        #     3. $1500+ priority bucket
+        #     4. signature price desc
+        #     5. name asc
+        if near_target:
+            items.sort(
+                key=lambda x: (
+                    # Leads with no computable distance sink to the bottom
+                    x["distance_from_near_zip_miles"]
+                    if x["distance_from_near_zip_miles"] is not None
+                    else float("inf"),
+                    -x["signature_price"],
+                    x["contact_name"].lower(),
+                )
             )
-        )
+        else:
+            items.sort(
+                key=lambda x: (
+                    -((x.get("follow_up_flag") or {}).get("priority_boost") or 0),
+                    -(200 if x.get("nearby_match") else 0),
+                    0 if x["is_priority"] else 1,
+                    -x["signature_price"],
+                    x["contact_name"].lower(),
+                )
+            )
 
         return {
             "items": items,
             "priority_threshold": PRIORITY_VALUE_THRESHOLD,
             "suppression_hours": SUPPRESSION_HOURS,
+            "near_zip": near_zip_clean if near_target else "",
+            "near_zip_resolved": bool(near_target),
         }
     finally:
         db.close()

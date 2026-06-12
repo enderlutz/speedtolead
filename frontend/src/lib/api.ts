@@ -835,7 +835,10 @@ export const api = {
   // Settings
   getGhlPipelines: () => request<Record<string, unknown[]>>("/api/settings/ghl-pipelines"),
   getGhlStageDiff: () => request<GhlStageDiff>("/api/settings/ghl-stage-diff"),
-  getCallList: () => request<CallListResponse>("/api/call-list"),
+  getCallList: (nearZip?: string) => {
+    const qs = nearZip && nearZip.trim() ? `?near_zip=${encodeURIComponent(nearZip.trim())}` : "";
+    return request<CallListResponse>(`/api/call-list${qs}`);
+  },
   // 2026-06-08 — one-shot Sterling backfill the owner asked for. Kicks
   // off a BackgroundTask; UI polls /status until running flips to false.
   startSterlingBackfill: (lookbackDays: number = 90) =>
@@ -2248,6 +2251,7 @@ export interface CallListItem {
   contact_name: string;
   contact_phone: string;
   address: string;
+  zip_code?: string;
   signature_price: number;
   stage_id: string;
   stage_label: string;
@@ -2260,6 +2264,10 @@ export interface CallListItem {
    *  job. Lifts the row in the sort and drives an inline 'near Smith Tue'
    *  hint so admin sees why this lead is ranked high. */
   nearby_match?: CallListNearbyMatch | null;
+  /** Populated when the panel's near_zip filter is active; distance from
+   *  the input ZIP's centroid in miles. null when the lead can't be
+   *  geocoded (no coords + no zip). */
+  distance_from_near_zip_miles?: number | null;
 }
 
 export interface CallListNearbyMatch {
@@ -2275,6 +2283,12 @@ export interface CallListResponse {
   items: CallListItem[];
   priority_threshold: number;
   suppression_hours: number;
+  /** Echoes the ZIP the rep filtered by — empty when no filter active. */
+  near_zip?: string;
+  /** True when the ZIP filter resolved to coords; false when geocoding
+   *  failed (invalid ZIP, missing Maps key) — UI surfaces this so the
+   *  rep knows the filter silently didn't apply. */
+  near_zip_resolved?: boolean;
 }
 
 export interface CallTouchResult {
