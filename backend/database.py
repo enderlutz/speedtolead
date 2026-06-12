@@ -128,6 +128,18 @@ class Lead(Base):
     lng = Column(Float, default=0.0)
     geocoded_at = Column(Text, nullable=True)
 
+    # Exterior painting (stucco/brick) photo-based AI estimate.
+    # exterior_capture_token: unguessable token issued to the customer
+    #   so they can hit /capture/<token> to upload photos without auth.
+    # exterior_photos_json: JSON list of {url, source, uploaded_at, label}
+    #   for both customer-captured + VA-added photos.
+    # exterior_estimate_json: the AI estimator's output + any VA overrides
+    #   ({sqft_min, sqft_max, perimeter_ft, height_ft, stories, opening_pct,
+    #    confidence, generated_at, va_overrides, applied_sqft}).
+    exterior_capture_token = Column(Text, default="", index=True)
+    exterior_photos_json = Column(Text, default="[]")
+    exterior_estimate_json = Column(Text, default="{}")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -172,6 +184,9 @@ class Lead(Base):
             "deposit_paid_at": self.deposit_paid_at,
             "deposit_payment_link": self.deposit_payment_link or "",
             "deposit_qb_invoice_id": self.deposit_qb_invoice_id or "",
+            "exterior_capture_token": self.exterior_capture_token or "",
+            "exterior_photos": _j(self.exterior_photos_json) if self.exterior_photos_json else [],
+            "exterior_estimate": _j(self.exterior_estimate_json) if self.exterior_estimate_json else {},
         }
 
 
@@ -2545,6 +2560,18 @@ def _run_migrations():
                     "ALTER TABLE training_sessions ADD COLUMN audio_segments_json TEXT DEFAULT '[]'"
                 ))
             logger.info("Migration: added training_sessions.audio_segments_json")
+
+    # Exterior painting AI estimate columns on leads. Three add-on columns
+    # for the photo-based stucco/brick exterior estimator. Idempotent.
+    for col_name, ddl in [
+        ("exterior_capture_token", "ALTER TABLE leads ADD COLUMN exterior_capture_token TEXT DEFAULT ''"),
+        ("exterior_photos_json", "ALTER TABLE leads ADD COLUMN exterior_photos_json TEXT DEFAULT '[]'"),
+        ("exterior_estimate_json", "ALTER TABLE leads ADD COLUMN exterior_estimate_json TEXT DEFAULT '{}'"),
+    ]:
+        if col_name not in existing:
+            with _engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Migration: added leads.{col_name}")
 
 
 def get_db() -> Session:

@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     # rep utterance + one per persona reply. Tiny files (~50-300KB)
     # so storage cost is negligible — ~$0.001 per call.
     supabase_training_audio_bucket: str = "training-audio"
+    # Bucket name for exterior painting estimate photos uploaded by
+    # customers via the public /capture/<token> page. Must exist + be
+    # public. ~500KB-2MB per photo, ~8-12 photos per lead.
+    supabase_exterior_photos_bucket: str = "exterior-photos"
 
     # Server
     port: int = 8000

@@ -118,6 +118,11 @@ export interface Lead {
   /** Hosted QB payment-link URL the customer taps to pay. */
   deposit_payment_link?: string;
   deposit_qb_invoice_id?: string;
+  /** Exterior painting AI estimate fields. Populated only for leads
+   *  where the rep clicked "Send capture link" or ran the estimator. */
+  exterior_capture_token?: string;
+  exterior_photos?: ExteriorPhoto[];
+  exterior_estimate?: ExteriorEstimate;
 }
 
 export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
@@ -1642,6 +1647,34 @@ export const api = {
     ),
   getRandomTrainingLead: () =>
     request<{ lead_id: string; name: string; address: string }>(`/api/training/random-lead`),
+
+  // Exterior painting AI estimate
+  issueExteriorCaptureLink: (leadId: string) =>
+    request<{ token: string; url: string }>(
+      `/api/leads/${leadId}/exterior/capture-link`,
+      { method: "POST" },
+    ),
+  deleteExteriorPhoto: (leadId: string, photoId: string) =>
+    request<{ photos: ExteriorPhoto[] }>(
+      `/api/leads/${leadId}/exterior/photos/${photoId}`,
+      { method: "DELETE" },
+    ),
+  runExteriorEstimate: (leadId: string) =>
+    request<ExteriorEstimate>(`/api/leads/${leadId}/exterior/run-estimate`, {
+      method: "POST",
+    }),
+  updateExteriorOverrides: (leadId: string, body: Partial<ExteriorOverrides>) =>
+    request<ExteriorEstimate>(`/api/leads/${leadId}/exterior/estimate`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  getExteriorCaptureInfo: (token: string) =>
+    request<ExteriorCaptureInfo>(`/api/exterior/capture/${token}/info`),
+  submitExteriorCapture: (token: string, note?: string) =>
+    request<{ ok: boolean }>(`/api/exterior/capture/${token}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ note: note || "" }),
+    }),
   endTrainingSession: (id: string) =>
     request<TrainingSessionRecord>(`/api/training/session/${id}/end`, { method: "POST" }),
   listTrainingSessions: () =>
@@ -1676,6 +1709,60 @@ export interface TrainingTranscriptTurn {
   role: "user" | "assistant";
   content: string;
   ts?: string;
+}
+
+// --- Exterior painting estimate ---
+
+export interface ExteriorPhoto {
+  id: string;
+  url: string;
+  source: "customer" | "va" | "admin";
+  label: string;
+  content_type: string;
+  bytes?: number;
+  uploaded_at: string;
+}
+
+export interface ExteriorOverrides {
+  perimeter_ft?: number;
+  stories?: number;
+  wall_height_ft?: number;
+  opening_sqft?: number;
+  applied_sqft?: number;
+  confidence_note?: string;
+}
+
+export interface ExteriorEstimate {
+  status: "ok" | "skipped" | "";
+  skip_reason?: string;
+  generated_at?: string;
+  perimeter_ft?: number;
+  stories?: number;
+  wall_height_ft?: number;
+  windows_count?: number;
+  doors_count?: number;
+  gross_wall_sqft?: number;
+  opening_sqft?: number;
+  paintable_sqft?: number;
+  sqft_min?: number;
+  sqft_max?: number;
+  confidence?: "high" | "medium" | "low";
+  vision_notes?: string;
+  satellite_url?: string;
+  va_overrides?: ExteriorOverrides;
+  applied_sqft?: number;
+  overridden_at?: string;
+  overridden_by?: string;
+  customer_submitted_at?: string;
+  customer_note?: string;
+}
+
+export interface ExteriorCaptureInfo {
+  first_name: string;
+  address: string;
+  photos_submitted: number;
+  min_photos_required: number;
+  recommended_photos: number;
 }
 
 export interface TrainingAudioSegment {

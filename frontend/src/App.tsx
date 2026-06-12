@@ -18,6 +18,7 @@ import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
 import Training from "@/pages/Training";
+import ExteriorCapture from "@/pages/ExteriorCapture";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
@@ -80,6 +81,7 @@ function AppLayout() {
     location.pathname === "/login" ||
     location.pathname.startsWith("/proposal/") ||
     location.pathname.startsWith("/approve/") ||
+    location.pathname.startsWith("/capture/") ||
     location.pathname.startsWith("/legal/");
 
   if (isPublic) {
@@ -88,6 +90,7 @@ function AppLayout() {
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalView />} />
         <Route path="/approve/:token" element={<QuickApprove />} />
+        <Route path="/capture/:token" element={<ExteriorCapture />} />
         <Route path="/legal/eula" element={<Eula />} />
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
       </Routes>
