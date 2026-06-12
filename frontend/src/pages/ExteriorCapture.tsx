@@ -99,16 +99,24 @@ const PHOTO_STEPS: PhotoStep[] = [
 
 type Stage = "loading" | "welcome" | "tips" | "capture" | "review" | "submitted" | "error";
 
+// Hard cap so a runaway loop can't fill the bucket. 50 photos is well
+// beyond any realistic capture; we soft-warn the customer at 25.
+const MAX_EXTRA_PHOTOS = 50 - PHOTO_STEPS.length;
+
 export default function ExteriorCapture() {
   const { token } = useParams<{ token: string }>();
   const [stage, setStage] = useState<Stage>("loading");
   const [info, setInfo] = useState<ExteriorCaptureInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stepIdx, setStepIdx] = useState(0);
-  const [stepsTaken, setStepsTaken] = useState<Record<string, string>>({}); // step.id → photo url
+  // stepsTaken keys are either a PHOTO_STEPS step.id (front_wide, etc.) or
+  // an auto-generated `extra_{n}` for additional unlimited photos.
+  const [stepsTaken, setStepsTaken] = useState<Record<string, string>>({});
+  const [extraCounter, setExtraCounter] = useState(1);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const extraInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -135,6 +143,32 @@ export default function ExteriorCapture() {
     [stepsTaken],
   );
   const totalTaken = Object.keys(stepsTaken).length;
+  const extrasCount = useMemo(
+    () => Object.keys(stepsTaken).filter((id) => id.startsWith("extra_")).length,
+    [stepsTaken],
+  );
+  const extrasCapHit = extrasCount >= MAX_EXTRA_PHOTOS;
+
+  // Shared upload helper. label = stepsTaken key + backend tag.
+  const doUpload = useCallback(
+    async (file: File, label: string): Promise<string | null> => {
+      if (!token) return null;
+      const fd = new FormData();
+      fd.append("photo", file);
+      fd.append("label", label);
+      const resp = await fetch(`${BASE}/api/exterior/capture/${token}/photo`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        throw new Error(`Upload failed (${resp.status}): ${txt.slice(0, 120)}`);
+      }
+      const data = await resp.json();
+      return data?.photo?.url || "ok";
+    },
+    [token],
+  );
 
   const uploadFile = useCallback(
     async (file: File) => {
@@ -142,19 +176,10 @@ export default function ExteriorCapture() {
       setUploading(true);
       setError(null);
       try {
-        const fd = new FormData();
-        fd.append("photo", file);
-        fd.append("label", currentStep.id);
-        const resp = await fetch(`${BASE}/api/exterior/capture/${token}/photo`, {
-          method: "POST",
-          body: fd,
-        });
-        if (!resp.ok) {
-          const txt = await resp.text().catch(() => "");
-          throw new Error(`Upload failed (${resp.status}): ${txt.slice(0, 120)}`);
+        const url = await doUpload(file, currentStep.id);
+        if (url) {
+          setStepsTaken((prev) => ({ ...prev, [currentStep.id]: url }));
         }
-        const data = await resp.json();
-        setStepsTaken((prev) => ({ ...prev, [currentStep.id]: data?.photo?.url || "ok" }));
         // Auto-advance to next step (or jump to review when all done)
         const nextIdx = stepIdx + 1;
         if (nextIdx >= PHOTO_STEPS.length) {
@@ -168,12 +193,43 @@ export default function ExteriorCapture() {
         setUploading(false);
       }
     },
-    [token, currentStep, stepIdx],
+    [token, currentStep, stepIdx, doUpload],
+  );
+
+  const uploadExtraPhoto = useCallback(
+    async (file: File) => {
+      if (!token) return;
+      if (extrasCapHit) {
+        setError(`Maximum of ${MAX_EXTRA_PHOTOS} extra photos reached`);
+        return;
+      }
+      setUploading(true);
+      setError(null);
+      try {
+        const label = `extra_${extraCounter}`;
+        const url = await doUpload(file, label);
+        if (url) {
+          setStepsTaken((prev) => ({ ...prev, [label]: url }));
+          setExtraCounter((c) => c + 1);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Upload failed");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [token, extraCounter, extrasCapHit, doUpload],
   );
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) uploadFile(file);
+    e.target.value = "";
+  };
+
+  const onExtraFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadExtraPhoto(file);
     e.target.value = "";
   };
 
@@ -199,6 +255,14 @@ export default function ExteriorCapture() {
       return next;
     });
     setStage("capture");
+  };
+
+  const removeExtra = (id: string) => {
+    setStepsTaken((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const submit = async () => {
@@ -257,14 +321,25 @@ export default function ExteriorCapture() {
       <ReviewScreen
         stepsTaken={stepsTaken}
         retake={retake}
-        addMore={() => {
-          const firstMissing = PHOTO_STEPS.findIndex((s) => !stepsTaken[s.id]);
-          setStepIdx(Math.max(0, firstMissing));
-          setStage("capture");
+        removeExtra={removeExtra}
+        addAnotherPhoto={() => extraInputRef.current?.click()}
+        gotoMissingRequired={() => {
+          const firstMissing = PHOTO_STEPS.findIndex(
+            (s) => s.required && !stepsTaken[s.id],
+          );
+          if (firstMissing >= 0) {
+            setStepIdx(firstMissing);
+            setStage("capture");
+          }
         }}
         submit={submit}
         submitting={submitting}
+        uploading={uploading}
         requiredRemaining={requiredRemaining}
+        extrasCount={extrasCount}
+        extrasCapHit={extrasCapHit}
+        extraInputRef={extraInputRef}
+        onExtraFileChange={onExtraFileChange}
       />
     );
 
@@ -578,33 +653,70 @@ function CaptureScreen({
   );
 }
 
+type TakenPhoto = {
+  id: string;
+  title: string;
+  url: string;
+  isExtra: boolean;
+  stepIdx: number; // -1 for extras
+};
+
 function ReviewScreen({
   stepsTaken,
   retake,
-  addMore,
+  removeExtra,
+  addAnotherPhoto,
+  gotoMissingRequired,
   submit,
   submitting,
+  uploading,
   requiredRemaining,
+  extrasCount,
+  extrasCapHit,
+  extraInputRef,
+  onExtraFileChange,
 }: {
   stepsTaken: Record<string, string>;
   retake: (idx: number) => void;
-  addMore: () => void;
+  removeExtra: (id: string) => void;
+  addAnotherPhoto: () => void;
+  gotoMissingRequired: () => void;
   submit: () => void;
   submitting: boolean;
+  uploading: boolean;
   requiredRemaining: number;
+  extrasCount: number;
+  extrasCapHit: boolean;
+  extraInputRef: React.RefObject<HTMLInputElement | null>;
+  onExtraFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
-  const taken = PHOTO_STEPS.map((step, idx) => ({
-    step,
-    idx,
-    url: stepsTaken[step.id],
+  const guidedTaken: TakenPhoto[] = PHOTO_STEPS.map((step, idx) => ({
+    id: step.id,
+    title: step.title,
+    url: stepsTaken[step.id] || "",
+    isExtra: false,
+    stepIdx: idx,
   })).filter((x) => !!x.url);
+
+  const extraTaken: TakenPhoto[] = Object.entries(stepsTaken)
+    .filter(([id]) => id.startsWith("extra_"))
+    .map(([id, url], i) => ({
+      id,
+      title: `Extra photo ${i + 1}`,
+      url,
+      isExtra: true,
+      stepIdx: -1,
+    }));
+
+  const taken = [...guidedTaken, ...extraTaken];
 
   return (
     <div className="min-h-dvh bg-slate-50 p-5 pb-32">
       <div className="max-w-md mx-auto">
         <h2 className="text-xl font-bold mb-1">Review your photos</h2>
         <p className="text-sm text-slate-600 mb-4">
-          {taken.length} photo{taken.length === 1 ? "" : "s"} ready to send. Tap any to retake.
+          {taken.length} photo{taken.length === 1 ? "" : "s"} ready to send. Tap any guided
+          shot to retake, or tap an extra to remove it.
         </p>
 
         {requiredRemaining > 0 && (
@@ -612,22 +724,41 @@ function ReviewScreen({
             <p className="font-semibold mb-1">
               {requiredRemaining} required photo{requiredRemaining === 1 ? "" : "s"} still missing
             </p>
-            <p>You can submit anyway, but the estimate may be less accurate.</p>
+            <p className="mb-2">You can submit anyway, but the estimate may be less accurate.</p>
+            <button
+              onClick={gotoMissingRequired}
+              className="text-xs font-semibold text-amber-900 underline-offset-4 underline"
+            >
+              Take the missing required photo{requiredRemaining === 1 ? "" : "s"}
+            </button>
+          </div>
+        )}
+
+        {extrasCount >= 25 && !extrasCapHit && (
+          <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-4 text-xs text-blue-800">
+            That's a lot of photos! You've got {taken.length} sent — plenty for an accurate
+            estimate. You can add more if you really want, but we have everything we need.
+          </div>
+        )}
+
+        {extrasCapHit && (
+          <div className="rounded-xl bg-slate-100 border border-slate-200 p-3 mb-4 text-xs text-slate-700">
+            You've reached the maximum number of photos. Tap submit to send them in!
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          {taken.map(({ step, idx, url }) => (
+          {taken.map((p) => (
             <button
-              key={step.id}
-              onClick={() => retake(idx)}
+              key={p.id}
+              onClick={() => (p.isExtra ? removeExtra(p.id) : retake(p.stepIdx))}
               className="rounded-xl overflow-hidden border-2 border-slate-200 hover:border-blue-400 bg-white transition-all"
             >
               <div className="aspect-square bg-slate-100 relative">
-                {url && url !== "ok" ? (
+                {p.url && p.url !== "ok" ? (
                   <img
-                    src={url}
-                    alt={step.title}
+                    src={p.url}
+                    alt={p.title}
                     className="absolute inset-0 w-full h-full object-cover"
                   />
                 ) : (
@@ -638,23 +769,51 @@ function ReviewScreen({
                 <div className="absolute top-1.5 right-1.5 bg-emerald-500 text-white rounded-full h-5 w-5 flex items-center justify-center">
                   <CheckCircle2 className="h-3 w-3" />
                 </div>
+                {p.isExtra && (
+                  <div className="absolute top-1.5 left-1.5 bg-slate-800/85 text-white text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded">
+                    Extra
+                  </div>
+                )}
               </div>
               <div className="p-2 text-left">
                 <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  Tap to retake
+                  {p.isExtra ? "Tap to remove" : "Tap to retake"}
                 </p>
-                <p className="text-xs font-semibold leading-tight">{step.title}</p>
+                <p className="text-xs font-semibold leading-tight">{p.title}</p>
               </div>
             </button>
           ))}
           <button
-            onClick={addMore}
-            className="rounded-xl border-2 border-dashed border-slate-300 bg-white hover:border-blue-400 transition-all p-4 flex flex-col items-center justify-center gap-2 aspect-square"
+            onClick={addAnotherPhoto}
+            disabled={uploading || extrasCapHit}
+            className="rounded-xl border-2 border-dashed border-slate-300 bg-white hover:border-blue-400 disabled:opacity-40 transition-all p-4 flex flex-col items-center justify-center gap-2 aspect-square"
           >
-            <Camera className="h-6 w-6 text-slate-400" />
-            <span className="text-xs text-slate-500 font-semibold">Add more</span>
+            {uploading ? (
+              <>
+                <Loader2 className="h-6 w-6 text-blue-500 animate-spin" />
+                <span className="text-xs text-slate-500 font-semibold">Uploading…</span>
+              </>
+            ) : (
+              <>
+                <Camera className="h-6 w-6 text-slate-400" />
+                <span className="text-xs text-slate-600 font-semibold text-center leading-tight">
+                  Add another photo
+                </span>
+                <span className="text-[10px] text-slate-400">No limit</span>
+              </>
+            )}
           </button>
         </div>
+
+        {/* Hidden input for extras — native camera */}
+        <input
+          ref={extraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={onExtraFileChange}
+          className="hidden"
+        />
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-[0_-8px_24px_rgba(0,0,0,0.06)] px-5 py-3 safe-bottom">
