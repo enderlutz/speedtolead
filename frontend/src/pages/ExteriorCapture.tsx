@@ -28,7 +28,6 @@ type PhotoStep = {
   title: string;
   subtitle: string;
   tip: string;
-  required: boolean;
 };
 
 const PHOTO_STEPS: PhotoStep[] = [
@@ -37,63 +36,54 @@ const PHOTO_STEPS: PhotoStep[] = [
     title: "Front of your house",
     subtitle: "The whole front, corner to corner",
     tip: "Step back far enough to fit the entire front wall. Stand on the street if you need to.",
-    required: true,
   },
   {
     id: "front_door",
     title: "Front door close-up",
     subtitle: "Centered on the front door",
     tip: "We use the door size to measure your walls — a standard door is 80 inches tall.",
-    required: true,
   },
   {
     id: "right_side",
     title: "Right side of the house",
     subtitle: "Looking at the right wall",
     tip: "Stand back enough to see the whole side from the front corner to the back corner.",
-    required: true,
   },
   {
     id: "right_close",
     title: "Right side close-up",
     subtitle: "A closer view showing windows",
     tip: "Helps us count and size your windows accurately.",
-    required: false,
   },
   {
     id: "back_wide",
     title: "Back of your house",
     subtitle: "The whole back, corner to corner",
     tip: "If there's a fence in the way, shoot through the slats or stand on a chair.",
-    required: true,
   },
   {
     id: "back_close",
     title: "Back close-up",
     subtitle: "A closer view of the back wall",
     tip: "Show any back doors, windows, or patios.",
-    required: false,
   },
   {
     id: "left_side",
     title: "Left side of the house",
     subtitle: "Looking at the left wall",
     tip: "Same as the right — stand back, capture corner to corner.",
-    required: true,
   },
   {
     id: "left_close",
     title: "Left side close-up",
     subtitle: "Closer view of any windows",
-    tip: "Optional but helps accuracy.",
-    required: false,
+    tip: "Helps accuracy.",
   },
   {
     id: "extras",
     title: "Anything else worth noting?",
     subtitle: "Damage, peeling, special areas",
-    tip: "Optional — show us anything you want addressed.",
-    required: false,
+    tip: "Show us anything you want addressed.",
   },
 ];
 
@@ -137,11 +127,6 @@ export default function ExteriorCapture() {
   }, [token]);
 
   const currentStep = PHOTO_STEPS[stepIdx];
-  const requiredRemaining = useMemo(
-    () =>
-      PHOTO_STEPS.filter((s) => s.required && !stepsTaken[s.id]).length,
-    [stepsTaken],
-  );
   const totalTaken = Object.keys(stepsTaken).length;
   const extrasCount = useMemo(
     () => Object.keys(stepsTaken).filter((id) => id.startsWith("extra_")).length,
@@ -303,13 +288,13 @@ export default function ExteriorCapture() {
         totalSteps={PHOTO_STEPS.length}
         taken={!!stepsTaken[currentStep.id]}
         uploading={uploading}
+        submitting={submitting}
         error={error}
         onCamera={() => fileInputRef.current?.click()}
         onSkip={skip}
         onBack={goBack}
         onJumpToReview={() => setStage("review")}
-        canSkip={!currentStep.required}
-        requiredRemaining={requiredRemaining}
+        onSubmitNow={submit}
         totalTaken={totalTaken}
         fileInputRef={fileInputRef}
         onFileChange={onFileChange}
@@ -323,19 +308,9 @@ export default function ExteriorCapture() {
         retake={retake}
         removeExtra={removeExtra}
         addAnotherPhoto={() => extraInputRef.current?.click()}
-        gotoMissingRequired={() => {
-          const firstMissing = PHOTO_STEPS.findIndex(
-            (s) => s.required && !stepsTaken[s.id],
-          );
-          if (firstMissing >= 0) {
-            setStepIdx(firstMissing);
-            setStage("capture");
-          }
-        }}
         submit={submit}
         submitting={submitting}
         uploading={uploading}
-        requiredRemaining={requiredRemaining}
         extrasCount={extrasCount}
         extrasCapHit={extrasCapHit}
         extraInputRef={extraInputRef}
@@ -387,10 +362,10 @@ function WelcomeScreen({
         </div>
         <h1 className="text-2xl font-bold mb-2">{greeting}</h1>
         <p className="text-base text-slate-600 mb-1">
-          We need ~10 quick photos of your house to give you a fast exterior paint quote.
+          Send us some photos of your home so we can quote your exterior paint job.
         </p>
         <p className="text-sm text-slate-500 mb-8">
-          Takes about 5 minutes. No app to download.
+          We'll walk you through it. Skip any shots that don't apply, submit whenever you're done.
         </p>
         {info?.address && (
           <div className="rounded-lg border bg-white p-3 mb-6 text-sm text-slate-600 w-full">
@@ -503,13 +478,13 @@ function CaptureScreen({
   totalSteps,
   taken,
   uploading,
+  submitting,
   error,
   onCamera,
   onSkip,
   onBack,
   onJumpToReview,
-  canSkip,
-  requiredRemaining,
+  onSubmitNow,
   totalTaken,
   fileInputRef,
   onFileChange,
@@ -519,13 +494,13 @@ function CaptureScreen({
   totalSteps: number;
   taken: boolean;
   uploading: boolean;
+  submitting: boolean;
   error: string | null;
   onCamera: () => void;
   onSkip: () => void;
   onBack: () => void;
   onJumpToReview: () => void;
-  canSkip: boolean;
-  requiredRemaining: number;
+  onSubmitNow: () => void;
   totalTaken: number;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -551,19 +526,7 @@ function CaptureScreen({
         </div>
       </div>
 
-      <div className="flex-1 px-5 pt-6 pb-24 max-w-md mx-auto w-full">
-        {/* Step title */}
-        <div className="mb-1 flex items-center gap-2">
-          {step.required ? (
-            <span className="text-[10px] uppercase tracking-wide font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded">
-              Required
-            </span>
-          ) : (
-            <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-              Optional
-            </span>
-          )}
-        </div>
+      <div className="flex-1 px-5 pt-6 pb-32 max-w-md mx-auto w-full">
         <h2 className="text-xl font-bold leading-tight">{step.title}</h2>
         <p className="text-sm text-slate-600 mt-1">{step.subtitle}</p>
 
@@ -605,7 +568,7 @@ function CaptureScreen({
         <div className="max-w-md mx-auto flex items-center gap-2">
           <button
             onClick={onBack}
-            disabled={stepIdx === 0 || uploading}
+            disabled={stepIdx === 0 || uploading || submitting}
             className="p-3 rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30"
             aria-label="Previous"
           >
@@ -613,7 +576,7 @@ function CaptureScreen({
           </button>
           <button
             onClick={onCamera}
-            disabled={uploading}
+            disabled={uploading || submitting}
             className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60 text-white font-semibold py-4 rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2"
           >
             {uploading ? (
@@ -628,26 +591,44 @@ function CaptureScreen({
               </>
             )}
           </button>
-          {canSkip && (
+          <button
+            onClick={onSkip}
+            disabled={uploading || submitting}
+            className="px-3 py-3 text-xs text-slate-500 hover:bg-slate-100 rounded-xl disabled:opacity-40"
+          >
+            Skip
+          </button>
+        </div>
+        {/* Always-available submit / jump-to-review. Customer can bail
+            with whatever they've taken at any point. */}
+        <div className="max-w-md mx-auto mt-2 flex items-center justify-center gap-3 text-xs">
+          {totalTaken > 0 && (
             <button
-              onClick={onSkip}
-              disabled={uploading}
-              className="px-3 py-3 text-xs text-slate-500 hover:bg-slate-100 rounded-xl disabled:opacity-40"
+              onClick={onSubmitNow}
+              disabled={uploading || submitting}
+              className="text-blue-600 font-semibold underline-offset-4 hover:underline disabled:opacity-40 flex items-center gap-1"
             >
-              Skip
+              {submitting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Send className="h-3 w-3" />
+              )}
+              Submit {totalTaken} photo{totalTaken === 1 ? "" : "s"} now
+            </button>
+          )}
+          {totalTaken > 0 && stepIdx < totalSteps - 1 && (
+            <span className="text-slate-300">·</span>
+          )}
+          {stepIdx < totalSteps - 1 && (
+            <button
+              onClick={onJumpToReview}
+              disabled={uploading || submitting}
+              className="text-slate-500 font-semibold underline-offset-4 hover:underline disabled:opacity-40"
+            >
+              Review my photos →
             </button>
           )}
         </div>
-        {requiredRemaining === 0 && stepIdx < totalSteps - 1 && (
-          <div className="max-w-md mx-auto mt-2 text-center">
-            <button
-              onClick={onJumpToReview}
-              className="text-xs text-blue-600 font-semibold underline-offset-4 hover:underline"
-            >
-              Skip the rest and review →
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -666,11 +647,9 @@ function ReviewScreen({
   retake,
   removeExtra,
   addAnotherPhoto,
-  gotoMissingRequired,
   submit,
   submitting,
   uploading,
-  requiredRemaining,
   extrasCount,
   extrasCapHit,
   extraInputRef,
@@ -680,11 +659,9 @@ function ReviewScreen({
   retake: (idx: number) => void;
   removeExtra: (id: string) => void;
   addAnotherPhoto: () => void;
-  gotoMissingRequired: () => void;
   submit: () => void;
   submitting: boolean;
   uploading: boolean;
-  requiredRemaining: number;
   extrasCount: number;
   extrasCapHit: boolean;
   extraInputRef: React.RefObject<HTMLInputElement | null>;
@@ -718,21 +695,6 @@ function ReviewScreen({
           {taken.length} photo{taken.length === 1 ? "" : "s"} ready to send. Tap any guided
           shot to retake, or tap an extra to remove it.
         </p>
-
-        {requiredRemaining > 0 && (
-          <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 mb-4 text-xs text-amber-800">
-            <p className="font-semibold mb-1">
-              {requiredRemaining} required photo{requiredRemaining === 1 ? "" : "s"} still missing
-            </p>
-            <p className="mb-2">You can submit anyway, but the estimate may be less accurate.</p>
-            <button
-              onClick={gotoMissingRequired}
-              className="text-xs font-semibold text-amber-900 underline-offset-4 underline"
-            >
-              Take the missing required photo{requiredRemaining === 1 ? "" : "s"}
-            </button>
-          </div>
-        )}
 
         {extrasCount >= 25 && !extrasCapHit && (
           <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-4 text-xs text-blue-800">
