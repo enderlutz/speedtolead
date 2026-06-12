@@ -65,6 +65,19 @@ def _claude_turn(persona: dict, mood: str, history: list[dict]) -> Optional[str]
         logger.warning("ANTHROPIC_API_KEY not configured — training orchestrator falling back")
         return None
 
+    # Anthropic's messages API only accepts {role, content} per message. Our
+    # internal history dicts carry an extra `ts` field (added by the WS
+    # handler so transcript timestamps survive persistence) — Anthropic
+    # rejects that as a schema violation, which silently dropped every
+    # turn after the greeting into the "phone cut out" fallback. Strip
+    # to the two fields Anthropic actually expects.
+    cleaned: list[dict] = []
+    for m in history:
+        role = m.get("role")
+        content = m.get("content")
+        if role in ("user", "assistant") and isinstance(content, str):
+            cleaned.append({"role": role, "content": content})
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -72,7 +85,7 @@ def _claude_turn(persona: dict, mood: str, history: list[dict]) -> Optional[str]
             model=CLAUDE_MODEL,
             max_tokens=MAX_TOKENS_PER_TURN,
             system=build_system_prompt(persona, mood),
-            messages=history,
+            messages=cleaned,
         )
         if resp.content and len(resp.content) > 0:
             text = resp.content[0].text.strip()
