@@ -341,7 +341,7 @@ def get_nearby_jobs(
         if (not lead.lat or not lead.lng) and (lead.address or "").strip():
             try:
                 from services.geocoder import geocode_address
-                geo = geocode_address(lead.address)
+                geo = geocode_address(lead.address, lead.zip_code or "")
                 if geo and geo.get("lat") and geo.get("lng"):
                     lead.lat = float(geo["lat"])
                     lead.lng = float(geo["lng"])

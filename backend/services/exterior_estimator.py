@@ -140,7 +140,7 @@ def _skipped(reason: str) -> dict:
 def _resolve_coords(lead: Lead, db) -> Optional[tuple[float, float]]:
     if lead.lat and lead.lng:
         return (float(lead.lat), float(lead.lng))
-    geo = geocode_address(lead.address or "")
+    geo = geocode_address(lead.address or "", lead.zip_code or "")
     if not geo:
         return None
     lead.lat = geo["lat"]

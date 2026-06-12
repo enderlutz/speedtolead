@@ -32,7 +32,7 @@ def _geocode_job(address: str, zip_code: str) -> tuple[float, float]:
     neither path works — caller treats that as 'pin missing.'"""
     if address:
         try:
-            g = geocoder.geocode_address(address)
+            g = geocoder.geocode_address(address, zip_code or "")
             if g and g.get("lat") and g.get("lng"):
                 return float(g["lat"]), float(g["lng"])
         except Exception as e:
