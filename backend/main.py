@@ -3,7 +3,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db, get_db
@@ -423,7 +423,7 @@ app.include_router(internal.router, prefix="/api")
 # the browser WebSocket API can't set Authorization headers — the rep's
 # JWT comes as a ?token=... query param, validated inside the handler.
 @app.websocket("/ws/training/{session_id}")
-async def training_ws(websocket, session_id: str):
+async def training_ws(websocket: WebSocket, session_id: str):
     await training_ws_handler(websocket, session_id)
 
 
