@@ -21,9 +21,13 @@ import {
   Pencil,
   Send,
   MessageSquare,
+  XCircle,
+  Eye,
+  Upload,
+  PauseCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type ExteriorEstimate, type ExteriorPhoto, type LeadDetail } from "@/lib/api";
+import { api, type ExteriorEstimate, type ExteriorPhoto, type LeadDetail, type ExteriorActivity } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +42,7 @@ export default function ExteriorTab({ lead, onChange }: Props) {
   const [captureUrl, setCaptureUrl] = useState<string | null>(null);
   const [issuingLink, setIssuingLink] = useState(false);
   const [sendingLink, setSendingLink] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [lastSentBody, setLastSentBody] = useState<string | null>(null);
   const [runningEstimate, setRunningEstimate] = useState(false);
   const [savingOverride, setSavingOverride] = useState(false);
@@ -49,6 +54,7 @@ export default function ExteriorTab({ lead, onChange }: Props) {
 
   const photos: ExteriorPhoto[] = lead.exterior_photos || [];
   const estimate: ExteriorEstimate = lead.exterior_estimate || ({} as ExteriorEstimate);
+  const activity: ExteriorActivity = lead.exterior_activity || {};
   const photosByCustomer = photos.filter((p) => p.source === "customer").length;
 
   useEffect(() => {
@@ -92,6 +98,39 @@ export default function ExteriorTab({ lead, onChange }: Props) {
       toast.error(e instanceof Error ? e.message : "Couldn't text the customer");
     } finally {
       setSendingLink(false);
+    }
+  };
+
+  const cancelLink = async () => {
+    if (
+      !confirm(
+        `Cancel the current capture link and permanently delete all ${photos.length} uploaded photo(s)?\n\n` +
+          "The customer's current link will stop working. You can issue a fresh link right after.",
+      )
+    ) {
+      return;
+    }
+    setCanceling(true);
+    try {
+      const r = await api.cancelExteriorCaptureLink(lead.id);
+      setCaptureUrl(null);
+      setLastSentBody(null);
+      onChange({
+        ...lead,
+        exterior_capture_token: "",
+        exterior_photos: [],
+        exterior_estimate: {} as ExteriorEstimate,
+        exterior_activity: {},
+      });
+      toast.success(
+        r.photos_removed > 0
+          ? `Link canceled — ${r.photos_removed} photo${r.photos_removed === 1 ? "" : "s"} deleted`
+          : "Link canceled",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't cancel link");
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -161,13 +200,16 @@ export default function ExteriorTab({ lead, onChange }: Props) {
         captureUrl={captureUrl}
         issuingLink={issuingLink}
         sendingLink={sendingLink}
+        canceling={canceling}
         lastSentBody={lastSentBody}
         onIssue={issueLink}
         onIssueAndSend={issueLinkAndSendSms}
+        onCancel={cancelLink}
         onCopy={copyLink}
         photosByCustomer={photosByCustomer}
         customerSubmittedAt={estimate.customer_submitted_at}
         hasPhone={!!lead.contact_phone}
+        activity={activity}
       />
 
       {photos.length > 0 && (
@@ -194,24 +236,30 @@ function CaptureLinkCard({
   captureUrl,
   issuingLink,
   sendingLink,
+  canceling,
   lastSentBody,
   onIssue,
   onIssueAndSend,
+  onCancel,
   onCopy,
   photosByCustomer,
   customerSubmittedAt,
   hasPhone,
+  activity,
 }: {
   captureUrl: string | null;
   issuingLink: boolean;
   sendingLink: boolean;
+  canceling: boolean;
   lastSentBody: string | null;
   onIssue: () => void;
   onIssueAndSend: () => void;
+  onCancel: () => void;
   onCopy: () => void;
   photosByCustomer: number;
   customerSubmittedAt?: string;
   hasPhone: boolean;
+  activity: ExteriorActivity;
 }) {
   return (
     <Card>
@@ -255,9 +303,17 @@ function CaptureLinkCard({
                 No phone on file for this lead — only the manual "Generate link" path will work.
               </p>
             )}
+            {activity?.canceled_at && (
+              <p className="text-xs text-muted-foreground italic">
+                Previous link canceled {new Date(activity.canceled_at).toLocaleString()}
+                {activity.canceled_by ? ` by ${activity.canceled_by}` : ""}.
+              </p>
+            )}
           </>
         ) : (
           <>
+            <StatusPill activity={activity} photoCount={photosByCustomer} />
+
             <div className="rounded-lg bg-muted/40 border p-3 flex items-center gap-2">
               <LinkIcon className="h-4 w-4 text-muted-foreground shrink-0" />
               <code className="text-xs flex-1 truncate select-all">{captureUrl}</code>
@@ -277,43 +333,163 @@ function CaptureLinkCard({
               </div>
             )}
 
-            {!lastSentBody && (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onIssueAndSend}
-                  disabled={sendingLink || !hasPhone}
-                  title={!hasPhone ? "No phone on file" : undefined}
-                >
-                  {sendingLink ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  ) : (
-                    <Send className="h-3.5 w-3.5 mr-1.5" />
-                  )}
-                  Text the link to customer
-                </Button>
-              </div>
-            )}
+            <ActivityTimeline activity={activity} submittedAt={customerSubmittedAt} />
 
-            <div className="flex items-center gap-3 text-xs">
-              <Badge variant="outline" className="text-xs">
-                {photosByCustomer} customer photos
-              </Badge>
-              {customerSubmittedAt && (
-                <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-500/30 text-xs">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Customer submitted {new Date(customerSubmittedAt).toLocaleString()}
-                </Badge>
-              )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onIssueAndSend}
+                disabled={sendingLink || !hasPhone}
+                title={!hasPhone ? "No phone on file" : "Re-send the link to the customer"}
+              >
+                {sendingLink ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                {(activity.link_sent_count ?? 0) > 0 ? "Re-send the link" : "Text the link"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onCancel}
+                disabled={canceling}
+                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                title="Invalidate the link and delete uploaded photos"
+              >
+                {canceling ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Cancel &amp; start over
+              </Button>
             </div>
+
             <p className="text-xs text-muted-foreground">
-              The same link stays valid — customer can come back anytime to add more photos.
+              Same link stays valid — customer can return anytime to add more photos.
             </p>
           </>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ----- Activity sub-components -----
+
+function relativeShort(iso: string | undefined): string {
+  if (!iso) return "";
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return "just now";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
+
+function StatusPill({
+  activity,
+  photoCount,
+}: {
+  activity: ExteriorActivity;
+  photoCount: number;
+}) {
+  // Status priority: submitted > stalled > uploading > opened > sent
+  const submitted = !!activity.submitted_at;
+  const lastUploadIso = activity.last_upload_at;
+  const lastOpenIso = activity.last_opened_at;
+  const firstUploadIso = activity.first_upload_at;
+  const sentAt = activity.link_sent_at;
+
+  let kind: "submitted" | "stalled" | "uploading" | "opened" | "sent" | "unsent";
+  let icon: React.ReactNode;
+  let text: string;
+  let cls: string;
+
+  if (submitted) {
+    kind = "submitted";
+    icon = <CheckCircle2 className="h-3.5 w-3.5" />;
+    text = `Submitted · ${photoCount} photo${photoCount === 1 ? "" : "s"}`;
+    cls = "bg-emerald-500/10 text-emerald-700 border-emerald-500/30";
+  } else if (firstUploadIso) {
+    const lastUpMs = lastUploadIso ? Date.now() - Date.parse(lastUploadIso) : Infinity;
+    if (lastUpMs > 30 * 60 * 1000) {
+      kind = "stalled";
+      icon = <PauseCircle className="h-3.5 w-3.5" />;
+      text = `Stalled · ${photoCount} photo${photoCount === 1 ? "" : "s"} · last ${relativeShort(lastUploadIso)}`;
+      cls = "bg-amber-500/10 text-amber-700 border-amber-500/30";
+    } else {
+      kind = "uploading";
+      icon = <Upload className="h-3.5 w-3.5" />;
+      text = `Uploading · ${photoCount} so far · last ${relativeShort(lastUploadIso)}`;
+      cls = "bg-blue-500/10 text-blue-700 border-blue-500/30";
+    }
+  } else if (lastOpenIso) {
+    kind = "opened";
+    icon = <Eye className="h-3.5 w-3.5" />;
+    text = `Opened · no photos yet · ${relativeShort(lastOpenIso)}`;
+    cls = "bg-violet-500/10 text-violet-700 border-violet-500/30";
+  } else if (sentAt) {
+    kind = "sent";
+    icon = <Send className="h-3.5 w-3.5" />;
+    text = `Sent · waiting on customer · ${relativeShort(sentAt)}`;
+    cls = "bg-slate-500/10 text-slate-700 border-slate-400/30";
+  } else {
+    kind = "unsent";
+    icon = <Send className="h-3.5 w-3.5" />;
+    text = "Link generated · not texted yet";
+    cls = "bg-slate-500/10 text-slate-700 border-slate-400/30";
+  }
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${cls}`}
+      data-status={kind}
+    >
+      {icon}
+      {text}
+    </div>
+  );
+}
+
+function ActivityTimeline({
+  activity,
+  submittedAt,
+}: {
+  activity: ExteriorActivity;
+  submittedAt?: string;
+}) {
+  const rows: { label: string; iso?: string; suffix?: string }[] = [
+    { label: "Link sent", iso: activity.link_sent_at, suffix: activity.link_sent_count && activity.link_sent_count > 1 ? `(${activity.link_sent_count}× total)` : undefined },
+    { label: "Customer opened", iso: activity.first_opened_at },
+    { label: "First photo", iso: activity.first_upload_at },
+    { label: "Last photo", iso: activity.last_upload_at, suffix: activity.upload_count ? `(${activity.upload_count} total)` : undefined },
+    { label: "Submitted", iso: activity.submitted_at || submittedAt },
+  ].filter((r) => !!r.iso);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <p className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground mb-2">
+        Activity
+      </p>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-baseline gap-2 text-xs">
+            <span className="text-muted-foreground w-24 shrink-0">{r.label}</span>
+            <span className="font-medium">{new Date(r.iso!).toLocaleString()}</span>
+            {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

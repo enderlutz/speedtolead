@@ -123,6 +123,7 @@ export interface Lead {
   exterior_capture_token?: string;
   exterior_photos?: ExteriorPhoto[];
   exterior_estimate?: ExteriorEstimate;
+  exterior_activity?: ExteriorActivity;
 }
 
 export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
@@ -1662,6 +1663,14 @@ export const api = {
       `/api/leads/${leadId}/exterior/capture-link/send-sms`,
       { method: "POST" },
     ),
+  cancelExteriorCaptureLink: (leadId: string) =>
+    request<{
+      ok: boolean;
+      had_token: boolean;
+      photos_attempted: number;
+      photos_removed: number;
+      canceled_by: string;
+    }>(`/api/leads/${leadId}/exterior/cancel-link`, { method: "POST" }),
   deleteExteriorPhoto: (leadId: string, photoId: string) =>
     request<{ photos: ExteriorPhoto[] }>(
       `/api/leads/${leadId}/exterior/photos/${photoId}`,
@@ -1771,6 +1780,22 @@ export interface ExteriorCaptureInfo {
   photos_submitted: number;
   min_photos_required: number;
   recommended_photos: number;
+}
+
+/** Customer's capture-page activity timeline. All ISO timestamps;
+ *  fields are populated lazily as the customer progresses. */
+export interface ExteriorActivity {
+  link_sent_at?: string;
+  link_sent_count?: number;
+  link_sent_by?: string;
+  first_opened_at?: string;
+  last_opened_at?: string;
+  first_upload_at?: string;
+  last_upload_at?: string;
+  upload_count?: number;
+  submitted_at?: string;
+  canceled_at?: string;
+  canceled_by?: string;
 }
 
 export interface TrainingAudioSegment {

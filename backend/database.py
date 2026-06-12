@@ -139,6 +139,12 @@ class Lead(Base):
     exterior_capture_token = Column(Text, default="", index=True)
     exterior_photos_json = Column(Text, default="[]")
     exterior_estimate_json = Column(Text, default="{}")
+    # Activity timeline for the customer's capture-page session. Stamped
+    # on link-send, page-open, photo-upload, submit, cancel. Lets VA see
+    # at a glance whether the customer is engaging, stalled, or done —
+    # drives the status pill on the Exterior tab. Separate from the
+    # estimate_json so a re-run of the AI estimator doesn't blow it away.
+    exterior_activity_json = Column(Text, default="{}")
 
     def to_dict(self) -> dict:
         return {
@@ -187,6 +193,7 @@ class Lead(Base):
             "exterior_capture_token": self.exterior_capture_token or "",
             "exterior_photos": _j(self.exterior_photos_json) if self.exterior_photos_json else [],
             "exterior_estimate": _j(self.exterior_estimate_json) if self.exterior_estimate_json else {},
+            "exterior_activity": _j(self.exterior_activity_json) if self.exterior_activity_json else {},
         }
 
 
@@ -2561,12 +2568,13 @@ def _run_migrations():
                 ))
             logger.info("Migration: added training_sessions.audio_segments_json")
 
-    # Exterior painting AI estimate columns on leads. Three add-on columns
+    # Exterior painting AI estimate columns on leads. Add-on columns
     # for the photo-based stucco/brick exterior estimator. Idempotent.
     for col_name, ddl in [
         ("exterior_capture_token", "ALTER TABLE leads ADD COLUMN exterior_capture_token TEXT DEFAULT ''"),
         ("exterior_photos_json", "ALTER TABLE leads ADD COLUMN exterior_photos_json TEXT DEFAULT '[]'"),
         ("exterior_estimate_json", "ALTER TABLE leads ADD COLUMN exterior_estimate_json TEXT DEFAULT '{}'"),
+        ("exterior_activity_json", "ALTER TABLE leads ADD COLUMN exterior_activity_json TEXT DEFAULT '{}'"),
     ]:
         if col_name not in existing:
             with _engine.begin() as conn:

@@ -19,13 +19,158 @@ from typing import Optional
 
 from config import get_settings
 from database import Lead
-from services.supabase_storage import upload_image
+from services.supabase_storage import upload_image, delete_object
 
 logger = logging.getLogger(__name__)
 
 
 def _bucket() -> str:
     return get_settings().supabase_exterior_photos_bucket or "exterior-photos"
+
+
+# ---------- Activity tracking ----------
+
+def get_activity(lead: Lead) -> dict:
+    try:
+        return json.loads(lead.exterior_activity_json or "{}")
+    except Exception:
+        return {}
+
+
+def update_activity(db, lead: Lead, updates: dict) -> dict:
+    """Merge `updates` into the activity dict and persist. Returns the
+    merged result. Caller is responsible for any 'first-only' guards —
+    pass only the keys you want to overwrite."""
+    act = get_activity(lead)
+    act.update(updates)
+    lead.exterior_activity_json = json.dumps(act)
+    db.commit()
+    return act
+
+
+def stamp_open(db, lead: Lead) -> dict:
+    """Customer opened the capture page. Sets first_opened_at once,
+    last_opened_at on every visit."""
+    now = datetime.now(timezone.utc).isoformat()
+    act = get_activity(lead)
+    updates: dict = {"last_opened_at": now}
+    if not act.get("first_opened_at"):
+        updates["first_opened_at"] = now
+    return update_activity(db, lead, updates)
+
+
+def stamp_upload(db, lead: Lead) -> dict:
+    """Customer uploaded a photo. Sets first_upload_at once,
+    last_upload_at + upload_count on every upload."""
+    now = datetime.now(timezone.utc).isoformat()
+    act = get_activity(lead)
+    updates: dict = {
+        "last_upload_at": now,
+        "upload_count": int(act.get("upload_count") or 0) + 1,
+    }
+    if not act.get("first_upload_at"):
+        updates["first_upload_at"] = now
+    return update_activity(db, lead, updates)
+
+
+def stamp_submitted(db, lead: Lead) -> dict:
+    return update_activity(
+        db, lead, {"submitted_at": datetime.now(timezone.utc).isoformat()}
+    )
+
+
+def stamp_link_sent(db, lead: Lead, sent_by: str = "") -> dict:
+    """VA texted the capture link to the customer. Increments a counter
+    so VA can see how many times they've resent the link."""
+    now = datetime.now(timezone.utc).isoformat()
+    act = get_activity(lead)
+    return update_activity(
+        db,
+        lead,
+        {
+            "link_sent_at": now,
+            "link_sent_count": int(act.get("link_sent_count") or 0) + 1,
+            "link_sent_by": sent_by or act.get("link_sent_by") or "",
+        },
+    )
+
+
+def stamp_canceled(db, lead: Lead, canceled_by: str) -> dict:
+    return update_activity(
+        db,
+        lead,
+        {
+            "canceled_at": datetime.now(timezone.utc).isoformat(),
+            "canceled_by": canceled_by or "",
+        },
+    )
+
+
+def reset_activity_for_new_link(db, lead: Lead) -> dict:
+    """Wipe the activity timeline back to empty so a re-issued link
+    isn't conflated with the previous customer attempt. Called after
+    VA cancels and before they issue a fresh token."""
+    lead.exterior_activity_json = "{}"
+    db.commit()
+    return {}
+
+
+# ---------- Photo storage cleanup ----------
+
+
+def clear_lead_photos(db, lead: Lead) -> int:
+    """Delete every uploaded photo from Supabase Storage and reset the
+    lead's photo list. Returns the count of photos removed.
+
+    Used when VA cancels a capture link or the auto-cleanup sweep finds
+    abandoned uploads. Best-effort on Supabase deletions — if a single
+    object delete fails we keep going so a stuck blob doesn't block the
+    whole cancel flow.
+    """
+    try:
+        photos = json.loads(lead.exterior_photos_json or "[]")
+    except Exception:
+        photos = []
+    if not isinstance(photos, list):
+        photos = []
+
+    bucket_name = _bucket()
+    removed = 0
+    for p in photos:
+        url = p.get("url") or ""
+        path = _extract_path_from_url(url, bucket_name)
+        if not path:
+            continue
+        try:
+            ok = delete_object(bucket_name, path)
+            if ok:
+                removed += 1
+        except Exception as e:
+            logger.warning(f"Failed to delete exterior photo {path}: {e}")
+
+    lead.exterior_photos_json = "[]"
+    db.commit()
+    return removed
+
+
+def _extract_path_from_url(url: str, bucket: str) -> Optional[str]:
+    """Pull the in-bucket path out of a Supabase public-object URL.
+
+    Public-object URLs look like:
+      https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
+
+    Anything else (or a path-shaped string we somehow stored bare) gets
+    a best-effort split. Returns None when we can't recover a path."""
+    if not url:
+        return None
+    marker = f"/object/public/{bucket}/"
+    idx = url.find(marker)
+    if idx >= 0:
+        return url[idx + len(marker):]
+    # Fallback for any legacy bare-path entries
+    if url.startswith(f"{bucket}/"):
+        return url[len(bucket) + 1:]
+    return None
 
 
 def issue_capture_token(db, lead: Lead) -> str:

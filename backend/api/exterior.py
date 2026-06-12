@@ -26,6 +26,13 @@ from services.exterior_capture import (
     save_photo,
     append_photo,
     remove_photo,
+    clear_lead_photos,
+    stamp_open,
+    stamp_upload,
+    stamp_submitted,
+    stamp_link_sent,
+    stamp_canceled,
+    reset_activity_for_new_link,
 )
 from services.exterior_estimator import run_estimate
 from services.ghl import send_sms as ghl_send_sms
@@ -210,11 +217,61 @@ def issue_link_and_send_sms(lead_id: str, user: dict = Depends(require_staff)):
                 status_code=502,
                 detail="SMS send failed (GHL returned an error). Link is still valid — copy it and send manually.",
             )
+        # Activity stamp: who sent + when + bump counter for re-sends
+        sent_by = (user.get("name") or user.get("sub") or "").strip()
+        stamp_link_sent(db, lead, sent_by=sent_by)
         return {
             "token": token,
             "url": url,
             "sent": True,
             "body": body,
+        }
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/exterior/cancel-link")
+def cancel_capture_link(lead_id: str, user: dict = Depends(require_staff)):
+    """Invalidate the current capture link AND delete every photo the
+    customer uploaded against it.
+
+    Use case: photos came in unusable, VA wants a fresh start. The next
+    "Generate link" or "Generate & Text" issues a brand-new token. The
+    old SMS link the customer has stops working immediately.
+
+    Returns counts of what was wiped + the canceled-at timestamp for UI
+    confirmation."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        had_token = bool(lead.exterior_capture_token)
+        try:
+            photos_before = json.loads(lead.exterior_photos_json or "[]")
+            photo_count_before = len(photos_before) if isinstance(photos_before, list) else 0
+        except Exception:
+            photo_count_before = 0
+
+        removed = clear_lead_photos(db, lead)
+        lead.exterior_capture_token = ""
+        # Wipe any in-flight estimate too — the photos it was computed
+        # against no longer exist, so the dimensions are meaningless.
+        lead.exterior_estimate_json = "{}"
+        canceled_by = (user.get("name") or user.get("sub") or "").strip()
+        stamp_canceled(db, lead, canceled_by=canceled_by)
+        # Reset the activity timeline so the next link starts with a
+        # clean slate — VA won't think a stale "opened 2 days ago" stamp
+        # came from the new customer link.
+        reset_activity_for_new_link(db, lead)
+        db.commit()
+
+        return {
+            "ok": True,
+            "had_token": had_token,
+            "photos_attempted": photo_count_before,
+            "photos_removed": removed,
+            "canceled_by": canceled_by,
         }
     finally:
         db.close()
@@ -305,6 +362,11 @@ def capture_info(token: str):
         except Exception:
             photos = []
         first_name = (lead.contact_name or "").split()[0] if lead.contact_name else ""
+        # Activity stamp — customer opened the link. Stamps once (first
+        # open) + bumps last_opened_at every visit. Lets VA distinguish
+        # "they got the link but never opened" from "opened 3 times,
+        # never uploaded".
+        stamp_open(db, lead)
         return {
             "first_name": first_name,
             "address": lead.address or "",
@@ -349,6 +411,7 @@ async def capture_upload(
                 detail="Photo storage isn't configured yet — try again in a few minutes",
             )
         photos = append_photo(db, lead, record)
+        stamp_upload(db, lead)
         return {
             "ok": True,
             "photo": {k: record[k] for k in ("id", "url", "label", "uploaded_at") if k in record},
@@ -380,6 +443,9 @@ def capture_submit(token: str, body: SubmitBody, background_tasks: BackgroundTas
             est["customer_note"] = body.note[:500]
         lead.exterior_estimate_json = json.dumps(est)
         db.commit()
+        # Activity stamp duplicates the timestamp into the activity dict
+        # so the UI timeline only has to read one source.
+        stamp_submitted(db, lead)
         return {"ok": True}
     finally:
         db.close()
