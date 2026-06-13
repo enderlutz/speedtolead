@@ -2078,6 +2078,40 @@ class TrainingPersonaBank(Base):
         }
 
 
+class TrainingCoachingNote(Base):
+    """A coaching tidbit captured mid-call via the "corvette sandwich" trigger.
+
+    Per user (2026-06-12): Alan (or any rep) can say "corvette" during a live
+    training call, and the text between two consecutive "corvette" utterances
+    is captured as a note. These notes get injected into future grill personas'
+    backstories (so the customer knows what an A-rep should be doing) and into
+    the post-call grading prompt (so reps get scored against accumulated rules).
+    """
+    __tablename__ = "training_coaching_notes"
+    __table_args__ = (
+        Index("idx_training_coaching_notes_created", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    created_at = Column(Text, default="", nullable=False)
+    note_text = Column(Text, default="", nullable=False)
+    captured_in_session_id = Column(Text, default="")     # which TrainingSession the note came from
+    captured_by_user_id = Column(Text, default="")        # User.username who said the trigger
+    captured_by_name = Column(Text, default="")           # display name (for UI)
+    active = Column(Boolean, default=True, nullable=False)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "created_at": self.created_at or "",
+            "note_text": self.note_text or "",
+            "captured_in_session_id": self.captured_in_session_id or "",
+            "captured_by_user_id": self.captured_by_user_id or "",
+            "captured_by_name": self.captured_by_name or "",
+            "active": bool(self.active),
+        }
+
+
 class TrainingSession(Base):
     """One voice sales-training practice call.
 
@@ -2106,6 +2140,7 @@ class TrainingSession(Base):
     score_json = Column(Text, default="{}")                   # phase 4 coaching rubric
     audio_seconds = Column(Integer, default=0)                # total TTS audio synthesized (for cost tracking)
     audio_segments_json = Column(Text, default="[]")          # phase 5: [{turn_index, role, url, content_type, ts}]
+    is_baseline = Column(Boolean, default=False, nullable=False)  # set when Alan completes a grill call — used as gold standard
 
     def to_dict(self) -> dict:
         try:
@@ -2567,6 +2602,14 @@ def _run_migrations():
                     "ALTER TABLE training_sessions ADD COLUMN audio_segments_json TEXT DEFAULT '[]'"
                 ))
             logger.info("Migration: added training_sessions.audio_segments_json")
+        # is_baseline (2026-06-12): marks an Alan-handled grill call as the
+        # gold standard. Used by the grader to show reps "where they should be."
+        if "is_baseline" not in ts_cols:
+            with _engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE training_sessions ADD COLUMN is_baseline BOOLEAN DEFAULT FALSE NOT NULL"
+                ))
+            logger.info("Migration: added training_sessions.is_baseline")
 
     # Exterior painting AI estimate columns on leads. Add-on columns
     # for the photo-based stucco/brick exterior estimator. Idempotent.

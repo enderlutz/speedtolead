@@ -127,6 +127,13 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
       onTranscript: (e) => setTranscript((prev) => [...prev, e]),
       onStatus: (s) => setCallStatus(s),
       onRepSpeakingChange: (speaking) => setRepIsSpeaking(speaking),
+      onCoachingNoteSaved: (text) => {
+        // Trigger word ("corvette") completed a sandwich on the backend
+        // and a coaching note was persisted. Flash a confirmation so the
+        // person who said the trigger knows it landed.
+        const trimmed = text.length > 120 ? text.slice(0, 120) + "..." : text;
+        toast.success(`Coaching note saved: "${trimmed}"`);
+      },
       onError: (msg) => {
         setError(msg);
         toast.error(msg);

@@ -36,6 +36,11 @@ export default function Training() {
   } = useTrainingMode();
   const [pickingRandom, setPickingRandom] = useState(false);
   const [startingGrill, setStartingGrill] = useState(false);
+  const [baselineStatus, setBaselineStatus] = useState<{
+    exists: boolean;
+    captured_at?: string;
+    turns?: number;
+  } | null>(null);
 
   // Curated archetypes are paused — we keep the state in place for now
   // so /api/training/personas can return them again if we restore them.
@@ -72,6 +77,16 @@ export default function Training() {
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  // Pull the latest Alan-baseline status so we can show whether the bar
+  // is set (or nudge Alan to record one). Refreshes whenever the active
+  // call ends — that's when a new baseline might have just been saved.
+  useEffect(() => {
+    if (activeCall) return;
+    api.getTrainingBaselineStatus()
+      .then(setBaselineStatus)
+      .catch(() => setBaselineStatus(null));
+  }, [activeCall]);
 
   // After a call ends the user lands back here; refresh history to pick
   // up the new session row (which the global summary modal also shows).
@@ -296,11 +311,26 @@ export default function Training() {
             <div>
               <p className="text-sm font-semibold leading-tight">Hard mode — picky customer with a question list</p>
               <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-                Spin up a brand-new customer who's working through a real question bank — chemicals,
-                colors, pricing, warranty, scheduling, trap questions. They ask once, and if your
-                answer is hesitant or vague they turn passive-aggressive and ask it again. Fumble the
-                retry and they silently move on. Different question mix every call.
+                A brand-new customer who works through the full 141-question bank — one question from
+                EACH of 11 categories every call (factual, cleaning chemicals, colors, objections,
+                emotional curveballs, traps, brand-new, scheduling, property condition, trust, plus
+                one silence/stalling curveball mid-call). They ask once; if you're vague they turn
+                passive-aggressive and ask again. Fumble the retry and they silently move on.
               </p>
+              <div className="flex flex-wrap gap-2 mt-2 text-[11px]">
+                {baselineStatus?.exists ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700">
+                    Baseline set — Alan's last grill call ({baselineStatus.turns ?? 0} turns) is the bar
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700">
+                    No baseline yet — Alan, do a grill call to set the bar
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-700">
+                  Trigger word "corvette" twice mid-call to save a coaching note
+                </span>
+              </div>
             </div>
           </div>
           <Button

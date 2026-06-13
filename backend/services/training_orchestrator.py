@@ -145,7 +145,13 @@ SCORING_DIMENSIONS = [
 ]
 
 
-def score_call(transcript: list[dict], persona: dict, mood: str = "") -> dict:
+def score_call(
+    transcript: list[dict],
+    persona: dict,
+    mood: str = "",
+    coaching_notes: list[str] | None = None,
+    baseline_excerpts: list[str] | None = None,
+) -> dict:
     """Run Claude over the full transcript and return a coaching rubric.
 
     Output shape (also documented in `score_json` consumers):
@@ -191,11 +197,36 @@ def score_call(transcript: list[dict], persona: dict, mood: str = "") -> dict:
         f"Mood during call: {mood or persona.get('default_mood', 'friendly')}"
     )
 
+    # Optional injection blocks — leadership coaching rules captured via
+    # the "corvette sandwich" trigger, and gold-standard answer excerpts
+    # from Alan's most recent baseline call. Both shape how strictly the
+    # rep gets graded.
+    notes_block = ""
+    if coaching_notes:
+        bullets = "\n".join(f"- {n}" for n in coaching_notes if n)
+        notes_block = (
+            "\n# Leadership coaching rules (accumulated standards)\n"
+            f"{bullets}\n"
+            "Penalize the rep when they ignore or contradict any of these rules. "
+            "Reward them when they apply one without being prompted.\n"
+        )
+
+    baseline_block = ""
+    if baseline_excerpts:
+        bullets = "\n".join(f"- {e}" for e in baseline_excerpts if e)
+        baseline_block = (
+            "\n# Gold-standard reference (excerpts from Alan's baseline call)\n"
+            "These are how Alan (the owner) actually answers similar questions. Use them as the bar. "
+            "If the rep's answers are vaguer, slower, or less specific than these, dock confidence + "
+            "objection_handling and call it out in the highlights with 'Alan would have said X here'.\n"
+            f"{bullets}\n"
+        )
+
     prompt = f"""You are a senior sales coach reviewing a recorded practice call from a fence-staining sales rep. The persona is fictional — the rep was practicing against an AI homeowner.
 
 # The persona
 {persona_summary}
-
+{notes_block}{baseline_block}
 # The full transcript (turn indices in brackets)
 {flat}
 

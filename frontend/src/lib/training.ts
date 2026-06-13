@@ -55,6 +55,10 @@ type Callbacks = {
   onRepSpeakingChange?: (speaking: boolean) => void;
   onClose?: (reason?: string) => void;
   onError?: (msg: string) => void;
+  // Fires when the server detected a closed "corvette sandwich" in the
+  // rep's transcript and persisted a coaching note. `text` is the saved
+  // note body (between the two trigger words). UI can flash a toast.
+  onCoachingNoteSaved?: (text: string) => void;
 };
 
 export class TrainingClient {
@@ -131,6 +135,8 @@ export class TrainingClient {
           });
         } else if (msg.type === "status") {
           this.cb.onStatus?.(msg.state as CallStatus);
+        } else if (msg.type === "coaching_note_saved") {
+          this.cb.onCoachingNoteSaved?.(msg.text || "");
         } else if (msg.type === "error") {
           this.cb.onError?.(msg.message || "Unknown error");
         }

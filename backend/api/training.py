@@ -26,7 +26,7 @@ from jose import jwt, JWTError
 from pydantic import BaseModel
 
 import random as _random
-from database import get_db, TrainingSession, TrainingPersonaBank, Lead
+from database import get_db, TrainingSession, TrainingPersonaBank, TrainingCoachingNote, Lead
 from config import get_settings
 from api.auth import require_staff, require_admin, get_current_user, SECRET_ALGORITHM
 from services.training_personas import (
@@ -43,6 +43,12 @@ from services.training_orchestrator import (
 from services.training_persona_seeder import seed_persona_bank
 from services.training_lead_simulator import build_persona_from_lead
 from services.training_grill_simulator import build_grill_persona
+from services.training_coaching import CorvetteSandwichDetector, list_active_notes
+from services.training_baseline import (
+    list_baseline_excerpts,
+    maybe_mark_session_as_baseline,
+    BASELINE_USERNAME,
+)
 from services.elevenlabs_client import tts_to_mp3, is_configured as tts_configured
 from services.training_audio_store import save_segment as save_audio_segment
 
@@ -151,6 +157,57 @@ def random_lead(user: dict = Depends(require_staff)):
         db.close()
 
 
+@router.get("/training/coaching-notes")
+def list_coaching_notes_endpoint(user: dict = Depends(require_staff)):
+    """List the accumulated 'corvette sandwich' coaching notes — UI uses
+    this to show what rules the trainer is enforcing. Anyone on staff can
+    see them so reps know the bar."""
+    db = get_db()
+    try:
+        rows = (
+            db.query(TrainingCoachingNote)
+            .order_by(TrainingCoachingNote.created_at.desc())
+            .limit(100)
+            .all()
+        )
+        return {"items": [r.to_dict() for r in rows]}
+    finally:
+        db.close()
+
+
+@router.post("/training/coaching-notes/{note_id}/toggle")
+def toggle_coaching_note(note_id: str, user: dict = Depends(require_admin)):
+    """Admin can disable a note that turned out wrong without deleting
+    forensic history. Inactive notes don't inject into persona/grader."""
+    db = get_db()
+    try:
+        row = (
+            db.query(TrainingCoachingNote)
+            .filter(TrainingCoachingNote.id == note_id)
+            .first()
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Note not found")
+        row.active = not bool(row.active)
+        db.commit()
+        return row.to_dict()
+    finally:
+        db.close()
+
+
+@router.get("/training/baseline-status")
+def baseline_status(user: dict = Depends(require_staff)):
+    """Tell the UI whether an Alan baseline exists and when it was captured.
+    Used by the Hard Mode card to nudge Alan to record a fresh baseline
+    when his last one is stale."""
+    from services.training_baseline import get_latest_baseline_summary
+    db = get_db()
+    try:
+        return get_latest_baseline_summary(db)
+    finally:
+        db.close()
+
+
 @router.post("/training/session/grill")
 def create_grill_session(user: dict = Depends(require_staff)):
     """Start a hard-mode practice call against a freshly-generated
@@ -162,12 +219,20 @@ def create_grill_session(user: dict = Depends(require_staff)):
     full snapshot lives on the TrainingSession.persona_snapshot_json
     so the session can be re-opened later from history without losing
     the persona data."""
-    persona = build_grill_persona()
-
     session_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     db = get_db()
     try:
+        # Pull accumulated coaching notes (from prior corvette sandwiches)
+        # + reference excerpts from Alan's baseline calls. Both get
+        # injected into the persona's backstory so the customer behaves
+        # in a way that tests for the team's accumulated standards.
+        coaching_notes = list_active_notes(db, limit=30)
+        baseline_excerpts = list_baseline_excerpts(db, limit=15)
+        persona = build_grill_persona(
+            coaching_notes=coaching_notes,
+            baseline_excerpts=baseline_excerpts,
+        )
         row = TrainingSession(
             id=session_id,
             rep_user_id=user.get("sub", ""),
@@ -331,7 +396,21 @@ def _score_session_async(session_id: str):
             persona = json.loads(row.persona_snapshot_json or "{}")
         except Exception:
             persona = {}
-        score = score_call(transcript, persona, row.mood or "")
+        # Inject accumulated coaching notes + Alan's baseline answers
+        # so the grader holds the rep to the team's actual standards,
+        # not just generic sales-coach heuristics. Skip baseline when
+        # the session being graded IS Alan's own — grading him against
+        # himself would be circular and unhelpful.
+        coaching = list_active_notes(db, limit=30)
+        if (row.rep_user_id or "").lower() == BASELINE_USERNAME:
+            baseline = []
+        else:
+            baseline = list_baseline_excerpts(db, limit=15)
+        score = score_call(
+            transcript, persona, row.mood or "",
+            coaching_notes=coaching,
+            baseline_excerpts=baseline,
+        )
         row.score_json = json.dumps(score)
         db.commit()
     except Exception as e:
@@ -489,6 +568,11 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
 
     await websocket.accept()
 
+    # Per-session corvette-sandwich detector. State lives only for the
+    # WS lifetime; persistence happens to TrainingCoachingNote rows when
+    # a sandwich closes.
+    corvette = CorvetteSandwichDetector()
+
     # Persist transcript + audio segment list together (one row write per
     # turn keeps the call resilient — a mid-call crash never loses more
     # than one exchange + its audio links).
@@ -572,6 +656,33 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
                     "ts": ts_rep,
                 })
 
+                # Corvette-sandwich check. If this utterance closed a
+                # sandwich, persist the note and notify the UI. The note
+                # text is NEVER stripped out of the transcript — we want
+                # full forensics — but we don't forward the trigger word
+                # itself to Claude as anything special; Claude ignores it.
+                try:
+                    db_n = get_db()
+                    try:
+                        saved = await asyncio.to_thread(
+                            corvette.process_utterance,
+                            rep_text,
+                            db_n,
+                            session_id,
+                            user.get("sub", ""),
+                            user.get("name", ""),
+                        )
+                    finally:
+                        db_n.close()
+                    if saved:
+                        await websocket.send_json({
+                            "type": "coaching_note_saved",
+                            "text": saved,
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        })
+                except Exception as e:
+                    logger.error(f"Corvette detector failed: {e}")
+
                 # Upload rep audio for this turn
                 rep_seg = await asyncio.to_thread(
                     save_audio_segment, session_id, rep_turn_index, rep_audio, "rep", "audio/webm"
@@ -648,6 +759,10 @@ async def training_ws_handler(websocket: WebSocket, session_id: str):
                     except Exception:
                         pass
                     db3.commit()
+                # If Alan just finished a grill call, tag the session as
+                # baseline so future reps get graded against his answers.
+                if r:
+                    maybe_mark_session_as_baseline(r, db3)
             finally:
                 db3.close()
         except Exception as e:

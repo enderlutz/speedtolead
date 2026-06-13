@@ -213,9 +213,46 @@ _QUESTION_BANK: dict[str, list[str]] = {
 }
 
 
-def build_grill_persona() -> dict:
+# Category 11 from the bank isn't a question — it's a *behavior* the persona
+# enacts to test whether the rep can read the room. The persona drops one of
+# these into the call somewhere in the middle (NOT at the start, NOT at the
+# end). The rep's reaction is what's being tested.
+_STALLING_BEHAVIORS = [
+    "Go silent after the rep finishes a thought. Don't say anything for a beat. "
+    "Just let the silence sit until the rep says something. Then react to whatever they fill the gap with.",
+    "Start saying 'uh-huh, uh-huh, uh-huh' to every sentence the rep says — clearly disengaged, not really listening. "
+    "Only snap back to attention if the rep asks a direct question or notices and calls it out.",
+    "Say 'I just need to think about it' and then go COMPLETELY quiet. Don't elaborate. Don't ask anything new. "
+    "Make the rep break the silence first.",
+    "Just say 'Hmm.' and nothing else. Wait for the rep to react.",
+    "Get distracted mid-call: 'Sorry, hold on — KIDS! No, not now — sorry, what were you saying?' "
+    "Make the rep repeat their last point. See if they sound annoyed or patient.",
+    "Get endlessly friendly and chatty but never commit. Keep agreeing, keep small-talking, "
+    "but every time the rep tries to close, find a new tangent to go on.",
+    "Suddenly cut things off mid-sentence: 'Hey listen, I gotta go — call me back later.' "
+    "See if the rep tries to schedule a callback or just says 'okay bye.'",
+]
+
+
+def build_grill_persona(
+    coaching_notes: list[str] | None = None,
+    baseline_excerpts: list[str] | None = None,
+) -> dict:
     """Generate a fresh challenging-customer persona. Ephemeral — caller
-    persists it on the TrainingSession row, doesn't add to the bank."""
+    persists it on the TrainingSession row, doesn't add to the bank.
+
+    Args:
+      coaching_notes: accumulated "corvette sandwich" notes from prior
+        sessions. Injected into the persona's backstory so the customer
+        knows what behaviors an A-rep should demonstrate, and into the
+        post-call grading prompt downstream.
+      baseline_excerpts: short excerpts from Alan's gold-standard calls
+        on the SAME questions, when available. Helps the persona react
+        more authentically to the kinds of answers Alan actually gives.
+    """
+    coaching_notes = [n.strip() for n in (coaching_notes or []) if n and n.strip()]
+    baseline_excerpts = [e.strip() for e in (baseline_excerpts or []) if e and e.strip()]
+
     gender = random.choice(("male", "female"))
     first = random.choice(
         _FIRST_NAMES_MALE if gender == "male" else _FIRST_NAMES_FEMALE
@@ -226,17 +263,18 @@ def build_grill_persona() -> dict:
     city = random.choice(_HOUSTON_CITIES)
     fence_shape = random.choice(_FENCE_SHAPES)
 
-    # Build the question set for this call: pull 4-7 questions from across
-    # 3-5 different categories so the rep can't predict the angle.
-    n_categories = random.randint(3, 5)
-    n_questions = random.randint(4, 7)
-    chosen_categories = random.sample(list(_QUESTION_BANK.keys()), n_categories)
-    pool: list[tuple[str, str]] = []
-    for cat in chosen_categories:
-        for q in _QUESTION_BANK[cat]:
-            pool.append((cat, q))
-    random.shuffle(pool)
-    questions = pool[:n_questions]
+    # Per user (2026-06-12): the rep must demonstrate diverse knowledge,
+    # so EVERY call must touch all 11 categories. Pick one random question
+    # per category (10 askable categories), then shuffle the order so the
+    # conversation doesn't march through them predictably.
+    questions: list[tuple[str, str]] = []
+    for cat, bank in _QUESTION_BANK.items():
+        questions.append((cat, random.choice(bank)))
+    random.shuffle(questions)
+
+    # Category 11 — silence/stalling behavior. Picked once per call and
+    # injected as an instruction in the backstory, not as a question.
+    stalling_behavior = random.choice(_STALLING_BEHAVIORS)
 
     age = random.randint(35, 65)
     voice_id = _voice_for_gender(gender)
@@ -249,20 +287,26 @@ def build_grill_persona() -> dict:
         "gender": gender,
         "location": city,
         "fence_context": fence_shape,
-        "backstory": _build_backstory(name, fence_shape, questions),
+        "backstory": _build_backstory(
+            name, fence_shape, questions, stalling_behavior,
+            coaching_notes, baseline_excerpts,
+        ),
         "traits": [
             "picky",
             "curious",
-            "asks specific questions",
+            "asks one question from every category",
             "passive-aggressive when answers are vague",
-            *[f"focused on {cat.replace('_', ' ')}" for cat, _ in questions[:3]],
+            "moves on after one retry",
         ],
         "default_mood": "skeptical",
         "available_moods": ["friendly", "busy", "skeptical"],
         "voice_id": voice_id,
         "source": "grill",
-        "grill_question_categories": list({cat for cat, _ in questions}),
+        "grill_question_categories": [cat for cat, _ in questions],
         "grill_questions": [q for _, q in questions],
+        "grill_stalling_behavior": stalling_behavior,
+        "grill_coaching_notes": coaching_notes,
+        "grill_baseline_excerpts": baseline_excerpts,
     }
 
 
@@ -278,17 +322,45 @@ def _build_backstory(
     name: str,
     fence_shape: str,
     questions: list[tuple[str, str]],
+    stalling_behavior: str,
+    coaching_notes: list[str] | None = None,
+    baseline_excerpts: list[str] | None = None,
 ) -> str:
     """Compose a backstory that explicitly tells Claude how to behave —
     the system prompt builder embeds the backstory verbatim, so this is
     where the grill personality + question bank gets seeded."""
-    question_list = "\n".join(f"  {i+1}. {q}" for i, (_, q) in enumerate(questions))
+    question_list = "\n".join(
+        f"  {i+1}. ({cat.replace('_', ' ')}) {q}"
+        for i, (cat, q) in enumerate(questions)
+    )
     first = name.split()[0]
+
+    # Optional injection blocks — leadership coaching notes ("corvette
+    # sandwich") and excerpts from Alan's gold-standard calls. Both
+    # appear only when the caller passed them.
+    extras = ""
+    if coaching_notes:
+        bullets = "\n".join(f"  - {n}" for n in coaching_notes)
+        extras += (
+            f"\n\nLEADERSHIP COACHING NOTES (rules from prior calls — a great rep "
+            f"will demonstrate these without prompting):\n{bullets}\n"
+            f"Push harder if the rep ignores or contradicts these.\n"
+        )
+    if baseline_excerpts:
+        bullets = "\n".join(f"  - {e}" for e in baseline_excerpts)
+        extras += (
+            f"\n\nHOW A GOLD-STANDARD REP HAS ANSWERED SIMILAR QUESTIONS IN THE PAST "
+            f"(reference only — do NOT recite these to the rep; use them to know what "
+            f"a confident, specific answer sounds like):\n{bullets}\n"
+        )
+
     return (
         f"You are {first}. You called A&T's Fence Staining because you need work done on your fence "
         f"({fence_shape}). You're a brand-new customer, you've never used this company before, and "
         f"you're picky. You have a specific list of questions you want answered before you'll book.\n\n"
-        f"YOUR QUESTIONS FOR THIS CALL — ask all of these by the end of the conversation:\n"
+        f"YOUR QUESTIONS FOR THIS CALL — there is ONE from each of 11 different categories, and you "
+        f"MUST ask all of them by the end of the call. The category is shown in parentheses for your "
+        f"context — do NOT say the category name out loud:\n"
         f"{question_list}\n\n"
         f"HOW TO ASK THEM:\n"
         f"- This is a NORMAL PHONE CONVERSATION, not an interview. Don't list questions one after "
@@ -318,5 +390,11 @@ def _build_backstory(
         f"- Don't reveal you have a list. The rep should feel like you just keep thinking of things "
         f"to ask, not like you're working through a scorecard.\n"
         f"- Behave like a real person on a real phone call. Use filler words, pauses, partial "
-        f"sentences. Don't be robotic."
+        f"sentences. Don't be robotic.\n\n"
+        f"ONE MID-CALL CURVEBALL — you also need to test if the rep can read the room. ONCE "
+        f"during this call, somewhere in the middle (NOT in the first two turns, NOT at the very end), "
+        f"do this:\n"
+        f"  → {stalling_behavior}\n"
+        f"Only do this ONCE. After they react, go back to working through your questions normally."
+        f"{extras}"
     )

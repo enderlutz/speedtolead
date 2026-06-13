@@ -1658,6 +1658,23 @@ export const api = {
   getRandomTrainingLead: () =>
     request<{ lead_id: string; name: string; address: string }>(`/api/training/random-lead`),
 
+  // Coaching-note + baseline endpoints (corvette sandwich + Alan baseline)
+  getTrainingCoachingNotes: () =>
+    request<{ items: TrainingCoachingNote[] }>(`/api/training/coaching-notes`),
+  toggleTrainingCoachingNote: (noteId: string) =>
+    request<TrainingCoachingNote>(
+      `/api/training/coaching-notes/${noteId}/toggle`,
+      { method: "POST" },
+    ),
+  getTrainingBaselineStatus: () =>
+    request<{
+      exists: boolean;
+      session_id?: string;
+      captured_at?: string;
+      turns?: number;
+      duration_seconds?: number;
+    }>(`/api/training/baseline-status`),
+
   // Exterior painting AI estimate
   issueExteriorCaptureLink: (leadId: string) =>
     request<{ token: string; url: string }>(
@@ -1835,6 +1852,16 @@ export interface TrainingSessionRecord {
   score: Record<string, unknown>;
   audio_seconds: number;
   audio_segments: TrainingAudioSegment[];
+}
+
+export interface TrainingCoachingNote {
+  id: string;
+  created_at: string;
+  note_text: string;
+  captured_in_session_id: string;
+  captured_by_user_id: string;
+  captured_by_name: string;
+  active: boolean;
 }
 
 // --- Internal dashboard types ---
