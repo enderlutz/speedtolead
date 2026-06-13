@@ -14,6 +14,7 @@ import {
   Power,
   Dices,
   Flame,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -36,6 +37,7 @@ export default function Training() {
   } = useTrainingMode();
   const [pickingRandom, setPickingRandom] = useState(false);
   const [startingGrill, setStartingGrill] = useState(false);
+  const [startingSpitfire, setStartingSpitfire] = useState(false);
   const [baselineStatus, setBaselineStatus] = useState<{
     exists: boolean;
     captured_at?: string;
@@ -207,6 +209,32 @@ export default function Training() {
     }
   };
 
+  const handleSpitfireCall = async () => {
+    if (!trainingModeOn) {
+      toast.error("Turn on Training Mode first");
+      return;
+    }
+    if (activeCall) {
+      toast.error("End the current practice call before starting a new one");
+      return;
+    }
+    setStartingSpitfire(true);
+    try {
+      const sess = await api.createSpitfireTrainingSession();
+      const persona = sess.persona as unknown as Persona;
+      await startCall({
+        sessionId: sess.id,
+        persona,
+        mood: persona.default_mood || "neutral",
+        ttsConfigured: sess.tts_configured,
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't start spitfire drill");
+    } finally {
+      setStartingSpitfire(false);
+    }
+  };
+
   if (reviewing) {
     return <CallSummary session={reviewing} onClose={() => setReviewing(null)} />;
   }
@@ -345,6 +373,48 @@ export default function Training() {
               <Flame className="h-4 w-4 mr-2" />
             )}
             Simulate hard call
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Mode 3 — Spitfire round (full question bank, no grading) */}
+      <Card className="border-sky-500/40 bg-gradient-to-br from-sky-500/5 to-cyan-500/5">
+        <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-full bg-sky-500/15 text-sky-600 flex items-center justify-center shrink-0">
+              <Zap className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold leading-tight">Spitfire round — answer all 129 questions</p>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+                Coach reads the full customer-question bank back-to-back, you answer each one
+                out loud. No grading, no objections, no follow-ups — just Q, you answer, "next",
+                Q, you answer, "next". The whole point is rep practice + listen-back: every
+                turn gets recorded so you can scrub through after and hear yourself. Different
+                shuffle every drill.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-2 text-[11px]">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-700">
+                  ~25-40 minutes start to finish
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-700">
+                  Audio saved per turn — replay any answer
+                </span>
+              </div>
+            </div>
+          </div>
+          <Button
+            onClick={handleSpitfireCall}
+            disabled={!trainingModeOn || startingSpitfire || !!activeCall}
+            size="lg"
+            className="bg-sky-600 hover:bg-sky-700"
+          >
+            {startingSpitfire ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Zap className="h-4 w-4 mr-2" />
+            )}
+            Start spitfire drill
           </Button>
         </CardContent>
       </Card>

@@ -43,6 +43,7 @@ from services.training_orchestrator import (
 from services.training_persona_seeder import seed_persona_bank
 from services.training_lead_simulator import build_persona_from_lead
 from services.training_grill_simulator import build_grill_persona
+from services.training_spitfire_simulator import build_spitfire_persona
 from services.training_coaching import CorvetteSandwichDetector, list_active_notes
 from services.training_baseline import (
     list_baseline_excerpts,
@@ -258,6 +259,42 @@ def create_grill_session(user: dict = Depends(require_staff)):
     }
 
 
+@router.post("/training/session/spitfire")
+def create_spitfire_session(user: dict = Depends(require_staff)):
+    """Start a spitfire-round drill: the coach asks all ~130 customer
+    questions back-to-back, the rep answers each one, no evaluation.
+    Built so reps can hear themselves answer and listen back via the
+    per-turn audio recordings the existing pipeline saves."""
+    persona = build_spitfire_persona()
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    db = get_db()
+    try:
+        row = TrainingSession(
+            id=session_id,
+            rep_user_id=user.get("sub", ""),
+            rep_display_name=user.get("name", ""),
+            persona_id=persona["id"],
+            persona_source="spitfire",
+            persona_snapshot_json=json.dumps(persona),
+            mood=persona.get("default_mood", "neutral"),
+            started_at=now,
+            transcript_json="[]",
+            score_json="{}",
+        )
+        db.add(row)
+        db.commit()
+    finally:
+        db.close()
+
+    return {
+        "id": session_id,
+        "ws_path": f"/ws/training/{session_id}",
+        "persona": persona,
+        "tts_configured": tts_configured(),
+    }
+
+
 @router.post("/training/session/from-lead")
 def create_session_from_lead(
     body: CreateFromLeadBody, user: dict = Depends(require_staff)
@@ -369,13 +406,24 @@ def end_session(
                 row.duration_seconds = int((end_dt - start_dt).total_seconds())
             except Exception:
                 pass
-            # Mark scoring as pending so the frontend renders a loading
-            # state instead of an empty score card. The background task
-            # overwrites this once Claude returns.
-            row.score_json = json.dumps({"status": "pending"})
-            db.commit()
-            # Only schedule the scorer on first end — re-hitting end is a no-op
-            background_tasks.add_task(_score_session_async, session_id)
+            # Spitfire is a practice drill — no sales conversation
+            # happened, so there's nothing for the sales coach to grade.
+            # Mark it explicitly skipped so the UI shows "Drill recorded"
+            # instead of a loading spinner that never resolves.
+            if (row.persona_source or "") == "spitfire":
+                row.score_json = json.dumps({
+                    "status": "skipped",
+                    "skip_reason": "spitfire drill — no grading",
+                })
+                db.commit()
+            else:
+                # Mark scoring as pending so the frontend renders a loading
+                # state instead of an empty score card. The background task
+                # overwrites this once Claude returns.
+                row.score_json = json.dumps({"status": "pending"})
+                db.commit()
+                # Only schedule the scorer on first end — re-hitting end is a no-op
+                background_tasks.add_task(_score_session_async, session_id)
         return row.to_dict()
     finally:
         db.close()

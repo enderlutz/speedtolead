@@ -1655,6 +1655,13 @@ export const api = {
       `/api/training/session/grill`,
       { method: "POST" },
     ),
+  // Spitfire drill — coach runs through the full ~130-question bank
+  // back-to-back, no evaluation. Just for answer practice + listen-back.
+  createSpitfireTrainingSession: () =>
+    request<{ id: string; ws_path: string; persona: TrainingPersona; tts_configured: boolean }>(
+      `/api/training/session/spitfire`,
+      { method: "POST" },
+    ),
   getRandomTrainingLead: () =>
     request<{ lead_id: string; name: string; address: string }>(`/api/training/random-lead`),
 
