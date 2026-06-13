@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Brain,
   AlertTriangle,
@@ -36,7 +35,9 @@ export default function Training() {
   } = useTrainingMode();
   const [pickingRandom, setPickingRandom] = useState(false);
 
-  const [curated, setCurated] = useState<Persona[]>([]);
+  // Curated archetypes are paused — we keep the state in place for now
+  // so /api/training/personas can return them again if we restore them.
+  const [, setCurated] = useState<Persona[]>([]);
   const [bank, setBank] = useState<Persona[]>([]);
   const [moods, setMoods] = useState<TrainingMood[]>([]);
   const [history, setHistory] = useState<TrainingSessionRow[]>([]);
@@ -133,12 +134,13 @@ export default function Training() {
       toast.error("Turn on Training Mode first");
       return;
     }
-    const pool = [...curated, ...bank];
-    if (pool.length === 0) {
-      toast.error("No personas available");
+    // Curated archetypes are paused; the random spin draws from the
+    // conversion-modeled bank only.
+    if (bank.length === 0) {
+      toast.error("No personas available — build them first");
       return;
     }
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const pick = bank[Math.floor(Math.random() * bank.length)];
     setPendingPersona(pick);
   };
 
@@ -278,36 +280,25 @@ export default function Training() {
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : (
-          <Tabs defaultValue="curated" className="w-full">
-            <div className="flex items-center justify-between mb-4">
-              <TabsList>
-                <TabsTrigger value="curated">
-                  Curated <Badge variant="secondary" className="ml-2 text-[10px]">{curated.length}</Badge>
-                </TabsTrigger>
-                <TabsTrigger value="bank">
-                  Real Leads <Badge variant="secondary" className="ml-2 text-[10px]">{bank.length}</Badge>
-                </TabsTrigger>
-                <TabsTrigger value="random">
-                  <Shuffle className="h-3 w-3 mr-1.5" />
-                  Random
-                </TabsTrigger>
-              </TabsList>
-            </div>
-
-            <TabsContent value="curated">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {curated.map((p) => (
-                  <PersonaCard key={p.id} persona={p} onPick={() => handlePick(p)} />
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="bank">
-              <div className="flex items-center justify-between mb-4 px-1">
-                <p className="text-xs text-muted-foreground">
-                  Personas generated from your real (anonymized) leads. Each one is a fictional
-                  homeowner consistent with a real fence shape on file.
+          <>
+            <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Personas <Badge variant="secondary" className="ml-1.5 text-[10px]">{bank.length}</Badge>
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                  Modeled from your real conversions — leads that scheduled after getting an estimate.
+                  Each persona is built from that customer's actual call transcript so the rep
+                  practices the buyers they'll really face.
                 </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {bank.length > 0 && (
+                  <Button onClick={handleRandom} variant="outline" size="sm">
+                    <Shuffle className="h-3.5 w-3.5 mr-1.5" />
+                    Spin random
+                  </Button>
+                )}
                 {isAdmin && (
                   <Button
                     variant="outline"
@@ -320,52 +311,34 @@ export default function Training() {
                     ) : (
                       <RefreshCw className="h-4 w-4 mr-2" />
                     )}
-                    {bank.length === 0 ? "Seed from DB" : "Re-roll bank"}
+                    {bank.length === 0 ? "Build from conversions" : "Re-build from conversions"}
                   </Button>
                 )}
               </div>
-              {bank.length === 0 ? (
-                <Card>
-                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                    <p>No real-lead personas yet.</p>
-                    {isAdmin ? (
-                      <p className="mt-1 text-xs">
-                        Click "Seed from DB" to generate ~30 from your live leads.
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs">Ask an admin to seed the bank.</p>
-                    )}
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {bank.map((p) => (
-                    <PersonaCard key={p.id} persona={p} onPick={() => handlePick(p)} />
-                  ))}
-                </div>
-              )}
-            </TabsContent>
+            </div>
 
-            <TabsContent value="random">
+            {bank.length === 0 ? (
               <Card>
-                <CardContent className="py-12 text-center">
-                  <Shuffle className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
-                  <h3 className="text-base font-semibold mb-1">Roulette mode</h3>
-                  <p className="text-sm text-muted-foreground mb-5 max-w-md mx-auto">
-                    Get a random persona from the entire pool (curated + real leads). Best
-                    way to keep yourself sharp.
-                  </p>
-                  <Button onClick={handleRandom} size="lg">
-                    <Shuffle className="h-4 w-4 mr-2" />
-                    Spin and call
-                  </Button>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Pool: {curated.length + bank.length} personas
-                  </p>
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                  <p>No personas yet.</p>
+                  {isAdmin ? (
+                    <p className="mt-1 text-xs max-w-md mx-auto">
+                      Click "Build from conversions" to pull personas from your last ~15 leads that
+                      have a call transcript, an estimate sent, and a scheduled job.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs">Ask an admin to build them.</p>
+                  )}
                 </CardContent>
               </Card>
-            </TabsContent>
-          </Tabs>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {bank.map((p) => (
+                  <PersonaCard key={p.id} persona={p} onPick={() => handlePick(p)} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </section>
 

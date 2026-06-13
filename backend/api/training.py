@@ -57,7 +57,10 @@ class CreateSessionBody(BaseModel):
 
 
 class SeedBankBody(BaseModel):
-    count: int = 30
+    # Default 15 personas from real conversions. Caller can override
+    # but the AI seeding takes ~3-5s per persona so very high counts
+    # take a while; we cap at 30 in the validator.
+    count: int = 15
 
 
 class CreateFromLeadBody(BaseModel):
@@ -111,8 +114,8 @@ def seed_bank(body: SeedBankBody, user: dict = Depends(require_admin)):
     Admin only. Uses Claude to invent plausible homeowners consistent with
     each lead's fence shape; PII is scrubbed at generation time.
     """
-    if body.count < 1 or body.count > 80:
-        raise HTTPException(status_code=400, detail="count must be 1-80")
+    if body.count < 1 or body.count > 30:
+        raise HTTPException(status_code=400, detail="count must be 1-30")
     db = get_db()
     try:
         result = seed_persona_bank(db, target_count=body.count)

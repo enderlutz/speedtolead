@@ -36,7 +36,15 @@ MOOD_DEFINITIONS: dict[str, str] = {
 }
 
 
-CURATED_PERSONAS: list[dict] = [
+# ----------------------------------------------------------------------
+# CURATED ARCHETYPES — paused 2026-06-12 per client request.
+#
+# We're switching the simulator over to personas built from real
+# conversions (leads with a call transcript + estimate sent + scheduled
+# job). The five archetypes below are preserved as code so they can be
+# restored later by changing `list_curated()` back to returning them.
+# ----------------------------------------------------------------------
+_CURATED_PERSONAS_ARCHIVED: list[dict] = [
     {
         "id": "roy-retiree",
         "name": "Roy R.",
@@ -138,27 +146,22 @@ CURATED_PERSONAS: list[dict] = [
 
 
 def list_curated() -> list[dict]:
-    """Public list of personas — strips internal fields not safe for the wire."""
-    return [
-        {
-            "id": p["id"],
-            "name": p["name"],
-            "headline": p["headline"],
-            "age": p["age"],
-            "gender": p["gender"],
-            "location": p["location"],
-            "fence_context": p["fence_context"],
-            "default_mood": p["default_mood"],
-            "available_moods": p.get("available_moods", ["friendly", "busy", "skeptical"]),
-            "traits": p["traits"],
-            "source": "curated",
-        }
-        for p in CURATED_PERSONAS
-    ]
+    """Public list of curated archetypes.
+
+    Empty since 2026-06-12 — the simulator now sources personas from
+    real conversions (see services.training_persona_seeder). The
+    archived archetypes are preserved at module scope so this can be
+    restored by returning them again.
+    """
+    return []
 
 
 def get_curated(persona_id: str) -> Optional[dict]:
-    for p in CURATED_PERSONAS:
+    """Lookup curated by id. Walks the archived list so that old
+    TrainingSession rows referring to curated persona ids (roy-retiree
+    etc.) still resolve — we don't want re-opening a historical
+    practice call to crash."""
+    for p in _CURATED_PERSONAS_ARCHIVED:
         if p["id"] == persona_id:
             return p
     return None
