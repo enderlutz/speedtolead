@@ -42,6 +42,7 @@ from services.training_orchestrator import (
 )
 from services.training_persona_seeder import seed_persona_bank
 from services.training_lead_simulator import build_persona_from_lead
+from services.training_grill_simulator import build_grill_persona
 from services.elevenlabs_client import tts_to_mp3, is_configured as tts_configured
 from services.training_audio_store import save_segment as save_audio_segment
 
@@ -148,6 +149,48 @@ def random_lead(user: dict = Depends(require_staff)):
         return {"lead_id": pick.id, "name": pick.contact_name or "", "address": pick.address or ""}
     finally:
         db.close()
+
+
+@router.post("/training/session/grill")
+def create_grill_session(user: dict = Depends(require_staff)):
+    """Start a hard-mode practice call against a freshly-generated
+    challenging persona. Each click produces a different combination
+    of name/city/fence shape/focus areas so the rep can't memorize
+    answers — they have to actually know the trade.
+
+    The persona is ephemeral (not saved to TrainingPersonaBank); the
+    full snapshot lives on the TrainingSession.persona_snapshot_json
+    so the session can be re-opened later from history without losing
+    the persona data."""
+    persona = build_grill_persona()
+
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    db = get_db()
+    try:
+        row = TrainingSession(
+            id=session_id,
+            rep_user_id=user.get("sub", ""),
+            rep_display_name=user.get("name", ""),
+            persona_id=persona["id"],
+            persona_source="grill",
+            persona_snapshot_json=json.dumps(persona),
+            mood=persona.get("default_mood", "skeptical"),
+            started_at=now,
+            transcript_json="[]",
+            score_json="{}",
+        )
+        db.add(row)
+        db.commit()
+    finally:
+        db.close()
+
+    return {
+        "id": session_id,
+        "ws_path": f"/ws/training/{session_id}",
+        "persona": persona,
+        "tts_configured": tts_configured(),
+    }
 
 
 @router.post("/training/session/from-lead")

@@ -13,6 +13,7 @@ import {
   GraduationCap,
   Power,
   Dices,
+  Flame,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -34,6 +35,7 @@ export default function Training() {
     startCall,
   } = useTrainingMode();
   const [pickingRandom, setPickingRandom] = useState(false);
+  const [startingGrill, setStartingGrill] = useState(false);
 
   // Curated archetypes are paused — we keep the state in place for now
   // so /api/training/personas can return them again if we restore them.
@@ -164,6 +166,32 @@ export default function Training() {
     }
   };
 
+  const handleGrillCall = async () => {
+    if (!trainingModeOn) {
+      toast.error("Turn on Training Mode first");
+      return;
+    }
+    if (activeCall) {
+      toast.error("End the current practice call before starting a new one");
+      return;
+    }
+    setStartingGrill(true);
+    try {
+      const sess = await api.createGrillTrainingSession();
+      const persona = sess.persona as unknown as Persona;
+      await startCall({
+        sessionId: sess.id,
+        persona,
+        mood: persona.default_mood || "skeptical",
+        ttsConfigured: sess.tts_configured,
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't start hard call");
+    } finally {
+      setStartingGrill(false);
+    }
+  };
+
   if (reviewing) {
     return <CallSummary session={reviewing} onClose={() => setReviewing(null)} />;
   }
@@ -254,6 +282,39 @@ export default function Training() {
               <Dices className="h-4 w-4 mr-2" />
             )}
             Call a random lead
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Mode 2 — Hard Mode (grill call) */}
+      <Card className="border-rose-500/40 bg-gradient-to-br from-rose-500/5 to-amber-500/5">
+        <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-full bg-rose-500/15 text-rose-600 flex items-center justify-center shrink-0">
+              <Flame className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold leading-tight">Hard mode — simulate a tough call</p>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+                Spin up a random challenging customer. They've done their homework, throw a competitor
+                quote, ask detailed questions about materials, process, warranty — and turn passive-aggressive
+                when answers are vague. A well-prepared rep can close them. An unprepared one can't.
+                Different focus areas every time so it's not memorizable.
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleGrillCall}
+            disabled={!trainingModeOn || startingGrill || !!activeCall}
+            size="lg"
+            className="bg-rose-600 hover:bg-rose-700"
+          >
+            {startingGrill ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Flame className="h-4 w-4 mr-2" />
+            )}
+            Simulate hard call
           </Button>
         </CardContent>
       </Card>

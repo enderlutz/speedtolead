@@ -1649,6 +1649,12 @@ export const api = {
       `/api/training/session/from-lead`,
       { method: "POST", body: JSON.stringify({ lead_id, mood: mood || "" }) },
     ),
+  // Hard-mode call — random challenging customer who'll grill the rep
+  createGrillTrainingSession: () =>
+    request<{ id: string; ws_path: string; persona: TrainingPersona; tts_configured: boolean }>(
+      `/api/training/session/grill`,
+      { method: "POST" },
+    ),
   getRandomTrainingLead: () =>
     request<{ lead_id: string; name: string; address: string }>(`/api/training/random-lead`),
 
