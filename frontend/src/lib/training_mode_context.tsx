@@ -33,14 +33,16 @@ type TrainingModeValue = {
   // Active call
   activeCall: ActiveCall | null;
   callStatus: CallStatus;
-  recording: boolean;
+  /** True while the VAD pipeline is actively capturing the rep's voice. */
+  repIsSpeaking: boolean;
+  /** True when the rep has the mic temporarily muted. */
+  muted: boolean;
   transcript: TranscriptEntry[];
   error: string | null;
 
   // Lifecycle
   startCall: (call: ActiveCall) => Promise<void>;
-  pressTalk: () => Promise<void>;
-  releaseTalk: () => void;
+  toggleMute: () => void;
   endCall: () => Promise<void>;
 
   // Expanded view (fullscreen transcript) toggle
@@ -65,7 +67,8 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
   const [trainingModeOn, setTrainingModeOn] = useState<boolean>(() => isTrainingModeOnSync());
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
-  const [recording, setRecording] = useState(false);
+  const [repIsSpeaking, setRepIsSpeaking] = useState(false);
+  const [muted, setMuted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -101,7 +104,8 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
     clientRef.current = null;
     setActiveCall(null);
     setCallStatus("idle");
-    setRecording(false);
+    setRepIsSpeaking(false);
+    setMuted(false);
     setExpanded(false);
     setTranscript([]);
     setError(null);
@@ -114,6 +118,7 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
     }
     setTranscript([]);
     setError(null);
+    setMuted(false);
     setCallStatus("connecting");
     setActiveCall(call);
     setExpanded(true);
@@ -121,6 +126,7 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
     const client = new TrainingClient(call.sessionId, {
       onTranscript: (e) => setTranscript((prev) => [...prev, e]),
       onStatus: (s) => setCallStatus(s),
+      onRepSpeakingChange: (speaking) => setRepIsSpeaking(speaking),
       onError: (msg) => {
         setError(msg);
         toast.error(msg);
@@ -130,29 +136,26 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
     clientRef.current = client;
     try {
       await client.connect();
+      // Once the WS is up, flip on the continuous mic listener.
+      try {
+        await client.startContinuous();
+      } catch (micErr) {
+        const msg = micErr instanceof Error ? micErr.message : "Mic access denied";
+        setError(msg);
+        toast.error(msg);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to connect");
     }
   }, [activeCall]);
 
-  const pressTalk = useCallback(async () => {
-    if (!clientRef.current || !activeCall) return;
-    if (callStatus === "speaking" || callStatus === "closed" || callStatus === "connecting") return;
-    try {
-      await clientRef.current.startRecording();
-      setRecording(true);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Mic access denied";
-      setError(msg);
-      toast.error(msg);
-    }
-  }, [activeCall, callStatus]);
-
-  const releaseTalk = useCallback(() => {
-    if (!clientRef.current || !recording) return;
-    clientRef.current.stopRecording();
-    setRecording(false);
-  }, [recording]);
+  const toggleMute = useCallback(() => {
+    if (!clientRef.current) return;
+    const next = !muted;
+    clientRef.current.setMuted(next);
+    setMuted(next);
+    if (next) setRepIsSpeaking(false);
+  }, [muted]);
 
   const endCall = useCallback(async () => {
     const call = activeCall;
@@ -194,12 +197,12 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
       disableTrainingMode,
       activeCall,
       callStatus,
-      recording,
+      repIsSpeaking,
+      muted,
       transcript,
       error,
       startCall,
-      pressTalk,
-      releaseTalk,
+      toggleMute,
       endCall,
       expanded,
       expand,
@@ -213,12 +216,12 @@ export function TrainingModeProvider({ children }: { children: ReactNode }) {
       disableTrainingMode,
       activeCall,
       callStatus,
-      recording,
+      repIsSpeaking,
+      muted,
       transcript,
       error,
       startCall,
-      pressTalk,
-      releaseTalk,
+      toggleMute,
       endCall,
       expanded,
       expand,

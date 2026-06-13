@@ -25,17 +25,19 @@ import {
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 
+const MIC_INDICATOR_LEVELS: number[] = [0.4, 0.8, 1.2, 0.8, 0.4];
+
 export default function CallSession() {
   const {
     activeCall,
     callStatus,
-    recording,
+    repIsSpeaking,
+    muted,
     transcript,
     error,
     expanded,
     collapse,
-    pressTalk,
-    releaseTalk,
+    toggleMute,
     endCall,
   } = useTrainingMode();
 
@@ -73,6 +75,7 @@ export default function CallSession() {
 
   const status = (() => {
     if (error) return { label: "Error", tone: "text-rose-600" };
+    if (muted) return { label: "Muted", tone: "text-slate-500" };
     switch (callStatus) {
       case "connecting":
         return { label: "Ringing...", tone: "text-slate-500" };
@@ -83,9 +86,9 @@ export default function CallSession() {
       case "speaking":
         return { label: "Speaking", tone: "text-purple-600" };
       case "idle":
-        return recording
-          ? { label: "Listening to you...", tone: "text-rose-600" }
-          : { label: "Your turn", tone: "text-emerald-600" };
+        return repIsSpeaking
+          ? { label: "You're speaking...", tone: "text-rose-600" }
+          : { label: "Listening...", tone: "text-emerald-600" };
       case "closed":
         return { label: "Call ended", tone: "text-slate-500" };
       default:
@@ -93,9 +96,8 @@ export default function CallSession() {
     }
   })();
 
-  const avatarPulse = callStatus === "speaking" || recording;
-  const ptDisabled =
-    callStatus === "closed" || callStatus === "connecting" || callStatus === "speaking";
+  const avatarPulse = callStatus === "speaking" || repIsSpeaking;
+  const endDisabled = callStatus === "closed" || callStatus === "connecting";
 
   return (
     <div className="fixed inset-0 z-[58] bg-gradient-to-b from-slate-50 via-white to-white flex flex-col overflow-hidden">
@@ -199,39 +201,65 @@ export default function CallSession() {
         </div>
 
         <div className="flex items-end justify-center gap-6">
-          {/* Push-to-talk — the main interaction */}
+          {/* Mute toggle */}
           <button
-            onMouseDown={pressTalk}
-            onMouseUp={releaseTalk}
-            onMouseLeave={releaseTalk}
-            onTouchStart={(ev) => {
-              ev.preventDefault();
-              pressTalk();
-            }}
-            onTouchEnd={(ev) => {
-              ev.preventDefault();
-              releaseTalk();
-            }}
-            disabled={ptDisabled}
-            className={`flex flex-col items-center justify-center gap-1 h-24 w-24 rounded-full transition-all select-none ${
-              recording
-                ? "bg-rose-500 text-white scale-110 shadow-2xl shadow-rose-500/40"
-                : ptDisabled
-                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                : "bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:scale-105"
+            onClick={toggleMute}
+            disabled={callStatus === "closed" || callStatus === "connecting"}
+            className={`flex flex-col items-center justify-center gap-1 h-16 w-16 rounded-full shadow-lg transition-colors disabled:opacity-40 ${
+              muted
+                ? "bg-slate-700 text-white shadow-slate-700/30 hover:bg-slate-800"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
             }`}
-            aria-label={recording ? "Release to send" : "Hold to talk"}
+            aria-label={muted ? "Unmute mic" : "Mute mic"}
           >
-            {recording ? <Mic className="h-7 w-7" /> : <MicOff className="h-7 w-7" />}
+            {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              {recording ? "Release" : "Talk"}
+              {muted ? "Muted" : "Mute"}
             </span>
           </button>
+
+          {/* Mic activity indicator — the main "you're talking" feedback */}
+          <div
+            className={`flex flex-col items-center justify-center gap-1 h-24 w-24 rounded-full transition-all ${
+              repIsSpeaking
+                ? "bg-rose-500 text-white scale-110 shadow-2xl shadow-rose-500/40"
+                : muted
+                ? "bg-slate-200 text-slate-400"
+                : "bg-primary/15 text-primary"
+            }`}
+            aria-live="polite"
+            aria-label={repIsSpeaking ? "You are speaking" : muted ? "Mic muted" : "Listening for your voice"}
+          >
+            {/* Audio-bar indicator when speaking, mic icon when idle */}
+            {repIsSpeaking ? (
+              <div className="flex items-end gap-1 h-7">
+                {MIC_INDICATOR_LEVELS.map((scale, i) => (
+                  <span
+                    key={i}
+                    className="w-1 bg-white rounded-full animate-pulse"
+                    style={{
+                      height: `${scale * 28}px`,
+                      animationDelay: `${i * 90}ms`,
+                      animationDuration: "700ms",
+                    }}
+                  />
+                ))}
+              </div>
+            ) : muted ? (
+              <MicOff className="h-7 w-7" />
+            ) : (
+              <Mic className="h-7 w-7" />
+            )}
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              {repIsSpeaking ? "Talking" : muted ? "Muted" : "Open"}
+            </span>
+          </div>
 
           {/* End call */}
           <button
             onClick={endCall}
-            className="flex flex-col items-center justify-center gap-1 h-16 w-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/30 hover:bg-rose-600 transition-colors"
+            disabled={endDisabled}
+            className="flex flex-col items-center justify-center gap-1 h-16 w-16 rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/30 hover:bg-rose-600 transition-colors disabled:opacity-50"
             aria-label="End call"
           >
             <PhoneOff className="h-6 w-6" />
@@ -240,15 +268,17 @@ export default function CallSession() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-4">
-          {recording
-            ? "Release to send your message"
-            : ptDisabled
-            ? callStatus === "speaking"
-              ? `Wait for ${persona.name.split(" ")[0]} to finish...`
-              : callStatus === "connecting"
-              ? "Connecting..."
-              : "Call ended"
-            : `Hold to talk to ${persona.name.split(" ")[0]}`}
+          {muted
+            ? "Mic is muted. Tap Mute to unmute."
+            : callStatus === "connecting"
+            ? "Connecting..."
+            : callStatus === "closed"
+            ? "Call ended"
+            : callStatus === "speaking"
+            ? `${persona.name.split(" ")[0]} is talking — interrupt anytime`
+            : repIsSpeaking
+            ? "Keep going..."
+            : `Just talk — ${persona.name.split(" ")[0]} is listening`}
         </p>
       </div>
 

@@ -23,42 +23,49 @@ DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 # available on every account regardless of plan tier. Each persona maps
 # to one of these via voice_id == catalog key. Add fresh entries here
 # when the user adds custom-cloned voices to their library.
+#
+# Settings tuned for naturalism over stability (2026-06-12):
+#   stability ↓     → more pitch / inflection variation per sentence
+#   style ↑         → stronger emotional expression
+#   similarity ↑    → tighter to the voice's signature timbre
+# These trade a sliver of consistency for a meaningful realism gain when
+# the model is Multilingual v2.
 VOICE_CATALOG: dict[str, dict] = {
     # Older deep male — Texan retiree vibe
     "adam_mature": {
         "id": "pNInz6obpgDQGcFmaJgB",
         "label": "Adam (deep mature male)",
-        "settings": {"stability": 0.55, "similarity_boost": 0.80, "style": 0.30},
+        "settings": {"stability": 0.35, "similarity_boost": 0.85, "style": 0.55},
     },
     # Older softer male
     "antoni_warm": {
         "id": "ErXwobaYiN019PkySvjV",
         "label": "Antoni (warm older male)",
-        "settings": {"stability": 0.50, "similarity_boost": 0.75, "style": 0.30},
+        "settings": {"stability": 0.35, "similarity_boost": 0.80, "style": 0.55},
     },
     # Young friendly male
     "sam_young": {
         "id": "yoZ06aMxZJJ28mfd3POQ",
         "label": "Sam (young friendly male)",
-        "settings": {"stability": 0.40, "similarity_boost": 0.70, "style": 0.45},
+        "settings": {"stability": 0.30, "similarity_boost": 0.75, "style": 0.65},
     },
     # Mid-age female — detail-oriented, friendly
     "domi_midage": {
         "id": "AZnzlk1XvdvUeBnXmlld",
         "label": "Domi (mid-age female)",
-        "settings": {"stability": 0.45, "similarity_boost": 0.75, "style": 0.35},
+        "settings": {"stability": 0.30, "similarity_boost": 0.80, "style": 0.60},
     },
     # Young female — busy mom, fast-talking
     "bella_busy": {
         "id": "EXAVITQu4vr4xnSDxMaL",
         "label": "Bella (young female)",
-        "settings": {"stability": 0.35, "similarity_boost": 0.70, "style": 0.50},
+        "settings": {"stability": 0.25, "similarity_boost": 0.75, "style": 0.70},
     },
     # Default narrator (fallback)
     "default": {
         "id": DEFAULT_VOICE_ID,
         "label": "Rachel (default)",
-        "settings": {"stability": 0.45, "similarity_boost": 0.75, "style": 0.35},
+        "settings": {"stability": 0.35, "similarity_boost": 0.80, "style": 0.55},
     },
 }
 
@@ -74,7 +81,7 @@ def is_configured() -> bool:
     return bool(get_settings().elevenlabs_api_key)
 
 
-def tts_to_mp3(text: str, voice_id: str = "default", model_id: str = "eleven_turbo_v2_5") -> bytes:
+def tts_to_mp3(text: str, voice_id: str = "default", model_id: str = "eleven_multilingual_v2") -> bytes:
     """Synthesize text to MP3 bytes via ElevenLabs.
 
     `voice_id` is a catalog key from VOICE_CATALOG (e.g. "adam_mature"),

@@ -1,4 +1,4 @@
-import { Mic, MicOff, PhoneOff, Loader2, Maximize2 } from "lucide-react";
+import { Mic, MicOff, PhoneOff, Loader2, Maximize2, Volume2 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import { Badge } from "@/components/ui/badge";
 
@@ -15,11 +15,11 @@ export default function CallBar() {
   const {
     activeCall,
     callStatus,
-    recording,
+    repIsSpeaking,
+    muted,
     expanded,
     expand,
-    pressTalk,
-    releaseTalk,
+    toggleMute,
     endCall,
   } = useTrainingMode();
 
@@ -34,6 +34,7 @@ export default function CallBar() {
     .toUpperCase();
 
   const statusLabel = (() => {
+    if (muted) return "Muted";
     switch (callStatus) {
       case "connecting":
         return "Connecting…";
@@ -44,7 +45,7 @@ export default function CallBar() {
       case "speaking":
         return `${persona.name.split(" ")[0]} speaking`;
       case "idle":
-        return recording ? "Listening" : "Your turn";
+        return repIsSpeaking ? "You're speaking" : "Listening…";
       case "closed":
         return "Ended";
       default:
@@ -53,14 +54,14 @@ export default function CallBar() {
   })();
 
   const statusTone = (() => {
+    if (muted) return "text-slate-300";
     if (callStatus === "speaking") return "text-purple-200";
     if (callStatus === "thinking" || callStatus === "transcribing") return "text-amber-200";
-    if (recording) return "text-rose-200";
+    if (repIsSpeaking) return "text-rose-200";
     return "text-emerald-200";
   })();
 
-  const disabled =
-    callStatus === "closed" || callStatus === "connecting" || callStatus === "speaking";
+  const muteDisabled = callStatus === "closed" || callStatus === "connecting";
 
   return (
     <div
@@ -95,30 +96,49 @@ export default function CallBar() {
 
         <div className="flex-1" />
 
-        {/* Push-to-talk */}
-        <button
-          onMouseDown={pressTalk}
-          onMouseUp={releaseTalk}
-          onMouseLeave={releaseTalk}
-          onTouchStart={(ev) => {
-            ev.preventDefault();
-            pressTalk();
-          }}
-          onTouchEnd={(ev) => {
-            ev.preventDefault();
-            releaseTalk();
-          }}
-          disabled={disabled}
-          className={`flex items-center gap-2 h-10 px-4 rounded-full font-medium text-sm transition-all select-none ${
-            recording
-              ? "bg-rose-500 text-white shadow-lg shadow-rose-500/30"
-              : disabled
-              ? "bg-white/10 text-white/40 cursor-not-allowed"
-              : "bg-white text-slate-900 hover:scale-105"
+        {/* Live mic-activity pill (informational, not a button) */}
+        <div
+          className={`hidden md:inline-flex items-center gap-2 h-10 px-4 rounded-full text-sm font-medium select-none ${
+            repIsSpeaking
+              ? "bg-rose-500/20 text-rose-100"
+              : muted
+              ? "bg-slate-700 text-slate-300"
+              : callStatus === "speaking"
+              ? "bg-purple-500/20 text-purple-100"
+              : "bg-emerald-500/20 text-emerald-100"
           }`}
         >
-          {recording ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-          <span className="hidden sm:inline">{recording ? "Release to send" : "Hold to talk"}</span>
+          {repIsSpeaking ? (
+            <Mic className="h-4 w-4" />
+          ) : muted ? (
+            <MicOff className="h-4 w-4" />
+          ) : callStatus === "speaking" ? (
+            <Volume2 className="h-4 w-4" />
+          ) : (
+            <Mic className="h-4 w-4" />
+          )}
+          {repIsSpeaking
+            ? "Listening to you"
+            : muted
+            ? "Muted"
+            : callStatus === "speaking"
+            ? `${persona.name.split(" ")[0]} speaking`
+            : "Open mic"}
+        </div>
+
+        {/* Mute toggle */}
+        <button
+          onClick={toggleMute}
+          disabled={muteDisabled}
+          className={`flex items-center gap-1.5 h-10 px-3 rounded-full font-medium text-sm transition-all ${
+            muted
+              ? "bg-slate-700 text-white"
+              : "bg-white/10 text-white hover:bg-white/20"
+          } ${muteDisabled ? "opacity-40 cursor-not-allowed" : ""}`}
+          aria-label={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          <span className="hidden sm:inline">{muted ? "Unmute" : "Mute"}</span>
         </button>
 
         {/* Expand */}
