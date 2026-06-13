@@ -1,26 +1,21 @@
 """Hard-mode persona generator — the "grill call".
 
-Per user request (2026-06-12): on top of the conversion-modeled bank,
-we need a button that generates a random *challenging* customer on
-the fly. Designed as a sanity check on a new hire — can they actually
-hold their own against an informed, well-researched buyer who asks a
-lot of detailed questions?
+Per user spec (2026-06-12): a picky-customer trainer. The persona
+asks questions from a curated 141-question bank across 11 categories.
+Behavior rules baked into the backstory:
 
-Personality dial:
-  - Informed (knows the trade vocabulary, has read up)
-  - Passive-aggressive when answers are vague — not mean, just doubtful
-  - Asks LOTS of detailed questions
-  - References online research, neighbors, competitor quotes
-  - Will book if grilled successfully, walk if not
+  - Natural conversation, not an interview. Curious customer tone.
+  - If the rep sounds hesitant → passive-aggressive tone.
+  - If hesitant → ask the same question again (one retry).
+  - If still hesitant after the retry → move on to the next question.
+    Do NOT try a third time.
 
-Each call randomizes the persona's name, city, fence shape, the
-specific question categories they'll focus on, and the competitor
-quote they'll throw at the rep. So the same person can't memorize
-answers — they have to actually know the material.
+Each call randomizes the persona's name, city, fence shape, and the
+specific bundle of questions they'll work through. So the same person
+can't memorize a script — they have to actually know the material.
 
 Personas are EPHEMERAL — generated on demand, stored only as the
-persona_snapshot_json on a TrainingSession row. We don't pollute the
-TrainingPersonaBank with them; they're meant to be one-shot tests.
+persona_snapshot_json on a TrainingSession row.
 """
 from __future__ import annotations
 import random
@@ -61,90 +56,166 @@ _FENCE_SHAPES = [
     "~200 ft of cedar privacy fence next to a pool, ~5 years old, chlorine exposure on one side",
 ]
 
-_OTHER_QUOTES = [
-    {"competitor": "the company that did my neighbor's fence", "amount": 1250},
-    {"competitor": "a guy off Nextdoor", "amount": 950},
-    {"competitor": "ABC Staining", "amount": 1450},
-    {"competitor": "the one in the Home Depot ad", "amount": 1675},
-    {"competitor": "Lone Star Fence Pros", "amount": 1300},
-    {"competitor": "my brother-in-law who used to do this", "amount": 850},
-]
 
-# Question categories the grill persona will focus on. We pick 2-3 per
-# call so each grill call has a different angle. The wording in each
-# category gets baked into the persona's backstory so Claude knows
-# what to drill on.
-_QUESTION_CATEGORIES = [
-    {
-        "key": "materials",
-        "label": "obsessed with materials",
-        "concerns": (
-            "What stain brand do they use — is it actually high-quality or just the cheapest one "
-            "the supplier had? What's the difference between semi-transparent and solid? Does it "
-            "include UV inhibitors? Will the color match if you ever add a section?"
-        ),
-    },
-    {
-        "key": "process",
-        "label": "asks about every step of the process",
-        "concerns": (
-            "How long does prep take? Do they pressure-wash, sand, or just spray? How many coats? "
-            "What's the drying time between coats? What if it rains within 24 hours? Will they "
-            "come back for free if the weather messes it up?"
-        ),
-    },
-    {
-        "key": "warranty",
-        "label": "wants ironclad warranty terms",
-        "concerns": (
-            "How long is the warranty? What's covered — peeling? Fading? Mildew? What VOIDS the "
-            "warranty? Do they put it in writing? Have they ever had to honor a claim, and how did "
-            "they handle it? Will they send a copy of the warranty BEFORE booking?"
-        ),
-    },
-    {
-        "key": "competition",
-        "label": "comparison-shopping aggressively",
-        "concerns": (
-            "Why are they more expensive than the competitor's quote? What exactly are they doing "
-            "different? Can they price-match? Who else has Diana / Tom / their neighbor used? Who's "
-            "the cheapest, who's the best, and where does this company sit?"
-        ),
-    },
-    {
-        "key": "credentials",
-        "label": "vetting credentials",
-        "concerns": (
-            "Are they licensed? Insured? For how much? Bonded? How long have they been in business? "
-            "How many employees vs subcontractors? Does the same crew that quotes also do the work? "
-            "BBB rating? Google reviews? Will they share a recent customer's contact info?"
-        ),
-    },
-    {
-        "key": "scheduling",
-        "label": "particular about scheduling",
-        "concerns": (
-            "When can they actually start? Will the SAME PERSON who quoted be on-site? How many "
-            "days of work? What if they need to push? Can they work around the dog, the kids' "
-            "schedule, or the patio furniture? What happens if a crew member calls out?"
-        ),
-    },
-    {
-        "key": "specifics",
-        "label": "fixated on specific edge cases",
-        "concerns": (
-            "What about the gate hinges — will they paint over them or remove them? The dog door "
-            "in the back? The HVAC condenser the fence wraps around? The neighbor's side that "
-            "they share — do they need permission? Will they tape off the landscaping?"
-        ),
-    },
-]
+# The 141-question bank, grouped by category. Each call samples a small
+# subset (4-7) across categories so the rep never sees the same call twice.
+# Keys are stable so we can track which categories got drilled.
+_QUESTION_BANK: dict[str, list[str]] = {
+    "factual_product": [
+        "What's actually included in each package?",
+        "What's the difference between Essential, Signature, and Legacy?",
+        "How long does each one last?",
+        "Do you guys do the cleaning, or do I have to prep the fence?",
+        "Do you stain the top of the boards?",
+        "What about the neighbor's side?",
+        "What if I have a corner lot?",
+        "What kind of stain do you use?",
+        "Is it water-based or oil-based?",
+        "Do you have eco-friendly options?",
+        "How many coats?",
+        "How many people show up?",
+        "What time of day do you start?",
+        "How long does the job take?",
+        "Do you work weekends?",
+        "Do you stain in winter?",
+        "What if it rains the day of the job?",
+        "What if it rains the day after?",
+        "Do you take cards?",
+        "Do you require a deposit?",
+        "When do I pay?",
+        "Do you offer financing?",
+        "Do you offer payment plans?",
+        "What's your warranty?",
+        "Are you licensed and insured?",
+        "Can you send me proof of insurance?",
+    ],
+    "cleaning_safety": [
+        "What kind of chemicals do you use to clean the fence?",
+        "Are the chemicals safe for my plants and grass?",
+        "Will the cleaning kill my flowers?",
+        "Is it safe for my dog if he goes near the fence after?",
+        "What about my cat? Or the birdbath?",
+        "I have a koi pond right next to the fence — what about the fish?",
+        "I have a vegetable garden against the fence. Will the chemicals contaminate it?",
+        "Do I need to move my potted plants before you come?",
+        "What about my lawn — will the chemicals burn the grass?",
+        "Will the pressure wash damage my flowerbeds or mulch?",
+        "I have wood furniture and a grill on the patio — do I need to move it?",
+        "Will the stain get on my concrete patio, driveway, or pool deck?",
+        "What if you damage my sprinkler heads during the cleaning?",
+        "I have solar lights along the fence — do I need to take them down?",
+        "What about my outdoor camera mounted on the fence?",
+        "There are tree branches touching my fence — do I need to trim them first?",
+        "There's ivy growing on the fence — do you work around it or kill it?",
+        "My fence has a Ring floodlight installed on it. Will that be in the way?",
+        "Will the chemicals affect my pool water?",
+        "How long should I keep my kids and pets off the fence after?",
+    ],
+    "colors": [
+        "How many colors do you offer?",
+        "Can you send me a color chart?",
+        "What's your most popular color?",
+        "Can I match the stain to my house trim?",
+        "Do you have samples I can see in person?",
+        "Can you put a sample on my actual fence before I commit?",
+        "What's the difference between transparent, semi-transparent, and solid stain?",
+        "Will the color look different once it dries?",
+        "Will the color fade over time?",
+        "Do darker colors last longer than lighter ones?",
+        "Can I do two different colors — one for the inside, one for the outside?",
+        "What color do you recommend for an older fence?",
+        "My HOA requires certain colors — can you tell me which of yours are HOA-approved?",
+        "If I'm not sure what color, can I decide later?",
+        "What if I pick a color and don't like it after seeing the sample on my fence?",
+        "Does the color affect the price?",
+    ],
+    "objections": [
+        "That's way more than I was expecting.",
+        "The guy down the street said he'd do it for $800.",
+        "Why are you guys so expensive?",
+        "Can you do it cheaper if I pay cash?",
+        "I can do this myself for $200 at Home Depot.",
+        "I need to think about it.",
+        "I need to talk to my wife about the color before booking a day.",
+        "Send me the quote and I'll get back to you.",
+        "I'm getting three other quotes.",
+        "The other guy throws in a free pressure wash.",
+        "You guys don't even have a real warranty?",
+        "How do I know you won't just disappear with my money?",
+        "I've been burned by contractors before.",
+        "Why should I pay for cleaning if my fence looks fine to me?",
+        "Why two coats? Isn't one enough?",
+    ],
+    "emotional_curveballs": [
+        "Who is this? Who are you?",
+        "Just get to the price.",
+        "I don't have time for this, what's it gonna cost?",
+        "You're the third person who's called me today.",
+        "Are you a robot? You sound like a robot.",
+        "Are you in the U.S.? Where are you calling from?",
+        "How long has your company been around?",
+        "My fence isn't even that big, why is the price so high?",
+        "I'm a senior on a fixed income — do you have anything for that?",
+        "I'm a veteran — what do you offer me?",
+    ],
+    "traps": [
+        "Can you start tomorrow?",
+        "Can you be done by Saturday? I'm having a party.",
+        "So my final price is exactly what's on this estimate?",
+        "You won't charge me anything extra when you get here, right?",
+        "The other guy is offering 25% off — will you beat that?",
+        "Can you put in writing that the color won't fade for 5 years?",
+        "Will you cover any damage to my pool or grass or flowers?",
+        "Can your crew also paint my shed real quick?",
+        "Can you do my front door while you're there?",
+        "If I leave a 5-star Google review can you knock $100 off?",
+        "Can I get a senior discount, veterans discount, AND the 20% off — stacked?",
+        "Can you guys finance it interest-free?",
+        "If I cancel last minute, you won't charge me anything, right?",
+    ],
+    "brand_new": [
+        "How did you get my number?",
+        "I just filled out the form online — that was fast, are you sure you're not a bot?",
+        "How does this whole process work? I've never had a fence stained before.",
+        "I just bought this house — is it weird to stain the fence right after moving in?",
+        "Are you the actual owner, or are you a salesperson?",
+        "Do you guys actually do the work, or do you sub it out?",
+    ],
+    "scheduling": [
+        "How soon can you get me on the calendar?",
+        "Do I need to be home while you do the work?",
+        "What if I'm at work — can I leave a gate code?",
+        "Do you need access to my backyard? My dog's back there.",
+        "Where do you guys park your trucks?",
+        "Will you make a lot of noise? My baby naps at 1pm.",
+        "How loud is the pressure washer?",
+        "Do you need access to my water spigot or do you bring your own?",
+        "Will I have running water during the job?",
+        "What about electricity — do you need to plug into my outdoor outlet?",
+        "Do I need to be there when it's done to inspect?",
+        "What if I'm not satisfied when you finish — can I have you redo a section?",
+        "How do you handle cleanup? Is there a mess afterwards?",
+    ],
+    "property_condition": [
+        "Part of my fence is leaning — can you fix that first?",
+        "There are missing or rotted boards. Do you replace them?",
+        "My fence is brand new — should I even stain it yet?",
+        "My fence has never been stained. Is that a problem?",
+        "My fence was stained 5 years ago by someone else. Do you have to strip it first?",
+        "My fence has graffiti on it. Can the cleaning remove that?",
+        "The gate doesn't latch properly anymore — do you guys fix gates?",
+    ],
+    "trust_vetting": [
+        "Can I see pictures of work you've done?",
+        "Can I see Google reviews?",
+        "Do you have any references I can call?",
+    ],
+}
 
 
 def build_grill_persona() -> dict:
     """Generate a fresh challenging-customer persona. Ephemeral — caller
     persists it on the TrainingSession row, doesn't add to the bank."""
-    # Gender + name (drives voice selection downstream)
     gender = random.choice(("male", "female"))
     first = random.choice(
         _FIRST_NAMES_MALE if gender == "male" else _FIRST_NAMES_FEMALE
@@ -154,11 +225,18 @@ def build_grill_persona() -> dict:
 
     city = random.choice(_HOUSTON_CITIES)
     fence_shape = random.choice(_FENCE_SHAPES)
-    quote = random.choice(_OTHER_QUOTES)
 
-    # Pick 2-3 question categories so each call grills on different angles
-    n_focus = random.randint(2, 3)
-    focus_areas = random.sample(_QUESTION_CATEGORIES, n_focus)
+    # Build the question set for this call: pull 4-7 questions from across
+    # 3-5 different categories so the rep can't predict the angle.
+    n_categories = random.randint(3, 5)
+    n_questions = random.randint(4, 7)
+    chosen_categories = random.sample(list(_QUESTION_BANK.keys()), n_categories)
+    pool: list[tuple[str, str]] = []
+    for cat in chosen_categories:
+        for q in _QUESTION_BANK[cat]:
+            pool.append((cat, q))
+    random.shuffle(pool)
+    questions = pool[:n_questions]
 
     age = random.randint(35, 65)
     voice_id = _voice_for_gender(gender)
@@ -166,25 +244,25 @@ def build_grill_persona() -> dict:
     return {
         "id": f"grill:{uuid.uuid4().hex[:10]}",
         "name": name,
-        "headline": "Hard mode — informed buyer who'll grill you on every detail",
+        "headline": "Hard mode — picky customer with a list of questions",
         "age": age,
         "gender": gender,
         "location": city,
         "fence_context": fence_shape,
-        "backstory": _build_backstory(name, fence_shape, quote, focus_areas),
+        "backstory": _build_backstory(name, fence_shape, questions),
         "traits": [
-            "informed",
-            "asks a lot of questions",
-            "passive-aggressive when unsatisfied",
-            "well-researched",
-            *[f["label"] for f in focus_areas],
+            "picky",
+            "curious",
+            "asks specific questions",
+            "passive-aggressive when answers are vague",
+            *[f"focused on {cat.replace('_', ' ')}" for cat, _ in questions[:3]],
         ],
         "default_mood": "skeptical",
         "available_moods": ["friendly", "busy", "skeptical"],
         "voice_id": voice_id,
         "source": "grill",
-        "grill_focus_keys": [f["key"] for f in focus_areas],
-        "competitor_quote": quote,
+        "grill_question_categories": list({cat for cat, _ in questions}),
+        "grill_questions": [q for _, q in questions],
     }
 
 
@@ -199,33 +277,46 @@ def _voice_for_gender(gender: str) -> str:
 def _build_backstory(
     name: str,
     fence_shape: str,
-    quote: dict,
-    focus_areas: list[dict],
+    questions: list[tuple[str, str]],
 ) -> str:
     """Compose a backstory that explicitly tells Claude how to behave —
     the system prompt builder embeds the backstory verbatim, so this is
-    where the grill personality gets seeded."""
-    concerns = "\n".join(f"- {f['concerns']}" for f in focus_areas)
+    where the grill personality + question bank gets seeded."""
+    question_list = "\n".join(f"  {i+1}. {q}" for i, (_, q) in enumerate(questions))
     first = name.split()[0]
     return (
-        f"You are {first}. You called Sterling Fence Staining because you need work done on your fence "
-        f"({fence_shape}). You've already gotten a quote from {quote['competitor']} — they said about "
-        f"${quote['amount']}.\n\n"
-        f"PERSONALITY (this is HARD MODE — you are deliberately a difficult customer):\n"
-        f"- You've done your homework. You've read articles, you've talked to neighbors, you know the "
-        f"vocabulary. You'll show off this knowledge by asking detailed questions.\n"
-        f"- You're passive-aggressive when the rep gives a vague answer. Sigh. Say 'hmm', 'okay...', "
-        f"'I see', 'that's interesting' — but say them in a way that conveys doubt, not enthusiasm.\n"
-        f"- You're not MEAN. You're polite, you say 'thanks for explaining' between objections — but "
-        f"you keep coming back to your questions until they're answered satisfactorily.\n"
-        f"- You will NOT book on the first vague answer. You need each of your concerns addressed "
-        f"with confidence and specifics.\n"
-        f"- If the rep stumbles or gives generic answers, you start mentioning that the {quote['competitor']} "
-        f"already answered these clearly and you're leaning toward them.\n"
-        f"- If the rep ANSWERS WELL — with specifics, confidence, and shows they know the trade — you "
-        f"can soften and eventually book. A well-prepared rep CAN close you. An unprepared one CANNOT.\n\n"
-        f"WHAT YOU'LL DRILL ON THIS CALL:\n{concerns}\n\n"
-        f"Behave like a real person on a real phone call. Don't list all your questions at once — "
-        f"weave them in naturally, react to each answer before going to the next one, and keep your "
-        f"tone civil but unimpressed until they earn your trust."
+        f"You are {first}. You called A&T's Fence Staining because you need work done on your fence "
+        f"({fence_shape}). You're a brand-new customer, you've never used this company before, and "
+        f"you're picky. You have a specific list of questions you want answered before you'll book.\n\n"
+        f"YOUR QUESTIONS FOR THIS CALL — ask all of these by the end of the conversation:\n"
+        f"{question_list}\n\n"
+        f"HOW TO ASK THEM:\n"
+        f"- This is a NORMAL PHONE CONVERSATION, not an interview. Don't list questions one after "
+        f"another like a checklist. Weave them in naturally — react to the rep's answer, make a small "
+        f"comment, then bring up the next one. Mix the order based on the flow of the conversation.\n"
+        f"- Be curious. Phrase questions like a real picky person would: 'Oh, and what about...', "
+        f"'Wait, before I forget...', 'Hmm — what if...', 'One more thing...'.\n\n"
+        f"HOW TO REACT TO ANSWERS — THIS IS CRITICAL:\n"
+        f"1. If the rep gives a CONFIDENT, SPECIFIC answer → react positively ('okay, that makes "
+        f"sense', 'gotcha', 'alright'), then move to the next question.\n"
+        f"2. If the rep sounds HESITANT — vague answer, 'uh', 'um', dodges the question, gives a "
+        f"generic non-answer, says they'll 'find out and get back to you' — then turn PASSIVE-AGGRESSIVE. "
+        f"Sigh. Say things like: 'Hmm, okay...', 'I see...', 'That's not really what I asked.', "
+        f"'You don't know?', 'Really? You guys do this every day, right?'\n"
+        f"3. After the passive-aggressive reaction, ASK THE SAME QUESTION AGAIN — slightly reworded, "
+        f"giving them one more shot. ('Let me try that again — what I'm really asking is...').\n"
+        f"4. If they STILL can't answer it confidently on that second attempt — DO NOT ask a third "
+        f"time. Just say something disappointed like 'Okay... we'll come back to that' or 'Alright, "
+        f"moving on.' and pivot to the NEXT question on your list. Hold the dissatisfaction silently.\n"
+        f"5. If the rep keeps stumbling across multiple questions, you grow more skeptical, mention "
+        f"that you're getting other quotes, and lean toward not booking.\n"
+        f"6. If the rep handles most questions well, you warm up by the end and consider booking.\n\n"
+        f"TONE:\n"
+        f"- Polite on the surface — you're not yelling, you're not cussing. You're a picky customer "
+        f"who's evaluating them carefully.\n"
+        f"- Passive-aggressive only when they fumble — 'okay...', 'hmm', sighs, 'sure', dry 'thanks'.\n"
+        f"- Don't reveal you have a list. The rep should feel like you just keep thinking of things "
+        f"to ask, not like you're working through a scorecard.\n"
+        f"- Behave like a real person on a real phone call. Use filler words, pauses, partial "
+        f"sentences. Don't be robotic."
     )

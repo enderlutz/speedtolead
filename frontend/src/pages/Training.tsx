@@ -294,12 +294,12 @@ export default function Training() {
               <Flame className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm font-semibold leading-tight">Hard mode — simulate a tough call</p>
+              <p className="text-sm font-semibold leading-tight">Hard mode — picky customer with a question list</p>
               <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-                Spin up a random challenging customer. They've done their homework, throw a competitor
-                quote, ask detailed questions about materials, process, warranty — and turn passive-aggressive
-                when answers are vague. A well-prepared rep can close them. An unprepared one can't.
-                Different focus areas every time so it's not memorizable.
+                Spin up a brand-new customer who's working through a real question bank — chemicals,
+                colors, pricing, warranty, scheduling, trap questions. They ask once, and if your
+                answer is hesitant or vague they turn passive-aggressive and ask it again. Fumble the
+                retry and they silently move on. Different question mix every call.
               </p>
             </div>
           </div>
