@@ -23,9 +23,16 @@ const API_BASE = (import.meta.env.VITE_API_URL as string) || "";
 // VAD tuning constants. Conservative defaults — calibrated for a
 // reasonably quiet room. Bump VAD_THRESHOLD if the rep's mic picks up
 // too much background noise; bump SILENCE_MS if it cuts off mid-sentence.
+//
+// 2026-06-12: bumped SILENCE_MS 800 → 1500 after user reported the persona
+// kept interrupting. Natural breath pauses between sentences run 1-1.5s,
+// so 800ms was finalizing the rep's utterance mid-thought and letting
+// Claude reply before the rep finished. 1500ms lets the rep pause for
+// breath without losing the turn. MIN_SPEECH_MS also up slightly to drop
+// more spurious blips picked up during long quiet stretches.
 const VAD_THRESHOLD = 0.018; // RMS (0..1). Above this = "speaking".
-const SILENCE_MS = 800; // Continuous quiet before finalizing an utterance.
-const MIN_SPEECH_MS = 250; // Drop blips shorter than this (cough, click, hum).
+const SILENCE_MS = 1500; // Continuous quiet before finalizing an utterance.
+const MIN_SPEECH_MS = 350; // Drop blips shorter than this (cough, click, hum).
 const SAMPLE_INTERVAL_MS = 50; // How often the polling loop checks level.
 
 function wsUrl(path: string): string {
