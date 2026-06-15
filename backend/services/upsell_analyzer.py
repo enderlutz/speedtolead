@@ -26,9 +26,14 @@ from sqlalchemy.orm import Session
 from config import get_settings
 from database import (
     Lead,
+    CallRecording,
     CallTranscript,
     Message,
     Estimate,
+)
+from services.ghl import (
+    get_conversations,
+    get_conversation_messages,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,25 +91,43 @@ def analyze_lead_for_upsell(lead_id: str, db: Session) -> dict:
 def _collect_sources(lead: Lead, db: Session) -> dict:
     """Pull every relevant piece of context for this lead. Order matters
     only for the prompt's narrative — the actual fetch is cheap."""
+    # Transcripts are linked to leads INDIRECTLY via CallRecording. The
+    # CallTranscript.lead_id column exists but the rest of the codebase
+    # (api/calls.py, training_persona_seeder, etc.) always joins through
+    # CallRecording.lead_id → CallTranscript.recording_id. Initially I
+    # filtered the wrong way and got zero results on completed-job leads.
     transcripts: list[dict] = []
-    rows = (
-        db.query(CallTranscript)
-        .filter(CallTranscript.lead_id == lead.id)
-        .order_by(CallTranscript.created_at.desc())
-        .limit(TRANSCRIPT_LIMIT)
+    recordings = (
+        db.query(CallRecording)
+        .filter(CallRecording.lead_id == lead.id)
+        .order_by(CallRecording.created_at.desc())
+        .limit(TRANSCRIPT_LIMIT * 2)  # 2x because some recordings may lack a transcript
         .all()
     )
-    for r in rows:
-        body = (r.full_text or "").strip()
+    for rec in recordings:
+        if len(transcripts) >= TRANSCRIPT_LIMIT:
+            break
+        tr = (
+            db.query(CallTranscript)
+            .filter(CallTranscript.recording_id == rec.id)
+            .first()
+        )
+        if not tr:
+            continue
+        body = (tr.full_text or "").strip()
         if not body:
             continue
         if len(body) > TRANSCRIPT_CHAR_CAP:
             body = body[:TRANSCRIPT_CHAR_CAP] + "\n... [truncated]"
         transcripts.append({
-            "created_at": r.created_at or "",
+            "created_at": rec.created_at or tr.created_at or "",
             "text": body,
         })
 
+    # Local message cache. Only populated when someone has clicked
+    # /leads/{id}/check-response — completed-job leads may have nothing
+    # cached even though GHL has the full conversation. Falls back to
+    # a fresh GHL pull below.
     sms_rows = (
         db.query(Message)
         .filter(Message.lead_id == lead.id)
@@ -126,6 +149,19 @@ def _collect_sources(lead: Lead, db: Session) -> dict:
             "body": body,
             "ts": m.created_at or "",
         })
+
+    # Fallback: nothing in the local message cache → pull live from GHL.
+    # Completed-job leads typically have no cached messages because
+    # check-response is only triggered on active leads. We don't cache
+    # the result back to the local DB here — keeping it read-only avoids
+    # surprises (the dedicated /check-response endpoint is the writer).
+    if not sms and lead.ghl_contact_id:
+        sms = _pull_messages_from_ghl(lead)
+        if sms:
+            logger.info(
+                "Upsell analyzer: pulled %d GHL messages live for lead %s "
+                "(local cache was empty)", len(sms), lead.id,
+            )
 
     latest_estimate = (
         db.query(Estimate)
@@ -235,6 +271,59 @@ HARD RULES:
 - Don't recommend pitching something they already bought.
 - If no signal anywhere, output empty arrays and a generic "how's the fence holding up?" opener.
 """
+
+
+def _pull_messages_from_ghl(lead: Lead) -> list[dict]:
+    """Live-fetch the lead's full SMS history from GHL when the local
+    cache is empty. Returns the same shape as the cache path so the
+    rest of the analyzer doesn't care which source it came from.
+
+    Best-effort — any GHL hiccup just returns []. The /upsell-analysis
+    endpoint already degrades gracefully when SMS is absent."""
+    try:
+        convos = get_conversations(
+            lead.ghl_contact_id, lead.ghl_location_id or None
+        )
+    except Exception as e:
+        logger.error("Upsell analyzer: GHL get_conversations failed: %s", e)
+        return []
+
+    collected: list[dict] = []
+    for convo in convos or []:
+        convo_id = convo.get("id", "")
+        if not convo_id:
+            continue
+        try:
+            msgs = get_conversation_messages(
+                convo_id, lead.ghl_location_id or None
+            )
+        except Exception as e:
+            logger.error(
+                "Upsell analyzer: GHL get_conversation_messages failed "
+                "for convo %s: %s", convo_id, e,
+            )
+            continue
+        for m in msgs or []:
+            body = (m.get("body") or m.get("message") or "").strip()
+            if not body:
+                continue
+            if len(body) > SMS_CHAR_CAP:
+                body = body[:SMS_CHAR_CAP] + "..."
+            collected.append({
+                "direction": (
+                    "outbound"
+                    if m.get("direction") != "inbound"
+                    else "inbound"
+                ),
+                "body": body,
+                "ts": m.get("dateAdded") or "",
+            })
+
+    # GHL returns newest-first within a conversation; sort everything by
+    # timestamp ascending so the prompt reads chronologically. Empty ts
+    # falls back to end so they don't shuffle to the top.
+    collected.sort(key=lambda m: m.get("ts") or "9999")
+    return collected[-SMS_LIMIT:]
 
 
 def _format_transcripts(transcripts: list[dict]) -> str:
