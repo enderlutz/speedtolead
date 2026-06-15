@@ -1728,6 +1728,21 @@ export const api = {
     request<{ items: TrainingSessionRecord[] }>(`/api/training/sessions`),
   getTrainingSession: (id: string) =>
     request<TrainingSessionRecord>(`/api/training/sessions/${id}`),
+
+  // Customer follow-up brief — Claude analysis + SMS sends. Lives on
+  // the FollowUpTab on the lead detail page.
+  getFollowUpAnalysis: (leadId: string) =>
+    request<FollowUpAnalysis>(`/api/leads/${leadId}/follow-up-analysis`),
+  sendReviewSms: (leadId: string) =>
+    request<{ ok: boolean; message_sent: string }>(
+      `/api/leads/${leadId}/follow-up/send-review-sms`,
+      { method: "POST" },
+    ),
+  sendFollowUpSms: (leadId: string, message: string) =>
+    request<{ ok: boolean; message_sent: string }>(
+      `/api/leads/${leadId}/follow-up/send-draft-sms`,
+      { method: "POST", body: JSON.stringify({ message }) },
+    ),
 };
 
 // --- Training simulator types ---
@@ -1859,6 +1874,27 @@ export interface TrainingSessionRecord {
   score: Record<string, unknown>;
   audio_seconds: number;
   audio_segments: TrainingAudioSegment[];
+}
+
+export interface FollowUpAnalysis {
+  status: "ok" | "error";
+  skip_reason?: string;
+  what_they_bought: string;
+  pain_points: string[];
+  things_mentioned: string[];
+  recommended_upsell: {
+    type: string;
+    why: string;
+    hook: string;
+  };
+  suggested_opening: string;
+  draft_followup_sms: string;
+  source_summary: {
+    transcripts: number;
+    sms: number;
+    has_exterior_photos: boolean;
+    has_estimate: boolean;
+  };
 }
 
 export interface TrainingCoachingNote {

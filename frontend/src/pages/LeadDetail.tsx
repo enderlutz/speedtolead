@@ -26,6 +26,7 @@ import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import ExteriorTab from "@/components/ExteriorTab";
+import FollowUpTab from "@/components/FollowUpTab";
 import { V2_STAGES } from "./LeadsV2";
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
@@ -115,7 +116,7 @@ export default function LeadDetail() {
   // user last opened the Call tab for THIS lead. Stored per-lead in
   // localStorage so the badge resets correctly when you actually look at the
   // messages, not just when you load the page.
-  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior">("estimate");
+  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "follow_up">("estimate");
   const callTabSeenKey = id ? `at_lead_${id}_call_seen_at` : "";
   const [callTabSeenAt, setCallTabSeenAt] = useState<string>(() => {
     if (!callTabSeenKey) return "1970-01-01T00:00:00.000Z";
@@ -768,7 +769,7 @@ export default function LeadDetail() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => {
-          const next = v as "estimate" | "call" | "exterior";
+          const next = v as "estimate" | "call" | "exterior" | "follow_up";
           setActiveTab(next);
           if (next === "call" && callTabSeenKey) {
             const now = new Date().toISOString();
@@ -795,6 +796,7 @@ export default function LeadDetail() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="follow_up">Follow-up</TabsTrigger>
         </TabsList>
 
         <TabsContent value="estimate" className="space-y-4 sm:space-y-6 mt-4">
@@ -1651,6 +1653,10 @@ export default function LeadDetail() {
 
         <TabsContent value="exterior" className="space-y-4 sm:space-y-6 mt-4">
           <ExteriorTab lead={lead} onChange={(updated) => setLead(updated)} />
+        </TabsContent>
+
+        <TabsContent value="follow_up" className="space-y-4 sm:space-y-6 mt-4">
+          <FollowUpTab lead={lead} />
         </TabsContent>
       </Tabs>
 
