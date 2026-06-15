@@ -1,4 +1,4 @@
-"""Exterior-painting follow-up analyzer.
+"""Customer upsell analyzer.
 
 Per user (2026-06-15): when a job lands in the
 "COMPLETED JOB-HAPPY CUSTOMER- SEND REVIEW" kanban column, the team
@@ -12,7 +12,7 @@ customer (call transcripts, SMS history, the estimate they signed,
 internal notes, exterior-photo presence) and asks Claude to extract
 structured talking points for the rep.
 
-Runs on-demand from the Follow-up tab — no caching, no background job.
+Runs on-demand from the Upsell tab — no caching, no background job.
 A single Claude call per tab open is cheap and keeps the data current
 if new texts came in between opens.
 """
@@ -41,9 +41,9 @@ SMS_LIMIT = 60                   # Newest N SMS messages from local cache
 SMS_CHAR_CAP = 400               # Per-message truncation
 
 
-def analyze_lead_for_follow_up(lead_id: str, db: Session) -> dict:
+def analyze_lead_for_upsell(lead_id: str, db: Session) -> dict:
     """Pull all conversation sources for the lead and ask Claude to
-    produce structured follow-up talking points. Returns the result
+    produce structured upsell talking points. Returns the result
     dict ready to send to the frontend (no further shaping needed).
 
     Output envelope (also returned on error so the UI has something to
@@ -56,7 +56,7 @@ def analyze_lead_for_follow_up(lead_id: str, db: Session) -> dict:
         "things_mentioned": [str, ...],
         "recommended_upsell": {"type": str, "why": str, "hook": str},
         "suggested_opening": str,
-        "draft_followup_sms": str,
+        "draft_upsell_sms": str,
         "source_summary": {"transcripts": int, "sms": int, "has_exterior_photos": bool}
       }
     """
@@ -226,7 +226,7 @@ Produce a structured talking-points brief for the rep. Be SPECIFIC — quote act
     "hook": "<1 sentence the rep can use to bring it up naturally>"
   }},
   "suggested_opening": "<one sentence the rep can use to open the call — tuned to THIS customer's specific context>",
-  "draft_followup_sms": "<a short, friendly SMS the rep could send INSTEAD OF or BEFORE the call. Mention {first_name} by name, reference something specific from the history when possible. Keep under 200 chars. Sign off as A&T's Fence Staining.>"
+  "draft_upsell_sms": "<a short, friendly SMS the rep could send INSTEAD OF or BEFORE the call. Mention {first_name} by name, reference something specific from the history when possible. Keep under 200 chars. Sign off as A&T's Fence Staining.>"
 }}
 
 HARD RULES:
@@ -346,7 +346,7 @@ def _finalize(parsed: dict, sources: dict) -> dict:
             "hook": _str(upsell.get("hook")),
         },
         "suggested_opening": _str(parsed.get("suggested_opening")),
-        "draft_followup_sms": _str(parsed.get("draft_followup_sms")),
+        "draft_upsell_sms": _str(parsed.get("draft_upsell_sms")),
         "source_summary": {
             "transcripts": len(sources["transcripts"]),
             "sms": len(sources["sms"]),
@@ -366,7 +366,7 @@ def _error(reason: str) -> dict:
         "things_mentioned": [],
         "recommended_upsell": {"type": "", "why": "", "hook": ""},
         "suggested_opening": "",
-        "draft_followup_sms": "",
+        "draft_upsell_sms": "",
         "source_summary": {
             "transcripts": 0,
             "sms": 0,

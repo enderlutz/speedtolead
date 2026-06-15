@@ -1,11 +1,12 @@
-// FollowUpTab — completed-job customer follow-up brief.
+// UpsellTab — completed-job customer upsell brief.
 //
 // On open, runs Claude over the customer's call transcripts + SMS
-// history + estimate to produce structured talking points for a
-// follow-up call. The rep can also fire two SMS sends straight from
-// this tab:
+// history + estimate to produce structured talking points for an
+// upsell call (check in on the fence, ask for a Google review, pitch
+// exterior painting or anything else they mentioned wanting). The rep
+// can also fire two SMS sends straight from this tab:
 //   1. Google review request (fixed template, one-tap)
-//   2. AI-drafted follow-up message (editable in a dialog before send)
+//   2. AI-drafted upsell message (editable in a dialog before send)
 //
 // Both SMS buttons are blocked when Training Mode is on, consistent
 // with every other customer-contacting button across the dashboard.
@@ -25,7 +26,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type FollowUpAnalysis, type LeadDetail } from "@/lib/api";
+import { api, type UpsellAnalysis, type LeadDetail } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,13 +36,13 @@ type Props = {
   lead: LeadDetail;
 };
 
-export default function FollowUpTab({ lead }: Props) {
+export default function UpsellTab({ lead }: Props) {
   const { trainingModeOn } = useTrainingMode();
-  const [analysis, setAnalysis] = useState<FollowUpAnalysis | null>(null);
+  const [analysis, setAnalysis] = useState<UpsellAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sendingReview, setSendingReview] = useState(false);
-  const [sendingFollowUp, setSendingFollowUp] = useState(false);
+  const [sendingUpsell, setSendingUpsell] = useState(false);
 
   // Edit-and-send dialog state. We let the rep tweak the AI draft
   // before firing — common pattern from the corrections flow.
@@ -52,7 +53,7 @@ export default function FollowUpTab({ lead }: Props) {
     if (manualRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const result = await api.getFollowUpAnalysis(lead.id);
+      const result = await api.getUpsellAnalysis(lead.id);
       setAnalysis(result);
       if (result.status === "error") {
         toast.error(`Analysis failed: ${result.skip_reason || "unknown"}`);
@@ -60,7 +61,7 @@ export default function FollowUpTab({ lead }: Props) {
         toast.success("Brief refreshed");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't load follow-up brief");
+      toast.error(e instanceof Error ? e.message : "Couldn't load upsell brief");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -97,7 +98,7 @@ export default function FollowUpTab({ lead }: Props) {
       toast.error("Training Mode is on — customer messages are blocked");
       return;
     }
-    setDraftText(analysis?.draft_followup_sms || "");
+    setDraftText(analysis?.draft_upsell_sms || "");
     setDraftOpen(true);
   };
 
@@ -107,15 +108,15 @@ export default function FollowUpTab({ lead }: Props) {
       toast.error("Message is empty");
       return;
     }
-    setSendingFollowUp(true);
+    setSendingUpsell(true);
     try {
-      await api.sendFollowUpSms(lead.id, text);
-      toast.success("Follow-up SMS sent");
+      await api.sendUpsellSms(lead.id, text);
+      toast.success("Upsell SMS sent");
       setDraftOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't send follow-up SMS");
+      toast.error(e instanceof Error ? e.message : "Couldn't send upsell SMS");
     } finally {
-      setSendingFollowUp(false);
+      setSendingUpsell(false);
     }
   };
 
@@ -171,7 +172,7 @@ export default function FollowUpTab({ lead }: Props) {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-sky-600" />
-                Follow-up brief
+                Upsell brief
               </CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
                 Based on {analysis.source_summary.transcripts} call transcript
@@ -339,11 +340,11 @@ export default function FollowUpTab({ lead }: Props) {
           <Button
             size="sm"
             onClick={openDraftDialog}
-            disabled={trainingModeOn || !analysis.draft_followup_sms}
+            disabled={trainingModeOn || !analysis.draft_upsell_sms}
             title={trainingModeOn ? "Training Mode is on" : ""}
           >
             <MessageSquare className="h-3 w-3 mr-1.5" />
-            Edit + send follow-up SMS
+            Edit + send upsell SMS
           </Button>
         </CardContent>
       </Card>
@@ -355,7 +356,7 @@ export default function FollowUpTab({ lead }: Props) {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Pencil className="h-4 w-4 text-sky-600" />
-              Review + send follow-up SMS
+              Review + send upsell SMS
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               Edit before sending. {draftText.length} / 1600 characters.
@@ -373,16 +374,16 @@ export default function FollowUpTab({ lead }: Props) {
                 size="sm"
                 variant="ghost"
                 onClick={() => setDraftOpen(false)}
-                disabled={sendingFollowUp}
+                disabled={sendingUpsell}
               >
                 Cancel
               </Button>
               <Button
                 size="sm"
                 onClick={handleSendDraft}
-                disabled={sendingFollowUp || !draftText.trim()}
+                disabled={sendingUpsell || !draftText.trim()}
               >
-                {sendingFollowUp ? (
+                {sendingUpsell ? (
                   <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
                 ) : (
                   <MessageSquare className="h-3 w-3 mr-1.5" />

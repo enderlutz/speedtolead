@@ -1,18 +1,18 @@
-"""Exterior-painting follow-up endpoints.
+"""Customer upsell endpoints — the "completed job" follow-up workflow.
 
-Three endpoints power the FollowUpTab on the lead detail page:
+Three endpoints power the UpsellTab on the lead detail page:
 
-  GET  /api/leads/{lead_id}/follow-up-analysis
+  GET  /api/leads/{lead_id}/upsell-analysis
        Runs Claude over the lead's call transcripts + SMS history +
        estimate to produce a structured talking-points brief.
 
-  POST /api/leads/{lead_id}/follow-up/send-review-sms
+  POST /api/leads/{lead_id}/upsell/send-review-sms
        Sends the standard Google review request SMS via GHL.
 
-  POST /api/leads/{lead_id}/follow-up/send-draft-sms
+  POST /api/leads/{lead_id}/upsell/send-draft-sms
        Body: {"message": "..."}
        Sends a custom SMS via GHL — used by the rep to fire the AI's
-       drafted follow-up message (after they've reviewed/edited it).
+       drafted upsell message (after they've reviewed/edited it).
 
 Activity logging mirrors the estimates flow so every send shows up in
 the lead's automation timeline.
@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from database import get_db, Lead
 from api.auth import require_staff
-from services.follow_up_analyzer import analyze_lead_for_follow_up
+from services.upsell_analyzer import analyze_lead_for_upsell
 from services import ghl
 from services.activity_log import log_event
 
@@ -41,7 +41,7 @@ GOOGLE_REVIEW_URL = "https://maps.app.goo.gl/xR56n81cjxNwt7R78"
 
 # Standard review-SMS template. {first_name} is the only placeholder.
 # Kept here (not in the analyzer prompt) so it's stable + auditable —
-# Claude only drafts the FOLLOW-UP message, not the review message.
+# Claude only drafts the UPSELL message, not the review message.
 REVIEW_SMS_TEMPLATE = (
     "Hey {first_name}, A&T's Fence Staining here — really appreciated "
     "having you as a customer. If you could leave us a quick Google "
@@ -49,10 +49,10 @@ REVIEW_SMS_TEMPLATE = (
 )
 
 
-@router.get("/leads/{lead_id}/follow-up-analysis")
-def get_follow_up_analysis(lead_id: str, user: dict = Depends(require_staff)):
+@router.get("/leads/{lead_id}/upsell-analysis")
+def get_upsell_analysis(lead_id: str, user: dict = Depends(require_staff)):
     """Run the Claude analyzer on-demand. Returns a structured brief
-    the FollowUpTab can render directly. Always returns 200 with a
+    the UpsellTab can render directly. Always returns 200 with a
     status envelope — errors don't 500, they come back as
     {status: "error", skip_reason: "..."} so the UI degrades gracefully."""
     db = get_db()
@@ -60,13 +60,13 @@ def get_follow_up_analysis(lead_id: str, user: dict = Depends(require_staff)):
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        result = analyze_lead_for_follow_up(lead_id, db)
+        result = analyze_lead_for_upsell(lead_id, db)
         return result
     finally:
         db.close()
 
 
-@router.post("/leads/{lead_id}/follow-up/send-review-sms")
+@router.post("/leads/{lead_id}/upsell/send-review-sms")
 def send_review_sms(lead_id: str, user: dict = Depends(require_staff)):
     """Fire the standard Google review SMS. No customization — the
     template is fixed so we can audit + ensure consistency across the
@@ -116,16 +116,16 @@ class DraftSmsBody(BaseModel):
     message: str
 
 
-@router.post("/leads/{lead_id}/follow-up/send-draft-sms")
-def send_draft_follow_up_sms(
+@router.post("/leads/{lead_id}/upsell/send-draft-sms")
+def send_draft_upsell_sms(
     lead_id: str,
     body: DraftSmsBody,
     user: dict = Depends(require_staff),
 ):
     """Send a custom SMS to the customer. Used by the rep to fire the
-    AI's drafted follow-up after they've reviewed + edited it. The body
-    text is freeform — we don't validate format, only basic sanity (not
-    empty, under 1600 chars to fit a few SMS segments)."""
+    AI's drafted upsell message after they've reviewed + edited it. The
+    body text is freeform — we don't validate format, only basic sanity
+    (not empty, under 1600 chars to fit a few SMS segments)."""
     text = (body.message or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Message is empty")
@@ -150,15 +150,15 @@ def send_draft_follow_up_sms(
         if not ok:
             err = ghl.last_send_error() if hasattr(ghl, "last_send_error") else "unknown"
             log_event(
-                lead_id, "follow_up_sms_failed",
-                f"Follow-up SMS failed to send: {err}",
+                lead_id, "upsell_sms_failed",
+                f"Upsell SMS failed to send: {err}",
                 {"actor": user.get("sub", ""), "draft": text},
             )
             raise HTTPException(status_code=502, detail=f"GHL send failed: {err}")
 
         log_event(
-            lead_id, "follow_up_sms_sent",
-            "Follow-up SMS sent to customer",
+            lead_id, "upsell_sms_sent",
+            "Upsell SMS sent to customer",
             {
                 "actor": user.get("sub", ""),
                 "phone": lead.contact_phone or "",

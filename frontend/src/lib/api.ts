@@ -1729,18 +1729,18 @@ export const api = {
   getTrainingSession: (id: string) =>
     request<TrainingSessionRecord>(`/api/training/sessions/${id}`),
 
-  // Customer follow-up brief — Claude analysis + SMS sends. Lives on
-  // the FollowUpTab on the lead detail page.
-  getFollowUpAnalysis: (leadId: string) =>
-    request<FollowUpAnalysis>(`/api/leads/${leadId}/follow-up-analysis`),
+  // Customer upsell brief — Claude analysis + SMS sends. Lives on
+  // the UpsellTab on the lead detail page.
+  getUpsellAnalysis: (leadId: string) =>
+    request<UpsellAnalysis>(`/api/leads/${leadId}/upsell-analysis`),
   sendReviewSms: (leadId: string) =>
     request<{ ok: boolean; message_sent: string }>(
-      `/api/leads/${leadId}/follow-up/send-review-sms`,
+      `/api/leads/${leadId}/upsell/send-review-sms`,
       { method: "POST" },
     ),
-  sendFollowUpSms: (leadId: string, message: string) =>
+  sendUpsellSms: (leadId: string, message: string) =>
     request<{ ok: boolean; message_sent: string }>(
-      `/api/leads/${leadId}/follow-up/send-draft-sms`,
+      `/api/leads/${leadId}/upsell/send-draft-sms`,
       { method: "POST", body: JSON.stringify({ message }) },
     ),
 };
@@ -1876,7 +1876,7 @@ export interface TrainingSessionRecord {
   audio_segments: TrainingAudioSegment[];
 }
 
-export interface FollowUpAnalysis {
+export interface UpsellAnalysis {
   status: "ok" | "error";
   skip_reason?: string;
   what_they_bought: string;
@@ -1888,7 +1888,7 @@ export interface FollowUpAnalysis {
     hook: string;
   };
   suggested_opening: string;
-  draft_followup_sms: string;
+  draft_upsell_sms: string;
   source_summary: {
     transcripts: number;
     sms: number;
