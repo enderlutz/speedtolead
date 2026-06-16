@@ -1752,6 +1752,33 @@ export const api = {
       `/api/leads/${leadId}/upsell/send-draft-sms`,
       { method: "POST", body: JSON.stringify({ message }) },
     ),
+
+  // Painting Upsell pipeline — one-shot import from the old GHL account
+  // plus the kanban + push-to-v2 flow for the dedicated pipeline view.
+  getPaintingUpsellPreview: () =>
+    request<{ configured: boolean; count: number; samples: PaintingUpsellSample[] }>(
+      "/api/painting-upsell/preview",
+    ),
+  runPaintingUpsellImport: () =>
+    request<{ imported: number; skipped: number; errors: string[] }>(
+      "/api/painting-upsell/import",
+      { method: "POST" },
+    ),
+  getPaintingUpsellStages: () =>
+    request<{ stages: PaintingUpsellStage[] }>("/api/painting-upsell/stages"),
+  listPaintingUpsellLeads: () =>
+    request<{ stages: PaintingUpsellStage[]; leads: LeadDetail[] }>(
+      "/api/painting-upsell/leads",
+    ),
+  movePaintingUpsellStage: (leadId: string, stageId: string) =>
+    request<LeadDetail>(`/api/painting-upsell/leads/${leadId}/stage`, {
+      method: "PUT",
+      body: JSON.stringify({ stage_id: stageId }),
+    }),
+  pushPaintingUpsellToV2: (leadId: string) =>
+    request<LeadDetail>(`/api/painting-upsell/leads/${leadId}/push-to-v2-ghl`, {
+      method: "POST",
+    }),
 };
 
 // --- Training simulator types ---
@@ -1883,6 +1910,22 @@ export interface TrainingSessionRecord {
   score: Record<string, unknown>;
   audio_seconds: number;
   audio_segments: TrainingAudioSegment[];
+}
+
+export interface PaintingUpsellSample {
+  name: string;
+  phone: string;
+  monetary_value: number;
+  created_at: string;
+}
+
+export interface PaintingUpsellStage {
+  id: string;
+  label: string;
+  short: string;
+  header_cls: string;
+  bg_cls: string;
+  dot_cls: string;
 }
 
 export interface UpsellAnalysis {

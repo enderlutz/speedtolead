@@ -116,13 +116,26 @@ class _RateLimitedClient:
 _client = _RateLimitedClient(_raw_client)
 
 
-def _headers(location_id: str | None = None) -> dict:
+def _headers(location_id: str | None = None, api_key: str | None = None) -> dict:
+    """Build GHL request headers.
+
+    Routing:
+      - If `api_key` is explicitly passed, use it verbatim (escape hatch
+        for one-shot calls against the OLD account whose location_id is
+        not in our v2 settings).
+      - Else if location_id matches the v2 Woodlands location, use the
+        Woodlands key.
+      - Else fall back to the main (Cypress) key.
+    """
     settings = get_settings()
-    api_key = settings.ghl_api_key
-    if location_id and location_id == settings.ghl_location_id_2 and settings.ghl_api_key_2:
-        api_key = settings.ghl_api_key_2
+    if api_key:
+        chosen = api_key
+    else:
+        chosen = settings.ghl_api_key
+        if location_id and location_id == settings.ghl_location_id_2 and settings.ghl_api_key_2:
+            chosen = settings.ghl_api_key_2
     return {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {chosen}",
         "Version": "2021-07-28",
         "Content-Type": "application/json",
     }
@@ -158,9 +171,9 @@ def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
     return all_contacts
 
 
-def get_contact(contact_id: str, location_id: str | None = None) -> dict | None:
+def get_contact(contact_id: str, location_id: str | None = None, api_key: str | None = None) -> dict | None:
     try:
-        r = _client.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(location_id), timeout=10)
+        r = _client.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(location_id, api_key), timeout=10)
         r.raise_for_status()
         return r.json().get("contact")
     except Exception as e:
@@ -621,12 +634,12 @@ def add_contact_tag(contact_id: str, tag: str, location_id: str | None = None) -
 
 # --- Conversations / Messages ---
 
-def get_conversations(contact_id: str, location_id: str | None = None) -> list[dict]:
+def get_conversations(contact_id: str, location_id: str | None = None, api_key: str | None = None) -> list[dict]:
     """Fetch recent messages for a contact from GHL."""
     try:
         r = _client.get(
             f"{GHL_BASE}/conversations/search",
-            headers=_headers(location_id),
+            headers=_headers(location_id, api_key),
             params={"contactId": contact_id, "limit": 20},
             timeout=15,
         )
@@ -637,12 +650,12 @@ def get_conversations(contact_id: str, location_id: str | None = None) -> list[d
         return []
 
 
-def get_conversation_messages(conversation_id: str, location_id: str | None = None) -> list[dict]:
+def get_conversation_messages(conversation_id: str, location_id: str | None = None, api_key: str | None = None) -> list[dict]:
     """Fetch messages from a specific conversation."""
     try:
         r = _client.get(
             f"{GHL_BASE}/conversations/{conversation_id}/messages",
-            headers=_headers(location_id),
+            headers=_headers(location_id, api_key),
             params={"limit": 20},
             timeout=15,
         )

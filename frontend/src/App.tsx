@@ -7,6 +7,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import LeadsV2 from "@/pages/LeadsV2";
+import LeadsPaintingUpsell from "@/pages/LeadsPaintingUpsell";
 import LeadDetail from "@/pages/LeadDetail";
 import SentLog from "@/pages/SentLog";
 import Analytics from "@/pages/Analytics";
@@ -107,6 +108,7 @@ function AppLayout() {
             <Routes>
               <Route path="/" element={<StaffOnly><Dashboard /></StaffOnly>} />
               <Route path="/leads" element={<StaffOnly><LeadsV2 /></StaffOnly>} />
+              <Route path="/leads/painting-upsell" element={<StaffOnly><LeadsPaintingUpsell /></StaffOnly>} />
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
               <Route path="/leads/:id" element={<StaffOnly><LeadDetail /></StaffOnly>} />
               <Route path="/leads/:id/edit-pdf" element={<StaffOnly><EditPdf /></StaffOnly>} />
