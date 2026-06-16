@@ -76,13 +76,33 @@ export default function PaintingUpsellImportCard() {
     try {
       const r = await api.listV2Pipelines();
       setV2Pipelines(r.pipelines);
-      // Auto-pick a pipeline whose name matches "painting upsell" so
-      // they don't have to scroll if they named it sensibly.
-      const auto = r.pipelines.find((p) => p.name.toLowerCase().includes("painting upsell"));
-      if (auto) {
-        setV2ConfigPipelineId(auto.id);
-        const firstStage = auto.stages[0]?.id;
-        if (firstStage) setV2ConfigStageId(firstStage);
+      // Auto-pick in priority order:
+      //   1. A STAGE named "Painting Upsell" inside any pipeline (the
+      //      common case — admin added a stage to the existing v2 pipeline).
+      //   2. A PIPELINE named "Painting Upsell" if no matching stage exists
+      //      (the alternative case where they created a dedicated pipeline).
+      let pickedPipelineId = "";
+      let pickedStageId = "";
+      for (const p of r.pipelines) {
+        const matchingStage = p.stages.find((s) => s.name.toLowerCase().includes("painting upsell"));
+        if (matchingStage) {
+          pickedPipelineId = p.id;
+          pickedStageId = matchingStage.id;
+          break;
+        }
+      }
+      if (!pickedPipelineId) {
+        const matchingPipeline = r.pipelines.find((p) =>
+          p.name.toLowerCase().includes("painting upsell"),
+        );
+        if (matchingPipeline) {
+          pickedPipelineId = matchingPipeline.id;
+          pickedStageId = matchingPipeline.stages[0]?.id || "";
+        }
+      }
+      if (pickedPipelineId) {
+        setV2ConfigPipelineId(pickedPipelineId);
+        setV2ConfigStageId(pickedStageId);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Pipeline discovery failed");

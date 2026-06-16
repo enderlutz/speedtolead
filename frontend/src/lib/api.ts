@@ -1801,6 +1801,12 @@ export const api = {
     request<LeadDetail>(`/api/painting-upsell/leads/${leadId}/push-to-v2-ghl`, {
       method: "POST",
     }),
+  pushAllPaintingUpsellToV2: () =>
+    request<{
+      pushed: number;
+      skipped_already_pushed: number;
+      failures: { lead_id: string; name: string; error: string }[];
+    }>(`/api/painting-upsell/push-all-to-v2-ghl`, { method: "POST" }),
 };
 
 // --- Training simulator types ---

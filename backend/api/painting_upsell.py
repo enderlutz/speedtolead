@@ -291,30 +291,94 @@ def move_stage(lead_id: str, body: StageMoveBody, user: dict = Depends(require_s
 # ────────────────────────────────────────────────────────────────────────
 # Push to v2 GHL (Stage B)
 
-@router.post("/painting-upsell/leads/{lead_id}/push-to-v2-ghl")
-def push_to_v2_ghl(lead_id: str, user: dict = Depends(require_admin)):
-    """When the rep books a customer, push them into the NEW GHL account's
-    Painting Upsell pipeline. Creates a new contact + new opportunity in
-    the configured pipeline + landing stage. Flips pipeline_version="v2"
-    so the rest of the dashboard treats them like any normal v2 lead."""
+def _push_one_to_v2(lead: Lead, db, actor_sub: str) -> dict:
+    """Inner helper used by both the single-lead and batch endpoints.
+
+    Creates the new GHL contact + opportunity at the configured stage,
+    then stores the new IDs on the lead. Importantly, we DO NOT flip
+    pipeline_version — the lead stays in the local Painting Upsell
+    pipeline so the team keeps seeing it on /leads/painting-upsell and
+    can keep using the Upsell tab. The opportunity is now mirrored in
+    the new GHL account at the "Painting Upsell" stage Alan configured.
+
+    Returns {"ok": True, "lead": dict} on success or
+            {"ok": False, "error": str} on a recoverable failure.
+    """
     settings = get_settings()
     new_location_id = settings.ghl_location_id
     if not new_location_id:
-        raise HTTPException(status_code=500, detail="New GHL location not configured")
+        return {"ok": False, "error": "New GHL location not configured"}
 
+    pipeline_id = SystemConfig.get(db, PU_V2_PIPELINE_ID_KEY, "")
+    new_stage_id = SystemConfig.get(db, PU_V2_NEW_STAGE_ID_KEY, "")
+    if not pipeline_id or not new_stage_id:
+        return {
+            "ok": False,
+            "error": "Painting Upsell pipeline in new GHL account hasn't been "
+                     "configured yet — set it in Settings first.",
+        }
+    if lead.ghl_opportunity_id:
+        return {"ok": False, "error": "Already pushed to GHL"}
+
+    new_contact_id = upsert_contact(
+        location_id=new_location_id,
+        name=lead.contact_name or "",
+        phone=lead.contact_phone or "",
+        email=lead.contact_email or "",
+        address=lead.address or "",
+        zip_code=lead.zip_code or "",
+    )
+    if not new_contact_id:
+        return {
+            "ok": False,
+            "error": "Could not register contact in the new GHL account. "
+                     "Check that the contact has a phone or email.",
+        }
+
+    new_opp_id = create_opportunity(
+        location_id=new_location_id,
+        pipeline_id=pipeline_id,
+        pipeline_stage_id=new_stage_id,
+        contact_id=new_contact_id,
+        name=lead.contact_name or "Painting Upsell lead",
+    )
+    if not new_opp_id:
+        return {
+            "ok": False,
+            "error": "Contact created but opportunity creation failed. "
+                     "Check the pipeline/stage IDs are still valid.",
+        }
+
+    # Store the new GHL refs. Leave pipeline_version + kanban_column
+    # alone — the lead stays on /leads/painting-upsell. ghl_pipeline_stage_id
+    # tracks the REMOTE GHL state; the local kanban column tracks the
+    # team's workflow stage.
+    lead.ghl_contact_id = new_contact_id
+    lead.ghl_location_id = new_location_id
+    lead.ghl_opportunity_id = new_opp_id
+    lead.ghl_pipeline_stage_id = new_stage_id
+    lead.updated_at = _now()
+    db.commit()
+
+    log_event(
+        lead.id, "painting_upsell_pushed_to_v2",
+        f"Pushed to new GHL Painting Upsell stage; contact={new_contact_id}, opp={new_opp_id}",
+        {
+            "actor": actor_sub,
+            "new_contact_id": new_contact_id,
+            "new_opportunity_id": new_opp_id,
+        },
+    )
+    return {"ok": True, "lead": lead.to_dict()}
+
+
+@router.post("/painting-upsell/leads/{lead_id}/push-to-v2-ghl")
+def push_to_v2_ghl(lead_id: str, user: dict = Depends(require_admin)):
+    """Create the new-account contact + opportunity for ONE lead at the
+    configured Painting Upsell stage. The lead stays in our local
+    Painting Upsell pipeline view; only the GHL refs change."""
     db = get_db()
     try:
-        # Need the configured new-pipeline first — without it we don't
-        # know where the opportunity should land.
-        pipeline_id = SystemConfig.get(db, PU_V2_PIPELINE_ID_KEY, "")
-        new_stage_id = SystemConfig.get(db, PU_V2_NEW_STAGE_ID_KEY, "")
-        if not pipeline_id or not new_stage_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Painting Upsell pipeline in new GHL account hasn't been "
-                       "configured yet — set it in Settings first.",
-            )
-
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
@@ -323,55 +387,65 @@ def push_to_v2_ghl(lead_id: str, user: dict = Depends(require_admin)):
                 status_code=400,
                 detail="Lead is not in the Painting Upsell pipeline",
             )
+        result = _push_one_to_v2(lead, db, user.get("sub", ""))
+        if not result["ok"]:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result["lead"]
+    finally:
+        db.close()
 
-        new_contact_id = upsert_contact(
-            location_id=new_location_id,
-            name=lead.contact_name or "",
-            phone=lead.contact_phone or "",
-            email=lead.contact_email or "",
-            address=lead.address or "",
-            zip_code=lead.zip_code or "",
+
+@router.post("/painting-upsell/push-all-to-v2-ghl")
+def push_all_to_v2_ghl(user: dict = Depends(require_admin)):
+    """Push every Painting Upsell lead that hasn't been mirrored to GHL
+    yet. Skips leads that already have a ghl_opportunity_id (no
+    double-creates). Returns per-lead counts + a list of failures with
+    their reasons."""
+    db = get_db()
+    pushed = 0
+    skipped_already_pushed = 0
+    failures: list[dict] = []
+    try:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.pipeline_version == PIPELINE_VERSION)
+            .all()
         )
-        if not new_contact_id:
-            raise HTTPException(
-                status_code=502,
-                detail="Could not register contact in the new GHL account. "
-                       "Check that the contact has a phone or email.",
-            )
-
-        new_opp_id = create_opportunity(
-            location_id=new_location_id,
-            pipeline_id=pipeline_id,
-            pipeline_stage_id=new_stage_id,
-            contact_id=new_contact_id,
-            name=lead.contact_name or "Painting Upsell lead",
-        )
-        if not new_opp_id:
-            raise HTTPException(
-                status_code=502,
-                detail="Contact created but opportunity creation failed. "
-                       "Check the pipeline/stage IDs are still valid.",
-            )
-
-        # Flip to v2 + park in the new-account Painting Upsell pipeline.
-        lead.ghl_contact_id = new_contact_id
-        lead.ghl_location_id = new_location_id
-        lead.ghl_opportunity_id = new_opp_id
-        lead.pipeline_version = "v2"
-        lead.ghl_pipeline_stage_id = new_stage_id
-        lead.kanban_column = new_stage_id
-        lead.updated_at = _now()
-        db.commit()
-
+        for lead in leads:
+            if lead.ghl_opportunity_id:
+                skipped_already_pushed += 1
+                continue
+            try:
+                result = _push_one_to_v2(lead, db, user.get("sub", ""))
+            except Exception as e:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                failures.append({
+                    "lead_id": lead.id,
+                    "name": lead.contact_name or "(no name)",
+                    "error": str(e).splitlines()[0][:300],
+                })
+                continue
+            if result["ok"]:
+                pushed += 1
+            else:
+                failures.append({
+                    "lead_id": lead.id,
+                    "name": lead.contact_name or "(no name)",
+                    "error": result["error"],
+                })
         log_event(
-            lead_id, "painting_upsell_pushed_to_v2",
-            f"Pushed to new GHL Painting Upsell pipeline; contact={new_contact_id}, opp={new_opp_id}",
-            {
-                "actor": user.get("sub", ""),
-                "new_contact_id": new_contact_id,
-                "new_opportunity_id": new_opp_id,
-            },
+            None, "painting_upsell_batch_push",
+            f"Batch pushed {pushed} leads to new GHL, "
+            f"{skipped_already_pushed} already pushed, {len(failures)} failures",
+            {"actor": user.get("sub", "")},
         )
-        return lead.to_dict()
+        return {
+            "pushed": pushed,
+            "skipped_already_pushed": skipped_already_pushed,
+            "failures": failures,
+        }
     finally:
         db.close()

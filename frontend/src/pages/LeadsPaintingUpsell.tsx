@@ -37,6 +37,7 @@ export default function LeadsPaintingUpsell() {
   const [leads, setLeads] = useState<LeadDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyLeadId, setBusyLeadId] = useState<string | null>(null);
+  const [batchPushing, setBatchPushing] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -79,6 +80,42 @@ export default function LeadsPaintingUpsell() {
     }
   };
 
+  const handleBatchPush = async () => {
+    const unpushed = leads.filter((l) => !l.ghl_opportunity_id).length;
+    if (unpushed === 0) {
+      toast.info("Every lead has already been pushed to the new GHL account.");
+      return;
+    }
+    if (
+      !confirm(
+        `Push all ${unpushed} unpushed leads to the new GHL account?\n\n` +
+          "Each lead gets a new contact + opportunity created in the new GHL " +
+          "account's Painting Upsell stage. Leads stay on this pipeline view — " +
+          "the only thing that changes is they now have a real GHL opportunity.",
+      )
+    )
+      return;
+    setBatchPushing(true);
+    try {
+      const r = await api.pushAllPaintingUpsellToV2();
+      const parts = [`Pushed ${r.pushed}`];
+      if (r.skipped_already_pushed) parts.push(`skipped ${r.skipped_already_pushed} already pushed`);
+      if (r.failures.length) parts.push(`${r.failures.length} failures`);
+      if (r.failures.length) {
+        toast.error(parts.join(", "));
+        // Surface the first failure so the admin sees a hint
+        console.error("Batch push failures:", r.failures);
+      } else {
+        toast.success(parts.join(", "));
+      }
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Batch push failed");
+    } finally {
+      setBatchPushing(false);
+    }
+  };
+
   const handlePushToV2 = async (leadId: string, leadName: string) => {
     if (
       !confirm(
@@ -113,7 +150,7 @@ export default function LeadsPaintingUpsell() {
             {leads.length} lead{leads.length === 1 ? "" : "s"}
           </Badge>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button size="sm" variant="outline" onClick={refresh} disabled={loading}>
             {loading ? (
               <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
@@ -123,22 +160,38 @@ export default function LeadsPaintingUpsell() {
             Refresh
           </Button>
           {isAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => navigate("/settings")}
-            >
-              Import from old GHL →
-            </Button>
+            <>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={handleBatchPush}
+                disabled={batchPushing || loading}
+              >
+                {batchPushing ? (
+                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                ) : (
+                  <Send className="h-3 w-3 mr-1.5" />
+                )}
+                Push all to new GHL
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate("/settings")}
+              >
+                Import from old GHL →
+              </Button>
+            </>
           )}
         </div>
       </div>
 
       <p className="text-sm text-muted-foreground max-w-3xl">
         Historical happy customers pulled from the old GHL account. Use the
-        Upsell tab on each lead to pitch exterior painting; when one books,
-        click Push to v2 GHL to move them into the regular dashboard
-        kanban as a v2 lead.
+        Upsell tab on each lead to pitch exterior painting. Click Push to
+        new GHL to mirror the lead into the new GHL account's Painting
+        Upsell stage — the lead stays on this view, it just also exists
+        in GHL now.
       </p>
 
       {loading && leads.length === 0 ? (
@@ -179,12 +232,12 @@ export default function LeadsPaintingUpsell() {
                     stages={stages}
                     currentStageId={stage.id}
                     busy={busyLeadId === lead.id}
+                    isAdmin={isAdmin}
                     onOpen={() => navigate(`/leads/${lead.id}`)}
                     onMove={(stageId) => handleMove(lead.id, stageId)}
                     onPushToV2={() =>
                       handlePushToV2(lead.id, lead.contact_name || "this lead")
                     }
-                    showPushButton={stage.id === "pu_booked" && isAdmin}
                   />
                 ))}
               </div>
@@ -201,26 +254,38 @@ function PipelineCard({
   stages,
   currentStageId,
   busy,
+  isAdmin,
   onOpen,
   onMove,
   onPushToV2,
-  showPushButton,
 }: {
   lead: LeadDetail;
   stages: PaintingUpsellStage[];
   currentStageId: string;
   busy: boolean;
+  isAdmin: boolean;
   onOpen: () => void;
   onMove: (stageId: string) => void;
   onPushToV2: () => void;
-  showPushButton: boolean;
 }) {
+  const isPushed = !!lead.ghl_opportunity_id;
   return (
     <Card className="text-xs hover:shadow-md transition-shadow">
       <CardHeader className="p-2.5 pb-1.5">
-        <CardTitle className="text-xs truncate" title={lead.contact_name}>
-          {lead.contact_name || "(no name)"}
-        </CardTitle>
+        <div className="flex items-start justify-between gap-1">
+          <CardTitle className="text-xs truncate flex-1" title={lead.contact_name}>
+            {lead.contact_name || "(no name)"}
+          </CardTitle>
+          {isPushed && (
+            <Badge
+              variant="outline"
+              className="text-[9px] bg-emerald-50 text-emerald-700 border-emerald-300 h-4 px-1 leading-none shrink-0"
+              title="Already mirrored to the new GHL account"
+            >
+              ✓ GHL
+            </Badge>
+          )}
+        </div>
         {lead.contact_phone && (
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <Phone className="h-2.5 w-2.5" />
@@ -258,7 +323,7 @@ function PipelineCard({
             ))}
           </select>
         </div>
-        {showPushButton && (
+        {isAdmin && !isPushed && (
           <Button
             size="sm"
             className="h-6 text-[10px] w-full bg-emerald-600 hover:bg-emerald-700"
@@ -270,7 +335,7 @@ function PipelineCard({
             ) : (
               <Send className="h-2.5 w-2.5 mr-1" />
             )}
-            Push to v2 GHL
+            Push to new GHL
           </Button>
         )}
       </CardContent>
