@@ -865,6 +865,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ service_type, config }),
     }),
+  // Promotion / slashed-price control. Markup % applied on top of the
+  // actual tier price to render the strikethrough "original" on proposals.
+  getPromotionMarkup: () =>
+    request<{ markup_percent: number }>("/api/settings/promotion"),
+  setPromotionMarkup: (markup_percent: number) =>
+    request<{ markup_percent: number }>("/api/settings/promotion", {
+      method: "PUT",
+      body: JSON.stringify({ markup_percent }),
+    }),
   getStats: () => request<{ total_leads: number; total_estimates: number; sent_estimates: number }>("/api/settings/stats"),
 
   // PDF Templates

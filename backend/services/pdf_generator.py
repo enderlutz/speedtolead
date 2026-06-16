@@ -54,6 +54,21 @@ PRICE_STYLE = {
     "legacy_price": {"price_color": "#EDC9A8", "or_color": "#E3A742"},
 }
 
+# Map tier-price fields → their slashed (pre-discount) counterparts.
+# Caller passes "essential_slashed_price" etc. as a value string; the
+# renderer draws it above the actual price with a red strike line. If
+# the slashed value is empty/missing the feature silently no-ops, so
+# disabling the promotion (markup=0) doesn't require template changes.
+SLASHED_PRICE_PAIRS = {
+    "essential_price": "essential_slashed_price",
+    "signature_price": "signature_slashed_price",
+    "legacy_price": "legacy_slashed_price",
+}
+
+# Red used for the slashed strike-through. Bright enough to read on
+# both the brown Essential card and the dark Legacy card.
+SLASHED_COLOR_HEX = "#D32F2F"
+
 
 def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
     """Convert hex color string to RGB tuple (0.0-1.0)."""
@@ -118,6 +133,58 @@ def _render_split_price(page, x: float, y_baseline: float, font_size: float, tex
     page.insert_text(fitz.Point(cursor_x, y_baseline), monthly_part, **bold_kwargs)
 
 
+def _render_slashed_price(
+    page,
+    x: float,
+    y_baseline: float,
+    font_size: float,
+    text: str,
+    box_width: float = 0,
+):
+    """Render the slashed "summer special" pre-discount price above the
+    actual tier price. Text is in red, a red strike line is drawn through
+    it. Positioned roughly 1.4× the actual font size ABOVE the actual
+    price baseline (negative Y in PDF space = up the page).
+
+    The slashed font is 60% of the actual price font so it reads as
+    "old/struck-through" rather than competing with the headline price.
+    """
+    if not text:
+        return
+    slashed_font_size = font_size * 0.60
+    color = _hex_to_rgb(SLASHED_COLOR_HEX)
+    # Y baseline ABOVE the actual price — minus moves up in PDF space.
+    # Gap = 0.35 of the slashed font height keeps the two readable as a
+    # pair without crashing into the actual price's ascender.
+    slashed_y = y_baseline - font_size * 0.95
+
+    bold_font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
+    text_width = bold_font.text_length(text, fontsize=slashed_font_size)
+
+    render_x = x
+    if box_width > 0:
+        render_x = x + (box_width - text_width) / 2
+
+    kwargs = {"fontsize": slashed_font_size, "color": color}
+    if FONT_BOLD_PATH:
+        kwargs["fontname"] = FONT_BOLD_NAME
+        kwargs["fontfile"] = FONT_BOLD_PATH
+    page.insert_text(fitz.Point(render_x, slashed_y), text, **kwargs)
+
+    # Strike line — horizontal red line through the vertical centre of
+    # the slashed text. Slightly extended past each end so the line
+    # visibly intersects the leading "$" and trailing digit, not just
+    # the bounding box.
+    extend = slashed_font_size * 0.10
+    strike_y = slashed_y - slashed_font_size * 0.30
+    page.draw_line(
+        fitz.Point(render_x - extend, strike_y),
+        fitz.Point(render_x + text_width + extend, strike_y),
+        color=color,
+        width=max(0.8, slashed_font_size * 0.08),
+    )
+
+
 def generate_filled_pdf(
     template_bytes: bytes,
     field_map: dict,
@@ -151,6 +218,19 @@ def generate_filled_pdf(
         is_bold = field_key in BOLD_FIELDS
         text_value = str(values[field_key])
         box_width = float(placement.get("width", 0))
+
+        # Slashed pre-discount price for tier price fields. Drawn ABOVE
+        # the actual price so the customer sees "was $1,200 now $1,000."
+        # The slashed value comes through `values` as a sibling key like
+        # essential_slashed_price; empty/missing → silently no-op so a
+        # disabled promotion (markup=0) doesn't need template changes.
+        slashed_key = SLASHED_PRICE_PAIRS.get(field_key)
+        if slashed_key and values.get(slashed_key):
+            _render_slashed_price(
+                page, x, y_baseline, font_size,
+                str(values[slashed_key]),
+                box_width,
+            )
 
         # Split price rendering: "$X,XXX" bold color + "or" different color + "$XX.XX/mo" bold color
         if field_key in PRICE_STYLE and " or " in text_value:

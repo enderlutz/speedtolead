@@ -14,6 +14,7 @@ import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
+import PromotionSettingsCard from "@/components/PromotionSettingsCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
 import QBTimeSettingsCard from "@/components/QBTimeSettingsCard";
 import SupportCard from "@/components/SupportCard";
@@ -162,6 +163,11 @@ export default function Settings() {
 
       {/* Call Script — VA's reading panel on Lead Detail pulls from here */}
       <CallScriptSettings />
+
+      {/* Promotion / slashed proposal pricing — admin sets the markup %
+          rendered as a strikethrough "original" above each tier on the
+          proposal PDF. Set to 0 to disable. */}
+      <PromotionSettingsCard />
 
       {/* Follow-up Engine — master toggle, routing numbers, sequences */}
       <FollowUpSettingsCard />

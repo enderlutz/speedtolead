@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from database import get_db, PricingConfig, GhlFieldMapping
+from database import get_db, PricingConfig, GhlFieldMapping, SystemConfig
 from services.ghl import get_pipelines, get_custom_fields
 from config import get_settings
 
@@ -82,6 +82,59 @@ def update_pricing(body: PricingUpdate):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+# --- Promotion markup (slashed price feature) ---
+
+# Persisted as a SystemConfig string ("20.0", "15", etc). Empty/missing
+# defaults to 20 — A&T's standard summer-special framing.
+PROMOTION_MARKUP_KEY = "promotion_markup_percent"
+PROMOTION_MARKUP_DEFAULT = 20.0
+
+
+def get_promotion_markup_percent(db) -> float:
+    """Read the current promotion markup % from SystemConfig.
+
+    Returns the percentage to ADD on top of the actual price to display
+    as the slashed "original" price. Example: actual $1,000 + 20% markup
+    → strikethrough shows $1,200. 0 disables the slashed price entirely."""
+    raw = SystemConfig.get(db, PROMOTION_MARKUP_KEY, "")
+    if not raw:
+        return PROMOTION_MARKUP_DEFAULT
+    try:
+        v = float(raw)
+        # Clamp to a sane range so a typo can't render absurd PDFs.
+        return max(0.0, min(v, 200.0))
+    except Exception:
+        return PROMOTION_MARKUP_DEFAULT
+
+
+@router.get("/settings/promotion")
+def get_promotion():
+    """Return the current promotion markup setting."""
+    db = get_db()
+    try:
+        return {"markup_percent": get_promotion_markup_percent(db)}
+    finally:
+        db.close()
+
+
+class PromotionUpdate(BaseModel):
+    markup_percent: float
+
+
+@router.put("/settings/promotion")
+def update_promotion(body: PromotionUpdate):
+    """Set the promotion markup % used to render slashed prices on
+    proposal PDFs. Set to 0 to disable slashed pricing across the board."""
+    if body.markup_percent < 0 or body.markup_percent > 200:
+        raise HTTPException(status_code=400, detail="markup_percent must be 0-200")
+    db = get_db()
+    try:
+        SystemConfig.set(db, PROMOTION_MARKUP_KEY, f"{body.markup_percent:g}")
+        return {"markup_percent": body.markup_percent}
     finally:
         db.close()
 

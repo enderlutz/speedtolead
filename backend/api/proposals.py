@@ -397,7 +397,12 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
         fd = lead.to_dict().get("form_data", {})
         fin = fd.get("include_financing", True) is not False
 
-        from api.estimates import _format_price, _format_monthly_label, _build_pricing_includes
+        from api.estimates import (
+            _format_price, _format_monthly_label, _build_pricing_includes,
+            _slashed_price_values,
+        )
+        from api.settings import get_promotion_markup_percent
+        markup = get_promotion_markup_percent(db)
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
@@ -408,6 +413,7 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
             "signature_monthly": _format_monthly_label(fin),
             "legacy_monthly": _format_monthly_label(fin),
             "date": datetime.now().strftime("%B %d, %Y"),
+            **_slashed_price_values(tiers, markup),
         }
         fence_sides = fd.get("fence_sides", [])
         if isinstance(fence_sides, str):

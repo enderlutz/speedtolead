@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
+from api.settings import get_promotion_markup_percent
 from services.notifications import notify_estimate_sent, notify_new_lead_red
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
@@ -72,6 +73,31 @@ def _format_price(amount: float, include_financing: bool) -> str:
     # sites don't break, but it no longer changes the output.
     del include_financing
     return f"${amount:,.2f}"
+
+
+def _format_slashed_price(amount: float, markup_percent: float) -> str:
+    """Build the slashed "summer special" pre-discount price string.
+
+    Returns an empty string when the promotion is disabled (markup=0) or
+    the amount is zero. The PDF renderer treats empty as "skip the
+    strike-through", so existing leads / templates keep working with no
+    changes when the feature is off.
+    """
+    if markup_percent <= 0 or amount <= 0:
+        return ""
+    marked_up = amount * (1.0 + markup_percent / 100.0)
+    return f"${marked_up:,.2f}"
+
+
+def _slashed_price_values(tiers: dict, markup_percent: float) -> dict:
+    """Build the three slashed-price values to inject into the PDF
+    template fill payload. Centralised so estimates.py only has to call
+    this once per render site."""
+    return {
+        "essential_slashed_price": _format_slashed_price(tiers.get("essential", 0), markup_percent),
+        "signature_slashed_price": _format_slashed_price(tiers.get("signature", 0), markup_percent),
+        "legacy_slashed_price": _format_slashed_price(tiers.get("legacy", 0), markup_percent),
+    }
 
 
 def _format_monthly_label(include_financing: bool) -> str:
@@ -328,6 +354,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         tiers = est.to_dict()["tiers"]
         _fd_fin = lead.to_dict().get("form_data", {})
         _fin = _fd_fin.get("include_financing", True) is not False
+        markup = get_promotion_markup_percent(db)
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
@@ -338,6 +365,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
             "signature_monthly": _format_monthly_label(_fin),
             "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
+            **_slashed_price_values(tiers, markup),
         }
 
         # Add pricing_includes from form_data fence_sides
@@ -498,6 +526,7 @@ def _approve_estimate_background(
                 tiers = est.to_dict()["tiers"]
                 _fd_fin = lead.to_dict().get("form_data", {})
                 _fin = _fd_fin.get("include_financing", True) is not False
+                markup = get_promotion_markup_percent(db)
                 values = {
                     "customer_name": (lead.contact_name or "").title(),
                     "address": lead.address,
@@ -508,6 +537,7 @@ def _approve_estimate_background(
                     "signature_monthly": _format_monthly_label(_fin),
                     "legacy_monthly": _format_monthly_label(_fin),
                     "date": datetime.now().strftime("%B %d, %Y"),
+                    **_slashed_price_values(tiers, markup),
                 }
                 fd = lead.to_dict().get("form_data", {})
                 fence_sides = fd.get("fence_sides", [])
@@ -1535,6 +1565,7 @@ def get_estimate_pdf(estimate_id: str):
         tiers = est.to_dict()["tiers"]
         _fd_fin = lead.to_dict().get("form_data", {})
         _fin = _fd_fin.get("include_financing", True) is not False
+        markup = get_promotion_markup_percent(db)
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
@@ -1545,6 +1576,7 @@ def get_estimate_pdf(estimate_id: str):
             "signature_monthly": _format_monthly_label(_fin),
             "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
+            **_slashed_price_values(tiers, markup),
         }
         pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values)
 
