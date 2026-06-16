@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   Cog,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 
 type Preview =
@@ -53,6 +54,7 @@ export default function PaintingUpsellImportCard() {
   const [preview, setPreview] = useState<Preview>({ kind: "idle" });
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [wiping, setWiping] = useState(false);
 
   // Pull saved v2 config on mount so the UI starts from the right state.
   useEffect(() => {
@@ -126,6 +128,31 @@ export default function PaintingUpsellImportCard() {
         kind: "error",
         message: e instanceof Error ? e.message : "Preview failed",
       });
+    }
+  };
+
+  const handleWipe = async () => {
+    if (
+      !confirm(
+        "Delete EVERY lead currently in the Painting Upsell pipeline?\n\n" +
+          "This wipes the local DB state for this pipeline only (their messages " +
+          "+ estimates too). v2 leads — including any that were already pushed " +
+          "to the new GHL account — are NOT touched.\n\n" +
+          "Use this to clean up after a partial / failed import before re-running.",
+      )
+    )
+      return;
+    setWiping(true);
+    try {
+      const r = await api.wipePaintingUpsell();
+      toast.success(
+        `Wiped ${r.deleted_leads} leads + ${r.deleted_messages} messages + ${r.deleted_estimates} estimates`,
+      );
+      setLastRun(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Wipe failed");
+    } finally {
+      setWiping(false);
     }
   };
 
@@ -312,6 +339,21 @@ export default function PaintingUpsellImportCard() {
                 <Download className="h-3 w-3 mr-1.5" />
               )}
               {preview.kind === "ok" ? `Pull all ${preview.count} into pipeline` : "Run import"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-rose-600 hover:bg-rose-50 ml-auto"
+              onClick={handleWipe}
+              disabled={wiping || running}
+              title="Delete all current Painting Upsell leads. Use to clean up before a re-import."
+            >
+              {wiping ? (
+                <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3 mr-1.5" />
+              )}
+              Wipe pipeline
             </Button>
           </div>
 

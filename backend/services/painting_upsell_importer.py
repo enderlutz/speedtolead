@@ -239,10 +239,21 @@ def run_import(api_key: str, db: Session, location_id: str = "") -> dict:
             elif result == "skipped":
                 skipped += 1
         except Exception as e:
-            # Don't let one bad lead kill the whole run; log + continue.
+            # Don't let one bad lead kill the whole run. Crucially:
+            # rollback() the session here — without it, the SQLAlchemy
+            # session stays poisoned ("transaction has been rolled back
+            # due to a previous exception") and every SUBSEQUENT lead
+            # fails too, hiding the original error behind a cascade.
+            try:
+                db.rollback()
+            except Exception:
+                pass
             opp_id = opp.get("id", "?")
-            logger.error("Painting upsell: import failed for opp %s: %s", opp_id, e)
-            errors.append(f"{opp_id}: {e}")
+            # Trim the SQLAlchemy traceback to its first line; the full
+            # multi-thousand-char dump is useless in the admin UI.
+            msg = str(e).splitlines()[0][:300]
+            logger.error("Painting upsell: import failed for opp %s: %s", opp_id, msg)
+            errors.append(f"{opp_id}: {msg}")
     return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
@@ -378,18 +389,47 @@ def _import_sms_history(lead: Lead, old_contact_id: str, cfg: dict, db: Session)
         except Exception as e:
             logger.error("Painting upsell: message pull failed for convo %s: %s", convo_id, e)
             continue
+        # In-memory set of ghl_message_ids we've already queued for THIS
+        # conversation, so the same row never appears twice in one flush.
+        # The DB dedup query below also covers across-call collisions
+        # (e.g. a contact owning multiple old-account opportunities that
+        # share a conversation).
+        queued_ids: set[str] = set()
         for m in msgs or []:
             body = (m.get("body") or m.get("message") or "").strip()
             if not body:
                 continue
+            msg_type = m.get("messageType", "SMS")
+            # GHL's conversation feed includes activity events (opportunity
+            # updated, stage moved, contact created). Those aren't real
+            # conversation messages — they're system noise. Skip them.
+            if msg_type.startswith("TYPE_ACTIVITY"):
+                continue
+            ghl_msg_id = m.get("id") or None
+            # Dedup against the messages table — Message.ghl_message_id
+            # has a UNIQUE constraint; if we don't pre-check, a single
+            # duplicate poisons the whole session. A partial earlier
+            # import or a contact appearing in multiple opportunities
+            # both hit this path.
+            if ghl_msg_id:
+                if ghl_msg_id in queued_ids:
+                    continue
+                exists = (
+                    db.query(Message.id)
+                    .filter(Message.ghl_message_id == ghl_msg_id)
+                    .first()
+                )
+                if exists:
+                    continue
+                queued_ids.add(ghl_msg_id)
             db.add(Message(
                 id=str(uuid.uuid4()),
                 ghl_contact_id=old_contact_id,
                 lead_id=lead.id,
                 direction=("outbound" if m.get("direction") != "inbound" else "inbound"),
                 body=body,
-                message_type=m.get("messageType", "SMS"),
-                ghl_message_id=m.get("id") or None,
+                message_type=msg_type,
+                ghl_message_id=ghl_msg_id,
                 created_at=m.get("dateAdded") or _now(),
             ))
             total += 1

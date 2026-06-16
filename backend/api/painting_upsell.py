@@ -41,7 +41,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from config import get_settings
-from database import get_db, Lead, SystemConfig
+from database import get_db, Lead, SystemConfig, Message, Estimate
 from api.auth import require_admin, require_staff
 from services.painting_upsell_importer import (
     preview_import,
@@ -101,6 +101,51 @@ def post_import(body: ImportBody, user: dict = Depends(require_admin)):
             {"actor": user.get("sub", ""), **result},
         )
         return result
+    finally:
+        db.close()
+
+
+@router.post("/painting-upsell/wipe")
+def post_wipe(user: dict = Depends(require_admin)):
+    """Delete every Painting Upsell pipeline lead + their messages +
+    estimates. Used after a partial/failed import to start clean before
+    re-running. Only touches rows with pipeline_version='painting_upsell'
+    so v2 leads (whether original or already pushed) are untouched."""
+    db = get_db()
+    try:
+        pu_lead_ids = [
+            row[0]
+            for row in db.query(Lead.id).filter(Lead.pipeline_version == PIPELINE_VERSION).all()
+        ]
+        if not pu_lead_ids:
+            return {"deleted_leads": 0, "deleted_messages": 0, "deleted_estimates": 0}
+        msgs_deleted = (
+            db.query(Message)
+            .filter(Message.lead_id.in_(pu_lead_ids))
+            .delete(synchronize_session=False)
+        )
+        ests_deleted = (
+            db.query(Estimate)
+            .filter(Estimate.lead_id.in_(pu_lead_ids))
+            .delete(synchronize_session=False)
+        )
+        leads_deleted = (
+            db.query(Lead)
+            .filter(Lead.id.in_(pu_lead_ids))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        log_event(
+            None, "painting_upsell_wiped",
+            f"Wiped Painting Upsell pipeline: {leads_deleted} leads + "
+            f"{msgs_deleted} messages + {ests_deleted} estimates",
+            {"actor": user.get("sub", "")},
+        )
+        return {
+            "deleted_leads": leads_deleted,
+            "deleted_messages": msgs_deleted,
+            "deleted_estimates": ests_deleted,
+        }
     finally:
         db.close()
 

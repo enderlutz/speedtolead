@@ -1766,6 +1766,11 @@ export const api = {
       "/api/painting-upsell/import",
       { method: "POST", body: JSON.stringify({ api_key: apiKey }) },
     ),
+  wipePaintingUpsell: () =>
+    request<{ deleted_leads: number; deleted_messages: number; deleted_estimates: number }>(
+      "/api/painting-upsell/wipe",
+      { method: "POST" },
+    ),
   // New-account pipeline discovery (one-time setup so push-to-v2 knows
   // where to drop opportunities in the new GHL account).
   listV2Pipelines: () =>
