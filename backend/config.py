@@ -15,18 +15,11 @@ class Settings(BaseSettings):
     ghl_api_key_2: str = ""
     ghl_location_id_2: str = ""
 
-    # GHL - OLD account (dead pipeline, kept around for one-shot reads).
-    # The Painting Upsell agenda (2026-06-16) pulls historical happy
-    # customers from this account's FENCE STAINING NEW AUTOMATION FLOW
-    # pipeline → COMPLETED JOB-HAPPY CUSTOMER- SEND REVIEW stage. Never
-    # written to. Pipeline + stage IDs are discovered values, kept as
-    # defaults so the importer works the moment the API key + location
-    # land in Railway env. The API key itself is empty so a missing env
-    # var simply disables the import endpoints.
-    ghl_api_key_v1: str = ""
-    ghl_location_id_v1: str = ""
-    ghl_pipeline_id_v1_happy: str = "DhAgHB94UlwNPySeLoht"
-    ghl_stage_id_v1_happy: str = "1d3fa925-b70f-466d-9d33-d160e9fab429"
+    # GHL - OLD account credentials moved out of env (2026-06-16). The
+    # Painting Upsell import is a one-shot admin action; the API key is
+    # entered into the admin form, used for the single request, and
+    # never persisted. See services/painting_upsell_importer.py for the
+    # hardcoded discovered pipeline + stage IDs.
 
     # Notifications
     owner_ghl_contact_id: str = ""  # Alan - SMS

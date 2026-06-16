@@ -1755,14 +1755,31 @@ export const api = {
 
   // Painting Upsell pipeline — one-shot import from the old GHL account
   // plus the kanban + push-to-v2 flow for the dedicated pipeline view.
-  getPaintingUpsellPreview: () =>
-    request<{ configured: boolean; count: number; samples: PaintingUpsellSample[] }>(
+  // Paste-and-go import: API key passed in the request body, not stored.
+  getPaintingUpsellPreview: (apiKey: string) =>
+    request<{ count: number; samples: PaintingUpsellSample[] }>(
       "/api/painting-upsell/preview",
+      { method: "POST", body: JSON.stringify({ api_key: apiKey }) },
     ),
-  runPaintingUpsellImport: () =>
+  runPaintingUpsellImport: (apiKey: string) =>
     request<{ imported: number; skipped: number; errors: string[] }>(
       "/api/painting-upsell/import",
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ api_key: apiKey }) },
+    ),
+  // New-account pipeline discovery (one-time setup so push-to-v2 knows
+  // where to drop opportunities in the new GHL account).
+  listV2Pipelines: () =>
+    request<{ pipelines: { id: string; name: string; stages: { id: string; name: string }[] }[] }>(
+      "/api/painting-upsell/v2-pipelines",
+    ),
+  getPaintingUpsellV2Config: () =>
+    request<{ pipeline_id: string; new_stage_id: string; configured: boolean }>(
+      "/api/painting-upsell/v2-config",
+    ),
+  savePaintingUpsellV2Config: (pipelineId: string, newStageId: string) =>
+    request<{ pipeline_id: string; new_stage_id: string; configured: boolean }>(
+      "/api/painting-upsell/v2-config",
+      { method: "PUT", body: JSON.stringify({ pipeline_id: pipelineId, new_stage_id: newStageId }) },
     ),
   getPaintingUpsellStages: () =>
     request<{ stages: PaintingUpsellStage[] }>("/api/painting-upsell/stages"),

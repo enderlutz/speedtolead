@@ -30,7 +30,6 @@ from typing import Optional
 import httpx
 from sqlalchemy.orm import Session
 
-from config import get_settings
 from database import Lead, Message, Estimate
 from services.ghl import (
     GHL_BASE,
@@ -52,37 +51,39 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _config() -> Optional[dict]:
-    """Pull old-account creds + ids from Settings. Returns None when the
-    API key is empty — endpoints upstream surface a 503 in that case so
-    the team knows to set the env vars."""
-    s = get_settings()
-    if not s.ghl_api_key_v1:
-        return None
+# The pipeline + stage IDs in the OLD account are FIXED (we discovered
+# them on 2026-06-16). The API key + location_id come in per-request
+# from the admin form — no persistent storage of credentials.
+OLD_PIPELINE_ID = "DhAgHB94UlwNPySeLoht"
+OLD_STAGE_ID = "1d3fa925-b70f-466d-9d33-d160e9fab429"
+OLD_LOCATION_ID = "Av5xMTGXnCv1YARiyu6Z"
+
+
+def _build_creds(api_key: str, location_id: str = "") -> dict:
+    """Bundle the per-request credentials into a single dict so the
+    downstream helpers don't take 4 string args each. location_id
+    defaults to the discovered old-account location — the admin only
+    has to paste the API key."""
     return {
-        "api_key": s.ghl_api_key_v1,
-        "location_id": s.ghl_location_id_v1,
-        "pipeline_id": s.ghl_pipeline_id_v1_happy,
-        "stage_id": s.ghl_stage_id_v1_happy,
+        "api_key": api_key,
+        "location_id": location_id or OLD_LOCATION_ID,
+        "pipeline_id": OLD_PIPELINE_ID,
+        "stage_id": OLD_STAGE_ID,
     }
-
-
-def is_configured() -> bool:
-    return _config() is not None
 
 
 # ---------------------------------------------------------- discovery --
 
-def fetch_happy_customer_opportunities(limit: int = 100) -> list[dict]:
+def fetch_happy_customer_opportunities(api_key: str, limit: int = 100, location_id: str = "") -> list[dict]:
     """List opportunities in the old-account Happy Customer stage.
 
-    GHL's opportunities/search endpoint is paginated; we cap at `limit`
-    per request. Returns the raw GHL JSON shape (contact nested as
-    opportunity['contact']). Empty list on any auth failure.
+    Caller passes the API key as a string; we never read it from Settings.
+    Returns the raw GHL JSON shape (contact nested as opportunity['contact']).
+    Empty list on any auth failure.
     """
-    cfg = _config()
-    if not cfg:
+    if not api_key:
         return []
+    cfg = _build_creds(api_key, location_id)
     try:
         r = _client.get(
             f"{GHL_BASE}/opportunities/search",
@@ -106,10 +107,10 @@ def fetch_happy_customer_opportunities(limit: int = 100) -> list[dict]:
         return []
 
 
-def preview_import(limit: int = 100) -> dict:
+def preview_import(api_key: str, limit: int = 100, location_id: str = "") -> dict:
     """Read-only — surface the count + a handful of samples so the admin
     can sanity-check before running the import."""
-    opps = fetch_happy_customer_opportunities(limit=limit)
+    opps = fetch_happy_customer_opportunities(api_key, limit=limit, location_id=location_id)
     samples = []
     for o in opps[:8]:
         contact = o.get("contact") or {}
@@ -123,7 +124,6 @@ def preview_import(limit: int = 100) -> dict:
             "created_at": (o.get("createdAt") or "")[:10],
         })
     return {
-        "configured": is_configured(),
         "count": len(opps),
         "samples": samples,
     }
@@ -131,14 +131,14 @@ def preview_import(limit: int = 100) -> dict:
 
 # ---------------------------------------------------------- import --
 
-def run_import(db: Session) -> dict:
+def run_import(api_key: str, db: Session, location_id: str = "") -> dict:
     """Pull every opportunity in the old Happy Customer stage and create
     one local Lead per row. Returns counts for the admin response."""
-    cfg = _config()
-    if not cfg:
-        return {"imported": 0, "skipped": 0, "errors": ["v1 GHL not configured"]}
+    if not api_key:
+        return {"imported": 0, "skipped": 0, "errors": ["API key is empty"]}
+    cfg = _build_creds(api_key, location_id)
 
-    opps = fetch_happy_customer_opportunities(limit=500)
+    opps = fetch_happy_customer_opportunities(api_key, limit=500, location_id=location_id)
     if not opps:
         return {"imported": 0, "skipped": 0, "errors": ["No opportunities returned"]}
 

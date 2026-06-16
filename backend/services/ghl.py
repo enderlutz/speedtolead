@@ -703,6 +703,48 @@ def get_opportunity(opportunity_id: str, location_id: str | None = None) -> dict
         return None
 
 
+def create_opportunity(
+    location_id: str,
+    pipeline_id: str,
+    pipeline_stage_id: str,
+    contact_id: str,
+    name: str = "",
+    monetary_value: float = 0,
+    status: str = "open",
+) -> str | None:
+    """Create a new GHL opportunity for `contact_id` in the specified
+    pipeline + stage. Returns the new opportunity ID, or None on failure.
+    Used by the Painting Upsell push-to-v2 flow when a customer books
+    exterior painting and we need to drop them into a real opp in the
+    new account so the rest of the dashboard treats them like any
+    normal lead."""
+    if not (location_id and pipeline_id and pipeline_stage_id and contact_id):
+        return None
+    payload = {
+        "locationId": location_id,
+        "pipelineId": pipeline_id,
+        "pipelineStageId": pipeline_stage_id,
+        "contactId": contact_id,
+        "name": name or "Painting Upsell lead",
+        "status": status,
+        "monetaryValue": float(monetary_value or 0),
+    }
+    try:
+        r = _client.post(
+            f"{GHL_BASE}/opportunities/",
+            headers=_headers(location_id),
+            json=payload,
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json() or {}
+        opp = data.get("opportunity") or data
+        return opp.get("id") or opp.get("_id")
+    except Exception as e:
+        logger.error("GHL create_opportunity failed: %s", e)
+        return None
+
+
 def update_opportunity_stage(opportunity_id: str, stage_id: str, location_id: str | None = None) -> bool:
     """Move a GHL opportunity to a different pipeline stage. Used by the
     1:1 mirror — when a card is dragged on our kanban, push the change
