@@ -121,6 +121,64 @@ def fetch_happy_customer_opportunities(
         return [], msg
 
 
+def _fetch_all_pages(
+    api_key: str, location_id: str = "", page_size: int = 100, max_pages: int = 20,
+) -> tuple[list[dict], Optional[str]]:
+    """Drain every page of opportunities in the Happy Customer stage.
+
+    GHL caps `limit` at 100; we walk pages using their `startAfter` +
+    `startAfterId` cursor convention. max_pages is a runaway safety —
+    20×100 = 2000 leads, far more than the dead-account stage will ever
+    hold. Returns (all_opps, error_message) using the same shape as
+    fetch_happy_customer_opportunities.
+    """
+    cfg = _build_creds(api_key, location_id)
+    all_opps: list[dict] = []
+    start_after: Optional[str] = None
+    start_after_id: Optional[str] = None
+    for _ in range(max_pages):
+        params = {
+            "location_id": cfg["location_id"],
+            "pipeline_id": cfg["pipeline_id"],
+            "pipeline_stage_id": cfg["stage_id"],
+            "limit": page_size,
+        }
+        if start_after and start_after_id:
+            params["startAfter"] = start_after
+            params["startAfterId"] = start_after_id
+        try:
+            r = _client.get(
+                f"{GHL_BASE}/opportunities/search",
+                headers={
+                    "Authorization": f"Bearer {cfg['api_key']}",
+                    "Version": "2021-07-28",
+                    "Content-Type": "application/json",
+                },
+                params=params,
+                timeout=30,
+            )
+            if r.status_code != 200:
+                body = (r.text or "")[:300]
+                return all_opps, f"GHL returned HTTP {r.status_code}: {body}"
+            data = r.json() or {}
+        except Exception as e:
+            return all_opps, f"Pagination crashed: {type(e).__name__}: {e}"
+
+        page = data.get("opportunities", []) or []
+        all_opps.extend(page)
+        # Stop when the page is shorter than the limit — no more rows.
+        if len(page) < page_size:
+            break
+        # Cursor for the next page comes from the last opportunity's
+        # createdAt + id, per GHL's cursor convention.
+        last = page[-1]
+        start_after = last.get("createdAt")
+        start_after_id = last.get("id")
+        if not start_after or not start_after_id:
+            break
+    return all_opps, None
+
+
 def preview_import(api_key: str, limit: int = 100, location_id: str = "") -> dict:
     """Read-only — surface the count + a handful of samples so the admin
     can sanity-check before running the import."""
@@ -153,7 +211,9 @@ def run_import(api_key: str, db: Session, location_id: str = "") -> dict:
         return {"imported": 0, "skipped": 0, "errors": ["API key is empty"]}
     cfg = _build_creds(api_key, location_id)
 
-    opps, err = fetch_happy_customer_opportunities(api_key, limit=500, location_id=location_id)
+    # GHL caps `limit` at 100 per request. Paginate via startAfter +
+    # startAfterId until we've drained the stage. Cheap (30-ish total).
+    opps, err = _fetch_all_pages(api_key, location_id=location_id)
     if err:
         return {"imported": 0, "skipped": 0, "errors": [err]}
     if not opps:
