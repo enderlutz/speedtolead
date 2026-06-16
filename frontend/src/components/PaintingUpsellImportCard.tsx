@@ -114,7 +114,13 @@ export default function PaintingUpsellImportCard() {
     setPreview({ kind: "loading" });
     try {
       const r = await api.getPaintingUpsellPreview(apiKey.trim());
-      setPreview({ kind: "ok", count: r.count, samples: r.samples });
+      // The endpoint returns 200 even on GHL failure — the actual GHL
+      // error rides on `error` so we can surface the HTTP status code.
+      if (r.error) {
+        setPreview({ kind: "error", message: r.error });
+      } else {
+        setPreview({ kind: "ok", count: r.count, samples: r.samples });
+      }
     } catch (e) {
       setPreview({
         kind: "error",

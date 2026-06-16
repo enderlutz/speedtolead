@@ -1757,7 +1757,7 @@ export const api = {
   // plus the kanban + push-to-v2 flow for the dedicated pipeline view.
   // Paste-and-go import: API key passed in the request body, not stored.
   getPaintingUpsellPreview: (apiKey: string) =>
-    request<{ count: number; samples: PaintingUpsellSample[] }>(
+    request<{ count: number; samples: PaintingUpsellSample[]; error: string | null }>(
       "/api/painting-upsell/preview",
       { method: "POST", body: JSON.stringify({ api_key: apiKey }) },
     ),

@@ -74,15 +74,20 @@ def _build_creds(api_key: str, location_id: str = "") -> dict:
 
 # ---------------------------------------------------------- discovery --
 
-def fetch_happy_customer_opportunities(api_key: str, limit: int = 100, location_id: str = "") -> list[dict]:
+def fetch_happy_customer_opportunities(
+    api_key: str, limit: int = 100, location_id: str = ""
+) -> tuple[list[dict], Optional[str]]:
     """List opportunities in the old-account Happy Customer stage.
 
-    Caller passes the API key as a string; we never read it from Settings.
-    Returns the raw GHL JSON shape (contact nested as opportunity['contact']).
-    Empty list on any auth failure.
+    Returns (opportunities, error_message). When the call succeeds and
+    GHL legitimately returns zero opportunities, error_message is None
+    and opportunities is []. When the API call FAILS (401/403/network/
+    parse error), opportunities is [] and error_message holds the
+    surfaceable reason so the admin sees something better than "no
+    opportunities returned."
     """
     if not api_key:
-        return []
+        return [], "API key is empty"
     cfg = _build_creds(api_key, location_id)
     try:
         r = _client.get(
@@ -100,17 +105,26 @@ def fetch_happy_customer_opportunities(api_key: str, limit: int = 100, location_
             },
             timeout=30,
         )
-        r.raise_for_status()
-        return r.json().get("opportunities", []) or []
+        if r.status_code != 200:
+            # Surface the GHL response body so we can distinguish 401
+            # (wrong key), 403 (key lacks scope), 404 (pipeline gone),
+            # etc. Truncate to keep the UI tidy.
+            body = (r.text or "")[:300]
+            msg = f"GHL returned HTTP {r.status_code}: {body}"
+            logger.error("Painting upsell: %s", msg)
+            return [], msg
+        opps = r.json().get("opportunities", []) or []
+        return opps, None
     except Exception as e:
-        logger.error("Painting upsell: opportunity fetch failed: %s", e)
-        return []
+        msg = f"Fetch crashed: {type(e).__name__}: {e}"
+        logger.error("Painting upsell: %s", msg)
+        return [], msg
 
 
 def preview_import(api_key: str, limit: int = 100, location_id: str = "") -> dict:
     """Read-only — surface the count + a handful of samples so the admin
     can sanity-check before running the import."""
-    opps = fetch_happy_customer_opportunities(api_key, limit=limit, location_id=location_id)
+    opps, err = fetch_happy_customer_opportunities(api_key, limit=limit, location_id=location_id)
     samples = []
     for o in opps[:8]:
         contact = o.get("contact") or {}
@@ -126,6 +140,7 @@ def preview_import(api_key: str, limit: int = 100, location_id: str = "") -> dic
     return {
         "count": len(opps),
         "samples": samples,
+        "error": err,
     }
 
 
@@ -138,9 +153,20 @@ def run_import(api_key: str, db: Session, location_id: str = "") -> dict:
         return {"imported": 0, "skipped": 0, "errors": ["API key is empty"]}
     cfg = _build_creds(api_key, location_id)
 
-    opps = fetch_happy_customer_opportunities(api_key, limit=500, location_id=location_id)
+    opps, err = fetch_happy_customer_opportunities(api_key, limit=500, location_id=location_id)
+    if err:
+        return {"imported": 0, "skipped": 0, "errors": [err]}
     if not opps:
-        return {"imported": 0, "skipped": 0, "errors": ["No opportunities returned"]}
+        return {
+            "imported": 0,
+            "skipped": 0,
+            "errors": [
+                "No opportunities returned. The API call succeeded but the "
+                "Happy Customer stage is empty — or the stored stage ID is "
+                "stale. Confirm in old GHL that opportunities are sitting in "
+                "the COMPLETED JOB-HAPPY CUSTOMER- SEND REVIEW column."
+            ],
+        }
 
     imported = 0
     skipped = 0
