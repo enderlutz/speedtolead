@@ -10,9 +10,9 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
-from api.settings import get_promotion_markup_percent
+from api.settings import get_promotion_markup_percent, get_proposal_pages_to_drop
 from services.notifications import notify_estimate_sent, notify_new_lead_red
-from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
+from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages, trim_pdf_last_pages
 from services.template_cache import get_template as get_cached_template
 from services.ghl import send_sms, send_email, add_contact_note, add_contact_tag, update_opportunity_stage
 from services import supabase_storage
@@ -378,7 +378,10 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         overrides = body.field_overrides if body else None
         extra = body.extra_fields if body else None
 
-        pages = generate_preview_pages(template["pdf_data"], field_map, values, overrides, extra)
+        pages = generate_preview_pages(
+            template["pdf_data"], field_map, values, overrides, extra,
+            drop_last_pages=get_proposal_pages_to_drop(db),
+        )
         return {"pages": [{"page_num": i, "image_data": img} for i, img in enumerate(pages)]}
 
     except HTTPException:
@@ -558,6 +561,10 @@ def _approve_estimate_background(
                     extra = body_extra_fields
 
                 pdf_bytes = generate_filled_pdf(template["pdf_data"], merged_map, values, extra)
+                # Hide the last N template pages from the customer-facing
+                # output (terms / portfolio / warranty etc). Configurable
+                # via Settings; default 3 per A&T's current template.
+                pdf_bytes = trim_pdf_last_pages(pdf_bytes, get_proposal_pages_to_drop(db))
             except Exception as e:
                 logger.error(f"BG approve_estimate: PDF generation failed: {e}")
 
@@ -1154,6 +1161,8 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
         finally:
             _pdf_mod.BOLD_FIELDS = _saved_bold
 
+        pdf_bytes = trim_pdf_last_pages(pdf_bytes, get_proposal_pages_to_drop(db))
+
         # Rasterize pages
         jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)
 
@@ -1579,6 +1588,7 @@ def get_estimate_pdf(estimate_id: str):
             **_slashed_price_values(tiers, markup),
         }
         pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values)
+        pdf_bytes = trim_pdf_last_pages(pdf_bytes, get_proposal_pages_to_drop(db))
 
         return Response(
             content=pdf_bytes,

@@ -139,6 +139,59 @@ def update_promotion(body: PromotionUpdate):
         db.close()
 
 
+# --- Proposal page trimming (hide last N pages) ---
+
+# Persisted as a SystemConfig string ("3", "0", etc). Empty/missing
+# defaults to 3 — A&T's current template ends with terms / portfolio /
+# warranty pages they don't want customers to see in the proposal view.
+PROPOSAL_PAGES_TO_DROP_KEY = "proposal_pages_to_drop"
+PROPOSAL_PAGES_TO_DROP_DEFAULT = 3
+
+
+def get_proposal_pages_to_drop(db) -> int:
+    """Read the current "drop last N pages" count from SystemConfig.
+
+    Returns the number of pages to trim off the END of the rasterized
+    proposal output. 0 keeps every page. Clamped to a sane range so a
+    typo can't accidentally drop the entire PDF."""
+    raw = SystemConfig.get(db, PROPOSAL_PAGES_TO_DROP_KEY, "")
+    if not raw:
+        return PROPOSAL_PAGES_TO_DROP_DEFAULT
+    try:
+        v = int(raw)
+        return max(0, min(v, 50))
+    except Exception:
+        return PROPOSAL_PAGES_TO_DROP_DEFAULT
+
+
+@router.get("/settings/proposal-pages-to-drop")
+def get_proposal_pages_to_drop_endpoint():
+    """Return the current proposal page-trimming setting."""
+    db = get_db()
+    try:
+        return {"pages_to_drop": get_proposal_pages_to_drop(db)}
+    finally:
+        db.close()
+
+
+class ProposalPagesUpdate(BaseModel):
+    pages_to_drop: int
+
+
+@router.put("/settings/proposal-pages-to-drop")
+def update_proposal_pages_to_drop(body: ProposalPagesUpdate):
+    """Set how many pages to trim from the END of every proposal PDF
+    before customers see it. Set to 0 to show the full template."""
+    if body.pages_to_drop < 0 or body.pages_to_drop > 50:
+        raise HTTPException(status_code=400, detail="pages_to_drop must be 0-50")
+    db = get_db()
+    try:
+        SystemConfig.set(db, PROPOSAL_PAGES_TO_DROP_KEY, str(int(body.pages_to_drop)))
+        return {"pages_to_drop": body.pages_to_drop}
+    finally:
+        db.close()
+
+
 # --- GHL Pipeline discovery ---
 
 @router.get("/settings/ghl-pipelines")
