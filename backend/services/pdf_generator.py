@@ -71,6 +71,18 @@ SLASHED_PRICE_PAIRS = {
 }
 SLASHED_FIELD_KEYS = set(SLASHED_PRICE_PAIRS.values())
 
+# "You save $X.XX" field — the prefix "You save " is drawn in green and
+# the dollar amount in brown/gold (split on the first "$"). Hardcoded
+# here because the canvas editor only stores one color per field, and
+# the design needs two.
+SAVE_PRICE_FIELDS = {
+    "essential_save_price",
+    "signature_save_price",
+    "legacy_save_price",
+}
+SAVE_PRICE_PREFIX_COLOR = "#09311c"
+SAVE_PRICE_AMOUNT_COLOR = "#a76616"
+
 # Red used for the slashed strike-through. Bright enough to read on
 # both the brown Essential card and the dark Legacy card.
 SLASHED_COLOR_HEX = "#D32F2F"
@@ -137,6 +149,58 @@ def _render_split_price(page, x: float, y_baseline: float, font_size: float, tex
 
     # 3. Monthly part — bold, price_color
     page.insert_text(fitz.Point(cursor_x, y_baseline), monthly_part, **bold_kwargs)
+
+
+def _render_split_save_price(
+    page,
+    x: float,
+    y_baseline: float,
+    font_size: float,
+    text: str,
+    box_width: float = 0,
+):
+    """Render a "You save $X.XX" line with the prefix in green and the
+    dollar amount in brown/gold. Split happens at the first "$". If the
+    text contains no "$" (shouldn't happen, but defensive), the whole
+    string renders in the prefix color so the field still appears."""
+    if "$" in text:
+        idx = text.index("$")
+        prefix_part = text[:idx]
+        amount_part = text[idx:]
+    else:
+        prefix_part = text
+        amount_part = ""
+
+    prefix_color = _hex_to_rgb(SAVE_PRICE_PREFIX_COLOR)
+    amount_color = _hex_to_rgb(SAVE_PRICE_AMOUNT_COLOR)
+    bold_font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
+    prefix_w = bold_font.text_length(prefix_part, fontsize=font_size)
+    amount_w = bold_font.text_length(amount_part, fontsize=font_size)
+
+    cursor_x = x
+    if box_width > 0:
+        cursor_x = x + (box_width - (prefix_w + amount_w)) / 2
+
+    bold_kwargs: dict = {"fontsize": font_size}
+    if FONT_BOLD_PATH:
+        bold_kwargs["fontname"] = FONT_BOLD_NAME
+        bold_kwargs["fontfile"] = FONT_BOLD_PATH
+
+    if prefix_part:
+        page.insert_text(
+            fitz.Point(cursor_x, y_baseline),
+            prefix_part,
+            color=prefix_color,
+            **bold_kwargs,
+        )
+        cursor_x += prefix_w
+    if amount_part:
+        page.insert_text(
+            fitz.Point(cursor_x, y_baseline),
+            amount_part,
+            color=amount_color,
+            **bold_kwargs,
+        )
 
 
 def _render_slashed_price(
@@ -238,6 +302,15 @@ def generate_filled_pdf(
                 page, x, y_baseline, font_size,
                 text_value, box_width,
                 font_scale=1.0,
+            )
+            continue
+
+        # "You save $X.XX" — two-color render: green prefix, brown amount.
+        # Skips the default text-fill below.
+        if field_key in SAVE_PRICE_FIELDS:
+            _render_split_save_price(
+                page, x, y_baseline, font_size,
+                text_value, box_width,
             )
             continue
 
