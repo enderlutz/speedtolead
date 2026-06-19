@@ -399,7 +399,7 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
 
         from api.estimates import (
             _format_price, _format_monthly_label, _build_pricing_includes,
-            _slashed_price_values,
+            _slashed_price_values, _save_amount_values,
         )
         from api.settings import get_promotion_markup_percent, get_proposal_pages_to_drop
         from services.pdf_generator import trim_pdf_last_pages
@@ -415,6 +415,7 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
             "legacy_monthly": _format_monthly_label(fin),
             "date": datetime.now().strftime("%B %d, %Y"),
             **_slashed_price_values(tiers, markup),
+            **_save_amount_values(tiers, markup),
         }
         fence_sides = fd.get("fence_sides", [])
         if isinstance(fence_sides, str):

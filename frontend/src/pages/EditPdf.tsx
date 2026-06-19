@@ -75,7 +75,8 @@ export default function EditPdf() {
     Promise.all([
       api.getLead(id),
       api.getPdfTemplate(),
-    ]).then(([leadData, tmpl]) => {
+      api.getPromotionMarkup().catch(() => ({ markup_percent: 0 })),
+    ]).then(([leadData, tmpl, promo]) => {
       setLead(leadData);
       const est = leadData.estimates?.[0];
       setEstimate(est || null);
@@ -89,6 +90,9 @@ export default function EditPdf() {
       const fd = leadData.form_data || {};
       const fenceSides = Array.isArray(fd.fence_sides) ? fd.fence_sides : [];
       const pricingIncludes = generatePricingIncludes(fenceSides);
+      const markup = promo?.markup_percent || 0;
+      const fmtSave = (amount: number) =>
+        markup > 0 && amount > 0 ? formatCurrency(amount * (markup / 100)) : "";
 
       const vals: Record<string, string> = {
         customer_name: (leadData.contact_name || "").split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
@@ -96,6 +100,9 @@ export default function EditPdf() {
         essential_price: formatCurrency(tiers.essential),
         signature_price: formatCurrency(tiers.signature),
         legacy_price: formatCurrency(tiers.legacy),
+        essential_save_price: fmtSave(tiers.essential),
+        signature_save_price: fmtSave(tiers.signature),
+        legacy_save_price: fmtSave(tiers.legacy),
         essential_monthly: "",
         signature_monthly: "",
         legacy_monthly: "",

@@ -100,6 +100,28 @@ def _slashed_price_values(tiers: dict, markup_percent: float) -> dict:
     }
 
 
+def _format_save_amount(amount: float, markup_percent: float) -> str:
+    """Dollar amount the customer "saves" off the marked-up price.
+
+    Equals slashed_price - actual_price = actual_price * markup/100.
+    Returned empty when the promotion is off so the new-template fields
+    gracefully blank out (matches _format_slashed_price behaviour)."""
+    if markup_percent <= 0 or amount <= 0:
+        return ""
+    save = amount * (markup_percent / 100.0)
+    return f"${save:,.2f}"
+
+
+def _save_amount_values(tiers: dict, markup_percent: float) -> dict:
+    """The three "YOU SAVE $X" values for the new proposal template's
+    savings line. Same shape as _slashed_price_values."""
+    return {
+        "essential_save_price": _format_save_amount(tiers.get("essential", 0), markup_percent),
+        "signature_save_price": _format_save_amount(tiers.get("signature", 0), markup_percent),
+        "legacy_save_price": _format_save_amount(tiers.get("legacy", 0), markup_percent),
+    }
+
+
 def _format_monthly_label(include_financing: bool) -> str:
     del include_financing
     return ""
@@ -366,6 +388,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
             "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
             **_slashed_price_values(tiers, markup),
+            **_save_amount_values(tiers, markup),
         }
 
         # Add pricing_includes from form_data fence_sides
@@ -541,6 +564,7 @@ def _approve_estimate_background(
                     "legacy_monthly": _format_monthly_label(_fin),
                     "date": datetime.now().strftime("%B %d, %Y"),
                     **_slashed_price_values(tiers, markup),
+                    **_save_amount_values(tiers, markup),
                 }
                 fd = lead.to_dict().get("form_data", {})
                 fence_sides = fd.get("fence_sides", [])
@@ -1586,6 +1610,7 @@ def get_estimate_pdf(estimate_id: str):
             "legacy_monthly": _format_monthly_label(_fin),
             "date": datetime.now().strftime("%B %d, %Y"),
             **_slashed_price_values(tiers, markup),
+            **_save_amount_values(tiers, markup),
         }
         pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values)
         pdf_bytes = trim_pdf_last_pages(pdf_bytes, get_proposal_pages_to_drop(db))

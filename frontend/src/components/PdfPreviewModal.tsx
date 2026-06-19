@@ -54,21 +54,30 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
     return { w: w > 0 ? w : 612, h: h > 0 ? h : 792 };
   }, []);
 
+  const [markupPercent, setMarkupPercent] = useState<number>(0);
+
   const buildValues = useCallback((): Record<string, string> => {
     const tiers = estimate.tiers || { essential: 0, signature: 0, legacy: 0 };
+    const fmtSave = (amount: number) =>
+      markupPercent > 0 && amount > 0
+        ? formatCurrency(amount * (markupPercent / 100))
+        : "";
     return {
       customer_name: lead.contact_name || "",
       address: lead.address || "",
       essential_price: formatCurrency(tiers.essential),
       signature_price: formatCurrency(tiers.signature),
       legacy_price: formatCurrency(tiers.legacy),
+      essential_save_price: fmtSave(tiers.essential),
+      signature_save_price: fmtSave(tiers.signature),
+      legacy_save_price: fmtSave(tiers.legacy),
       essential_monthly: `$${Math.round(tiers.essential / 21)}/mo`,
       signature_monthly: `$${Math.round(tiers.signature / 21)}/mo`,
       legacy_monthly: `$${Math.round(tiers.legacy / 21)}/mo`,
       pricing_includes: generatePricingIncludes(fenceSides),
       date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
     };
-  }, [lead, estimate, fenceSides]);
+  }, [lead, estimate, fenceSides, markupPercent]);
 
   // Load on open
   useEffect(() => {
@@ -80,6 +89,13 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
       return;
     }
     setLoading(true);
+
+    // Pull markup % so the "YOU SAVE $X" preview field matches what the
+    // PDF will actually render at send-time. Failure → no markup applied
+    // (save fields preview as empty), same as if promotion were disabled.
+    api.getPromotionMarkup()
+      .then((p) => setMarkupPercent(p?.markup_percent || 0))
+      .catch(() => setMarkupPercent(0));
 
     // Load template field map + page sizes
     api.getPdfTemplate().then((tmpl) => {
