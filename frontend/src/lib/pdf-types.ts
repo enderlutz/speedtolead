@@ -62,7 +62,7 @@ export const PRESET_FIELD_COLORS: Record<string, string> = {
   legacy_slashed_price: "#D32F2F",
   essential_save_price: "#09311c",
   signature_save_price: "#09311c",
-  legacy_save_price: "#09311c",
+  legacy_save_price: "#ffffff",
   essential_monthly: "#2b3a16",
   signature_monthly: "#5b2c10",
   legacy_monthly: "#c1891f",
