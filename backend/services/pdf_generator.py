@@ -54,6 +54,17 @@ PRICE_STYLE = {
     "legacy_price": {"price_color": "#c1891f", "or_color": "#000000"},
 }
 
+# Tier price color overrides. Forced at render time so existing
+# placements (which still hold the old hex from the canvas editor) pick
+# up the new brand colors without the admin having to re-pick on every
+# field. To revert any tier to "honor the placement color," remove its
+# entry from this dict.
+TIER_PRICE_COLOR_OVERRIDES = {
+    "essential_price": "#2b3a16",
+    "signature_price": "#5b2c10",
+    "legacy_price":    "#c1891f",
+}
+
 # Map tier-price fields → their slashed (pre-discount) counterparts.
 # Caller passes "essential_slashed_price" etc. as a value string; the
 # renderer draws it above the actual price with a red strike line. If
@@ -284,7 +295,10 @@ def generate_filled_pdf(
         x = float(placement.get("x", 72))
         y = float(placement.get("y", 72))
         font_size = float(placement.get("font_size", 12))
-        color = _hex_to_rgb(placement.get("color", DEFAULT_COLOR))
+        # Per-tier price color overrides stomp the placement color so
+        # existing templates pick up brand changes without re-picking.
+        forced_color = TIER_PRICE_COLOR_OVERRIDES.get(field_key)
+        color = _hex_to_rgb(forced_color or placement.get("color", DEFAULT_COLOR))
 
         page = doc[page_num]
         # PyMuPDF insert_text uses baseline Y (bottom of text).
