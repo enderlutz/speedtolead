@@ -92,7 +92,7 @@ export default function EditPdf() {
       const pricingIncludes = generatePricingIncludes(fenceSides);
       const markup = promo?.markup_percent || 0;
       const fmtSave = (amount: number) =>
-        markup > 0 && amount > 0 ? formatCurrency(amount * (markup / 100)) : "";
+        markup > 0 && amount > 0 ? `You save ${formatCurrency(amount * (markup / 100))}` : "";
       const fmtSlashed = (amount: number) =>
         markup > 0 && amount > 0 ? formatCurrency(amount * (1 + markup / 100)) : "";
 

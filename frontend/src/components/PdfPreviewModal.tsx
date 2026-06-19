@@ -60,7 +60,7 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
     const tiers = estimate.tiers || { essential: 0, signature: 0, legacy: 0 };
     const fmtSave = (amount: number) =>
       markupPercent > 0 && amount > 0
-        ? formatCurrency(amount * (markupPercent / 100))
+        ? `You save ${formatCurrency(amount * (markupPercent / 100))}`
         : "";
     const fmtSlashed = (amount: number) =>
       markupPercent > 0 && amount > 0

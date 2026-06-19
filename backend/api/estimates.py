@@ -101,15 +101,16 @@ def _slashed_price_values(tiers: dict, markup_percent: float) -> dict:
 
 
 def _format_save_amount(amount: float, markup_percent: float) -> str:
-    """Dollar amount the customer "saves" off the marked-up price.
+    """The "You save $X.XX" line for each tier card on the new template.
 
-    Equals slashed_price - actual_price = actual_price * markup/100.
-    Returned empty when the promotion is off so the new-template fields
-    gracefully blank out (matches _format_slashed_price behaviour)."""
+    Includes the "You save" prefix in the same text run so the admin
+    only positions one field per tier instead of two. Empty when the
+    promotion is off (markup=0) so the line disappears cleanly along
+    with the strikethrough — same behaviour as _format_slashed_price."""
     if markup_percent <= 0 or amount <= 0:
         return ""
     save = amount * (markup_percent / 100.0)
-    return f"${save:,.2f}"
+    return f"You save ${save:,.2f}"
 
 
 def _save_amount_values(tiers: dict, markup_percent: float) -> dict:
