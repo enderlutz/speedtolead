@@ -874,14 +874,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ markup_percent }),
     }),
-  // Hide the last N pages of every proposal PDF from the customer.
-  getProposalPagesToDrop: () =>
-    request<{ pages_to_drop: number }>("/api/settings/proposal-pages-to-drop"),
-  setProposalPagesToDrop: (pages_to_drop: number) =>
-    request<{ pages_to_drop: number }>("/api/settings/proposal-pages-to-drop", {
-      method: "PUT",
-      body: JSON.stringify({ pages_to_drop }),
-    }),
   getStats: () => request<{ total_leads: number; total_estimates: number; sent_estimates: number }>("/api/settings/stats"),
 
   // PDF Templates

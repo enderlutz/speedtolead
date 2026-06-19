@@ -316,14 +316,8 @@ def generate_preview_pages(
     values: dict,
     field_overrides: dict | None = None,
     extra_fields: list[dict] | None = None,
-    drop_last_pages: int = 0,
 ) -> list[str]:
-    """Generate filled PDF and return base64-encoded JPEG pages (lower DPI for speed).
-
-    drop_last_pages: hide the last N pages from the previewed output —
-    matches the customer-facing trim so the admin preview shows exactly
-    what the customer will see.
-    """
+    """Generate filled PDF and return base64-encoded JPEG pages (lower DPI for speed)."""
     merged_map = {**field_map}
     if field_overrides:
         for key, override in field_overrides.items():
@@ -333,38 +327,9 @@ def generate_preview_pages(
                 merged_map[key] = override
 
     pdf_bytes = generate_filled_pdf(template_bytes, merged_map, values, extra_fields)
-    pdf_bytes = trim_pdf_last_pages(pdf_bytes, drop_last_pages)
     # Use lower DPI + quality for preview (faster rendering + smaller transfer)
     jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=1.5, quality=65)
     return [base64.b64encode(jpg).decode() for jpg in jpeg_pages]
-
-
-def trim_pdf_last_pages(pdf_bytes: bytes, drop_last_n: int) -> bytes:
-    """Drop the last N pages from a PDF and return the trimmed bytes.
-
-    Used by the customer-facing proposal flows so the team can hide
-    "terms / portfolio / warranty" pages from the rasterized output
-    without editing the template. drop_last_n=0 returns the input
-    unchanged (cheap no-op so callers don't need to branch).
-
-    If the drop count would empty the doc, we keep at least page 1 —
-    nobody asked for an empty proposal.
-    """
-    if drop_last_n <= 0:
-        return pdf_bytes
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    try:
-        total = len(doc)
-        # Always keep at least one page. Safety net against a typo that
-        # would make every proposal blank.
-        to_keep = max(1, total - drop_last_n)
-        if to_keep >= total:
-            return pdf_bytes
-        # delete_pages takes a list of 0-indexed page numbers.
-        doc.delete_pages(list(range(to_keep, total)))
-        return doc.tobytes(garbage=4, deflate=True)
-    finally:
-        doc.close()
 
 
 def rasterize_pdf_pages(pdf_bytes: bytes, dpi_scale: float = 2.0, quality: int = 80) -> list[bytes]:

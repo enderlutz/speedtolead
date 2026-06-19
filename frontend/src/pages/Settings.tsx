@@ -15,7 +15,6 @@ import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
 import PromotionSettingsCard from "@/components/PromotionSettingsCard";
-import ProposalPageTrimCard from "@/components/ProposalPageTrimCard";
 import PaintingUpsellImportCard from "@/components/PaintingUpsellImportCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
 import QBTimeSettingsCard from "@/components/QBTimeSettingsCard";
@@ -170,9 +169,6 @@ export default function Settings() {
           rendered as a strikethrough "original" above each tier on the
           proposal PDF. Set to 0 to disable. */}
       <PromotionSettingsCard />
-
-      {/* Proposal PDF page trimmer — hide last N pages from customers */}
-      <ProposalPageTrimCard />
 
       {/* Painting Upsell — one-shot import from the OLD GHL account's
           Happy Customer stage into the dedicated /leads/painting-upsell

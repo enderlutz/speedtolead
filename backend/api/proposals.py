@@ -401,8 +401,7 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
             _format_price, _format_monthly_label, _build_pricing_includes,
             _slashed_price_values, _save_amount_values,
         )
-        from api.settings import get_promotion_markup_percent, get_proposal_pages_to_drop
-        from services.pdf_generator import trim_pdf_last_pages
+        from api.settings import get_promotion_markup_percent
         markup = get_promotion_markup_percent(db)
         values = {
             "customer_name": (lead.contact_name or "").title(),
@@ -422,8 +421,7 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
             fence_sides = [s.strip() for s in fence_sides.split(",") if s.strip()]
         values["pricing_includes"] = _build_pricing_includes(fence_sides, fd)
 
-        pdf_bytes = generate_filled_pdf(template["pdf_data"], field_map, values)
-        return trim_pdf_last_pages(pdf_bytes, get_proposal_pages_to_drop(db))
+        return generate_filled_pdf(template["pdf_data"], field_map, values)
     except Exception as e:
         logger.error(f"PDF regeneration failed for proposal {proposal.id}: {e}")
         return None
