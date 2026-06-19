@@ -93,6 +93,8 @@ export default function EditPdf() {
       const markup = promo?.markup_percent || 0;
       const fmtSave = (amount: number) =>
         markup > 0 && amount > 0 ? formatCurrency(amount * (markup / 100)) : "";
+      const fmtSlashed = (amount: number) =>
+        markup > 0 && amount > 0 ? formatCurrency(amount * (1 + markup / 100)) : "";
 
       const vals: Record<string, string> = {
         customer_name: (leadData.contact_name || "").split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
@@ -100,6 +102,9 @@ export default function EditPdf() {
         essential_price: formatCurrency(tiers.essential),
         signature_price: formatCurrency(tiers.signature),
         legacy_price: formatCurrency(tiers.legacy),
+        essential_slashed_price: fmtSlashed(tiers.essential),
+        signature_slashed_price: fmtSlashed(tiers.signature),
+        legacy_slashed_price: fmtSlashed(tiers.legacy),
         essential_save_price: fmtSave(tiers.essential),
         signature_save_price: fmtSave(tiers.signature),
         legacy_save_price: fmtSave(tiers.legacy),

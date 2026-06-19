@@ -62,12 +62,19 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
       markupPercent > 0 && amount > 0
         ? formatCurrency(amount * (markupPercent / 100))
         : "";
+    const fmtSlashed = (amount: number) =>
+      markupPercent > 0 && amount > 0
+        ? formatCurrency(amount * (1 + markupPercent / 100))
+        : "";
     return {
       customer_name: lead.contact_name || "",
       address: lead.address || "",
       essential_price: formatCurrency(tiers.essential),
       signature_price: formatCurrency(tiers.signature),
       legacy_price: formatCurrency(tiers.legacy),
+      essential_slashed_price: fmtSlashed(tiers.essential),
+      signature_slashed_price: fmtSlashed(tiers.signature),
+      legacy_slashed_price: fmtSlashed(tiers.legacy),
       essential_save_price: fmtSave(tiers.essential),
       signature_save_price: fmtSave(tiers.signature),
       legacy_save_price: fmtSave(tiers.legacy),

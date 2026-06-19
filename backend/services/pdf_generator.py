@@ -59,11 +59,17 @@ PRICE_STYLE = {
 # renderer draws it above the actual price with a red strike line. If
 # the slashed value is empty/missing the feature silently no-ops, so
 # disabling the promotion (markup=0) doesn't require template changes.
+#
+# A slashed field can also be positioned explicitly in field_map (admin
+# drops it on the canvas like any preset). When that's set we render at
+# the explicit placement and SKIP the auto-above pass — see the loop
+# below — so it doesn't double-draw.
 SLASHED_PRICE_PAIRS = {
     "essential_price": "essential_slashed_price",
     "signature_price": "signature_slashed_price",
     "legacy_price": "legacy_slashed_price",
 }
+SLASHED_FIELD_KEYS = set(SLASHED_PRICE_PAIRS.values())
 
 # Red used for the slashed strike-through. Bright enough to read on
 # both the brown Essential card and the dark Legacy card.
@@ -140,23 +146,26 @@ def _render_slashed_price(
     font_size: float,
     text: str,
     box_width: float = 0,
+    font_scale: float = 0.60,
 ):
-    """Render the slashed "summer special" pre-discount price above the
-    actual tier price. Text is in red, a red strike line is drawn through
-    it. Positioned roughly 1.4× the actual font size ABOVE the actual
-    price baseline (negative Y in PDF space = up the page).
+    """Render the slashed "summer special" pre-discount price.
 
-    The slashed font is 60% of the actual price font so it reads as
-    "old/struck-through" rather than competing with the headline price.
+    Two call patterns:
+    - Auto-above (legacy): font_scale=0.60, y is the actual price
+      baseline. The slashed text is shrunk and drawn above it.
+    - Explicit placement: font_scale=1.0, y is the admin's chosen
+      baseline. Text is drawn at full font_size right where the field
+      was placed in the canvas editor.
+    Both render in red with a strike line through the centre.
     """
     if not text:
         return
-    slashed_font_size = font_size * 0.60
+    slashed_font_size = font_size * font_scale
     color = _hex_to_rgb(SLASHED_COLOR_HEX)
-    # Y baseline ABOVE the actual price — minus moves up in PDF space.
-    # Gap = 0.35 of the slashed font height keeps the two readable as a
-    # pair without crashing into the actual price's ascender.
-    slashed_y = y_baseline - font_size * 0.95
+    # Auto-above path: shift baseline up by the actual font_size so the
+    # slashed text sits above the tier price. Explicit-placement path
+    # (font_scale=1.0) renders right at the supplied baseline.
+    slashed_y = y_baseline if font_scale >= 1.0 else y_baseline - font_size * 0.95
 
     bold_font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
     text_width = bold_font.text_length(text, fontsize=slashed_font_size)
@@ -219,13 +228,26 @@ def generate_filled_pdf(
         text_value = str(values[field_key])
         box_width = float(placement.get("width", 0))
 
-        # Slashed pre-discount price for tier price fields. Drawn ABOVE
-        # the actual price so the customer sees "was $1,200 now $1,000."
-        # The slashed value comes through `values` as a sibling key like
-        # essential_slashed_price; empty/missing → silently no-op so a
-        # disabled promotion (markup=0) doesn't need template changes.
+        # Slashed pre-discount price as its own positioned field. When
+        # the admin drops "essential_slashed_price" etc. onto the canvas
+        # we render at THAT position (in red with strike line) and skip
+        # the rest of this iteration so the default text-fill doesn't
+        # also draw it as plain black text.
+        if field_key in SLASHED_FIELD_KEYS:
+            _render_slashed_price(
+                page, x, y_baseline, font_size,
+                text_value, box_width,
+                font_scale=1.0,
+            )
+            continue
+
+        # Slashed pre-discount price piggy-backing on the tier price
+        # position — the legacy auto-render path. Drawn ABOVE the actual
+        # price so the customer sees "was $1,200 now $1,000." Skipped
+        # when the admin has explicitly positioned the slashed field
+        # above (avoids double-draw).
         slashed_key = SLASHED_PRICE_PAIRS.get(field_key)
-        if slashed_key and values.get(slashed_key):
+        if slashed_key and values.get(slashed_key) and slashed_key not in field_map:
             _render_slashed_price(
                 page, x, y_baseline, font_size,
                 str(values[slashed_key]),
