@@ -49,9 +49,9 @@ BOLD_FIELDS = {"customer_name", "essential_price", "signature_price", "legacy_pr
 # Essential & Signature: brown prices, black "or"
 # Legacy: white prices, gold "or"
 PRICE_STYLE = {
-    "essential_price": {"price_color": "#622300", "or_color": "#000000"},
-    "signature_price": {"price_color": "#f1c341", "or_color": "#000000"},
-    "legacy_price": {"price_color": "#EDC9A8", "or_color": "#E3A742"},
+    "essential_price": {"price_color": "#2b3a16", "or_color": "#000000"},
+    "signature_price": {"price_color": "#5b2c10", "or_color": "#000000"},
+    "legacy_price": {"price_color": "#c1891f", "or_color": "#000000"},
 }
 
 # Map tier-price fields → their slashed (pre-discount) counterparts.
