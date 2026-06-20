@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 import json
 import logging
+import math
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response
@@ -71,8 +72,9 @@ def _format_price(amount: float, include_financing: bool) -> str:
     # Monthly/financing display retired — proposal + PDF show the upfront
     # price only. include_financing kept on the signature so existing call
     # sites don't break, but it no longer changes the output.
+    # Always round UP to the next whole dollar (per Alan): $1024.20 → $1025.
     del include_financing
-    return f"${amount:,.2f}"
+    return f"${math.ceil(amount):,}"
 
 
 def _format_slashed_price(amount: float, markup_percent: float) -> str:
@@ -82,11 +84,14 @@ def _format_slashed_price(amount: float, markup_percent: float) -> str:
     the amount is zero. The PDF renderer treats empty as "skip the
     strike-through", so existing leads / templates keep working with no
     changes when the feature is off.
+
+    Rounded UP to the next dollar so it reads as a clean integer; cents
+    on a marked-up "was" price felt fussy on the new template.
     """
     if markup_percent <= 0 or amount <= 0:
         return ""
     marked_up = amount * (1.0 + markup_percent / 100.0)
-    return f"${marked_up:,.2f}"
+    return f"${math.ceil(marked_up):,}"
 
 
 def _slashed_price_values(tiers: dict, markup_percent: float) -> dict:
@@ -101,16 +106,19 @@ def _slashed_price_values(tiers: dict, markup_percent: float) -> dict:
 
 
 def _format_save_amount(amount: float, markup_percent: float) -> str:
-    """The "You save $X.XX" line for each tier card on the new template.
+    """The "You save $X" line for each tier card on the new template.
 
     Includes the "You save" prefix in the same text run so the admin
     only positions one field per tier instead of two. Empty when the
     promotion is off (markup=0) so the line disappears cleanly along
-    with the strikethrough — same behaviour as _format_slashed_price."""
+    with the strikethrough — same behaviour as _format_slashed_price.
+
+    Rounded UP so the savings amount stays a clean whole dollar and
+    visually matches the strikethrough + actual price."""
     if markup_percent <= 0 or amount <= 0:
         return ""
     save = amount * (markup_percent / 100.0)
-    return f"You save ${save:,.2f}"
+    return f"You save ${math.ceil(save):,}"
 
 
 def _save_amount_values(tiers: dict, markup_percent: float) -> dict:

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api, type LeadDetail, type EstimateDetail } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
 import { generatePricingIncludes } from "@/lib/pricing-includes";
 import { pdfToScreen, screenToPdf } from "@/lib/pdf-coords";
 import type { PdfField } from "@/lib/pdf-types";
@@ -58,20 +57,23 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
 
   const buildValues = useCallback((): Record<string, string> => {
     const tiers = estimate.tiers || { essential: 0, signature: 0, legacy: 0 };
+    // Round UP to the next whole dollar — matches the backend formatters
+    // so the preview matches the PDF the customer receives.
+    const fmtDollar = (amount: number) => `$${Math.ceil(amount).toLocaleString("en-US")}`;
     const fmtSave = (amount: number) =>
       markupPercent > 0 && amount > 0
-        ? `You save ${formatCurrency(amount * (markupPercent / 100))}`
+        ? `You save ${fmtDollar(amount * (markupPercent / 100))}`
         : "";
     const fmtSlashed = (amount: number) =>
       markupPercent > 0 && amount > 0
-        ? formatCurrency(amount * (1 + markupPercent / 100))
+        ? fmtDollar(amount * (1 + markupPercent / 100))
         : "";
     return {
       customer_name: lead.contact_name || "",
       address: lead.address || "",
-      essential_price: formatCurrency(tiers.essential),
-      signature_price: formatCurrency(tiers.signature),
-      legacy_price: formatCurrency(tiers.legacy),
+      essential_price: fmtDollar(tiers.essential),
+      signature_price: fmtDollar(tiers.signature),
+      legacy_price: fmtDollar(tiers.legacy),
       essential_slashed_price: fmtSlashed(tiers.essential),
       signature_slashed_price: fmtSlashed(tiers.signature),
       legacy_slashed_price: fmtSlashed(tiers.legacy),

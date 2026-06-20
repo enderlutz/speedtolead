@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect } from "react-konva";
 import { api, type LeadDetail, type EstimateDetail } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
 import { generatePricingIncludes } from "@/lib/pricing-includes";
 import { PRESET_FIELD_LABELS, PRESET_FIELD_COLORS } from "@/lib/pdf-types";
 import ColorPicker from "@/components/ColorPicker";
@@ -91,17 +90,20 @@ export default function EditPdf() {
       const fenceSides = Array.isArray(fd.fence_sides) ? fd.fence_sides : [];
       const pricingIncludes = generatePricingIncludes(fenceSides);
       const markup = promo?.markup_percent || 0;
+      // Round UP to the next whole dollar on every customer-facing price
+      // — matches the backend formatters so admin preview == sent PDF.
+      const fmtDollar = (amount: number) => `$${Math.ceil(amount).toLocaleString("en-US")}`;
       const fmtSave = (amount: number) =>
-        markup > 0 && amount > 0 ? `You save ${formatCurrency(amount * (markup / 100))}` : "";
+        markup > 0 && amount > 0 ? `You save ${fmtDollar(amount * (markup / 100))}` : "";
       const fmtSlashed = (amount: number) =>
-        markup > 0 && amount > 0 ? formatCurrency(amount * (1 + markup / 100)) : "";
+        markup > 0 && amount > 0 ? fmtDollar(amount * (1 + markup / 100)) : "";
 
       const vals: Record<string, string> = {
         customer_name: (leadData.contact_name || "").split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
         address: leadData.address || "",
-        essential_price: formatCurrency(tiers.essential),
-        signature_price: formatCurrency(tiers.signature),
-        legacy_price: formatCurrency(tiers.legacy),
+        essential_price: fmtDollar(tiers.essential),
+        signature_price: fmtDollar(tiers.signature),
+        legacy_price: fmtDollar(tiers.legacy),
         essential_slashed_price: fmtSlashed(tiers.essential),
         signature_slashed_price: fmtSlashed(tiers.signature),
         legacy_slashed_price: fmtSlashed(tiers.legacy),
