@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2 } from "lucide-react";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import type { LeanLead } from "@/lib/api";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
@@ -143,13 +143,13 @@ export default function Calendar() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Crew roster — needed for reimbursement form (employee name lookup,
-  // pre-selecting the assigned worker). Admin-only call; workers won't render
-  // the reimbursement entry point anyway.
+  // Crew roster — needed for the reimbursement form (name lookup) and the
+  // inline crew-assign panel on the job detail. Load for any staff (admin/VA);
+  // workers don't render either entry point.
   useEffect(() => {
-    if (!isAdmin) return;
+    if (isWorker) return;
     api.listCrew("this_week", false).then((r) => setEmployees(r.employees)).catch(() => {});
-  }, [isAdmin]);
+  }, [isWorker]);
 
   // Weather: fetch forecast for distinct ZIPs across this month's jobs
   useEffect(() => {
@@ -519,6 +519,8 @@ export default function Calendar() {
           job={activeJob}
           showAsWorker={showAsWorker}
           weather={weatherByZip[activeJob.zip_code]?.days.find((d) => d.date === activeJob.job_date)}
+          employees={employees}
+          onAssignmentsChanged={load}
           onClose={closeJob}
           onEdit={!showAsWorker ? () => { setEditJob(activeJob); closeJob(); } : undefined}
           onLogTime={!showAsWorker && isAdmin ? () => {
@@ -930,12 +932,95 @@ function DayWeatherChip({ zips, byZip, iso }: { zips: string[]; byZip: Record<st
   );
 }
 
+// Inline crew assignment on the job detail panel — see who's on the job and
+// add/remove crew straight from the calendar event without opening the full
+// edit modal. Auto-saves each toggle via the existing PUT, then asks the
+// parent to reload so the change reflects everywhere.
+function JobCrewAssign({
+  jobId, employees, assignedIds, onChanged,
+}: {
+  jobId: string;
+  employees: Employee[];
+  assignedIds: string[];
+  onChanged: () => void;
+}) {
+  const [ids, setIds] = useState<string[]>(assignedIds);
+  const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { setIds(assignedIds); }, [assignedIds]);
+
+  const active = employees.filter((e) => e.status === "active");
+  const nameOf = (id: string) => {
+    const e = employees.find((x) => x.id === id);
+    return e ? (e.display_name || `${e.first_name} ${e.last_name}`.trim()) : "Unknown";
+  };
+
+  const toggle = async (empId: string) => {
+    const prev = ids;
+    const next = ids.includes(empId) ? ids.filter((i) => i !== empId) : [...ids, empId];
+    setIds(next);
+    setSaving(true);
+    try {
+      await api.updateScheduledJob(jobId, { employee_ids: next });
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update crew");
+      setIds(prev); // revert on failure
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-muted/40 border rounded p-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+          <Users className="h-3.5 w-3.5" /> Assigned crew
+          {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+        </p>
+        <button onClick={() => setOpen((o) => !o)} className="text-[11px] text-primary hover:underline">
+          {open ? "Done" : "Assign"}
+        </button>
+      </div>
+      {ids.length === 0 ? (
+        <p className="text-xs text-muted-foreground mt-1">No one assigned yet.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1 mt-1">
+          {ids.map((id) => (
+            <span key={id} className="text-[11px] bg-background border rounded px-1.5 py-0.5">{nameOf(id)}</span>
+          ))}
+        </div>
+      )}
+      {open && (
+        <div className="mt-2 space-y-1 border-t pt-2">
+          {active.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">No active crew. Add employees on the Crew page.</p>
+          ) : active.map((e) => (
+            <label key={e.id} className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={ids.includes(e.id)}
+                disabled={saving}
+                onChange={() => toggle(e.id)}
+                className="h-3.5 w-3.5"
+              />
+              {e.display_name || `${e.first_name} ${e.last_name}`}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JobDetailModal({
-  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice, onEmployeeView,
+  job, showAsWorker, weather, employees, onAssignmentsChanged, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice, onEmployeeView,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
   weather?: WeatherDay;
+  employees: Employee[];
+  onAssignmentsChanged: () => void;
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -1019,6 +1104,12 @@ function JobDetailModal({
 
           {!showAsWorker && (
             <>
+              <JobCrewAssign
+                jobId={job.id}
+                employees={employees}
+                assignedIds={job.assigned_employee_ids || []}
+                onChanged={onAssignmentsChanged}
+              />
               {(job.closed_price || 0) > 0 && (
                 <p>
                   <span className="text-muted-foreground">Closed price:</span>{" "}
