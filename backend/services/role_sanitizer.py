@@ -15,6 +15,16 @@ from __future__ import annotations
 import re
 
 
+# A structured "Price: …" line. The scheduling invite writes the amount
+# WITHOUT a leading "$" (e.g. "Price: 1075.36 + Tax"), so _DOLLAR_PATTERN
+# alone misses it and the number leaks to the crew. Strip the WHOLE line —
+# label and value — whenever it appears. Anchored to line start (MULTILINE)
+# so it only eats the dedicated price line, not the word "price" mid-sentence.
+_PRICE_LINE_PATTERN = re.compile(
+    r"^[ \t]*Price[ \t]*:.*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 # $1,859 / $1859.00 / $ 1859. The first digit group is \d+ (not \d{1,3})
 # because plain numbers without thousands separators can be any length —
 # \d{1,3} would only consume the first three digits of "$1859" leaving
@@ -50,7 +60,10 @@ def sanitize_for_worker(text: str) -> str:
     if not text:
         return text or ""
 
-    out = _DOLLAR_PATTERN.sub("", text)
+    # Whole "Price: …" line first (catches the no-$ invite format), then any
+    # remaining inline $-amounts elsewhere in the text.
+    out = _PRICE_LINE_PATTERN.sub("", text)
+    out = _DOLLAR_PATTERN.sub("", out)
     out = _PROPOSAL_URL_PATTERN.sub("", out)
     out = _KEYWORDS_PATTERN.sub("", out)
 
