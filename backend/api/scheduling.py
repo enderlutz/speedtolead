@@ -11,11 +11,12 @@ import uuid
 import logging
 from datetime import datetime, timezone, date as date_cls, timedelta
 from typing import Any
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File, Form
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import or_
 
-from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User, Proposal
+from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User, Proposal, EmployeeEventView, JobPhoto
 from api.auth import require_admin, require_staff, get_current_user
 from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
@@ -746,6 +747,233 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Employee View — admin-curated, worker-facing calendar event description
+# ---------------------------------------------------------------------------
+# Lets Alan control EXACTLY what the crew sees for a calendar event instead of
+# trusting the auto-stripper. Keyed by google_event_id so it works for both
+# dashboard-created jobs and events booked directly in Google. The price NEVER
+# reaches a worker: the stored text is re-sanitized on the worker read path
+# (see google_events below), so role gating + sanitize_for_worker stay the
+# security boundary; this is just the admin's preference layer on top.
+
+class EmployeeViewBody(BaseModel):
+    description: str = ""
+
+
+@router.get("/schedule/employee-view/{google_event_id}")
+def get_employee_view(
+    google_event_id: str,
+    raw_fallback: str = Query("", description="Raw event description to strip for the default when no backing job exists"),
+    user: dict = Depends(require_staff),
+):
+    """Return the admin-curated worker-facing text for an event plus a
+    pre-filled default (the real description with price/proposal stripped).
+
+    The editor opens populated with `custom_description` when Alan has already
+    saved one, otherwise `default_description` — which is the live event copy
+    minus the money, so it reads exactly like the real event sans price.
+
+    Default basis:
+      - backing ScheduledJob → rebuild the canonical invite text, strip it.
+      - otherwise → strip the `raw_fallback` the caller passes from the
+        Google event it's already showing.
+    Staff-only: workers must not be able to read the un-stripped default."""
+    del user
+    db = get_db()
+    try:
+        from services.role_sanitizer import sanitize_for_worker
+        row = (db.query(EmployeeEventView)
+                 .filter(EmployeeEventView.google_event_id == google_event_id)
+                 .first())
+        job = (db.query(ScheduledJob)
+                 .filter(ScheduledJob.google_event_id == google_event_id)
+                 .first())
+        base_text = _customer_invite_description(job, db) if job else (raw_fallback or "")
+        return {
+            "google_event_id": google_event_id,
+            "is_custom": bool(row),
+            "custom_description": (row.description if row else ""),
+            "default_description": sanitize_for_worker(base_text),
+            "has_backing_job": bool(job),
+            "updated_at": row.updated_at if row else None,
+            "updated_by": (row.updated_by if row else ""),
+        }
+    finally:
+        db.close()
+
+
+@router.put("/schedule/employee-view/{google_event_id}")
+def upsert_employee_view(
+    google_event_id: str,
+    body: EmployeeViewBody,
+    user: dict = Depends(require_staff),
+):
+    """Save Alan's curated worker-facing text for an event. Upsert keyed by
+    google_event_id. Empty string is a valid save (crew sees nothing extra);
+    use DELETE to revert to the auto-stripped default."""
+    db = get_db()
+    try:
+        row = (db.query(EmployeeEventView)
+                 .filter(EmployeeEventView.google_event_id == google_event_id)
+                 .first())
+        if row:
+            row.description = body.description or ""
+            row.updated_at = _now()
+            row.updated_by = user.get("name", "")
+        else:
+            row = EmployeeEventView(
+                google_event_id=google_event_id,
+                description=body.description or "",
+                updated_at=_now(),
+                updated_by=user.get("name", ""),
+            )
+            db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row.to_dict()
+    finally:
+        db.close()
+
+
+@router.delete("/schedule/employee-view/{google_event_id}")
+def delete_employee_view(google_event_id: str, user: dict = Depends(require_staff)):
+    """Revert to the auto-stripped default — drops Alan's custom row so the
+    crew falls back to sanitize_for_worker on the real description."""
+    del user
+    db = get_db()
+    try:
+        row = (db.query(EmployeeEventView)
+                 .filter(EmployeeEventView.google_event_id == google_event_id)
+                 .first())
+        if row:
+            db.delete(row)
+            db.commit()
+        return {"status": "reverted"}
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Job photos — worker-uploaded site photos in three fixed categories
+# ---------------------------------------------------------------------------
+# The crew shoots inspection / post-cleanup / post-staining photos from their
+# phone on the worker app, in the SOP section of each assigned job. Attached
+# straight to the ScheduledJob (not a SOP run) so every job has the same three
+# buckets regardless of SOP template config. No cap on count.
+#
+# Auth: the assigned worker (any day, not today-only — fence jobs can span the
+# clean/dry/stain cycle across days) or staff. Egress-safe: list returns
+# metadata only; bytes load on the per-photo route.
+
+JOB_PHOTO_CATEGORIES = ("inspection", "post_cleanup", "post_staining")
+_MAX_JOB_PHOTO_BYTES = 12 * 1024 * 1024   # 12 MB — phone shots run large
+
+
+@router.get("/schedule/jobs/{job_id}/photos")
+def list_job_photos(job_id: str, user: dict = Depends(get_current_user)):
+    """Metadata for every photo on a job, grouped-ready (caller buckets by
+    `category`). No BLOBs — thumbnails load via the per-photo route."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        rows = (db.query(JobPhoto)
+                  .filter(JobPhoto.scheduled_job_id == job_id)
+                  .order_by(JobPhoto.uploaded_at.asc())
+                  .all())
+        return {"photos": [p.meta_dict() for p in rows]}
+    finally:
+        db.close()
+
+
+@router.post("/schedule/jobs/{job_id}/photos")
+async def upload_job_photo(
+    job_id: str,
+    category: str = Form(...),
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Upload one job-site photo into a category. Appends — never replaces —
+    so the crew can post all their shots. Returns the new photo's metadata."""
+    cat = (category or "").strip().lower()
+    if cat not in JOB_PHOTO_CATEGORIES:
+        raise HTTPException(400, f"category must be one of {JOB_PHOTO_CATEGORIES}")
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "Empty upload")
+        if len(data) > _MAX_JOB_PHOTO_BYTES:
+            raise HTTPException(400, "Photo too large (>12 MB)")
+        mime = file.content_type or "image/jpeg"
+        if not mime.startswith("image/"):
+            raise HTTPException(400, "Only image files accepted")
+
+        photo = JobPhoto(
+            id=str(uuid.uuid4()),
+            scheduled_job_id=job_id,
+            category=cat,
+            photo_data=data,
+            filename=file.filename or "photo",
+            mime=mime,
+            uploaded_at=_now(),
+            uploaded_by=user.get("name", ""),
+        )
+        db.add(photo)
+        db.commit()
+        db.refresh(photo)
+        return photo.meta_dict()
+    finally:
+        db.close()
+
+
+@router.get("/schedule/jobs/{job_id}/photos/{photo_id}")
+def get_job_photo(job_id: str, photo_id: str, user: dict = Depends(get_current_user)):
+    """Stream one photo's bytes — the only route that loads photo_data."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        photo = (db.query(JobPhoto)
+                   .filter(JobPhoto.id == photo_id, JobPhoto.scheduled_job_id == job_id)
+                   .first())
+        if not photo or not photo.photo_data:
+            raise HTTPException(404, "Photo not found")
+        return Response(content=photo.photo_data, media_type=photo.mime or "image/jpeg")
+    finally:
+        db.close()
+
+
+@router.delete("/schedule/jobs/{job_id}/photos/{photo_id}")
+def delete_job_photo(job_id: str, photo_id: str, user: dict = Depends(get_current_user)):
+    """Remove a photo (blurry shot, wrong bucket). Assigned worker or staff."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        photo = (db.query(JobPhoto)
+                   .filter(JobPhoto.id == photo_id, JobPhoto.scheduled_job_id == job_id)
+                   .first())
+        if photo:
+            db.delete(photo)
+            db.commit()
+        return {"status": "deleted"}
+    finally:
+        db.close()
+
+
 class MaterialsBody(BaseModel):
     """Worker-facing materials report. Both fields optional — submit only
     what you've measured. None means "leave that one alone." Use 0 to
@@ -1191,6 +1419,24 @@ def google_events(
             role=role,
             worker_event_ids=worker_event_ids,
         )
+        # Employee View: swap in Alan's curated worker-facing text for any
+        # event he's customized. We STILL run it through sanitize_for_worker
+        # so a stray price typed into the employee view can never reach the
+        # crew — the curated text is a preference layer, not a trust boundary.
+        # Only workers get this swap; admin/VA keep the full description.
+        if role == "worker" and events:
+            from services.role_sanitizer import sanitize_for_worker
+            ev_ids = [e["google_event_id"] for e in events if e.get("google_event_id")]
+            if ev_ids:
+                overrides = {
+                    r.google_event_id: (r.description or "")
+                    for r in db.query(EmployeeEventView)
+                        .filter(EmployeeEventView.google_event_id.in_(ev_ids)).all()
+                }
+                for e in events:
+                    ov = overrides.get(e.get("google_event_id"))
+                    if ov is not None:  # empty string = "show nothing extra"
+                        e["description"] = sanitize_for_worker(ov)
         return {"events": events}
     finally:
         db.close()

@@ -4,13 +4,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat } from "lucide-react";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import type { LeanLead } from "@/lib/api";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import ReimbursementForm from "@/components/ReimbursementForm";
 import MarkPaidModal from "@/components/MarkPaidModal";
 import SopChecklistPanel from "@/components/SopChecklistPanel";
+import JobPhotosPanel from "@/components/JobPhotosPanel";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -80,6 +81,10 @@ export default function Calendar() {
   // opens them in Google).
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
   const [activeGoogleEvent, setActiveGoogleEvent] = useState<GoogleEvent | null>(null);
+  // Employee View editor — Alan curates exactly what the crew sees for a
+  // calendar event. Keyed by the event's google_event_id; rawFallback seeds
+  // the auto-stripped default when the event has no backing scheduled job.
+  const [employeeViewEvent, setEmployeeViewEvent] = useState<{ googleEventId: string; rawFallback: string; title: string } | null>(null);
   // "Schedule Job" flow from the Calendar header. Admin/VA only — the
   // existing kanban + Lead Detail entry points still work; this one
   // saves a navigate when you're already on the calendar planning the
@@ -532,6 +537,14 @@ export default function Calendar() {
             setPaidJob(activeJob);
             closeJob();
           } : undefined}
+          onEmployeeView={!showAsWorker && activeJob.google_event_id ? () => {
+            setEmployeeViewEvent({
+              googleEventId: activeJob.google_event_id,
+              rawFallback: "",   // backing job → backend rebuilds the default
+              title: activeJob.customer_name || "Job",
+            });
+            closeJob();
+          } : undefined}
           onGenerateInvoice={!showAsWorker && isAdmin ? () => {
             // Generate Invoice lives on the lead detail page so admin can review
             // line items + customer info first. Just deep-link with a flag.
@@ -662,7 +675,24 @@ export default function Calendar() {
       {activeGoogleEvent && (
         <GoogleEventModal
           event={activeGoogleEvent}
+          onEmployeeView={!showAsWorker ? () => {
+            setEmployeeViewEvent({
+              googleEventId: activeGoogleEvent.google_event_id,
+              rawFallback: activeGoogleEvent.description || "",
+              title: activeGoogleEvent.summary || "Event",
+            });
+            setActiveGoogleEvent(null);
+          } : undefined}
           onClose={() => setActiveGoogleEvent(null)}
+        />
+      )}
+
+      {employeeViewEvent && (
+        <EmployeeViewModal
+          googleEventId={employeeViewEvent.googleEventId}
+          rawFallback={employeeViewEvent.rawFallback}
+          title={employeeViewEvent.title}
+          onClose={() => setEmployeeViewEvent(null)}
         />
       )}
 
@@ -677,7 +707,7 @@ export default function Calendar() {
   );
 }
 
-function GoogleEventModal({ event, onClose }: { event: GoogleEvent; onClose: () => void }) {
+function GoogleEventModal({ event, onClose, onEmployeeView }: { event: GoogleEvent; onClose: () => void; onEmployeeView?: () => void }) {
   const fmtTime = (s: string): string => {
     if (!s) return "—";
     if (event.all_day) return s.slice(0, 10);
@@ -727,12 +757,136 @@ function GoogleEventModal({ event, onClose }: { event: GoogleEvent; onClose: () 
             This event lives in Google Calendar — to edit, open it there.
           </p>
         </div>
-        <div className="p-3 border-t flex justify-end gap-2">
+        <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
+          {onEmployeeView && (
+            <Button variant="outline" size="sm" onClick={onEmployeeView} title="Edit exactly what the crew sees for this event (price always hidden)">
+              <HardHat className="h-3.5 w-3.5 mr-1" /> Employee View
+            </Button>
+          )}
           {event.html_link && (
             <a href={event.html_link} target="_blank" rel="noreferrer">
               <Button size="sm">Open in Google</Button>
             </a>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmployeeViewModal({
+  googleEventId, rawFallback, title, onClose,
+}: {
+  googleEventId: string;
+  rawFallback: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [text, setText] = useState("");
+  const [defaultText, setDefaultText] = useState("");
+  const [isCustom, setIsCustom] = useState(false);
+  const [hasBackingJob, setHasBackingJob] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    api.getEmployeeView(googleEventId, rawFallback)
+      .then((v) => {
+        if (!alive) return;
+        setDefaultText(v.default_description || "");
+        setIsCustom(v.is_custom);
+        setHasBackingJob(v.has_backing_job);
+        // Pre-fill with Alan's saved text when present, else the auto-stripped
+        // default — so the editor opens reading like the real event, no price.
+        setText(v.is_custom ? v.custom_description : (v.default_description || ""));
+      })
+      .catch(() => toast.error("Couldn't load the employee view"))
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [googleEventId, rawFallback]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.saveEmployeeView(googleEventId, text);
+      toast.success("Employee view saved — this is what your crew will see");
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revert = async () => {
+    setSaving(true);
+    try {
+      await api.revertEmployeeView(googleEventId);
+      setText(defaultText);
+      setIsCustom(false);
+      toast.success("Reverted to the default (auto-hidden price)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to revert");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center justify-between shrink-0">
+          <h2 className="text-base font-semibold flex items-center gap-2">
+            <HardHat className="h-4 w-4 text-amber-600" />
+            <span className="truncate">Employee View · {title}</span>
+          </h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3 overflow-y-auto flex-1 min-h-0">
+          <p className="text-xs text-muted-foreground">
+            This is exactly what the crew sees for this event on their dashboard.
+            Edit it freely — the <span className="font-semibold">price is never shown to employees</span> no
+            matter what you type here.
+          </p>
+          {!loading && !hasBackingJob && (
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+              No crew is assigned to this event yet, so no employee sees this view
+              until it's scheduled as a job with an assigned worker. You can still
+              pre-set the text here.
+            </p>
+          )}
+          {loading ? (
+            <div className="h-40 grid place-items-center text-sm text-muted-foreground">Loading…</div>
+          ) : (
+            <>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={12}
+                className="w-full text-xs font-mono rounded border bg-background p-2 resize-y focus:outline-none focus:ring-2 focus:ring-amber-400"
+                placeholder="What the crew should see for this job…"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {isCustom
+                  ? "Showing your custom text. Revert to go back to the auto-generated version."
+                  : "Showing the auto-generated version (price/proposal removed). Save to customize."}
+              </p>
+            </>
+          )}
+        </div>
+        <div className="p-3 border-t flex justify-end gap-2 flex-wrap shrink-0">
+          {isCustom && (
+            <Button variant="outline" size="sm" onClick={revert} disabled={saving || loading} className="text-red-600">
+              Revert to default
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={saving || loading}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
         </div>
       </div>
     </div>
@@ -767,7 +921,7 @@ function DayWeatherChip({ zips, byZip, iso }: { zips: string[]; byZip: Record<st
 }
 
 function JobDetailModal({
-  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice,
+  job, showAsWorker, weather, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice, onEmployeeView,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
@@ -780,6 +934,7 @@ function JobDetailModal({
   onViewPL?: () => void;
   onMarkPaid?: () => void;
   onGenerateInvoice?: () => void;
+  onEmployeeView?: () => void;
 }) {
   const paymentStatus = job.payment_status || "unpaid";
   const paymentBadge = paymentStatus === "paid"
@@ -969,10 +1124,20 @@ function JobDetailModal({
               interactive (start/check/note/photo/help). Admin view shows
               the same UI for read + override. */}
           <SopChecklistPanel scheduledJobId={job.id} asWorker={showAsWorker} />
+
+          {/* Job photos — three camera buckets (inspection / post-cleanup /
+              post-staining) the crew fills from their phone. Shown for crew
+              and admin alike; backend gates uploads to assigned worker/staff. */}
+          <JobPhotosPanel jobId={job.id} />
         </div>
-        {(onEdit || onDelete || onLogTime || onReimburse || onViewPL || onMarkPaid || onGenerateInvoice) && (
+        {(onEdit || onDelete || onLogTime || onReimburse || onViewPL || onMarkPaid || onGenerateInvoice || onEmployeeView) && (
           <div className="p-3 border-t flex justify-end gap-2 flex-wrap shrink-0">
             {onDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={onDelete}>Cancel job</Button>}
+            {onEmployeeView && (
+              <Button variant="outline" size="sm" onClick={onEmployeeView} title="Edit exactly what the crew sees for this event (price always hidden)">
+                <HardHat className="h-3.5 w-3.5 mr-1" /> Employee View
+              </Button>
+            )}
             {onViewPL && (
               <Button variant="outline" size="sm" onClick={onViewPL} title="See revenue, labor, reimbursements, and margin for this job">
                 <Calculator className="h-3.5 w-3.5 mr-1" /> P&amp;L

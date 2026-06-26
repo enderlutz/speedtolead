@@ -1128,6 +1128,35 @@ export const api = {
   deleteScheduledJob: (id: string) =>
     request<{ status: string }>(`/api/schedule/jobs/${id}`, { method: "DELETE" }),
 
+  // Job photos — worker-uploaded site photos in three fixed categories
+  // (inspection | post_cleanup | post_staining). Egress-safe: list returns
+  // metadata only; thumbnails load on-demand via fetchJobPhotoBlobUrl.
+  listJobPhotos: (jobId: string) =>
+    request<{ photos: JobPhotoMeta[] }>(`/api/schedule/jobs/${jobId}/photos`),
+  uploadJobPhoto: async (jobId: string, category: string, file: File) => {
+    const fd = new FormData();
+    fd.append("category", category);
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/schedule/jobs/${jobId}/photos`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    return res.json() as Promise<JobPhotoMeta>;
+  },
+  fetchJobPhotoBlobUrl: async (jobId: string, photoId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/schedule/jobs/${jobId}/photos/${photoId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteJobPhoto: (jobId: string, photoId: string) =>
+    request<{ status: string }>(`/api/schedule/jobs/${jobId}/photos/${photoId}`, { method: "DELETE" }),
+
   // Google OAuth
   getGoogleAuthUrl: () => request<{ url: string }>("/api/google/auth-url"),
   getGoogleStatus: () => request<{ connected: boolean; email?: string; calendar_id?: string; connected_at?: string }>("/api/google/status"),
@@ -1136,6 +1165,23 @@ export const api = {
    * an empty array when Google isn't connected so the caller doesn't crash. */
   getGoogleEvents: (start: string, end: string) =>
     request<{ events: GoogleEvent[] }>(`/api/google/events?start=${start}&end=${end}`),
+  /** Employee View — admin-curated, worker-facing description for a calendar
+   *  event (keyed by google_event_id). Workers never see the price; the
+   *  curated text is re-sanitized server-side before it reaches them. */
+  getEmployeeView: (googleEventId: string, rawFallback?: string) =>
+    request<EmployeeView>(
+      `/api/schedule/employee-view/${encodeURIComponent(googleEventId)}${rawFallback ? `?raw_fallback=${encodeURIComponent(rawFallback)}` : ""}`,
+    ),
+  saveEmployeeView: (googleEventId: string, description: string) =>
+    request<{ google_event_id: string; description: string; updated_at: string; updated_by: string }>(
+      `/api/schedule/employee-view/${encodeURIComponent(googleEventId)}`,
+      { method: "PUT", body: JSON.stringify({ description }) },
+    ),
+  revertEmployeeView: (googleEventId: string) =>
+    request<{ status: string }>(
+      `/api/schedule/employee-view/${encodeURIComponent(googleEventId)}`,
+      { method: "DELETE" },
+    ),
   /** One-shot backfill: add an email as a guest to every yellow (or
    *  color_id-matched) job event in the date window. Used to migrate
    *  past events from the personal calendar onto a business calendar. */
@@ -2306,6 +2352,33 @@ export interface GoogleEvent {
   status: string;
   color_id: string;            // "5" = banana, "11" = tomato
   service_type: string;        // "fence_staining" | "power_washing"
+}
+
+/** Employee View — admin-curated, worker-facing description for a calendar
+ * event. `custom_description` is Alan's saved text (empty when none);
+ * `default_description` is the live event copy with the price/proposal
+ * auto-stripped — what the editor pre-fills with when no custom text exists. */
+export interface EmployeeView {
+  google_event_id: string;
+  is_custom: boolean;
+  custom_description: string;
+  default_description: string;
+  has_backing_job: boolean;
+  updated_at: string | null;
+  updated_by: string;
+}
+
+/** One worker-uploaded job-site photo (metadata only — bytes load via
+ * api.fetchJobPhotoBlobUrl). `category` is one of the three fixed buckets:
+ * "inspection" | "post_cleanup" | "post_staining". */
+export interface JobPhotoMeta {
+  id: string;
+  scheduled_job_id: string;
+  category: string;
+  filename: string;
+  mime: string;
+  uploaded_at: string;
+  uploaded_by: string;
 }
 
 export interface GCalAttendeeBackfillBody {

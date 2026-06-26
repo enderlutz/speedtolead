@@ -1078,6 +1078,43 @@ class ScheduledJob(Base):
         return base
 
 
+class EmployeeEventView(Base):
+    """Admin-curated, worker-facing description for a single calendar event.
+
+    Why this exists: the Google Calendar event description is customer-facing
+    copy that carries the price + proposal URL. Workers must NEVER see the
+    price (the hard rule from Alan). By default we auto-strip that text via
+    sanitize_for_worker, but Alan wants to control exactly what the crew sees
+    per event instead of trusting the auto-stripper. This row holds his
+    curated text.
+
+    Keyed by google_event_id (not scheduled_job_id) so it works uniformly for
+    events created through the dashboard AND events Alan books directly in
+    Google. One row per event; absent row = fall back to auto-strip.
+
+    Safety: the stored text is STILL run through sanitize_for_worker before it
+    reaches a worker, so even an accidental "$2,221" typed here can't leak the
+    price. This table is the admin's preference layer, not the security
+    boundary — role gating + sanitization remain the boundary."""
+    __tablename__ = "employee_event_views"
+
+    google_event_id = Column(Text, primary_key=True)
+    # The admin's curated worker-facing description. Empty string is a valid
+    # value meaning "show the crew nothing extra" — distinct from no row at
+    # all (which means "use the auto-stripped default").
+    description = Column(Text, default="")
+    updated_at = Column(Text, default="")
+    updated_by = Column(Text, default="")   # JWT display name of the editor
+
+    def to_dict(self) -> dict:
+        return {
+            "google_event_id": self.google_event_id,
+            "description": self.description or "",
+            "updated_at": self.updated_at,
+            "updated_by": self.updated_by or "",
+        }
+
+
 class CallTouch(Base):
     """One row per 'marked as called' click in the Call List panel.
 
@@ -1581,6 +1618,46 @@ class SopRunPhoto(Base):
     photo_kind = Column(Text, default="general")
     uploaded_at = Column(Text, default="")
     uploaded_by = Column(Text, default="")
+
+
+class JobPhoto(Base):
+    """Worker-uploaded job-site photo in one of three fixed categories:
+    inspection | post_cleanup | post_staining. Attached directly to a
+    ScheduledJob (NOT a SOP run) so every assigned job has the same three
+    upload buckets in the worker app regardless of whether a SOP template
+    happens to be configured for that service.
+
+    Unlimited photos per category (the crew shoots ~4 each, but we don't cap).
+    Egress: photo_data is deferred — list endpoints return metadata only;
+    the bytes load only on the per-photo fetch route. Same pattern as
+    SopRunPhoto / measurement images / reimbursement receipts."""
+    __tablename__ = "job_photos"
+    __table_args__ = (
+        Index("idx_job_photos_job", "scheduled_job_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    scheduled_job_id = Column(Text, nullable=False)
+    category = Column(Text, nullable=False)            # inspection | post_cleanup | post_staining
+    # Deferred — a job's photo bytes load only when someone opens that
+    # specific thumbnail, never in the metadata list.
+    photo_data = deferred(Column(LargeBinary, nullable=True))
+    filename = Column(Text, default="")
+    mime = Column(Text, default="")
+    uploaded_at = Column(Text, default="")
+    uploaded_by = Column(Text, default="")
+
+    def meta_dict(self) -> dict:
+        """Metadata only — never includes photo_data (egress-safe)."""
+        return {
+            "id": self.id,
+            "scheduled_job_id": self.scheduled_job_id,
+            "category": self.category,
+            "filename": self.filename or "",
+            "mime": self.mime or "image/jpeg",
+            "uploaded_at": self.uploaded_at or "",
+            "uploaded_by": self.uploaded_by or "",
+        }
 
 
 class CallScript(Base):

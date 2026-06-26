@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock } from "lucide-react";
+import JobPhotosPanel from "@/components/JobPhotosPanel";
 
 // Worker-facing SOP checklist for a single job. Reached via the SOP
 // Checklist button on the My Schedule card while a job is in_progress,
@@ -46,6 +47,15 @@ export default function JobSops() {
   }, [jobId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The My Schedule "Photos" button deep-links to /sops/job/:id#photos.
+  // Client render means the browser can't honor the hash on its own, so
+  // scroll to the Job Photos section once content is on screen.
+  useEffect(() => {
+    if (!loading && window.location.hash === "#photos") {
+      document.getElementById("photos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [loading]);
 
   const handleStartRun = async () => {
     if (!run) return;
@@ -122,6 +132,11 @@ export default function JobSops() {
             to attach a template.
           </CardContent>
         </Card>
+
+        {/* Photo buckets still apply to every job, SOP template or not. */}
+        <div id="photos" className="mt-4 scroll-mt-4">
+          <JobPhotosPanel jobId={jobId} />
+        </div>
       </div>
     );
   }
@@ -272,6 +287,13 @@ export default function JobSops() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Job photos — inspection / post-cleanup / post-staining buckets the
+          crew shoots from their phone. Uploadable any day (the clean→dry→stain
+          cycle can span days), independent of the today-only SOP step lock. */}
+      <div id="photos" className="mt-6 scroll-mt-4">
+        <JobPhotosPanel jobId={jobId} />
       </div>
     </div>
   );
