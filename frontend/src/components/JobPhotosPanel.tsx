@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { api, type JobPhotoMeta } from "@/lib/api";
+import { api, type JobPhotoMeta, type ScheduledJob } from "@/lib/api";
 import { toast } from "sonner";
 import { Camera, Trash2, Image as ImageIcon, Loader2 } from "lucide-react";
 
@@ -12,22 +12,46 @@ const CATEGORIES: { key: string; label: string }[] = [
 ];
 
 /**
- * Job Photos — three camera-upload buckets the crew fills from their phone in
- * the SOP section of an assigned job. Unlimited photos per bucket. Lives next
- * to the SOP checklist in the job detail modal; visible to crew and admin.
+ * Job Photos & field report — the crew's per-job record, organized into the
+ * three buckets (Inspection / Post Cleanup / Post Staining). Each bucket has
+ * camera-upload photos plus the field the crew records for that stage:
+ *   - Inspection → free-text inspection notes
+ *   - Post Cleanup → bleach gallons used
+ *   - Post Staining → stain assigned (read-only) + stain gallons used
  *
- * Egress-safe: lists metadata only, then loads each thumbnail's bytes once via
- * a blob URL that's revoked on unmount. Mirrors the SOP photo gallery pattern.
+ * Same component renders on the worker SOP page (crew input) and in the admin
+ * Employee View / job modal (admin reads the same data). Fields auto-save on
+ * blur via the materials endpoint; backend gates writes to assigned crew/staff.
+ * Egress-safe: photo metadata only, thumbnails load + revoke per blob URL.
  */
 export default function JobPhotosPanel({ jobId }: { jobId: string }) {
   const [photos, setPhotos] = useState<JobPhotoMeta[]>([]);
   const [blobs, setBlobs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [uploadingCat, setUploadingCat] = useState<string | null>(null);
-  // Ref mirror of blobs so the unmount cleanup revokes the latest set without
-  // re-subscribing the effect on every upload.
   const blobsRef = useRef<Record<string, string>>({});
   useEffect(() => { blobsRef.current = blobs; }, [blobs]);
+
+  // Field report — pulled from the job row, edited inline, saved on blur.
+  const [job, setJob] = useState<ScheduledJob | null>(null);
+  const [inspectionNotes, setInspectionNotes] = useState("");
+  const [bleachUsed, setBleachUsed] = useState("");
+  const [stainUsed, setStainUsed] = useState("");
+  const [savingField, setSavingField] = useState<string | null>(null);
+  // Baseline of last-saved values so a blur with no change is a no-op (and
+  // doesn't clobber a value another field's save just refreshed).
+  const initial = useRef({ notes: "", bleach: "", stain: "" });
+
+  const applyJob = useCallback((j: ScheduledJob) => {
+    setJob(j);
+    const notes = j.inspection_notes || "";
+    const bleach = j.bleach_gallons ? String(j.bleach_gallons) : "";
+    const stain = j.stain_gallons_used ? String(j.stain_gallons_used) : "";
+    setInspectionNotes(notes);
+    setBleachUsed(bleach);
+    setStainUsed(stain);
+    initial.current = { notes, bleach, stain };
+  }, []);
 
   const loadBlob = useCallback(async (id: string) => {
     const url = await api.fetchJobPhotoBlobUrl(jobId, id);
@@ -37,7 +61,10 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.listJobPhotos(jobId);
+      const [r] = await Promise.all([
+        api.listJobPhotos(jobId),
+        api.getScheduledJob(jobId).then(applyJob).catch(() => {}),
+      ]);
       setPhotos(r.photos);
       await Promise.all(r.photos.map((p) => loadBlob(p.id)));
     } catch {
@@ -45,7 +72,7 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [jobId, loadBlob]);
+  }, [jobId, loadBlob, applyJob]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -89,14 +116,39 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
     }
   };
 
+  const saveField = async (field: "notes" | "bleach" | "stain", value: string) => {
+    const body: { inspection_notes?: string; bleach_gallons?: number; stain_gallons?: number } = {};
+    if (field === "notes") {
+      if (value === initial.current.notes) return;
+      body.inspection_notes = value;
+    } else if (field === "bleach") {
+      if (value === initial.current.bleach) return;
+      body.bleach_gallons = parseFloat(value) || 0;
+    } else {
+      if (value === initial.current.stain) return;
+      body.stain_gallons = parseFloat(value) || 0;
+    }
+    setSavingField(field);
+    try {
+      const updated = await api.updateJobMaterials(jobId, body);
+      applyJob(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSavingField(null);
+    }
+  };
+
+  const stainAssigned = job?.gallons_estimate || 0;
+
   return (
     <div className="border rounded-lg p-3 space-y-3">
       <div className="flex items-center gap-2">
         <Camera className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold">Job Photos</h3>
+        <h3 className="text-sm font-semibold">Job Photos &amp; Notes</h3>
       </div>
       {loading ? (
-        <div className="py-4 text-center text-xs text-muted-foreground">Loading photos…</div>
+        <div className="py-4 text-center text-xs text-muted-foreground">Loading…</div>
       ) : (
         CATEGORIES.map((c) => {
           const items = photos.filter((p) => p.category === c.key);
@@ -127,6 +179,7 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
                   />
                 </label>
               </div>
+
               {items.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground italic">No photos yet.</p>
               ) : (
@@ -149,6 +202,63 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Per-category crew field report */}
+              {c.key === "inspection" && (
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1 mb-0.5">
+                    Inspection notes
+                    {savingField === "notes" && <Loader2 className="h-3 w-3 animate-spin" />}
+                  </label>
+                  <textarea
+                    value={inspectionNotes}
+                    onChange={(e) => setInspectionNotes(e.target.value)}
+                    onBlur={() => saveField("notes", inspectionNotes)}
+                    rows={2}
+                    placeholder="What did the crew find on inspection?"
+                    className="w-full text-xs rounded border bg-background p-1.5 resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </div>
+              )}
+
+              {c.key === "post_cleanup" && (
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-semibold text-muted-foreground">Bleach used (gal)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={bleachUsed}
+                    onChange={(e) => setBleachUsed(e.target.value)}
+                    onBlur={() => saveField("bleach", bleachUsed)}
+                    placeholder="0"
+                    className="w-20 text-xs rounded border bg-background px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  {savingField === "bleach" && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                </div>
+              )}
+
+              {c.key === "post_staining" && (
+                <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    Stain assigned: <span className="font-semibold">{stainAssigned > 0 ? `${stainAssigned} gal` : "—"}</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-semibold text-muted-foreground">Stain used (gal)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={stainUsed}
+                      onChange={(e) => setStainUsed(e.target.value)}
+                      onBlur={() => saveField("stain", stainUsed)}
+                      placeholder="0"
+                      className="w-20 text-xs rounded border bg-background px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                    {savingField === "stain" && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                  </div>
                 </div>
               )}
             </div>

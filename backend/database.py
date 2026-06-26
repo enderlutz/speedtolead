@@ -929,8 +929,14 @@ class ScheduledJob(Base):
     custom_proposal_url = Column(Text, default="")
     color_choice = Column(Text, default="")               # stain color (free text + dropdown)
     needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
-    gallons_estimate = Column(Numeric(10, 2), default=0)  # sqft / 175 default; editable
-    bleach_gallons = Column(Numeric(10, 2), default=0)    # cleaning step; admin-input, no formula
+    gallons_estimate = Column(Numeric(10, 2), default=0)  # stain ASSIGNED — admin's planned amount (sqft/175 default; editable)
+    bleach_gallons = Column(Numeric(10, 2), default=0)    # bleach USED — crew input, post-cleanup
+    # Stain the crew actually USED, entered from the SOP field report
+    # alongside the post-staining photos. Kept separate from gallons_estimate
+    # (assigned) so admin can compare planned vs actual.
+    stain_gallons_used = Column(Numeric(10, 2), default=0)
+    # Crew's inspection notes, entered alongside the inspection photos.
+    inspection_notes = Column(Text, default="")
     address = Column(Text, default="")                    # snapshot from lead at schedule time
     zip_code = Column(Text, default="")                   # for weather lookup
     # Geocoded coordinates for the worker map. Filled on job create from the
@@ -1020,8 +1026,10 @@ class ScheduledJob(Base):
             "package_tier": self.package_tier or "",
             "color_choice": self.color_choice or "",
             "needs_test_spots": bool(self.needs_test_spots),
-            "gallons_estimate": float(self.gallons_estimate or 0),
-            "bleach_gallons": float(self.bleach_gallons or 0),
+            "gallons_estimate": float(self.gallons_estimate or 0),   # stain assigned
+            "bleach_gallons": float(self.bleach_gallons or 0),       # bleach used
+            "stain_gallons_used": float(self.stain_gallons_used or 0),
+            "inspection_notes": self.inspection_notes or "",
             "job_description": self.job_description or "",
             "worker_notes": self.worker_notes or "",
             "status": self.status or "scheduled",
@@ -2480,6 +2488,8 @@ def _run_migrations():
             ("fence_sides_override", "ALTER TABLE scheduled_jobs ADD COLUMN fence_sides_override TEXT DEFAULT ''"),
             ("additional_sides_text", "ALTER TABLE scheduled_jobs ADD COLUMN additional_sides_text TEXT DEFAULT ''"),
             ("google_event_html_link", "ALTER TABLE scheduled_jobs ADD COLUMN google_event_html_link TEXT DEFAULT ''"),
+            ("stain_gallons_used", "ALTER TABLE scheduled_jobs ADD COLUMN stain_gallons_used NUMERIC(10,2) DEFAULT 0"),
+            ("inspection_notes", "ALTER TABLE scheduled_jobs ADD COLUMN inspection_notes TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

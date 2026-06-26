@@ -978,11 +978,15 @@ def delete_job_photo(job_id: str, photo_id: str, user: dict = Depends(get_curren
 
 
 class MaterialsBody(BaseModel):
-    """Worker-facing materials report. Both fields optional — submit only
-    what you've measured. None means "leave that one alone." Use 0 to
-    explicitly clear a previous value."""
-    stain_gallons: float | None = None
-    bleach_gallons: float | None = None
+    """Worker-facing field report from the SOP side. All fields optional —
+    submit only what you've recorded. None means "leave that one alone." Use
+    0 / "" to explicitly clear a previous value.
+
+    stain_gallons here is what the crew USED (lands in stain_gallons_used);
+    the admin's assigned amount lives in gallons_estimate and isn't touched."""
+    stain_gallons: float | None = None      # stain USED → stain_gallons_used
+    bleach_gallons: float | None = None     # bleach USED
+    inspection_notes: str | None = None     # crew inspection notes
 
 
 @router.post("/schedule/jobs/{job_id}/materials")
@@ -1021,9 +1025,11 @@ def update_job_materials(
                 raise HTTPException(403, "Not assigned to this job")
 
         if body.stain_gallons is not None:
-            j.gallons_estimate = body.stain_gallons
+            j.stain_gallons_used = body.stain_gallons
         if body.bleach_gallons is not None:
             j.bleach_gallons = body.bleach_gallons
+        if body.inspection_notes is not None:
+            j.inspection_notes = body.inspection_notes
         j.updated_at = _now()
         db.commit()
         db.refresh(j)

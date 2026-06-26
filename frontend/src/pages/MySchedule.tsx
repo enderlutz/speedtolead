@@ -194,8 +194,11 @@ function MaterialsEditor({
   job: ScheduledJob;
   onSaved: (updated: ScheduledJob) => void;
 }) {
-  const initialStain = job.gallons_estimate ? String(job.gallons_estimate) : "";
+  // Stain USED (crew actual) lives in stain_gallons_used; gallons_estimate is
+  // the admin's assigned amount, shown read-only for reference.
+  const initialStain = job.stain_gallons_used ? String(job.stain_gallons_used) : "";
   const initialBleach = job.bleach_gallons ? String(job.bleach_gallons) : "";
+  const stainAssigned = job.gallons_estimate || 0;
   const [stain, setStain] = useState(initialStain);
   const [bleach, setBleach] = useState(initialBleach);
   const [saving, setSaving] = useState(false);
@@ -227,7 +230,12 @@ function MaterialsEditor({
       </span>
       <div className="grid grid-cols-2 gap-2">
         <label className="text-xs">
-          <span className="block text-amber-900 mb-0.5">Stain (gal)</span>
+          <span className="block text-amber-900 mb-0.5">
+            Stain used (gal)
+            {stainAssigned > 0 && (
+              <span className="text-amber-700 font-normal"> · assigned {stainAssigned}</span>
+            )}
+          </span>
           <input
             type="number"
             step="0.1"
@@ -239,7 +247,7 @@ function MaterialsEditor({
           />
         </label>
         <label className="text-xs">
-          <span className="block text-amber-900 mb-0.5">Bleach (gal)</span>
+          <span className="block text-amber-900 mb-0.5">Bleach used (gal)</span>
           <input
             type="number"
             step="0.1"

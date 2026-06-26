@@ -1084,10 +1084,7 @@ function JobDetailModal({
             <p><span className="text-muted-foreground">Package:</span> <span className="capitalize">{job.package_tier}</span></p>
           )}
           {job.gallons_estimate > 0 && (
-            <p><span className="text-muted-foreground">Stain gallons:</span> {job.gallons_estimate}</p>
-          )}
-          {(job.bleach_gallons || 0) > 0 && (
-            <p><span className="text-muted-foreground">Bleach gallons:</span> {job.bleach_gallons}</p>
+            <p><span className="text-muted-foreground">Stain assigned:</span> {job.gallons_estimate} gal</p>
           )}
           {job.worker_notes && (
             <div className="bg-emerald-50 border border-emerald-200 rounded p-2">

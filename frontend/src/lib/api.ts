@@ -1253,7 +1253,7 @@ export const api = {
    *  Either field can be omitted to leave it unchanged. */
   updateJobMaterials: (
     jobId: string,
-    body: { stain_gallons?: number; bleach_gallons?: number },
+    body: { stain_gallons?: number; bleach_gallons?: number; inspection_notes?: string },
   ) =>
     request<ScheduledJob>(`/api/schedule/jobs/${jobId}/materials`, {
       method: "POST",
@@ -2428,8 +2428,10 @@ export interface ScheduledJob {
   package_tier?: string;
   color_choice: string;
   needs_test_spots: boolean;
-  gallons_estimate: number;
-  bleach_gallons?: number;
+  gallons_estimate: number;          // stain assigned (admin)
+  bleach_gallons?: number;           // bleach used (crew)
+  stain_gallons_used?: number;       // stain used (crew)
+  inspection_notes?: string;         // crew inspection notes
   job_description: string;
   /** Worker-facing notes (sanitized when role=worker on backend). */
   worker_notes?: string;
