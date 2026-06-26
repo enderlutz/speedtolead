@@ -796,6 +796,9 @@ def get_employee_view(
             "custom_description": (row.description if row else ""),
             "default_description": sanitize_for_worker(base_text),
             "has_backing_job": bool(job),
+            # The linked job id (when any) so the editor can show the crew's
+            # uploaded photos — job photos are keyed by scheduled_job_id.
+            "scheduled_job_id": (job.id if job else ""),
             "updated_at": row.updated_at if row else None,
             "updated_by": (row.updated_by if row else ""),
         }

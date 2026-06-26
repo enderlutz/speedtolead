@@ -788,6 +788,7 @@ function EmployeeViewModal({
   const [defaultText, setDefaultText] = useState("");
   const [isCustom, setIsCustom] = useState(false);
   const [hasBackingJob, setHasBackingJob] = useState(true);
+  const [linkedJobId, setLinkedJobId] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -797,6 +798,7 @@ function EmployeeViewModal({
         setDefaultText(v.default_description || "");
         setIsCustom(v.is_custom);
         setHasBackingJob(v.has_backing_job);
+        setLinkedJobId(v.scheduled_job_id || "");
         // Pre-fill with Alan's saved text when present, else the auto-stripped
         // default — so the editor opens reading like the real event, no price.
         setText(v.is_custom ? v.custom_description : (v.default_description || ""));
@@ -875,6 +877,14 @@ function EmployeeViewModal({
                   : "Showing the auto-generated version (price/proposal removed). Save to customize."}
               </p>
             </>
+          )}
+          {/* Crew photos — the same Inspection / Post Cleanup / Post Staining
+              buckets the employee uploads to, surfaced here so admin reviews
+              them inside the employee view. Only when the event is a real job. */}
+          {!loading && linkedJobId && (
+            <div className="pt-2 border-t">
+              <JobPhotosPanel jobId={linkedJobId} />
+            </div>
           )}
         </div>
         <div className="p-3 border-t flex justify-end gap-2 flex-wrap shrink-0">

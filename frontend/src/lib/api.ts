@@ -2364,6 +2364,7 @@ export interface EmployeeView {
   custom_description: string;
   default_description: string;
   has_backing_job: boolean;
+  scheduled_job_id: string;   // linked job (if any) — for showing crew photos
   updated_at: string | null;
   updated_by: string;
 }
