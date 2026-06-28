@@ -748,6 +748,126 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
 
 
 # ---------------------------------------------------------------------------
+# Google-booked event → job (so admins can assign crew to it)
+# ---------------------------------------------------------------------------
+# Some jobs are booked straight in Google Calendar, not through the Schedule
+# flow, so they have no ScheduledJob behind them. To assign crew (and give the
+# worker the SOP + photo sections), we import the event into a real job, linked
+# by google_event_id. Lookup never creates; ensure creates on first assign.
+
+def _customer_from_event_summary(summary: str) -> str:
+    """'Neal Advani- Fence Staining' → 'Neal Advani'. Strip a known service
+    suffix + trailing separators; fall back to the whole summary."""
+    s = (summary or "").strip()
+    for suf in ("Fence Staining", "Pressure Washing", "Power Washing"):
+        idx = s.lower().rfind(suf.lower())
+        if idx != -1:
+            s = s[:idx]
+            break
+    return s.strip(" -–—").strip() or (summary or "Customer").strip()
+
+
+def _parse_event_start(start: str, all_day: bool) -> tuple[str, str]:
+    """Google start ('2026-06-18T07:15:00-05:00' or '2026-06-18') → (date, HH:MM).
+    All-day / time-less events default to the standard 07:30 arrival."""
+    if not start:
+        return (_ct_today_iso(), "07:30")
+    if "T" in start:
+        date_part, time_part = start.split("T", 1)
+        return (date_part, "07:30" if all_day else time_part[:5])
+    return (start[:10], "07:30")
+
+
+def _event_duration_hours(start: str, end: str) -> float:
+    """Hours between two RFC3339 datetimes; 6.0 default when unparseable."""
+    try:
+        if "T" in (start or "") and "T" in (end or ""):
+            s = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            e = datetime.fromisoformat(end.replace("Z", "+00:00"))
+            h = (e - s).total_seconds() / 3600.0
+            return round(h, 1) if h > 0 else 6.0
+    except Exception:
+        pass
+    return 6.0
+
+
+def _job_with_assignments(db, j: ScheduledJob) -> dict:
+    row = j.to_dict(role="admin")
+    row["assigned_employee_ids"] = [
+        a.employee_id for a in
+        db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == j.id).all()
+    ]
+    return row
+
+
+class EnsureFromGoogleEventBody(BaseModel):
+    google_event_id: str
+    summary: str = ""
+    location: str = ""
+    start: str = ""        # RFC3339 datetime or YYYY-MM-DD
+    end: str = ""
+    all_day: bool = False
+
+
+@router.get("/schedule/jobs/by-google-event/{google_event_id}")
+def get_job_by_google_event(google_event_id: str, user: dict = Depends(require_staff)):
+    """Find the job backing a Google event (no create). Returns {job, ids} —
+    job is null when the event hasn't been imported yet."""
+    del user
+    db = get_db()
+    try:
+        j = (db.query(ScheduledJob)
+               .filter(ScheduledJob.google_event_id == google_event_id)
+               .first())
+        if not j:
+            return {"job": None, "assigned_employee_ids": []}
+        row = _job_with_assignments(db, j)
+        return {"job": row, "assigned_employee_ids": row["assigned_employee_ids"]}
+    finally:
+        db.close()
+
+
+@router.post("/schedule/jobs/ensure-from-google-event")
+def ensure_job_from_google_event(body: EnsureFromGoogleEventBody, user: dict = Depends(require_staff)):
+    """Get-or-create the job behind a Google event so crew can be assigned.
+    Idempotent — returns the existing job if one is already linked. The new
+    job carries no lead (lead_id="") since it was booked outside the dashboard;
+    date/time/address/customer come from the event. lat/lng are left for the
+    list endpoint's lazy geocode."""
+    db = get_db()
+    try:
+        if not (body.google_event_id or "").strip():
+            raise HTTPException(400, "google_event_id is required")
+        existing = (db.query(ScheduledJob)
+                      .filter(ScheduledJob.google_event_id == body.google_event_id)
+                      .first())
+        if existing:
+            return _job_with_assignments(db, existing)
+
+        job_date, arrival_time = _parse_event_start(body.start, body.all_day)
+        job = ScheduledJob(
+            id=str(uuid.uuid4()),
+            lead_id="",                       # Google-booked → no lead
+            job_date=job_date,
+            arrival_time=arrival_time,
+            estimated_duration_hours=_event_duration_hours(body.start, body.end),
+            address=(body.location or "").strip(),
+            customer_name=_customer_from_event_summary(body.summary),
+            google_event_id=body.google_event_id,
+            status="scheduled",
+            created_at=_now(),
+            created_by=user.get("name", ""),
+            updated_at=_now(),
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return _job_with_assignments(db, job)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # Employee View — admin-curated, worker-facing calendar event description
 # ---------------------------------------------------------------------------
 # Lets Alan control EXACTLY what the crew sees for a calendar event instead of

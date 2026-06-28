@@ -16,6 +16,8 @@ Auth model: OAuth 2.0 Authorization Code flow.
 """
 from __future__ import annotations
 import logging
+import re
+import html as _html
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import httpx
@@ -25,6 +27,30 @@ from config import get_settings
 from database import GoogleOAuthToken
 
 logger = logging.getLogger(__name__)
+
+# Google Calendar event descriptions can be HTML — events created or edited in
+# the Google UI come back as "<p>…</p><br><a href>…</a>" with &amp;-style
+# entities. Our modal renders the description as plain text, so the raw tags
+# leak through. These turn that HTML back into clean text.
+_BLOCK_TAG_RE = re.compile(r"(?i)</p\s*>|<br\s*/?>|</div\s*>|</li\s*>")
+_ANY_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _html_to_text(s: str) -> str:
+    """Render an HTML event description as clean multi-line text: block tags
+    become newlines, remaining tags are stripped, HTML entities are decoded.
+    Idempotent on plain text — our own dashboard-built descriptions have no
+    tags and pass through unchanged (entity-decoded only if they contain '&')."""
+    if not s:
+        return ""
+    if "<" not in s:
+        return _html.unescape(s) if "&" in s else s
+    out = _BLOCK_TAG_RE.sub("\n", s)
+    out = _ANY_TAG_RE.sub("", out)
+    out = _html.unescape(out)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
 
 OAUTH_AUTHZ = "https://accounts.google.com/o/oauth2/v2/auth"
 OAUTH_TOKEN = "https://oauth2.googleapis.com/token"
@@ -555,7 +581,9 @@ def list_events(
             start_iso = start.get("dateTime") or start.get("date") or ""
             end_iso = end.get("dateTime") or end.get("date") or ""
             all_day = not start.get("dateTime")
-            description = it.get("description", "") or ""
+            # Normalize any HTML in the description to clean text first, so
+            # both admin (raw) and worker (sanitized) render it the same way.
+            description = _html_to_text(it.get("description", "") or "")
             if role == "worker":
                 from services.role_sanitizer import sanitize_for_worker
                 description = sanitize_for_worker(description)

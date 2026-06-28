@@ -1128,6 +1128,25 @@ export const api = {
   deleteScheduledJob: (id: string) =>
     request<{ status: string }>(`/api/schedule/jobs/${id}`, { method: "DELETE" }),
 
+  // Google-booked event → job. Lookup finds the backing job (null if none);
+  // ensure imports the event into a real job so crew can be assigned.
+  getJobByGoogleEvent: (googleEventId: string) =>
+    request<{ job: ScheduledJob | null; assigned_employee_ids: string[] }>(
+      `/api/schedule/jobs/by-google-event/${encodeURIComponent(googleEventId)}`,
+    ),
+  ensureJobFromGoogleEvent: (body: {
+    google_event_id: string;
+    summary?: string;
+    location?: string;
+    start?: string;
+    end?: string;
+    all_day?: boolean;
+  }) =>
+    request<ScheduledJob>("/api/schedule/jobs/ensure-from-google-event", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   // Job photos — worker-uploaded site photos in three fixed categories
   // (inspection | post_cleanup | post_staining). Egress-safe: list returns
   // metadata only; thumbnails load on-demand via fetchJobPhotoBlobUrl.

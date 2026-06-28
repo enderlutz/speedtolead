@@ -677,6 +677,9 @@ export default function Calendar() {
       {activeGoogleEvent && (
         <GoogleEventModal
           event={activeGoogleEvent}
+          employees={employees}
+          canAssign={!showAsWorker}
+          onAssignmentsChanged={load}
           onEmployeeView={!showAsWorker ? () => {
             setEmployeeViewEvent({
               googleEventId: activeGoogleEvent.google_event_id,
@@ -709,13 +712,86 @@ export default function Calendar() {
   );
 }
 
-function GoogleEventModal({ event, onClose, onEmployeeView }: { event: GoogleEvent; onClose: () => void; onEmployeeView?: () => void }) {
+function GoogleEventModal({
+  event, onClose, onEmployeeView, employees, canAssign, onAssignmentsChanged,
+}: {
+  event: GoogleEvent;
+  onClose: () => void;
+  onEmployeeView?: () => void;
+  employees: Employee[];
+  canAssign: boolean;
+  onAssignmentsChanged: () => void;
+}) {
   const fmtTime = (s: string): string => {
     if (!s) return "—";
     if (event.all_day) return s.slice(0, 10);
     const d = new Date(s);
     return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   };
+
+  // Backing job (if the event has been imported) + its crew. We look it up on
+  // open without creating; the job is created lazily on first assign.
+  const [job, setJob] = useState<ScheduledJob | null>(null);
+  const [assignedIds, setAssignedIds] = useState<string[]>([]);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!canAssign) return;
+    let alive = true;
+    api.getJobByGoogleEvent(event.google_event_id)
+      .then((r) => { if (!alive) return; setJob(r.job); setAssignedIds(r.assigned_employee_ids || []); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [event.google_event_id, canAssign]);
+
+  const active = employees.filter((e) => e.status === "active");
+  const nameOf = (id: string) => {
+    const e = employees.find((x) => x.id === id);
+    return e ? (e.display_name || `${e.first_name} ${e.last_name}`.trim()) : "Unknown";
+  };
+
+  // Ensure a backing job exists (import the Google event), then open the picker.
+  const openAssign = async () => {
+    if (job) { setAssignOpen(true); return; }
+    setBusy(true);
+    try {
+      const created = await api.ensureJobFromGoogleEvent({
+        google_event_id: event.google_event_id,
+        summary: event.summary,
+        location: event.location,
+        start: event.start,
+        end: event.end,
+        all_day: event.all_day,
+      });
+      setJob(created);
+      setAssignedIds(created.assigned_employee_ids || []);
+      setAssignOpen(true);
+      onAssignmentsChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't prepare this event for assignment");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async (empId: string) => {
+    if (!job) return;
+    const prev = assignedIds;
+    const next = assignedIds.includes(empId) ? assignedIds.filter((i) => i !== empId) : [...assignedIds, empId];
+    setAssignedIds(next);
+    setBusy(true);
+    try {
+      await api.updateScheduledJob(job.id, { employee_ids: next });
+      onAssignmentsChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update crew");
+      setAssignedIds(prev);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-background rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -729,6 +805,49 @@ function GoogleEventModal({ event, onClose, onEmployeeView }: { event: GoogleEve
           </button>
         </div>
         <div className="p-4 space-y-3 text-sm overflow-y-auto flex-1 min-h-0">
+          {/* Assigned crew — at the very top for admin/VA. */}
+          {canAssign && (
+            <div className="bg-muted/40 border rounded p-2">
+              <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1 mb-1">
+                <Users className="h-3.5 w-3.5" /> Assigned crew
+                {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+              </p>
+              {assignedIds.length === 0 && !assignOpen ? (
+                <p className="text-xs text-muted-foreground">
+                  No workers are assigned yet,{" "}
+                  <button onClick={openAssign} disabled={busy} className="text-primary underline disabled:opacity-50">
+                    assign one now
+                  </button>.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {assignedIds.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">No one assigned yet.</span>
+                  ) : assignedIds.map((id) => (
+                    <span key={id} className="text-[11px] bg-background border rounded px-1.5 py-0.5">{nameOf(id)}</span>
+                  ))}
+                </div>
+              )}
+              {assignOpen && (
+                <div className="mt-2 space-y-1 border-t pt-2">
+                  {active.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">No active crew. Add employees on the Crew page.</p>
+                  ) : active.map((e) => (
+                    <label key={e.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={assignedIds.includes(e.id)}
+                        disabled={busy}
+                        onChange={() => toggle(e.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {e.display_name || `${e.first_name} ${e.last_name}`}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
             <span>
@@ -760,6 +879,11 @@ function GoogleEventModal({ event, onClose, onEmployeeView }: { event: GoogleEve
           </p>
         </div>
         <div className="p-3 border-t flex justify-end gap-2 flex-wrap">
+          {canAssign && (
+            <Button variant="outline" size="sm" onClick={openAssign} disabled={busy} title="Assign crew to this event (imports it as a job so the worker can see it)">
+              <Users className="h-3.5 w-3.5 mr-1" /> Assign workers
+            </Button>
+          )}
           {onEmployeeView && (
             <Button variant="outline" size="sm" onClick={onEmployeeView} title="Edit exactly what the crew sees for this event (price always hidden)">
               <HardHat className="h-3.5 w-3.5 mr-1" /> Employee View
