@@ -180,6 +180,44 @@ def seed_edward_user():
         db.close()
 
 
+def seed_brent_user():
+    """Create the BrentBrown crew account if it doesn't exist. One-shot
+    addition per client request (2026-06-28). Plain worker — no see_all_jobs,
+    no permission overrides — so he gets the locked-down employee view: no
+    prices (worker serialization strips them) and only the jobs he's assigned
+    to. Also creates a linked Employee row so he can actually be assigned jobs
+    (workers resolve their schedule via User.employee_id). Idempotent."""
+    from database import Employee
+    db = get_db()
+    try:
+        if db.query(User).filter(User.username == "BrentBrown").first():
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        emp_id = str(uuid.uuid4())
+        db.add(Employee(
+            id=emp_id,
+            first_name="Brent",
+            last_name="Brown",
+            display_name="Brent Brown",
+            status="active",
+            pay_rate=0,
+            created_at=now,
+        ))
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="BrentBrown",
+            display_name="Brent",
+            password_hash=bcrypt.hashpw("BrentFences1$2".encode(), bcrypt.gensalt()).decode(),
+            role="worker",
+            employee_id=emp_id,
+            see_all_jobs=False,
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def seed_default_users():
     """Create default admin + VA users if none exist."""
     db = get_db()
