@@ -578,8 +578,10 @@ def list_scheduled_jobs(
         if end:
             q = q.filter(ScheduledJob.job_date <= end)
 
-        if role == "worker":
-            # Workers can only see jobs they're assigned to.
+        if role == "worker" and not user.get("see_all_jobs"):
+            # Workers can only see jobs they're assigned to. (A see_all_jobs
+            # worker — the project manager — skips this and sees every job,
+            # still through the price-free worker serialization below.)
             emp_id = user.get("employee_id")
             if not emp_id:
                 return {"jobs": []}
@@ -668,8 +670,8 @@ def get_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
         j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
         if not j:
             raise HTTPException(404, "Job not found")
-        # Worker access check
-        if role == "worker":
+        # Worker access check (skipped for a see_all_jobs manager)
+        if role == "worker" and not user.get("see_all_jobs"):
             emp_id = user.get("employee_id")
             assigned = db.query(JobAssignment).filter(
                 JobAssignment.scheduled_job_id == job_id,
@@ -863,6 +865,46 @@ def ensure_job_from_google_event(body: EnsureFromGoogleEventBody, user: dict = D
         db.commit()
         db.refresh(job)
         return _job_with_assignments(db, job)
+    finally:
+        db.close()
+
+
+class LinkLeadBody(BaseModel):
+    lead_id: str
+
+
+@router.post("/schedule/jobs/{job_id}/link-lead")
+def link_lead_to_job(job_id: str, body: LinkLeadBody, user: dict = Depends(require_staff)):
+    """Link an existing lead/customer to a job. Used for Google-booked jobs
+    that were imported without one, so they pick up the customer's record
+    (proposal, contact info, history). Backfills empty customer fields from
+    the lead but never overwrites details already on the job."""
+    del user
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        lead = db.query(Lead).filter(Lead.id == body.lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        j.lead_id = lead.id
+        if not (j.customer_name or "").strip():
+            j.customer_name = lead.contact_name or ""
+        if not (j.customer_email or "").strip():
+            j.customer_email = lead.contact_email or ""
+        if not (j.customer_phone or "").strip():
+            j.customer_phone = lead.contact_phone or ""
+        if not (j.address or "").strip():
+            j.address = lead.address or ""
+        if not (j.zip_code or "").strip():
+            j.zip_code = lead.zip_code or ""
+        j.updated_at = _now()
+        db.commit()
+        db.refresh(j)
+        row = _job_with_assignments(db, j)
+        row["lead_name"] = lead.contact_name or ""
+        return row
     finally:
         db.close()
 
@@ -1131,7 +1173,7 @@ def update_job_materials(
             raise HTTPException(404, "Job not found")
 
         role = (user.get("role") or "").lower()
-        if role not in ("admin", "va"):
+        if role not in ("admin", "va") and not user.get("see_all_jobs"):
             # Worker can only update jobs they're assigned to. Look up
             # their employee_id from the User row, then check assignment.
             emp_id = (user.get("employee_id") or "").strip()
@@ -1243,7 +1285,7 @@ def _assert_user_assigned_or_staff(db, user: dict, job_id: str) -> None:
     to do `Employee.user_id == user_id` here, but Employee has no
     user_id column — that path threw 500 instead of 403.)"""
     role = (user.get("role") or "").lower()
-    if role in ("admin", "va"):
+    if role in ("admin", "va") or user.get("see_all_jobs"):
         return
     emp_id = (user.get("employee_id") or "").strip()
     if not emp_id:
@@ -1516,7 +1558,10 @@ def google_events(
 
         role = user.get("role", "va")
         worker_event_ids: set[str] | None = None
-        if role == "worker":
+        # A see_all_jobs worker (manager) skips the assignment filter and sees
+        # every job-colored event — list_events still sanitizes for the worker
+        # role, so no prices. worker_event_ids stays None → no filtering.
+        if role == "worker" and not user.get("see_all_jobs"):
             emp_id = user.get("employee_id")
             if not emp_id:
                 return {"events": []}

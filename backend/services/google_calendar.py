@@ -571,9 +571,11 @@ def list_events(
             # Worker filter — only events linked to their assigned
             # ScheduledJobs. Personal events (Alan's lunch, vendor
             # meetings) never reach a worker because they aren't in any
-            # ScheduledJob.google_event_id.
-            if role == "worker":
-                if not worker_event_ids or event_id not in worker_event_ids:
+            # ScheduledJob.google_event_id. When worker_event_ids is None
+            # (a see_all_jobs manager) there's no filtering — they see every
+            # job-colored event, still sanitized below.
+            if role == "worker" and worker_event_ids is not None:
+                if event_id not in worker_event_ids:
                     continue
             start = it.get("start", {}) or {}
             end = it.get("end", {}) or {}

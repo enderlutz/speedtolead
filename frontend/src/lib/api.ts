@@ -1146,6 +1146,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** Link an existing lead/customer to a job (e.g. a Google-booked job that
+   * was imported without one). Returns the updated job. */
+  linkJobLead: (jobId: string, leadId: string) =>
+    request<ScheduledJob & { lead_name?: string }>(`/api/schedule/jobs/${jobId}/link-lead`, {
+      method: "POST",
+      body: JSON.stringify({ lead_id: leadId }),
+    }),
 
   // Job photos — worker-uploaded site photos in three fixed categories
   // (inspection | post_cleanup | post_staining). Egress-safe: list returns

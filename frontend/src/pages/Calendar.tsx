@@ -734,6 +734,8 @@ function GoogleEventModal({
   const [job, setJob] = useState<ScheduledJob | null>(null);
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [leadQuery, setLeadQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -751,25 +753,49 @@ function GoogleEventModal({
     return e ? (e.display_name || `${e.first_name} ${e.last_name}`.trim()) : "Unknown";
   };
 
-  // Ensure a backing job exists (import the Google event), then open the picker.
+  // Import the Google event into a real job (or return the one already linked).
+  const ensureJob = async (): Promise<ScheduledJob | null> => {
+    if (job) return job;
+    const created = await api.ensureJobFromGoogleEvent({
+      google_event_id: event.google_event_id,
+      summary: event.summary,
+      location: event.location,
+      start: event.start,
+      end: event.end,
+      all_day: event.all_day,
+    });
+    setJob(created);
+    setAssignedIds(created.assigned_employee_ids || []);
+    onAssignmentsChanged();
+    return created;
+  };
+
   const openAssign = async () => {
     if (job) { setAssignOpen(true); return; }
     setBusy(true);
     try {
-      const created = await api.ensureJobFromGoogleEvent({
-        google_event_id: event.google_event_id,
-        summary: event.summary,
-        location: event.location,
-        start: event.start,
-        end: event.end,
-        all_day: event.all_day,
-      });
-      setJob(created);
-      setAssignedIds(created.assigned_employee_ids || []);
+      await ensureJob();
       setAssignOpen(true);
-      onAssignmentsChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't prepare this event for assignment");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPickLead = async (lead: LeanLead) => {
+    setBusy(true);
+    try {
+      const j = await ensureJob();
+      if (!j) return;
+      const updated = await api.linkJobLead(j.id, lead.id);
+      setJob(updated);
+      setLinkOpen(false);
+      setLeadQuery("");
+      onAssignmentsChanged();
+      toast.success("Lead linked");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to link lead");
     } finally {
       setBusy(false);
     }
@@ -844,6 +870,41 @@ function GoogleEventModal({
                       {e.display_name || `${e.first_name} ${e.last_name}`}
                     </label>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Lead link — for Google-booked events that have no customer record
+              behind them. Linking imports the event into a job (if needed) and
+              attaches the lead so it picks up proposal/contact history. */}
+          {canAssign && (
+            <div className="bg-muted/40 border rounded p-2">
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Lead</p>
+              {job?.lead_id ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs">Linked{job.customer_name ? `: ${job.customer_name}` : ""}</span>
+                  <button onClick={() => setLinkOpen((o) => !o)} className="text-[11px] text-primary underline">
+                    {linkOpen ? "Cancel" : "Change"}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No lead linked.{" "}
+                  <button onClick={() => setLinkOpen((o) => !o)} className="text-primary underline">
+                    {linkOpen ? "Cancel" : "Link a lead"}
+                  </button>
+                </p>
+              )}
+              {linkOpen && (
+                <div className="mt-2">
+                  <CustomerSearchInput
+                    value={leadQuery}
+                    onChange={setLeadQuery}
+                    placeholder="Search customers…"
+                    disabled={busy}
+                    onSelect={onPickLead}
+                  />
                 </div>
               )}
             </div>
@@ -1137,6 +1198,42 @@ function JobCrewAssign({
   );
 }
 
+// Link a lead to a job that has none (e.g. a Google-booked event imported via
+// "Assign workers"). Hidden once a lead is attached.
+function JobLeadLink({ job, onChanged }: { job: ScheduledJob; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (job.lead_id) return null;
+  const pick = async (lead: LeanLead) => {
+    setBusy(true);
+    try {
+      await api.linkJobLead(job.id, lead.id);
+      toast.success("Lead linked");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to link lead");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="bg-muted/40 border rounded p-2">
+      <p className="text-xs text-muted-foreground">
+        No lead linked.{" "}
+        <button onClick={() => setOpen((o) => !o)} className="text-primary underline">
+          {open ? "Cancel" : "Link a lead"}
+        </button>
+      </p>
+      {open && (
+        <div className="mt-2">
+          <CustomerSearchInput value={query} onChange={setQuery} placeholder="Search customers…" disabled={busy} onSelect={pick} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JobDetailModal({
   job, showAsWorker, weather, employees, onAssignmentsChanged, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice, onEmployeeView,
 }: {
@@ -1231,6 +1328,7 @@ function JobDetailModal({
                 assignedIds={job.assigned_employee_ids || []}
                 onChanged={onAssignmentsChanged}
               />
+              <JobLeadLink job={job} onChanged={onAssignmentsChanged} />
               {(job.closed_price || 0) > 0 && (
                 <p>
                   <span className="text-muted-foreground">Closed price:</span>{" "}

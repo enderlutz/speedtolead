@@ -29,6 +29,7 @@ def make_token(user: User) -> str:
         "name": user.display_name,
         "role": user.role,
         "employee_id": user.employee_id or "",
+        "see_all_jobs": bool(getattr(user, "see_all_jobs", False)),
         "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS),
     }
     return jwt.encode(payload, settings.auth_secret, algorithm=SECRET_ALGORITHM)
@@ -80,6 +81,7 @@ def login(body: LoginRequest):
                 "name": user.display_name,
                 "role": user.role,
                 "employee_id": user.employee_id or "",
+                "see_all_jobs": bool(getattr(user, "see_all_jobs", False)),
             },
         }
     finally:
@@ -136,6 +138,33 @@ def seed_eduardo_user():
             display_name="Eduardo",
             password_hash=bcrypt.hashpw(b"atpressurewash4", bcrypt.gensalt()).decode(),
             role="admin",
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def seed_edward_user():
+    """Create the EdwardSawyer project-manager account if it doesn't exist.
+    One-shot addition per client request (2026-06-28). Role is 'worker' so he
+    gets the price-free employee view (UI, routing, nav), and see_all_jobs=True
+    lifts the assigned-only filter so he sees every crew's jobs for oversight.
+    Idempotent — subsequent boots no-op once the row exists, and it never
+    overwrites a changed password."""
+    db = get_db()
+    try:
+        existing = db.query(User).filter(User.username == "EdwardSawyer").first()
+        if existing:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="EdwardSawyer",
+            display_name="Edward",
+            password_hash=bcrypt.hashpw("EdwardFences$!&".encode(), bcrypt.gensalt()).decode(),
+            role="worker",
+            see_all_jobs=True,
             created_at=now,
         ))
         db.commit()

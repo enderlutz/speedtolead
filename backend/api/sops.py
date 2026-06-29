@@ -251,7 +251,7 @@ def _can_access_run(user: dict, run: SopRun, db) -> bool:
     """Workers can only touch runs for jobs they're assigned to. Admin/VA
     can touch any."""
     role = user.get("role", "va")
-    if role in ("admin", "va"):
+    if role in ("admin", "va") or user.get("see_all_jobs"):
         return True
     if role != "worker":
         return False
@@ -287,7 +287,7 @@ def _assert_worker_can_write(user: dict, run: SopRun, db) -> None:
     Raises HTTPException(403) for workers trying to write to a non-today
     job; safe to call after _can_access_run."""
     role = user.get("role", "va")
-    if role in ("admin", "va"):
+    if role in ("admin", "va") or user.get("see_all_jobs"):
         return
     if role != "worker":
         return  # Other roles fall through to whatever the endpoint chose

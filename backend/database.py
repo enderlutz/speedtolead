@@ -453,6 +453,10 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     role = Column(Text, default="va")  # admin, va, worker
     employee_id = Column(Text, nullable=True, default="")  # set when role == "worker", links to Employee row
+    # Manager capability: a worker-role user who sees ALL jobs (not just ones
+    # assigned to them) while keeping the price-free employee view. Used for a
+    # project manager who oversees every crew without admin tools.
+    see_all_jobs = Column(Boolean, default=False)
     created_at = Column(Text, default="")
 
 
@@ -2495,6 +2499,14 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added scheduled_jobs.{new_col}")
+
+    # User.see_all_jobs — manager capability (worker view, all jobs)
+    if inspector.has_table("users"):
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "see_all_jobs" not in user_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN see_all_jobs BOOLEAN DEFAULT FALSE"))
+            logger.info("Migration: added users.see_all_jobs")
 
     # TaskAllocation.flat_pay_amount — pay-for-performance override
     if inspector.has_table("task_allocations"):
