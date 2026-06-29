@@ -596,6 +596,9 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   getMe: () => request<{ sub: string; name: string; role: string; employee_id?: string }>("/api/auth/me"),
+  /** Re-issue a token with freshly-resolved permissions (so admin changes
+   * apply without a manual logout). Called on app startup. */
+  refreshSession: () => request<{ token: string; user: { username: string; name: string; role: string; perms: string[] } }>("/api/auth/refresh", { method: "POST" }),
 
   // Permissions / user management (admin / manage_users)
   getPermissionCatalog: () => request<PermissionCatalog>("/api/admin/permissions/catalog"),

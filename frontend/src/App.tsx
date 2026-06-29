@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { isAuthenticated, getCurrentUser, hasPerm } from "@/lib/api";
+import { api, isAuthenticated, getCurrentUser, hasPerm, setToken } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
@@ -82,7 +82,20 @@ function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const location = useLocation();
+  // Bumped after a session refresh so nav/guards re-read the new token's perms.
+  const [, setSessionRev] = useState(0);
   const currentUser = getCurrentUser();
+
+  // On load, re-issue the token with freshly-resolved permissions so an admin's
+  // permission/role change applies without the user logging out and back in.
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+    let alive = true;
+    api.refreshSession()
+      .then((r) => { if (alive && r?.token) { setToken(r.token); setSessionRev((n) => n + 1); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
   // Call List panel — shared callback queue. Admin + VA only. Workers
   // see it as a dead pill so we hide it entirely for them.
   const showCallList = !!currentUser && currentUser.role !== "worker";

@@ -131,11 +131,27 @@ def perms_for_user(db, user: User) -> list[str]:
 # ── Auth dependency ──────────────────────────────────────────────────────
 
 def require_perm(key: str):
-    """Dependency factory: 403 unless the caller's JWT carries `key` (admins
-    always pass). Used to gate the admin endpoints below."""
+    """Dependency factory: 403 unless the caller has `key` (admins always pass).
+    Resolves permissions LIVE from the DB so a freshly-granted permission works
+    even if the caller's token predates it; falls back to the JWT-embedded perms
+    if the lookup fails."""
     def _dep(user: dict = Depends(get_current_user)) -> dict:
         if user.get("role") == "admin":
             return user
+        try:
+            db = get_db()
+            try:
+                u = db.query(User).filter(User.username == user.get("sub")).first()
+                if u:
+                    if u.role == "admin":
+                        return user
+                    eff = effective_permissions(u.role, u.permissions, _role_override_raw(db, u.role))
+                    if eff.get(key):
+                        return user
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"require_perm live lookup failed, falling back to token: {e}")
         if key in (user.get("perms") or []):
             return user
         raise HTTPException(status_code=403, detail=f"Missing permission: {key}")

@@ -101,6 +101,33 @@ def me(user: dict = Depends(get_current_user)):
     return user
 
 
+@router.post("/auth/refresh")
+def refresh(user: dict = Depends(get_current_user)):
+    """Re-issue a token with freshly-resolved permissions/role so changes made
+    by an admin take effect on the user's next app load — no manual logout.
+    The frontend calls this on startup."""
+    db = get_db()
+    try:
+        u = db.query(User).filter(User.username == user.get("sub")).first()
+        if not u:
+            raise HTTPException(status_code=401, detail="User no longer exists")
+        from api.permissions import perms_for_user
+        perms = perms_for_user(db, u)
+        return {
+            "token": make_token(u, perms),
+            "user": {
+                "username": u.username,
+                "name": u.display_name,
+                "role": u.role,
+                "employee_id": u.employee_id or "",
+                "see_all_jobs": bool(getattr(u, "see_all_jobs", False)),
+                "perms": perms,
+            },
+        }
+    finally:
+        db.close()
+
+
 @router.post("/auth/logout")
 def logout():
     return {"status": "ok"}
