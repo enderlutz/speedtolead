@@ -87,6 +87,10 @@ export default function Calendar() {
   // calendar event. Keyed by the event's google_event_id; rawFallback seeds
   // the auto-stripped default when the event has no backing scheduled job.
   const [employeeViewEvent, setEmployeeViewEvent] = useState<{ googleEventId: string; rawFallback: string; title: string } | null>(null);
+  // Whether to dock the source Google event beside the open job detail (so
+  // admin sees step 1 = Google slot, step 2 = job, side by side). Reset on
+  // each job open; dismissible via the Google panel's X.
+  const [showLinkedGoogle, setShowLinkedGoogle] = useState(true);
   // "Schedule Job" flow from the Calendar header. Admin/VA only — the
   // existing kanban + Lead Detail entry points still work; this one
   // saves a navigate when you're already on the calendar planning the
@@ -211,12 +215,23 @@ export default function Calendar() {
     return map;
   }, [googleEvents, jobs, showAsWorker]);
 
+  // Map of google_event_id → the loaded Google event. `googleEvents` holds
+  // ALL events (the dedupe only affects which render as standalone "G" pills),
+  // so a job-linked event is still here. Used to mark job pills that came from
+  // a Google slot and to dock that event beside the job detail.
+  const googleEventById = useMemo(() => {
+    const m = new Map<string, GoogleEvent>();
+    for (const ev of googleEvents) if (ev.google_event_id) m.set(ev.google_event_id, ev);
+    return m;
+  }, [googleEvents]);
+
   const goPrev = () => setNow(new Date(year, monthIdx - 1, 1));
   const goNext = () => setNow(new Date(year, monthIdx + 1, 1));
   const goToday = () => setNow(new Date());
 
   const openJob = async (j: ScheduledJob) => {
     setActiveJob(j);
+    setShowLinkedGoogle(true);
     if (!showAsWorker) {
       try {
         const lead = await api.getLead(j.lead_id);
@@ -368,6 +383,9 @@ export default function Calendar() {
                                 {/* Hide time on mobile — columns too narrow. Tooltip still shows it. */}
                                 <span className="font-mono text-muted-foreground hidden md:inline">{j.arrival_time}</span>
                                 <span className="truncate">{j.customer_name || "Job"}</span>
+                                {!showAsWorker && j.google_event_id && googleEventById.has(j.google_event_id) && (
+                                  <CalendarIcon className="h-2.5 w-2.5 ml-auto shrink-0 text-muted-foreground/70" />
+                                )}
                               </button>
                             );
                           })}
@@ -471,6 +489,9 @@ export default function Calendar() {
                               )}
                               <span className="font-mono text-muted-foreground shrink-0">{j.arrival_time}</span>
                               <span className="truncate flex-1">{j.customer_name || "Job"}</span>
+                              {!showAsWorker && j.google_event_id && googleEventById.has(j.google_event_id) && (
+                                <CalendarIcon className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                              )}
                             </button>
                           );
                         })}
@@ -515,6 +536,12 @@ export default function Calendar() {
           From Google Calendar (banana/tomato events)
         </span>
         {!showAsWorker && (
+          <span className="flex items-center gap-1">
+            <CalendarIcon className="h-3 w-3 text-muted-foreground/70" />
+            Job linked to a Google slot (opens side-by-side)
+          </span>
+        )}
+        {!showAsWorker && (
           <>
             <span className="font-semibold ml-3">Package:</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Essential</span>
@@ -525,13 +552,25 @@ export default function Calendar() {
         )}
       </div>
 
-      {/* Job detail panel — docked side-by-side with the employee view when
-          that's open, so admin compares the full info against the crew view. */}
+      {/* Job detail panel — docked side-by-side with its source Google event
+          (left) and/or the employee view (right), so admin sees step 1 (the
+          Google slot) → step 2 (the job) together. */}
       {activeJob && (
         <div
           className="fixed inset-0 z-50 bg-black/50 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-3 p-4 overflow-y-auto"
           onClick={() => { closeJob(); setEmployeeViewEvent(null); }}
         >
+        {!showAsWorker && showLinkedGoogle && activeJob.google_event_id && googleEventById.get(activeJob.google_event_id) && (
+          <GoogleEventModal
+            embedded
+            event={googleEventById.get(activeJob.google_event_id)!}
+            employees={crew}
+            canAssign={false}
+            canLinkLead={false}
+            onAssignmentsChanged={load}
+            onClose={() => setShowLinkedGoogle(false)}
+          />
+        )}
         <JobDetailModal
           embedded
           job={activeJob}
