@@ -33,24 +33,25 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
   useEffect(() => { blobsRef.current = blobs; }, [blobs]);
 
   // Field report — pulled from the job row, edited inline, saved on blur.
-  const [job, setJob] = useState<ScheduledJob | null>(null);
   const [inspectionNotes, setInspectionNotes] = useState("");
   const [bleachUsed, setBleachUsed] = useState("");
   const [stainUsed, setStainUsed] = useState("");
+  const [stainAssigned, setStainAssigned] = useState("");
   const [savingField, setSavingField] = useState<string | null>(null);
   // Baseline of last-saved values so a blur with no change is a no-op (and
   // doesn't clobber a value another field's save just refreshed).
-  const initial = useRef({ notes: "", bleach: "", stain: "" });
+  const initial = useRef({ notes: "", bleach: "", stain: "", assigned: "" });
 
   const applyJob = useCallback((j: ScheduledJob) => {
-    setJob(j);
     const notes = j.inspection_notes || "";
     const bleach = j.bleach_gallons ? String(j.bleach_gallons) : "";
     const stain = j.stain_gallons_used ? String(j.stain_gallons_used) : "";
+    const assigned = j.gallons_estimate ? String(j.gallons_estimate) : "";
     setInspectionNotes(notes);
     setBleachUsed(bleach);
     setStainUsed(stain);
-    initial.current = { notes, bleach, stain };
+    setStainAssigned(assigned);
+    initial.current = { notes, bleach, stain, assigned };
   }, []);
 
   const loadBlob = useCallback(async (id: string) => {
@@ -116,14 +117,17 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
     }
   };
 
-  const saveField = async (field: "notes" | "bleach" | "stain", value: string) => {
-    const body: { inspection_notes?: string; bleach_gallons?: number; stain_gallons?: number } = {};
+  const saveField = async (field: "notes" | "bleach" | "stain" | "assigned", value: string) => {
+    const body: { inspection_notes?: string; bleach_gallons?: number; stain_gallons?: number; stain_assigned?: number } = {};
     if (field === "notes") {
       if (value === initial.current.notes) return;
       body.inspection_notes = value;
     } else if (field === "bleach") {
       if (value === initial.current.bleach) return;
       body.bleach_gallons = parseFloat(value) || 0;
+    } else if (field === "assigned") {
+      if (value === initial.current.assigned) return;
+      body.stain_assigned = parseFloat(value) || 0;
     } else {
       if (value === initial.current.stain) return;
       body.stain_gallons = parseFloat(value) || 0;
@@ -138,8 +142,6 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
       setSavingField(null);
     }
   };
-
-  const stainAssigned = job?.gallons_estimate || 0;
 
   return (
     <div className="border rounded-lg p-3 space-y-3">
@@ -209,7 +211,7 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
               {c.key === "inspection" && (
                 <div>
                   <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1 mb-0.5">
-                    Inspection notes
+                    Pre-Inspection Notes
                     {savingField === "notes" && <Loader2 className="h-3 w-3 animate-spin" />}
                   </label>
                   <textarea
@@ -241,12 +243,23 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
               )}
 
               {c.key === "post_staining" && (
-                <div className="space-y-1">
-                  <p className="text-[11px] text-muted-foreground">
-                    Stain assigned: <span className="font-semibold">{stainAssigned > 0 ? `${stainAssigned} gal` : "—"}</span>
-                  </p>
+                <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <label className="text-[11px] font-semibold text-muted-foreground">Stain used (gal)</label>
+                    <label className="text-[11px] font-semibold text-muted-foreground w-24">Stain assigned (gal)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={stainAssigned}
+                      onChange={(e) => setStainAssigned(e.target.value)}
+                      onBlur={() => saveField("assigned", stainAssigned)}
+                      placeholder="0"
+                      className="w-20 text-xs rounded border bg-background px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                    {savingField === "assigned" && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-semibold text-muted-foreground w-24">Stain used (gal)</label>
                     <input
                       type="number"
                       step="0.1"

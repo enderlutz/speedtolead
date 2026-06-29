@@ -1,13 +1,105 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, type SopRun, type SopRunStep, getCurrentUser } from "@/lib/api";
+import { api, type SopRun, type SopRunStep, type ScheduledJob, getCurrentUser } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock } from "lucide-react";
+import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock, Clock, MapPin, Droplets, Cloud } from "lucide-react";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
+
+const PKG_LABEL: Record<string, string> = {
+  essential: "Essential finish",
+  signature: "Signature finish",
+  legacy: "Legacy finish",
+  custom: "Custom finish",
+};
+
+function fmtArrival(t?: string): string {
+  if (!t) return "—";
+  const [hh, mm] = t.split(":").map(Number);
+  if (Number.isNaN(hh)) return t;
+  const period = hh >= 12 ? "PM" : "AM";
+  const h12 = hh % 12 || 12;
+  return `${h12}:${String(mm || 0).padStart(2, "0")} ${period}`;
+}
+
+// Job-info header shown at the top of the SOP page: who/where/when, the sides,
+// weather, package, plus an editable stain color the crew can set if the PM
+// didn't assign one. Independent of whether a SOP template exists.
+function JobHeader({ job, onSaved }: { job: ScheduledJob; onSaved: (j: ScheduledJob) => void }) {
+  const [color, setColor] = useState(job.color_choice || "");
+  const [saving, setSaving] = useState(false);
+  const initial = useRef(job.color_choice || "");
+  useEffect(() => {
+    setColor(job.color_choice || "");
+    initial.current = job.color_choice || "";
+  }, [job.color_choice]);
+
+  const saveColor = async () => {
+    if (color === initial.current) return;
+    setSaving(true);
+    try {
+      const updated = await api.updateJobMaterials(job.id, { color_choice: color });
+      initial.current = color;
+      onSaved(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save color");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const w = job.weather_today;
+  const pkg = job.package_tier ? (PKG_LABEL[job.package_tier] || job.package_tier) : "";
+
+  return (
+    <Card>
+      <CardContent className="p-3 space-y-2 text-sm">
+        <div className="font-semibold text-base">{job.customer_name || "Job"}</div>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          <span>{job.job_date} · {fmtArrival(job.arrival_time)}</span>
+        </div>
+        {job.address && (
+          <a
+            href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-start gap-2 text-primary hover:underline"
+          >
+            <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{job.address}</span>
+          </a>
+        )}
+        {w && w.high_f != null && (
+          <div className="flex items-center gap-1.5 text-xs bg-muted/50 rounded px-2 py-1 w-fit">
+            {(w.precip_chance_pct || 0) >= 40 ? <Droplets className="h-3.5 w-3.5 text-blue-600" /> : <Cloud className="h-3.5 w-3.5 text-amber-600" />}
+            <span>{w.summary || "—"} · {Math.round(w.high_f)}°F · {w.precip_chance_pct ?? 0}% rain</span>
+          </div>
+        )}
+        {job.fence_sides_label && (
+          <p><span className="text-muted-foreground">Sides:</span> {job.fence_sides_label}</p>
+        )}
+        {pkg && (
+          <p><span className="text-muted-foreground">Package:</span> {pkg}</p>
+        )}
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground block mb-0.5">Stain color</label>
+          <input
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            onBlur={saveColor}
+            placeholder="e.g. Cabot Cedar — add if not assigned"
+            disabled={saving}
+            className="w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 // Worker-facing SOP checklist for a single job. Reached via the SOP
 // Checklist button on the My Schedule card while a job is in_progress,
@@ -23,6 +115,7 @@ export default function JobSops() {
   const { jobId = "" } = useParams<{ jobId: string }>();
   const user = getCurrentUser();
   const [run, setRun] = useState<SopRun | null>(null);
+  const [job, setJob] = useState<ScheduledJob | null>(null);
   const [editable, setEditable] = useState(true);
   const [jobDate, setJobDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -43,6 +136,13 @@ export default function JobSops() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+    // Job header data (address/time/sides/weather/package/color). Fetched
+    // independently of the SOP run so the header shows even with no template.
+    try {
+      setJob(await api.getScheduledJob(jobId));
+    } catch {
+      /* header just won't render */
     }
   }, [jobId]);
 
@@ -126,6 +226,7 @@ export default function JobSops() {
         <Link to={backTo} className="inline-flex items-center text-sm text-blue-600 mb-3">
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Link>
+        {job && <div className="mb-4"><JobHeader job={job} onSaved={setJob} /></div>}
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             No SOP configured for this job's service type yet. Ask admin
@@ -155,6 +256,8 @@ export default function JobSops() {
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
       </div>
+
+      {job && <div className="mb-4"><JobHeader job={job} onSaved={setJob} /></div>}
 
       <h1 className="text-xl font-bold mb-1">{run.template_name_snapshot || "SOP Checklist"}</h1>
       <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">

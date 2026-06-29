@@ -688,6 +688,14 @@ def get_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
         # sides text apply here too.
         lead = db.query(Lead).filter(Lead.id == j.lead_id).first() if j.lead_id else None
         row["fence_sides_label"] = _resolve_fence_sides_label(j, lead)
+        # Today's weather for the job's ZIP — the SOP page header shows it so
+        # the crew sees precip risk without leaving the page.
+        row["weather_today"] = None
+        if (j.zip_code or "").strip():
+            try:
+                row["weather_today"] = weather.get_day(j.zip_code, j.job_date)
+            except Exception as e:
+                logger.warning(f"weather lookup failed for {j.zip_code}: {e}")
         return row
     finally:
         db.close()
@@ -1213,6 +1221,8 @@ class MaterialsBody(BaseModel):
     stain_gallons: float | None = None      # stain USED → stain_gallons_used
     bleach_gallons: float | None = None     # bleach USED
     inspection_notes: str | None = None     # crew inspection notes
+    color_choice: str | None = None         # stain color (crew can set if PM didn't)
+    stain_assigned: float | None = None     # stain ASSIGNED → gallons_estimate
 
 
 @router.post("/schedule/jobs/{job_id}/materials")
@@ -1256,6 +1266,10 @@ def update_job_materials(
             j.bleach_gallons = body.bleach_gallons
         if body.inspection_notes is not None:
             j.inspection_notes = body.inspection_notes
+        if body.color_choice is not None:
+            j.color_choice = body.color_choice
+        if body.stain_assigned is not None:
+            j.gallons_estimate = body.stain_assigned
         j.updated_at = _now()
         db.commit()
         db.refresh(j)
