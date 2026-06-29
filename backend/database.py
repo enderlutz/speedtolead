@@ -457,7 +457,23 @@ class User(Base):
     # assigned to them) while keeping the price-free employee view. Used for a
     # project manager who oversees every crew without admin tools.
     see_all_jobs = Column(Boolean, default=False)
+    # Per-account permission overrides — JSON {permission_key: bool} layered on
+    # top of the role defaults (see api/permissions.py). Empty = pure role
+    # defaults. The base role still governs server-side data security.
+    permissions = Column(Text, default="{}")
     created_at = Column(Text, default="")
+
+
+class RolePermission(Base):
+    """Per-role permission default overrides. One row per role (admin|va|worker)
+    holding a JSON {permission_key: bool} map applied on top of the code
+    baseline in api/permissions.py. Lets an admin retune what each role sees by
+    default without touching every account."""
+    __tablename__ = "role_permissions"
+
+    role = Column(Text, primary_key=True)            # admin | va | worker
+    permissions = Column(Text, default="{}")         # JSON {key: bool} overrides
+    updated_at = Column(Text, default="")
 
 
 class AiFenceAnalysis(Base):
@@ -2507,6 +2523,10 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN see_all_jobs BOOLEAN DEFAULT FALSE"))
             logger.info("Migration: added users.see_all_jobs")
+        if "permissions" not in user_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT '{}'"))
+            logger.info("Migration: added users.permissions")
 
     # TaskAllocation.flat_pay_amount — pay-for-performance override
     if inspector.has_table("task_allocations"):

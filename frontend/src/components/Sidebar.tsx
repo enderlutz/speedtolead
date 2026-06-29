@@ -6,7 +6,7 @@ import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp,
 //   matching icon here.
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, type KPIs, getCurrentUser, clearToken } from "@/lib/api";
+import { api, type KPIs, getCurrentUser, clearToken, hasPerm } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
 // `allowedRoles` (if set) restricts visibility to listed roles. Items without
@@ -24,25 +24,27 @@ import { formatCurrency } from "@/lib/utils";
 //   - Sent Log ("/sent-log")       — older lead-state view
 //   - Agents ("/agents")           — experimental AI agents page
 //   - AI Fence Est. ("/ai-fence")  — internal dev tool
-const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; allowedRoles?: string[] }[] = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/leads", icon: Users, label: "Sterling Leads" },
-  { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", allowedRoles: ["admin", "va"] },
+// `perm` (if set) is the permission key that gates this item — visible only
+// when the user has it. `restrictTo` is the legacy fragned-only escape hatch.
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; perm?: string }[] = [
+  { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
+  { to: "/leads", icon: Users, label: "Sterling Leads", perm: "leads" },
+  { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" },
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
-  { to: "/analytics", icon: BarChart3, label: "Analytics" },
-  { to: "/calls", icon: Mic, label: "Call Coach" },
-  { to: "/training", icon: Brain, label: "Training", allowedRoles: ["admin", "va"] },
-  { to: "/crew", icon: HardHat, label: "Payroll", allowedRoles: ["admin"] },
-  { to: "/accounting", icon: Calculator, label: "Accounting", allowedRoles: ["admin"] },
-  { to: "/calendar", icon: Calendar, label: "Job Calendar", allowedRoles: ["admin", "va", "worker"] },
-  { to: "/my-schedule", icon: Sun, label: "My Schedule", allowedRoles: ["worker"] },
-  { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", allowedRoles: ["admin", "va"] },
+  { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics" },
+  { to: "/calls", icon: Mic, label: "Call Coach", perm: "calls" },
+  { to: "/training", icon: Brain, label: "Training", perm: "training" },
+  { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll" },
+  { to: "/accounting", icon: Calculator, label: "Accounting", perm: "accounting" },
+  { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
+  { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
+  { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue" },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
-  { to: "/pricing", icon: DollarSign, label: "Pricing" },
+  { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing" },
   // { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" }, // hidden 2026-06-07
   { to: "/internal", icon: Gauge, label: "Internal", restrictTo: "fragned" },
-  { to: "/settings", icon: Settings2, label: "Settings" },
+  { to: "/settings", icon: Settings2, label: "Settings", perm: "settings" },
 ];
 
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
@@ -171,14 +173,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-3 mb-2">Menu</p>
           {NAV_ITEMS.filter(item => {
             const u = getCurrentUser();
-            if (item.restrictTo && u?.sub !== item.restrictTo) return false;
-            if (item.allowedRoles) {
-              if (!u?.role || !item.allowedRoles.includes(u.role)) return false;
-            } else {
-              // Default: admin + va only (workers must use allowedRoles to see)
-              if (u?.role === "worker") return false;
-            }
-            return true;
+            if (item.restrictTo) return u?.sub === item.restrictTo;
+            if (item.perm) return hasPerm(item.perm);
+            // Items without a perm default to admin + va, hidden from workers.
+            return u?.role !== "worker";
           }).map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}

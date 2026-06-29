@@ -22,7 +22,7 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def make_token(user: User) -> str:
+def make_token(user: User, perms: list[str] | None = None) -> str:
     settings = get_settings()
     payload = {
         "sub": user.username,
@@ -30,6 +30,9 @@ def make_token(user: User) -> str:
         "role": user.role,
         "employee_id": user.employee_id or "",
         "see_all_jobs": bool(getattr(user, "see_all_jobs", False)),
+        # Effective permission keys (views + actions). The frontend gates nav,
+        # routes, and buttons on these; backend require_perm checks them too.
+        "perms": perms or [],
         "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS),
     }
     return jwt.encode(payload, settings.auth_secret, algorithm=SECRET_ALGORITHM)
@@ -74,14 +77,19 @@ def login(body: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        # Resolve effective permissions (lazy import avoids an auth↔permissions
+        # import cycle) and stamp them into the token.
+        from api.permissions import perms_for_user
+        perms = perms_for_user(db, user)
         return {
-            "token": make_token(user),
+            "token": make_token(user, perms),
             "user": {
                 "username": user.username,
                 "name": user.display_name,
                 "role": user.role,
                 "employee_id": user.employee_id or "",
                 "see_all_jobs": bool(getattr(user, "see_all_jobs", False)),
+                "perms": perms,
             },
         }
     finally:

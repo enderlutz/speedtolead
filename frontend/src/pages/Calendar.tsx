@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { api, getCurrentUser, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee, type GoogleEvent } from "@/lib/api";
+import { api, getCurrentUser, hasPerm, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee, type GoogleEvent } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -535,7 +535,7 @@ export default function Calendar() {
             setReimbJob(activeJob);
             closeJob();
           } : undefined}
-          onMarkPaid={!showAsWorker && isAdmin ? () => {
+          onMarkPaid={!showAsWorker && hasPerm("mark_paid") ? () => {
             setPaidJob(activeJob);
             closeJob();
           } : undefined}
@@ -556,7 +556,7 @@ export default function Calendar() {
             // Jump to Accounting and scroll to this job's row in the P&L table.
             window.location.href = `/accounting?job=${activeJob.id}`;
           } : undefined}
-          onDelete={!showAsWorker && isAdmin ? async () => {
+          onDelete={!showAsWorker && hasPerm("delete_jobs") ? async () => {
             if (!confirm("Cancel this job? The Google event will also be deleted and customer notified.")) return;
             try {
               await api.deleteScheduledJob(activeJob.id);
@@ -678,7 +678,7 @@ export default function Calendar() {
         <GoogleEventModal
           event={activeGoogleEvent}
           employees={employees}
-          canAssign={!showAsWorker}
+          canAssign={!showAsWorker && hasPerm("assign_crew")}
           onAssignmentsChanged={load}
           onEmployeeView={!showAsWorker ? () => {
             setEmployeeViewEvent({
@@ -1322,14 +1322,16 @@ function JobDetailModal({
 
           {!showAsWorker && (
             <>
-              <JobCrewAssign
-                jobId={job.id}
-                employees={employees}
-                assignedIds={job.assigned_employee_ids || []}
-                onChanged={onAssignmentsChanged}
-              />
+              {hasPerm("assign_crew") && (
+                <JobCrewAssign
+                  jobId={job.id}
+                  employees={employees}
+                  assignedIds={job.assigned_employee_ids || []}
+                  onChanged={onAssignmentsChanged}
+                />
+              )}
               <JobLeadLink job={job} onChanged={onAssignmentsChanged} />
-              {(job.closed_price || 0) > 0 && (
+              {hasPerm("see_prices") && (job.closed_price || 0) > 0 && (
                 <p>
                   <span className="text-muted-foreground">Closed price:</span>{" "}
                   ${job.closed_price?.toFixed(2)}

@@ -57,7 +57,7 @@ export function clearToken() {
   document.cookie = "at_auth=; max-age=0; path=/";
 }
 
-export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string } | null {
+export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string; see_all_jobs?: boolean; perms?: string[] } | null {
   const token = getToken();
   if (!token) return null;
   try {
@@ -73,7 +73,54 @@ export function isAuthenticated(): boolean {
   return getCurrentUser() !== null;
 }
 
+// Role-default permission keys — mirrors the backend ROLE_BASELINE. Used only
+// as a fallback for tokens issued before `perms` existed; once a user logs in
+// again their token carries the resolved `perms` list and this isn't consulted.
+const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
+  admin: [
+    "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
+    "payroll", "accounting", "calendar", "my_schedule", "invoice_queue",
+    "pricing", "settings", "agents",
+    "manage_users", "see_prices", "assign_crew", "mark_paid", "delete_jobs",
+  ],
+  va: [
+    "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
+    "calendar", "invoice_queue", "pricing", "settings",
+    "see_prices", "assign_crew", "mark_paid", "delete_jobs",
+  ],
+  worker: ["calendar", "my_schedule"],
+};
+
+/** True if the current user has the given permission key (view or action).
+ * Admins always pass. Falls back to role defaults for legacy tokens. */
+export function hasPerm(key: string): boolean {
+  const u = getCurrentUser();
+  if (!u) return false;
+  if (u.role === "admin") return true;
+  if (Array.isArray(u.perms)) return u.perms.includes(key);
+  return (ROLE_DEFAULT_PERMS[u.role] || []).includes(key);
+}
+
 // --- Types ---
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  display_name: string;
+  role: string;                          // admin | va | worker
+  see_all_jobs: boolean;
+  overrides: Record<string, boolean>;    // per-account permission overrides
+  effective: Record<string, boolean>;    // resolved effective permissions
+  created_at: string;
+}
+
+export interface PermissionCatalog {
+  views: { key: string; label: string }[];
+  actions: { key: string; label: string }[];
+  roles: string[];
+  role_defaults: Record<string, Record<string, boolean>>;
+}
+
 
 export interface Lead {
   id: string;
@@ -540,6 +587,23 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   getMe: () => request<{ sub: string; name: string; role: string; employee_id?: string }>("/api/auth/me"),
+
+  // Permissions / user management (admin / manage_users)
+  getPermissionCatalog: () => request<PermissionCatalog>("/api/admin/permissions/catalog"),
+  listUsers: () => request<{ users: AdminUser[] }>("/api/admin/users"),
+  createUser: (body: {
+    username: string; password: string; display_name?: string;
+    role?: string; see_all_jobs?: boolean; permissions?: Record<string, boolean>;
+  }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (id: string, body: {
+    display_name?: string; role?: string; see_all_jobs?: boolean;
+    password?: string; permissions?: Record<string, boolean>;
+  }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),
+  setRoleDefaults: (role: string, permissions: Record<string, boolean>) =>
+    request<{ role: string; defaults: Record<string, boolean> }>(`/api/admin/permissions/roles/${role}`, {
+      method: "PUT", body: JSON.stringify({ permissions }),
+    }),
 
   // Leads
   getLeads: (params?: Record<string, string>) => {

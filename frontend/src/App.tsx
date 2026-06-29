@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { isAuthenticated, getCurrentUser } from "@/lib/api";
+import { isAuthenticated, getCurrentUser, hasPerm } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
@@ -55,15 +55,25 @@ function StaffOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AdminOnly({ children }: { children: React.ReactNode }) {
-  const u = getCurrentUser();
-  if (u?.role !== "admin") return <Navigate to="/" replace />;
-  return <>{children}</>;
-}
-
 function FragnedOnly({ children }: { children: React.ReactNode }) {
   const u = getCurrentUser();
   if (u?.sub !== "fragned") return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+// First page the user is allowed to land on — used when they hit a view they
+// don't have permission for.
+function landingFor(): string {
+  if (hasPerm("dashboard")) return "/";
+  if (hasPerm("my_schedule")) return "/my-schedule";
+  if (hasPerm("calendar")) return "/calendar";
+  return "/settings";
+}
+
+// Gate a route on a view permission. Bounces to the user's landing page when
+// they lack it (covers both nav-hidden and direct-URL access).
+function RequireView({ view, children }: { view: string; children: React.ReactNode }) {
+  if (!hasPerm(view)) return <Navigate to={landingFor()} replace />;
   return <>{children}</>;
 }
 
@@ -106,29 +116,29 @@ function AppLayout() {
           <MobileHeader onToggle={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto">
             <Routes>
-              <Route path="/" element={<StaffOnly><Dashboard /></StaffOnly>} />
-              <Route path="/leads" element={<StaffOnly><LeadsV2 /></StaffOnly>} />
-              <Route path="/leads/painting-upsell" element={<StaffOnly><LeadsPaintingUpsell /></StaffOnly>} />
+              <Route path="/" element={<RequireView view="dashboard"><Dashboard /></RequireView>} />
+              <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
+              <Route path="/leads/painting-upsell" element={<RequireView view="painting_upsell"><LeadsPaintingUpsell /></RequireView>} />
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
-              <Route path="/leads/:id" element={<StaffOnly><LeadDetail /></StaffOnly>} />
-              <Route path="/leads/:id/edit-pdf" element={<StaffOnly><EditPdf /></StaffOnly>} />
+              <Route path="/leads/:id" element={<RequireView view="leads"><LeadDetail /></RequireView>} />
+              <Route path="/leads/:id/edit-pdf" element={<RequireView view="leads"><EditPdf /></RequireView>} />
               <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
-              <Route path="/analytics" element={<StaffOnly><Analytics /></StaffOnly>} />
-              <Route path="/calls" element={<StaffOnly><Calls /></StaffOnly>} />
-              <Route path="/training" element={<StaffOnly><Training /></StaffOnly>} />
-              <Route path="/crew" element={<StaffOnly><Crew /></StaffOnly>} />
-              <Route path="/crew/:id" element={<StaffOnly><CrewEmployee /></StaffOnly>} />
-              <Route path="/accounting" element={<StaffOnly><Accounting /></StaffOnly>} />
-              <Route path="/calendar" element={<CalendarPage />} />
-              <Route path="/my-schedule" element={<MySchedule />} />
+              <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
+              <Route path="/calls" element={<RequireView view="calls"><Calls /></RequireView>} />
+              <Route path="/training" element={<RequireView view="training"><Training /></RequireView>} />
+              <Route path="/crew" element={<RequireView view="payroll"><Crew /></RequireView>} />
+              <Route path="/crew/:id" element={<RequireView view="payroll"><CrewEmployee /></RequireView>} />
+              <Route path="/accounting" element={<RequireView view="accounting"><Accounting /></RequireView>} />
+              <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
+              <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
-              <Route path="/invoice-queue" element={<StaffOnly><InvoiceQueue /></StaffOnly>} />
-              <Route path="/pricing" element={<StaffOnly><Pricing /></StaffOnly>} />
+              <Route path="/invoice-queue" element={<RequireView view="invoice_queue"><InvoiceQueue /></RequireView>} />
+              <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
-              <Route path="/settings" element={<StaffOnly><Settings /></StaffOnly>} />
-              <Route path="/agents" element={<AdminOnly><Agents /></AdminOnly>} />
+              <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />
+              <Route path="/agents" element={<RequireView view="agents"><Agents /></RequireView>} />
               <Route path="/internal" element={<FragnedOnly><Internal /></FragnedOnly>} />
             </Routes>
           </main>

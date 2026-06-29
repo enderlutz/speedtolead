@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
@@ -390,6 +390,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(permissions.router, prefix="/api")
 app.include_router(webhooks.router)
 app.include_router(leads.router, prefix="/api")
 app.include_router(estimates.router, prefix="/api")

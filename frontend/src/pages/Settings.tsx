@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { api, getCurrentUser, type SterlingBackfillStatus } from "@/lib/api";
+import { api, getCurrentUser, hasPerm, type SterlingBackfillStatus } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { GhlStageDiff, OppValueBackfillStatus, GCalAttendeeBackfillResult } from "@/lib/api";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
+import PermissionsManager from "@/components/PermissionsManager";
 import ChatbotSettings from "@/components/ChatbotSettings";
 import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
@@ -34,6 +35,9 @@ interface SystemStats {
 }
 
 export default function Settings() {
+  // Permissions tab — only shown to accounts that can manage users.
+  const canManageUsers = hasPerm("manage_users");
+  const [settingsTab, setSettingsTab] = useState<"general" | "permissions">("general");
   // PDF Template state
   const [template, setTemplate] = useState<PdfTemplateInfo | null>(null);
   const [templateLoading, setTemplateLoading] = useState(true);
@@ -141,6 +145,27 @@ export default function Settings() {
         Settings
       </h1>
 
+      {canManageUsers && (
+        <div className="inline-flex border rounded-md">
+          <button
+            onClick={() => setSettingsTab("general")}
+            className={`px-3 py-1.5 text-sm border-r ${settingsTab === "general" ? "bg-muted font-medium" : "hover:bg-muted"}`}
+          >
+            General
+          </button>
+          <button
+            onClick={() => setSettingsTab("permissions")}
+            className={`px-3 py-1.5 text-sm ${settingsTab === "permissions" ? "bg-muted font-medium" : "hover:bg-muted"}`}
+          >
+            Permissions
+          </button>
+        </div>
+      )}
+
+      {canManageUsers && settingsTab === "permissions" && <PermissionsManager />}
+
+      {(!canManageUsers || settingsTab === "general") && (
+      <>
       {/* GHL Maintenance */}
       <BackfillDashboardLinksCard />
 
@@ -465,6 +490,8 @@ export default function Settings() {
 
       {/* Chatbot Settings */}
       <ChatbotSettings />
+      </>
+      )}
     </div>
   );
 }
