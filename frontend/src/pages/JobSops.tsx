@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, type SopRun, type SopRunStep, type ScheduledJob, getCurrentUser } from "@/lib/api";
+import { api, type SopRun, type SopRunStep, type ScheduledJob, getCurrentUser, hasPerm } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +52,23 @@ function JobHeader({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Scheduled
     }
   };
 
+  // Package is the sold tier and drives price, so only admin + PM (assign_crew)
+  // can change it; crew see it as read-only text. The backend enforces the same.
+  const canEditPackage = hasPerm("assign_crew");
+  const [pkgSaving, setPkgSaving] = useState(false);
+  const savePackage = async (tier: string) => {
+    if (tier === (job.package_tier || "")) return;
+    setPkgSaving(true);
+    try {
+      const updated = await api.updateJobMaterials(job.id, { package_tier: tier });
+      onSaved(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save package");
+    } finally {
+      setPkgSaving(false);
+    }
+  };
+
   const w = job.weather_today;
   const pkg = job.package_tier ? (PKG_LABEL[job.package_tier] || job.package_tier) : "";
 
@@ -83,9 +100,24 @@ function JobHeader({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Scheduled
         {job.fence_sides_label && (
           <p><span className="text-muted-foreground">Sides:</span> {job.fence_sides_label}</p>
         )}
-        {pkg && (
+        {canEditPackage ? (
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground block mb-0.5">Package</label>
+            <select
+              value={job.package_tier || ""}
+              onChange={(e) => savePackage(e.target.value)}
+              disabled={pkgSaving}
+              className="w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="">Select a package…</option>
+              <option value="essential">Essential</option>
+              <option value="signature">Signature</option>
+              <option value="legacy">Legacy</option>
+            </select>
+          </div>
+        ) : pkg ? (
           <p><span className="text-muted-foreground">Package:</span> {pkg}</p>
-        )}
+        ) : null}
         {job.worker_notes && (
           <div className="bg-blue-50 border border-blue-200 rounded p-2">
             <p className="text-xs font-semibold text-blue-900 mb-0.5">Additional notes</p>
