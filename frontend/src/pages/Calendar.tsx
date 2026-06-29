@@ -22,6 +22,46 @@ const PACKAGE_COLORS: Record<string, string> = {
   custom: "bg-slate-500",
 };
 
+const PACKAGE_LABELS: Record<string, string> = {
+  essential: "Essential finish",
+  signature: "Signature finish",
+  legacy: "Legacy finish",
+  custom: "Custom finish",
+};
+
+// Build a Google-event-shaped object from a job, for the side-by-side panel
+// when the real Google event isn't loaded (Google not connected, out of the
+// fetched window, etc.). Dashboard jobs send a Google invite too, so every job
+// gets a consistent "Google schedule" panel — real when available, synthesized
+// from the job's own fields otherwise.
+function jobAsGoogleEvent(j: ScheduledJob): GoogleEvent {
+  const arrival = j.arrival_time || "07:30";
+  const start = `${j.job_date}T${arrival}:00`;
+  const dur = j.estimated_duration_hours || 6;
+  const startDate = new Date(start);
+  const endDate = new Date(startDate.getTime() + dur * 3600 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const end = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}:00`;
+  const desc: string[] = [];
+  if (j.package_tier) desc.push(`Package: ${PACKAGE_LABELS[j.package_tier] || j.package_tier}`);
+  if (j.color_choice) desc.push(`Color/s: ${j.color_choice}`);
+  if (j.fence_sides_label) desc.push(`Sides: ${j.fence_sides_label}`);
+  if (j.customer_notes) desc.push(`Additional notes: ${j.customer_notes}`);
+  return {
+    google_event_id: j.google_event_id || "",
+    summary: `Fence Staining — ${j.customer_name || "Job"}`,
+    description: desc.join("\n\n"),
+    location: j.address || "",
+    start,
+    end,
+    all_day: false,
+    html_link: j.google_event_html_link || "",
+    status: "confirmed",
+    color_id: "5",
+    service_type: j.service_type || "fence_staining",
+  };
+}
+
 // Per spec — calendar chip color matches Alan's Google Calendar:
 // fence_staining = yellow border, power_washing = red border. All current
 // leads are fence_staining; this future-proofs for when power washing
@@ -538,7 +578,7 @@ export default function Calendar() {
         {!showAsWorker && (
           <span className="flex items-center gap-1">
             <CalendarIcon className="h-3 w-3 text-muted-foreground/70" />
-            Job linked to a Google slot (opens side-by-side)
+            Synced to Google Calendar
           </span>
         )}
         {!showAsWorker && (
@@ -560,10 +600,10 @@ export default function Calendar() {
           className="fixed inset-0 z-50 bg-black/50 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-3 p-4 overflow-y-auto"
           onClick={() => { closeJob(); setEmployeeViewEvent(null); }}
         >
-        {!showAsWorker && showLinkedGoogle && activeJob.google_event_id && googleEventById.get(activeJob.google_event_id) && (
+        {!showAsWorker && showLinkedGoogle && (
           <GoogleEventModal
             embedded
-            event={googleEventById.get(activeJob.google_event_id)!}
+            event={googleEventById.get(activeJob.google_event_id || "") || jobAsGoogleEvent(activeJob)}
             employees={crew}
             canAssign={false}
             canLinkLead={false}
