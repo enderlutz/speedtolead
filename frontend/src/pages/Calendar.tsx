@@ -525,9 +525,15 @@ export default function Calendar() {
         )}
       </div>
 
-      {/* Job detail panel */}
+      {/* Job detail panel — docked side-by-side with the employee view when
+          that's open, so admin compares the full info against the crew view. */}
       {activeJob && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-3 p-4 overflow-y-auto"
+          onClick={() => { closeJob(); setEmployeeViewEvent(null); }}
+        >
         <JobDetailModal
+          embedded
           job={activeJob}
           showAsWorker={showAsWorker}
           weather={weatherByZip[activeJob.zip_code]?.days.find((d) => d.date === activeJob.job_date)}
@@ -557,7 +563,6 @@ export default function Calendar() {
               rawFallback: "",   // backing job → backend rebuilds the default
               title: activeJob.customer_name || "Job",
             });
-            closeJob();
           } : undefined}
           onGenerateInvoice={!showAsWorker && isAdmin ? () => {
             // Generate Invoice lives on the lead detail page so admin can review
@@ -580,6 +585,16 @@ export default function Calendar() {
             }
           } : undefined}
         />
+        {employeeViewEvent && (
+          <EmployeeViewModal
+            embedded
+            googleEventId={employeeViewEvent.googleEventId}
+            rawFallback={employeeViewEvent.rawFallback}
+            title={employeeViewEvent.title}
+            onClose={() => setEmployeeViewEvent(null)}
+          />
+        )}
+        </div>
       )}
 
       {editJob && activeJobLead && (
@@ -687,7 +702,12 @@ export default function Calendar() {
       })()}
 
       {activeGoogleEvent && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex flex-col lg:flex-row items-center lg:items-start justify-center gap-3 p-4 overflow-y-auto"
+          onClick={() => { setActiveGoogleEvent(null); setEmployeeViewEvent(null); }}
+        >
         <GoogleEventModal
+          embedded
           event={activeGoogleEvent}
           employees={crew}
           canAssign={canAssignCrew}
@@ -699,19 +719,19 @@ export default function Calendar() {
               rawFallback: activeGoogleEvent.description || "",
               title: activeGoogleEvent.summary || "Event",
             });
-            setActiveGoogleEvent(null);
           } : undefined}
-          onClose={() => setActiveGoogleEvent(null)}
+          onClose={() => { setActiveGoogleEvent(null); setEmployeeViewEvent(null); }}
         />
-      )}
-
-      {employeeViewEvent && (
-        <EmployeeViewModal
-          googleEventId={employeeViewEvent.googleEventId}
-          rawFallback={employeeViewEvent.rawFallback}
-          title={employeeViewEvent.title}
-          onClose={() => setEmployeeViewEvent(null)}
-        />
+        {employeeViewEvent && (
+          <EmployeeViewModal
+            embedded
+            googleEventId={employeeViewEvent.googleEventId}
+            rawFallback={employeeViewEvent.rawFallback}
+            title={employeeViewEvent.title}
+            onClose={() => setEmployeeViewEvent(null)}
+          />
+        )}
+        </div>
       )}
 
       {paidJob && (
@@ -726,7 +746,7 @@ export default function Calendar() {
 }
 
 function GoogleEventModal({
-  event, onClose, onEmployeeView, employees, canAssign, canLinkLead, onAssignmentsChanged,
+  event, onClose, onEmployeeView, employees, canAssign, canLinkLead, onAssignmentsChanged, embedded,
 }: {
   event: GoogleEvent;
   onClose: () => void;
@@ -735,6 +755,7 @@ function GoogleEventModal({
   canAssign: boolean;
   canLinkLead: boolean;
   onAssignmentsChanged: () => void;
+  embedded?: boolean;
 }) {
   const fmtTime = (s: string): string => {
     if (!s) return "—";
@@ -833,8 +854,8 @@ function GoogleEventModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className={embedded ? "contents" : "fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"} onClick={embedded ? undefined : onClose}>
+      <div className="bg-background rounded-lg shadow-xl w-full md:w-[26rem] max-w-[92vw] max-h-[90vh] flex flex-col shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold flex items-center gap-2">
             <span className="text-[10px] uppercase tracking-wide bg-blue-500 text-white px-1.5 py-0.5 rounded font-bold">Google Calendar</span>
@@ -981,12 +1002,13 @@ function GoogleEventModal({
 }
 
 function EmployeeViewModal({
-  googleEventId, rawFallback, title, onClose,
+  googleEventId, rawFallback, title, onClose, embedded,
 }: {
   googleEventId: string;
   rawFallback: string;
   title: string;
   onClose: () => void;
+  embedded?: boolean;
 }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1042,8 +1064,8 @@ function EmployeeViewModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className={embedded ? "contents" : "fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"} onClick={embedded ? undefined : onClose}>
+      <div className="bg-background rounded-lg shadow-xl w-full md:w-[30rem] max-w-[92vw] max-h-[90vh] flex flex-col shrink-0 ring-2 ring-amber-400/40" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold flex items-center gap-2">
             <HardHat className="h-4 w-4 text-amber-600" />
@@ -1259,7 +1281,7 @@ function JobLeadLink({ job, onChanged }: { job: ScheduledJob; onChanged: () => v
 }
 
 function JobDetailModal({
-  job, showAsWorker, weather, employees, onAssignmentsChanged, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice, onEmployeeView,
+  job, showAsWorker, weather, employees, onAssignmentsChanged, onClose, onEdit, onDelete, onLogTime, onReimburse, onViewPL, onMarkPaid, onGenerateInvoice, onEmployeeView, embedded,
 }: {
   job: ScheduledJob;
   showAsWorker: boolean;
@@ -1275,6 +1297,7 @@ function JobDetailModal({
   onMarkPaid?: () => void;
   onGenerateInvoice?: () => void;
   onEmployeeView?: () => void;
+  embedded?: boolean;
 }) {
   const paymentStatus = job.payment_status || "unpaid";
   const paymentBadge = paymentStatus === "paid"
@@ -1283,8 +1306,8 @@ function JobDetailModal({
       ? { cls: "bg-purple-100 text-purple-800 border border-purple-200", icon: <DollarSign className="h-3 w-3" />, label: "BNPL FINANCED" }
       : { cls: "bg-amber-100 text-amber-800 border border-amber-200", icon: <DollarSign className="h-3 w-3" />, label: "UNPAID" };
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className={embedded ? "contents" : "fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"} onClick={embedded ? undefined : onClose}>
+      <div className="bg-background rounded-lg shadow-xl w-full md:w-[26rem] max-w-[92vw] max-h-[90vh] flex flex-col shrink-0" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b flex items-center justify-between shrink-0">
           <h2 className="text-base font-semibold">{job.customer_name || "Job"}</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
