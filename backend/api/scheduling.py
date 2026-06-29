@@ -18,6 +18,7 @@ from sqlalchemy import or_
 
 from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User, Proposal, EmployeeEventView, JobPhoto
 from api.auth import require_admin, require_staff, get_current_user
+from api.permissions import require_perm
 from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
 from config import get_settings
@@ -812,7 +813,7 @@ class EnsureFromGoogleEventBody(BaseModel):
 
 
 @router.get("/schedule/jobs/by-google-event/{google_event_id}")
-def get_job_by_google_event(google_event_id: str, user: dict = Depends(require_staff)):
+def get_job_by_google_event(google_event_id: str, user: dict = Depends(require_perm("assign_crew"))):
     """Find the job backing a Google event (no create). Returns {job, ids} —
     job is null when the event hasn't been imported yet."""
     del user
@@ -830,7 +831,7 @@ def get_job_by_google_event(google_event_id: str, user: dict = Depends(require_s
 
 
 @router.post("/schedule/jobs/ensure-from-google-event")
-def ensure_job_from_google_event(body: EnsureFromGoogleEventBody, user: dict = Depends(require_staff)):
+def ensure_job_from_google_event(body: EnsureFromGoogleEventBody, user: dict = Depends(require_perm("assign_crew"))):
     """Get-or-create the job behind a Google event so crew can be assigned.
     Idempotent — returns the existing job if one is already linked. The new
     job carries no lead (lead_id="") since it was booked outside the dashboard;
@@ -865,6 +866,69 @@ def ensure_job_from_google_event(body: EnsureFromGoogleEventBody, user: dict = D
         db.commit()
         db.refresh(job)
         return _job_with_assignments(db, job)
+    finally:
+        db.close()
+
+
+@router.get("/schedule/assignable-crew")
+def assignable_crew(user: dict = Depends(require_perm("assign_crew"))):
+    """Active crew for the assign picker — names + id only, no pay/contact, so
+    a project manager (assign_crew but not staff) can pick crew without seeing
+    sensitive employee data. Admin/VA also use this for the calendar picker."""
+    del user
+    db = get_db()
+    try:
+        rows = (db.query(Employee)
+                  .filter(Employee.status == "active")
+                  .order_by(Employee.first_name.asc())
+                  .all())
+        return {"employees": [
+            {
+                "id": e.id,
+                "first_name": e.first_name or "",
+                "last_name": e.last_name or "",
+                "display_name": e.display_name or "",
+                "status": e.status or "active",
+            }
+            for e in rows
+        ]}
+    finally:
+        db.close()
+
+
+class CrewBody(BaseModel):
+    employee_ids: list[str] = []
+
+
+@router.put("/schedule/jobs/{job_id}/crew")
+def set_job_crew(job_id: str, body: CrewBody, user: dict = Depends(require_perm("assign_crew"))):
+    """Assign / unassign crew on a job. Replaces the whole assignment set, so
+    passing a list that omits someone unassigns them (and an empty list clears
+    all crew). Gated on the assign_crew permission — admins always pass, and so
+    does the project manager once granted it — without opening the full job PUT
+    (price, dates, etc.) to non-staff. Doesn't touch the Google event."""
+    del user
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        db.query(JobAssignment).filter(JobAssignment.scheduled_job_id == job_id).delete()
+        for emp_id in (body.employee_ids or []):
+            emp = db.query(Employee).filter(Employee.id == emp_id, Employee.status == "active").first()
+            if not emp:
+                continue
+            db.add(JobAssignment(
+                id=str(uuid.uuid4()),
+                scheduled_job_id=job_id,
+                employee_id=emp_id,
+                notified_at=_now(),
+                created_at=_now(),
+            ))
+        j.updated_at = _now()
+        db.commit()
+        db.refresh(j)
+        return _job_with_assignments(db, j)
     finally:
         db.close()
 

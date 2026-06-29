@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { api, getCurrentUser, hasPerm, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee, type GoogleEvent } from "@/lib/api";
+import { api, getCurrentUser, hasPerm, type ScheduledJob, type WeatherForecast, type WeatherDay, type Lead, type Employee, type AssignableEmployee, type GoogleEvent } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +77,8 @@ export default function Calendar() {
   const [reimbJob, setReimbJob] = useState<ScheduledJob | null>(null);
   const [paidJob, setPaidJob] = useState<ScheduledJob | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Assignable crew (names only) for the crew-assign picker.
+  const [crew, setCrew] = useState<AssignableEmployee[]>([]);
   // Events Alan booked directly in Google Calendar (read-only — to edit, he
   // opens them in Google).
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
@@ -143,13 +145,23 @@ export default function Calendar() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Crew roster — needed for the reimbursement form (name lookup) and the
-  // inline crew-assign panel on the job detail. Load for any staff (admin/VA);
-  // workers don't render either entry point.
+  // Whether this user can assign/unassign crew on the calendar — admin/VA, or
+  // the project manager (worker with assign_crew). Suppressed while an admin is
+  // previewing the worker view so the preview stays faithful.
+  const canAssignCrew = hasPerm("assign_crew") && !(isAdmin && previewAsWorker);
+
+  // Full roster (pay + contact) for the reimbursement form — admin only.
   useEffect(() => {
-    if (isWorker) return;
+    if (!isAdmin) return;
     api.listCrew("this_week", false).then((r) => setEmployees(r.employees)).catch(() => {});
-  }, [isWorker]);
+  }, [isAdmin]);
+
+  // Lightweight assignable crew (names only) for the assign picker — reachable
+  // by anyone who can assign, including the project manager.
+  useEffect(() => {
+    if (!canAssignCrew) return;
+    api.getAssignableCrew().then((r) => setCrew(r.employees)).catch(() => {});
+  }, [canAssignCrew]);
 
   // Weather: fetch forecast for distinct ZIPs across this month's jobs
   useEffect(() => {
@@ -519,7 +531,7 @@ export default function Calendar() {
           job={activeJob}
           showAsWorker={showAsWorker}
           weather={weatherByZip[activeJob.zip_code]?.days.find((d) => d.date === activeJob.job_date)}
-          employees={employees}
+          employees={crew}
           onAssignmentsChanged={load}
           onClose={closeJob}
           onEdit={!showAsWorker ? () => { setEditJob(activeJob); closeJob(); } : undefined}
@@ -677,8 +689,9 @@ export default function Calendar() {
       {activeGoogleEvent && (
         <GoogleEventModal
           event={activeGoogleEvent}
-          employees={employees}
-          canAssign={!showAsWorker && hasPerm("assign_crew")}
+          employees={crew}
+          canAssign={canAssignCrew}
+          canLinkLead={!showAsWorker}
           onAssignmentsChanged={load}
           onEmployeeView={!showAsWorker ? () => {
             setEmployeeViewEvent({
@@ -713,13 +726,14 @@ export default function Calendar() {
 }
 
 function GoogleEventModal({
-  event, onClose, onEmployeeView, employees, canAssign, onAssignmentsChanged,
+  event, onClose, onEmployeeView, employees, canAssign, canLinkLead, onAssignmentsChanged,
 }: {
   event: GoogleEvent;
   onClose: () => void;
   onEmployeeView?: () => void;
-  employees: Employee[];
+  employees: AssignableEmployee[];
   canAssign: boolean;
+  canLinkLead: boolean;
   onAssignmentsChanged: () => void;
 }) {
   const fmtTime = (s: string): string => {
@@ -808,7 +822,7 @@ function GoogleEventModal({
     setAssignedIds(next);
     setBusy(true);
     try {
-      await api.updateScheduledJob(job.id, { employee_ids: next });
+      await api.setJobCrew(job.id, next);
       onAssignmentsChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to update crew");
@@ -850,7 +864,12 @@ function GoogleEventModal({
                   {assignedIds.length === 0 ? (
                     <span className="text-xs text-muted-foreground">No one assigned yet.</span>
                   ) : assignedIds.map((id) => (
-                    <span key={id} className="text-[11px] bg-background border rounded px-1.5 py-0.5">{nameOf(id)}</span>
+                    <span key={id} className="text-[11px] bg-background border rounded px-1.5 py-0.5 inline-flex items-center gap-1">
+                      {nameOf(id)}
+                      <button onClick={() => toggle(id)} disabled={busy} className="text-muted-foreground hover:text-red-600" title="Unassign">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
                   ))}
                 </div>
               )}
@@ -875,10 +894,10 @@ function GoogleEventModal({
             </div>
           )}
 
-          {/* Lead link — for Google-booked events that have no customer record
-              behind them. Linking imports the event into a job (if needed) and
-              attaches the lead so it picks up proposal/contact history. */}
-          {canAssign && (
+          {/* Lead link — staff only (not the project manager). Linking imports
+              the event into a job (if needed) and attaches the lead so it picks
+              up proposal/contact history. */}
+          {canLinkLead && (
             <div className="bg-muted/40 border rounded p-2">
               <p className="text-xs font-semibold text-muted-foreground mb-1">Lead</p>
               {job?.lead_id ? (
@@ -1125,7 +1144,7 @@ function JobCrewAssign({
   jobId, employees, assignedIds, onChanged,
 }: {
   jobId: string;
-  employees: Employee[];
+  employees: AssignableEmployee[];
   assignedIds: string[];
   onChanged: () => void;
 }) {
@@ -1146,7 +1165,7 @@ function JobCrewAssign({
     setIds(next);
     setSaving(true);
     try {
-      await api.updateScheduledJob(jobId, { employee_ids: next });
+      await api.setJobCrew(jobId, next);
       onChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to update crew");
@@ -1172,7 +1191,12 @@ function JobCrewAssign({
       ) : (
         <div className="flex flex-wrap gap-1 mt-1">
           {ids.map((id) => (
-            <span key={id} className="text-[11px] bg-background border rounded px-1.5 py-0.5">{nameOf(id)}</span>
+            <span key={id} className="text-[11px] bg-background border rounded px-1.5 py-0.5 inline-flex items-center gap-1">
+              {nameOf(id)}
+              <button onClick={() => toggle(id)} disabled={saving} className="text-muted-foreground hover:text-red-600" title="Unassign">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
           ))}
         </div>
       )}
@@ -1240,7 +1264,7 @@ function JobDetailModal({
   job: ScheduledJob;
   showAsWorker: boolean;
   weather?: WeatherDay;
-  employees: Employee[];
+  employees: AssignableEmployee[];
   onAssignmentsChanged: () => void;
   onClose: () => void;
   onEdit?: () => void;

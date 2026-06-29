@@ -114,6 +114,15 @@ export interface AdminUser {
   created_at: string;
 }
 
+/** Minimal crew shape for the assign picker — no pay/contact data. */
+export interface AssignableEmployee {
+  id: string;
+  first_name: string;
+  last_name: string;
+  display_name: string;
+  status: string;
+}
+
 export interface PermissionCatalog {
   views: { key: string; label: string }[];
   actions: { key: string; label: string }[];
@@ -1209,6 +1218,17 @@ export const api = {
     request<ScheduledJob>("/api/schedule/jobs/ensure-from-google-event", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  /** Assign / unassign crew on a job — replaces the assignment set (omit
+   * someone to unassign them; empty list clears all). Gated on the assign_crew
+   * permission, so the project manager can manage crews too. */
+  /** Active crew for the assign picker (names + id only). Reachable by anyone
+   * with assign_crew (admin/VA/project manager) — no pay/contact exposed. */
+  getAssignableCrew: () => request<{ employees: AssignableEmployee[] }>("/api/schedule/assignable-crew"),
+  setJobCrew: (jobId: string, employeeIds: string[]) =>
+    request<ScheduledJob & { assigned_employee_ids: string[] }>(`/api/schedule/jobs/${jobId}/crew`, {
+      method: "PUT",
+      body: JSON.stringify({ employee_ids: employeeIds }),
     }),
   /** Link an existing lead/customer to a job (e.g. a Google-booked job that
    * was imported without one). Returns the updated job. */

@@ -158,12 +158,28 @@ def seed_edward_user():
     One-shot addition per client request (2026-06-28). Role is 'worker' so he
     gets the price-free employee view (UI, routing, nav), and see_all_jobs=True
     lifts the assigned-only filter so he sees every crew's jobs for oversight.
-    Idempotent — subsequent boots no-op once the row exists, and it never
-    overwrites a changed password."""
+    He also gets the assign_crew permission so he can assign/unassign crews from
+    the calendar (the only action permission a worker carries here).
+
+    Idempotent — never overwrites a changed password. For an already-seeded
+    Edward it backfills the assign_crew permission so existing prod rows pick up
+    the new capability on deploy."""
+    import json
     db = get_db()
     try:
         existing = db.query(User).filter(User.username == "EdwardSawyer").first()
         if existing:
+            # Backfill assign_crew onto the existing account if missing.
+            try:
+                perms = json.loads(existing.permissions or "{}")
+            except (json.JSONDecodeError, TypeError):
+                perms = {}
+            # Only set it the first time (key absent) so a later admin revoke
+            # (assign_crew=false) isn't clobbered on the next boot.
+            if "assign_crew" not in perms:
+                perms["assign_crew"] = True
+                existing.permissions = json.dumps(perms)
+                db.commit()
             return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(
@@ -173,6 +189,7 @@ def seed_edward_user():
             password_hash=bcrypt.hashpw("EdwardFences$!&".encode(), bcrypt.gensalt()).decode(),
             role="worker",
             see_all_jobs=True,
+            permissions=json.dumps({"assign_crew": True}),
             created_at=now,
         ))
         db.commit()
