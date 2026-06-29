@@ -772,12 +772,20 @@ function GoogleEventModal({
   const [linkOpen, setLinkOpen] = useState(false);
   const [leadQuery, setLeadQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  // Stain color — free text, editable by anyone who can assign (admin + PM).
+  const [colorInput, setColorInput] = useState("");
+  const [colorSaving, setColorSaving] = useState(false);
 
   useEffect(() => {
     if (!canAssign) return;
     let alive = true;
     api.getJobByGoogleEvent(event.google_event_id)
-      .then((r) => { if (!alive) return; setJob(r.job); setAssignedIds(r.assigned_employee_ids || []); })
+      .then((r) => {
+        if (!alive) return;
+        setJob(r.job);
+        setAssignedIds(r.assigned_employee_ids || []);
+        setColorInput(r.job?.color_choice || "");
+      })
       .catch(() => {});
     return () => { alive = false; };
   }, [event.google_event_id, canAssign]);
@@ -833,6 +841,25 @@ function GoogleEventModal({
       toast.error(e instanceof Error ? e.message : "Failed to link lead");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Save the stain color — imports the event into a job first if needed, so a
+  // Google-booked event still records the color.
+  const saveColor = async () => {
+    if (colorInput === (job?.color_choice || "")) return;
+    setColorSaving(true);
+    try {
+      const j = await ensureJob();
+      if (!j) return;
+      const updated = await api.updateJobMaterials(j.id, { color_choice: colorInput });
+      setJob(updated);
+      onAssignmentsChanged();
+      toast.success("Stain color saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save color");
+    } finally {
+      setColorSaving(false);
     }
   };
 
@@ -912,6 +939,25 @@ function GoogleEventModal({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Stain color — free-text, editable by admin + the project manager
+              (assign_crew). Saving imports the event into a job if needed. */}
+          {canAssign && (
+            <div className="bg-muted/40 border rounded p-2">
+              <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1 mb-1">
+                Stain color
+                {colorSaving && <Loader2 className="h-3 w-3 animate-spin" />}
+              </label>
+              <input
+                value={colorInput}
+                onChange={(e) => setColorInput(e.target.value)}
+                onBlur={saveColor}
+                placeholder="e.g. Cabot Cedar"
+                disabled={colorSaving}
+                className="w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
             </div>
           )}
 

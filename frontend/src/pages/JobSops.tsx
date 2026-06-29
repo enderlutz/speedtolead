@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock, Clock, MapPin, Droplets, Cloud } from "lucide-react";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
+import ToolsNeededChecklist from "@/components/ToolsNeededChecklist";
 
 const PKG_LABEL: Record<string, string> = {
   essential: "Essential finish",
@@ -233,6 +234,7 @@ export default function JobSops() {
           <ArrowLeft className="h-4 w-4 mr-1" /> Back
         </Link>
         {job && <div className="mb-4"><JobHeader job={job} onSaved={setJob} /></div>}
+        <div className="mb-4"><ToolsNeededChecklist jobId={jobId} /></div>
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             No SOP configured for this job's service type yet. Ask admin
@@ -264,6 +266,7 @@ export default function JobSops() {
       </div>
 
       {job && <div className="mb-4"><JobHeader job={job} onSaved={setJob} /></div>}
+      <div className="mb-4"><ToolsNeededChecklist jobId={jobId} /></div>
 
       <h1 className="text-xl font-bold mb-1">{run.template_name_snapshot || "SOP Checklist"}</h1>
       <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
