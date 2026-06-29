@@ -1223,6 +1223,7 @@ class MaterialsBody(BaseModel):
     inspection_notes: str | None = None     # crew inspection notes
     color_choice: str | None = None         # stain color (crew can set if PM didn't)
     stain_assigned: float | None = None     # stain ASSIGNED → gallons_estimate
+    package_tier: str | None = None         # essential | signature | legacy | custom
 
 
 @router.post("/schedule/jobs/{job_id}/materials")
@@ -1270,6 +1271,13 @@ def update_job_materials(
             j.color_choice = body.color_choice
         if body.stain_assigned is not None:
             j.gallons_estimate = body.stain_assigned
+        if body.package_tier is not None:
+            # Package selected on the lead/calendar popup. Admin + PM only —
+            # workers can't change the sold package (it drives price). Guard
+            # here in addition to the route-level auth so a worker who is
+            # assigned can still file materials without flipping the tier.
+            if role in ("admin", "va") or user.get("see_all_jobs"):
+                j.package_tier = body.package_tier
         j.updated_at = _now()
         db.commit()
         db.refresh(j)

@@ -1366,7 +1366,7 @@ export const api = {
    *  Either field can be omitted to leave it unchanged. */
   updateJobMaterials: (
     jobId: string,
-    body: { stain_gallons?: number; bleach_gallons?: number; inspection_notes?: string; color_choice?: string; stain_assigned?: number },
+    body: { stain_gallons?: number; bleach_gallons?: number; inspection_notes?: string; color_choice?: string; stain_assigned?: number; package_tier?: string },
   ) =>
     request<ScheduledJob>(`/api/schedule/jobs/${jobId}/materials`, {
       method: "POST",

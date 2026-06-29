@@ -854,6 +854,8 @@ function GoogleEventModal({
   // Stain color — free text, editable by anyone who can assign (admin + PM).
   const [colorInput, setColorInput] = useState("");
   const [colorSaving, setColorSaving] = useState(false);
+  // Package tier — admin + PM pick the sold package right on the lead popup.
+  const [packageSaving, setPackageSaving] = useState(false);
 
   useEffect(() => {
     if (!canAssign) return;
@@ -942,6 +944,25 @@ function GoogleEventModal({
     }
   };
 
+  // Save the package tier — imports the event into a job first if needed, so a
+  // Google-booked event still records the sold package.
+  const savePackage = async (tier: string) => {
+    if (tier === (job?.package_tier || "")) return;
+    setPackageSaving(true);
+    try {
+      const j = await ensureJob();
+      if (!j) return;
+      const updated = await api.updateJobMaterials(j.id, { package_tier: tier });
+      setJob(updated);
+      onAssignmentsChanged();
+      toast.success("Package saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save package");
+    } finally {
+      setPackageSaving(false);
+    }
+  };
+
   const toggle = async (empId: string) => {
     if (!job) return;
     const prev = assignedIds;
@@ -1018,6 +1039,29 @@ function GoogleEventModal({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Package — admin + the project manager (assign_crew) pick the sold
+              package right on the lead popup. Saving imports the event into a
+              job if needed. */}
+          {canAssign && (
+            <div className="bg-muted/40 border rounded p-2">
+              <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1 mb-1">
+                Package
+                {packageSaving && <Loader2 className="h-3 w-3 animate-spin" />}
+              </label>
+              <select
+                value={job?.package_tier || ""}
+                onChange={(e) => savePackage(e.target.value)}
+                disabled={packageSaving}
+                className="w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                <option value="">Select a package…</option>
+                <option value="essential">Essential</option>
+                <option value="signature">Signature</option>
+                <option value="legacy">Legacy</option>
+              </select>
             </div>
           )}
 
