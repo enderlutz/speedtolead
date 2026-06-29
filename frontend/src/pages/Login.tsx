@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, setToken } from "@/lib/api";
-import { Zap } from "lucide-react";
+import { Zap, Eye, EyeOff } from "lucide-react";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -9,6 +9,7 @@ export default function Login() {
   const redirectTo = searchParams.get("redirect") || "/";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -90,21 +91,32 @@ export default function Login() {
               >
                 Password
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                required
-                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
-                style={{
-                  background: "#0f172a",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  color: "#f1f5f9",
-                }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "#0693e3")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)")}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                  className="w-full rounded-lg px-4 py-2.5 pr-11 text-sm outline-none transition-colors"
+                  style={{
+                    background: "#0f172a",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    color: "#f1f5f9",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "#0693e3")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                  style={{ color: "#94a3b8" }}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (
