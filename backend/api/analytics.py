@@ -6,7 +6,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
+from api.auth import require_staff
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Proposal, ScheduledJob
 
@@ -100,7 +101,10 @@ def _collected_by_lead(db, lead_ids: list[str]) -> dict[str, float]:
 # ─── KPIs ────────────────────────────────────────────────────────────────
 
 @router.get("/analytics/kpis")
-def get_kpis(pipeline_version: str | None = Query(None)):
+def get_kpis(pipeline_version: str | None = Query(None), user: dict = Depends(require_staff)):
+    # Revenue/estimate KPIs are financial — staff only (admin + VA). Workers
+    # never see this (it backs the sidebar Revenue widget, now also hidden).
+    del user
     db = get_db()
     try:
         curr_start, curr_end = _month_range(0)

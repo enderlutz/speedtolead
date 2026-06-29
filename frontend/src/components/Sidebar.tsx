@@ -196,8 +196,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           ))}
         </nav>
 
-        {/* Revenue widget */}
-        <SidebarRevenueWidget />
+        {/* Revenue widget — financial data; admin + Office VA only (anyone
+            with price visibility), never crew/workers. */}
+        {hasPerm("see_prices") && <SidebarRevenueWidget />}
 
         {/* Footer */}
         <SidebarFooter />
