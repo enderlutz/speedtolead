@@ -85,6 +85,12 @@ function JobHeader({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Scheduled
         {pkg && (
           <p><span className="text-muted-foreground">Package:</span> {pkg}</p>
         )}
+        {job.worker_notes && (
+          <div className="bg-blue-50 border border-blue-200 rounded p-2">
+            <p className="text-xs font-semibold text-blue-900 mb-0.5">Additional notes</p>
+            <p className="text-blue-900 whitespace-pre-wrap">{job.worker_notes}</p>
+          </div>
+        )}
         <div>
           <label className="text-xs font-semibold text-muted-foreground block mb-0.5">Stain color</label>
           <input
