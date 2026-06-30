@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { api, getCurrentUser, type EstimatorSchedule, type EstimatorVisit } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
 import { toast } from "sonner";
-import { MapPin, ChevronRight, ChevronLeft, Loader2, Calendar as CalendarIcon, RefreshCw, Plus } from "lucide-react";
+import { MapPin, ChevronRight, ChevronDown, ChevronLeft, Clock, Loader2, Calendar as CalendarIcon, RefreshCw, Plus } from "lucide-react";
 
 // ── date helpers (local time — this is browser app code) ──────────────────
 function toYMD(d: Date): string {
@@ -132,23 +132,68 @@ function DayRow({ date, weekday, visits, onOpen }: {
   date: string; weekday: string; visits: EstimatorVisit[]; onOpen: () => void;
 }) {
   const dayNum = new Date(`${date}T00:00:00`).getDate();
+  // Days with estimates start expanded so the list is visible at a glance.
+  const [open, setOpen] = useState(visits.length > 0);
+
   return (
-    <Card className="hover:bg-muted/40 transition-colors cursor-pointer" onClick={onOpen}>
-      <CardContent className="p-3 flex items-center justify-between">
-        <div>
-          <div className="font-medium text-sm">{weekday} {dayNum}</div>
-          <div className="text-xs text-muted-foreground">
-            {visits.length === 0 ? "No estimates" : `${visits.length} estimate${visits.length === 1 ? "" : "s"}`}
+    <Card>
+      <CardContent className="p-3">
+        <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between text-left">
+          <div className="flex items-center gap-3">
+            {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+            <div>
+              <div className="font-medium text-sm">{weekday} {dayNum}</div>
+              <div className="text-xs text-muted-foreground">
+                {visits.length === 0 ? "No estimates" : `${visits.length} estimate${visits.length === 1 ? "" : "s"}`}
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
           {visits.length > 0 && (
             <span className="text-xs text-muted-foreground">
               {fmtTime(visits[0].start_time)}{visits.length > 1 ? ` – ${fmtTime(visits[visits.length - 1].start_time)}` : ""}
             </span>
           )}
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </div>
+        </button>
+
+        {open && (
+          <div className="mt-3 space-y-2">
+            {visits.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nothing scheduled.</p>
+            ) : (
+              <>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">In visiting order</p>
+                {visits.map((v, i) => (
+                  <div key={v.id} className="flex items-start gap-2 rounded border bg-muted/30 p-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        {v.lead_id ? (
+                          <Link to={`/leads/${v.lead_id}`} className="font-medium text-sm text-primary hover:underline truncate">
+                            {v.customer_name || "Customer"}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-sm truncate">{v.customer_name || "Customer"}</span>
+                        )}
+                        <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
+                          <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
+                        </span>
+                      </div>
+                      {v.address && (
+                        <a href={`https://maps.google.com/?q=${encodeURIComponent(v.address)}`} target="_blank" rel="noreferrer"
+                           className="text-xs text-primary hover:underline flex items-start gap-1 mt-0.5">
+                          <MapPin className="h-3 w-3 mt-0.5 shrink-0" /> <span className="truncate">{v.address}</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+            <button onClick={onOpen} className="w-full flex items-center justify-center gap-1 rounded border border-dashed py-1.5 text-xs text-muted-foreground hover:bg-muted/50 transition-colors">
+              Open day <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
