@@ -53,6 +53,11 @@ class Lead(Base):
     ghl_opportunity_id = Column(Text, default="")
     ghl_pipeline_stage_id = Column(Text, default="")
     is_test = Column(Boolean, default=False)
+    # Internal-only estimator routing — NOT a GHL stage. "" (none) |
+    # "needed" (admin dropped it in the Estimator Needed column, awaiting a
+    # scheduled visit) | "scheduled" (an EstimatorVisit now exists). Lives
+    # purely on the dashboard; never pushed to GHL.
+    estimator_status = Column(Text, default="")
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
     proposal_last_viewed_at = Column(Text, nullable=True)
@@ -163,6 +168,7 @@ class Lead(Base):
             "priority": self.priority,
             "pipeline_version": self.pipeline_version or "v1",
             "ghl_pipeline_stage_id": self.ghl_pipeline_stage_id or "",
+            "estimator_status": self.estimator_status or "",
             "form_data": _j(self.form_data),
             "customer_responded": bool(self.customer_responded),
             "customer_response_text": self.customer_response_text or "",
@@ -1688,6 +1694,113 @@ class JobPhoto(Base):
         }
 
 
+class EstimatorVisit(Base):
+    """A scheduled estimate appointment for the estimator (Emmanuel). Created
+    when an admin drags a lead to the internal 'Estimator Needed' kanban column
+    and picks a slot. visit_order is the driving order within the day (0 = first
+    stop visited, ascending). drive_minutes_from_prev is the approx Google
+    Distance-Matrix drive time from the previous stop, cached at schedule time.
+
+    Keyed by estimator_user_id = the estimator's username (JWT sub), so the
+    model already supports more than one estimator if we add them later."""
+    __tablename__ = "estimator_visits"
+    __table_args__ = (
+        Index("idx_estimator_visits_day", "estimator_user_id", "visit_date"),
+        Index("idx_estimator_visits_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, default="")
+    estimator_user_id = Column(Text, nullable=False)
+    visit_date = Column(Text, nullable=False)          # "YYYY-MM-DD"
+    start_time = Column(Text, default="")              # "HH:MM" 24h
+    duration_minutes = Column(Integer, default=60)
+    visit_order = Column(Integer, default=0)           # 0 = first stop of the day
+    customer_name = Column(Text, default="")
+    address = Column(Text, default="")
+    lat = Column(Float, nullable=True)
+    lng = Column(Float, nullable=True)
+    drive_minutes_from_prev = Column(Float, nullable=True)
+    status = Column(Text, default="scheduled")         # scheduled | done | canceled
+    notes = Column(Text, default="")
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id or "",
+            "estimator_user_id": self.estimator_user_id,
+            "visit_date": self.visit_date,
+            "start_time": self.start_time or "",
+            "duration_minutes": self.duration_minutes or 60,
+            "visit_order": self.visit_order or 0,
+            "customer_name": self.customer_name or "",
+            "address": self.address or "",
+            "lat": self.lat,
+            "lng": self.lng,
+            "drive_minutes_from_prev": self.drive_minutes_from_prev,
+            "status": self.status or "scheduled",
+            "notes": self.notes or "",
+            "created_at": self.created_at or "",
+        }
+
+
+class EstimatorTimeEntry(Base):
+    """A clock-in / clock-out span for the estimator. clock_out is null while
+    they're still on the clock. work_date is the local date of clock-in, kept
+    denormalized for fast per-day lookups."""
+    __tablename__ = "estimator_time_entries"
+    __table_args__ = (
+        Index("idx_estimator_time_day", "estimator_user_id", "work_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    estimator_user_id = Column(Text, nullable=False)
+    work_date = Column(Text, default="")               # "YYYY-MM-DD"
+    clock_in = Column(Text, default="")                # ISO timestamp
+    clock_out = Column(Text, nullable=True)            # ISO timestamp, null = open
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "estimator_user_id": self.estimator_user_id,
+            "work_date": self.work_date or "",
+            "clock_in": self.clock_in or "",
+            "clock_out": self.clock_out,
+            "is_open": not self.clock_out,
+        }
+
+
+class EstimatorLocationPing(Base):
+    """One GPS sample from the estimator's phone while the Estimator page is
+    open (foreground tracking). The admin-only drive-path map strings these
+    into the route actually driven for a given day. High-volume but tiny rows;
+    indexed by (estimator, work_date) for the daily path query."""
+    __tablename__ = "estimator_location_pings"
+    __table_args__ = (
+        Index("idx_estimator_pings_day", "estimator_user_id", "work_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    estimator_user_id = Column(Text, nullable=False)
+    work_date = Column(Text, default="")               # "YYYY-MM-DD"
+    ts = Column(Text, default="")                       # ISO timestamp
+    lat = Column(Float, nullable=False)
+    lng = Column(Float, nullable=False)
+    accuracy_m = Column(Float, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "ts": self.ts or "",
+            "lat": self.lat,
+            "lng": self.lng,
+            "accuracy_m": self.accuracy_m,
+        }
+
+
 class CallScript(Base):
     """Single-row table holding the company's master call script. The VA's
     sticky panel on Lead Detail renders this template with {{var}}
@@ -2334,6 +2447,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN ghl_pipeline_stage_id TEXT DEFAULT ''"))
         logger.info("Migration: added leads.ghl_pipeline_stage_id")
+
+    if "estimator_status" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN estimator_status TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.estimator_status")
 
     if "precall_done" not in existing:
         with _engine.begin() as conn:

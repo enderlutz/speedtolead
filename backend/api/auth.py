@@ -262,6 +262,39 @@ def seed_brent_user():
         db.close()
 
 
+def seed_emmanuel_user():
+    """Create the EmmanuelOnibayo estimator account if it doesn't exist.
+    One-shot addition per client request (2026-06-29). Role is the new
+    'estimator' base role, which is locked to ONLY the Estimator page (its
+    baseline grants the 'estimator' view and nothing else — no prices, no
+    leads, no calendar). The admin view of that page (drive-path map) is a
+    role check inside the page, not a permission, so the estimator never sees
+    it. Idempotent — never overwrites a changed password; backfills the role
+    on an already-seeded row so an older account picks up 'estimator' on
+    deploy."""
+    db = get_db()
+    try:
+        existing = db.query(User).filter(User.username == "EmmanuelOnibayo").first()
+        if existing:
+            if existing.role != "estimator":
+                existing.role = "estimator"
+                db.commit()
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="EmmanuelOnibayo",
+            display_name="Emmanuel",
+            password_hash=bcrypt.hashpw("EmmanuelFences1$2".encode(), bcrypt.gensalt()).decode(),
+            role="estimator",
+            see_all_jobs=False,
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def seed_default_users():
     """Create default admin + VA users if none exist."""
     db = get_db()

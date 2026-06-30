@@ -50,6 +50,7 @@ VIEW_PERMS: list[tuple[str, str]] = [
     ("accounting", "Accounting"),
     ("calendar", "Job Calendar"),
     ("my_schedule", "My Schedule"),
+    ("estimator", "Estimator"),
     ("invoice_queue", "Invoice Queue"),
     ("pricing", "Pricing"),
     ("settings", "Settings"),
@@ -80,9 +81,13 @@ ROLE_BASELINE: dict[str, set[str]] = {
         "see_prices", "assign_crew", "mark_paid", "delete_jobs",
     },
     "worker": {"calendar", "my_schedule"},
+    # Estimator — a field role that ONLY sees the Estimator page (their own
+    # schedule + clock in/out). No prices, no leads, no calendar. The admin
+    # view of that same page (drive-path map) is gated separately by role.
+    "estimator": {"estimator"},
 }
 
-VALID_ROLES = ("admin", "va", "worker")
+VALID_ROLES = ("admin", "va", "worker", "estimator")
 
 
 def _load_overrides(raw: str | None) -> dict[str, bool]:
