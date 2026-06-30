@@ -62,7 +62,7 @@ export default function EstimatorDay() {
     setLoading(true);
     const weekStart = toYMD(mondayOf(new Date(`${date}T00:00:00`)));
     api.getEstimatorSchedule(weekStart)
-      .then((s) => setDay(s.days.find((d) => d.date === date) || { date, weekday: "", visits: [] }))
+      .then((s) => setDay(s.days.find((d) => d.date === date) || { date, weekday: "", visits: [], worked_hours: 0 }))
       .catch(() => toast.error("Couldn't load the day"))
       .finally(() => setLoading(false));
   }, [date]);
