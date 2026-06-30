@@ -188,6 +188,40 @@ export interface EstimatorDrivePath {
   visits: EstimatorVisit[];
 }
 
+export interface EstimatorLeadSummary {
+  id: string;
+  contact_name: string;
+  contact_phone: string;
+  address: string;
+  estimator_notes: string;
+  visit: EstimatorVisit | null;
+}
+
+export interface EstimatorPhotoMeta {
+  id: string;
+  lead_id: string;
+  filename: string;
+  mime: string;
+  uploaded_at: string;
+  uploaded_by: string;
+}
+
+export interface EstimatorRecordingMeta {
+  id: string;
+  lead_id: string;
+  mime: string;
+  duration_seconds: number | null;
+  filename: string;
+  recorded_at: string;
+  recorded_by: string;
+}
+
+export interface EstimatorCaptures {
+  notes: string;
+  photos: EstimatorPhotoMeta[];
+  recordings: EstimatorRecordingMeta[];
+}
+
 
 export interface Lead {
   id: string;
@@ -1466,6 +1500,72 @@ export const api = {
     request<EstimatorDrivePath>(
       `/api/estimator/drive-path?date=${date}${estimatorUserId ? `&estimator_user_id=${encodeURIComponent(estimatorUserId)}` : ""}`,
     ),
+
+  // Estimator lead captures (notes / photos / recordings) — Estimator tab.
+  getEstimatorLead: (leadId: string) =>
+    request<EstimatorLeadSummary>(`/api/estimator/leads/${leadId}`),
+  getLeadCaptures: (leadId: string) =>
+    request<EstimatorCaptures>(`/api/estimator/leads/${leadId}/captures`),
+  saveLeadNotes: (leadId: string, notes: string) =>
+    request<{ ok: boolean; notes: string }>(`/api/estimator/leads/${leadId}/notes`, {
+      method: "PUT",
+      body: JSON.stringify({ notes }),
+    }),
+  uploadEstimatorPhoto: async (leadId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/estimator/leads/${leadId}/photos`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    return res.json() as Promise<EstimatorPhotoMeta>;
+  },
+  fetchEstimatorPhotoBlobUrl: async (photoId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/estimator/photos/${photoId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteEstimatorPhoto: (photoId: string) =>
+    request<{ ok: boolean }>(`/api/estimator/photos/${photoId}`, { method: "DELETE" }),
+  uploadEstimatorRecording: async (leadId: string, blob: Blob, durationSeconds: number) => {
+    const fd = new FormData();
+    fd.append("file", blob, "estimate.webm");
+    fd.append("duration_seconds", String(Math.round(durationSeconds)));
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/estimator/leads/${leadId}/recordings`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Recording upload failed");
+    return res.json() as Promise<EstimatorRecordingMeta>;
+  },
+  fetchEstimatorRecordingBlobUrl: async (recId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/estimator/recordings/${recId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteEstimatorRecording: (recId: string) =>
+    request<{ ok: boolean }>(`/api/estimator/recordings/${recId}`, { method: "DELETE" }),
+
+  // Linked-lead estimate photos surfaced into a job's pre-inspection bucket.
+  listJobEstimatorPhotos: (jobId: string) =>
+    request<{ photos: EstimatorPhotoMeta[] }>(`/api/schedule/jobs/${jobId}/estimator-photos`),
+  fetchJobEstimatorPhotoBlobUrl: async (jobId: string, photoId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/schedule/jobs/${jobId}/estimator-photos/${photoId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
 
   // Autocomplete — typeahead + recent. Used by CustomerSearchInput +
   // EmployeeSearchInput across reimbursements, time logs, etc.
