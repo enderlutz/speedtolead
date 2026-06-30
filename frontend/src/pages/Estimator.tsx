@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { api, getCurrentUser, type EstimatorSchedule, type EstimatorVisit, type EstimatorDrivePath } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import EstimatorDriveMap from "@/components/EstimatorDriveMap";
 import { toast } from "sonner";
 import {
   MapPin, Clock, ChevronDown, ChevronRight, ChevronLeft, Play, Square,
@@ -335,10 +336,17 @@ function DrivePathSection({ estimatorName }: { estimatorName: string }) {
           </Button>
         </div>
         {data && (
-          <div className="text-xs text-muted-foreground space-y-1">
-            <div>{data.pings.length} GPS point{data.pings.length === 1 ? "" : "s"} recorded • {data.visits.length} planned stop{data.visits.length === 1 ? "" : "s"}</div>
-            {!data.maps_api_key && <div className="text-amber-600">No Google Maps key configured — the map will appear once GOOGLE_MAPS_API_KEY is set.</div>}
-            {data.pings.length === 0 && <div>No location recorded for this day yet.</div>}
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">
+              {data.pings.length} GPS point{data.pings.length === 1 ? "" : "s"} recorded • {data.visits.length} planned stop{data.visits.length === 1 ? "" : "s"}
+            </div>
+            {!data.maps_api_key ? (
+              <div className="text-xs text-amber-600">No Google Maps key configured — the map will appear once GOOGLE_MAPS_API_KEY is set.</div>
+            ) : data.pings.length === 0 && data.visits.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Nothing recorded for this day yet.</div>
+            ) : (
+              <EstimatorDriveMap data={data} />
+            )}
           </div>
         )}
       </CardContent>
