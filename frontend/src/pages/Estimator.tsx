@@ -50,6 +50,7 @@ export default function Estimator() {
   const [schedule, setSchedule] = useState<EstimatorSchedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [editVisit, setEditVisit] = useState<EstimatorVisit | null>(null);
 
   const loadSchedule = useCallback(() => {
     setLoading(true);
@@ -121,7 +122,8 @@ export default function Estimator() {
         <div className="space-y-2">
           {schedule?.days.map((day) => (
             <DayRow key={day.date} date={day.date} weekday={day.weekday} visits={day.visits}
-                    workedHours={day.worked_hours}
+                    workedHours={day.worked_hours} isAdmin={isAdmin}
+                    onEditTime={setEditVisit}
                     onOpen={() => navigate(`/estimator/day/${day.date}`)} />
           ))}
         </div>
@@ -133,12 +135,22 @@ export default function Estimator() {
           onSaved={() => { setAddOpen(false); loadSchedule(); }}
         />
       )}
+
+      {editVisit && (
+        <EstimatorScheduleModal
+          visit={editVisit}
+          initialDate={editVisit.visit_date}
+          onClose={() => setEditVisit(null)}
+          onSaved={() => { setEditVisit(null); loadSchedule(); }}
+        />
+      )}
     </div>
   );
 }
 
-function DayRow({ date, weekday, visits, workedHours, onOpen }: {
-  date: string; weekday: string; visits: EstimatorVisit[]; workedHours: number; onOpen: () => void;
+function DayRow({ date, weekday, visits, workedHours, isAdmin, onEditTime, onOpen }: {
+  date: string; weekday: string; visits: EstimatorVisit[]; workedHours: number;
+  isAdmin: boolean; onEditTime: (v: EstimatorVisit) => void; onOpen: () => void;
 }) {
   const dayNum = new Date(`${date}T00:00:00`).getDate();
   // Days with estimates start expanded so the list is visible at a glance.
@@ -190,9 +202,19 @@ function DayRow({ date, weekday, visits, workedHours, onOpen }: {
                         ) : (
                           <span className="font-medium text-sm truncate">{v.customer_name || "Customer"}</span>
                         )}
-                        <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
-                        </span>
+                        {isAdmin ? (
+                          <button
+                            onClick={() => onEditTime(v)}
+                            title="Change date & time"
+                            className="text-xs text-muted-foreground shrink-0 flex items-center gap-1 rounded px-1 py-0.5 hover:bg-primary/10 hover:text-primary transition-colors"
+                          >
+                            <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
+                          </span>
+                        )}
                       </div>
                       {v.address && (
                         <a href={`https://maps.google.com/?q=${encodeURIComponent(v.address)}`} target="_blank" rel="noreferrer"
