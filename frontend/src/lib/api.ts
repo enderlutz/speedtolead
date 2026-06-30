@@ -89,6 +89,7 @@ const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
     "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   worker: ["calendar", "my_schedule"],
+  estimator: ["estimator"],
 };
 
 /** True if the current user has the given permission key (view or action).
@@ -130,6 +131,63 @@ export interface PermissionCatalog {
   role_defaults: Record<string, Record<string, boolean>>;
 }
 
+// --- Estimator feature ---
+export interface EstimatorVisit {
+  id: string;
+  lead_id: string;
+  estimator_user_id: string;
+  visit_date: string;
+  start_time: string;
+  duration_minutes: number;
+  visit_order: number;
+  customer_name: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  drive_minutes_from_prev: number | null;
+  status: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface EstimatorScheduleDay {
+  date: string;
+  weekday: string;
+  visits: EstimatorVisit[];
+}
+
+export interface EstimatorSchedule {
+  estimator_user_id: string;
+  estimator_name: string;
+  week_start: string;
+  days: EstimatorScheduleDay[];
+}
+
+export interface EstimatorTimeEntry {
+  id: string;
+  estimator_user_id: string;
+  work_date: string;
+  clock_in: string;
+  clock_out: string | null;
+  is_open: boolean;
+}
+
+export interface EstimatorAvailability {
+  estimator_user_id: string;
+  date: string;
+  slots: { start_time: string; available: boolean }[];
+  visits: EstimatorVisit[];
+  last_stop: EstimatorVisit | null;
+}
+
+export interface EstimatorDrivePath {
+  estimator_user_id: string;
+  date: string;
+  maps_api_key: string;
+  pings: { ts: string; lat: number; lng: number; accuracy_m: number | null }[];
+  visits: EstimatorVisit[];
+}
+
 
 export interface Lead {
   id: string;
@@ -147,6 +205,8 @@ export interface Lead {
   priority: string;
   pipeline_version: "v1" | "v2";
   ghl_pipeline_stage_id: string;
+  /** Internal-only estimator routing: "" | "needed" | "scheduled". Not a GHL stage. */
+  estimator_status?: string;
   ghl_opportunity_id: string;
   form_data: Record<string, string>;
   customer_responded: boolean;
@@ -1372,6 +1432,40 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // --- Estimator feature ---
+  getEstimatorSchedule: (weekStart: string, estimatorUserId?: string) =>
+    request<EstimatorSchedule>(
+      `/api/estimator/schedule?week_start=${weekStart}${estimatorUserId ? `&estimator_user_id=${encodeURIComponent(estimatorUserId)}` : ""}`,
+    ),
+  getEstimatorClockStatus: () =>
+    request<{ is_open: boolean; entry: EstimatorTimeEntry | null }>(`/api/estimator/clock-status`),
+  estimatorClockIn: () =>
+    request<EstimatorTimeEntry>(`/api/estimator/clock-in`, { method: "POST" }),
+  estimatorClockOut: () =>
+    request<EstimatorTimeEntry>(`/api/estimator/clock-out`, { method: "POST" }),
+  postEstimatorLocation: (body: { lat: number; lng: number; accuracy_m?: number }) =>
+    request<{ ok: boolean }>(`/api/estimator/location`, { method: "POST", body: JSON.stringify(body) }),
+  getEstimatorAvailability: (date: string, estimatorUserId?: string) =>
+    request<EstimatorAvailability>(
+      `/api/estimator/availability?date=${date}${estimatorUserId ? `&estimator_user_id=${encodeURIComponent(estimatorUserId)}` : ""}`,
+    ),
+  createEstimatorVisit: (body: { lead_id: string; visit_date: string; start_time: string; duration_minutes?: number; estimator_user_id?: string }) =>
+    request<{ visit: EstimatorVisit; day: EstimatorVisit[] }>(`/api/estimator/visits`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  cancelEstimatorVisit: (visitId: string) =>
+    request<{ ok: boolean; day: EstimatorVisit[] }>(`/api/estimator/visits/${visitId}`, { method: "DELETE" }),
+  flagLeadEstimator: (leadId: string, status: "needed" | "") =>
+    request<{ ok: boolean; lead_id: string; estimator_status: string }>(`/api/estimator/leads/${leadId}/flag`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+  getEstimatorDrivePath: (date: string, estimatorUserId?: string) =>
+    request<EstimatorDrivePath>(
+      `/api/estimator/drive-path?date=${date}${estimatorUserId ? `&estimator_user_id=${encodeURIComponent(estimatorUserId)}` : ""}`,
+    ),
 
   // Autocomplete — typeahead + recent. Used by CustomerSearchInput +
   // EmployeeSearchInput across reimbursements, time logs, etc.

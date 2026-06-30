@@ -24,6 +24,7 @@ import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import MySchedule from "@/pages/MySchedule";
+import Estimator from "@/pages/Estimator";
 import CallListPanel from "@/components/CallListPanel";
 import WrappedAutoPop from "@/components/WrappedAutoPop";
 import TrainingBorder from "@/components/training/TrainingBorder";
@@ -65,6 +66,7 @@ function FragnedOnly({ children }: { children: React.ReactNode }) {
 // don't have permission for.
 function landingFor(): string {
   if (hasPerm("dashboard")) return "/";
+  if (hasPerm("estimator")) return "/estimator";
   if (hasPerm("my_schedule")) return "/my-schedule";
   if (hasPerm("calendar")) return "/calendar";
   return "/settings";
@@ -98,7 +100,7 @@ function AppLayout() {
   }, []);
   // Call List panel — shared callback queue. Admin + VA only. Workers
   // see it as a dead pill so we hide it entirely for them.
-  const showCallList = !!currentUser && currentUser.role !== "worker";
+  const showCallList = !!currentUser && currentUser.role !== "worker" && currentUser.role !== "estimator";
 
   // Public pages without sidebar or auth
   const isPublic =
@@ -144,6 +146,7 @@ function AppLayout() {
               <Route path="/accounting" element={<RequireView view="accounting"><Accounting /></RequireView>} />
               <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
               <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />
+              <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
