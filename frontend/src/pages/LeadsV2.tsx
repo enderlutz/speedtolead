@@ -15,6 +15,7 @@ import {
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
 } from "@dnd-kit/core";
 import { leadDetailCache } from "./Leads";
+import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
 
 // Stage ID that means "ESTIMATE SENT" — used to switch the elapsed timer
 // from red (still waiting) to green (already sent).
@@ -84,6 +85,22 @@ export const V2_STAGES: StageDef[] = [
 ];
 
 const STAGE_ORDER: Record<string, number> = Object.fromEntries(V2_STAGES.map((s, i) => [s.id, i]));
+
+// Internal-only kanban column. A lead lands here when an admin drags it in
+// (estimator_status = "needed"); this is NOT a GHL stage and is never pushed
+// to GHL. The column id is a sentinel, distinct from every GHL stage UUID.
+const ESTIMATOR_NEEDED = "estimator_needed";
+const ESTIMATOR_STAGE: StageDef = {
+  id: ESTIMATOR_NEEDED,
+  label: "Estimator Needed",
+  shortLabel: "Estimator",
+  headerCls: "bg-amber-100 text-amber-800",
+  bgCls: "bg-amber-50/40",
+  dotCls: "bg-amber-500",
+};
+// Column render order: the internal Estimator Needed column sits up front,
+// then the live GHL pipeline stages.
+const KANBAN_COLUMNS: StageDef[] = [ESTIMATOR_STAGE, ...V2_STAGES];
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 const PRIORITY_CLS: Record<string, string> = {
@@ -217,9 +234,16 @@ export default function LeadsV2() {
   }, [leads, search]);
 
   const grouped = useMemo(() => {
-    const groups: Record<string, Lead[]> = Object.fromEntries(V2_STAGES.map((s) => [s.id, []]));
+    const groups: Record<string, Lead[]> = Object.fromEntries(KANBAN_COLUMNS.map((s) => [s.id, []]));
     const fallback: Lead[] = [];
     for (const lead of filtered) {
+      // estimator_status "needed" pins the lead to the internal Estimator
+      // Needed column regardless of its GHL stage. "scheduled" falls through
+      // to the normal GHL grouping (it's left the queue).
+      if (lead.estimator_status === "needed") {
+        groups[ESTIMATOR_NEEDED].push(lead);
+        continue;
+      }
       const sid = lead.ghl_pipeline_stage_id;
       if (sid && groups[sid]) groups[sid].push(lead);
       else fallback.push(lead);
@@ -252,12 +276,34 @@ export default function LeadsV2() {
     const { active, over } = event;
     if (!over) return;
     const leadId = active.id as string;
-    const newStageId = over.id as string;
+    const target = over.id as string;
     const lead = leads.find((l) => l.id === leadId);
-    if (!lead || lead.ghl_pipeline_stage_id === newStageId) return;
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ghl_pipeline_stage_id: newStageId } : l)));
+    if (!lead) return;
+
+    // ── Dropped onto the internal "Estimator Needed" column ──────────────
+    if (target === ESTIMATOR_NEEDED) {
+      if (lead.estimator_status === "needed") return;       // already there
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, estimator_status: "needed" } : l)));
+      try {
+        await api.flagLeadEstimator(leadId, "needed");
+        // Pop the scheduler so the admin can book the estimate right away.
+        setScheduleLead({ id: lead.id, name: lead.contact_name || "Customer" });
+      } catch {
+        toast.error("Couldn't flag for estimator");
+        loadLeads();
+      }
+      return;
+    }
+
+    // ── Dragging OUT of the Estimator Needed column into a real stage ────
+    const leavingEstimator = lead.estimator_status === "needed";
+    if (!leavingEstimator && lead.ghl_pipeline_stage_id === target) return;
+    setLeads((prev) => prev.map((l) => (
+      l.id === leadId ? { ...l, ghl_pipeline_stage_id: target, estimator_status: "" } : l
+    )));
     try {
-      const r = await api.updateStage(leadId, newStageId);
+      if (leavingEstimator) await api.flagLeadEstimator(leadId, "");
+      const r = await api.updateStage(leadId, target);
       if (r.ghl_sync_status === "deferred_rate_limit") {
         toast.warning("GHL rate limit — sync deferred. Will retry on next change. Nothing to do on your end.");
       } else if (r.ghl_sync_status === "failed") {
@@ -268,6 +314,14 @@ export default function LeadsV2() {
       toast.error("Failed to move lead");
       loadLeads();
     }
+  };
+
+  // Lead being scheduled for an estimate (the Estimator Needed drop modal).
+  const [scheduleLead, setScheduleLead] = useState<{ id: string; name: string } | null>(null);
+  const onScheduled = (leadId: string) => {
+    // Booked → it leaves the Estimator Needed queue (status becomes scheduled).
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, estimator_status: "scheduled" } : l)));
+    setScheduleLead(null);
   };
 
   const draggedLead = activeDragId ? leads.find((l) => l.id === activeDragId) : null;
@@ -299,7 +353,7 @@ export default function LeadsV2() {
         <TabsContent value="kanban" className="mt-3">
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
-              {V2_STAGES.map((stage) => (
+              {KANBAN_COLUMNS.map((stage) => (
                 <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} delays={delays} />
               ))}
             </div>
@@ -363,6 +417,14 @@ export default function LeadsV2() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {scheduleLead && (
+        <EstimatorScheduleModal
+          lead={scheduleLead}
+          onClose={() => setScheduleLead(null)}
+          onScheduled={onScheduled}
+        />
+      )}
     </div>
   );
 }
