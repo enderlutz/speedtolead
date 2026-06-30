@@ -58,6 +58,9 @@ class Lead(Base):
     # scheduled visit) | "scheduled" (an EstimatorVisit now exists). Lives
     # purely on the dashboard; never pushed to GHL.
     estimator_status = Column(Text, default="")
+    # Free-text notes the estimator takes during the on-site estimate. Shown in
+    # the Estimator tab on Lead Detail (and the estimator's own lead page).
+    estimator_notes = Column(Text, default="")
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
     proposal_last_viewed_at = Column(Text, nullable=True)
@@ -1801,6 +1804,69 @@ class EstimatorLocationPing(Base):
         }
 
 
+class EstimatorPhoto(Base):
+    """A photo the estimator shoots during an estimate, attached to the LEAD
+    (not a job — the job usually doesn't exist yet at estimate time). These are
+    the 'pre-inspection' pictures: the scheduling/SOP inspection bucket surfaces
+    them for whatever ScheduledJob later links to the same lead, via a
+    job-scoped read endpoint. Egress: photo_data is deferred + a has-flag so
+    metadata lists never stream BLOBs (same pattern as JobPhoto)."""
+    __tablename__ = "estimator_photos"
+    __table_args__ = (
+        Index("idx_estimator_photos_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    photo_data = deferred(Column(LargeBinary, nullable=True))
+    has_photo_data = Column(Boolean, default=False, nullable=False)
+    filename = Column(Text, default="")
+    mime = Column(Text, default="")
+    uploaded_at = Column(Text, default="")
+    uploaded_by = Column(Text, default="")
+
+    def meta_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "filename": self.filename or "",
+            "mime": self.mime or "image/jpeg",
+            "uploaded_at": self.uploaded_at or "",
+            "uploaded_by": self.uploaded_by or "",
+        }
+
+
+class EstimatorRecording(Base):
+    """An audio recording of the estimate conversation, captured in-browser
+    (MediaRecorder) and attached to the lead. Egress: audio_data deferred +
+    has-flag; the bytes load only on the per-recording playback route."""
+    __tablename__ = "estimator_recordings"
+    __table_args__ = (
+        Index("idx_estimator_recordings_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    audio_data = deferred(Column(LargeBinary, nullable=True))
+    has_audio_data = Column(Boolean, default=False, nullable=False)
+    mime = Column(Text, default="audio/webm")
+    duration_seconds = Column(Float, nullable=True)
+    filename = Column(Text, default="")
+    recorded_at = Column(Text, default="")
+    recorded_by = Column(Text, default="")
+
+    def meta_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "mime": self.mime or "audio/webm",
+            "duration_seconds": self.duration_seconds,
+            "filename": self.filename or "",
+            "recorded_at": self.recorded_at or "",
+            "recorded_by": self.recorded_by or "",
+        }
+
+
 class CallScript(Base):
     """Single-row table holding the company's master call script. The VA's
     sticky panel on Lead Detail renders this template with {{var}}
@@ -2452,6 +2518,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN estimator_status TEXT DEFAULT ''"))
         logger.info("Migration: added leads.estimator_status")
+
+    if "estimator_notes" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN estimator_notes TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.estimator_notes")
 
     if "precall_done" not in existing:
         with _engine.begin() as conn:

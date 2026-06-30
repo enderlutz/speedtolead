@@ -1211,6 +1211,50 @@ def delete_job_photo(job_id: str, photo_id: str, user: dict = Depends(get_curren
         db.close()
 
 
+# The estimator's pre-inspection photos live on the LEAD (taken before any job
+# exists). Surface them in the job's inspection bucket for whatever job links to
+# that lead — read-only here; the estimator manages them from the lead side.
+# Reuses the same assigned-or-staff auth as the crew's own job photos.
+@router.get("/schedule/jobs/{job_id}/estimator-photos")
+def list_job_estimator_photos(job_id: str, user: dict = Depends(get_current_user)):
+    from database import EstimatorPhoto
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        if not j.lead_id:
+            return {"photos": []}
+        rows = (db.query(EstimatorPhoto)
+                  .filter(EstimatorPhoto.lead_id == j.lead_id)
+                  .order_by(EstimatorPhoto.uploaded_at.asc())
+                  .all())
+        return {"photos": [p.meta_dict() for p in rows]}
+    finally:
+        db.close()
+
+
+@router.get("/schedule/jobs/{job_id}/estimator-photos/{photo_id}")
+def get_job_estimator_photo(job_id: str, photo_id: str, user: dict = Depends(get_current_user)):
+    """Stream a linked-lead estimate photo through the job's auth gate."""
+    from database import EstimatorPhoto
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        photo = (db.query(EstimatorPhoto)
+                   .filter(EstimatorPhoto.id == photo_id, EstimatorPhoto.lead_id == (j.lead_id or ""))
+                   .first())
+        if not photo or not photo.photo_data:
+            raise HTTPException(404, "Photo not found")
+        return Response(content=photo.photo_data, media_type=photo.mime or "image/jpeg")
+    finally:
+        db.close()
+
+
 class MaterialsBody(BaseModel):
     """Worker-facing field report from the SOP side. All fields optional —
     submit only what you've recorded. None means "leave that one alone." Use

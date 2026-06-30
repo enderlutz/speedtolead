@@ -15,12 +15,14 @@ fixed 8 AM–6 PM with 1-hour slots per the client's spec."""
 from __future__ import annotations
 import uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from database import (
     get_db, Lead, User,
     EstimatorVisit, EstimatorTimeEntry, EstimatorLocationPing,
+    EstimatorPhoto, EstimatorRecording,
 )
 from config import get_settings
 from api.auth import get_current_user, require_staff, require_admin
@@ -405,6 +407,249 @@ def flag_lead(lead_id: str, body: FlagBody, user: dict = Depends(require_staff))
         lead.updated_at = _now()
         db.commit()
         return {"ok": True, "lead_id": lead_id, "estimator_status": status}
+    finally:
+        db.close()
+
+
+# ── Per-lead estimate captures: notes, photos, recordings ─────────────────
+_MAX_PHOTO_BYTES = 12 * 1024 * 1024
+_MAX_AUDIO_BYTES = 30 * 1024 * 1024
+
+
+def _assert_lead_access(db, user: dict, lead_id: str) -> None:
+    """Who may read/write a lead's estimate captures: staff always; the
+    estimator only for leads they have a visit for. Workers/others never."""
+    role = (user.get("role") or "").lower()
+    if role in ("admin", "va"):
+        return
+    if role == "estimator":
+        has_visit = (
+            db.query(EstimatorVisit)
+            .filter(
+                EstimatorVisit.lead_id == lead_id,
+                EstimatorVisit.estimator_user_id == (user.get("sub") or ""),
+            )
+            .first()
+        )
+        if has_visit:
+            return
+    raise HTTPException(403, "Not authorized for this lead")
+
+
+@router.get("/estimator/leads/{lead_id}")
+def get_estimator_lead(lead_id: str, user: dict = Depends(get_current_user)):
+    """Price-free lead summary for the estimator's lead page. Deliberately
+    excludes anything pricing/proposal — the estimator never receives it."""
+    db = get_db()
+    try:
+        _assert_lead_access(db, user, lead_id)
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        # The caller's upcoming visit for this lead (if any) — gives the page
+        # the appointment date/time without exposing the whole schedule.
+        eid = user.get("sub") if (user.get("role") or "").lower() == "estimator" else None
+        vq = db.query(EstimatorVisit).filter(EstimatorVisit.lead_id == lead_id)
+        if eid:
+            vq = vq.filter(EstimatorVisit.estimator_user_id == eid)
+        visit = vq.order_by(EstimatorVisit.visit_date.desc()).first()
+        return {
+            "id": lead.id,
+            "contact_name": lead.contact_name or "",
+            "contact_phone": lead.contact_phone or "",
+            "address": lead.address or "",
+            "estimator_notes": lead.estimator_notes or "",
+            "visit": visit.to_dict() if visit else None,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/estimator/leads/{lead_id}/captures")
+def get_lead_captures(lead_id: str, user: dict = Depends(get_current_user)):
+    """Notes + photo metadata + recording metadata for a lead (no BLOBs)."""
+    db = get_db()
+    try:
+        _assert_lead_access(db, user, lead_id)
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        photos = (
+            db.query(EstimatorPhoto)
+            .filter(EstimatorPhoto.lead_id == lead_id)
+            .order_by(EstimatorPhoto.uploaded_at.asc())
+            .all()
+        )
+        recs = (
+            db.query(EstimatorRecording)
+            .filter(EstimatorRecording.lead_id == lead_id)
+            .order_by(EstimatorRecording.recorded_at.asc())
+            .all()
+        )
+        return {
+            "notes": lead.estimator_notes or "",
+            "photos": [p.meta_dict() for p in photos],
+            "recordings": [r.meta_dict() for r in recs],
+        }
+    finally:
+        db.close()
+
+
+class NotesBody(BaseModel):
+    notes: str = ""
+
+
+@router.put("/estimator/leads/{lead_id}/notes")
+def save_lead_notes(lead_id: str, body: NotesBody, user: dict = Depends(get_current_user)):
+    db = get_db()
+    try:
+        _assert_lead_access(db, user, lead_id)
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        lead.estimator_notes = body.notes or ""
+        lead.updated_at = _now()
+        db.commit()
+        return {"ok": True, "notes": lead.estimator_notes}
+    finally:
+        db.close()
+
+
+@router.post("/estimator/leads/{lead_id}/photos")
+async def upload_lead_photo(
+    lead_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Add one pre-inspection photo to a lead. Appends — never replaces."""
+    db = get_db()
+    try:
+        _assert_lead_access(db, user, lead_id)
+        if not db.query(Lead).filter(Lead.id == lead_id).first():
+            raise HTTPException(404, "Lead not found")
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "Empty upload")
+        if len(data) > _MAX_PHOTO_BYTES:
+            raise HTTPException(400, "Photo too large (>12 MB)")
+        mime = file.content_type or "image/jpeg"
+        if not mime.startswith("image/"):
+            raise HTTPException(400, "Only image files accepted")
+        photo = EstimatorPhoto(
+            id=str(uuid.uuid4()),
+            lead_id=lead_id,
+            photo_data=data,
+            has_photo_data=True,
+            filename=file.filename or "photo",
+            mime=mime,
+            uploaded_at=_now(),
+            uploaded_by=user.get("name", ""),
+        )
+        db.add(photo)
+        db.commit()
+        db.refresh(photo)
+        return photo.meta_dict()
+    finally:
+        db.close()
+
+
+@router.get("/estimator/photos/{photo_id}")
+def get_lead_photo(photo_id: str, user: dict = Depends(get_current_user)):
+    """Stream one estimate photo's bytes (the only route that loads the BLOB)."""
+    db = get_db()
+    try:
+        photo = db.query(EstimatorPhoto).filter(EstimatorPhoto.id == photo_id).first()
+        if not photo:
+            raise HTTPException(404, "Photo not found")
+        _assert_lead_access(db, user, photo.lead_id)
+        if not photo.photo_data:
+            raise HTTPException(404, "Photo not found")
+        return Response(content=photo.photo_data, media_type=photo.mime or "image/jpeg")
+    finally:
+        db.close()
+
+
+@router.delete("/estimator/photos/{photo_id}")
+def delete_lead_photo(photo_id: str, user: dict = Depends(get_current_user)):
+    db = get_db()
+    try:
+        photo = db.query(EstimatorPhoto).filter(EstimatorPhoto.id == photo_id).first()
+        if not photo:
+            raise HTTPException(404, "Photo not found")
+        _assert_lead_access(db, user, photo.lead_id)
+        db.delete(photo)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@router.post("/estimator/leads/{lead_id}/recordings")
+async def upload_lead_recording(
+    lead_id: str,
+    file: UploadFile = File(...),
+    duration_seconds: float = Form(0),
+    user: dict = Depends(get_current_user),
+):
+    """Save an audio recording of the estimate conversation."""
+    db = get_db()
+    try:
+        _assert_lead_access(db, user, lead_id)
+        if not db.query(Lead).filter(Lead.id == lead_id).first():
+            raise HTTPException(404, "Lead not found")
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "Empty upload")
+        if len(data) > _MAX_AUDIO_BYTES:
+            raise HTTPException(400, "Recording too large (>30 MB)")
+        mime = file.content_type or "audio/webm"
+        if not mime.startswith("audio/"):
+            raise HTTPException(400, "Only audio files accepted")
+        rec = EstimatorRecording(
+            id=str(uuid.uuid4()),
+            lead_id=lead_id,
+            audio_data=data,
+            has_audio_data=True,
+            mime=mime,
+            duration_seconds=duration_seconds or None,
+            filename=file.filename or "recording",
+            recorded_at=_now(),
+            recorded_by=user.get("name", ""),
+        )
+        db.add(rec)
+        db.commit()
+        db.refresh(rec)
+        return rec.meta_dict()
+    finally:
+        db.close()
+
+
+@router.get("/estimator/recordings/{rec_id}")
+def get_lead_recording(rec_id: str, user: dict = Depends(get_current_user)):
+    db = get_db()
+    try:
+        rec = db.query(EstimatorRecording).filter(EstimatorRecording.id == rec_id).first()
+        if not rec:
+            raise HTTPException(404, "Recording not found")
+        _assert_lead_access(db, user, rec.lead_id)
+        if not rec.audio_data:
+            raise HTTPException(404, "Recording not found")
+        return Response(content=rec.audio_data, media_type=rec.mime or "audio/webm")
+    finally:
+        db.close()
+
+
+@router.delete("/estimator/recordings/{rec_id}")
+def delete_lead_recording(rec_id: str, user: dict = Depends(get_current_user)):
+    db = get_db()
+    try:
+        rec = db.query(EstimatorRecording).filter(EstimatorRecording.id == rec_id).first()
+        if not rec:
+            raise HTTPException(404, "Recording not found")
+        _assert_lead_access(db, user, rec.lead_id)
+        db.delete(rec)
+        db.commit()
+        return {"ok": True}
     finally:
         db.close()
 
