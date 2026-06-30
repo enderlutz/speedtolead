@@ -25,7 +25,7 @@ import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import MySchedule from "@/pages/MySchedule";
 import Estimator from "@/pages/Estimator";
-import EstimatorLead from "@/pages/EstimatorLead";
+import EstimatorDay from "@/pages/EstimatorDay";
 import CallListPanel from "@/components/CallListPanel";
 import WrappedAutoPop from "@/components/WrappedAutoPop";
 import TrainingBorder from "@/components/training/TrainingBorder";
@@ -78,6 +78,16 @@ function landingFor(): string {
 function RequireView({ view, children }: { view: string; children: React.ReactNode }) {
   if (!hasPerm(view)) return <Navigate to={landingFor()} replace />;
   return <>{children}</>;
+}
+
+// Lead Detail access: staff with the leads view, OR the estimator (who reaches
+// a specific lead from their day page to run the estimate — full experience,
+// including pricing, which is appropriate for the in-person quote). The
+// estimator still has no "leads" perm, so the Leads kanban/list stays hidden.
+function RequireLeadDetail({ children }: { children: React.ReactNode }) {
+  const u = getCurrentUser();
+  if (hasPerm("leads") || u?.role === "estimator") return <>{children}</>;
+  return <Navigate to={landingFor()} replace />;
 }
 
 
@@ -136,7 +146,7 @@ function AppLayout() {
               <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
               <Route path="/leads/painting-upsell" element={<RequireView view="painting_upsell"><LeadsPaintingUpsell /></RequireView>} />
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
-              <Route path="/leads/:id" element={<RequireView view="leads"><LeadDetail /></RequireView>} />
+              <Route path="/leads/:id" element={<RequireLeadDetail><LeadDetail /></RequireLeadDetail>} />
               <Route path="/leads/:id/edit-pdf" element={<RequireView view="leads"><EditPdf /></RequireView>} />
               <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
@@ -148,7 +158,7 @@ function AppLayout() {
               <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
               <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />
               <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
-              <Route path="/estimator/leads/:leadId" element={<RequireView view="estimator"><EstimatorLead /></RequireView>} />
+              <Route path="/estimator/day/:date" element={<RequireView view="estimator"><EstimatorDay /></RequireView>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
