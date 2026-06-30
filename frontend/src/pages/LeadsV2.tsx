@@ -422,7 +422,7 @@ export default function LeadsV2() {
         <EstimatorScheduleModal
           lead={scheduleLead}
           onClose={() => setScheduleLead(null)}
-          onScheduled={onScheduled}
+          onSaved={onScheduled}
         />
       )}
     </div>

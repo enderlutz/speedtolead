@@ -1489,6 +1489,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  updateEstimatorVisit: (visitId: string, body: { visit_date?: string; start_time?: string }) =>
+    request<{ visit: EstimatorVisit; day: EstimatorVisit[] }>(`/api/estimator/visits/${visitId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   cancelEstimatorVisit: (visitId: string) =>
     request<{ ok: boolean; day: EstimatorVisit[] }>(`/api/estimator/visits/${visitId}`, { method: "DELETE" }),
   flagLeadEstimator: (leadId: string, status: "needed" | "") =>

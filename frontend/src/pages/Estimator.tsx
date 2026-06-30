@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { api, getCurrentUser, type EstimatorSchedule, type EstimatorVisit } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
 import { toast } from "sonner";
-import { MapPin, ChevronRight, ChevronLeft, Loader2, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import { MapPin, ChevronRight, ChevronLeft, Loader2, Calendar as CalendarIcon, RefreshCw, Plus } from "lucide-react";
 
 // ── date helpers (local time — this is browser app code) ──────────────────
 function toYMD(d: Date): string {
@@ -34,11 +35,13 @@ function fmtTime(hhmm: string): string {
 export default function Estimator() {
   const user = getCurrentUser();
   const isEstimator = user?.role === "estimator";
+  const isAdmin = user?.role === "admin";
   const navigate = useNavigate();
 
   const [weekStart, setWeekStart] = useState<string>(() => toYMD(mondayOf(new Date())));
   const [schedule, setSchedule] = useState<EstimatorSchedule | null>(null);
   const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
 
   const loadSchedule = useCallback(() => {
     setLoading(true);
@@ -78,9 +81,16 @@ export default function Estimator() {
             {totalStops ? ` • ${totalStops} stop${totalStops === 1 ? "" : "s"}` : ""}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadSchedule} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={loadSchedule} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          {isAdmin && (
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add estimate
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Week navigation */}
@@ -106,6 +116,13 @@ export default function Estimator() {
                     onOpen={() => navigate(`/estimator/day/${day.date}`)} />
           ))}
         </div>
+      )}
+
+      {addOpen && (
+        <EstimatorScheduleModal
+          onClose={() => setAddOpen(false)}
+          onSaved={() => { setAddOpen(false); loadSchedule(); }}
+        />
       )}
     </div>
   );

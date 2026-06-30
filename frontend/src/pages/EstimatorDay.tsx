@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, getCurrentUser, type EstimatorScheduleDay, type EstimatorDrivePath } from "@/lib/api";
+import { api, getCurrentUser, type EstimatorScheduleDay, type EstimatorDrivePath, type EstimatorVisit } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import EstimatorDriveMap from "@/components/EstimatorDriveMap";
+import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
 import { toast } from "sonner";
 import {
-  ArrowLeft, MapPin, Clock, Navigation, Play, Square, Loader2,
+  ArrowLeft, MapPin, Clock, Navigation, Play, Square, Loader2, Pencil,
 } from "lucide-react";
 
 function toYMD(d: Date): string {
@@ -46,6 +47,7 @@ export default function EstimatorDay() {
 
   const [day, setDay] = useState<EstimatorScheduleDay | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editVisit, setEditVisit] = useState<EstimatorVisit | null>(null);
 
   const load = useCallback(() => {
     if (!date) return;
@@ -106,8 +108,15 @@ export default function EstimatorDay() {
                         ) : (
                           <span className="font-medium text-sm truncate">{v.customer_name || "Customer"}</span>
                         )}
-                        <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
+                          </span>
+                          {isAdmin && (
+                            <button onClick={() => setEditVisit(v)} className="text-muted-foreground hover:text-primary" title="Change time">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </span>
                       </div>
                       {v.address && (
@@ -127,6 +136,15 @@ export default function EstimatorDay() {
 
       {/* Admin-only: where he actually drove this day */}
       {isAdmin && <DrivePathSection date={date} estimatorName={user?.name || "Estimator"} />}
+
+      {editVisit && (
+        <EstimatorScheduleModal
+          visit={editVisit}
+          initialDate={date}
+          onClose={() => setEditVisit(null)}
+          onSaved={() => { setEditVisit(null); load(); }}
+        />
+      )}
     </div>
   );
 }

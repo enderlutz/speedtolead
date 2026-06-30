@@ -385,6 +385,37 @@ def cancel_visit(visit_id: str, user: dict = Depends(require_staff)):
         db.close()
 
 
+class VisitUpdateBody(BaseModel):
+    visit_date: str | None = None        # move to another day
+    start_time: str | None = None        # change the visit time
+
+
+@router.patch("/estimator/visits/{visit_id}")
+def update_visit(visit_id: str, body: VisitUpdateBody, user: dict = Depends(require_staff)):
+    """Reschedule a stop — change its time and/or move it to another day. Both
+    the old and new day get re-ordered + drive-times refreshed."""
+    db = get_db()
+    try:
+        v = db.query(EstimatorVisit).filter(EstimatorVisit.id == visit_id).first()
+        if not v:
+            raise HTTPException(404, "Visit not found")
+        old_date = v.visit_date
+        if body.visit_date:
+            v.visit_date = body.visit_date
+        if body.start_time is not None:
+            v.start_time = body.start_time
+        v.updated_at = _now()
+        db.commit()
+        eid = v.estimator_user_id
+        new_date = v.visit_date
+        _recompute_day(db, eid, old_date)
+        if new_date != old_date:
+            _recompute_day(db, eid, new_date)
+        return {"visit": v.to_dict(), "day": _day_visits(db, eid, new_date)}
+    finally:
+        db.close()
+
+
 # ── Lead flag — drag to / from the Estimator Needed column (admin/va) ─────
 class FlagBody(BaseModel):
     status: str = ""                     # "needed" | ""
