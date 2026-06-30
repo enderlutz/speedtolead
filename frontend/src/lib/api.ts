@@ -154,6 +154,7 @@ export interface EstimatorScheduleDay {
   date: string;
   weekday: string;
   visits: EstimatorVisit[];
+  worked_hours: number;
 }
 
 export interface EstimatorSchedule {

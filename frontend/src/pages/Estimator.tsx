@@ -29,6 +29,14 @@ function fmtTime(hhmm: string): string {
   const h12 = h % 12 || 12;
   return `${h12}:${String(m || 0).padStart(2, "0")} ${period}`;
 }
+function fmtHours(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  if (hh === 0) return `${mm}m`;
+  if (mm === 0) return `${hh}h`;
+  return `${hh}h ${mm}m`;
+}
 
 /** The estimator's home screen: just the weekly calendar. Tapping a day opens
  *  that day's page (clock in/out + the list of estimates). */
@@ -113,6 +121,7 @@ export default function Estimator() {
         <div className="space-y-2">
           {schedule?.days.map((day) => (
             <DayRow key={day.date} date={day.date} weekday={day.weekday} visits={day.visits}
+                    workedHours={day.worked_hours}
                     onOpen={() => navigate(`/estimator/day/${day.date}`)} />
           ))}
         </div>
@@ -128,8 +137,8 @@ export default function Estimator() {
   );
 }
 
-function DayRow({ date, weekday, visits, onOpen }: {
-  date: string; weekday: string; visits: EstimatorVisit[]; onOpen: () => void;
+function DayRow({ date, weekday, visits, workedHours, onOpen }: {
+  date: string; weekday: string; visits: EstimatorVisit[]; workedHours: number; onOpen: () => void;
 }) {
   const dayNum = new Date(`${date}T00:00:00`).getDate();
   // Days with estimates start expanded so the list is visible at a glance.
@@ -148,11 +157,18 @@ function DayRow({ date, weekday, visits, onOpen }: {
               </div>
             </div>
           </div>
-          {visits.length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {fmtTime(visits[0].start_time)}{visits.length > 1 ? ` – ${fmtTime(visits[visits.length - 1].start_time)}` : ""}
-            </span>
-          )}
+          <div className="flex flex-col items-end gap-0.5">
+            {visits.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {fmtTime(visits[0].start_time)}{visits.length > 1 ? ` – ${fmtTime(visits[visits.length - 1].start_time)}` : ""}
+              </span>
+            )}
+            {workedHours > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-[10px] font-medium px-1.5 py-0.5">
+                <Clock className="h-2.5 w-2.5" /> {fmtHours(workedHours)} worked
+              </span>
+            )}
+          </div>
         </button>
 
         {open && (

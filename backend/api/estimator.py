@@ -111,6 +111,40 @@ def _day_visits(db, estimator_id: str, visit_date: str) -> list[dict]:
     return [v.to_dict() for v in rows]
 
 
+def _parse_iso(ts: str) -> datetime | None:
+    """Parse a stored ISO timestamp into a tz-aware datetime (UTC fallback)."""
+    try:
+        d = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return None
+    return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
+
+
+def _day_worked_hours(db, estimator_id: str, work_date: str) -> float:
+    """Total hours clocked on a date = sum of every clock span. An open span
+    (still clocked in) counts up to now, so the number grows live during the
+    day and settles once they clock out."""
+    entries = (
+        db.query(EstimatorTimeEntry)
+        .filter(
+            EstimatorTimeEntry.estimator_user_id == estimator_id,
+            EstimatorTimeEntry.work_date == work_date,
+        )
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    total = 0.0
+    for e in entries:
+        start = _parse_iso(e.clock_in)
+        if not start:
+            continue
+        end = _parse_iso(e.clock_out) if e.clock_out else now
+        if not end:
+            end = now
+        total += max(0.0, (end - start).total_seconds())
+    return round(total / 3600, 2)
+
+
 # ── Schedule (estimator + admin) ──────────────────────────────────────────
 @router.get("/estimator/schedule")
 def get_schedule(
@@ -134,6 +168,7 @@ def get_schedule(
                 "date": d,
                 "weekday": (start + timedelta(days=i)).strftime("%a"),
                 "visits": _day_visits(db, eid, d),
+                "worked_hours": _day_worked_hours(db, eid, d),
             })
         return {
             "estimator_user_id": eid,

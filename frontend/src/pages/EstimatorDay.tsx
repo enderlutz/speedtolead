@@ -35,6 +35,14 @@ function fmtDrive(n: number | null): string {
   if (n == null) return "";
   return n < 1 ? "<1 min drive" : `~${Math.round(n)} min drive`;
 }
+function fmtHours(h: number): string {
+  const totalMin = Math.round(h * 60);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  if (hh === 0) return `${mm}m`;
+  if (mm === 0) return `${hh}h`;
+  return `${hh}h ${mm}m`;
+}
 
 /** One day's page: clock in/out + the ordered list of estimates. Tapping a
  *  customer opens the real Lead Detail page. Admins also get the drive-path
@@ -74,10 +82,17 @@ export default function EstimatorDay() {
         <ArrowLeft className="h-4 w-4" /> Back to calendar
       </Link>
 
-      <h1 className="text-xl font-semibold tracking-tight">{heading}</h1>
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold tracking-tight">{heading}</h1>
+        {day && day.worked_hours > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-xs font-medium px-2 py-1">
+            <Clock className="h-3 w-3" /> {fmtHours(day.worked_hours)} worked
+          </span>
+        )}
+      </div>
 
       {/* Clock in/out — estimator only */}
-      {isEstimator && <ClockBar />}
+      {isEstimator && <ClockBar onChange={load} />}
 
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
@@ -153,7 +168,7 @@ export default function EstimatorDay() {
 }
 
 // ── Clock in/out + foreground GPS tracking (estimator only) ─────────────────
-function ClockBar() {
+function ClockBar({ onChange }: { onChange?: () => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [since, setSince] = useState<string | null>(null);
@@ -185,13 +200,13 @@ function ClockBar() {
 
   const clockIn = async () => {
     setBusy(true);
-    try { const e = await api.estimatorClockIn(); setOpen(true); setSince(e.clock_in); toast.success("Clocked in — tracking your route"); }
+    try { const e = await api.estimatorClockIn(); setOpen(true); setSince(e.clock_in); toast.success("Clocked in — tracking your route"); onChange?.(); }
     catch { toast.error("Couldn't clock in"); }
     finally { setBusy(false); }
   };
   const clockOut = async () => {
     setBusy(true);
-    try { await api.estimatorClockOut(); setOpen(false); setSince(null); toast.success("Clocked out"); }
+    try { await api.estimatorClockOut(); setOpen(false); setSince(null); toast.success("Clocked out"); onChange?.(); }
     catch { toast.error("Couldn't clock out"); }
     finally { setBusy(false); }
   };
