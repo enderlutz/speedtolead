@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import EstimatorLeadPanel from "@/components/EstimatorLeadPanel";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap,
@@ -116,7 +117,7 @@ export default function LeadDetail() {
   // user last opened the Call tab for THIS lead. Stored per-lead in
   // localStorage so the badge resets correctly when you actually look at the
   // messages, not just when you load the page.
-  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell">("estimate");
+  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator">("estimate");
   const callTabSeenKey = id ? `at_lead_${id}_call_seen_at` : "";
   const [callTabSeenAt, setCallTabSeenAt] = useState<string>(() => {
     if (!callTabSeenKey) return "1970-01-01T00:00:00.000Z";
@@ -769,7 +770,7 @@ export default function LeadDetail() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => {
-          const next = v as "estimate" | "call" | "exterior" | "upsell";
+          const next = v as "estimate" | "call" | "exterior" | "upsell" | "estimator";
           setActiveTab(next);
           if (next === "call" && callTabSeenKey) {
             const now = new Date().toISOString();
@@ -797,6 +798,7 @@ export default function LeadDetail() {
             )}
           </TabsTrigger>
           <TabsTrigger value="upsell">Upsell</TabsTrigger>
+          <TabsTrigger value="estimator">Estimator</TabsTrigger>
         </TabsList>
 
         <TabsContent value="estimate" className="space-y-4 sm:space-y-6 mt-4">
@@ -1657,6 +1659,14 @@ export default function LeadDetail() {
 
         <TabsContent value="upsell" className="space-y-4 sm:space-y-6 mt-4">
           <UpsellTab lead={lead} />
+        </TabsContent>
+
+        <TabsContent value="estimator" className="space-y-4 sm:space-y-6 mt-4">
+          <Card>
+            <CardContent className="p-4">
+              <EstimatorLeadPanel leadId={lead.id} />
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

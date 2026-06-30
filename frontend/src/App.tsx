@@ -25,6 +25,7 @@ import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
 import MySchedule from "@/pages/MySchedule";
 import Estimator from "@/pages/Estimator";
+import EstimatorLead from "@/pages/EstimatorLead";
 import CallListPanel from "@/components/CallListPanel";
 import WrappedAutoPop from "@/components/WrappedAutoPop";
 import TrainingBorder from "@/components/training/TrainingBorder";
@@ -147,6 +148,7 @@ function AppLayout() {
               <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
               <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />
               <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
+              <Route path="/estimator/leads/:leadId" element={<RequireView view="estimator"><EstimatorLead /></RequireView>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />

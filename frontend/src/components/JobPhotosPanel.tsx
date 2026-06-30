@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { api, type JobPhotoMeta, type ScheduledJob } from "@/lib/api";
+import { api, type JobPhotoMeta, type EstimatorPhotoMeta, type ScheduledJob } from "@/lib/api";
 import { toast } from "sonner";
 import { Camera, Trash2, Image as ImageIcon, Loader2 } from "lucide-react";
 
@@ -31,6 +31,13 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
   const [uploadingCat, setUploadingCat] = useState<string | null>(null);
   const blobsRef = useRef<Record<string, string>>({});
   useEffect(() => { blobsRef.current = blobs; }, [blobs]);
+
+  // Estimator's pre-inspection photos (taken on the lead before the job
+  // existed) surfaced read-only into the Inspection bucket.
+  const [estPhotos, setEstPhotos] = useState<EstimatorPhotoMeta[]>([]);
+  const [estBlobs, setEstBlobs] = useState<Record<string, string>>({});
+  const estBlobsRef = useRef<Record<string, string>>({});
+  useEffect(() => { estBlobsRef.current = estBlobs; }, [estBlobs]);
 
   // Field report — pulled from the job row, edited inline, saved on blur.
   const [inspectionNotes, setInspectionNotes] = useState("");
@@ -68,6 +75,15 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
       ]);
       setPhotos(r.photos);
       await Promise.all(r.photos.map((p) => loadBlob(p.id)));
+      // Pull the linked lead's estimate photos (best-effort) into Inspection.
+      try {
+        const est = await api.listJobEstimatorPhotos(jobId);
+        setEstPhotos(est.photos);
+        await Promise.all(est.photos.map(async (p) => {
+          const url = await api.fetchJobEstimatorPhotoBlobUrl(jobId, p.id);
+          if (url) setEstBlobs((prev) => ({ ...prev, [p.id]: url }));
+        }));
+      } catch { /* no linked lead / none — fine */ }
     } catch {
       // Silent — an empty panel is the right fallback (e.g. not yet assigned).
     } finally {
@@ -79,7 +95,10 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
 
   // Revoke every object URL when the panel closes so we don't leak them.
   useEffect(() => {
-    return () => { Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u)); };
+    return () => {
+      Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u));
+      Object.values(estBlobsRef.current).forEach((u) => URL.revokeObjectURL(u));
+    };
   }, []);
 
   const upload = async (category: string, files: FileList | null) => {
@@ -204,6 +223,24 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Estimator's pre-inspection photos (read-only) surfaced here */}
+              {c.key === "inspection" && estPhotos.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[10px] text-muted-foreground font-medium">From the estimate ({estPhotos.length})</span>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                    {estPhotos.map((p) => (
+                      <div key={p.id} className="relative aspect-square rounded overflow-hidden border bg-muted ring-1 ring-amber-300/50">
+                        {estBlobs[p.id] ? (
+                          <img src={estBlobs[p.id]} alt="estimate" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full grid place-items-center text-muted-foreground"><ImageIcon className="h-4 w-4" /></div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

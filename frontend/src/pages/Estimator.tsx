@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { api, getCurrentUser, type EstimatorSchedule, type EstimatorVisit, type EstimatorDrivePath } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -186,7 +187,13 @@ function DayCard({ date, weekday, visits, open, onToggle }: {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-sm truncate">{v.customer_name || "Customer"}</span>
+                    {v.lead_id ? (
+                      <Link to={`/estimator/leads/${v.lead_id}`} className="font-medium text-sm text-primary hover:underline truncate">
+                        {v.customer_name || "Customer"}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-sm truncate">{v.customer_name || "Customer"}</span>
+                    )}
                     <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
                       <Clock className="h-3 w-3" /> {fmtTime(v.start_time)}
                     </span>
