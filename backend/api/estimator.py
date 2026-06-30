@@ -685,33 +685,43 @@ def delete_lead_recording(rec_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
-# ── Drive-path map (admin only) ───────────────────────────────────────────
+# ── Drive-path map ────────────────────────────────────────────────────────
 @router.get("/estimator/drive-path")
 def get_drive_path(
     date: str,
     estimator_user_id: str | None = None,
-    user: dict = Depends(require_admin),
+    user: dict = Depends(get_current_user),
 ):
-    """The route actually driven on a date — the ordered GPS trail plus the
-    planned stops — and the Google Maps key to render it. Admin only; the
-    estimator can never see their own tracking."""
+    """Route data for a date: the planned stops (the SUGGESTED route, in
+    visiting order) plus the Google Maps key. The ACTUAL driven GPS trail
+    (pings) is admin-only — the estimator gets an empty pings list, so they
+    see a preview of their day's suggested drive but never their own tracking.
+
+    Estimators are pinned to their own schedule; admins may request any."""
+    role = (user.get("role") or "").lower()
     db = get_db()
     try:
-        eid = (estimator_user_id or "").strip() or _default_estimator_id(db)
-        pings = (
-            db.query(EstimatorLocationPing)
-            .filter(
-                EstimatorLocationPing.estimator_user_id == eid,
-                EstimatorLocationPing.work_date == date,
-            )
-            .order_by(EstimatorLocationPing.ts)
-            .all()
-        )
+        eid = _resolve_estimator_id(db, user, estimator_user_id)
+        can_see_actual = role == "admin"
+        pings = []
+        if can_see_actual:
+            pings = [
+                p.to_dict() for p in (
+                    db.query(EstimatorLocationPing)
+                    .filter(
+                        EstimatorLocationPing.estimator_user_id == eid,
+                        EstimatorLocationPing.work_date == date,
+                    )
+                    .order_by(EstimatorLocationPing.ts)
+                    .all()
+                )
+            ]
         return {
             "estimator_user_id": eid,
             "date": date,
             "maps_api_key": get_settings().google_maps_api_key or "",
-            "pings": [p.to_dict() for p in pings],
+            "can_see_actual": can_see_actual,
+            "pings": pings,
             "visits": _day_visits(db, eid, date),
         }
     finally:

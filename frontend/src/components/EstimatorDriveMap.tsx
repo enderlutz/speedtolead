@@ -20,11 +20,23 @@ function loadGoogleMaps(key: string): Promise<void> {
   return mapsPromise;
 }
 
-/** Admin-only map: the GPS trail the estimator actually drove (blue line)
- *  plus numbered markers for the planned stops. */
-export default function EstimatorDriveMap({ data }: { data: EstimatorDrivePath }) {
+/**
+ * Drive-path map. Draws numbered markers for the planned stops, plus up to two
+ * routes:
+ *  - suggested (green): the planned order of stops — a preview of the drive.
+ *  - actual (blue): the GPS trail the estimator actually drove.
+ * The estimator sees suggested only; the admin sees both.
+ */
+export default function EstimatorDriveMap({ data, showSuggested = false, showActual = true }: {
+  data: EstimatorDrivePath;
+  showSuggested?: boolean;
+  showActual?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  const drewActual = showActual && data.pings.length > 1;
+  const drewSuggested = showSuggested && data.visits.filter((v) => v.lat != null && v.lng != null).length > 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -35,13 +47,14 @@ export default function EstimatorDriveMap({ data }: { data: EstimatorDrivePath }
         if (cancelled || !ref.current || !window.google) return;
         const maps = window.google.maps;
         const bounds = new maps.LatLngBounds();
-        const path: GLatLngLiteral[] = data.pings.map((p) => ({ lat: p.lat, lng: p.lng }));
+        const actual: GLatLngLiteral[] = data.pings.map((p) => ({ lat: p.lat, lng: p.lng }));
         const stops = data.visits.filter((v) => v.lat != null && v.lng != null);
+        const stopPath: GLatLngLiteral[] = stops.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
 
-        path.forEach((p) => bounds.extend(p));
-        stops.forEach((v) => bounds.extend({ lat: v.lat as number, lng: v.lng as number }));
+        if (showActual) actual.forEach((p) => bounds.extend(p));
+        stopPath.forEach((p) => bounds.extend(p));
 
-        const center = path[0] || (stops[0] ? { lat: stops[0].lat as number, lng: stops[0].lng as number } : { lat: 30.16, lng: -95.46 });
+        const center = stopPath[0] || actual[0] || { lat: 30.16, lng: -95.46 };
         const map = new maps.Map(ref.current, {
           center,
           zoom: 11,
@@ -49,15 +62,13 @@ export default function EstimatorDriveMap({ data }: { data: EstimatorDrivePath }
           streetViewControl: false,
         });
 
-        // Driven route — blue polyline through the GPS pings.
-        if (path.length > 1) {
-          new maps.Polyline({
-            path,
-            map,
-            strokeColor: "#2563eb",
-            strokeOpacity: 0.85,
-            strokeWeight: 4,
-          });
+        // Suggested route — green line through the stops in visiting order.
+        if (showSuggested && stopPath.length > 1) {
+          new maps.Polyline({ path: stopPath, map, strokeColor: "#16a34a", strokeOpacity: 0.7, strokeWeight: 3 });
+        }
+        // Actual route — blue line through the GPS pings.
+        if (showActual && actual.length > 1) {
+          new maps.Polyline({ path: actual, map, strokeColor: "#2563eb", strokeOpacity: 0.85, strokeWeight: 4 });
         }
         // Planned stops — numbered markers in visiting order.
         stops.forEach((v, i) => {
@@ -75,7 +86,7 @@ export default function EstimatorDriveMap({ data }: { data: EstimatorDrivePath }
       .catch(() => { if (!cancelled) setStatus("error"); });
 
     return () => { cancelled = true; };
-  }, [data]);
+  }, [data, showSuggested, showActual]);
 
   if (status === "error") {
     return (
@@ -86,11 +97,19 @@ export default function EstimatorDriveMap({ data }: { data: EstimatorDrivePath }
   }
 
   return (
-    <div className="relative">
-      <div ref={ref} className="h-72 w-full rounded border" />
-      {status === "loading" && (
-        <div className="absolute inset-0 flex items-center justify-center rounded bg-muted/40">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    <div className="space-y-1.5">
+      <div className="relative">
+        <div ref={ref} className="h-72 w-full rounded border" />
+        {status === "loading" && (
+          <div className="absolute inset-0 flex items-center justify-center rounded bg-muted/40">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </div>
+      {(drewSuggested || drewActual) && (
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+          {drewSuggested && <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-5 bg-green-600" /> Suggested route</span>}
+          {drewActual && <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-5 bg-blue-600" /> Actual drive</span>}
         </div>
       )}
     </div>

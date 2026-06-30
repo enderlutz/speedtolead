@@ -134,7 +134,10 @@ export default function EstimatorDay() {
         </div>
       )}
 
-      {/* Admin-only: where he actually drove this day */}
+      {/* Estimator: a preview of the day's suggested drive (no tracking) */}
+      {isEstimator && visits.length > 0 && <RoutePreviewSection date={date} />}
+
+      {/* Admin-only: suggested route + where he actually drove this day */}
       {isAdmin && <DrivePathSection date={date} estimatorName={user?.name || "Estimator"} />}
 
       {editVisit && (
@@ -221,6 +224,41 @@ function ClockBar() {
   );
 }
 
+// ── Estimator's own day preview — the suggested route only ──────────────────
+function RoutePreviewSection({ date }: { date: string }) {
+  const [data, setData] = useState<EstimatorDrivePath | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.getEstimatorDrivePath(date)
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [date]);
+
+  return (
+    <Card>
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <Navigation className="h-4 w-4 text-green-600" />
+          <h2 className="text-sm font-semibold">Your route</h2>
+        </div>
+        <p className="text-xs text-muted-foreground">Suggested order + drive for the day.</p>
+        {loading ? (
+          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : !data?.maps_api_key ? (
+          <div className="text-xs text-amber-600">Map unavailable — GOOGLE_MAPS_API_KEY isn't configured yet.</div>
+        ) : data.visits.filter((v) => v.lat != null).length === 0 ? (
+          <div className="text-xs text-muted-foreground">No mapped stops for this day yet.</div>
+        ) : (
+          <EstimatorDriveMap data={data} showSuggested showActual={false} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Admin-only drive path for this day ──────────────────────────────────────
 function DrivePathSection({ date, estimatorName }: { date: string; estimatorName: string }) {
   const [data, setData] = useState<EstimatorDrivePath | null>(null);
@@ -249,7 +287,7 @@ function DrivePathSection({ date, estimatorName }: { date: string; estimatorName
             </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">Where {estimatorName} actually drove this day.</p>
+        <p className="text-xs text-muted-foreground">Suggested route vs. where {estimatorName} actually drove.</p>
         {data && (
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground">
@@ -260,7 +298,7 @@ function DrivePathSection({ date, estimatorName }: { date: string; estimatorName
             ) : data.pings.length === 0 && data.visits.length === 0 ? (
               <div className="text-xs text-muted-foreground">Nothing recorded for this day yet.</div>
             ) : (
-              <EstimatorDriveMap data={data} />
+              <EstimatorDriveMap data={data} showSuggested showActual />
             )}
           </div>
         )}

@@ -184,6 +184,7 @@ export interface EstimatorDrivePath {
   estimator_user_id: string;
   date: string;
   maps_api_key: string;
+  can_see_actual: boolean;
   pings: { ts: string; lat: number; lng: number; accuracy_m: number | null }[];
   visits: EstimatorVisit[];
 }
