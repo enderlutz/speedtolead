@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob
+from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
@@ -64,7 +64,7 @@ def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:
             log.info(f"GHL push for {lead.id}: nothing to push, skipped={skipped}")
     except Exception as e:
         log.warning(f"GHL custom-field push for {lead.id} failed (non-fatal): {e}")
-from api.auth import get_current_user
+from api.auth import get_current_user, require_staff
 from config import get_settings
 
 router = APIRouter()
@@ -256,6 +256,123 @@ def recent_leads(limit: int = Query(10, ge=1, le=25)):
             .all()
         )
         return {"results": [_lean_lead_row(l) for l in rows]}
+    finally:
+        db.close()
+
+
+# ── Lead Map (Company Map) ────────────────────────────────────────────────
+# Sterling V2 pipeline stage IDs (mirror of frontend V2_STAGES) needed to
+# classify a lead for the map. "pre" = not estimated yet (everything before
+# ESTIMATE SENT); "sent" = estimate sent. Post-estimate stages aren't mapped.
+_ESTIMATE_SENT_ID = "dc3600f2-009b-4075-95fa-786823131416"
+_PRE_ESTIMATE_IDS = {
+    "e77fa568-8dd1-4f66-83c3-fa70dbd4d570",  # New Lead
+    "616087fa-4144-454e-b3d3-ff3669cb9461",  # HOT LEAD_SEND ESTIMATE
+    "86fd0197-38ee-4999-bd26-4cf175aeba6b",  # Address Follow Up
+    "92585169-bbc1-42c5-945d-63caf780e0b1",  # Responded to Address Follow Up
+    "1e8a52ac-a85a-4ee6-bcd5-0699ff64d3a7",  # Call 1 Pre Estimate
+    "fe74a5e6-e173-4783-a8a9-1f28168a6c1b",  # Call 2 Pre Estimate
+    "3020bb38-8c84-455d-a840-3650fbe50ecd",  # Call 3 Pre Estimate
+}
+_MAP_GEOCODE_CAP = 30  # geocode at most N uncoordinated leads per request
+
+
+@router.get("/leads-map")
+def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
+    """Data for the Company/Lead Map.
+    - leads: every not-yet-estimated lead (colored by stage) plus estimate-sent
+      leads, each with cached coords — ALWAYS returned so pins show before a
+      day is picked. Un-geocoded leads are geocoded lazily (capped) + cached.
+    - route_dates: days that have estimator estimates (populates the day dropdown).
+    - stops: only when `date` is given — the estimator's visits for that date
+      (red numbered pins + right-side list), in visiting order.
+    Leads already shown as a stop are excluded so they aren't double-pinned."""
+    from sqlalchemy import func
+    settings = get_settings()
+    db = get_db()
+    try:
+        # Days that have estimates → the dropdown options.
+        date_rows = (
+            db.query(EstimatorVisit.visit_date, func.count(EstimatorVisit.id))
+            .filter(EstimatorVisit.status != "canceled")
+            .group_by(EstimatorVisit.visit_date)
+            .order_by(EstimatorVisit.visit_date)
+            .all()
+        )
+        route_dates = [{"date": d, "count": c} for d, c in date_rows if d]
+
+        # Stops for the picked day (if any).
+        stops = []
+        stop_lead_ids: set[str] = set()
+        if date:
+            visits = (
+                db.query(EstimatorVisit)
+                .filter(EstimatorVisit.visit_date == date, EstimatorVisit.status != "canceled")
+                .order_by(EstimatorVisit.visit_order)
+                .all()
+            )
+            stop_lead_ids = {v.lead_id for v in visits if v.lead_id}
+            stops = [{
+                "lead_id": v.lead_id or "",
+                "visit_order": v.visit_order or 0,
+                "customer_name": v.customer_name or "",
+                "address": v.address or "",
+                "start_time": v.start_time or "",
+                "lat": v.lat,
+                "lng": v.lng,
+            } for v in visits]
+
+        # Candidate leads: pre-estimate (incl. blank/unknown stage) + estimate-sent.
+        rows = (
+            db.query(Lead)
+            .filter(Lead.pipeline_version == "v2", Lead.is_test == False)  # noqa: E712
+            .all()
+        )
+        geocoded = 0
+        leads_out = []
+        for lead in rows:
+            if lead.id in stop_lead_ids:
+                continue
+            sid = lead.ghl_pipeline_stage_id or ""
+            if sid == _ESTIMATE_SENT_ID:
+                group = "sent"
+            elif sid in _PRE_ESTIMATE_IDS or sid == "":
+                group = "pre"
+            else:
+                continue  # post-estimate stage — not on this map
+            if not (lead.address or "").strip():
+                continue
+            # Lazy geocode missing coords (best-effort, capped).
+            if (not lead.lat or not lead.lng) and geocoded < _MAP_GEOCODE_CAP:
+                try:
+                    from services.geocoder import geocode_address
+                    geo = geocode_address(lead.address, lead.zip_code or "")
+                    if geo and geo.get("lat") and geo.get("lng"):
+                        lead.lat = float(geo["lat"])
+                        lead.lng = float(geo["lng"])
+                        db.commit()
+                    geocoded += 1
+                except Exception as e:
+                    logger.warning(f"Map geocode for lead {lead.id} failed: {e}")
+            if not lead.lat or not lead.lng:
+                continue  # still no coords — skip this load, warms up later
+            leads_out.append({
+                "id": lead.id,
+                "contact_name": lead.contact_name or "",
+                "address": lead.address or "",
+                "lat": lead.lat,
+                "lng": lead.lng,
+                "stage_id": sid,
+                "group": group,
+            })
+
+        return {
+            "date": date or "",
+            "maps_api_key": settings.google_maps_browser_key or settings.google_maps_api_key or "",
+            "route_dates": route_dates,
+            "stops": stops,
+            "leads": leads_out,
+        }
     finally:
         db.close()
 
