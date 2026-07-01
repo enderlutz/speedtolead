@@ -6,7 +6,7 @@ import uuid
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
@@ -401,6 +401,62 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
         }
     finally:
         db.close()
+
+
+# One-time background geocode of every mappable lead, so the whole map fills
+# in one pass instead of 30-per-refresh. Progress is polled via -status.
+_map_backfill = {"running": False, "total": 0, "done": 0, "ok": 0}
+
+
+def _run_map_backfill():
+    from services.geocoder import geocode_address
+    db = get_db()
+    try:
+        rows = (
+            db.query(Lead)
+            .filter(Lead.pipeline_version == "v2", Lead.is_test.isnot(True))
+            .all()
+        )
+        todo = []
+        for lead in rows:
+            sid = lead.ghl_pipeline_stage_id or ""
+            mappable = sid == _ESTIMATE_SENT_ID or sid in _PRE_ESTIMATE_IDS or sid == ""
+            if not mappable or not (lead.address or "").strip():
+                continue
+            if lead.lat and lead.lng:
+                continue
+            todo.append(lead)
+        _map_backfill.update(total=len(todo), done=0, ok=0)
+        for lead in todo:
+            try:
+                geo = geocode_address(lead.address, lead.zip_code or "")
+                if geo and geo.get("lat") and geo.get("lng"):
+                    lead.lat = float(geo["lat"])
+                    lead.lng = float(geo["lng"])
+                    db.commit()
+                    _map_backfill["ok"] += 1
+            except Exception as e:
+                logger.warning(f"Backfill geocode failed for lead {lead.id}: {e}")
+            _map_backfill["done"] += 1
+    finally:
+        db.close()
+        _map_backfill["running"] = False
+
+
+@router.post("/leads-map/backfill")
+def start_map_backfill(background_tasks: BackgroundTasks, user: dict = Depends(require_staff)):
+    """Kick off a background geocode of all un-mapped leads (idempotent while
+    running). Poll /leads-map/backfill-status for progress."""
+    if _map_backfill["running"]:
+        return {"status": "already_running", **_map_backfill}
+    _map_backfill.update(running=True, total=0, done=0, ok=0)
+    background_tasks.add_task(_run_map_backfill)
+    return {"status": "started"}
+
+
+@router.get("/leads-map/backfill-status")
+def map_backfill_status(user: dict = Depends(require_staff)):
+    return dict(_map_backfill)
 
 
 @router.get("/leads/{lead_id}")

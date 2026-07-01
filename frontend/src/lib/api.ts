@@ -1547,6 +1547,10 @@ export const api = {
   // route + stops when a date is passed.
   getLeadMap: (date?: string) =>
     request<LeadMapData>(`/api/leads-map${date ? `?date=${date}` : ""}`),
+  startLeadMapBackfill: () =>
+    request<{ status: string }>(`/api/leads-map/backfill`, { method: "POST" }),
+  getLeadMapBackfillStatus: () =>
+    request<{ running: boolean; total: number; done: number; ok: number }>(`/api/leads-map/backfill-status`),
 
   // Estimator lead captures (notes / photos / recordings) — Estimator tab.
   getEstimatorLead: (leadId: string) =>

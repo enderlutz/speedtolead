@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { api, type LeadMapData, type LeadMapStop } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { Card, CardContent } from "@/components/ui/card";
-import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2 } from "lucide-react";
 
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
 const STOP_COLOR = "#dc2626";   // red — matches the default numbered pin
@@ -48,6 +50,7 @@ export default function LeadMap() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [legendOpen, setLegendOpen] = useState(true);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "nokey">("loading");
+  const [backfill, setBackfill] = useState<{ running: boolean; total: number; done: number; ok: number } | null>(null);
 
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<GMap | null>(null);
@@ -86,6 +89,38 @@ export default function LeadMap() {
     if (!selectedDate) { setStops([]); return; }
     api.getLeadMap(selectedDate).then((d) => setStops(d.stops)).catch(() => {});
   }, [selectedDate]);
+
+  // Kick off the one-time backfill of every un-mapped lead.
+  const startBackfill = async () => {
+    try {
+      await api.startLeadMapBackfill();
+      setBackfill({ running: true, total: 0, done: 0, ok: 0 });
+    } catch {
+      toast.error("Couldn't start geocoding");
+    }
+  };
+
+  // While a backfill runs, poll progress; on finish, reload the pins.
+  useEffect(() => {
+    if (!backfill?.running) return;
+    const iv = window.setInterval(async () => {
+      try {
+        const s = await api.getLeadMapBackfillStatus();
+        if (s.running) {
+          setBackfill(s);
+        } else {
+          window.clearInterval(iv);
+          setBackfill(null);
+          const fresh = await api.getLeadMap();
+          setData(fresh);
+          toast.success("Map updated");
+        }
+      } catch { /* keep polling */ }
+    }, 2000);
+    return () => window.clearInterval(iv);
+  }, [backfill?.running]);
+
+  const unmapped = data?.diag ? Math.max(0, data.diag.candidates - data.diag.returned) : 0;
 
   // Redraw markers + route whenever data / stops / visibility change.
   useEffect(() => {
@@ -200,7 +235,18 @@ export default function LeadMap() {
         {selectedDate && (
           <button onClick={() => setSelectedDate("")} className="text-xs text-muted-foreground hover:text-foreground underline">Clear route</button>
         )}
-        <span className="text-xs text-muted-foreground ml-auto">{data?.leads.length ?? 0} leads on map</span>
+        <div className="ml-auto flex items-center gap-3">
+          {backfill?.running ? (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Geocoding… {backfill.done}{backfill.total ? `/${backfill.total}` : ""}
+            </span>
+          ) : unmapped > 0 ? (
+            <Button size="sm" variant="outline" onClick={startBackfill}>
+              <Wand2 className="h-3.5 w-3.5 mr-1" /> Geocode all {unmapped} leads
+            </Button>
+          ) : null}
+          <span className="text-xs text-muted-foreground">{data?.leads.length ?? 0} leads on map</span>
+        </div>
       </div>
 
       {/* Diagnostic — only when the map came back empty, so an empty map is legible */}
