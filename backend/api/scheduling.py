@@ -950,7 +950,12 @@ def link_lead_to_job(job_id: str, body: LinkLeadBody, user: dict = Depends(requi
     """Link an existing lead/customer to a job. Used for Google-booked jobs
     that were imported without one, so they pick up the customer's record
     (proposal, contact info, history). Backfills empty customer fields from
-    the lead but never overwrites details already on the job."""
+    the lead but never overwrites details already on the job.
+
+    Linking also moves the lead to CLOSED & SCHEDULED (same as scheduling from
+    the dashboard) — the job is on the calendar with a date, so the lead is
+    scheduled by definition. This is what surfaces it on the Lead Map as a
+    scheduled pin with its job-card hover."""
     del user
     db = get_db()
     try:
@@ -972,6 +977,7 @@ def link_lead_to_job(job_id: str, body: LinkLeadBody, user: dict = Depends(requi
         if not (j.zip_code or "").strip():
             j.zip_code = lead.zip_code or ""
         j.updated_at = _now()
+        _push_lead_to_scheduled_stage(lead)
         db.commit()
         db.refresh(j)
         row = _job_with_assignments(db, j)
