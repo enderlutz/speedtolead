@@ -7,6 +7,25 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# The company only serves the greater Houston metro, so bias + constrain
+# geocoding to Texas. This is what stops an ambiguous street name from
+# resolving to a same-named street in another state (e.g. New Jersey).
+_HOME_STATE = "TX"
+_HOME_BOUNDS = "28.9,-96.2|30.6,-94.5"  # SW|NE — greater Houston + suburbs
+
+
+def _first_home_state_result(data: dict | None) -> dict | None:
+    """The first result physically in the home state (TX). Google can return a
+    match in the wrong state for a bare street name; this rejects those so we
+    never cache a pin in New Jersey for a Houston lead."""
+    if not data or data.get("status") != "OK":
+        return None
+    for res in data.get("results", []):
+        for comp in res.get("address_components", []):
+            if "administrative_area_level_1" in comp.get("types", []) and comp.get("short_name") == _HOME_STATE:
+                return res
+    return None
+
 
 def geocode_address(address: str, zip_code: str = "", api_key: str | None = None) -> dict | None:
     """
@@ -40,83 +59,64 @@ def geocode_address(address: str, zip_code: str = "", api_key: str | None = None
             z = m.group(1)
     z = z[:5] if len(z) >= 5 else ""
 
-    # If the caller passed us a ZIP and the address doesn't already
-    # contain a ZIP, fold it into the query string so Google has the
-    # zip in BOTH the address text and the components filter — a couple
-    # of edge cases (multiple cities sharing a street name) resolve
-    # better when the zip is in the address text too.
+    # Give Google every signal we have: the street address, the home state
+    # (adding "TX" stops a bare "123 Foo St" from resolving out of state), and
+    # the ZIP folded into the query text.
     address_q = address
+    if not re.search(r"\bTX\b", address_q, re.I) and "texas" not in address_q.lower():
+        address_q = f"{address_q}, {_HOME_STATE}"
     if z and not re.search(r"\b\d{5}(?:-\d{4})?\b", address):
-        address_q = f"{address}, {z}"
+        address_q = f"{address_q} {z}"
 
-    params = {"address": address_q, "key": api_key}
-    components = ["country:US"]
+    def _query(components: str) -> dict | None:
+        try:
+            r = httpx.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={"address": address_q, "key": api_key, "components": components, "bounds": _HOME_BOUNDS},
+                timeout=10,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            logger.error(f"Geocoding request failed for '{address_q}': {e}")
+            return None
+
+    # Pass 1: hard ZIP + country filter (most precise).
+    comps = ["country:US"]
     if z:
-        components.append(f"postal_code:{z}")
-    params["components"] = "|".join(components)
+        comps.append(f"postal_code:{z}")
+    data = _query("|".join(comps))
+    result = _first_home_state_result(data)
 
-    try:
-        r = httpx.get(
-            "https://maps.googleapis.com/maps/api/geocode/json",
-            params=params,
-            timeout=10,
+    # Pass 2: ZIP dropped (stale/wrong ZIP on file) but constrained to Texas —
+    # so it can never jump to a same-named street in another state.
+    if result is None:
+        if z:
+            logger.info(f"Geocode found nothing for '{address_q}' with ZIP — retrying constrained to {_HOME_STATE}")
+        data2 = _query(f"country:US|administrative_area:{_HOME_STATE}")
+        result = _first_home_state_result(data2) or result
+        data = data2 or data
+
+    if result is None:
+        logger.warning(
+            f"Geocode failed for '{address}': status={(data or {}).get('status')} "
+            f"error={(data or {}).get('error_message')}"
         )
-        r.raise_for_status()
-        data = r.json()
-
-        if data.get("status") != "OK" or not data.get("results"):
-            # If the components-constrained query found nothing, retry once
-            # without the ZIP constraint — covers the case where the lead's
-            # zip_code on file is stale or wrong but the street address is
-            # otherwise valid.
-            if z:
-                logger.info(
-                    f"Geocode found nothing for '{address_q}' with ZIP constraint — retrying without"
-                )
-                r2 = httpx.get(
-                    "https://maps.googleapis.com/maps/api/geocode/json",
-                    params={
-                        "address": address,
-                        "key": api_key,
-                        "components": "country:US",
-                    },
-                    timeout=10,
-                )
-                r2.raise_for_status()
-                data = r2.json()
-                if data.get("status") != "OK" or not data.get("results"):
-                    logger.warning(
-                        f"Geocode failed for '{address}': status={data.get('status')} "
-                        f"error={data.get('error_message')}"
-                    )
-                    return None
-            else:
-                logger.warning(
-                    f"Geocode failed for '{address}': status={data.get('status')} "
-                    f"error={data.get('error_message')}"
-                )
-                return None
-
-        result = data["results"][0]
-        components_out = {
-            c["types"][0]: c
-            for c in result.get("address_components", [])
-            if c.get("types")
-        }
-
-        out_zip = ""
-        if "postal_code" in components_out:
-            out_zip = components_out["postal_code"].get("short_name", "")
-
-        return {
-            "formatted_address": result.get("formatted_address", address),
-            "zip_code": out_zip,
-            "lat": result["geometry"]["location"]["lat"],
-            "lng": result["geometry"]["location"]["lng"],
-        }
-    except Exception as e:
-        logger.error(f"Geocoding failed for '{address_q}': {e}")
         return None
+
+    components_out = {
+        c["types"][0]: c
+        for c in result.get("address_components", [])
+        if c.get("types")
+    }
+    out_zip = components_out.get("postal_code", {}).get("short_name", "") if "postal_code" in components_out else ""
+    loc = result["geometry"]["location"]
+    return {
+        "formatted_address": result.get("formatted_address", address),
+        "zip_code": out_zip,
+        "lat": loc["lat"],
+        "lng": loc["lng"],
+    }
 
 
 def extract_zip(address: str) -> str:

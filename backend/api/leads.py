@@ -277,6 +277,15 @@ _PRE_ESTIMATE_IDS = {
 _MAP_GEOCODE_CAP = 30  # geocode at most N uncoordinated leads per request
 
 
+def _in_home_region(lat, lng) -> bool:
+    """Roughly within Texas. Cached coords outside this (e.g. an old New Jersey
+    mis-geocode) are treated as invalid so they get re-geocoded."""
+    return (
+        lat is not None and lng is not None
+        and 25.5 <= float(lat) <= 36.6 and -106.7 <= float(lng) <= -93.4
+    )
+
+
 @router.get("/leads-map")
 def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = Depends(require_staff)):
     """Data for the Company/Lead Map.
@@ -318,7 +327,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 .all()
             )
             for v in visits:
-                if (not v.lat or not v.lng) and (v.address or "").strip():
+                if not _in_home_region(v.lat, v.lng) and (v.address or "").strip():
                     try:
                         geo = geocode_address(v.address, api_key=map_key)
                         if geo and geo.get("lat") and geo.get("lng"):
@@ -362,9 +371,9 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
             if not (lead.address or "").strip():
                 continue
             candidates += 1
-            # Lazy geocode missing coords (best-effort, capped). Skipped during
-            # a running backfill's live refresh so we don't double-geocode.
-            if (not lead.lat or not lead.lng) and not skip_geocode and geocoded < _MAP_GEOCODE_CAP:
+            # Geocode when coords are missing OR outside Texas (a stale bad
+            # geocode). Skipped during a backfill's live refresh (capped).
+            if not _in_home_region(lead.lat, lead.lng) and not skip_geocode and geocoded < _MAP_GEOCODE_CAP:
                 try:
                     geo = geocode_address(lead.address, lead.zip_code or "", api_key=map_key)
                     if geo and geo.get("lat") and geo.get("lng"):
@@ -375,8 +384,8 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                     geocoded += 1
                 except Exception as e:
                     logger.warning(f"Map geocode for lead {lead.id} failed: {e}")
-            if not lead.lat or not lead.lng:
-                continue  # still no coords — skip this load, warms up later
+            if not _in_home_region(lead.lat, lead.lng):
+                continue  # no/invalid coords — skip (warms up or stays hidden)
             leads_out.append({
                 "id": lead.id,
                 "contact_name": lead.contact_name or "",
@@ -428,8 +437,8 @@ def _run_map_backfill():
             mappable = sid == _ESTIMATE_SENT_ID or sid in _PRE_ESTIMATE_IDS or sid == ""
             if not mappable or not (lead.address or "").strip():
                 continue
-            if lead.lat and lead.lng:
-                continue
+            if _in_home_region(lead.lat, lead.lng):
+                continue  # already has valid Texas coords
             todo.append(lead)
         _map_backfill.update(total=len(todo), done=0, ok=0)
         for lead in todo:
