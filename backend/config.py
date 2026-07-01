@@ -35,7 +35,14 @@ class Settings(BaseSettings):
     proposal_base_url: str = "http://localhost:5173"
 
     # Google Maps
+    # Server key — geocoding lead addresses (server-side only).
     google_maps_api_key: str = ""
+    # Browser/maps key — the estimator drive-path Maps JavaScript map (returned
+    # to the frontend) AND the Distance Matrix drive-time calls. Kept separate
+    # so the geocoding key and the browser-exposed maps key can be enabled/
+    # restricted independently in Google Cloud. Falls back to
+    # google_maps_api_key when unset.
+    google_maps_browser_key: str = ""
 
     # GHL Pipeline sync
     ghl_pipeline_id: str = ""

@@ -19,7 +19,10 @@ def drive_minutes(origin: LatLng, dest: LatLng) -> float | None:
     """Approx driving time in minutes between two (lat, lng) points.
     Returns None if the API key is missing or Google returns no route."""
     settings = get_settings()
-    if not settings.google_maps_api_key or not origin or not dest:
+    # Distance Matrix is enabled on the browser/maps key; fall back to the main
+    # key if a separate one isn't configured.
+    key = settings.google_maps_browser_key or settings.google_maps_api_key
+    if not key or not origin or not dest:
         return None
     try:
         r = httpx.get(
@@ -29,7 +32,7 @@ def drive_minutes(origin: LatLng, dest: LatLng) -> float | None:
                 "destinations": f"{dest[0]},{dest[1]}",
                 "mode": "driving",
                 "units": "imperial",
-                "key": settings.google_maps_api_key,
+                "key": key,
             },
             timeout=10,
         )

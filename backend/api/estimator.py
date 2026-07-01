@@ -751,10 +751,12 @@ def get_drive_path(
                     .all()
                 )
             ]
+        settings = get_settings()
         return {
             "estimator_user_id": eid,
             "date": date,
-            "maps_api_key": get_settings().google_maps_api_key or "",
+            # Browser Maps JS key (falls back to the main key if unset).
+            "maps_api_key": settings.google_maps_browser_key or settings.google_maps_api_key or "",
             "can_see_actual": can_see_actual,
             "pings": pings,
             "visits": _day_visits(db, eid, date),
