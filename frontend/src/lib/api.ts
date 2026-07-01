@@ -224,6 +224,33 @@ export interface EstimatorCaptures {
   recordings: EstimatorRecordingMeta[];
 }
 
+// --- Lead Map (Company Map) ---
+export interface LeadMapStop {
+  lead_id: string;
+  visit_order: number;
+  customer_name: string;
+  address: string;
+  start_time: string;
+  lat: number | null;
+  lng: number | null;
+}
+export interface LeadMapPin {
+  id: string;
+  contact_name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  stage_id: string;
+  group: "pre" | "sent";
+}
+export interface LeadMapData {
+  date: string;
+  maps_api_key: string;
+  route_dates: { date: string; count: number }[];
+  stops: LeadMapStop[];
+  leads: LeadMapPin[];
+}
+
 
 export interface Lead {
   id: string;
@@ -1507,6 +1534,11 @@ export const api = {
     request<EstimatorDrivePath>(
       `/api/estimator/drive-path?date=${date}${estimatorUserId ? `&estimator_user_id=${encodeURIComponent(estimatorUserId)}` : ""}`,
     ),
+
+  // Company / Lead Map — pins for all active leads always; a day's estimator
+  // route + stops when a date is passed.
+  getLeadMap: (date?: string) =>
+    request<LeadMapData>(`/api/leads-map${date ? `?date=${date}` : ""}`),
 
   // Estimator lead captures (notes / photos / recordings) — Estimator tab.
   getEstimatorLead: (leadId: string) =>

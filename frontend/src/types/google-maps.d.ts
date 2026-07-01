@@ -22,12 +22,21 @@ declare global {
   }
   interface GMarker {
     setMap(map: GMap | null): void;
+    addListener(event: string, handler: () => void): void;
+    getPosition(): GLatLngLiteral | undefined;
+  }
+  interface GInfoWindow {
+    setContent(content: string): void;
+    open(map: GMap, anchor?: GMarker): void;
+    close(): void;
   }
   interface GoogleMapsNS {
     Map: new (el: HTMLElement, opts: Record<string, unknown>) => GMap;
     Polyline: new (opts: Record<string, unknown>) => GPolyline;
     Marker: new (opts: Record<string, unknown>) => GMarker;
+    InfoWindow: new (opts?: Record<string, unknown>) => GInfoWindow;
     LatLngBounds: new () => GLatLngBounds;
+    SymbolPath: { CIRCLE: number; BACKWARD_CLOSED_ARROW: number; FORWARD_CLOSED_ARROW: number };
   }
   interface Window {
     google?: { maps: GoogleMapsNS };
