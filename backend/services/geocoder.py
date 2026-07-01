@@ -83,8 +83,16 @@ def geocode_address(address: str, zip_code: str = "") -> dict | None:
                 r2.raise_for_status()
                 data = r2.json()
                 if data.get("status") != "OK" or not data.get("results"):
+                    logger.warning(
+                        f"Geocode failed for '{address}': status={data.get('status')} "
+                        f"error={data.get('error_message')}"
+                    )
                     return None
             else:
+                logger.warning(
+                    f"Geocode failed for '{address}': status={data.get('status')} "
+                    f"error={data.get('error_message')}"
+                )
                 return None
 
         result = data["results"][0]
