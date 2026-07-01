@@ -3321,6 +3321,8 @@ export interface DepositInvoiceResult {
   /** "sent" (new), "already_sent" (idempotent return), "already_paid",
    *  "waived". Frontend uses this to decide whether to re-show the link. */
   status: string;
+  /** Whether the payment link was texted to the customer via GHL SMS. */
+  sms_sent?: boolean;
   deposit_qb_invoice_id?: string;
   deposit_payment_link?: string;
   deposit_invoice_sent_at?: string | null;

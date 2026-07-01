@@ -2662,9 +2662,11 @@ function DepositRow({
     try {
       const r = await api.sendDepositInvoice(lead.id);
       if (r.status === "sent") {
-        toast.success("Deposit invoice created — payment link is ready to share.");
+        if (r.sms_sent) toast.success("Deposit link texted to the customer.");
+        else toast.warning("Invoice created, but the text didn't send (no phone/GHL contact). Share the link manually.");
       } else if (r.status === "already_sent") {
-        toast.info("This lead already has a deposit invoice — link refreshed.");
+        if (r.sms_sent) toast.success("Deposit link re-texted to the customer.");
+        else toast.info("Deposit invoice exists — couldn't text (no phone/GHL contact). Share the link manually.");
       } else if (r.status === "already_paid") {
         toast.success("Deposit already paid.");
       } else if (r.status === "waived") {

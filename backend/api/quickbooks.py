@@ -59,6 +59,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _text_deposit_link(lead, link: str, amount: float) -> bool:
+    """Text the customer their deposit payment link via GHL SMS. Returns False
+    (no-op) when we can't reach them — no GHL contact or no link."""
+    contact_id = (lead.ghl_contact_id or "").strip()
+    if not contact_id or not link:
+        return False
+    first = (lead.contact_name or "").strip().split(" ")[0] or "there"
+    msg = (
+        f"Hi {first}, thanks for choosing A&T's Fence Staining! Here's your "
+        f"secure link to pay the ${amount:.0f} deposit and lock in your "
+        f"appointment: {link}"
+    )
+    try:
+        return ghl.send_sms(contact_id, msg, lead.ghl_location_id or None)
+    except Exception as e:
+        logger.error(f"Deposit link SMS failed for lead {lead.id}: {e}")
+        return False
+
+
 # ────────────────────────────────────────────────────────────────────────
 # Status + OAuth
 # ────────────────────────────────────────────────────────────────────────
@@ -832,8 +851,11 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
         # Idempotent: an invoice already exists for this lead's deposit.
         # Return the existing link rather than racing QB on duplicates.
         if lead.deposit_qb_invoice_id:
+            # Re-text the existing link so pressing Send again re-sends it.
+            sms_sent = _text_deposit_link(lead, lead.deposit_payment_link or "", lead.deposit_amount or DEPOSIT_AMOUNT_USD)
             return {
                 "status": "already_sent",
+                "sms_sent": sms_sent,
                 "deposit_qb_invoice_id": lead.deposit_qb_invoice_id,
                 "deposit_payment_link": lead.deposit_payment_link or "",
                 "deposit_invoice_sent_at": lead.deposit_invoice_sent_at,
@@ -852,9 +874,11 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
             lead.updated_at = _now()
             db.commit()
             db.refresh(lead)
+            sms_sent = _text_deposit_link(lead, invoice_url, DEPOSIT_AMOUNT_USD)
             return {
                 "mode": "mock",
                 "status": "sent",
+                "sms_sent": sms_sent,
                 "deposit_qb_invoice_id": invoice_id,
                 "deposit_payment_link": invoice_url,
                 "amount": DEPOSIT_AMOUNT_USD,
@@ -940,9 +964,12 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
         lead.updated_at = _now()
         db.commit()
         db.refresh(lead)
+        # Text the customer the hosted payment link (the whole point of "Send").
+        sms_sent = _text_deposit_link(lead, lead.deposit_payment_link, lead.deposit_amount)
         return {
             "mode": "live",
             "status": "sent",
+            "sms_sent": sms_sent,
             "deposit_qb_invoice_id": inv["invoice_id"],
             "deposit_payment_link": inv.get("invoice_url", ""),
             "invoice_number": inv.get("invoice_number"),
