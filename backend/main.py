@@ -274,6 +274,7 @@ async def _async_db_init():
             await asyncio.to_thread(auth.seed_edward_user)
             await asyncio.to_thread(auth.seed_brent_user)
             await asyncio.to_thread(auth.seed_emmanuel_user)
+            await asyncio.to_thread(auth.seed_olga_estimator_access)
             # Pre-warm the 16MB PDF template into module-level RAM so the
             # first customer-facing request after deploy doesn't pay the
             # cold-start tax (BLOB transfer + the retry-with-sleep loop in

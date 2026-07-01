@@ -295,6 +295,33 @@ def seed_emmanuel_user():
         db.close()
 
 
+def seed_olga_estimator_access():
+    """Grant Olga (the VA) access to the Estimator view. One-off per client
+    request (2026-07-01). She keeps her 'va' role; we just add the 'estimator'
+    permission as a per-account override so the nav item + /estimator route
+    unlock for her. Admin-only pieces of that page (drive-path map, the "+"
+    scheduler, edit-time) stay role-gated to admin, so she gets the read view.
+
+    Idempotent — only sets the key the first time (absent) so a later admin
+    revoke (estimator=false) via the Permissions UI isn't clobbered on boot."""
+    import json
+    db = get_db()
+    try:
+        u = db.query(User).filter(User.username == "olga").first()
+        if not u:
+            return
+        try:
+            perms = json.loads(u.permissions or "{}")
+        except (json.JSONDecodeError, TypeError):
+            perms = {}
+        if "estimator" not in perms:
+            perms["estimator"] = True
+            u.permissions = json.dumps(perms)
+            db.commit()
+    finally:
+        db.close()
+
+
 def seed_default_users():
     """Create default admin + VA users if none exist."""
     db = get_db()
