@@ -9,13 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus, Home, Hammer, AlertTriangle } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus, Home, Hammer, AlertTriangle, MapPin } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
 } from "@dnd-kit/core";
 import { leadDetailCache } from "./Leads";
 import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
+import LeadMap from "@/components/LeadMap";
 
 // Stage ID that means "ESTIMATE SENT" — used to switch the elapsed timer
 // from red (still waiting) to green (already sent).
@@ -348,6 +349,7 @@ export default function LeadsV2() {
         <TabsList>
           <TabsTrigger value="kanban"><LayoutGrid className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Kanban</span></TabsTrigger>
           <TabsTrigger value="queue"><List className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Queue</span></TabsTrigger>
+          <TabsTrigger value="map"><MapPin className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Lead Map</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="kanban" className="mt-3">
@@ -415,6 +417,10 @@ export default function LeadsV2() {
             ))}
             {queue.length === 0 && <p className="py-8 text-center text-muted-foreground text-sm">No leads yet</p>}
           </div>
+        </TabsContent>
+
+        <TabsContent value="map" className="mt-3">
+          <LeadMap />
         </TabsContent>
       </Tabs>
 
