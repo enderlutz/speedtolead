@@ -22,7 +22,10 @@ def geocode_address(address: str, zip_code: str = "") -> dict | None:
     doesn't suddenly resolve to a London match.
     """
     settings = get_settings()
-    if not settings.google_maps_api_key or not address:
+    # Prefer the dedicated geocoding key; fall back to the maps/browser key so
+    # a single configured key (with Geocoding API enabled) works too.
+    api_key = settings.google_maps_api_key or settings.google_maps_browser_key
+    if not api_key or not address:
         return None
 
     z = (zip_code or "").strip()
@@ -44,7 +47,7 @@ def geocode_address(address: str, zip_code: str = "") -> dict | None:
     if z and not re.search(r"\b\d{5}(?:-\d{4})?\b", address):
         address_q = f"{address}, {z}"
 
-    params = {"address": address_q, "key": settings.google_maps_api_key}
+    params = {"address": address_q, "key": api_key}
     components = ["country:US"]
     if z:
         components.append(f"postal_code:{z}")
@@ -72,7 +75,7 @@ def geocode_address(address: str, zip_code: str = "") -> dict | None:
                     "https://maps.googleapis.com/maps/api/geocode/json",
                     params={
                         "address": address,
-                        "key": settings.google_maps_api_key,
+                        "key": api_key,
                         "components": "country:US",
                     },
                     timeout=10,

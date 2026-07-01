@@ -301,7 +301,10 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
         )
         route_dates = [{"date": d, "count": c} for d, c in date_rows if d]
 
-        # Stops for the picked day (if any).
+        from services.geocoder import geocode_address
+
+        # Stops for the picked day (if any). Geocode any stop missing coords
+        # (older visits created before geocoding worked) and cache on the row.
         stops = []
         stop_lead_ids: set[str] = set()
         if date:
@@ -311,6 +314,16 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
                 .order_by(EstimatorVisit.visit_order)
                 .all()
             )
+            for v in visits:
+                if (not v.lat or not v.lng) and (v.address or "").strip():
+                    try:
+                        geo = geocode_address(v.address)
+                        if geo and geo.get("lat") and geo.get("lng"):
+                            v.lat = float(geo["lat"])
+                            v.lng = float(geo["lng"])
+                            db.commit()
+                    except Exception as e:
+                        logger.warning(f"Map stop geocode failed for visit {v.id}: {e}")
             stop_lead_ids = {v.lead_id for v in visits if v.lead_id}
             stops = [{
                 "lead_id": v.lead_id or "",
@@ -323,12 +336,15 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
             } for v in visits]
 
         # Candidate leads: pre-estimate (incl. blank/unknown stage) + estimate-sent.
+        # is_test.isnot(True) also keeps rows where is_test is NULL.
         rows = (
             db.query(Lead)
-            .filter(Lead.pipeline_version == "v2", Lead.is_test == False)  # noqa: E712
+            .filter(Lead.pipeline_version == "v2", Lead.is_test.isnot(True))
             .all()
         )
-        geocoded = 0
+        geocoded = 0            # geocode attempts this request
+        geocode_ok = 0          # attempts that returned coords
+        candidates = 0          # leads in a mappable stage with an address
         leads_out = []
         for lead in rows:
             if lead.id in stop_lead_ids:
@@ -342,15 +358,16 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
                 continue  # post-estimate stage — not on this map
             if not (lead.address or "").strip():
                 continue
+            candidates += 1
             # Lazy geocode missing coords (best-effort, capped).
             if (not lead.lat or not lead.lng) and geocoded < _MAP_GEOCODE_CAP:
                 try:
-                    from services.geocoder import geocode_address
                     geo = geocode_address(lead.address, lead.zip_code or "")
                     if geo and geo.get("lat") and geo.get("lng"):
                         lead.lat = float(geo["lat"])
                         lead.lng = float(geo["lng"])
                         db.commit()
+                        geocode_ok += 1
                     geocoded += 1
                 except Exception as e:
                     logger.warning(f"Map geocode for lead {lead.id} failed: {e}")
@@ -372,6 +389,15 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
             "route_dates": route_dates,
             "stops": stops,
             "leads": leads_out,
+            # Diagnostics — helps explain an empty map (0 pins).
+            "diag": {
+                "v2_rows": len(rows),
+                "candidates": candidates,       # mappable stage + has address
+                "returned": len(leads_out),     # ended up with coords
+                "geocode_attempts": geocoded,
+                "geocode_ok": geocode_ok,
+                "has_key": bool(settings.google_maps_api_key or settings.google_maps_browser_key),
+            },
         }
     finally:
         db.close()

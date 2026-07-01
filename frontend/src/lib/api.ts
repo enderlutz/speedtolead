@@ -249,6 +249,14 @@ export interface LeadMapData {
   route_dates: { date: string; count: number }[];
   stops: LeadMapStop[];
   leads: LeadMapPin[];
+  diag?: {
+    v2_rows: number;
+    candidates: number;
+    returned: number;
+    geocode_attempts: number;
+    geocode_ok: number;
+    has_key: boolean;
+  };
 }
 
 

@@ -203,6 +203,17 @@ export default function LeadMap() {
         <span className="text-xs text-muted-foreground ml-auto">{data?.leads.length ?? 0} leads on map</span>
       </div>
 
+      {/* Diagnostic — only when the map came back empty, so an empty map is legible */}
+      {data && data.leads.length === 0 && data.diag && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          No lead pins yet. {data.diag.candidates} mappable lead{data.diag.candidates === 1 ? "" : "s"} found;
+          geocoded {data.diag.geocode_ok}/{data.diag.geocode_attempts} this load
+          {!data.diag.has_key && " — no Maps key configured"}
+          {data.diag.has_key && data.diag.geocode_attempts > 0 && data.diag.geocode_ok === 0 && " — geocoding returned nothing (enable the Geocoding API on your key)"}.
+          Pins fill in as addresses geocode; refresh to warm up more.
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row gap-3">
         {/* Map + legend overlay */}
         <div className="relative flex-1">
