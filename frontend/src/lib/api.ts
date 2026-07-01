@@ -1545,8 +1545,13 @@ export const api = {
 
   // Company / Lead Map — pins for all active leads always; a day's estimator
   // route + stops when a date is passed.
-  getLeadMap: (date?: string) =>
-    request<LeadMapData>(`/api/leads-map${date ? `?date=${date}` : ""}`),
+  getLeadMap: (date?: string, skipGeocode?: boolean) => {
+    const q = new URLSearchParams();
+    if (date) q.set("date", date);
+    if (skipGeocode) q.set("skip_geocode", "true");
+    const qs = q.toString();
+    return request<LeadMapData>(`/api/leads-map${qs ? `?${qs}` : ""}`);
+  },
   startLeadMapBackfill: () =>
     request<{ status: string }>(`/api/leads-map/backfill`, { method: "POST" }),
   getLeadMapBackfillStatus: () =>

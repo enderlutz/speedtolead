@@ -278,7 +278,7 @@ _MAP_GEOCODE_CAP = 30  # geocode at most N uncoordinated leads per request
 
 
 @router.get("/leads-map")
-def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
+def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = Depends(require_staff)):
     """Data for the Company/Lead Map.
     - leads: every not-yet-estimated lead (colored by stage) plus estimate-sent
       leads, each with cached coords — ALWAYS returned so pins show before a
@@ -359,8 +359,9 @@ def lead_map(date: str | None = None, user: dict = Depends(require_staff)):
             if not (lead.address or "").strip():
                 continue
             candidates += 1
-            # Lazy geocode missing coords (best-effort, capped).
-            if (not lead.lat or not lead.lng) and geocoded < _MAP_GEOCODE_CAP:
+            # Lazy geocode missing coords (best-effort, capped). Skipped during
+            # a running backfill's live refresh so we don't double-geocode.
+            if (not lead.lat or not lead.lng) and not skip_geocode and geocoded < _MAP_GEOCODE_CAP:
                 try:
                     geo = geocode_address(lead.address, lead.zip_code or "")
                     if geo and geo.get("lat") and geo.get("lng"):

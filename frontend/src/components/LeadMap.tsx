@@ -52,6 +52,10 @@ export default function LeadMap() {
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "nokey">("loading");
   const [backfill, setBackfill] = useState<{ running: boolean; total: number; done: number; ok: number } | null>(null);
 
+  // Latest selected date, read inside async polling without stale closures.
+  const selectedDateRef = useRef("");
+  useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
+
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<GMap | null>(null);
   const iwRef = useRef<GInfoWindow | null>(null);
@@ -100,19 +104,26 @@ export default function LeadMap() {
     }
   };
 
-  // While a backfill runs, poll progress; on finish, reload the pins.
+  // While a backfill runs, poll progress AND live-refresh pins (cached-only, so
+  // no double geocoding). Refetch with the selected date so the day's stops get
+  // geocoded too — that's what puts the red route pins on the map.
   useEffect(() => {
     if (!backfill?.running) return;
+    const refresh = async () => {
+      const d = selectedDateRef.current;
+      const fresh = await api.getLeadMap(d || undefined, true);
+      setData(fresh);
+      if (d) setStops(fresh.stops);
+    };
     const iv = window.setInterval(async () => {
       try {
         const s = await api.getLeadMapBackfillStatus();
+        await refresh();
         if (s.running) {
           setBackfill(s);
         } else {
           window.clearInterval(iv);
           setBackfill(null);
-          const fresh = await api.getLeadMap();
-          setData(fresh);
           toast.success("Map updated");
         }
       } catch { /* keep polling */ }
