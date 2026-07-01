@@ -8,8 +8,9 @@ import { toast } from "sonner";
 import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw } from "lucide-react";
 
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
-const STOP_COLOR = "#dc2626";   // red — matches the default numbered pin
-const SENT_COLOR = "#8b5cf6";   // purple — estimate sent
+const STOP_COLOR = "#dc2626";        // red — matches the default numbered pin
+const SENT_COLOR = "#8b5cf6";        // purple — estimate sent
+const COMPLETED_COLOR = "#16a34a";   // green — job completed
 
 // Pre-estimate stage → pin color + label (mirror of the Sterling V2 stages).
 const NEW_LEAD_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570";
@@ -27,6 +28,17 @@ function catForStage(stageId: string): string {
 }
 function pinColor(stageId: string): string {
   return (STAGE_PINS[stageId] || STAGE_PINS[NEW_LEAD_ID]).color;
+}
+// A lead's legend category + pin color, honoring its group (sent / completed).
+function leadCat(l: { group: string; stage_id: string }): string {
+  if (l.group === "sent") return "sent";
+  if (l.group === "completed") return "completed";
+  return catForStage(l.stage_id);
+}
+function leadColor(l: { group: string; stage_id: string }): string {
+  if (l.group === "sent") return SENT_COLOR;
+  if (l.group === "completed") return COMPLETED_COLOR;
+  return pinColor(l.stage_id);
 }
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
@@ -149,18 +161,21 @@ export default function LeadMap() {
     const stopBounds = new maps.LatLngBounds();
     let leadCount = 0, stopCount = 0;
 
-    // Lead pins (colored circles by stage / estimate-sent).
+    // Lead pins (colored circles by stage / estimate-sent / completed).
     for (const lead of data?.leads || []) {
-      const cat = lead.group === "sent" ? "sent" : catForStage(lead.stage_id);
+      const cat = leadCat(lead);
       if (hidden.has(cat)) continue;
-      const color = lead.group === "sent" ? SENT_COLOR : pinColor(lead.stage_id);
+      const color = leadColor(lead);
       const pos = { lat: lead.lat, lng: lead.lng };
       const marker = new maps.Marker({
         position: pos, map,
         icon: { path: maps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 1.5 },
       });
+      const priceLine = lead.group === "sent" && lead.signature_price
+        ? `<br/><strong>Signature: $${lead.signature_price.toLocaleString()}</strong>`
+        : "";
       marker.addListener("mouseover", () => {
-        iw.setContent(`<div style="font-size:12px;line-height:1.4"><strong>${esc(lead.contact_name || "Lead")}</strong><br/>${esc(lead.address || "")}</div>`);
+        iw.setContent(`<div style="font-size:12px;line-height:1.4"><strong>${esc(lead.contact_name || "Lead")}</strong><br/>${esc(lead.address || "")}${priceLine}</div>`);
         iw.open(map, marker);
       });
       marker.addListener("mouseout", () => iw.close());
@@ -218,6 +233,7 @@ export default function LeadMap() {
     if (stops.length) present.set("stops", { label: "Estimator stop", color: STOP_COLOR });
     for (const l of data?.leads || []) {
       if (l.group === "sent") present.set("sent", { label: "Estimate Sent", color: SENT_COLOR });
+      else if (l.group === "completed") present.set("completed", { label: "Job completed", color: COMPLETED_COLOR });
       else { const k = catForStage(l.stage_id); present.set(k, STAGE_PINS[k] || STAGE_PINS[NEW_LEAD_ID]); }
     }
     return [...present.entries()].map(([key, v]) => ({ key, ...v }));

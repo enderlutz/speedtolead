@@ -265,6 +265,10 @@ def recent_leads(limit: int = Query(10, ge=1, le=25)):
 # classify a lead for the map. "pre" = not estimated yet (everything before
 # ESTIMATE SENT); "sent" = estimate sent. Post-estimate stages aren't mapped.
 _ESTIMATE_SENT_ID = "dc3600f2-009b-4075-95fa-786823131416"
+_COMPLETED_IDS = {
+    "c77b052f-845c-47e9-bba2-4cdba35a94d0",  # COMPLETED JOB - HAPPY CUSTOMER
+    "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc",  # COMPLETED JOB - UNHAPPY CUSTOMER
+}
 _PRE_ESTIMATE_IDS = {
     "e77fa568-8dd1-4f66-83c3-fa70dbd4d570",  # New Lead
     "616087fa-4144-454e-b3d3-ff3669cb9461",  # HOT LEAD_SEND ESTIMATE
@@ -364,10 +368,12 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
             sid = lead.ghl_pipeline_stage_id or ""
             if sid == _ESTIMATE_SENT_ID:
                 group = "sent"
+            elif sid in _COMPLETED_IDS:
+                group = "completed"
             elif sid in _PRE_ESTIMATE_IDS or sid == "":
                 group = "pre"
             else:
-                continue  # post-estimate stage — not on this map
+                continue  # other post-estimate stage — not on this map
             if not (lead.address or "").strip():
                 continue
             candidates += 1
@@ -395,6 +401,33 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 "stage_id": sid,
                 "group": group,
             })
+
+        # Signature-tier price for estimate-sent pins (shown on hover). Batch
+        # the latest estimate per lead; round up to whole dollars like the
+        # proposal (math.ceil), matching what the customer was quoted.
+        sent_ids = [l["id"] for l in leads_out if l["group"] == "sent"]
+        if sent_ids:
+            import math
+            sig: dict[str, int] = {}
+            ests = (
+                db.query(Estimate)
+                .filter(Estimate.lead_id.in_(sent_ids))
+                .order_by(Estimate.created_at.desc())
+                .all()
+            )
+            for e in ests:
+                if e.lead_id in sig:
+                    continue  # first seen = latest (ordered desc)
+                try:
+                    tiers = json.loads(e.tiers) if isinstance(e.tiers, str) else (e.tiers or {})
+                    s = float(tiers.get("signature") or 0)
+                except (ValueError, TypeError):
+                    s = 0
+                if s > 0:
+                    sig[e.lead_id] = math.ceil(s)
+            for l in leads_out:
+                if l["group"] == "sent" and l["id"] in sig:
+                    l["signature_price"] = sig[l["id"]]
 
         return {
             "date": date or "",
@@ -434,7 +467,7 @@ def _run_map_backfill(force: bool = False):
         todo = []
         for lead in rows:
             sid = lead.ghl_pipeline_stage_id or ""
-            mappable = sid == _ESTIMATE_SENT_ID or sid in _PRE_ESTIMATE_IDS or sid == ""
+            mappable = sid == _ESTIMATE_SENT_ID or sid in _COMPLETED_IDS or sid in _PRE_ESTIMATE_IDS or sid == ""
             if not mappable or not (lead.address or "").strip():
                 continue
             if not force and _in_home_region(lead.lat, lead.lng):

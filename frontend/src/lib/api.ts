@@ -241,7 +241,9 @@ export interface LeadMapPin {
   lat: number;
   lng: number;
   stage_id: string;
-  group: "pre" | "sent";
+  group: "pre" | "sent" | "completed";
+  /** Signature-tier quote, whole dollars — present on estimate-sent pins. */
+  signature_price?: number;
 }
 export interface LeadMapData {
   date: string;
