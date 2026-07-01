@@ -289,6 +289,9 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
     Leads already shown as a stop are excluded so they aren't double-pinned."""
     from sqlalchemy import func
     settings = get_settings()
+    # The Lead Map geocodes with the browser key (the one with Geocoding API
+    # enabled), independent of the server GOOGLE_MAPS_API_KEY.
+    map_key = settings.google_maps_browser_key or settings.google_maps_api_key
     db = get_db()
     try:
         # Days that have estimates → the dropdown options.
@@ -317,7 +320,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
             for v in visits:
                 if (not v.lat or not v.lng) and (v.address or "").strip():
                     try:
-                        geo = geocode_address(v.address)
+                        geo = geocode_address(v.address, api_key=map_key)
                         if geo and geo.get("lat") and geo.get("lng"):
                             v.lat = float(geo["lat"])
                             v.lng = float(geo["lng"])
@@ -363,7 +366,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
             # a running backfill's live refresh so we don't double-geocode.
             if (not lead.lat or not lead.lng) and not skip_geocode and geocoded < _MAP_GEOCODE_CAP:
                 try:
-                    geo = geocode_address(lead.address, lead.zip_code or "")
+                    geo = geocode_address(lead.address, lead.zip_code or "", api_key=map_key)
                     if geo and geo.get("lat") and geo.get("lng"):
                         lead.lat = float(geo["lat"])
                         lead.lng = float(geo["lng"])
@@ -411,6 +414,7 @@ _map_backfill = {"running": False, "total": 0, "done": 0, "ok": 0}
 
 def _run_map_backfill():
     from services.geocoder import geocode_address
+    map_key = get_settings().google_maps_browser_key or get_settings().google_maps_api_key
     db = get_db()
     try:
         rows = (
@@ -430,7 +434,7 @@ def _run_map_backfill():
         _map_backfill.update(total=len(todo), done=0, ok=0)
         for lead in todo:
             try:
-                geo = geocode_address(lead.address, lead.zip_code or "")
+                geo = geocode_address(lead.address, lead.zip_code or "", api_key=map_key)
                 if geo and geo.get("lat") and geo.get("lng"):
                     lead.lat = float(geo["lat"])
                     lead.lng = float(geo["lng"])

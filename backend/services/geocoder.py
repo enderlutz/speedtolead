@@ -8,10 +8,14 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 
-def geocode_address(address: str, zip_code: str = "") -> dict | None:
+def geocode_address(address: str, zip_code: str = "", api_key: str | None = None) -> dict | None:
     """
     Geocode an address and return structured result.
     Returns dict with: formatted_address, zip_code, lat, lng, or None on failure.
+
+    `api_key` lets a caller force a specific key (e.g. the Lead Map passes the
+    browser key, which has Geocoding enabled). When omitted, prefer the
+    dedicated geocoding key, then the maps/browser key.
 
     When a separate `zip_code` is provided, we pass it to Google as a
     `components` constraint AND fold it into the address string. The
@@ -22,9 +26,7 @@ def geocode_address(address: str, zip_code: str = "") -> dict | None:
     doesn't suddenly resolve to a London match.
     """
     settings = get_settings()
-    # Prefer the dedicated geocoding key; fall back to the maps/browser key so
-    # a single configured key (with Geocoding API enabled) works too.
-    api_key = settings.google_maps_api_key or settings.google_maps_browser_key
+    api_key = api_key or settings.google_maps_api_key or settings.google_maps_browser_key
     if not api_key or not address:
         return None
 
