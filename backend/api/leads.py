@@ -421,7 +421,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
 _map_backfill = {"running": False, "total": 0, "done": 0, "ok": 0}
 
 
-def _run_map_backfill():
+def _run_map_backfill(force: bool = False):
     from services.geocoder import geocode_address
     map_key = get_settings().google_maps_browser_key or get_settings().google_maps_api_key
     db = get_db()
@@ -437,8 +437,8 @@ def _run_map_backfill():
             mappable = sid == _ESTIMATE_SENT_ID or sid in _PRE_ESTIMATE_IDS or sid == ""
             if not mappable or not (lead.address or "").strip():
                 continue
-            if _in_home_region(lead.lat, lead.lng):
-                continue  # already has valid Texas coords
+            if not force and _in_home_region(lead.lat, lead.lng):
+                continue  # already has valid Texas coords (force re-does all)
             todo.append(lead)
         _map_backfill.update(total=len(todo), done=0, ok=0)
         for lead in todo:
@@ -458,13 +458,14 @@ def _run_map_backfill():
 
 
 @router.post("/leads-map/backfill")
-def start_map_backfill(background_tasks: BackgroundTasks, user: dict = Depends(require_staff)):
-    """Kick off a background geocode of all un-mapped leads (idempotent while
-    running). Poll /leads-map/backfill-status for progress."""
+def start_map_backfill(background_tasks: BackgroundTasks, force: bool = False, user: dict = Depends(require_staff)):
+    """Kick off a background geocode of un-mapped leads (idempotent while
+    running). force=true re-geocodes EVERY mappable lead, not just missing/
+    out-of-region ones. Poll /leads-map/backfill-status for progress."""
     if _map_backfill["running"]:
         return {"status": "already_running", **_map_backfill}
     _map_backfill.update(running=True, total=0, done=0, ok=0)
-    background_tasks.add_task(_run_map_backfill)
+    background_tasks.add_task(_run_map_backfill, force)
     return {"status": "started"}
 
 

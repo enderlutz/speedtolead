@@ -5,7 +5,7 @@ import { loadGoogleMaps } from "@/lib/googleMaps";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2 } from "lucide-react";
+import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw } from "lucide-react";
 
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
 const STOP_COLOR = "#dc2626";   // red — matches the default numbered pin
@@ -94,10 +94,11 @@ export default function LeadMap() {
     api.getLeadMap(selectedDate).then((d) => setStops(d.stops)).catch(() => {});
   }, [selectedDate]);
 
-  // Kick off the one-time backfill of every un-mapped lead.
-  const startBackfill = async () => {
+  // Kick off the background geocode. force=true re-geocodes every lead.
+  const startBackfill = async (force = false) => {
+    if (force && !window.confirm("Re-geocode every lead? This re-checks all addresses and can take a couple of minutes.")) return;
     try {
-      await api.startLeadMapBackfill();
+      await api.startLeadMapBackfill(force);
       setBackfill({ running: true, total: 0, done: 0, ok: 0 });
     } catch {
       toast.error("Couldn't start geocoding");
@@ -251,11 +252,18 @@ export default function LeadMap() {
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Geocoding… {backfill.done}{backfill.total ? `/${backfill.total}` : ""}
             </span>
-          ) : unmapped > 0 ? (
-            <Button size="sm" variant="outline" onClick={startBackfill}>
-              <Wand2 className="h-3.5 w-3.5 mr-1" /> Geocode all {unmapped} leads
-            </Button>
-          ) : null}
+          ) : (
+            <>
+              {unmapped > 0 && (
+                <Button size="sm" variant="outline" onClick={() => startBackfill(false)}>
+                  <Wand2 className="h-3.5 w-3.5 mr-1" /> Geocode all {unmapped} leads
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => startBackfill(true)} title="Re-geocode every lead">
+                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Re-geocode all
+              </Button>
+            </>
+          )}
           <span className="text-xs text-muted-foreground">{data?.leads.length ?? 0} leads on map</span>
         </div>
       </div>

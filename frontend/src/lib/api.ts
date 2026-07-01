@@ -1552,8 +1552,8 @@ export const api = {
     const qs = q.toString();
     return request<LeadMapData>(`/api/leads-map${qs ? `?${qs}` : ""}`);
   },
-  startLeadMapBackfill: () =>
-    request<{ status: string }>(`/api/leads-map/backfill`, { method: "POST" }),
+  startLeadMapBackfill: (force?: boolean) =>
+    request<{ status: string }>(`/api/leads-map/backfill${force ? "?force=true" : ""}`, { method: "POST" }),
   getLeadMapBackfillStatus: () =>
     request<{ running: boolean; total: number; done: number; ok: number }>(`/api/leads-map/backfill-status`),
 
