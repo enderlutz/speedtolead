@@ -241,9 +241,19 @@ export interface LeadMapPin {
   lat: number;
   lng: number;
   stage_id: string;
-  group: "pre" | "sent" | "completed";
+  group: "pre" | "sent" | "completed" | "closed_scheduled" | "closed_unscheduled";
   /** Signature-tier quote, whole dollars — present on estimate-sent pins. */
   signature_price?: number;
+  /** Full job card — present on Closed & Scheduled pins (shown on hover). */
+  schedule?: LeadMapSchedule;
+}
+export interface LeadMapSchedule {
+  job_date: string;
+  arrival_time: string;
+  package_tier: string;
+  color_choice: string;
+  closed_price: number;
+  crew: string[];
 }
 export interface LeadMapData {
   date: string;

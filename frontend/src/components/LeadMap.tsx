@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type LeadMapData, type LeadMapStop } from "@/lib/api";
+import { api, type LeadMapData, type LeadMapStop, type LeadMapPin, type LeadMapSchedule } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,9 +8,11 @@ import { toast } from "sonner";
 import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw } from "lucide-react";
 
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
-const STOP_COLOR = "#dc2626";        // red — matches the default numbered pin
-const SENT_COLOR = "#8b5cf6";        // purple — estimate sent
-const COMPLETED_COLOR = "#16a34a";   // green — job completed
+const STOP_COLOR = "#dc2626";              // red — matches the default numbered pin
+const SENT_COLOR = "#8b5cf6";              // purple — estimate sent
+const COMPLETED_COLOR = "#16a34a";         // green — job completed
+const CLOSED_SCHEDULED_COLOR = "#4f46e5";  // indigo — closed deal, job scheduled
+const CLOSED_UNSCHEDULED_COLOR = "#ec4899";// pink — closed deal, still needs scheduling
 
 // Pre-estimate stage → pin color + label (mirror of the Sterling V2 stages).
 const NEW_LEAD_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570";
@@ -29,17 +31,24 @@ function catForStage(stageId: string): string {
 function pinColor(stageId: string): string {
   return (STAGE_PINS[stageId] || STAGE_PINS[NEW_LEAD_ID]).color;
 }
-// A lead's legend category + pin color, honoring its group (sent / completed).
+// A lead's legend category + pin color, honoring its group.
 function leadCat(l: { group: string; stage_id: string }): string {
   if (l.group === "sent") return "sent";
   if (l.group === "completed") return "completed";
+  if (l.group === "closed_scheduled") return "closed_scheduled";
+  if (l.group === "closed_unscheduled") return "closed_unscheduled";
   return catForStage(l.stage_id);
 }
 function leadColor(l: { group: string; stage_id: string }): string {
   if (l.group === "sent") return SENT_COLOR;
   if (l.group === "completed") return COMPLETED_COLOR;
+  if (l.group === "closed_scheduled") return CLOSED_SCHEDULED_COLOR;
+  if (l.group === "closed_unscheduled") return CLOSED_UNSCHEDULED_COLOR;
   return pinColor(l.stage_id);
 }
+const PACKAGE_LABELS: Record<string, string> = {
+  essential: "Essential", signature: "Signature", legacy: "Legacy", custom: "Custom",
+};
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 }
@@ -53,6 +62,25 @@ function fmtTime(hhmm: string): string {
 function dayLabel(d: string): string {
   return new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
+// Full job-card lines for a Closed & Scheduled pin's hover popup.
+function scheduleLines(s: LeadMapSchedule): string {
+  const parts: string[] = [];
+  const when = [s.job_date ? dayLabel(s.job_date) : "", fmtTime(s.arrival_time)].filter(Boolean).join(" · ");
+  if (when) parts.push(`📅 ${esc(when)}`);
+  if (s.crew.length) parts.push(`👷 ${esc(s.crew.join(", "))}`);
+  const pkg = [PACKAGE_LABELS[s.package_tier] || "", s.color_choice].filter(Boolean).join(" · ");
+  if (pkg) parts.push(esc(pkg));
+  if (s.closed_price > 0) parts.push(`<strong>$${Math.round(s.closed_price).toLocaleString()}</strong>`);
+  return parts.length ? `<br/>${parts.join("<br/>")}` : "";
+}
+function hoverHtml(lead: LeadMapPin): string {
+  let extra = "";
+  if (lead.group === "sent" && lead.signature_price)
+    extra = `<br/><strong>Signature: $${lead.signature_price.toLocaleString()}</strong>`;
+  else if (lead.group === "closed_scheduled" && lead.schedule)
+    extra = scheduleLines(lead.schedule);
+  return `<div style="font-size:12px;line-height:1.4;max-width:220px"><strong>${esc(lead.contact_name || "Lead")}</strong><br/>${esc(lead.address || "")}${extra}</div>`;
+}
 
 export default function LeadMap() {
   const navigate = useNavigate();
@@ -61,6 +89,7 @@ export default function LeadMap() {
   const [stops, setStops] = useState<LeadMapStop[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [legendOpen, setLegendOpen] = useState(true);
+  const [needsSchedOpen, setNeedsSchedOpen] = useState(true);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "nokey">("loading");
   const [backfill, setBackfill] = useState<{ running: boolean; total: number; done: number; ok: number } | null>(null);
 
@@ -171,11 +200,8 @@ export default function LeadMap() {
         position: pos, map,
         icon: { path: maps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 1.5 },
       });
-      const priceLine = lead.group === "sent" && lead.signature_price
-        ? `<br/><strong>Signature: $${lead.signature_price.toLocaleString()}</strong>`
-        : "";
       marker.addListener("mouseover", () => {
-        iw.setContent(`<div style="font-size:12px;line-height:1.4"><strong>${esc(lead.contact_name || "Lead")}</strong><br/>${esc(lead.address || "")}${priceLine}</div>`);
+        iw.setContent(hoverHtml(lead));
         iw.open(map, marker);
       });
       marker.addListener("mouseout", () => iw.close());
@@ -234,10 +260,18 @@ export default function LeadMap() {
     for (const l of data?.leads || []) {
       if (l.group === "sent") present.set("sent", { label: "Estimate Sent", color: SENT_COLOR });
       else if (l.group === "completed") present.set("completed", { label: "Job completed", color: COMPLETED_COLOR });
+      else if (l.group === "closed_scheduled") present.set("closed_scheduled", { label: "Closed & Scheduled", color: CLOSED_SCHEDULED_COLOR });
+      else if (l.group === "closed_unscheduled") present.set("closed_unscheduled", { label: "Closed — needs scheduling", color: CLOSED_UNSCHEDULED_COLOR });
       else { const k = catForStage(l.stage_id); present.set(k, STAGE_PINS[k] || STAGE_PINS[NEW_LEAD_ID]); }
     }
     return [...present.entries()].map(([key, v]) => ({ key, ...v }));
   }, [data, stops]);
+
+  // Closed deals that still need a job booked — the map's worklist panel.
+  const unscheduled = useMemo(
+    () => (data?.leads || []).filter((l) => l.group === "closed_unscheduled"),
+    [data]
+  );
 
   const toggleCat = (key: string) =>
     setHidden((prev) => {
@@ -338,6 +372,31 @@ export default function LeadMap() {
                       </button>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Top-left worklist — closed deals still needing a job booked */}
+          {status === "ready" && unscheduled.length > 0 && (
+            <div className="absolute top-2 left-2 w-60 rounded-lg border bg-background/95 shadow-sm backdrop-blur">
+              <button onClick={() => setNeedsSchedOpen((o) => !o)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full border border-white shadow" style={{ backgroundColor: CLOSED_UNSCHEDULED_COLOR }} />
+                  Needs scheduling ({unscheduled.length})
+                </span>
+                {needsSchedOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              {needsSchedOpen && (
+                <div className="px-2 pb-2 space-y-1 max-h-72 overflow-y-auto">
+                  {unscheduled.map((l) => (
+                    <div key={l.id} className="rounded px-1.5 py-1 hover:bg-muted transition-colors">
+                      <button onClick={() => navigate(`/leads/${l.id}`)} className="text-[12px] font-medium text-primary hover:underline text-left truncate w-full">
+                        {l.contact_name || "Lead"}
+                      </button>
+                      {l.address && <div className="text-[10px] text-muted-foreground truncate">{l.address}</div>}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

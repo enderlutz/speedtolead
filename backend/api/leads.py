@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, 
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit
+from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
@@ -278,6 +278,11 @@ _PRE_ESTIMATE_IDS = {
     "fe74a5e6-e173-4783-a8a9-1f28168a6c1b",  # Call 2 Pre Estimate
     "3020bb38-8c84-455d-a840-3650fbe50ecd",  # Call 3 Pre Estimate
 }
+# Closed-deal stages. Both are mapped so the owner can plan trips around
+# closed work: "not scheduled" leads still need a job booked (shown in the
+# map's side panel), "scheduled" leads carry a full job card on hover.
+_CLOSED_NOT_SCHEDULED_ID = "bbebbdac-0011-4253-9ed7-65522bafde02"
+_CLOSED_SCHEDULED_ID = "3eed5964-573f-445e-a181-1ee28068f066"
 _MAP_GEOCODE_CAP = 30  # geocode at most N uncoordinated leads per request
 
 
@@ -370,6 +375,10 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 group = "sent"
             elif sid in _COMPLETED_IDS:
                 group = "completed"
+            elif sid == _CLOSED_SCHEDULED_ID:
+                group = "closed_scheduled"
+            elif sid == _CLOSED_NOT_SCHEDULED_ID:
+                group = "closed_unscheduled"
             elif sid in _PRE_ESTIMATE_IDS or sid == "":
                 group = "pre"
             else:
@@ -429,6 +438,55 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 if l["group"] == "sent" and l["id"] in sig:
                     l["signature_price"] = sig[l["id"]]
 
+        # Full job card for Closed & Scheduled pins (shown on hover). Batch the
+        # scheduled job per lead (latest, non-cancelled) plus its crew names.
+        sched_ids = [l["id"] for l in leads_out if l["group"] == "closed_scheduled"]
+        if sched_ids:
+            job_by_lead: dict[str, ScheduledJob] = {}
+            jobs = (
+                db.query(ScheduledJob)
+                .filter(ScheduledJob.lead_id.in_(sched_ids))
+                .filter(ScheduledJob.status != "cancelled")
+                .order_by(ScheduledJob.job_date.desc())
+                .all()
+            )
+            for j in jobs:
+                if j.lead_id not in job_by_lead:
+                    job_by_lead[j.lead_id] = j  # first seen = latest date
+            # Crew names, one query across all those jobs.
+            crew_by_job: dict[str, list[str]] = {}
+            job_ids = [j.id for j in job_by_lead.values()]
+            if job_ids:
+                assigns = (
+                    db.query(JobAssignment.scheduled_job_id, Employee.display_name,
+                             Employee.first_name, Employee.last_name)
+                    .join(Employee, Employee.id == JobAssignment.employee_id)
+                    .filter(JobAssignment.scheduled_job_id.in_(job_ids))
+                    .all()
+                )
+                for job_id, disp, first, last in assigns:
+                    name = (disp or f"{first or ''} {last or ''}").strip()
+                    if name:
+                        crew_by_job.setdefault(job_id, []).append(name)
+            for l in leads_out:
+                if l["group"] != "closed_scheduled":
+                    continue
+                j = job_by_lead.get(l["id"])
+                if not j:
+                    continue
+                try:
+                    price = float(j.closed_price or 0)
+                except (ValueError, TypeError):
+                    price = 0
+                l["schedule"] = {
+                    "job_date": j.job_date or "",
+                    "arrival_time": j.arrival_time or "",
+                    "package_tier": j.package_tier or "",
+                    "color_choice": j.color_choice or "",
+                    "closed_price": price,
+                    "crew": crew_by_job.get(j.id, []),
+                }
+
         return {
             "date": date or "",
             "maps_api_key": settings.google_maps_browser_key or settings.google_maps_api_key or "",
@@ -467,7 +525,14 @@ def _run_map_backfill(force: bool = False):
         todo = []
         for lead in rows:
             sid = lead.ghl_pipeline_stage_id or ""
-            mappable = sid == _ESTIMATE_SENT_ID or sid in _COMPLETED_IDS or sid in _PRE_ESTIMATE_IDS or sid == ""
+            mappable = (
+                sid == _ESTIMATE_SENT_ID
+                or sid in _COMPLETED_IDS
+                or sid == _CLOSED_SCHEDULED_ID
+                or sid == _CLOSED_NOT_SCHEDULED_ID
+                or sid in _PRE_ESTIMATE_IDS
+                or sid == ""
+            )
             if not mappable or not (lead.address or "").strip():
                 continue
             if not force and _in_home_region(lead.lat, lead.lng):
