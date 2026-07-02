@@ -100,6 +100,18 @@ def _next_proposal_seq(db) -> int:
     return max(int(current), _PROPOSAL_SEQ_BASE) + 1
 
 
+def _two_line_address(address: str) -> str:
+    """Format a stored full address as two lines for the proposal header:
+    line 1 = street + number, line 2 = city, state, zip. Splits on the first
+    comma (matches the '{street}, {city}, {state} {zip}' format we store).
+    Returns the address unchanged (single line) when there's no comma."""
+    addr = (address or "").strip()
+    if "," not in addr:
+        return addr
+    street, rest = addr.split(",", 1)
+    return f"{street.strip()}\n{rest.strip()}"
+
+
 def _format_price(amount: float, include_financing: bool) -> str:
     # Monthly/financing display retired — proposal + PDF show the upfront
     # price only. include_financing kept on the signature so existing call
@@ -421,7 +433,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
-            "property_address": lead.address or "",
+            "property_address": _two_line_address(lead.address or ""),
             "prepared_by": PREPARED_BY,
             # Projected number for the preview — not yet consumed/stored.
             "proposal_number": _format_proposal_number(_next_proposal_seq(db)),
@@ -600,7 +612,7 @@ def _approve_estimate_background(
                 values = {
                     "customer_name": (lead.contact_name or "").title(),
                     "address": lead.address,
-                    "property_address": lead.address or "",
+                    "property_address": _two_line_address(lead.address or ""),
                     "prepared_by": PREPARED_BY,
                     "proposal_number": _format_proposal_number(proposal.proposal_seq, proposal.created_at),
                     "essential_price": _format_price(tiers.get("essential", 0), _fin),
@@ -1834,7 +1846,7 @@ def get_estimate_pdf(estimate_id: str):
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
-            "property_address": lead.address or "",
+            "property_address": _two_line_address(lead.address or ""),
             "prepared_by": PREPARED_BY,
             "proposal_number": proposal_number,
             "essential_price": _format_price(tiers.get("essential", 0), _fin),
