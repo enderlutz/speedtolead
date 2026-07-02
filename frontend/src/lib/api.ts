@@ -925,6 +925,26 @@ export const api = {
   },
   deleteMeasurement: (leadId: string) =>
     request<{ status: string }>(`/api/leads/${leadId}/measurement`, { method: "DELETE" }),
+  /** Upload a pre-made PDF and send it to the customer as a proposal — same
+   * /proposal link + viewer + SMS as a generated estimate. */
+  sendCustomProposal: async (leadId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/custom-proposal`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Custom proposal send failed");
+    return res.json() as Promise<{
+      proposal_url: string;
+      proposal_token: string;
+      estimate_id: string;
+      page_count: number;
+      sms_sent: boolean;
+    }>;
+  },
   /** Fetch the measurement image with auth and return an object URL the
    * caller is responsible for revoking. Returns null when there's no image
    * (or auth fails). */

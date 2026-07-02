@@ -7,12 +7,12 @@ import json
 import logging
 import math
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
 from api.settings import get_promotion_markup_percent
-from services.notifications import notify_estimate_sent, notify_new_lead_red
+from services.notifications import notify_estimate_sent, notify_new_lead_red, notify_custom_proposal_sent
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
 from services.ghl import send_sms, send_email, add_contact_note, add_contact_tag, update_opportunity_stage
@@ -863,6 +863,131 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
         db.close()
 
 
+@router.post("/leads/{lead_id}/custom-proposal")
+async def send_custom_proposal(lead_id: str, file: UploadFile = File(...)):
+    """Upload a pre-made PDF and send it to the customer as a proposal.
+
+    Same customer experience as a generated estimate — a /proposal/{token}
+    link, the same PDF-page viewer, and the same 'Here it is!' SMS — but the
+    PDF is the admin's own file instead of a template fill. For one-off custom
+    quotes. Behaves like a full estimate send: creates the anchoring estimate,
+    moves the lead to Estimate Sent, applies the 'estimate sent' tag (so the
+    GHL follow-up automations fire), and notes + notifies the team.
+
+    Synchronous (custom PDFs are small) so the admin gets a definitive
+    sent/failed result. No tier prices are stored — the price lives in the PDF."""
+    settings = get_settings()
+    pdf_bytes = await file.read()
+    if not pdf_bytes or pdf_bytes[:5] != b"%PDF-":
+        raise HTTPException(400, "Please upload a valid PDF file.")
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+
+        now = _now()
+        token = str(uuid.uuid4())[:12]
+        proposal_id = str(uuid.uuid4())
+        estimate_id = str(uuid.uuid4())
+
+        # Rasterize the uploaded PDF to page JPEGs (same pipeline as a
+        # generated proposal) and push each to Storage for the CDN viewer.
+        try:
+            jpeg_pages = rasterize_pdf_pages(pdf_bytes, dpi_scale=2.0, quality=85)
+        except Exception as e:
+            logger.error(f"custom-proposal: rasterize failed for lead {lead_id}: {e}")
+            raise HTTPException(400, "Couldn't read that PDF — is it a valid PDF file?")
+        page_count = len(jpeg_pages)
+        if page_count == 0:
+            raise HTTPException(400, "That PDF has no pages.")
+
+        # Anchoring estimate — the proposal viewer requires one. Prices stay
+        # blank (the PDF carries them); label + note mark it as a custom send.
+        latest = (db.query(Estimate).filter(Estimate.lead_id == lead_id)
+                    .order_by(Estimate.created_at.desc()).first())
+        service_type = (latest.service_type if latest else "") or "fence_staining"
+        db.add(Estimate(
+            id=estimate_id, lead_id=lead_id, service_type=service_type,
+            status="sent", inputs="{}", breakdown="[]", tiers="{}",
+            label="Custom PDF", owner_notes="Custom PDF proposal uploaded",
+            created_at=now, sent_at=now,
+        ))
+        db.add(Proposal(
+            id=proposal_id, token=token, estimate_id=estimate_id, lead_id=lead.id,
+            status="sent", proposal_version="custom_pdf",
+            pdf_data=pdf_bytes, pdf_page_count=page_count, created_at=now,
+        ))
+        for i, jpeg_data in enumerate(jpeg_pages):
+            storage_path = _upload_page_to_storage(token, i, jpeg_data)
+            db.add(ProposalPage(
+                id=str(uuid.uuid4()), proposal_id=proposal_id, token=token,
+                page_num=i, image_data=jpeg_data, storage_path=storage_path, created_at=now,
+            ))
+
+        # Full send: advance the lead + push the stage to GHL.
+        lead.status = "sent"
+        _mark_lead_estimate_sent(lead)
+        lead.updated_at = now
+        db.commit()
+
+        proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+
+        # Customer SMS — identical copy to a generated estimate.
+        sms_sent = False
+        if lead.ghl_contact_id and lead.contact_phone:
+            customer_msg = (
+                f"Here it is!\n"
+                f"Sterling Fence Staining - Your Estimate\n\n"
+                f"{proposal_url}"
+            )
+            sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
+            log_event(lead.id, "estimate_sent_to_customer",
+                      f"{'SMS sent' if sms_sent else 'SMS FAILED'} with CUSTOM proposal link: {proposal_url}",
+                      {"token": token, "sms_sent": sms_sent, "custom_pdf": True})
+            if not sms_sent:
+                _alert_team_sms_failure(
+                    customer_name=lead.contact_name or "(unnamed)",
+                    customer_phone=lead.contact_phone or "(no phone)",
+                    proposal_url=proposal_url, lead_id=lead.id,
+                )
+
+        # GHL note + 'estimate sent' tag (fires the P1/P04 follow-up automations).
+        if lead.ghl_contact_id:
+            add_contact_note(lead.ghl_contact_id,
+                             f"Custom proposal sent — {proposal_url}",
+                             lead.ghl_location_id or None)
+            add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
+
+        # Team notify + activity log + SSE (same event the board listens on).
+        notify_custom_proposal_sent(lead.to_dict(), proposal_url)
+        log_event(lead.id, "custom_proposal_sent",
+                  f"Custom PDF proposal sent to {lead.contact_name}",
+                  {"estimate_id": estimate_id, "token": token, "page_count": page_count})
+        publish("estimate_sent", {
+            "lead_id": lead.id,
+            "contact_name": lead.contact_name,
+            "proposal_url": proposal_url,
+            "tiers": {},
+        })
+
+        return {
+            "proposal_url": proposal_url,
+            "proposal_token": token,
+            "estimate_id": estimate_id,
+            "page_count": page_count,
+            "sms_sent": sms_sent,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"send_custom_proposal failed for lead {lead_id}: {e}")
+        raise HTTPException(500, "Failed to send custom proposal")
+    finally:
+        db.close()
+
+
 @router.get("/sms-queue")
 def get_sms_queue(status: str = Query("pending")):
     """List scheduled SMS messages."""
@@ -1587,6 +1712,22 @@ def get_estimate_pdf(estimate_id: str):
         est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
         if not est:
             raise HTTPException(status_code=404, detail="Estimate not found")
+
+        # Custom-PDF proposals carry the admin's uploaded file — serve that
+        # verbatim instead of regenerating from the template (which would
+        # produce a $0 template fill since a custom estimate has no tiers).
+        custom = (
+            db.query(Proposal)
+            .filter(Proposal.estimate_id == estimate_id, Proposal.proposal_version == "custom_pdf")
+            .order_by(Proposal.created_at.desc())
+            .first()
+        )
+        if custom and custom.pdf_data:
+            return Response(
+                content=custom.pdf_data,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"inline; filename=proposal_{estimate_id}.pdf"},
+            )
 
         lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
         if not lead:

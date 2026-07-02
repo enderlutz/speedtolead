@@ -26,6 +26,7 @@ import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
+import CustomProposalCard from "@/components/CustomProposalCard";
 import ExteriorTab from "@/components/ExteriorTab";
 import UpsellTab from "@/components/UpsellTab";
 import { V2_STAGES } from "./LeadsV2";
@@ -1519,6 +1520,13 @@ export default function LeadDetail() {
               </Button>
             </div>
           )}
+
+          {/* Send a pre-made PDF as the proposal (same link + viewer + SMS) */}
+          <CustomProposalCard
+            leadId={lead.id}
+            pipelineVersion={lead.pipeline_version}
+            onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
+          />
 
           {/* Meta info */}
           <Card>
