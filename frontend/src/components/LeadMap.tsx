@@ -5,7 +5,7 @@ import { loadGoogleMaps } from "@/lib/googleMaps";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw } from "lucide-react";
+import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw, Search, X } from "lucide-react";
 
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
 const STOP_COLOR = "#dc2626";              // red — matches the default numbered pin
@@ -90,6 +90,7 @@ export default function LeadMap() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [legendOpen, setLegendOpen] = useState(true);
   const [needsSchedOpen, setNeedsSchedOpen] = useState(true);
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "nokey">("loading");
   const [backfill, setBackfill] = useState<{ running: boolean; total: number; done: number; ok: number } | null>(null);
 
@@ -101,6 +102,7 @@ export default function LeadMap() {
   const mapRef = useRef<GMap | null>(null);
   const iwRef = useRef<GInfoWindow | null>(null);
   const markersRef = useRef<GMarker[]>([]);
+  const leadMarkersRef = useRef<Map<string, GMarker>>(new Map());
   const polyRef = useRef<GPolyline | null>(null);
   const fitSigRef = useRef("");
 
@@ -184,6 +186,7 @@ export default function LeadMap() {
 
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
+    leadMarkersRef.current.clear();
     if (polyRef.current) { polyRef.current.setMap(null); polyRef.current = null; }
 
     const leadBounds = new maps.LatLngBounds();
@@ -207,6 +210,7 @@ export default function LeadMap() {
       marker.addListener("mouseout", () => iw.close());
       marker.addListener("click", () => navigate(`/leads/${lead.id}`));
       markersRef.current.push(marker);
+      leadMarkersRef.current.set(lead.id, marker);
       leadBounds.extend(pos); leadCount++;
     }
 
@@ -273,6 +277,32 @@ export default function LeadMap() {
     [data]
   );
 
+  // Name/address search — matches among the mapped leads (capped for the dropdown).
+  const matches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [] as LeadMapPin[];
+    return (data?.leads || [])
+      .filter((l) => (l.contact_name || "").toLowerCase().includes(q) || (l.address || "").toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [search, data]);
+
+  // Center the map on a lead and pop its hover card (works even if that
+  // lead's pin category is toggled off — falls back to a position-anchored IW).
+  const focusLead = (lead: LeadMapPin) => {
+    const map = mapRef.current, iw = iwRef.current;
+    if (!map) return;
+    const pos = { lat: lead.lat, lng: lead.lng };
+    map.setCenter(pos);
+    map.setZoom(15);
+    if (iw) {
+      iw.setContent(hoverHtml(lead));
+      const marker = leadMarkersRef.current.get(lead.id);
+      if (marker) iw.open(map, marker);
+      else { iw.setPosition(pos); iw.open(map); }
+    }
+    setSearch("");
+  };
+
   const toggleCat = (key: string) =>
     setHidden((prev) => {
       const next = new Set(prev);
@@ -297,6 +327,37 @@ export default function LeadMap() {
         {selectedDate && (
           <button onClick={() => setSelectedDate("")} className="text-xs text-muted-foreground hover:text-foreground underline">Clear route</button>
         )}
+        {/* Search a customer by name/address, then jump to their pin */}
+        <div className="relative w-64 max-w-full">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && matches.length) focusLead(matches[0]); if (e.key === "Escape") setSearch(""); }}
+            placeholder="Search a customer on the map…"
+            className="w-full text-sm rounded border bg-background pl-8 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" title="Clear">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {matches.length > 0 && (
+            <div className="absolute z-20 mt-1 w-full rounded-lg border bg-background shadow-lg max-h-64 overflow-y-auto">
+              {matches.map((l) => (
+                <button key={l.id} onClick={() => focusLead(l)} className="w-full text-left px-3 py-1.5 hover:bg-muted transition-colors">
+                  <div className="text-[12px] font-medium truncate">{l.contact_name || "Lead"}</div>
+                  {l.address && <div className="text-[10px] text-muted-foreground truncate">{l.address}</div>}
+                </button>
+              ))}
+            </div>
+          )}
+          {search.trim() && matches.length === 0 && (
+            <div className="absolute z-20 mt-1 w-full rounded-lg border bg-background shadow-lg px-3 py-2 text-[11px] text-muted-foreground">
+              No mapped lead matches “{search.trim()}”.
+            </div>
+          )}
+        </div>
         <div className="ml-auto flex items-center gap-3">
           {backfill?.running ? (
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

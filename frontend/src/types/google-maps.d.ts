@@ -27,6 +27,7 @@ declare global {
   }
   interface GInfoWindow {
     setContent(content: string): void;
+    setPosition(p: GLatLngLiteral): void;
     open(map: GMap, anchor?: GMarker): void;
     close(): void;
   }
