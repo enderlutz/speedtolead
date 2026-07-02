@@ -43,7 +43,10 @@ function fmtHours(h: number): string {
 export default function Estimator() {
   const user = getCurrentUser();
   const isEstimator = user?.role === "estimator";
-  const isAdmin = user?.role === "admin";
+  // Admin + VA can manage the schedule (add + reschedule estimates). The
+  // estimator themself only views their week. The drive-path / location map
+  // stays admin-only (it lives on the day page, not here).
+  const isStaff = user?.role === "admin" || user?.role === "va";
   const navigate = useNavigate();
 
   const [weekStart, setWeekStart] = useState<string>(() => toYMD(mondayOf(new Date())));
@@ -94,7 +97,7 @@ export default function Estimator() {
           <Button variant="outline" size="sm" onClick={loadSchedule} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
-          {isAdmin && (
+          {isStaff && (
             <Button size="sm" onClick={() => setAddOpen(true)}>
               <Plus className="h-4 w-4 mr-1" /> Add estimate
             </Button>
@@ -122,7 +125,7 @@ export default function Estimator() {
         <div className="space-y-2">
           {schedule?.days.map((day) => (
             <DayRow key={day.date} date={day.date} weekday={day.weekday} visits={day.visits}
-                    workedHours={day.worked_hours} isAdmin={isAdmin}
+                    workedHours={day.worked_hours} canSchedule={isStaff}
                     onEditTime={setEditVisit}
                     onOpen={() => navigate(`/estimator/day/${day.date}`)} />
           ))}
@@ -148,9 +151,9 @@ export default function Estimator() {
   );
 }
 
-function DayRow({ date, weekday, visits, workedHours, isAdmin, onEditTime, onOpen }: {
+function DayRow({ date, weekday, visits, workedHours, canSchedule, onEditTime, onOpen }: {
   date: string; weekday: string; visits: EstimatorVisit[]; workedHours: number;
-  isAdmin: boolean; onEditTime: (v: EstimatorVisit) => void; onOpen: () => void;
+  canSchedule: boolean; onEditTime: (v: EstimatorVisit) => void; onOpen: () => void;
 }) {
   const dayNum = new Date(`${date}T00:00:00`).getDate();
   // Days with estimates start expanded so the list is visible at a glance.
@@ -202,7 +205,7 @@ function DayRow({ date, weekday, visits, workedHours, isAdmin, onEditTime, onOpe
                         ) : (
                           <span className="font-medium text-sm truncate">{v.customer_name || "Customer"}</span>
                         )}
-                        {isAdmin ? (
+                        {canSchedule ? (
                           <button
                             onClick={() => onEditTime(v)}
                             title="Change date & time"
