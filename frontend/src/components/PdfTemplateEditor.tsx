@@ -35,6 +35,9 @@ const EXAMPLE_TEXT: Record<string, string> = {
   pricing_includes: "Inside Fences, Outside Fences",
   customer_name: "John Smith",
   date: "April 8, 2026",
+  property_address: "1024 Oak Bend Dr, Houston, TX 77003",
+  prepared_by: "Sterling Fence Staining",
+  proposal_number: "SF-2026-04435",
 };
 
 export default function PdfTemplateEditor({ pageCount, pageSizes, initialFieldMap, onSave }: Props) {

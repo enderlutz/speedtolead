@@ -30,6 +30,9 @@ export const PRESET_FIELDS = [
   "legacy_monthly",
   "pricing_includes",
   "date",
+  "property_address",
+  "prepared_by",
+  "proposal_number",
 ] as const;
 
 export type PresetFieldKey = (typeof PRESET_FIELDS)[number];
@@ -50,6 +53,9 @@ export const PRESET_FIELD_LABELS: Record<string, string> = {
   legacy_monthly: "Legacy Monthly",
   pricing_includes: "Pricing Includes",
   date: "Date",
+  property_address: "Property Address",
+  prepared_by: "Prepared By",
+  proposal_number: "Proposal Number",
 };
 
 export const PRESET_FIELD_COLORS: Record<string, string> = {
@@ -68,4 +74,7 @@ export const PRESET_FIELD_COLORS: Record<string, string> = {
   legacy_monthly: "#c1891f",
   pricing_includes: "#e6c68a",
   date: "#000000",
+  property_address: "#000000",
+  prepared_by: "#000000",
+  proposal_number: "#000000",
 };

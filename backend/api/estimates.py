@@ -68,6 +68,38 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Proposal header fields (new template additions). "Prepared by" is always the
+# company; the proposal number is a running sequence rendered as SF-<year>-
+# <seq:05d>. Numbering starts at 4435 because 4434 fence-staining jobs were
+# completed before the dashboard started numbering proposals.
+PREPARED_BY = "Sterling Fence Staining"
+_PROPOSAL_SEQ_BASE = 4434
+
+
+def _format_proposal_number(seq: int | None, created_at: str | None = None) -> str:
+    """Render a proposal number like SF-2026-04435. Year comes from created_at
+    (fallback: current year). Empty string when there's no sequence yet."""
+    if not seq:
+        return ""
+    year = ""
+    if created_at:
+        try:
+            year = str(datetime.fromisoformat(created_at.replace("Z", "+00:00")).year)
+        except (ValueError, TypeError):
+            year = ""
+    if not year:
+        year = str(datetime.now().year)
+    return f"SF-{year}-{int(seq):05d}"
+
+
+def _next_proposal_seq(db) -> int:
+    """The next proposal sequence number: max(existing, base) + 1. Base-anchored
+    so the very first proposal is 4435 and deletions never reuse a number."""
+    from sqlalchemy import func
+    current = db.query(func.max(Proposal.proposal_seq)).scalar() or 0
+    return max(int(current), _PROPOSAL_SEQ_BASE) + 1
+
+
 def _format_price(amount: float, include_financing: bool) -> str:
     # Monthly/financing display retired — proposal + PDF show the upfront
     # price only. include_financing kept on the signature so existing call
@@ -389,6 +421,10 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
+            "property_address": lead.address or "",
+            "prepared_by": PREPARED_BY,
+            # Projected number for the preview — not yet consumed/stored.
+            "proposal_number": _format_proposal_number(_next_proposal_seq(db)),
             "essential_price": _format_price(tiers.get("essential", 0), _fin),
             "signature_price": _format_price(tiers.get("signature", 0), _fin),
             "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
@@ -564,6 +600,9 @@ def _approve_estimate_background(
                 values = {
                     "customer_name": (lead.contact_name or "").title(),
                     "address": lead.address,
+                    "property_address": lead.address or "",
+                    "prepared_by": PREPARED_BY,
+                    "proposal_number": _format_proposal_number(proposal.proposal_seq, proposal.created_at),
                     "essential_price": _format_price(tiers.get("essential", 0), _fin),
                     "signature_price": _format_price(tiers.get("signature", 0), _fin),
                     "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
@@ -815,6 +854,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
             lead_id=lead.id,
             status="sent",
             proposal_version="pdf",
+            proposal_seq=_next_proposal_seq(db),
             pdf_data=None,
             pdf_page_count=0,
             created_at=now,
@@ -1777,6 +1817,15 @@ def get_estimate_pdf(estimate_id: str):
         if not template:
             raise HTTPException(status_code=404, detail="No PDF template uploaded")
 
+        # Proposal number for this estimate (the sent proposal carries the seq).
+        prop = (
+            db.query(Proposal)
+            .filter(Proposal.estimate_id == estimate_id)
+            .order_by(Proposal.created_at.desc())
+            .first()
+        )
+        proposal_number = _format_proposal_number(prop.proposal_seq, prop.created_at) if prop else ""
+
         field_map = template["field_map"] if isinstance(template["field_map"], dict) else json.loads(template["field_map"])
         tiers = est.to_dict()["tiers"]
         _fd_fin = lead.to_dict().get("form_data", {})
@@ -1785,6 +1834,9 @@ def get_estimate_pdf(estimate_id: str):
         values = {
             "customer_name": (lead.contact_name or "").title(),
             "address": lead.address,
+            "property_address": lead.address or "",
+            "prepared_by": PREPARED_BY,
+            "proposal_number": proposal_number,
             "essential_price": _format_price(tiers.get("essential", 0), _fin),
             "signature_price": _format_price(tiers.get("signature", 0), _fin),
             "legacy_price": _format_price(tiers.get("legacy", 0), _fin),

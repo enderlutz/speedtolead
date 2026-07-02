@@ -332,6 +332,10 @@ class Proposal(Base):
     # (Sterling Fence Staining + "sides included" list); "brick" = Sterling
     # Brick Staining with the sides list hidden (whole-house brick staining).
     header_variant = Column(Text, default="")
+    # Running proposal number sequence. Rendered on the PDF as
+    # SF-<year>-<seq:05d>. Assigned once when the estimate is sent; NULL for
+    # legacy proposals + custom-PDF sends (the number is a template field).
+    proposal_seq = Column(Integer, nullable=True)
     # Deferred — only loaded when the customer/admin actually downloads
     # the full PDF. Every Proposal list/get query would otherwise stream
     # the whole BLOB.
@@ -2567,6 +2571,13 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE proposals ADD COLUMN header_variant TEXT DEFAULT ''"))
         logger.info("Migration: added proposals.header_variant")
+
+    # Sequential proposal number (SF-<year>-<seq>). Assigned on send; seq is
+    # the running counter (starts at 4435 — 4434 jobs predate numbering).
+    if "proposal_seq" not in proposal_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE proposals ADD COLUMN proposal_seq INTEGER"))
+        logger.info("Migration: added proposals.proposal_seq")
 
     # Google-Maps measurement screenshot fields on leads (single image,
     # replaceable). BYTEA on Postgres, BLOB on SQLite.
