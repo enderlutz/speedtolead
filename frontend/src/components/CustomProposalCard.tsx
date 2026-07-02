@@ -20,6 +20,7 @@ export default function CustomProposalCard({
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
+  const [brick, setBrick] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isV1 = pipelineVersion === "v1";
@@ -43,7 +44,7 @@ export default function CustomProposalCard({
     if (!file) return;
     setSending(true);
     try {
-      const res = await api.sendCustomProposal(leadId, file);
+      const res = await api.sendCustomProposal(leadId, file, brick);
       if (res.sms_sent) {
         toast.success(`Custom proposal sent — ${res.page_count} page${res.page_count === 1 ? "" : "s"} texted to the customer.`);
       } else {
@@ -102,6 +103,19 @@ export default function CustomProposalCard({
             <p className="text-[10px] text-muted-foreground">or click to choose a file</p>
           </label>
         )}
+
+        <label className="flex items-start gap-2 cursor-pointer rounded-lg border bg-muted/30 p-2.5">
+          <input
+            type="checkbox"
+            checked={brick}
+            onChange={(e) => setBrick(e.target.checked)}
+            className="h-4 w-4 mt-0.5"
+          />
+          <span className="text-xs">
+            <span className="font-medium">Brick restoration</span>
+            <span className="text-muted-foreground"> — header reads “Sterling Brick Staining” and hides the sides-of-fence list (whole-house).</span>
+          </span>
+        </label>
 
         <Button
           onClick={send}

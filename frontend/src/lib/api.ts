@@ -656,6 +656,9 @@ export interface ProposalData {
   token: string;
   lead_id: string;
   status: string;
+  /** Header brand override: "" = Sterling Fence Staining (+ sides list),
+   *  "brick" = Sterling Brick Staining (sides list hidden). */
+  header_variant?: string;
   customer_name: string;
   address: string;
   service_type: string;
@@ -927,9 +930,10 @@ export const api = {
     request<{ status: string }>(`/api/leads/${leadId}/measurement`, { method: "DELETE" }),
   /** Upload a pre-made PDF and send it to the customer as a proposal — same
    * /proposal link + viewer + SMS as a generated estimate. */
-  sendCustomProposal: async (leadId: string, file: File) => {
+  sendCustomProposal: async (leadId: string, file: File, brick: boolean = false) => {
     const fd = new FormData();
     fd.append("file", file);
+    fd.append("brick", brick ? "true" : "false");
     const token = getToken();
     const res = await fetch(`${BASE}/api/leads/${leadId}/custom-proposal`, {
       method: "POST",

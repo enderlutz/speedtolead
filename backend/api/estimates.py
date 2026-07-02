@@ -7,7 +7,7 @@ import json
 import logging
 import math
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
@@ -864,7 +864,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
 
 
 @router.post("/leads/{lead_id}/custom-proposal")
-async def send_custom_proposal(lead_id: str, file: UploadFile = File(...)):
+async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick: bool = Form(False)):
     """Upload a pre-made PDF and send it to the customer as a proposal.
 
     Same customer experience as a generated estimate — a /proposal/{token}
@@ -916,6 +916,7 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...)):
         db.add(Proposal(
             id=proposal_id, token=token, estimate_id=estimate_id, lead_id=lead.id,
             status="sent", proposal_version="custom_pdf",
+            header_variant=("brick" if brick else ""),
             pdf_data=pdf_bytes, pdf_page_count=page_count, created_at=now,
         ))
         for i, jpeg_data in enumerate(jpeg_pages):
@@ -936,9 +937,10 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...)):
         # Customer SMS — identical copy to a generated estimate.
         sms_sent = False
         if lead.ghl_contact_id and lead.contact_phone:
+            brand = "Sterling Brick Staining" if brick else "Sterling Fence Staining"
             customer_msg = (
                 f"Here it is!\n"
-                f"Sterling Fence Staining - Your Estimate\n\n"
+                f"{brand} - Your Estimate\n\n"
                 f"{proposal_url}"
             )
             sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)

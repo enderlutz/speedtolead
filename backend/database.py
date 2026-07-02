@@ -328,6 +328,10 @@ class Proposal(Base):
     lead_id = Column(Text, nullable=False)
     status = Column(Text, default="sent")  # sent, viewed
     proposal_version = Column(Text, default="pdf")
+    # Header brand override for the customer proposal view. "" = default
+    # (Sterling Fence Staining + "sides included" list); "brick" = Sterling
+    # Brick Staining with the sides list hidden (whole-house brick staining).
+    header_variant = Column(Text, default="")
     # Deferred — only loaded when the customer/admin actually downloads
     # the full PDF. Every Proposal list/get query would otherwise stream
     # the whole BLOB.
@@ -346,6 +350,7 @@ class Proposal(Base):
             "lead_id": self.lead_id,
             "status": self.status,
             "proposal_version": self.proposal_version,
+            "header_variant": self.header_variant or "",
             "has_pdf": (self.pdf_page_count or 0) > 0,
             "first_viewed_at": self.first_viewed_at,
             "last_viewed_at": self.last_viewed_at,
@@ -2555,6 +2560,13 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE proposals ADD COLUMN view_count INTEGER DEFAULT 0"))
             conn.execute(text("UPDATE proposals SET view_count = 1 WHERE first_viewed_at IS NOT NULL"))
         logger.info("Migration: added proposals.view_count (backfilled to 1 for already-viewed proposals)")
+
+    # Proposal header brand override. "" = default (Sterling Fence Staining +
+    # sides-of-fence list); "brick" = Sterling Brick Staining, no sides list.
+    if "header_variant" not in proposal_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE proposals ADD COLUMN header_variant TEXT DEFAULT ''"))
+        logger.info("Migration: added proposals.header_variant")
 
     # Google-Maps measurement screenshot fields on leads (single image,
     # replaceable). BYTEA on Postgres, BLOB on SQLite.

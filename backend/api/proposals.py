@@ -229,6 +229,7 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
             "token": token,
             "lead_id": lead.id,
             "status": proposal.status,
+            "header_variant": proposal.header_variant or "",
             "customer_name": lead.contact_name,
             "address": lead.address,
             "service_type": est.service_type,

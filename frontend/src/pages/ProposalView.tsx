@@ -148,6 +148,9 @@ export default function ProposalView() {
   }
 
   const pageCount = proposal.page_count || 0;
+  // Brick-restoration proposals rebrand the header and drop the "sides of
+  // fence included" list (brick staining covers the whole house).
+  const isBrick = proposal.header_variant === "brick";
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -156,25 +159,27 @@ export default function ProposalView() {
         <div className="max-w-2xl mx-auto px-4 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight">{"Sterling Fence Staining"}</h1>
-              <div className="mt-2">
-                <p className="text-xs text-white/60 font-medium">Sides of fence included in the price</p>
-                <ul className="mt-1 space-y-0.5">
-                  {proposal.pricing_includes.map((bullet, i) => (
-                    <li key={i} className="text-sm text-white/90 flex items-start gap-2">
-                      <span className="text-amber-400 mt-1.5 inline-block h-1 w-1 rounded-full bg-amber-400 shrink-0" />
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  onClick={() => setCorrectionOpen(true)}
-                  className="mt-2 text-xs text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
-                >
-                  These sides don't look right
-                </button>
-              </div>
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight">{isBrick ? "Sterling Brick Staining" : "Sterling Fence Staining"}</h1>
+              {!isBrick && (
+                <div className="mt-2">
+                  <p className="text-xs text-white/60 font-medium">Sides of fence included in the price</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {proposal.pricing_includes.map((bullet, i) => (
+                      <li key={i} className="text-sm text-white/90 flex items-start gap-2">
+                        <span className="text-amber-400 mt-1.5 inline-block h-1 w-1 rounded-full bg-amber-400 shrink-0" />
+                        <span>{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setCorrectionOpen(true)}
+                    className="mt-2 text-xs text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
+                  >
+                    These sides don't look right
+                  </button>
+                </div>
+              )}
             </div>
             <a
               href={`tel:${SUPPORT_PHONE}`}
