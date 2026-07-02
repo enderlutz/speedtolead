@@ -1,9 +1,9 @@
-import { useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, type CustomProposalItem } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { FileText, UploadCloud, X, Send, Loader2 } from "lucide-react";
+import { FileText, UploadCloud, X, Send, Loader2, ExternalLink, Trash2 } from "lucide-react";
 
 /** Upload a pre-made PDF and send it to the customer as a proposal — same
  * /proposal link, viewer, and SMS as a generated estimate. For one-off custom
@@ -21,9 +21,31 @@ export default function CustomProposalCard({
   const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [brick, setBrick] = useState(false);
+  const [sent, setSent] = useState<CustomProposalItem[]>([]);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isV1 = pipelineVersion === "v1";
+
+  const loadSent = useCallback(() => {
+    api.getCustomProposals(leadId).then((r) => setSent(r.proposals)).catch(() => {});
+  }, [leadId]);
+  useEffect(() => { loadSent(); }, [loadSent]);
+
+  const cancel = async (estimateId: string) => {
+    if (!window.confirm("Cancel this custom proposal? The customer keeps any link already opened, but it's removed from the dashboard.")) return;
+    setCancelling(estimateId);
+    try {
+      await api.cancelEstimate(estimateId);
+      toast.success("Custom proposal cancelled");
+      loadSent();
+      onSent?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to cancel");
+    } finally {
+      setCancelling(null);
+    }
+  };
 
   const pick = (f: File | null) => {
     if (!f) return;
@@ -51,12 +73,20 @@ export default function CustomProposalCard({
         toast.warning(`Proposal created (${res.page_count} pages) but no SMS went out — check the customer has a phone/contact. Link: ${res.proposal_url}`, { duration: 10000 });
       }
       setFile(null);
+      setBrick(false);
+      loadSent();
       onSent?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to send custom proposal");
     } finally {
       setSending(false);
     }
+  };
+
+  const fmtWhen = (iso: string) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   };
 
   return (
@@ -128,6 +158,35 @@ export default function CustomProposalCard({
         </Button>
         {isV1 && (
           <p className="text-[11px] text-center text-amber-700">Export to the new pipeline first to send.</p>
+        )}
+
+        {/* Already-sent custom proposals — view or cancel each */}
+        {sent.length > 0 && (
+          <div className="pt-1 space-y-1.5 border-t">
+            <p className="text-[11px] font-semibold text-muted-foreground pt-2">Sent custom proposals</p>
+            {sent.map((p) => (
+              <div key={p.token} className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium truncate">
+                    {p.header_variant === "brick" ? "Brick" : "Fence"} · {p.page_count} page{p.page_count === 1 ? "" : "s"}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{fmtWhen(p.created_at)}</p>
+                </div>
+                <a href={p.proposal_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="Open customer link">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+                <button
+                  onClick={() => cancel(p.estimate_id)}
+                  disabled={cancelling === p.estimate_id}
+                  className="text-red-600 hover:text-red-700 disabled:opacity-50"
+                  title="Cancel this proposal"
+                >
+                  {cancelling === p.estimate_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </CardContent>
     </Card>

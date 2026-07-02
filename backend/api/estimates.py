@@ -990,6 +990,41 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick
         db.close()
 
 
+@router.get("/leads/{lead_id}/custom-proposals")
+def list_custom_proposals(lead_id: str):
+    """Active custom-PDF proposals for a lead — powers the manage/cancel list
+    on the send card. Cancelled ones drop off. Cancel each via the standard
+    /estimates/{estimate_id}/cancel using the estimate_id returned here."""
+    settings = get_settings()
+    db = get_db()
+    try:
+        rows = (
+            db.query(Proposal, Estimate)
+            .join(Estimate, Estimate.id == Proposal.estimate_id)
+            .filter(
+                Proposal.lead_id == lead_id,
+                Proposal.proposal_version == "custom_pdf",
+                Proposal.status != "cancelled",
+            )
+            .order_by(Proposal.created_at.desc())
+            .all()
+        )
+        return {"proposals": [
+            {
+                "estimate_id": est.id,
+                "token": prop.token,
+                "created_at": prop.created_at,
+                "page_count": prop.pdf_page_count or 0,
+                "header_variant": prop.header_variant or "",
+                "status": prop.status,
+                "proposal_url": f"{settings.proposal_base_url}/proposal/{prop.token}",
+            }
+            for prop, est in rows
+        ]}
+    finally:
+        db.close()
+
+
 @router.get("/sms-queue")
 def get_sms_queue(status: str = Query("pending")):
     """List scheduled SMS messages."""
@@ -1673,14 +1708,17 @@ def cancel_estimate(estimate_id: str):
 
         lead = db.query(Lead).filter(Lead.id == est.lead_id).first()
 
-        # Revert estimate
-        est.status = "pending"
-        est.sent_at = None
-
         # Mark proposal as cancelled
         proposal = db.query(Proposal).filter(Proposal.estimate_id == estimate_id).first()
         if proposal:
             proposal.status = "cancelled"
+
+        # Revert estimate. Normal estimates go back to "pending" so they can be
+        # edited + re-sent; a custom-PDF estimate has nothing to re-send, so we
+        # mark it "cancelled" outright instead of leaving a phantom empty
+        # pending estimate cluttering the lead's estimate list.
+        est.status = "cancelled" if (proposal and proposal.proposal_version == "custom_pdf") else "pending"
+        est.sent_at = None
 
         # Revert lead status
         if lead:

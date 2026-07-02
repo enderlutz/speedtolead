@@ -214,10 +214,12 @@ export default function LeadDetail() {
     ).length;
   }, [messages, callTabSeenAt]);
 
-  // Sorted newest-first for the switcher tabs.
+  // Sorted newest-first for the switcher tabs. Cancelled estimates (e.g. a
+  // retracted custom-PDF proposal) are hidden — they're managed from the
+  // "Send a custom PDF" card, not the normal estimate switcher.
   const sortedEstimates: EstimateDetail[] = useMemo(() => {
     if (!lead?.estimates?.length) return [];
-    return [...lead.estimates].sort((a, b) => {
+    return [...lead.estimates].filter((e) => e.status !== "cancelled").sort((a, b) => {
       // Pending first, then by created_at desc
       if (a.status === "pending" && b.status !== "pending") return -1;
       if (b.status === "pending" && a.status !== "pending") return 1;

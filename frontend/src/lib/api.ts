@@ -652,6 +652,16 @@ export interface ActivityEvent {
   created_at: string;
 }
 
+export interface CustomProposalItem {
+  estimate_id: string;
+  token: string;
+  created_at: string;
+  page_count: number;
+  header_variant: string;
+  status: string;
+  proposal_url: string;
+}
+
 export interface ProposalData {
   token: string;
   lead_id: string;
@@ -949,6 +959,9 @@ export const api = {
       sms_sent: boolean;
     }>;
   },
+  /** Active custom-PDF proposals already sent for a lead (manage/cancel list). */
+  getCustomProposals: (leadId: string) =>
+    request<{ proposals: CustomProposalItem[] }>(`/api/leads/${leadId}/custom-proposals`),
   /** Fetch the measurement image with auth and return an object URL the
    * caller is responsible for revoking. Returns null when there's no image
    * (or auth fails). */
