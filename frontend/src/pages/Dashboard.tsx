@@ -13,6 +13,7 @@ import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
 import WrappedModal from "@/components/WrappedModal";
 import RecentPaymentsCard from "@/components/RecentPaymentsCard";
+import DailyTaskList from "@/components/DailyTaskList";
 
 const PRIORITY_CLS: Record<string, string> = {
   HOT: "bg-red-500/10 text-red-600 border-red-200",
@@ -31,6 +32,7 @@ type PipelineFilter = "v2" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
 
 export default function Dashboard() {
+  const [view, setView] = useState<"overview" | "tasks">("overview");
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [recentLeads, setRecentLeads] = useState<Lead[]>([]);
   const [pending, setPending] = useState<PendingEstimate[]>([]);
@@ -123,6 +125,12 @@ export default function Dashboard() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">Track progress toward doubling sales</p>
+          <Tabs value={view} onValueChange={(v) => setView(v as "overview" | "tasks")} className="mt-2">
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="tasks">Daily Task List</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin && (
@@ -146,13 +154,15 @@ export default function Dashboard() {
               </Button>
             </>
           )}
-          <Tabs value={filter} onValueChange={(v) => handleFilterChange(v as PipelineFilter)}>
-            <TabsList>
-              <TabsTrigger value="v2">New Leads</TabsTrigger>
-              <TabsTrigger value="v1">Old Leads</TabsTrigger>
-              <TabsTrigger value="all">All</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {view === "overview" && (
+            <Tabs value={filter} onValueChange={(v) => handleFilterChange(v as PipelineFilter)}>
+              <TabsList>
+                <TabsTrigger value="v2">New Leads</TabsTrigger>
+                <TabsTrigger value="v1">Old Leads</TabsTrigger>
+                <TabsTrigger value="all">All</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
           {notifCount > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
               <Bell className="h-3.5 w-3.5" />
@@ -162,6 +172,10 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {view === "tasks" && <DailyTaskList />}
+
+      {view === "overview" && (
+      <>
       {/* Wrapped is owner-only — both triggers (auto-popup + preview buttons)
           already gate on isAdmin, but the mount checks it too in case any
           future code path sets wrappedOpen. */}
@@ -386,6 +400,8 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

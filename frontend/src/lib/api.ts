@@ -398,6 +398,25 @@ export interface CallDispositionEntry {
   callback_at: string | null;
 }
 
+export interface DailyTaskDisposition {
+  outcome: string;
+  notes: string;
+  disposed_by: string;
+  disposed_at: string;
+}
+export interface DailyTask {
+  id: string;
+  contact_name: string;
+  address: string;
+  stage_key: "estimate_sent" | "responded";
+  stage_label: string;
+  called: boolean;
+  call_count: number;
+  last_called_at: string | null;
+  dispositions: DailyTaskDisposition[];
+  signature_price: number;
+}
+
 /** Sprint 2 T2.E — Follow-up rule engine output. Surfaces on the lead
  *  detail badge + boosts the call list panel sort order. */
 export type FollowUpFlagKind = "hot" | "callback_due" | "warm" | "stale" | "cold";
@@ -1731,6 +1750,7 @@ export const api = {
     }),
   listCallDispositions: (leadId: string) =>
     request<{ dispositions: CallDispositionEntry[] }>(`/api/leads/${leadId}/call-dispositions`),
+  getDailyTasks: () => request<{ tasks: DailyTask[] }>("/api/daily-tasks"),
   /** Sprint 2 T2.E — Compute the current follow-up flag for a lead.
    *  Returns null when no rule fires. */
   getFollowUpFlag: (leadId: string) =>
