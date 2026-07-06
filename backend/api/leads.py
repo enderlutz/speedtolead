@@ -312,10 +312,14 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
     map_key = settings.google_maps_browser_key or settings.google_maps_api_key
     db = get_db()
     try:
-        # Days that have estimates → the dropdown options.
+        # Days that have estimates → the dropdown options. Only today + future
+        # (Central time) so the picker isn't cluttered with past routes.
+        from zoneinfo import ZoneInfo
+        today_ct = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d")
         date_rows = (
             db.query(EstimatorVisit.visit_date, func.count(EstimatorVisit.id))
             .filter(EstimatorVisit.status != "canceled")
+            .filter(EstimatorVisit.visit_date >= today_ct)
             .group_by(EstimatorVisit.visit_date)
             .order_by(EstimatorVisit.visit_date)
             .all()

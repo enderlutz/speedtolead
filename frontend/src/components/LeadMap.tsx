@@ -8,6 +8,13 @@ import { toast } from "sonner";
 import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw, Search, X } from "lucide-react";
 
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
+// Greater-Houston bounding box — used to auto-frame the map on open so it
+// centers on the Houston cluster instead of zooming out to fit a few far-flung
+// or mis-geocoded pins (El Paso, Austin, etc.). Pins outside still render.
+const HOUSTON_BOX = { minLat: 28.8, maxLat: 30.5, minLng: -96.4, maxLng: -94.2 };
+function inHouston(lat: number, lng: number): boolean {
+  return lat >= HOUSTON_BOX.minLat && lat <= HOUSTON_BOX.maxLat && lng >= HOUSTON_BOX.minLng && lng <= HOUSTON_BOX.maxLng;
+}
 const STOP_COLOR = "#dc2626";              // red — matches the default numbered pin
 const SENT_COLOR = "#8b5cf6";              // purple — estimate sent
 const COMPLETED_COLOR = "#16a34a";         // green — job completed
@@ -190,8 +197,9 @@ export default function LeadMap() {
     if (polyRef.current) { polyRef.current.setMap(null); polyRef.current = null; }
 
     const leadBounds = new maps.LatLngBounds();
+    const houstonBounds = new maps.LatLngBounds();
     const stopBounds = new maps.LatLngBounds();
-    let leadCount = 0, stopCount = 0;
+    let leadCount = 0, stopCount = 0, houstonCount = 0;
 
     // Lead pins (colored circles by stage / estimate-sent / completed).
     for (const lead of data?.leads || []) {
@@ -212,6 +220,7 @@ export default function LeadMap() {
       markersRef.current.push(marker);
       leadMarkersRef.current.set(lead.id, marker);
       leadBounds.extend(pos); leadCount++;
+      if (inHouston(lead.lat, lead.lng)) { houstonBounds.extend(pos); houstonCount++; }
     }
 
     // Estimator stops — red numbered pins + the day's route.
@@ -239,10 +248,12 @@ export default function LeadMap() {
     }
 
     // Fit only when the meaningful set changes (not on legend toggles): to the
-    // day's route when one is selected, otherwise to all the lead pins.
+    // day's route when one is selected, otherwise frame the Houston cluster
+    // (falls back to all pins only if nothing lands in the Houston box).
     const sig = `${selectedDate}|${stops.length}|${data?.leads.length || 0}`;
     if (sig !== fitSigRef.current) {
       if (stopCount > 0) map.fitBounds(stopBounds);
+      else if (houstonCount > 0) map.fitBounds(houstonBounds);
       else if (leadCount > 0) map.fitBounds(leadBounds);
       fitSigRef.current = sig;
     }
