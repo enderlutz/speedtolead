@@ -241,7 +241,6 @@ export default function DailyTaskList() {
                 <th className="px-4 py-2.5 font-medium">Stage</th>
                 <th className="px-4 py-2.5 font-medium">Call</th>
                 <th className="px-4 py-2.5 font-medium">Notes</th>
-                <th className="px-4 py-2.5 font-medium">Follow-up</th>
                 <th className="px-4 py-2.5 font-medium text-right">Signature</th>
                 <th className="px-4 py-2.5 font-medium text-right">Actions</th>
               </tr>
@@ -255,6 +254,18 @@ export default function DailyTaskList() {
                       {t.contact_name || "Lead"}
                     </button>
                     {t.address && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.address}</div>}
+                    {t.next_follow_up && (
+                      <button
+                        onClick={() => setFollowUpFor(t)}
+                        title="Reschedule follow-up"
+                        className={`mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                          isOverdue(t.next_follow_up.due_at) ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        <CalendarClock className="h-2.5 w-2.5" />
+                        {ACTION_LABELS[t.next_follow_up.action_type] || "Follow up"} · {fmtWhen(t.next_follow_up.due_at)}
+                      </button>
+                    )}
                   </td>
 
                   {/* Stage — clickable picker */}
@@ -318,29 +329,6 @@ export default function DailyTaskList() {
                     </button>
                   </td>
 
-                  {/* Follow-up */}
-                  <td className="px-4 py-3 align-top">
-                    {t.next_follow_up ? (
-                      <div className="space-y-1">
-                        <div className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                          isOverdue(t.next_follow_up.due_at) ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
-                        }`}>
-                          <CalendarClock className="h-3 w-3" />
-                          {ACTION_LABELS[t.next_follow_up.action_type] || "Follow up"} · {fmtWhen(t.next_follow_up.due_at)}
-                        </div>
-                        {t.next_follow_up.note && <div className="text-[10px] text-muted-foreground truncate max-w-[160px]">{t.next_follow_up.note}</div>}
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => setFollowUpFor(t)} className="text-[10px] text-primary hover:underline">Reschedule</button>
-                          <button onClick={() => completeFollowUp(t)} disabled={busyId === t.id} className="text-[10px] text-emerald-600 hover:underline flex items-center gap-0.5">
-                            <CheckCircle2 className="h-3 w-3" /> Done
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setFollowUpFor(t)} className="text-xs text-primary hover:underline">+ Set follow-up</button>
-                    )}
-                  </td>
-
                   {/* Signature price */}
                   <td className="px-4 py-3 align-top text-right font-semibold whitespace-nowrap">{money(t.signature_price)}</td>
 
@@ -359,14 +347,6 @@ export default function DailyTaskList() {
                         className="p-1 rounded text-amber-600 hover:bg-amber-50"
                       >
                         <CalendarClock className="h-4 w-4" />
-                      </button>
-                      <button
-                        title="Quick — mark scheduled (moves to Closed & Scheduled)"
-                        disabled={busyId === t.id}
-                        onClick={() => quickAction(t, SCHEDULED_STAGE_ID, `Mark ${t.contact_name || "this lead"} scheduled? (moves to Closed & Scheduled)`, "Marked scheduled")}
-                        className="p-1 rounded text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
                       </button>
                       <button
                         title="Decline (a 'no' — moves to DECLINED ESTIMATE)"
@@ -394,7 +374,12 @@ export default function DailyTaskList() {
       )}
 
       {followUpFor && (
-        <FollowUpModal task={followUpFor} onClose={() => setFollowUpFor(null)} onSaved={() => { setFollowUpFor(null); load(); }} />
+        <FollowUpModal
+          task={followUpFor}
+          onClose={() => setFollowUpFor(null)}
+          onSaved={() => { setFollowUpFor(null); load(); }}
+          onComplete={() => { completeFollowUp(followUpFor); setFollowUpFor(null); }}
+        />
       )}
 
       {scheduleLead && (
@@ -507,7 +492,7 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   );
 }
 
-function FollowUpModal({ task, onClose, onSaved }: { task: DailyTask; onClose: () => void; onSaved: () => void }) {
+function FollowUpModal({ task, onClose, onSaved, onComplete }: { task: DailyTask; onClose: () => void; onSaved: () => void; onComplete: () => void }) {
   const existing = task.next_follow_up;
   const existingDate = existing ? new Date(existing.due_at) : null;
   const [action, setAction] = useState(existing?.action_type || "call");
@@ -537,7 +522,20 @@ function FollowUpModal({ task, onClose, onSaved }: { task: DailyTask; onClose: (
   return (
     <ModalShell title={existing ? "Reschedule follow-up" : "Set follow-up"} subtitle={task.contact_name || "Lead"} onClose={onClose}>
       <FollowUpFields action={action} setAction={setAction} date={date} setDate={setDate} time={time} setTime={setTime} note={note} setNote={setNote} />
-      <ModalFooter saving={saving} onClose={onClose} onSave={save} />
+      <div className="flex items-center justify-between gap-2 pt-1">
+        {existing ? (
+          <Button size="sm" variant="ghost" className="text-emerald-600 hover:text-emerald-700" onClick={onComplete} disabled={saving}>
+            <CheckCircle2 className="h-4 w-4 mr-1" /> Mark done
+          </Button>
+        ) : <span />}
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+            Save
+          </Button>
+        </div>
+      </div>
     </ModalShell>
   );
 }
