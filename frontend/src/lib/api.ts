@@ -404,16 +404,25 @@ export interface DailyTaskDisposition {
   disposed_by: string;
   disposed_at: string;
 }
+export interface DailyTaskFollowUp {
+  id: string;
+  due_at: string;
+  action_type: string; // call | text | other
+  note: string;
+}
 export interface DailyTask {
   id: string;
   contact_name: string;
   address: string;
-  stage_key: "estimate_sent" | "responded";
+  stage_key: "new_lead" | "estimate_sent" | "responded";
   stage_label: string;
+  is_top_priority: boolean;
   called: boolean;
   call_count: number;
   last_called_at: string | null;
+  last_action_at: string | null;
   dispositions: DailyTaskDisposition[];
+  next_follow_up?: DailyTaskFollowUp | null;
   signature_price: number;
 }
 
@@ -1751,6 +1760,13 @@ export const api = {
   listCallDispositions: (leadId: string) =>
     request<{ dispositions: CallDispositionEntry[] }>(`/api/leads/${leadId}/call-dispositions`),
   getDailyTasks: () => request<{ tasks: DailyTask[] }>("/api/daily-tasks"),
+  createFollowUp: (leadId: string, body: { due_at: string; action_type: string; note?: string }) =>
+    request<DailyTaskFollowUp>(`/api/daily-tasks/${leadId}/follow-up`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  completeFollowUp: (followUpId: string) =>
+    request<{ id: string; status: string }>(`/api/daily-tasks/follow-up/${followUpId}/complete`, { method: "POST" }),
   /** Sprint 2 T2.E — Compute the current follow-up flag for a lead.
    *  Returns null when no rule fires. */
   getFollowUpFlag: (leadId: string) =>

@@ -1182,6 +1182,43 @@ class CallTouch(Base):
     marked_by = Column(Text, default="")     # display name from JWT
 
 
+class TaskFollowUp(Base):
+    """A scheduled follow-up action for the Daily Task List — e.g. 'call them
+    back Thursday 2pm'. Manual, per-lead reminder the VA sets after a call, so
+    the lead reappears on the task list under the day it's due. Distinct from
+    the automated FollowUpSequence SMS engine. One pending row per lead at a
+    time (creating a new one supersedes the prior pending)."""
+    __tablename__ = "task_follow_ups"
+    __table_args__ = (
+        Index("idx_task_follow_ups_lead", "lead_id"),
+        Index("idx_task_follow_ups_due", "due_at"),
+        Index("idx_task_follow_ups_status", "status"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    due_at = Column(Text, default="")            # ISO datetime UTC
+    action_type = Column(Text, default="call")   # call | text | other
+    note = Column(Text, default="")
+    status = Column(Text, default="pending")     # pending | done | cancelled
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    completed_at = Column(Text, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "due_at": self.due_at or "",
+            "action_type": self.action_type or "call",
+            "note": self.note or "",
+            "status": self.status or "pending",
+            "created_at": self.created_at or "",
+            "created_by": self.created_by or "",
+            "completed_at": self.completed_at,
+        }
+
+
 class CallDisposition(Base):
     """One row per call Alan (or any staff) logs after talking to a lead.
     Append-only history — every call gets a new row so we can track
