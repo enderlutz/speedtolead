@@ -105,8 +105,12 @@ export default function DailyTaskList() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<DailyTask[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"today" | "upcoming" | "all">("today");
-  const [stageFilter, setStageFilter] = useState<"all" | "new_lead" | "estimate_sent" | "responded" | "waiting">("all");
+  const [tab, setTab] = useState<"today" | "upcoming" | "all">(() => {
+    try { return (localStorage.getItem("at_tasks_tab") as "today" | "upcoming" | "all") || "today"; } catch { return "today"; }
+  });
+  const [stageFilter, setStageFilter] = useState<"all" | "new_lead" | "estimate_sent" | "responded" | "waiting">(() => {
+    try { return (localStorage.getItem("at_tasks_stage") as "all" | "new_lead" | "estimate_sent" | "responded" | "waiting") || "all"; } catch { return "all"; }
+  });
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
   const [noteFor, setNoteFor] = useState<DailyTask | null>(null);
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
@@ -121,6 +125,9 @@ export default function DailyTaskList() {
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Persist the tab + stage filter so returning from a lead restores them.
+  useEffect(() => { try { localStorage.setItem("at_tasks_tab", tab); } catch { /* ignore */ } }, [tab]);
+  useEffect(() => { try { localStorage.setItem("at_tasks_stage", stageFilter); } catch { /* ignore */ } }, [stageFilter]);
 
   const openSchedule = async (id: string) => {
     setBusyId(id);

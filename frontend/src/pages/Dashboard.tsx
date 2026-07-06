@@ -32,7 +32,11 @@ type PipelineFilter = "v2" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
 
 export default function Dashboard() {
-  const [view, setView] = useState<"overview" | "tasks">("overview");
+  const [view, setView] = useState<"overview" | "tasks">(() => {
+    try { return localStorage.getItem("at_dashboard_view") === "tasks" ? "tasks" : "overview"; } catch { return "overview"; }
+  });
+  // Persist which tab so returning from a lead lands back on the Daily Task List.
+  useEffect(() => { try { localStorage.setItem("at_dashboard_view", view); } catch { /* ignore */ } }, [view]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [recentLeads, setRecentLeads] = useState<Lead[]>([]);
   const [pending, setPending] = useState<PendingEstimate[]>([]);
