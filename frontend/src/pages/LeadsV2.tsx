@@ -36,6 +36,19 @@ function getCachedLeads(): Lead[] {
   } catch { return []; }
 }
 
+// View-state persistence — so returning from a lead lands you exactly where you
+// were (which tab, search text, scroll position) instead of resetting to Kanban.
+const LS_VIEW = "at_leads_v2_view";
+const LS_SEARCH = "at_leads_v2_search";
+const LS_SCROLL_Y = "at_leads_v2_scroll_y";
+const LS_KANBAN_X = "at_leads_v2_kanban_x";
+function lsGet(key: string, fallback = ""): string {
+  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
+function lsSet(key: string, val: string): void {
+  try { localStorage.setItem(key, val); } catch { /* quota/private mode — non-fatal */ }
+}
+
 // Stage IDs from the new GHL pipeline (FENCE STAINING NEW AUTOMATION FLOW).
 // Order matches the workflow: intake → hot → estimate → close → nurture.
 type StageDef = {
@@ -123,11 +136,46 @@ function timelineLabel(lead: Lead): string | null {
 
 export default function LeadsV2() {
   const [leads, setLeads] = useState<Lead[]>(getCachedLeads);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => lsGet(LS_SEARCH));
+  const [view, setView] = useState(() => lsGet(LS_VIEW, "kanban"));
   const [loading, setLoading] = useState(true);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [delays, setDelays] = useState<Record<string, { reason: string }>>({});
   const prevCountRef = useRef(leads.length);
+  const kanbanScrollRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
+
+  // Persist the current view + search so returning to Leads restores them.
+  useEffect(() => { lsSet(LS_VIEW, view); }, [view]);
+  useEffect(() => { lsSet(LS_SEARCH, search); }, [search]);
+
+  // Continuously save scroll positions (page vertical + kanban horizontal) so
+  // whatever the user last saw is captured before they click into a lead.
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        lsSet(LS_SCROLL_Y, String(window.scrollY));
+        if (kanbanScrollRef.current) lsSet(LS_KANBAN_X, String(kanbanScrollRef.current.scrollLeft));
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); cancelAnimationFrame(raf); };
+  }, []);
+
+  // Restore scroll once, after content has rendered (cached leads render
+  // immediately; otherwise wait for the first load).
+  useEffect(() => {
+    if (restoredRef.current || (loading && leads.length === 0)) return;
+    restoredRef.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const y = Number(lsGet(LS_SCROLL_Y, "0"));
+      if (y) window.scrollTo(0, y);
+      const x = Number(lsGet(LS_KANBAN_X, "0"));
+      if (x && kanbanScrollRef.current) kanbanScrollRef.current.scrollLeft = x;
+    }));
+  }, [loading, leads.length]);
 
   // 24h delay reasons keyed by lead_id, fetched once and refreshed every 60s
   useEffect(() => {
@@ -345,7 +393,7 @@ export default function LeadsV2() {
         <Input placeholder="Search name, phone, address..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
       </div>
 
-      <Tabs defaultValue="kanban">
+      <Tabs value={view} onValueChange={setView}>
         <TabsList>
           <TabsTrigger value="kanban"><LayoutGrid className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Kanban</span></TabsTrigger>
           <TabsTrigger value="queue"><List className="h-3.5 w-3.5 mr-1" /><span className="hidden sm:inline">Queue</span></TabsTrigger>
@@ -354,7 +402,7 @@ export default function LeadsV2() {
 
         <TabsContent value="kanban" className="mt-3">
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
+            <div ref={kanbanScrollRef} className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
               {KANBAN_COLUMNS.map((stage) => (
                 <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} delays={delays} />
               ))}

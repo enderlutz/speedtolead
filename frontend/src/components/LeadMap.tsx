@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Clock, MapPin, Eye, EyeOff, List, Loader2, ChevronDown, ChevronUp, Wand2, RefreshCw, Search, X } from "lucide-react";
 
+const LEADMAP_DAY_KEY = "at_leadmap_day"; // remembers the picked route day across visits
 const HOUSTON = { lat: 29.7604, lng: -95.3698 };
 // Greater-Houston bounding box — used to auto-frame the map on open so it
 // centers on the Houston cluster instead of zooming out to fit a few far-flung
@@ -92,7 +93,9 @@ function hoverHtml(lead: LeadMapPin): string {
 export default function LeadMap() {
   const navigate = useNavigate();
   const [data, setData] = useState<LeadMapData | null>(null);
-  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    try { return localStorage.getItem(LEADMAP_DAY_KEY) ?? ""; } catch { return ""; }
+  });
   const [stops, setStops] = useState<LeadMapStop[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [legendOpen, setLegendOpen] = useState(true);
@@ -104,6 +107,17 @@ export default function LeadMap() {
   // Latest selected date, read inside async polling without stale closures.
   const selectedDateRef = useRef("");
   useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
+
+  // Remember the picked route day across visits; clear it if it's no longer an
+  // available date (e.g. it rolled into the past and dropped off the list).
+  useEffect(() => {
+    try { localStorage.setItem(LEADMAP_DAY_KEY, selectedDate); } catch { /* ignore */ }
+  }, [selectedDate]);
+  useEffect(() => {
+    if (selectedDate && data && !data.route_dates.some((rd) => rd.date === selectedDate)) {
+      setSelectedDate("");
+    }
+  }, [data, selectedDate]);
 
   const mapDivRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<GMap | null>(null);
