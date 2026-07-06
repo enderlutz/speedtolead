@@ -7,13 +7,35 @@ import { toast } from "sonner";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
-  CheckCircle2, Star, Clock, CalendarClock,
+  CheckCircle2, Clock, CalendarClock,
 } from "lucide-react";
 
-// V2 pipeline stages we move leads into from here (all just stage changes).
-const SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066";      // Closed & Scheduled
-const TOP_PRIORITY_STAGE_ID = "147bd53b-3848-449d-b7c2-7a2cfad2a5f5";   // Top Priority-Responded
-const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";      // DECLINED ESTIMATE
+// V2 pipeline stage IDs.
+const NEW_LEAD_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570";
+const ESTIMATE_SENT_ID = "dc3600f2-009b-4075-95fa-786823131416";
+const EST_FU_LATER_ID = "3ed8e7e3-6852-469c-bb72-effc1b6df76c";
+const RESPONDED_ID = "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b";
+const TOP_PRIORITY_ID = "147bd53b-3848-449d-b7c2-7a2cfad2a5f5";
+const NURTURE_ID = "d836628c-3094-4a63-b95a-8a5358d251d0";
+const CLOSED_NOT_SCHEDULED_ID = "bbebbdac-0011-4253-9ed7-65522bafde02";
+const SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066";
+const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";
+const WAITING_VALUE = "status:waiting_updated_estimate"; // dashboard-only overlay
+
+// Options in the per-row stage picker. "status:*" values set a dashboard-only
+// overlay (no GHL push); everything else is a real GHL pipeline stage.
+const STAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: NEW_LEAD_ID, label: "New lead" },
+  { value: ESTIMATE_SENT_ID, label: "Estimate sent" },
+  { value: EST_FU_LATER_ID, label: "Estimate follow-up later" },
+  { value: RESPONDED_ID, label: "Responded to estimate" },
+  { value: TOP_PRIORITY_ID, label: "Top priority" },
+  { value: WAITING_VALUE, label: "Waiting for updated estimate" },
+  { value: NURTURE_ID, label: "Long-term nurture" },
+  { value: CLOSED_NOT_SCHEDULED_ID, label: "Closed — not scheduled" },
+  { value: SCHEDULED_STAGE_ID, label: "Closed & scheduled" },
+  { value: DECLINED_STAGE_ID, label: "Declined" },
+];
 
 const OUTCOME_LABELS: Record<string, string> = {
   closed: "Closed — won",
@@ -48,8 +70,6 @@ function relTime(iso: string | null | undefined): string {
 function money(n: number): string {
   return n > 0 ? `$${n.toLocaleString()}` : "—";
 }
-// A lead belongs to "today" when it has no scheduled follow-up (needs a touch)
-// or its follow-up is due today/overdue. Future follow-ups → "upcoming".
 function isUpcoming(t: DailyTask): boolean {
   const due = t.next_follow_up?.due_at;
   if (!due) return false;
@@ -62,13 +82,33 @@ function isOverdue(iso: string): boolean {
   const d = new Date(iso);
   return !isNaN(d.getTime()) && d.getTime() < Date.now();
 }
+// Effective stage for display + filtering (the waiting overlay wins).
+function effectiveStage(t: DailyTask): "new_lead" | "estimate_sent" | "responded" | "waiting" {
+  if (t.task_status === "waiting_updated_estimate") return "waiting";
+  return t.stage_key;
+}
+function currentStageValue(t: DailyTask): string {
+  if (t.task_status === "waiting_updated_estimate") return WAITING_VALUE;
+  if (t.stage_key === "responded") return t.is_top_priority ? TOP_PRIORITY_ID : RESPONDED_ID;
+  if (t.stage_key === "estimate_sent") return ESTIMATE_SENT_ID;
+  return NEW_LEAD_ID;
+}
+function stageSelectCls(t: DailyTask): string {
+  const s = effectiveStage(t);
+  if (s === "waiting") return "border-purple-300 bg-purple-50 text-purple-800";
+  if (s === "responded") return "border-blue-300 bg-blue-50 text-blue-800";
+  if (s === "estimate_sent") return "border-sky-300 bg-sky-50 text-sky-800";
+  return "border-gray-300 bg-gray-50 text-gray-700";
+}
 
 export default function DailyTaskList() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<DailyTask[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"today" | "upcoming" | "all">("today");
+  const [stageFilter, setStageFilter] = useState<"all" | "new_lead" | "estimate_sent" | "responded" | "waiting">("all");
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
+  const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -92,8 +132,26 @@ export default function DailyTaskList() {
     }
   };
 
-  const moveStage = async (t: DailyTask, stageId: string, confirmMsg: string | null, okMsg: string) => {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const changeStage = async (t: DailyTask, value: string) => {
+    if (value === currentStageValue(t)) return;
+    setBusyId(t.id);
+    try {
+      if (value.startsWith("status:")) {
+        await api.setTaskStatus(t.id, value.slice("status:".length));
+      } else {
+        await api.updateStage(t.id, value);
+      }
+      toast.success("Stage updated");
+      load();
+    } catch {
+      toast.error("Couldn't update the stage");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const quickAction = async (t: DailyTask, stageId: string, confirmMsg: string, okMsg: string) => {
+    if (!window.confirm(confirmMsg)) return;
     setBusyId(t.id);
     try {
       await api.updateStage(t.id, stageId);
@@ -121,13 +179,12 @@ export default function DailyTaskList() {
   };
 
   const shown = useMemo(() => {
-    const list = tasks ?? [];
-    let filtered = list;
-    if (tab === "today") filtered = list.filter((t) => !isUpcoming(t));
-    else if (tab === "upcoming") filtered = list.filter((t) => isUpcoming(t));
-    // Sort: within a tab, dated follow-ups by due asc; untouched (no due) first.
-    return [...filtered].sort((a, b) => (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || ""));
-  }, [tasks, tab]);
+    let list = tasks ?? [];
+    if (tab === "today") list = list.filter((t) => !isUpcoming(t));
+    else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
+    if (stageFilter !== "all") list = list.filter((t) => effectiveStage(t) === stageFilter);
+    return [...list].sort((a, b) => (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || ""));
+  }, [tasks, tab, stageFilter]);
 
   const counts = useMemo(() => {
     const list = tasks ?? [];
@@ -138,30 +195,41 @@ export default function DailyTaskList() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            Work every lead until you hear a <span className="font-medium text-emerald-600">yes</span> (schedule) or a{" "}
-            <span className="font-medium text-red-500">no</span> (decline). Schedule a follow-up and it reappears on its day.
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Work every lead until you hear a <span className="font-medium text-emerald-600">yes</span> (schedule) or a{" "}
+          <span className="font-medium text-red-500">no</span> (decline). Schedule a follow-up and it reappears on its day.
+        </p>
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "today" | "upcoming" | "all")}>
-        <TabsList>
-          <TabsTrigger value="today">Today ({counts.today})</TabsTrigger>
-          <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
-          <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "today" | "upcoming" | "all")}>
+          <TabsList>
+            <TabsTrigger value="today">Today ({counts.today})</TabsTrigger>
+            <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
+            <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <select
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value as typeof stageFilter)}
+          className="text-sm rounded-md border bg-background px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="all">All stages</option>
+          <option value="new_lead">New lead</option>
+          <option value="estimate_sent">Estimate sent</option>
+          <option value="responded">Responded to estimate</option>
+          <option value="waiting">Waiting for updated estimate</option>
+        </select>
+      </div>
 
       {loading && !tasks ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : shown.length === 0 ? (
         <div className="rounded-xl border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
-          {tab === "today" ? "🎉 Nothing left to work today." : tab === "upcoming" ? "No follow-ups scheduled for later." : "No leads waiting on an answer."}
+          {tab === "today" ? "🎉 Nothing left to work today." : tab === "upcoming" ? "No follow-ups scheduled for later." : "No leads match this filter."}
         </div>
       ) : (
         <div className="rounded-xl border overflow-x-auto bg-background">
@@ -188,20 +256,16 @@ export default function DailyTaskList() {
                     {t.address && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.address}</div>}
                   </td>
 
-                  {/* Stage */}
+                  {/* Stage — clickable picker */}
                   <td className="px-4 py-3 align-top">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      t.stage_key === "responded" ? "bg-blue-100 text-blue-800"
-                      : t.stage_key === "estimate_sent" ? "bg-sky-100 text-sky-800"
-                      : "bg-gray-100 text-gray-700"
-                    }`}>
-                      {t.stage_label}
-                    </span>
-                    {t.is_top_priority && (
-                      <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-rose-100 text-rose-700 px-1.5 py-0.5 text-[10px] font-medium">
-                        <Star className="h-2.5 w-2.5" /> Top
-                      </span>
-                    )}
+                    <select
+                      value={currentStageValue(t)}
+                      disabled={busyId === t.id}
+                      onChange={(e) => changeStage(t, e.target.value)}
+                      className={`text-[11px] font-medium rounded-full border px-2 py-1 max-w-[150px] focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${stageSelectCls(t)}`}
+                    >
+                      {STAGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
                   </td>
 
                   {/* Call status + last activity */}
@@ -257,12 +321,15 @@ export default function DailyTaskList() {
                           {ACTION_LABELS[t.next_follow_up.action_type] || "Follow up"} · {fmtWhen(t.next_follow_up.due_at)}
                         </div>
                         {t.next_follow_up.note && <div className="text-[10px] text-muted-foreground truncate max-w-[160px]">{t.next_follow_up.note}</div>}
-                        <button onClick={() => completeFollowUp(t)} disabled={busyId === t.id} className="text-[10px] text-emerald-600 hover:underline flex items-center gap-0.5">
-                          <CheckCircle2 className="h-3 w-3" /> Mark done
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setFollowUpFor(t)} className="text-[10px] text-primary hover:underline">Reschedule</button>
+                          <button onClick={() => completeFollowUp(t)} disabled={busyId === t.id} className="text-[10px] text-emerald-600 hover:underline flex items-center gap-0.5">
+                            <CheckCircle2 className="h-3 w-3" /> Done
+                          </button>
+                        </div>
                       </div>
                     ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
+                      <button onClick={() => setFollowUpFor(t)} className="text-xs text-primary hover:underline">+ Set follow-up</button>
                     )}
                   </td>
 
@@ -279,27 +346,24 @@ export default function DailyTaskList() {
                         <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule
                       </Button>
                       <button
+                        title="Reschedule follow-up"
+                        onClick={() => setFollowUpFor(t)}
+                        className="p-1 rounded text-amber-600 hover:bg-amber-50"
+                      >
+                        <CalendarClock className="h-4 w-4" />
+                      </button>
+                      <button
                         title="Quick — mark scheduled (moves to Closed & Scheduled)"
                         disabled={busyId === t.id}
-                        onClick={() => moveStage(t, SCHEDULED_STAGE_ID, `Mark ${t.contact_name || "this lead"} scheduled? (moves to Closed & Scheduled)`, "Marked scheduled")}
+                        onClick={() => quickAction(t, SCHEDULED_STAGE_ID, `Mark ${t.contact_name || "this lead"} scheduled? (moves to Closed & Scheduled)`, "Marked scheduled")}
                         className="p-1 rounded text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
                       >
                         <CheckCircle2 className="h-4 w-4" />
                       </button>
-                      {t.stage_key === "responded" && !t.is_top_priority && (
-                        <button
-                          title="Move to Top Priority"
-                          disabled={busyId === t.id}
-                          onClick={() => moveStage(t, TOP_PRIORITY_STAGE_ID, null, "Moved to Top Priority")}
-                          className="p-1 rounded text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                        >
-                          <Star className="h-4 w-4" />
-                        </button>
-                      )}
                       <button
                         title="Decline (a 'no' — moves to DECLINED ESTIMATE)"
                         disabled={busyId === t.id}
-                        onClick={() => moveStage(t, DECLINED_STAGE_ID, `Mark ${t.contact_name || "this lead"} as declined?`, "Marked declined")}
+                        onClick={() => quickAction(t, DECLINED_STAGE_ID, `Mark ${t.contact_name || "this lead"} as declined?`, "Marked declined")}
                         className="p-1 rounded text-red-600 hover:bg-red-50 disabled:opacity-40"
                       >
                         <XCircle className="h-4 w-4" />
@@ -314,11 +378,11 @@ export default function DailyTaskList() {
       )}
 
       {logFor && (
-        <LogCallModal
-          task={logFor}
-          onClose={() => setLogFor(null)}
-          onSaved={() => { setLogFor(null); load(); }}
-        />
+        <LogCallModal task={logFor} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} />
+      )}
+
+      {followUpFor && (
+        <FollowUpModal task={followUpFor} onClose={() => setFollowUpFor(null)} onSaved={() => { setFollowUpFor(null); load(); }} />
       )}
 
       {scheduleLead && (
@@ -337,6 +401,42 @@ function todayYMD(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Follow-up form fields — shared by the log-call and reschedule modals. */
+function FollowUpFields({ action, setAction, date, setDate, time, setTime, note, setNote }: {
+  action: string; setAction: (v: string) => void;
+  date: string; setDate: (v: string) => void;
+  time: string; setTime: (v: string) => void;
+  note: string; setNote: (v: string) => void;
+}) {
+  const inputCls = "mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-semibold text-muted-foreground">Next action</label>
+        <select value={action} onChange={(e) => setAction(e.target.value)} className={inputCls}>
+          <option value="call">Call back</option>
+          <option value="text">Send text</option>
+          <option value="other">Follow up</option>
+        </select>
+      </div>
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <label className="text-xs font-semibold text-muted-foreground">Date</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+        </div>
+        <div className="w-28">
+          <label className="text-xs font-semibold text-muted-foreground">Time</label>
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-muted-foreground">Follow-up note</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className={inputCls} />
+      </div>
+    </div>
+  );
+}
+
 function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: () => void; onSaved: () => void }) {
   const [outcome, setOutcome] = useState<CallDispositionOutcome>("no_answer");
   const [notes, setNotes] = useState("");
@@ -347,7 +447,6 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   const [fuNote, setFuNote] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // A callback outcome implies scheduling the next touch — pre-arm the section.
   const onOutcome = (o: CallDispositionOutcome) => {
     setOutcome(o);
     if (o === "callback") setScheduleFu(true);
@@ -359,11 +458,7 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
       await api.logCallDisposition(task.id, { outcome, notes: notes.trim() });
       if (scheduleFu) {
         const due = new Date(`${fuDate}T${fuTime || "09:00"}:00`);
-        await api.createFollowUp(task.id, {
-          due_at: due.toISOString(),
-          action_type: fuAction,
-          note: fuNote.trim(),
-        });
+        await api.createFollowUp(task.id, { due_at: due.toISOString(), action_type: fuAction, note: fuNote.trim() });
       }
       toast.success(scheduleFu ? "Call logged + follow-up scheduled" : "Call logged");
       onSaved();
@@ -375,73 +470,88 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   };
 
   return (
+    <ModalShell title="Log a call" subtitle={task.contact_name || "Lead"} onClose={onClose}>
+      <div>
+        <label className="text-xs font-semibold text-muted-foreground">Outcome</label>
+        <select value={outcome} onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+          {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-muted-foreground">Notes</label>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="What did the customer say?" className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+      </div>
+      <label className="flex items-center gap-2 text-sm cursor-pointer pt-1 border-t">
+        <input type="checkbox" checked={scheduleFu} onChange={(e) => setScheduleFu(e.target.checked)} className="h-4 w-4 mt-2" />
+        <span className="mt-2">Schedule a follow-up</span>
+      </label>
+      {scheduleFu && (
+        <div className="rounded-lg border bg-muted/30 p-2.5">
+          <FollowUpFields action={fuAction} setAction={setFuAction} date={fuDate} setDate={setFuDate} time={fuTime} setTime={setFuTime} note={fuNote} setNote={setFuNote} />
+        </div>
+      )}
+      <ModalFooter saving={saving} onClose={onClose} onSave={save} />
+    </ModalShell>
+  );
+}
+
+function FollowUpModal({ task, onClose, onSaved }: { task: DailyTask; onClose: () => void; onSaved: () => void }) {
+  const existing = task.next_follow_up;
+  const existingDate = existing ? new Date(existing.due_at) : null;
+  const [action, setAction] = useState(existing?.action_type || "call");
+  const [date, setDate] = useState(existingDate && !isNaN(existingDate.getTime())
+    ? `${existingDate.getFullYear()}-${String(existingDate.getMonth() + 1).padStart(2, "0")}-${String(existingDate.getDate()).padStart(2, "0")}`
+    : todayYMD());
+  const [time, setTime] = useState(existingDate && !isNaN(existingDate.getTime())
+    ? `${String(existingDate.getHours()).padStart(2, "0")}:${String(existingDate.getMinutes()).padStart(2, "0")}`
+    : "09:00");
+  const [note, setNote] = useState(existing?.note || "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const due = new Date(`${date}T${time || "09:00"}:00`);
+      await api.createFollowUp(task.id, { due_at: due.toISOString(), action_type: action, note: note.trim() });
+      toast.success(existing ? "Follow-up rescheduled" : "Follow-up scheduled");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save follow-up");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title={existing ? "Reschedule follow-up" : "Set follow-up"} subtitle={task.contact_name || "Lead"} onClose={onClose}>
+      <FollowUpFields action={action} setAction={setAction} date={date} setDate={setDate} time={time} setTime={setTime} note={note} setNote={setNote} />
+      <ModalFooter saving={saving} onClose={onClose} onSave={save} />
+    </ModalShell>
+  );
+}
+
+function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: React.ReactNode }) {
+  return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border bg-background p-4 shadow-xl space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div>
-          <p className="text-sm font-semibold">Log a call</p>
-          <p className="text-xs text-muted-foreground">{task.contact_name || "Lead"}</p>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
         </div>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground">Outcome</label>
-          <select
-            value={outcome}
-            onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)}
-            className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-muted-foreground">Notes</label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={3}
-            placeholder="What did the customer say?"
-            className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-          />
-        </div>
-
-        <label className="flex items-center gap-2 text-sm cursor-pointer pt-1 border-t">
-          <input type="checkbox" checked={scheduleFu} onChange={(e) => setScheduleFu(e.target.checked)} className="h-4 w-4 mt-2" />
-          <span className="mt-2">Schedule a follow-up</span>
-        </label>
-
-        {scheduleFu && (
-          <div className="space-y-2 rounded-lg border bg-muted/30 p-2.5">
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Next action</label>
-              <select value={fuAction} onChange={(e) => setFuAction(e.target.value)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
-                <option value="call">Call back</option>
-                <option value="text">Send text</option>
-                <option value="other">Follow up</option>
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-xs font-semibold text-muted-foreground">Date</label>
-                <input type="date" value={fuDate} onChange={(e) => setFuDate(e.target.value)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
-              </div>
-              <div className="w-28">
-                <label className="text-xs font-semibold text-muted-foreground">Time</label>
-                <input type="time" value={fuTime} onChange={(e) => setFuTime(e.target.value)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground">Follow-up note</label>
-              <input value={fuNote} onChange={(e) => setFuNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring" />
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button size="sm" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button size="sm" onClick={save} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
-            Save
-          </Button>
-        </div>
+        {children}
       </div>
+    </div>
+  );
+}
+
+function ModalFooter({ saving, onClose, onSave }: { saving: boolean; onClose: () => void; onSave: () => void }) {
+  return (
+    <div className="flex justify-end gap-2 pt-1">
+      <Button size="sm" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+      <Button size="sm" onClick={onSave} disabled={saving}>
+        {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+        Save
+      </Button>
     </div>
   );
 }

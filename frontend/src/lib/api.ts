@@ -417,6 +417,7 @@ export interface DailyTask {
   stage_key: "new_lead" | "estimate_sent" | "responded";
   stage_label: string;
   is_top_priority: boolean;
+  task_status: string; // "" | "waiting_updated_estimate"
   called: boolean;
   call_count: number;
   last_called_at: string | null;
@@ -1767,6 +1768,11 @@ export const api = {
     }),
   completeFollowUp: (followUpId: string) =>
     request<{ id: string; status: string }>(`/api/daily-tasks/follow-up/${followUpId}/complete`, { method: "POST" }),
+  setTaskStatus: (leadId: string, status: string) =>
+    request<{ lead_id: string; task_status: string }>(`/api/daily-tasks/${leadId}/task-status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
   /** Sprint 2 T2.E — Compute the current follow-up flag for a lead.
    *  Returns null when no rule fires. */
   getFollowUpFlag: (leadId: string) =>

@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 
 from database import get_db, Lead, Estimate, CallDisposition, TaskFollowUp
 from api.auth import require_staff
@@ -96,7 +96,12 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
             .filter(
                 Lead.pipeline_version == "v2",
                 Lead.is_test.isnot(True),
-                Lead.ghl_pipeline_stage_id.in_(stage_ids),
+                or_(
+                    Lead.ghl_pipeline_stage_id.in_(stage_ids),
+                    # Keep "waiting for updated estimate" leads on the list even
+                    # if their GHL stage sits elsewhere (dashboard-only overlay).
+                    Lead.daily_task_status == "waiting_updated_estimate",
+                ),
             )
             .all()
         )
@@ -163,6 +168,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "stage_key": stage_key,
                 "stage_label": _STAGE_LABELS[stage_key],
                 "is_top_priority": is_top_priority,
+                "task_status": l.daily_task_status or "",
                 "called": len(log) > 0,
                 "call_count": len(log),
                 "last_called_at": last_disp or None,
@@ -221,6 +227,33 @@ def create_follow_up(lead_id: str, body: FollowUpBody, user: dict = Depends(requ
         db.commit()
         db.refresh(fu)
         return fu.to_dict()
+    finally:
+        db.close()
+
+
+_ALLOWED_TASK_STATUS = {"", "waiting_updated_estimate"}
+
+
+class TaskStatusBody(BaseModel):
+    status: str = ""   # "" (none) | "waiting_updated_estimate"
+
+
+@router.post("/daily-tasks/{lead_id}/task-status")
+def set_task_status(lead_id: str, body: TaskStatusBody, user: dict = Depends(require_staff)):
+    """Set the dashboard-only task status overlay (e.g. 'waiting for updated
+    estimate'). Never touches the GHL pipeline stage — purely local."""
+    del user
+    status = (body.status or "").strip()
+    if status not in _ALLOWED_TASK_STATUS:
+        raise HTTPException(400, f"status must be one of {sorted(_ALLOWED_TASK_STATUS)}")
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        lead.daily_task_status = status
+        db.commit()
+        return {"lead_id": lead_id, "task_status": status}
     finally:
         db.close()
 

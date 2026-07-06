@@ -781,6 +781,9 @@ def update_pipeline_stage(lead_id: str, body: StageUpdate):
             raise HTTPException(status_code=404, detail="Lead not found")
 
         lead.ghl_pipeline_stage_id = body.stage_id
+        # A real stage change clears any dashboard-only Daily Task List overlay
+        # (e.g. "waiting for updated estimate" no longer applies).
+        lead.daily_task_status = ""
         lead.updated_at = _now()
         db.commit()
 

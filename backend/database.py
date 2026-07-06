@@ -61,6 +61,10 @@ class Lead(Base):
     # Free-text notes the estimator takes during the on-site estimate. Shown in
     # the Estimator tab on Lead Detail (and the estimator's own lead page).
     estimator_notes = Column(Text, default="")
+    # Dashboard-only Daily Task List status overlay. "" = none; the only value
+    # today is "waiting_updated_estimate" (customer wants a requote). Never
+    # pushed to GHL; cleared automatically whenever the GHL stage changes.
+    daily_task_status = Column(Text, default="")
     viewed_at = Column(Text, nullable=True)
     proposal_viewed_at = Column(Text, nullable=True)
     proposal_last_viewed_at = Column(Text, nullable=True)
@@ -2569,6 +2573,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN estimator_notes TEXT DEFAULT ''"))
         logger.info("Migration: added leads.estimator_notes")
+
+    if "daily_task_status" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN daily_task_status TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.daily_task_status")
 
     if "precall_done" not in existing:
         with _engine.begin() as conn:
