@@ -34,20 +34,34 @@ logger = logging.getLogger(__name__)
 # Stages that belong on the daily task list, grouped into the labels the owner
 # asked for. Mirrors the Sterling V2 pipeline stage IDs.
 _NEW_LEAD_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570"
+_HOT_LEAD_ID = "616087fa-4144-454e-b3d3-ff3669cb9461"          # HOT LEAD_SEND ESTIMATE
 _ESTIMATE_SENT_ID = "dc3600f2-009b-4075-95fa-786823131416"
 _RESPONDED_IDS = {
     "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b",  # RESPONDED TO ESTIMATE
     "147bd53b-3848-449d-b7c2-7a2cfad2a5f5",  # Top Priority-Responded to Estimate
 }
+_NURTURE_ID = "d836628c-3094-4a63-b95a-8a5358d251d0"           # LONG TERM NURTURE
+_NURTURE_RESPONDED_ID = "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01" # Responded to long term nurture
 _STAGE_KEYS = {
     _NEW_LEAD_ID: "new_lead",
+    _HOT_LEAD_ID: "hot",
     _ESTIMATE_SENT_ID: "estimate_sent",
     **{sid: "responded" for sid in _RESPONDED_IDS},
+    _NURTURE_ID: "nurture",
+    _NURTURE_RESPONDED_ID: "nurture_responded",
 }
 _STAGE_LABELS = {
     "new_lead": "New lead",
+    "hot": "Hot lead",
     "estimate_sent": "Estimate sent",
     "responded": "Responded to estimate",
+    "nurture": "Long-term nurture",
+    "nurture_responded": "Responded to nurture",
+}
+# Sort priority within a tab — hottest/most-actionable first, nurture last.
+_STAGE_PRIORITY = {
+    "responded": 0, "nurture_responded": 1, "hot": 2,
+    "estimate_sent": 3, "new_lead": 4, "nurture": 5,
 }
 _ACTION_TYPES = {"call", "text", "other"}
 
@@ -90,7 +104,10 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
     del user
     db = get_db()
     try:
-        stage_ids = [_NEW_LEAD_ID, _ESTIMATE_SENT_ID, *_RESPONDED_IDS]
+        stage_ids = [
+            _NEW_LEAD_ID, _HOT_LEAD_ID, _ESTIMATE_SENT_ID, *_RESPONDED_IDS,
+            _NURTURE_ID, _NURTURE_RESPONDED_ID,
+        ]
         leads = (
             db.query(Lead)
             .filter(
@@ -185,9 +202,9 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "signature_price": prices.get(l.id, 0),
             })
 
-        # Responded first, then uncalled-first, then higher price first.
+        # Hottest/most-actionable stage first, then uncalled-first, then price.
         rows.sort(key=lambda r: (
-            0 if r["stage_key"] == "responded" else (1 if r["stage_key"] == "estimate_sent" else 2),
+            _STAGE_PRIORITY.get(r["stage_key"], 9),
             0 if not r["called"] else 1,
             -r["signature_price"],
         ))

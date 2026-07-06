@@ -414,7 +414,7 @@ export interface DailyTask {
   id: string;
   contact_name: string;
   address: string;
-  stage_key: "new_lead" | "estimate_sent" | "responded";
+  stage_key: "new_lead" | "hot" | "estimate_sent" | "responded" | "nurture" | "nurture_responded";
   stage_label: string;
   is_top_priority: boolean;
   task_status: string; // "" | "waiting_updated_estimate"

@@ -12,11 +12,13 @@ import {
 
 // V2 pipeline stage IDs.
 const NEW_LEAD_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570";
+const HOT_LEAD_ID = "616087fa-4144-454e-b3d3-ff3669cb9461";
 const ESTIMATE_SENT_ID = "dc3600f2-009b-4075-95fa-786823131416";
 const EST_FU_LATER_ID = "3ed8e7e3-6852-469c-bb72-effc1b6df76c";
 const RESPONDED_ID = "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b";
 const TOP_PRIORITY_ID = "147bd53b-3848-449d-b7c2-7a2cfad2a5f5";
 const NURTURE_ID = "d836628c-3094-4a63-b95a-8a5358d251d0";
+const NURTURE_RESPONDED_ID = "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01";
 const CLOSED_NOT_SCHEDULED_ID = "bbebbdac-0011-4253-9ed7-65522bafde02";
 const SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066";
 const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";
@@ -26,16 +28,20 @@ const WAITING_VALUE = "status:waiting_updated_estimate"; // dashboard-only overl
 // overlay (no GHL push); everything else is a real GHL pipeline stage.
 const STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: NEW_LEAD_ID, label: "New lead" },
+  { value: HOT_LEAD_ID, label: "Hot lead — send estimate" },
   { value: ESTIMATE_SENT_ID, label: "Estimate sent" },
   { value: EST_FU_LATER_ID, label: "Estimate follow-up later" },
   { value: RESPONDED_ID, label: "Responded to estimate" },
   { value: TOP_PRIORITY_ID, label: "Top priority" },
   { value: WAITING_VALUE, label: "Waiting for updated estimate" },
   { value: NURTURE_ID, label: "Long-term nurture" },
+  { value: NURTURE_RESPONDED_ID, label: "Responded to nurture" },
   { value: CLOSED_NOT_SCHEDULED_ID, label: "Closed — not scheduled" },
   { value: SCHEDULED_STAGE_ID, label: "Closed & scheduled" },
   { value: DECLINED_STAGE_ID, label: "Declined" },
 ];
+
+type StageFilter = "all" | "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded";
 
 const OUTCOME_LABELS: Record<string, string> = {
   closed: "Closed — won",
@@ -83,20 +89,29 @@ function isOverdue(iso: string): boolean {
   return !isNaN(d.getTime()) && d.getTime() < Date.now();
 }
 // Effective stage for display + filtering (the waiting overlay wins).
-function effectiveStage(t: DailyTask): "new_lead" | "estimate_sent" | "responded" | "waiting" {
+function effectiveStage(t: DailyTask): string {
   if (t.task_status === "waiting_updated_estimate") return "waiting";
   return t.stage_key;
 }
+const STAGE_KEY_TO_ID: Record<string, string> = {
+  new_lead: NEW_LEAD_ID,
+  hot: HOT_LEAD_ID,
+  estimate_sent: ESTIMATE_SENT_ID,
+  nurture: NURTURE_ID,
+  nurture_responded: NURTURE_RESPONDED_ID,
+};
 function currentStageValue(t: DailyTask): string {
   if (t.task_status === "waiting_updated_estimate") return WAITING_VALUE;
   if (t.stage_key === "responded") return t.is_top_priority ? TOP_PRIORITY_ID : RESPONDED_ID;
-  if (t.stage_key === "estimate_sent") return ESTIMATE_SENT_ID;
-  return NEW_LEAD_ID;
+  return STAGE_KEY_TO_ID[t.stage_key] || NEW_LEAD_ID;
 }
 function stageSelectCls(t: DailyTask): string {
   const s = effectiveStage(t);
   if (s === "waiting") return "border-purple-300 bg-purple-50 text-purple-800";
   if (s === "responded") return "border-blue-300 bg-blue-50 text-blue-800";
+  if (s === "nurture_responded") return "border-violet-300 bg-violet-50 text-violet-800";
+  if (s === "nurture") return "border-purple-300 bg-purple-50 text-purple-800";
+  if (s === "hot") return "border-orange-300 bg-orange-50 text-orange-800";
   if (s === "estimate_sent") return "border-sky-300 bg-sky-50 text-sky-800";
   return "border-gray-300 bg-gray-50 text-gray-700";
 }
@@ -108,8 +123,8 @@ export default function DailyTaskList() {
   const [tab, setTab] = useState<"today" | "upcoming" | "all">(() => {
     try { return (localStorage.getItem("at_tasks_tab") as "today" | "upcoming" | "all") || "today"; } catch { return "today"; }
   });
-  const [stageFilter, setStageFilter] = useState<"all" | "new_lead" | "estimate_sent" | "responded" | "waiting">(() => {
-    try { return (localStorage.getItem("at_tasks_stage") as "all" | "new_lead" | "estimate_sent" | "responded" | "waiting") || "all"; } catch { return "all"; }
+  const [stageFilter, setStageFilter] = useState<StageFilter>(() => {
+    try { return (localStorage.getItem("at_tasks_stage") as StageFilter) || "all"; } catch { return "all"; }
   });
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
   const [noteFor, setNoteFor] = useState<DailyTask | null>(null);
@@ -222,14 +237,17 @@ export default function DailyTaskList() {
         </Tabs>
         <select
           value={stageFilter}
-          onChange={(e) => setStageFilter(e.target.value as typeof stageFilter)}
+          onChange={(e) => setStageFilter(e.target.value as StageFilter)}
           className="text-sm rounded-md border bg-background px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="all">All stages</option>
           <option value="new_lead">New lead</option>
+          <option value="hot">Hot lead — send estimate</option>
           <option value="estimate_sent">Estimate sent</option>
           <option value="responded">Responded to estimate</option>
           <option value="waiting">Waiting for updated estimate</option>
+          <option value="nurture">Long-term nurture</option>
+          <option value="nurture_responded">Responded to nurture</option>
         </select>
       </div>
 
