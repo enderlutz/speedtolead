@@ -418,6 +418,7 @@ export interface DailyTask {
   stage_label: string;
   is_top_priority: boolean;
   task_status: string; // "" | "waiting_updated_estimate"
+  client_note: string; // connected to the lead's form_data.additional_notes
   called: boolean;
   call_count: number;
   last_called_at: string | null;
@@ -1772,6 +1773,11 @@ export const api = {
     request<{ lead_id: string; task_status: string }>(`/api/daily-tasks/${leadId}/task-status`, {
       method: "POST",
       body: JSON.stringify({ status }),
+    }),
+  setClientNote: (leadId: string, note: string) =>
+    request<{ lead_id: string; client_note: string }>(`/api/daily-tasks/${leadId}/client-note`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
     }),
   /** Sprint 2 T2.E — Compute the current follow-up flag for a lead.
    *  Returns null when no rule fires. */

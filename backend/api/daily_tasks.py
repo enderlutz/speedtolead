@@ -157,6 +157,12 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
             sid = l.ghl_pipeline_stage_id or ""
             stage_key = _STAGE_KEYS.get(sid, "new_lead")
             is_top_priority = sid == "147bd53b-3848-449d-b7c2-7a2cfad2a5f5"
+            # The client's connected note = form_data.additional_notes (same
+            # field Lead Detail shows/edits).
+            try:
+                client_note = (json.loads(l.form_data or "{}") or {}).get("additional_notes", "") or ""
+            except (TypeError, ValueError, json.JSONDecodeError):
+                client_note = ""
             log = disp_by_lead.get(l.id, [])
             last_disp = log[0]["disposed_at"] if log else ""
             last_fu = fu_created_by_lead.get(l.id, "")
@@ -169,6 +175,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "stage_label": _STAGE_LABELS[stage_key],
                 "is_top_priority": is_top_priority,
                 "task_status": l.daily_task_status or "",
+                "client_note": client_note,
                 "called": len(log) > 0,
                 "call_count": len(log),
                 "last_called_at": last_disp or None,
@@ -254,6 +261,34 @@ def set_task_status(lead_id: str, body: TaskStatusBody, user: dict = Depends(req
         lead.daily_task_status = status
         db.commit()
         return {"lead_id": lead_id, "task_status": status}
+    finally:
+        db.close()
+
+
+class ClientNoteBody(BaseModel):
+    note: str = ""
+
+
+@router.post("/daily-tasks/{lead_id}/client-note")
+def set_client_note(lead_id: str, body: ClientNoteBody, user: dict = Depends(require_staff)):
+    """Save the client's connected note into form_data.additional_notes — the
+    same field Lead Detail shows — so the two stay in sync. Lightweight: merges
+    the one key, no estimate recalculation."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        try:
+            fd = json.loads(lead.form_data or "{}") or {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            fd = {}
+        fd["additional_notes"] = body.note or ""
+        lead.form_data = json.dumps(fd)
+        lead.updated_at = _now_iso()
+        db.commit()
+        return {"lead_id": lead_id, "client_note": fd["additional_notes"]}
     finally:
         db.close()
 

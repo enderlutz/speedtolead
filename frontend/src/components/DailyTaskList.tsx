@@ -108,6 +108,7 @@ export default function DailyTaskList() {
   const [tab, setTab] = useState<"today" | "upcoming" | "all">("today");
   const [stageFilter, setStageFilter] = useState<"all" | "new_lead" | "estimate_sent" | "responded" | "waiting">("all");
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
+  const [noteFor, setNoteFor] = useState<DailyTask | null>(null);
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -268,35 +269,25 @@ export default function DailyTaskList() {
                     </select>
                   </td>
 
-                  {/* Call status + last activity */}
+                  {/* Call status — click to log a call, hover for the full log */}
                   <td className="px-4 py-3 align-top">
-                    {t.called ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px] font-medium">
-                        <Phone className="h-3 w-3" /> Called{t.call_count > 1 ? ` ×${t.call_count}` : ""}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[11px] font-medium">
-                        <PhoneOff className="h-3 w-3" /> No call
-                      </span>
-                    )}
-                    {t.last_action_at && (
-                      <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1" title={fmtWhen(t.last_action_at)}>
-                        <Clock className="h-2.5 w-2.5" /> {relTime(t.last_action_at)}
-                      </div>
-                    )}
-                  </td>
-
-                  {/* Notes — latest preview, hover for the full log */}
-                  <td className="px-4 py-3 align-top max-w-[240px]">
-                    {t.dispositions.length === 0 ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <div className="relative group cursor-default">
-                        <div className="text-xs text-foreground truncate">
-                          <span className="text-muted-foreground">{OUTCOME_LABELS[t.dispositions[0].outcome] || t.dispositions[0].outcome}</span>
-                          {t.dispositions[0].notes ? ` — ${t.dispositions[0].notes}` : ""}
+                    <div className="relative group inline-block cursor-pointer" onClick={() => setLogFor(t)} title="Log a call">
+                      {t.called ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-0.5 text-[11px] font-medium">
+                          <Phone className="h-3 w-3" /> Called{t.call_count > 1 ? ` ×${t.call_count}` : ""}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-0.5 text-[11px] font-medium">
+                          <PhoneOff className="h-3 w-3" /> No call
+                        </span>
+                      )}
+                      {t.last_action_at && (
+                        <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1" title={fmtWhen(t.last_action_at)}>
+                          <Clock className="h-2.5 w-2.5" /> {relTime(t.last_action_at)}
                         </div>
-                        <div className="hidden group-hover:block absolute z-30 left-0 top-full mt-1 w-72 rounded-lg border bg-popover p-2 shadow-lg space-y-2">
+                      )}
+                      {t.dispositions.length > 0 && (
+                        <div className="hidden group-hover:block absolute z-30 left-0 top-full mt-1 w-72 rounded-lg border bg-popover p-2 shadow-lg space-y-2 cursor-default" onClick={(e) => e.stopPropagation()}>
                           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Call log</p>
                           {t.dispositions.map((d, i) => (
                             <div key={i} className="border-l-2 border-primary/40 pl-2">
@@ -306,8 +297,25 @@ export default function DailyTaskList() {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Notes — the client's connected note (form_data.additional_notes) */}
+                  <td className="px-4 py-3 align-top max-w-[240px]">
+                    <button onClick={() => setNoteFor(t)} className="text-left w-full group" title="Edit the client's note">
+                      {t.client_note ? (
+                        <div className="relative">
+                          <div className="text-xs text-foreground truncate whitespace-pre-wrap line-clamp-2">{t.client_note}</div>
+                          <div className="hidden group-hover:block absolute z-30 left-0 top-full mt-1 w-72 rounded-lg border bg-popover p-2 shadow-lg">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Client note</p>
+                            <div className="text-[11px] text-foreground whitespace-pre-wrap">{t.client_note}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-primary hover:underline">+ Add note</span>
+                      )}
+                    </button>
                   </td>
 
                   {/* Follow-up */}
@@ -379,6 +387,10 @@ export default function DailyTaskList() {
 
       {logFor && (
         <LogCallModal task={logFor} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} />
+      )}
+
+      {noteFor && (
+        <ClientNoteModal task={noteFor} onClose={() => setNoteFor(null)} onSaved={() => { setNoteFor(null); load(); }} />
       )}
 
       {followUpFor && (
@@ -525,6 +537,40 @@ function FollowUpModal({ task, onClose, onSaved }: { task: DailyTask; onClose: (
   return (
     <ModalShell title={existing ? "Reschedule follow-up" : "Set follow-up"} subtitle={task.contact_name || "Lead"} onClose={onClose}>
       <FollowUpFields action={action} setAction={setAction} date={date} setDate={setDate} time={time} setTime={setTime} note={note} setNote={setNote} />
+      <ModalFooter saving={saving} onClose={onClose} onSave={save} />
+    </ModalShell>
+  );
+}
+
+function ClientNoteModal({ task, onClose, onSaved }: { task: DailyTask; onClose: () => void; onSaved: () => void }) {
+  const [note, setNote] = useState(task.client_note || "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.setClientNote(task.id, note.trim());
+      toast.success("Note saved");
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the note");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title="Client note" subtitle={task.contact_name || "Lead"} onClose={onClose}>
+      <p className="text-[11px] text-muted-foreground">
+        Shared with the lead — this is the same "Additional Notes" shown on the lead's detail page.
+      </p>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={5}
+        placeholder="Notes about this customer…"
+        className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+      />
       <ModalFooter saving={saving} onClose={onClose} onSave={save} />
     </ModalShell>
   );
