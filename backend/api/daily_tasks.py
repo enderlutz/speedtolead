@@ -19,7 +19,8 @@ import json
 import logging
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as _date, time as _time
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -64,10 +65,25 @@ _STAGE_PRIORITY = {
     "estimate_sent": 3, "new_lead": 4, "nurture": 5,
 }
 _ACTION_TYPES = {"call", "text", "other"}
+_CENTRAL = ZoneInfo("America/Chicago")
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _to_central_date(iso: str):
+    """Parse a stored ISO timestamp (tz-aware or naive-UTC) into a Central date.
+    Returns None when it can't be parsed."""
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso.strip().replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_CENTRAL).date()
 
 
 def _signature_prices(db, lead_ids: list[str]) -> dict[str, int]:
@@ -145,6 +161,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
         # track the latest creation time for the last-activity stamp.
         next_fu_by_lead: dict[str, dict] = {}
         fu_created_by_lead: dict[str, str] = {}
+        fu_creator_by_lead: dict[str, str] = {}  # who created that latest follow-up
         if lead_ids:
             fus = (
                 db.query(TaskFollowUp)
@@ -155,6 +172,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
             for f in fus:
                 if (f.created_at or "") > fu_created_by_lead.get(f.lead_id, ""):
                     fu_created_by_lead[f.lead_id] = f.created_at or ""
+                    fu_creator_by_lead[f.lead_id] = f.created_by or ""
                 if (f.status or "pending") == "pending":
                     pending_by_lead.setdefault(f.lead_id, []).append(f)
             for lid, plist in pending_by_lead.items():
@@ -163,11 +181,13 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 next_fu_by_lead[lid] = {
                     "id": nf.id,
                     "due_at": nf.due_at or "",
+                    "all_day": bool(nf.all_day),
                     "action_type": nf.action_type or "call",
                     "note": nf.note or "",
                 }
 
         prices = _signature_prices(db, lead_ids)
+        today_ct = datetime.now(_CENTRAL).date()
 
         rows = []
         for l in leads:
@@ -182,8 +202,21 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 client_note = ""
             log = disp_by_lead.get(l.id, [])
             last_disp = log[0]["disposed_at"] if log else ""
+            last_disp_by = log[0]["disposed_by"] if log else ""
             last_fu = fu_created_by_lead.get(l.id, "")
+            last_fu_by = fu_creator_by_lead.get(l.id, "")
             last_action_at = max(last_disp, last_fu) or None
+            # Who touched it last — the actor behind the more recent of the two.
+            last_action_by = (last_disp_by if last_disp >= last_fu else last_fu_by) or ""
+            # Rollover queue: a lead not worked today carries into the next day
+            # flagged. "Worked today" = last call/follow-up (or, if never
+            # touched, the lead's creation) lands on today's Central date.
+            touch_date = _to_central_date(last_action_at or l.created_at or "")
+            if touch_date is None:
+                carried_over, days_waiting = False, 0
+            else:
+                days_waiting = max((today_ct - touch_date).days, 0)
+                carried_over = touch_date < today_ct
             rows.append({
                 "id": l.id,
                 "contact_name": l.contact_name or "",
@@ -197,13 +230,18 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "call_count": len(log),
                 "last_called_at": last_disp or None,
                 "last_action_at": last_action_at,
+                "last_action_by": last_action_by,
                 "dispositions": log,
                 "next_follow_up": next_fu_by_lead.get(l.id),
                 "signature_price": prices.get(l.id, 0),
+                "carried_over": carried_over,
+                "days_waiting": days_waiting,
             })
 
-        # Hottest/most-actionable stage first, then uncalled-first, then price.
+        # Carried-over (unfinished from a prior day) float to the very top, then
+        # hottest/most-actionable stage, then uncalled-first, then price.
         rows.sort(key=lambda r: (
+            0 if r["carried_over"] else 1,
             _STAGE_PRIORITY.get(r["stage_key"], 9),
             0 if not r["called"] else 1,
             -r["signature_price"],
@@ -214,20 +252,51 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
 
 
 class FollowUpBody(BaseModel):
-    due_at: str                    # ISO datetime UTC
+    due_at: str = ""               # ISO datetime UTC (legacy / fallback)
+    due_date: str = ""             # YYYY-MM-DD, interpreted in Central (preferred)
+    time: str = ""                 # HH:MM Central; empty = all-day
+    all_day: bool = False          # do it any time that day (no set time)
     action_type: str = "call"      # call | text | other
     note: str = ""
+
+
+def _resolve_due(body: "FollowUpBody") -> tuple[str, bool]:
+    """Return (due_at ISO-UTC, all_day). Prefers due_date+time interpreted in
+    Central so the day is stable for any viewer; all-day anchors at noon
+    Central. Falls back to a raw due_at for older callers."""
+    dd = (body.due_date or "").strip()
+    if dd:
+        try:
+            d = _date.fromisoformat(dd)
+        except ValueError:
+            raise HTTPException(400, "due_date must be YYYY-MM-DD")
+        tm = (body.time or "").strip()
+        all_day = bool(body.all_day) or not tm
+        if all_day:
+            t = _time(12, 0)  # noon Central — safe mid-day anchor
+        else:
+            try:
+                hh, mm = tm.split(":")[:2]
+                t = _time(int(hh), int(mm))
+            except (ValueError, IndexError):
+                raise HTTPException(400, "time must be HH:MM")
+        dt = datetime.combine(d, t, tzinfo=_CENTRAL)
+        return dt.astimezone(timezone.utc).isoformat(), all_day
+    da = (body.due_at or "").strip()
+    if not da:
+        raise HTTPException(400, "due_date or due_at is required")
+    return da, bool(body.all_day)
 
 
 @router.post("/daily-tasks/{lead_id}/follow-up")
 def create_follow_up(lead_id: str, body: FollowUpBody, user: dict = Depends(require_staff)):
     """Schedule the next follow-up for a lead. Supersedes any prior pending
-    follow-up (one 'next' per lead). due_at is when it should resurface."""
+    follow-up (one 'next' per lead). due_at is when it should resurface; an
+    all-day follow-up has no set time and can be done any time that day."""
     action = (body.action_type or "call").strip().lower()
     if action not in _ACTION_TYPES:
         raise HTTPException(400, f"action_type must be one of {sorted(_ACTION_TYPES)}")
-    if not (body.due_at or "").strip():
-        raise HTTPException(400, "due_at is required")
+    due_at, all_day = _resolve_due(body)
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -240,7 +309,8 @@ def create_follow_up(lead_id: str, body: FollowUpBody, user: dict = Depends(requ
         fu = TaskFollowUp(
             id=str(uuid.uuid4()),
             lead_id=lead_id,
-            due_at=body.due_at.strip(),
+            due_at=due_at,
+            all_day=all_day,
             action_type=action,
             note=(body.note or "").strip(),
             status="pending",

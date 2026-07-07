@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
-  CheckCircle2, Clock, CalendarClock, Search, X,
+  CheckCircle2, Clock, CalendarClock, Search, X, AlertTriangle,
+  CalendarDays, ChevronLeft, ChevronRight, User,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -42,6 +43,7 @@ const STAGE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 type StageFilter = "all" | "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded";
+type TaskTab = "today" | "upcoming" | "date" | "all";
 
 const OUTCOME_LABELS: Record<string, string> = {
   closed: "Closed — won",
@@ -57,36 +59,76 @@ const OUTCOMES: CallDispositionOutcome[] = [
 ];
 const ACTION_LABELS: Record<string, string> = { call: "Call back", text: "Send text", other: "Follow up" };
 
-function fmtWhen(iso: string | null | undefined): string {
+const CST = "America/Chicago";
+// Exact CST clock time with seconds, e.g. "5:31:28 PM".
+function fmtTimeCST(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-US", { timeZone: CST, hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
-function relTime(iso: string | null | undefined): string {
+// Full CST date + time with seconds, e.g. "Jul 6, 5:31:28 PM CST".
+function fmtDateTimeCST(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  const mins = Math.round((Date.now() - d.getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
+  const date = d.toLocaleDateString("en-US", { timeZone: CST, month: "short", day: "numeric" });
+  return `${date}, ${fmtTimeCST(iso)} CST`;
+}
+// Central-time calendar day (YYYY-MM-DD) for a timestamp — used by the date view.
+function ymdCST(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-CA", { timeZone: CST });
+}
+function todayCST(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: CST });
+}
+// Add/subtract whole days from a YYYY-MM-DD string (noon anchor avoids DST slips).
+function shiftDay(ymd: string, delta: number): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  if (isNaN(d.getTime())) return ymd;
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function tomorrowCST(): string {
+  return new Date(Date.now() + 86400000).toLocaleDateString("en-CA", { timeZone: CST });
+}
+// Human label for a picked date, e.g. "Tomorrow · Tue, Jul 7".
+function dateLabel(ymd: string): string {
+  if (!ymd) return "";
+  const d = new Date(`${ymd}T12:00:00`);
+  if (isNaN(d.getTime())) return ymd;
+  const pretty = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  if (ymd === todayCST()) return `Today · ${pretty}`;
+  if (ymd === tomorrowCST()) return `Tomorrow · ${pretty}`;
+  return pretty;
 }
 function money(n: number): string {
   return n > 0 ? `$${n.toLocaleString()}` : "—";
 }
 function isUpcoming(t: DailyTask): boolean {
-  const due = t.next_follow_up?.due_at;
-  if (!due) return false;
-  const d = new Date(due);
-  if (isNaN(d.getTime())) return false;
-  const end = new Date(); end.setHours(23, 59, 59, 999);
-  return d > end;
+  const fu = t.next_follow_up;
+  if (!fu?.due_at) return false;
+  // A follow-up scheduled for a later Central day is "upcoming".
+  return ymdCST(fu.due_at) > todayCST();
 }
-function isOverdue(iso: string): boolean {
-  const d = new Date(iso);
+// Overdue = the follow-up's day has already passed (all-day tasks aren't
+// "overdue" mid-day; a timed task is overdue once its time has passed today).
+function fuOverdue(fu: { due_at: string; all_day?: boolean } | null | undefined): boolean {
+  if (!fu?.due_at) return false;
+  if (fu.all_day) return ymdCST(fu.due_at) < todayCST();
+  const d = new Date(fu.due_at);
   return !isNaN(d.getTime()) && d.getTime() < Date.now();
+}
+// Follow-up "when" label — all-day tasks show the day only, no time.
+function fmtFollowUpWhen(fu: { due_at: string; all_day?: boolean }): string {
+  if (!fu.due_at) return "";
+  if (fu.all_day) {
+    const d = new Date(fu.due_at);
+    return isNaN(d.getTime()) ? "" : `${d.toLocaleDateString("en-US", { timeZone: CST, month: "short", day: "numeric" })} · all day`;
+  }
+  const d = new Date(fu.due_at);
+  return isNaN(d.getTime()) ? "" : d.toLocaleString("en-US", { timeZone: CST, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 // Effective stage for display + filtering (the waiting overlay wins).
 function effectiveStage(t: DailyTask): string {
@@ -120,8 +162,11 @@ export default function DailyTaskList() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<DailyTask[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"today" | "upcoming" | "all">(() => {
-    try { return (localStorage.getItem("at_tasks_tab") as "today" | "upcoming" | "all") || "today"; } catch { return "today"; }
+  const [tab, setTab] = useState<TaskTab>(() => {
+    try { return (localStorage.getItem("at_tasks_tab") as TaskTab) || "today"; } catch { return "today"; }
+  });
+  const [dateYMD, setDateYMD] = useState<string>(() => {
+    try { return localStorage.getItem("at_tasks_date") || tomorrowCST(); } catch { return tomorrowCST(); }
   });
   const [stageFilter, setStageFilter] = useState<StageFilter>(() => {
     try { return (localStorage.getItem("at_tasks_stage") as StageFilter) || "all"; } catch { return "all"; }
@@ -147,6 +192,7 @@ export default function DailyTaskList() {
   useEffect(() => { try { localStorage.setItem("at_tasks_tab", tab); } catch { /* ignore */ } }, [tab]);
   useEffect(() => { try { localStorage.setItem("at_tasks_stage", stageFilter); } catch { /* ignore */ } }, [stageFilter]);
   useEffect(() => { try { localStorage.setItem("at_tasks_search", search); } catch { /* ignore */ } }, [search]);
+  useEffect(() => { try { localStorage.setItem("at_tasks_date", dateYMD); } catch { /* ignore */ } }, [dateYMD]);
 
   const openSchedule = async (id: string) => {
     setBusyId(id);
@@ -209,11 +255,24 @@ export default function DailyTaskList() {
     let list = tasks ?? [];
     if (tab === "today") list = list.filter((t) => !isUpcoming(t));
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
+    else if (tab === "date") list = list.filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD);
     if (stageFilter !== "all") list = list.filter((t) => effectiveStage(t) === stageFilter);
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
-    return [...list].sort((a, b) => (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || ""));
-  }, [tasks, tab, stageFilter, search]);
+    return [...list].sort((a, b) => {
+      // Carried-over (unfinished from a prior day) float to the top of the queue.
+      if (a.carried_over !== b.carried_over) return a.carried_over ? -1 : 1;
+      if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
+      return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
+    });
+  }, [tasks, tab, stageFilter, search, dateYMD]);
+
+  const dateCount = useMemo(
+    () => (tasks ?? []).filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD).length,
+    [tasks, dateYMD],
+  );
+
+  const carriedCount = useMemo(() => (tasks ?? []).filter((t) => t.carried_over).length, [tasks]);
 
   const counts = useMemo(() => {
     const list = tasks ?? [];
@@ -226,7 +285,13 @@ export default function DailyTaskList() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">
           Work every lead until you hear a <span className="font-medium text-emerald-600">yes</span> (schedule) or a{" "}
-          <span className="font-medium text-red-500">no</span> (decline). Schedule a follow-up and it reappears on its day.
+          <span className="font-medium text-red-500">no</span> (decline). Anything left unworked{" "}
+          {carriedCount > 0 ? (
+            <span className="font-medium text-red-600">rolls into today's queue ({carriedCount} carried over)</span>
+          ) : (
+            <span>rolls into the next day's queue</span>
+          )}{" "}
+          with a red flag.
         </p>
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -234,14 +299,42 @@ export default function DailyTaskList() {
       </div>
 
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "today" | "upcoming" | "all")}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TaskTab)}>
           <TabsList>
             <TabsTrigger value="today">Today ({counts.today})</TabsTrigger>
             <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
+            <TabsTrigger value="date">By date</TabsTrigger>
             <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex items-center gap-2 flex-wrap">
+        {tab === "date" && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setDateYMD(shiftDay(dateYMD, -1))}
+              className="p-1.5 rounded-md border bg-background hover:bg-muted text-muted-foreground"
+              title="Previous day"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="relative">
+              <CalendarDays className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="date"
+                value={dateYMD}
+                onChange={(e) => setDateYMD(e.target.value || tomorrowCST())}
+                className="text-sm rounded-md border bg-background pl-8 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <button
+              onClick={() => setDateYMD(shiftDay(dateYMD, 1))}
+              className="p-1.5 rounded-md border bg-background hover:bg-muted text-muted-foreground"
+              title="Next day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         <div className="relative w-56 max-w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <input
@@ -274,11 +367,21 @@ export default function DailyTaskList() {
         </div>
       </div>
 
+      {tab === "date" && (
+        <p className="text-xs text-muted-foreground">
+          <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
+          {dateCount} task{dateCount === 1 ? "" : "s"} scheduled for <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span>
+        </p>
+      )}
+
       {loading && !tasks ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : shown.length === 0 ? (
         <div className="rounded-xl border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
-          {tab === "today" ? "🎉 Nothing left to work today." : tab === "upcoming" ? "No follow-ups scheduled for later." : "No leads match this filter."}
+          {tab === "today" ? "🎉 Nothing left to work today."
+            : tab === "upcoming" ? "No follow-ups scheduled for later."
+            : tab === "date" ? `No tasks scheduled for ${dateLabel(dateYMD)}.`
+            : "No leads match this filter."}
         </div>
       ) : (
         <div className="rounded-xl border overflow-x-auto bg-background">
@@ -295,23 +398,39 @@ export default function DailyTaskList() {
             </thead>
             <tbody>
               {shown.map((t) => (
-                <tr key={t.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+                <tr
+                  key={t.id}
+                  className={`border-b last:border-0 transition-colors ${
+                    t.carried_over ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/20"
+                  }`}
+                >
                   {/* Lead */}
-                  <td className="px-4 py-3 align-top">
-                    <button onClick={() => navigate(`/leads/${t.id}`)} className="font-medium text-primary hover:underline text-left">
-                      {t.contact_name || "Lead"}
-                    </button>
+                  <td className={`px-4 py-3 align-top ${t.carried_over ? "border-l-4 border-red-500" : ""}`}>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => navigate(`/leads/${t.id}`)} className="font-medium text-primary hover:underline text-left">
+                        {t.contact_name || "Lead"}
+                      </button>
+                      {t.carried_over && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold"
+                          title={`Unworked from a prior day — waiting ${t.days_waiting} day${t.days_waiting === 1 ? "" : "s"}`}
+                        >
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {t.days_waiting}d waiting
+                        </span>
+                      )}
+                    </div>
                     {t.address && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.address}</div>}
                     {t.next_follow_up && (
                       <button
                         onClick={() => setFollowUpFor(t)}
                         title="Reschedule follow-up"
                         className={`mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                          isOverdue(t.next_follow_up.due_at) ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
+                          fuOverdue(t.next_follow_up) ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"
                         }`}
                       >
                         <CalendarClock className="h-2.5 w-2.5" />
-                        {ACTION_LABELS[t.next_follow_up.action_type] || "Follow up"} · {fmtWhen(t.next_follow_up.due_at)}
+                        {ACTION_LABELS[t.next_follow_up.action_type] || "Follow up"} · {fmtFollowUpWhen(t.next_follow_up)}
                       </button>
                     )}
                   </td>
@@ -341,8 +460,15 @@ export default function DailyTaskList() {
                         </span>
                       )}
                       {t.last_action_at && (
-                        <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1" title={fmtWhen(t.last_action_at)}>
-                          <Clock className="h-2.5 w-2.5" /> {relTime(t.last_action_at)}
+                        <div className="mt-1 space-y-0.5" title={fmtDateTimeCST(t.last_action_at)}>
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-2.5 w-2.5" /> {fmtTimeCST(t.last_action_at)} CST
+                          </div>
+                          {t.last_action_by && (
+                            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <User className="h-2.5 w-2.5" /> {t.last_action_by}
+                            </div>
+                          )}
                         </div>
                       )}
                       {t.dispositions.length > 0 && (
@@ -351,7 +477,7 @@ export default function DailyTaskList() {
                           {t.dispositions.map((d, i) => (
                             <div key={i} className="border-l-2 border-primary/40 pl-2">
                               <div className="text-[11px] font-medium">{OUTCOME_LABELS[d.outcome] || d.outcome}</div>
-                              <div className="text-[10px] text-muted-foreground">{d.disposed_by || "Staff"} · {fmtWhen(d.disposed_at)}</div>
+                              <div className="text-[10px] text-muted-foreground">{d.disposed_by || "Staff"} · {fmtDateTimeCST(d.disposed_at)}</div>
                               {d.notes && <div className="text-[11px] text-foreground mt-0.5 whitespace-pre-wrap">{d.notes}</div>}
                             </div>
                           ))}
@@ -447,10 +573,11 @@ function todayYMD(): string {
 }
 
 /** Follow-up form fields — shared by the log-call and reschedule modals. */
-function FollowUpFields({ action, setAction, date, setDate, time, setTime, note, setNote }: {
+function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDay, setAllDay, note, setNote }: {
   action: string; setAction: (v: string) => void;
   date: string; setDate: (v: string) => void;
   time: string; setTime: (v: string) => void;
+  allDay: boolean; setAllDay: (v: boolean) => void;
   note: string; setNote: (v: string) => void;
 }) {
   const inputCls = "mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
@@ -471,9 +598,19 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, note,
         </div>
         <div className="w-28">
           <label className="text-xs font-semibold text-muted-foreground">Time</label>
-          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+          <input
+            type="time"
+            value={time}
+            disabled={allDay}
+            onChange={(e) => setTime(e.target.value)}
+            className={`${inputCls} disabled:opacity-40 disabled:cursor-not-allowed`}
+          />
         </div>
       </div>
+      <label className="flex items-center gap-2 text-xs cursor-pointer">
+        <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="h-3.5 w-3.5" />
+        <span>All day — no set time (do it any point that day)</span>
+      </label>
       <div>
         <label className="text-xs font-semibold text-muted-foreground">Follow-up note</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className={inputCls} />
@@ -489,6 +626,7 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   const [fuAction, setFuAction] = useState("call");
   const [fuDate, setFuDate] = useState(todayYMD());
   const [fuTime, setFuTime] = useState("09:00");
+  const [fuAllDay, setFuAllDay] = useState(false);
   const [fuNote, setFuNote] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -502,8 +640,13 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
     try {
       await api.logCallDisposition(task.id, { outcome, notes: notes.trim() });
       if (scheduleFu) {
-        const due = new Date(`${fuDate}T${fuTime || "09:00"}:00`);
-        await api.createFollowUp(task.id, { due_at: due.toISOString(), action_type: fuAction, note: fuNote.trim() });
+        await api.createFollowUp(task.id, {
+          due_date: fuDate,
+          time: fuAllDay ? "" : fuTime,
+          all_day: fuAllDay,
+          action_type: fuAction,
+          note: fuNote.trim(),
+        });
       }
       toast.success(scheduleFu ? "Call logged + follow-up scheduled" : "Call logged");
       onSaved();
@@ -532,7 +675,7 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
       </label>
       {scheduleFu && (
         <div className="rounded-lg border bg-muted/30 p-2.5">
-          <FollowUpFields action={fuAction} setAction={setFuAction} date={fuDate} setDate={setFuDate} time={fuTime} setTime={setFuTime} note={fuNote} setNote={setFuNote} />
+          <FollowUpFields action={fuAction} setAction={setFuAction} date={fuDate} setDate={setFuDate} time={fuTime} setTime={setFuTime} allDay={fuAllDay} setAllDay={setFuAllDay} note={fuNote} setNote={setFuNote} />
         </div>
       )}
       <ModalFooter saving={saving} onClose={onClose} onSave={save} />
@@ -550,14 +693,20 @@ function FollowUpModal({ task, onClose, onSaved, onComplete }: { task: DailyTask
   const [time, setTime] = useState(existingDate && !isNaN(existingDate.getTime())
     ? `${String(existingDate.getHours()).padStart(2, "0")}:${String(existingDate.getMinutes()).padStart(2, "0")}`
     : "09:00");
+  const [allDay, setAllDay] = useState(!!existing?.all_day);
   const [note, setNote] = useState(existing?.note || "");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     try {
-      const due = new Date(`${date}T${time || "09:00"}:00`);
-      await api.createFollowUp(task.id, { due_at: due.toISOString(), action_type: action, note: note.trim() });
+      await api.createFollowUp(task.id, {
+        due_date: date,
+        time: allDay ? "" : time,
+        all_day: allDay,
+        action_type: action,
+        note: note.trim(),
+      });
       toast.success(existing ? "Follow-up rescheduled" : "Follow-up scheduled");
       onSaved();
     } catch (e) {
@@ -569,7 +718,7 @@ function FollowUpModal({ task, onClose, onSaved, onComplete }: { task: DailyTask
 
   return (
     <ModalShell title={existing ? "Reschedule follow-up" : "Set follow-up"} subtitle={task.contact_name || "Lead"} onClose={onClose}>
-      <FollowUpFields action={action} setAction={setAction} date={date} setDate={setDate} time={time} setTime={setTime} note={note} setNote={setNote} />
+      <FollowUpFields action={action} setAction={setAction} date={date} setDate={setDate} time={time} setTime={setTime} allDay={allDay} setAllDay={setAllDay} note={note} setNote={setNote} />
       <div className="flex items-center justify-between gap-2 pt-1">
         {existing ? (
           <Button size="sm" variant="ghost" className="text-emerald-600 hover:text-emerald-700" onClick={onComplete} disabled={saving}>

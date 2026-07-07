@@ -407,6 +407,7 @@ export interface DailyTaskDisposition {
 export interface DailyTaskFollowUp {
   id: string;
   due_at: string;
+  all_day?: boolean; // no set time — do it any point that day
   action_type: string; // call | text | other
   note: string;
 }
@@ -423,9 +424,12 @@ export interface DailyTask {
   call_count: number;
   last_called_at: string | null;
   last_action_at: string | null;
+  last_action_by: string; // who last worked this lead (mainly Alan or Olga)
   dispositions: DailyTaskDisposition[];
   next_follow_up?: DailyTaskFollowUp | null;
   signature_price: number;
+  carried_over: boolean; // unfinished from a prior day — rolled into today's queue
+  days_waiting: number;  // days since last worked (Central time)
 }
 
 /** Sprint 2 T2.E — Follow-up rule engine output. Surfaces on the lead
@@ -1762,7 +1766,10 @@ export const api = {
   listCallDispositions: (leadId: string) =>
     request<{ dispositions: CallDispositionEntry[] }>(`/api/leads/${leadId}/call-dispositions`),
   getDailyTasks: () => request<{ tasks: DailyTask[] }>("/api/daily-tasks"),
-  createFollowUp: (leadId: string, body: { due_at: string; action_type: string; note?: string }) =>
+  createFollowUp: (
+    leadId: string,
+    body: { due_date: string; time?: string; all_day?: boolean; action_type: string; note?: string },
+  ) =>
     request<DailyTaskFollowUp>(`/api/daily-tasks/${leadId}/follow-up`, {
       method: "POST",
       body: JSON.stringify(body),

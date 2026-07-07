@@ -1202,6 +1202,7 @@ class TaskFollowUp(Base):
     id = Column(Text, primary_key=True)
     lead_id = Column(Text, nullable=False)
     due_at = Column(Text, default="")            # ISO datetime UTC
+    all_day = Column(Boolean, default=False)     # True = do it any time that day (no set time)
     action_type = Column(Text, default="call")   # call | text | other
     note = Column(Text, default="")
     status = Column(Text, default="pending")     # pending | done | cancelled
@@ -1214,6 +1215,7 @@ class TaskFollowUp(Base):
             "id": self.id,
             "lead_id": self.lead_id,
             "due_at": self.due_at or "",
+            "all_day": bool(self.all_day),
             "action_type": self.action_type or "call",
             "note": self.note or "",
             "status": self.status or "pending",
@@ -2894,6 +2896,14 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added followup_sequences.{new_col}")
+
+    # TaskFollowUp — all-day flag (do it any time that day, no set time).
+    if inspector.has_table("task_follow_ups"):
+        tfu_cols = {c["name"] for c in inspector.get_columns("task_follow_ups")}
+        if "all_day" not in tfu_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE task_follow_ups ADD COLUMN all_day BOOLEAN DEFAULT FALSE"))
+            logger.info("Migration: added task_follow_ups.all_day")
 
     # FollowUpStep — wait_kind, per-step window, action_kind, tag_value,
     # branch_field, variants. Required for the GHL-style workflow editor.
