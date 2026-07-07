@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
-  CheckCircle2, Clock, CalendarClock,
+  CheckCircle2, Clock, CalendarClock, Search, X,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -126,6 +126,9 @@ export default function DailyTaskList() {
   const [stageFilter, setStageFilter] = useState<StageFilter>(() => {
     try { return (localStorage.getItem("at_tasks_stage") as StageFilter) || "all"; } catch { return "all"; }
   });
+  const [search, setSearch] = useState(() => {
+    try { return localStorage.getItem("at_tasks_search") ?? ""; } catch { return ""; }
+  });
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
   const [noteFor, setNoteFor] = useState<DailyTask | null>(null);
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
@@ -143,6 +146,7 @@ export default function DailyTaskList() {
   // Persist the tab + stage filter so returning from a lead restores them.
   useEffect(() => { try { localStorage.setItem("at_tasks_tab", tab); } catch { /* ignore */ } }, [tab]);
   useEffect(() => { try { localStorage.setItem("at_tasks_stage", stageFilter); } catch { /* ignore */ } }, [stageFilter]);
+  useEffect(() => { try { localStorage.setItem("at_tasks_search", search); } catch { /* ignore */ } }, [search]);
 
   const openSchedule = async (id: string) => {
     setBusyId(id);
@@ -206,8 +210,10 @@ export default function DailyTaskList() {
     if (tab === "today") list = list.filter((t) => !isUpcoming(t));
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
     if (stageFilter !== "all") list = list.filter((t) => effectiveStage(t) === stageFilter);
+    const q = search.trim().toLowerCase();
+    if (q) list = list.filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
     return [...list].sort((a, b) => (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || ""));
-  }, [tasks, tab, stageFilter]);
+  }, [tasks, tab, stageFilter, search]);
 
   const counts = useMemo(() => {
     const list = tasks ?? [];
@@ -235,6 +241,22 @@ export default function DailyTaskList() {
             <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           </TabsList>
         </Tabs>
+        <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative w-56 max-w-full">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setSearch(""); }}
+            placeholder="Search a lead by name or address…"
+            className="w-full text-sm rounded-md border bg-background pl-8 pr-8 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" title="Clear">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <select
           value={stageFilter}
           onChange={(e) => setStageFilter(e.target.value as StageFilter)}
@@ -249,6 +271,7 @@ export default function DailyTaskList() {
           <option value="nurture">Long-term nurture</option>
           <option value="nurture_responded">Responded to nurture</option>
         </select>
+        </div>
       </div>
 
       {loading && !tasks ? (
