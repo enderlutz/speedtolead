@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
@@ -586,9 +586,20 @@ export default function LeadDetail() {
       {/* Header — always visible above the Estimate / Call tabs so Alan never
           loses sight of "who am I looking at" when flipping between them. */}
       <div className="flex items-center gap-3">
-        <Link to="/leads" className="text-muted-foreground hover:text-foreground transition-colors">
+        <button
+          onClick={() => {
+            // Go back to wherever they came from (Leads map, Daily Task List,
+            // etc.) so their saved view/scroll restores. Fall back to /leads
+            // when there's no in-app history (deep link / fresh tab).
+            const idx = (window.history.state && window.history.state.idx) || 0;
+            if (idx > 0) navigate(-1);
+            else navigate("/leads");
+          }}
+          aria-label="Back"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <div className="min-w-0 flex-1">
           <h1 className="text-lg sm:text-2xl font-semibold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
