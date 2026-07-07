@@ -166,7 +166,7 @@ export default function DailyTaskList() {
     try { return (localStorage.getItem("at_tasks_tab") as TaskTab) || "today"; } catch { return "today"; }
   });
   const [dateYMD, setDateYMD] = useState<string>(() => {
-    try { return localStorage.getItem("at_tasks_date") || tomorrowCST(); } catch { return tomorrowCST(); }
+    try { return localStorage.getItem("at_tasks_date") || todayCST(); } catch { return todayCST(); }
   });
   const [stageFilter, setStageFilter] = useState<StageFilter>(() => {
     try { return (localStorage.getItem("at_tasks_stage") as StageFilter) || "all"; } catch { return "all"; }
@@ -301,9 +301,9 @@ export default function DailyTaskList() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Tabs value={tab} onValueChange={(v) => setTab(v as TaskTab)}>
           <TabsList>
-            <TabsTrigger value="today">Today ({counts.today})</TabsTrigger>
+            <TabsTrigger value="today">Untapped Leads ({counts.today})</TabsTrigger>
             <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
-            <TabsTrigger value="date">By date</TabsTrigger>
+            <TabsTrigger value="date">Today</TabsTrigger>
             <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -322,7 +322,7 @@ export default function DailyTaskList() {
               <input
                 type="date"
                 value={dateYMD}
-                onChange={(e) => setDateYMD(e.target.value || tomorrowCST())}
+                onChange={(e) => setDateYMD(e.target.value || todayCST())}
                 className="text-sm rounded-md border bg-background pl-8 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -378,7 +378,7 @@ export default function DailyTaskList() {
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : shown.length === 0 ? (
         <div className="rounded-xl border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
-          {tab === "today" ? "🎉 Nothing left to work today."
+          {tab === "today" ? "🎉 No untapped leads right now."
             : tab === "upcoming" ? "No follow-ups scheduled for later."
             : tab === "date" ? `No tasks scheduled for ${dateLabel(dateYMD)}.`
             : "No leads match this filter."}
