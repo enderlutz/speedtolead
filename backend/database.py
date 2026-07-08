@@ -553,6 +553,20 @@ class PdfTemplate(Base):
     updated_at = Column(Text, default="")
 
 
+class PdfFieldMapPreset(Base):
+    """A saved, named "version" of a PDF field mapping — positions only, no PDF.
+    Lets an admin swap the proposal template's background artwork and re-apply
+    the exact same coordinate mapping instead of re-placing every field by hand
+    (which takes 10-20 min). The mapping and the background are decoupled."""
+    __tablename__ = "pdf_field_map_presets"
+
+    id = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    field_map = Column(Text, default="{}")   # JSON: {field_name: {page,x,y,...}}
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
 class ChatbotMessage(Base):
     __tablename__ = "chatbot_messages"
     __table_args__ = (

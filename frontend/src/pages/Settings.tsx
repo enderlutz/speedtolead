@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import {
   Upload, Trash2, FileText, Search, ChevronDown, ChevronRight,
   BarChart3, Database, Send, RefreshCw, Link2, GitCompare, AlertCircle, CheckCircle2, DollarSign, Calendar,
+  Layers, Plus,
 } from "lucide-react";
-import type { GhlStageDiff, OppValueBackfillStatus, GCalAttendeeBackfillResult } from "@/lib/api";
+import type { GhlStageDiff, OppValueBackfillStatus, GCalAttendeeBackfillResult, PdfFieldMapPreset } from "@/lib/api";
 import PdfTemplateEditor from "@/components/PdfTemplateEditor";
 import PermissionsManager from "@/components/PermissionsManager";
 import ChatbotSettings from "@/components/ChatbotSettings";
@@ -44,6 +45,11 @@ export default function Settings() {
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Saved mapping "versions" — snapshot field positions, re-apply after a
+  // background swap so we never re-map by hand.
+  const [presets, setPresets] = useState<PdfFieldMapPreset[]>([]);
+  const [presetsBusy, setPresetsBusy] = useState(false);
+  const [editorKey, setEditorKey] = useState(0); // bump to remount the editor
 
   // GHL state
   const [pipelines, setPipelines] = useState<Record<string, unknown[]> | null>(null);
@@ -70,6 +76,11 @@ export default function Settings() {
       .finally(() => setTemplateLoading(false));
 
     api
+      .listFieldMapPresets()
+      .then((r) => setPresets(r.presets))
+      .catch(() => setPresets([]));
+
+    api
       .getStats()
       .then(setStats)
       .catch(() => toast.error("Failed to load stats"))
@@ -85,7 +96,9 @@ export default function Settings() {
     try {
       const result = await api.uploadPdfTemplate(file);
       setTemplate({ ...result, field_map: result.field_map ?? {} });
-      toast.success("Template uploaded");
+      setEditorKey((k) => k + 1); // remount editor onto the new background, keep the mapping
+      const kept = Object.keys(result.field_map ?? {}).length;
+      toast.success(kept > 0 ? `Template updated — kept your ${kept}-field mapping` : "Template uploaded");
     } catch {
       toast.error("Upload failed");
     } finally {
@@ -122,6 +135,50 @@ export default function Settings() {
     // Reset template display (backend would need a delete endpoint)
     setTemplate(null);
     toast.success("Template removed");
+  };
+
+  const handleSaveVersion = async () => {
+    if (!template) return;
+    const name = window.prompt("Name this mapping version (e.g. \"Standard 3-page layout\"):");
+    if (!name || !name.trim()) return;
+    setPresetsBusy(true);
+    try {
+      await api.saveFieldMapPreset(name.trim(), template.field_map);
+      toast.success(`Saved version "${name.trim()}"`);
+      const r = await api.listFieldMapPresets();
+      setPresets(r.presets);
+    } catch {
+      toast.error("Couldn't save version");
+    } finally {
+      setPresetsBusy(false);
+    }
+  };
+
+  const handleApplyVersion = async (p: PdfFieldMapPreset) => {
+    if (!template) return;
+    if (!window.confirm(`Apply the "${p.name}" mapping onto the current template? This replaces the current field positions (the background PDF stays the same).`)) return;
+    setPresetsBusy(true);
+    try {
+      const r = await api.applyFieldMapPreset(p.id);
+      setTemplate((prev) => (prev ? { ...prev, field_map: r.field_map } : prev));
+      setEditorKey((k) => k + 1); // remount editor with the applied mapping
+      toast.success(`Applied "${p.name}"`);
+    } catch {
+      toast.error("Couldn't apply version");
+    } finally {
+      setPresetsBusy(false);
+    }
+  };
+
+  const handleDeleteVersion = async (p: PdfFieldMapPreset) => {
+    if (!window.confirm(`Delete the saved version "${p.name}"? This doesn't touch the current template.`)) return;
+    try {
+      await api.deleteFieldMapPreset(p.id);
+      setPresets((prev) => prev.filter((x) => x.id !== p.id));
+      toast.success("Version deleted");
+    } catch {
+      toast.error("Couldn't delete version");
+    }
   };
 
   const handleDiscoverPipelines = async () => {
@@ -270,12 +327,73 @@ export default function Settings() {
             />
             <Upload className={`h-8 w-8 mx-auto mb-2 ${dragging ? "text-primary" : "text-muted-foreground/50"}`} />
             <p className="text-sm font-medium">{uploading ? "Uploading..." : "Drop PDF here or tap to browse"}</p>
-            <p className="text-xs text-muted-foreground mt-1">PDF files only</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              PDF only · your field mapping is kept when you swap the background
+            </p>
           </div>
+
+          {/* Saved mappings (versions) — decouple the field positions from the
+              background so re-mapping is never needed after an artwork swap. */}
+          {template && (
+            <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5" /> Saved mappings
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Snapshot your field positions as a version, then re-apply it after swapping the
+                    background PDF — no re-mapping. Uploading a new background already keeps the current mapping.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={handleSaveVersion} disabled={presetsBusy} className="shrink-0">
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Save current
+                </Button>
+              </div>
+
+              {presets.length > 0 ? (
+                <div className="divide-y rounded-md border bg-background">
+                  {presets.map((p) => (
+                    <div key={p.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{p.name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {p.field_count} field{p.field_count !== 1 ? "s" : ""}
+                          {p.updated_at ? ` · updated ${new Date(p.updated_at).toLocaleDateString()}` : ""}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => handleApplyVersion(p)}
+                        disabled={presetsBusy}
+                      >
+                        Apply
+                      </Button>
+                      <button
+                        onClick={() => handleDeleteVersion(p)}
+                        className="p-1 rounded text-red-500 hover:bg-red-50 shrink-0"
+                        title="Delete version"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground italic">
+                  No saved versions yet. Position your fields, hit <span className="font-medium">Save</span> in the editor,
+                  then <span className="font-medium">Save current</span> to snapshot this layout for reuse.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Template Editor */}
           {template && (
             <PdfTemplateEditor
+              key={editorKey}
               pageCount={template.page_count}
               pageSizes={(template as unknown as { page_sizes?: { width: number; height: number }[] }).page_sizes || []}
               initialFieldMap={safeFieldMap}

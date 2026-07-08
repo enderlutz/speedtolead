@@ -778,6 +778,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface PdfFieldMapPreset {
+  id: string;
+  name: string;
+  field_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export const api = {
   // Auth
   login: (username: string, password: string) =>
@@ -1184,6 +1192,21 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ field_map }),
     }),
+  // Saved mapping "versions" — snapshot a field mapping and re-apply it to any
+  // background PDF so swapping artwork never means re-mapping.
+  listFieldMapPresets: () =>
+    request<{ presets: PdfFieldMapPreset[] }>("/api/pdf-templates/presets"),
+  saveFieldMapPreset: (name: string, field_map: Record<string, unknown>) =>
+    request<{ status: string; id: string; name: string; field_count: number }>("/api/pdf-templates/presets", {
+      method: "POST",
+      body: JSON.stringify({ name, field_map }),
+    }),
+  applyFieldMapPreset: (presetId: string) =>
+    request<{ status: string; field_map: Record<string, unknown> }>(`/api/pdf-templates/presets/${presetId}/apply`, {
+      method: "POST",
+    }),
+  deleteFieldMapPreset: (presetId: string) =>
+    request<{ status: string }>(`/api/pdf-templates/presets/${presetId}`, { method: "DELETE" }),
 
   // --- Chatbot ---
   getChatbotConfigPublic: () => request<ChatbotPublicConfig>("/api/chatbot/config/public"),
