@@ -1198,6 +1198,15 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
             )
             send_sms(settings.owner_ghl_contact_id, alan_msg)
 
+        # Tag the GHL contact so the "asking for address" automation/segment
+        # fires. Best-effort — a GHL hiccup shouldn't fail the whole action.
+        if lead.ghl_contact_id:
+            try:
+                from services.ghl import add_contact_tag
+                add_contact_tag(lead.ghl_contact_id, "asking-for-address", lead.ghl_location_id or None)
+            except Exception as e:
+                logger.warning(f"asking-for-address tag failed for lead {lead_id}: {e}")
+
         # Move to no_address column + tag which button was used
         lead.kanban_column = "no_address"
         existing_fd = lead.to_dict()["form_data"]

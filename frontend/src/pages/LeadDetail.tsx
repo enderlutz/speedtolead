@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type DailyTask, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -573,8 +573,12 @@ export default function LeadDetail() {
 
   const approvalStatus = estimate?.approval_status as keyof typeof APPROVAL_CONFIG | undefined;
   const approvalCfg = approvalStatus ? APPROVAL_CONFIG[approvalStatus] : null;
+  // Facebook-ad leads give a street + ZIP (e.g. "123 Main St., 77014"). The
+  // street alone geocodes to the wrong city/state (there are hundreds of
+  // "123 Main St" across the country), so always pin the map with the ZIP.
+  const mapQuery = [lead.address, lead.zip_code].map((s) => (s || "").trim()).filter(Boolean).join(", ");
   const mapsUrl = lead.address
-    ? `https://www.google.com/maps/@?api=1&map_action=map&basemap=satellite&center=${encodeURIComponent(lead.address)}&zoom=20`
+    ? `https://www.google.com/maps/@?api=1&map_action=map&basemap=satellite&center=${encodeURIComponent(mapQuery)}&zoom=20`
     : null;
 
   return (
@@ -994,11 +998,11 @@ export default function LeadDetail() {
                     loading="lazy"
                     allowFullScreen
                     referrerPolicy="no-referrer-when-downgrade"
-                    src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ""}&q=${encodeURIComponent(lead.address)}&maptype=satellite&zoom=20`}
+                    src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ""}&q=${encodeURIComponent(mapQuery)}&maptype=satellite&zoom=20`}
                   />
                 </div>
                 <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lead.address)}&basemap=satellite`}
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}&basemap=satellite`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-md border text-sm py-2 hover:bg-muted transition-colors sm:hidden"
@@ -1610,6 +1614,11 @@ export default function LeadDetail() {
               canvas it couldn't have when stuffed above the grid. */}
           <NearbyJobsCard leadId={lead.id} />
           <TimeSpentCard leadId={lead.id} />
+
+          {/* The lead's Daily Task List row — same call / notes / prices /
+              follow-up info the VA sees on the dashboard queue, mirrored here
+              for convenience. */}
+          <LeadTaskSummaryCard leadId={lead.id} />
         </TabsContent>
 
         <TabsContent value="call" className="space-y-4 sm:space-y-6 mt-4">
@@ -2986,6 +2995,123 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
 // 30 min off each drive"). Empty + collapsed states are friendly stubs
 // — the card always renders so admin can see at a glance whether
 // route-stacking is available.
+// Mirrors this lead's Daily Task List row (call status, notes, tier prices,
+// next follow-up) onto the Estimate tab so the info lives in both places.
+function LeadTaskSummaryCard({ leadId }: { leadId: string }) {
+  const [task, setTask] = useState<DailyTask | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.getDailyTasks()
+      .then((r) => { if (!cancelled) setTask(r.tasks.find((t) => t.id === leadId) || null); })
+      .catch(() => { if (!cancelled) setTask(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  const CST = "America/Chicago";
+  const fmtCST = (iso?: string | null) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString("en-US", { timeZone: CST, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }) + " CST";
+  };
+  const fmtFollowUp = (fu: NonNullable<DailyTask["next_follow_up"]>) => {
+    const d = new Date(fu.due_at);
+    if (isNaN(d.getTime())) return "";
+    if (fu.all_day) return d.toLocaleDateString("en-US", { timeZone: CST, month: "short", day: "numeric" }) + " · all day";
+    return d.toLocaleString("en-US", { timeZone: CST, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+  const px = (n: number) => (n > 0 ? `$${n.toLocaleString()}` : "—");
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+          <MessageSquare className="h-4 w-4" /> Daily Task List
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="h-16 bg-muted rounded animate-pulse" />
+        ) : !task ? (
+          <p className="text-sm text-muted-foreground">
+            This lead isn't on the Daily Task List right now — it only appears while it's in an active outreach stage (new lead, hot, estimate sent, responded, nurture).
+          </p>
+        ) : (
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">{task.stage_label}</span>
+              {task.task_status === "waiting_updated_estimate" && (
+                <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs font-medium">Waiting for updated estimate</span>
+              )}
+              {task.carried_over && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-semibold">
+                  <AlertTriangle className="h-3 w-3" /> {task.days_waiting}d waiting
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg border p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Call</p>
+                {task.called ? (
+                  <p className="flex items-center gap-1 text-emerald-700 font-medium">
+                    <Phone className="h-3.5 w-3.5" /> Called{task.call_count > 1 ? ` ×${task.call_count}` : ""}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">No call logged yet</p>
+                )}
+                {task.last_action_at && (
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> {fmtCST(task.last_action_at)}
+                  </p>
+                )}
+                {task.last_action_by && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <User className="h-3 w-3" /> {task.last_action_by}
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-lg border p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Estimate</p>
+                <div className="space-y-0.5">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Essential</span><span className="font-medium">{px(task.tier_prices?.essential ?? 0)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Signature</span><span className="font-semibold">{px(task.tier_prices?.signature ?? 0)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Legacy</span><span className="font-medium">{px(task.tier_prices?.legacy ?? 0)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            {task.next_follow_up && (
+              <div className="rounded-lg border p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Next follow-up</p>
+                <p className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-amber-600" />
+                  <span className="font-medium capitalize">{task.next_follow_up.action_type}</span>
+                  <span className="text-muted-foreground">· {fmtFollowUp(task.next_follow_up)}</span>
+                </p>
+                {task.next_follow_up.note && <p className="text-xs text-muted-foreground mt-1">{task.next_follow_up.note}</p>}
+              </div>
+            )}
+
+            {task.client_note && (
+              <div className="rounded-lg border p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Notes</p>
+                <p className="whitespace-pre-wrap">{task.client_note}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
 function NearbyJobsCard({ leadId }: { leadId: string }) {
   const [data, setData] = useState<{ nearby_jobs: NearbyJob[]; window_days: number } | null>(null);
   const [loading, setLoading] = useState(true);

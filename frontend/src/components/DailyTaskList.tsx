@@ -107,6 +107,29 @@ function dateLabel(ymd: string): string {
 function money(n: number): string {
   return n > 0 ? `$${n.toLocaleString()}` : "—";
 }
+// Essential / Signature / Legacy tier prices, stacked. Signature is the headline
+// tier so it's bold. Shows "—" when there's no estimate yet.
+function TierPrices({ tiers }: { tiers?: { essential: number; signature: number; legacy: number } | null }) {
+  const t = tiers || { essential: 0, signature: 0, legacy: 0 };
+  if (t.essential <= 0 && t.signature <= 0 && t.legacy <= 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const rows: [string, number, boolean][] = [
+    ["E", t.essential, false],
+    ["S", t.signature, true],
+    ["L", t.legacy, false],
+  ];
+  return (
+    <div className="space-y-0.5">
+      {rows.map(([label, val, bold]) => (
+        <div key={label} className="flex items-center justify-end gap-1 text-xs leading-tight">
+          <span className="text-muted-foreground">{label}:</span>
+          <span className={bold ? "font-semibold" : "font-medium"}>{val > 0 ? money(val) : "—"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 function isUpcoming(t: DailyTask): boolean {
   const fu = t.next_follow_up;
   if (!fu?.due_at) return false;
@@ -393,7 +416,7 @@ export default function DailyTaskList() {
                 <th className="px-4 py-2.5 font-medium">Stage</th>
                 <th className="px-4 py-2.5 font-medium">Call</th>
                 <th className="px-4 py-2.5 font-medium">Notes</th>
-                <th className="px-4 py-2.5 font-medium text-right">Signature</th>
+                <th className="px-4 py-2.5 font-medium text-right">Estimate</th>
                 <th className="px-4 py-2.5 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -504,8 +527,10 @@ export default function DailyTaskList() {
                     </button>
                   </td>
 
-                  {/* Signature price */}
-                  <td className="px-4 py-3 align-top text-right font-semibold whitespace-nowrap">{money(t.signature_price)}</td>
+                  {/* Estimate — Essential / Signature / Legacy tier prices */}
+                  <td className="px-4 py-3 align-top text-right whitespace-nowrap">
+                    <TierPrices tiers={t.tier_prices} />
+                  </td>
 
                   {/* Actions */}
                   <td className="px-4 py-3 align-top">

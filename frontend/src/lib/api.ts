@@ -429,6 +429,7 @@ export interface DailyTask {
   dispositions: DailyTaskDisposition[];
   next_follow_up?: DailyTaskFollowUp | null;
   signature_price: number;
+  tier_prices: { essential: number; signature: number; legacy: number };
   carried_over: boolean; // unfinished from a prior day — rolled into today's queue
   days_waiting: number;  // days since last worked (Central time)
 }

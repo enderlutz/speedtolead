@@ -86,10 +86,11 @@ def _to_central_date(iso: str):
     return dt.astimezone(_CENTRAL).date()
 
 
-def _signature_prices(db, lead_ids: list[str]) -> dict[str, int]:
-    """Latest-estimate signature price per lead, rounded up to whole dollars
-    (matches the proposal). Batched — one query for all leads."""
-    out: dict[str, int] = {}
+def _tier_prices(db, lead_ids: list[str]) -> dict[str, dict[str, int]]:
+    """Latest-estimate Essential/Signature/Legacy prices per lead, each rounded
+    up to whole dollars (matches the proposal). Batched — one query for all
+    leads. Returns {lead_id: {"essential": int, "signature": int, "legacy": int}}."""
+    out: dict[str, dict[str, int]] = {}
     if not lead_ids:
         return out
     ests = (
@@ -103,10 +104,21 @@ def _signature_prices(db, lead_ids: list[str]) -> dict[str, int]:
             continue  # first seen = latest
         try:
             tiers = json.loads(e.tiers or "{}")
-            sig = float(tiers.get("signature") or 0)
         except (TypeError, ValueError, json.JSONDecodeError):
-            sig = 0
-        out[e.lead_id] = math.ceil(sig) if sig > 0 else 0
+            tiers = {}
+
+        def _px(key: str) -> int:
+            try:
+                v = float(tiers.get(key) or 0)
+            except (TypeError, ValueError):
+                v = 0
+            return math.ceil(v) if v > 0 else 0
+
+        out[e.lead_id] = {
+            "essential": _px("essential"),
+            "signature": _px("signature"),
+            "legacy": _px("legacy"),
+        }
     return out
 
 
@@ -186,8 +198,9 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                     "note": nf.note or "",
                 }
 
-        prices = _signature_prices(db, lead_ids)
+        prices = _tier_prices(db, lead_ids)
         today_ct = datetime.now(_CENTRAL).date()
+        _empty_tiers = {"essential": 0, "signature": 0, "legacy": 0}
 
         rows = []
         for l in leads:
@@ -233,7 +246,8 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "last_action_by": last_action_by,
                 "dispositions": log,
                 "next_follow_up": next_fu_by_lead.get(l.id),
-                "signature_price": prices.get(l.id, 0),
+                "signature_price": prices.get(l.id, _empty_tiers)["signature"],
+                "tier_prices": prices.get(l.id, _empty_tiers),
                 "carried_over": carried_over,
                 "days_waiting": days_waiting,
             })
