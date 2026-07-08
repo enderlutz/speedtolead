@@ -41,6 +41,7 @@ ALLOWED_OUTCOMES = {
     "closed",
     "objection_price",
     "objection_timing",
+    "objection_spouse",
     "no_answer",
     "voicemail",
     "callback",

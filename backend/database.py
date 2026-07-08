@@ -1253,6 +1253,7 @@ class CallDisposition(Base):
       closed           — deal closed on the call (good)
       objection_price  — customer balked at price
       objection_timing — not ready yet, life thing, etc.
+      objection_spouse — needs to check with spouse / partner first
       no_answer        — didn't pick up
       voicemail        — left a voicemail
       callback         — customer asked to be called back later
