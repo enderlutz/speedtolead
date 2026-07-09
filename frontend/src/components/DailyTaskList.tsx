@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type DailyTask, type Lead, type CallDispositionOutcome } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import ScheduleJobModal from "@/components/ScheduleJobModal";
 import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
   CheckCircle2, Clock, CalendarClock, Search, X, AlertTriangle,
-  CalendarDays, ChevronLeft, ChevronRight, User,
+  CalendarDays, ChevronLeft, ChevronRight, User, ChevronDown, SlidersHorizontal,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -58,8 +58,20 @@ const STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc", label: "Completed — unhappy" },
 ];
 
-type StageFilter = "all" | "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded" | "other";
+type StageKey = "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded" | "other";
 type TaskTab = "today" | "upcoming" | "date" | "all";
+
+// Options in the multi-select stage filter (empty selection = all stages).
+const STAGE_FILTER_OPTIONS: { key: StageKey; label: string }[] = [
+  { key: "new_lead", label: "New lead" },
+  { key: "hot", label: "Hot lead — send estimate" },
+  { key: "estimate_sent", label: "Estimate sent" },
+  { key: "responded", label: "Responded to estimate" },
+  { key: "waiting", label: "Waiting for updated estimate" },
+  { key: "nurture", label: "Long-term nurture" },
+  { key: "nurture_responded", label: "Responded to nurture" },
+  { key: "other", label: "Other stages" },
+];
 
 const OUTCOME_LABELS: Record<string, string> = {
   closed: "Closed — won",
@@ -200,8 +212,13 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   const [dateYMD, setDateYMD] = useState<string>(() => {
     try { return localStorage.getItem("at_tasks_date") || todayCST(); } catch { return todayCST(); }
   });
-  const [stageFilter, setStageFilter] = useState<StageFilter>(() => {
-    try { return (localStorage.getItem("at_tasks_stage") as StageFilter) || "all"; } catch { return "all"; }
+  const [stageFilters, setStageFilters] = useState<StageKey[]>(() => {
+    try {
+      const raw = localStorage.getItem("at_tasks_stage");
+      if (!raw) return [];
+      if (raw.startsWith("[")) return JSON.parse(raw) as StageKey[];   // new array form
+      return raw === "all" ? [] : [raw as StageKey];                   // migrate legacy single value
+    } catch { return []; }
   });
   const [search, setSearch] = useState(() => {
     try { return localStorage.getItem("at_tasks_search") ?? ""; } catch { return ""; }
@@ -222,7 +239,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   useEffect(() => { load(); }, [load]);
   // Persist the tab + stage filter so returning from a lead restores them.
   useEffect(() => { try { localStorage.setItem("at_tasks_tab", tab); } catch { /* ignore */ } }, [tab]);
-  useEffect(() => { try { localStorage.setItem("at_tasks_stage", stageFilter); } catch { /* ignore */ } }, [stageFilter]);
+  useEffect(() => { try { localStorage.setItem("at_tasks_stage", JSON.stringify(stageFilters)); } catch { /* ignore */ } }, [stageFilters]);
   useEffect(() => { try { localStorage.setItem("at_tasks_search", search); } catch { /* ignore */ } }, [search]);
   useEffect(() => { try { localStorage.setItem("at_tasks_date", dateYMD); } catch { /* ignore */ } }, [dateYMD]);
 
@@ -291,7 +308,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     if (tab === "today") list = list.filter((t) => !isUpcoming(t));
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
     else if (tab === "date") list = list.filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD);
-    if (stageFilter !== "all") list = list.filter((t) => effectiveStage(t) === stageFilter);
+    if (stageFilters.length) list = list.filter((t) => stageFilters.includes(effectiveStage(t) as StageKey));
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
     return [...list].sort((a, b) => {
@@ -300,7 +317,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
     });
-  }, [tasks, tab, stageFilter, search, dateYMD, leadId]);
+  }, [tasks, tab, stageFilters, search, dateYMD, leadId]);
 
   const dateCount = useMemo(
     () => (tasks ?? []).filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD).length,
@@ -388,21 +405,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
             </button>
           )}
         </div>
-        <select
-          value={stageFilter}
-          onChange={(e) => setStageFilter(e.target.value as StageFilter)}
-          className="text-sm rounded-md border bg-background px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
-        >
-          <option value="all">All stages</option>
-          <option value="new_lead">New lead</option>
-          <option value="hot">Hot lead — send estimate</option>
-          <option value="estimate_sent">Estimate sent</option>
-          <option value="responded">Responded to estimate</option>
-          <option value="waiting">Waiting for updated estimate</option>
-          <option value="nurture">Long-term nurture</option>
-          <option value="nurture_responded">Responded to nurture</option>
-          <option value="other">Other stages</option>
-        </select>
+        <StageMultiSelect selected={stageFilters} onChange={setStageFilters} />
         </div>
       </div>
       )}
@@ -618,6 +621,52 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 function todayYMD(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Multi-select stage filter — pick any number of stages (none = all). */
+function StageMultiSelect({ selected, onChange }: { selected: StageKey[]; onChange: (next: StageKey[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  const toggle = (k: StageKey) => onChange(selected.includes(k) ? selected.filter((x) => x !== k) : [...selected, k]);
+  const label = selected.length === 0
+    ? "All stages"
+    : selected.length === 1
+      ? (STAGE_FILTER_OPTIONS.find((o) => o.key === selected[0])?.label || "1 stage")
+      : `${selected.length} stages`;
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-sm rounded-md border bg-background px-3 py-1.5 flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="max-w-[140px] truncate">{label}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-40 mt-1 w-56 rounded-lg border bg-popover p-1 shadow-lg">
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Filter by stage</span>
+            {selected.length > 0 && (
+              <button onClick={() => onChange([])} className="text-[11px] text-primary hover:underline">Clear</button>
+            )}
+          </div>
+          {STAGE_FILTER_OPTIONS.map((o) => (
+            <label key={o.key} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm">
+              <input type="checkbox" checked={selected.includes(o.key)} onChange={() => toggle(o.key)} className="h-3.5 w-3.5" />
+              <span>{o.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Follow-up form fields — shared by the log-call and reschedule modals. */

@@ -36,6 +36,7 @@ import { TrainingModeProvider } from "@/lib/training_mode_context";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Revenue from "@/pages/Revenue";
+import DailyTasks from "@/pages/DailyTasks";
 import Accounting from "@/pages/Accounting";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
@@ -151,6 +152,7 @@ function AppLayout() {
           <main className="flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<RequireView view="dashboard"><Dashboard /></RequireView>} />
+              <Route path="/daily-tasks" element={<RequireView view="dashboard"><DailyTasks /></RequireView>} />
               <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
               <Route path="/leads/painting-upsell" element={<RequireView view="painting_upsell"><LeadsPaintingUpsell /></RequireView>} />
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />

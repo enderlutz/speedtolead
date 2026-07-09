@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, Paintbrush, MapPin } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, Paintbrush, MapPin, ListChecks } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -28,6 +28,7 @@ import { formatCurrency } from "@/lib/utils";
 // when the user has it. `restrictTo` is the legacy fragned-only escape hatch.
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
+  { to: "/daily-tasks", icon: ListChecks, label: "Daily Tasks", perm: "dashboard" },
   { to: "/leads", icon: Users, label: "Sterling Leads", perm: "leads" },
   { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" },
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
