@@ -102,6 +102,15 @@ export function hasPerm(key: string): boolean {
   return (ROLE_DEFAULT_PERMS[u.role] || []).includes(key);
 }
 
+/** Revenue / QuickBooks-invoice pages are a restricted preview — only these
+ * specific accounts may see them (expand later on approval). The backend
+ * enforces the same allowlist (require_revenue); this just hides the UI. */
+const REVENUE_USERS = ["fragned", "alanbonner"];
+export function canSeeRevenue(): boolean {
+  const u = getCurrentUser();
+  return !!u && REVENUE_USERS.includes((u.sub || "").toLowerCase());
+}
+
 // --- Types ---
 
 export interface AdminUser {

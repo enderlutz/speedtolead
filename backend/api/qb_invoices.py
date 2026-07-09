@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy import or_, func
 
 from database import get_db, QuickbooksInvoice, Lead
-from api.auth import require_staff
+from api.auth import require_revenue
 import services.quickbooks_client as qb
 
 router = APIRouter()
@@ -186,7 +186,7 @@ def _run_sync() -> None:
 
 
 @router.post("/quickbooks/invoices/sync")
-def sync_invoices(background: BackgroundTasks, user: dict = Depends(require_staff)):
+def sync_invoices(background: BackgroundTasks, user: dict = Depends(require_revenue)):
     """Kick off a full pull of every QBO invoice into the local mirror.
     Idempotent (upsert by QBO id; preserves manual assignments). Runs in the
     background — poll /quickbooks/invoices/sync-status for progress."""
@@ -198,7 +198,7 @@ def sync_invoices(background: BackgroundTasks, user: dict = Depends(require_staf
 
 
 @router.get("/quickbooks/invoices/sync-status")
-def sync_status(user: dict = Depends(require_staff)):
+def sync_status(user: dict = Depends(require_revenue)):
     del user
     return _SYNC_STATUS
 
@@ -213,7 +213,7 @@ def list_invoices(
     q: str = "",
     limit: int = 100,
     offset: int = 0,
-    user: dict = Depends(require_staff),
+    user: dict = Depends(require_revenue),
 ):
     """Paginated invoice list for the Revenue page, plus company-wide rollups
     (invoiced / collected / outstanding / unassigned) computed over the full
@@ -284,7 +284,7 @@ class AssignBody(BaseModel):
 
 
 @router.post("/quickbooks/invoices/{qb_invoice_id}/assign")
-def assign_invoice(qb_invoice_id: str, body: AssignBody, user: dict = Depends(require_staff)):
+def assign_invoice(qb_invoice_id: str, body: AssignBody, user: dict = Depends(require_revenue)):
     db = get_db()
     try:
         inv = (db.query(QuickbooksInvoice)
@@ -308,7 +308,7 @@ def assign_invoice(qb_invoice_id: str, body: AssignBody, user: dict = Depends(re
 
 
 @router.post("/quickbooks/invoices/{qb_invoice_id}/unassign")
-def unassign_invoice(qb_invoice_id: str, user: dict = Depends(require_staff)):
+def unassign_invoice(qb_invoice_id: str, user: dict = Depends(require_revenue)):
     del user
     db = get_db()
     try:
@@ -328,7 +328,7 @@ def unassign_invoice(qb_invoice_id: str, user: dict = Depends(require_staff)):
 
 
 @router.get("/quickbooks/leads/{lead_id}/invoices")
-def lead_invoices(lead_id: str, user: dict = Depends(require_staff)):
+def lead_invoices(lead_id: str, user: dict = Depends(require_revenue)):
     """Invoices assigned to one lead + a paid/total/balance rollup, for the
     Lead Detail Payments section."""
     del user

@@ -68,6 +68,17 @@ def require_fragned(user: dict = Depends(get_current_user)):
     return user
 
 
+# Revenue / QuickBooks-invoice pages are a restricted preview — only these
+# specific accounts may access them (expand later, e.g. to Olga, on approval).
+REVENUE_USERS = {"fragned", "alanbonner"}
+
+
+def require_revenue(user: dict = Depends(get_current_user)):
+    if (user.get("sub") or "").lower() not in REVENUE_USERS:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return user
+
+
 @router.post("/auth/login")
 def login(body: LoginRequest):
     db = get_db()

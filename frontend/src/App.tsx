@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { api, isAuthenticated, getCurrentUser, hasPerm, setToken } from "@/lib/api";
+import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
@@ -61,6 +61,13 @@ function StaffOnly({ children }: { children: React.ReactNode }) {
 function FragnedOnly({ children }: { children: React.ReactNode }) {
   const u = getCurrentUser();
   if (u?.sub !== "fragned") return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+// Revenue / QuickBooks-invoice pages — restricted preview, allowlisted accounts
+// only. Backend enforces the same list; this bounces everyone else away.
+function RevenueOnly({ children }: { children: React.ReactNode }) {
+  if (!canSeeRevenue()) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -164,7 +171,7 @@ function AppLayout() {
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
               <Route path="/invoice-queue" element={<RequireView view="invoice_queue"><InvoiceQueue /></RequireView>} />
-              <Route path="/revenue" element={<RequireView view="see_prices"><Revenue /></RequireView>} />
+              <Route path="/revenue" element={<RevenueOnly><Revenue /></RevenueOnly>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />

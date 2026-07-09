@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, canSeeRevenue, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -1632,8 +1632,8 @@ export default function LeadDetail() {
             </CardContent>
           </Card>
 
-          {/* QuickBooks payments — invoices assigned to this lead + paid/balance. */}
-          <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />
+          {/* QuickBooks payments — restricted preview (allowlisted accounts only). */}
+          {canSeeRevenue() && <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />}
         </TabsContent>
 
         <TabsContent value="call" className="space-y-4 sm:space-y-6 mt-4">

@@ -26,7 +26,7 @@ import { formatCurrency } from "@/lib/utils";
 //   - AI Fence Est. ("/ai-fence")  — internal dev tool
 // `perm` (if set) is the permission key that gates this item — visible only
 // when the user has it. `restrictTo` is the legacy fragned-only escape hatch.
-const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; perm?: string }[] = [
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
   { to: "/leads", icon: Users, label: "Sterling Leads", perm: "leads" },
   { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" },
@@ -41,7 +41,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
   { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator" },
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue" },
-  { to: "/revenue", icon: TrendingUp, label: "Revenue", perm: "see_prices" },
+  { to: "/revenue", icon: TrendingUp, label: "Revenue", restrictToAny: ["fragned", "alanbonner"] },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
   { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing" },
   // { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" }, // hidden 2026-06-07
@@ -175,6 +175,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-3 mb-2">Menu</p>
           {NAV_ITEMS.filter(item => {
             const u = getCurrentUser();
+            if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
             if (item.perm) return hasPerm(item.perm);
             // Items without a perm default to admin + va, hidden from workers.
