@@ -113,6 +113,33 @@ def _upsert(db, parsed: dict, now: str) -> tuple[bool, bool]:
     return is_new, auto_linked
 
 
+def upsert_invoice_from_qbo(db, invoice: dict, commit: bool = False) -> None:
+    """Upsert one raw QBO Invoice resource into the mirror. Used by the live
+    webhook path (and the generate-invoice flow) to keep the Revenue page fresh
+    without a manual sync. Best-effort — never raises into its caller."""
+    try:
+        parsed = _parse_invoice(invoice)
+        if not parsed.get("qb_invoice_id"):
+            return
+        _upsert(db, parsed, _now())
+        if commit:
+            db.commit()
+    except Exception:
+        logger.exception("upsert_invoice_from_qbo failed (non-fatal)")
+
+
+def upsert_invoice_id(db, invoice_id: str, commit: bool = False) -> None:
+    """Fetch one invoice by QBO id and upsert it into the mirror. Best-effort."""
+    if not invoice_id:
+        return
+    try:
+        inv = qb.fetch_invoice(invoice_id)
+        if inv:
+            upsert_invoice_from_qbo(db, inv, commit=commit)
+    except Exception:
+        logger.exception(f"upsert_invoice_id({invoice_id}) failed (non-fatal)")
+
+
 def _run_sync() -> None:
     global _SYNC_STATUS
     _SYNC_STATUS = {

@@ -765,6 +765,10 @@ def generate_invoice(job_id: str, body: GenerateInvoiceBody, user: dict = Depend
         job.updated_at = _now()
         db.commit()
         db.refresh(job)
+        # Mirror into the Revenue page immediately (auto-links to the lead via
+        # the Lead ID in the invoice's private note). Best-effort.
+        from api.qb_invoices import upsert_invoice_id
+        upsert_invoice_id(db, inv["invoice_id"], commit=True)
         return {
             "mode": "live",
             "invoice_id": inv["invoice_id"],
@@ -964,6 +968,10 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
         lead.updated_at = _now()
         db.commit()
         db.refresh(lead)
+        # Mirror into the Revenue page (auto-links via the Lead ID in the
+        # deposit invoice's private note). Best-effort.
+        from api.qb_invoices import upsert_invoice_id
+        upsert_invoice_id(db, inv["invoice_id"], commit=True)
         # Text the customer the hosted payment link (the whole point of "Send").
         sms_sent = _text_deposit_link(lead, lead.deposit_payment_link, lead.deposit_amount)
         return {
@@ -1227,6 +1235,10 @@ def _handle_payment_event(db, payment_id: str) -> dict | None:
                 inv_id = lt.get("TxnId") or ""
                 if not inv_id:
                     continue
+                # Refresh the Revenue-page mirror so paid/balance reflect this
+                # payment immediately (best-effort).
+                from api.qb_invoices import upsert_invoice_id
+                upsert_invoice_id(db, inv_id)
                 res = _mark_job_paid_from_webhook(db, inv_id, total, payment_id)
                 if res.get("marked_paid"):
                     marked.append(res["marked_paid"])
@@ -1242,6 +1254,10 @@ def _handle_invoice_event(db, invoice_id: str) -> dict | None:
     inv = qb.fetch_invoice(invoice_id)
     if not inv:
         return None
+    # Keep the Revenue-page mirror (quickbooks_invoices) live — preserves any
+    # manual lead assignment, auto-links our own invoices. Best-effort.
+    from api.qb_invoices import upsert_invoice_from_qbo
+    upsert_invoice_from_qbo(db, inv)
     job = db.query(ScheduledJob).filter(ScheduledJob.qb_invoice_id == invoice_id).first()
     if not job:
         # Fall through to deposit handler — same QB invoice envelope,
