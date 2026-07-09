@@ -25,24 +25,40 @@ const SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066";
 const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";
 const WAITING_VALUE = "status:waiting_updated_estimate"; // dashboard-only overlay
 
-// Options in the per-row stage picker. "status:*" values set a dashboard-only
-// overlay (no GHL push); everything else is a real GHL pipeline stage.
+// Options in the per-row stage picker — every V2 pipeline stage, in pipeline
+// order (mirrors backend services/pipeline_stages.py). "status:*" values set a
+// dashboard-only overlay (no GHL push); everything else is a real GHL stage.
 const STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: NEW_LEAD_ID, label: "New lead" },
   { value: HOT_LEAD_ID, label: "Hot lead — send estimate" },
+  { value: "86fd0197-38ee-4999-bd26-4cf175aeba6b", label: "Address follow-up" },
+  { value: "92585169-bbc1-42c5-945d-63caf780e0b1", label: "Responded to address follow-up" },
+  { value: "1e8a52ac-a85a-4ee6-bcd5-0699ff64d3a7", label: "Call 1 — pre-estimate" },
+  { value: "fe74a5e6-e173-4783-a8a9-1f28168a6c1b", label: "Call 2 — pre-estimate" },
+  { value: "3020bb38-8c84-455d-a840-3650fbe50ecd", label: "Call 3 — pre-estimate" },
   { value: ESTIMATE_SENT_ID, label: "Estimate sent" },
   { value: EST_FU_LATER_ID, label: "Estimate follow-up later" },
   { value: RESPONDED_ID, label: "Responded to estimate" },
   { value: TOP_PRIORITY_ID, label: "Top priority" },
+  { value: "1cca8bd9-83a4-4138-84bf-10d38efa0e49", label: "Call 1 — post-estimate" },
+  { value: "1ad50871-3d2f-460a-bb38-6ca586aeef36", label: "Call 2 — post-estimate" },
+  { value: "9f348720-939a-4064-b50f-3b391fb7b281", label: "Call 3 — post-estimate" },
+  { value: "a2e09473-5711-4fbc-b246-2f5d70efc5d2", label: "Call 4 — post-estimate" },
+  { value: "f9b4c5d3-d72c-4a64-b799-d9fcab0624a8", label: "Call 5 — post-estimate" },
+  { value: "07de5d8f-11db-448c-9af8-1d92aa8d36d7", label: "Call 6 — post-estimate" },
+  { value: "73b2553d-4b42-461c-8857-48e7d9c73191", label: "Call 7 — post-estimate" },
   { value: WAITING_VALUE, label: "Waiting for updated estimate" },
   { value: NURTURE_ID, label: "Long-term nurture" },
   { value: NURTURE_RESPONDED_ID, label: "Responded to nurture" },
+  { value: "0ca2e2a6-2990-4a5b-8ace-608393e39b5a", label: "Cold lead (never answered)" },
+  { value: DECLINED_STAGE_ID, label: "Declined" },
   { value: CLOSED_NOT_SCHEDULED_ID, label: "Closed — not scheduled" },
   { value: SCHEDULED_STAGE_ID, label: "Closed & scheduled" },
-  { value: DECLINED_STAGE_ID, label: "Declined" },
+  { value: "c77b052f-845c-47e9-bba2-4cdba35a94d0", label: "Completed — happy (send review)" },
+  { value: "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc", label: "Completed — unhappy" },
 ];
 
-type StageFilter = "all" | "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded";
+type StageFilter = "all" | "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded" | "other";
 type TaskTab = "today" | "upcoming" | "date" | "all";
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -159,17 +175,9 @@ function effectiveStage(t: DailyTask): string {
   if (t.task_status === "waiting_updated_estimate") return "waiting";
   return t.stage_key;
 }
-const STAGE_KEY_TO_ID: Record<string, string> = {
-  new_lead: NEW_LEAD_ID,
-  hot: HOT_LEAD_ID,
-  estimate_sent: ESTIMATE_SENT_ID,
-  nurture: NURTURE_ID,
-  nurture_responded: NURTURE_RESPONDED_ID,
-};
 function currentStageValue(t: DailyTask): string {
   if (t.task_status === "waiting_updated_estimate") return WAITING_VALUE;
-  if (t.stage_key === "responded") return t.is_top_priority ? TOP_PRIORITY_ID : RESPONDED_ID;
-  return STAGE_KEY_TO_ID[t.stage_key] || NEW_LEAD_ID;
+  return t.stage_id || NEW_LEAD_ID;
 }
 function stageSelectCls(t: DailyTask): string {
   const s = effectiveStage(t);
@@ -182,7 +190,7 @@ function stageSelectCls(t: DailyTask): string {
   return "border-gray-300 bg-gray-50 text-gray-700";
 }
 
-export default function DailyTaskList() {
+export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<DailyTask[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -276,6 +284,9 @@ export default function DailyTaskList() {
   };
 
   const shown = useMemo(() => {
+    // Single-lead mode (embedded on the Lead Detail page): just this lead's row,
+    // no tab / stage / search filtering.
+    if (leadId) return (tasks ?? []).filter((t) => t.id === leadId);
     let list = tasks ?? [];
     if (tab === "today") list = list.filter((t) => !isUpcoming(t));
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
@@ -289,7 +300,7 @@ export default function DailyTaskList() {
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
     });
-  }, [tasks, tab, stageFilter, search, dateYMD]);
+  }, [tasks, tab, stageFilter, search, dateYMD, leadId]);
 
   const dateCount = useMemo(
     () => (tasks ?? []).filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD).length,
@@ -306,6 +317,7 @@ export default function DailyTaskList() {
 
   return (
     <div className="space-y-3">
+      {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">
           Work every lead until you hear a <span className="font-medium text-emerald-600">yes</span> (schedule) or a{" "}
@@ -321,7 +333,9 @@ export default function DailyTaskList() {
           <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </div>
+      )}
 
+      {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Tabs value={tab} onValueChange={(v) => setTab(v as TaskTab)}>
           <TabsList>
@@ -387,11 +401,13 @@ export default function DailyTaskList() {
           <option value="waiting">Waiting for updated estimate</option>
           <option value="nurture">Long-term nurture</option>
           <option value="nurture_responded">Responded to nurture</option>
+          <option value="other">Other stages</option>
         </select>
         </div>
       </div>
+      )}
 
-      {tab === "date" && (
+      {!leadId && tab === "date" && (
         <p className="text-xs text-muted-foreground">
           <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
           {dateCount} task{dateCount === 1 ? "" : "s"} scheduled for <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span>
@@ -401,8 +417,9 @@ export default function DailyTaskList() {
       {loading && !tasks ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : shown.length === 0 ? (
-        <div className="rounded-xl border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
-          {tab === "today" ? "🎉 No untapped leads right now."
+        <div className="rounded-xl border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+          {leadId ? "This lead isn't on the Daily Task List (it's archived or a test account)."
+            : tab === "today" ? "🎉 No untapped leads right now."
             : tab === "upcoming" ? "No follow-ups scheduled for later."
             : tab === "date" ? `No tasks scheduled for ${dateLabel(dateYMD)}.`
             : "No leads match this filter."}
@@ -467,6 +484,11 @@ export default function DailyTaskList() {
                       onChange={(e) => changeStage(t, e.target.value)}
                       className={`text-[11px] font-medium rounded-full border px-2 py-1 max-w-[150px] focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${stageSelectCls(t)}`}
                     >
+                      {/* Fall back to the lead's real stage name if it's one we
+                          don't list (keeps the picker accurate for any stage). */}
+                      {!STAGE_OPTIONS.some((o) => o.value === currentStageValue(t)) && (
+                        <option value={currentStageValue(t)}>{t.stage_label || "Current stage"}</option>
+                      )}
                       {STAGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>

@@ -1174,40 +1174,21 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
                 detail="This lead is on the legacy GHL pipeline. Export it to the new pipeline before sending — the old GHL account is no longer reachable for SMS.",
             )
 
-        from config import get_settings
-        from services.ghl import send_sms
-        settings = get_settings()
-
-        first_name = (lead.contact_name or "").split()[0].title() if lead.contact_name else "there"
-
-        # SMS to customer
-        customer_msg = (
-            f"Hey {first_name}! To get your free estimate put together, we measure your fence "
-            f"through Google Earth. We just need your home address and ZIP code. "
-            f"What's the best address for you?"
-        )
-        sms_sent = False
-        if lead.ghl_contact_id:
-            sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
-
-        # SMS to Alan
-        if settings.owner_ghl_contact_id:
-            alan_msg = (
-                f"Address requested from {lead.contact_name or 'Unknown'}\n"
-                f"View: {settings.frontend_url}/leads/{lead.id}"
-            )
-            send_sms(settings.owner_ghl_contact_id, alan_msg)
-
-        # Tag the GHL contact so the "asking for address" automation/segment
-        # fires. Best-effort — a GHL hiccup shouldn't fail the whole action.
+        # The Ask-for-Address button's ONLY external effect is the GHL tag —
+        # GHL's own automations handle the customer messaging from there. We
+        # deliberately send no SMS (to the customer or Alan) and write no GHL
+        # notes of our own, so the dashboard never oversteps their automations.
+        tagged = False
         if lead.ghl_contact_id:
             try:
                 from services.ghl import add_contact_tag
-                add_contact_tag(lead.ghl_contact_id, "asking-for-address", lead.ghl_location_id or None)
+                tagged = add_contact_tag(lead.ghl_contact_id, "asking-for-address", lead.ghl_location_id or None)
             except Exception as e:
                 logger.warning(f"asking-for-address tag failed for lead {lead_id}: {e}")
 
-        # Move to no_address column + tag which button was used
+        # Local dashboard state only (nothing here touches GHL): move to the
+        # Asking-for-Address column and remember the button was pressed so it
+        # shows "Asked" and can't re-fire the automation.
         lead.kanban_column = "no_address"
         existing_fd = lead.to_dict()["form_data"]
         existing_fd["address_action"] = "asked_for_address"
@@ -1215,14 +1196,8 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
         lead.updated_at = _now()
         db.commit()
 
-        log_event(lead_id, "address_requested", f"Address request SMS sent to {lead.contact_name}")
-        note_id = _add_badge_note(lead, "Asked for Address", user.get("name", "Team"))
-        if note_id:
-            _store_badge_note_id(existing_fd, "asked_for_address", note_id)
-            lead.form_data = json.dumps(existing_fd)
-            db.commit()
-
-        return {"status": "ok", "sms_sent": sms_sent}
+        log_event(lead_id, "address_requested", f"asking-for-address tag added for {lead.contact_name}")
+        return {"status": "ok", "tagged": tagged}
 
     except HTTPException:
         raise

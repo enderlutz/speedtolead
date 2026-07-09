@@ -24,10 +24,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, func
 
 from database import get_db, Lead, Estimate, CallDisposition, TaskFollowUp
 from api.auth import require_staff
+from services.pipeline_stages import STAGE_NAME_BY_ID
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -124,29 +125,22 @@ def _tier_prices(db, lead_ids: list[str]) -> dict[str, dict[str, int]]:
 
 @router.get("/daily-tasks")
 def get_daily_tasks(user: dict = Depends(require_staff)):
-    """Every lead in NEW LEAD / ESTIMATE SENT / RESPONDED TO ESTIMATE, with its
-    call log, next scheduled follow-up, last-activity timestamp, and signature
-    price. Ordered so nothing slips: responded first, then not-called-yet, then
-    higher value. The frontend splits into Today / Upcoming / All by follow-up
-    due date."""
+    """EVERY v2 lead in EVERY pipeline stage (nothing slips through the cracks),
+    with its call log, next scheduled follow-up, last-activity timestamp, and
+    Essential/Signature/Legacy prices. Excludes test + archived leads. Ordered
+    so the most-actionable float up. The frontend splits into Today / Upcoming /
+    By date / All by follow-up due date."""
     del user
     db = get_db()
     try:
-        stage_ids = [
-            _NEW_LEAD_ID, _HOT_LEAD_ID, _ESTIMATE_SENT_ID, *_RESPONDED_IDS,
-            _NURTURE_ID, _NURTURE_RESPONDED_ID,
-        ]
         leads = (
             db.query(Lead)
             .filter(
                 Lead.pipeline_version == "v2",
                 Lead.is_test.isnot(True),
-                or_(
-                    Lead.ghl_pipeline_stage_id.in_(stage_ids),
-                    # Keep "waiting for updated estimate" leads on the list even
-                    # if their GHL stage sits elsewhere (dashboard-only overlay).
-                    Lead.daily_task_status == "waiting_updated_estimate",
-                ),
+                Lead.is_archived.isnot(True),
+                # Our testing account — never belongs on the work queue.
+                func.lower(func.coalesce(Lead.contact_name, "")) != "fragne delgado",
             )
             .all()
         )
@@ -205,7 +199,10 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
         rows = []
         for l in leads:
             sid = l.ghl_pipeline_stage_id or ""
-            stage_key = _STAGE_KEYS.get(sid, "new_lead")
+            # "other" = a real stage that isn't one of the tracked outreach
+            # buckets (e.g. closed, declined, completed, pre-estimate calls).
+            stage_key = _STAGE_KEYS.get(sid, "other")
+            stage_label = STAGE_NAME_BY_ID.get(sid) or _STAGE_LABELS.get(stage_key, "Other")
             is_top_priority = sid == "147bd53b-3848-449d-b7c2-7a2cfad2a5f5"
             # The client's connected note = form_data.additional_notes (same
             # field Lead Detail shows/edits).
@@ -235,7 +232,8 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "contact_name": l.contact_name or "",
                 "address": l.address or "",
                 "stage_key": stage_key,
-                "stage_label": _STAGE_LABELS[stage_key],
+                "stage_id": sid,
+                "stage_label": stage_label,
                 "is_top_priority": is_top_priority,
                 "task_status": l.daily_task_status or "",
                 "client_note": client_note,
