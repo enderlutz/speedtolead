@@ -789,6 +789,41 @@ export interface PdfFieldMapPreset {
   updated_at: string;
 }
 
+export interface QuickbooksInvoice {
+  id: string;
+  qb_invoice_id: string;
+  doc_number: string;
+  customer_ref_id: string;
+  customer_name: string;
+  customer_email: string;
+  total_amount: number;
+  balance: number;
+  amount_paid: number;
+  status: "paid" | "partial" | "unpaid" | "void";
+  txn_date: string;
+  due_date: string;
+  lead_id: string | null;
+  lead_name?: string;
+  assigned_by: string;
+  assigned_at: string;
+  synced_at: string;
+}
+export interface QbInvoiceRollup {
+  invoiced: number;
+  collected: number;
+  outstanding: number;
+  unassigned: number;
+}
+export interface QbInvoiceSyncStatus {
+  status: "never_run" | "running" | "completed" | "error";
+  synced?: number;
+  new?: number;
+  auto_linked?: number;
+  started_at?: string;
+  completed_at?: string | null;
+  error?: string | null;
+}
+
 export const api = {
   // Auth
   login: (username: string, password: string) =>
@@ -1746,6 +1781,36 @@ export const api = {
     ),
   recentEmployees: (limit: number = 10) =>
     request<{ results: LeanEmployee[] }>(`/api/crew/employees/recent?limit=${limit}`),
+
+  // --- QuickBooks invoices → leads (Revenue page + Lead Detail payments) ---
+  syncQbInvoices: () =>
+    request<{ status: string }>("/api/quickbooks/invoices/sync", { method: "POST" }),
+  getQbInvoiceSyncStatus: () =>
+    request<QbInvoiceSyncStatus>("/api/quickbooks/invoices/sync-status"),
+  listQbInvoices: (params: { filter?: string; q?: string; limit?: number; offset?: number } = {}) => {
+    const sp = new URLSearchParams();
+    if (params.filter) sp.set("filter", params.filter);
+    if (params.q) sp.set("q", params.q);
+    if (params.limit != null) sp.set("limit", String(params.limit));
+    if (params.offset != null) sp.set("offset", String(params.offset));
+    const qs = sp.toString();
+    return request<{ invoices: QuickbooksInvoice[]; total: number; rollup: QbInvoiceRollup }>(
+      `/api/quickbooks/invoices${qs ? `?${qs}` : ""}`,
+    );
+  },
+  assignQbInvoice: (qbInvoiceId: string, leadId: string) =>
+    request<QuickbooksInvoice>(`/api/quickbooks/invoices/${encodeURIComponent(qbInvoiceId)}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ lead_id: leadId }),
+    }),
+  unassignQbInvoice: (qbInvoiceId: string) =>
+    request<QuickbooksInvoice>(`/api/quickbooks/invoices/${encodeURIComponent(qbInvoiceId)}/unassign`, {
+      method: "POST",
+    }),
+  getLeadQbInvoices: (leadId: string) =>
+    request<{ invoices: QuickbooksInvoice[]; rollup: { paid: number; total: number; balance: number; count: number } }>(
+      `/api/quickbooks/leads/${leadId}/invoices`,
+    ),
 
   // QuickBooks
   getQuickBooksStatus: () => request<QuickBooksStatus>("/api/quickbooks/status"),

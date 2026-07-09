@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -17,7 +17,7 @@ import EstimatorLeadPanel from "@/components/EstimatorLeadPanel";
 import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap,
+  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -1631,6 +1631,9 @@ export default function LeadDetail() {
               <DailyTaskList leadId={lead.id} />
             </CardContent>
           </Card>
+
+          {/* QuickBooks payments — invoices assigned to this lead + paid/balance. */}
+          <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />
         </TabsContent>
 
         <TabsContent value="call" className="space-y-4 sm:space-y-6 mt-4">
@@ -3007,6 +3010,171 @@ function LastCallIntelStrip({ leadId }: { leadId: string }) {
 // 30 min off each drive"). Empty + collapsed states are friendly stubs
 // — the card always renders so admin can see at a glance whether
 // route-stacking is available.
+const QB_STATUS_STYLE: Record<string, string> = {
+  paid: "bg-emerald-100 text-emerald-800",
+  partial: "bg-amber-100 text-amber-800",
+  unpaid: "bg-rose-100 text-rose-700",
+  void: "bg-gray-100 text-gray-500",
+};
+function qbMoney(n: number): string {
+  return `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// QuickBooks invoices linked to this lead + a paid/balance rollup. Assignment
+// mainly happens on the Revenue page; "Link invoice" here is the shortcut.
+function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: string }) {
+  const [data, setData] = useState<{ invoices: QuickbooksInvoice[]; rollup: { paid: number; total: number; balance: number; count: number } } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [linking, setLinking] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.getLeadQbInvoices(leadId)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [leadId]);
+  useEffect(() => { load(); }, [load]);
+
+  const unlink = async (inv: QuickbooksInvoice) => {
+    try { await api.unassignQbInvoice(inv.qb_invoice_id); load(); }
+    catch { toast.error("Couldn't unlink invoice"); }
+  };
+
+  const invoices = data?.invoices ?? [];
+  const roll = data?.rollup;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+            <DollarSign className="h-4 w-4" /> Payments (QuickBooks)
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={() => setLinking(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Link invoice
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="h-12 bg-muted rounded animate-pulse" />
+        ) : invoices.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No QuickBooks invoices linked yet. Use <span className="font-medium">Link invoice</span>, or assign one from the Revenue page.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span>Paid <span className="font-semibold text-emerald-700">{qbMoney(roll?.paid || 0)}</span></span>
+              <span>Balance <span className="font-semibold text-amber-700">{qbMoney(roll?.balance || 0)}</span></span>
+              <span className="text-muted-foreground">of {qbMoney(roll?.total || 0)} · {roll?.count} invoice{roll?.count === 1 ? "" : "s"}</span>
+            </div>
+            <div className="rounded-lg border divide-y">
+              {invoices.map((inv) => (
+                <div key={inv.qb_invoice_id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">#{inv.doc_number || inv.qb_invoice_id}</div>
+                    <div className="text-xs text-muted-foreground">{inv.txn_date || "—"}</div>
+                  </div>
+                  <div className="text-right whitespace-nowrap">
+                    <div>{qbMoney(inv.total_amount)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      paid {qbMoney(inv.amount_paid)}{inv.balance > 0 ? ` · bal ${qbMoney(inv.balance)}` : ""}
+                    </div>
+                  </div>
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${QB_STATUS_STYLE[inv.status] || "bg-gray-100 text-gray-600"}`}>
+                    {inv.status}
+                  </span>
+                  <button onClick={() => unlink(inv)} title="Unlink" className="text-muted-foreground hover:text-red-600 shrink-0">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+      {linking && (
+        <LinkInvoiceModal
+          leadId={leadId}
+          leadName={leadName}
+          onClose={() => setLinking(false)}
+          onLinked={() => { setLinking(false); load(); }}
+        />
+      )}
+    </Card>
+  );
+}
+
+function LinkInvoiceModal({ leadId, leadName, onClose, onLinked }: {
+  leadId: string; leadName: string; onClose: () => void; onLinked: () => void;
+}) {
+  const [q, setQ] = useState(leadName);
+  const [results, setResults] = useState<QuickbooksInvoice[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const search = useCallback((term: string) => {
+    setLoading(true);
+    api.listQbInvoices({ filter: "unassigned", q: term.trim(), limit: 25 })
+      .then((r) => setResults(r.invoices))
+      .catch(() => setResults([]))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { search(leadName); }, [search, leadName]);
+
+  const assign = async (inv: QuickbooksInvoice) => {
+    setBusyId(inv.qb_invoice_id);
+    try { await api.assignQbInvoice(inv.qb_invoice_id, leadId); toast.success("Invoice linked"); onLinked(); }
+    catch { toast.error("Couldn't link invoice"); setBusyId(null); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border bg-background p-4 shadow-xl space-y-3 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <p className="text-sm font-semibold">Link a QuickBooks invoice</p>
+          <p className="text-xs text-muted-foreground">Search unassigned invoices by customer name or invoice #.</p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") search(q); }}
+            placeholder="Customer name or invoice #"
+            className="flex-1 text-sm rounded-md border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <Button size="sm" onClick={() => search(q)} disabled={loading}>Search</Button>
+        </div>
+        {loading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : results.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">No unassigned invoices match. Try a different search, or sync on the Revenue page.</p>
+        ) : (
+          <div className="rounded-lg border divide-y">
+            {results.map((inv) => (
+              <div key={inv.qb_invoice_id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">#{inv.doc_number || inv.qb_invoice_id} · {inv.customer_name || "—"}</div>
+                  <div className="text-xs text-muted-foreground">{inv.txn_date || "—"} · {qbMoney(inv.total_amount)} · paid {qbMoney(inv.amount_paid)}</div>
+                </div>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={busyId === inv.qb_invoice_id} onClick={() => assign(inv)}>
+                  {busyId === inv.qb_invoice_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Link"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function NearbyJobsCard({ leadId }: { leadId: string }) {
   const [data, setData] = useState<{ nearby_jobs: NearbyJob[]; window_days: number } | null>(null);
   const [loading, setLoading] = useState(true);

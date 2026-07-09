@@ -35,6 +35,7 @@ import TrainingSummaryModal from "@/components/training/TrainingSummaryModal";
 import { TrainingModeProvider } from "@/lib/training_mode_context";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
+import Revenue from "@/pages/Revenue";
 import Accounting from "@/pages/Accounting";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
@@ -163,6 +164,7 @@ function AppLayout() {
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />
               <Route path="/invoice-queue" element={<RequireView view="invoice_queue"><InvoiceQueue /></RequireView>} />
+              <Route path="/revenue" element={<RequireView view="see_prices"><Revenue /></RequireView>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />
