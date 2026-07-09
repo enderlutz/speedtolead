@@ -803,6 +803,20 @@ def fetch_invoice(invoice_id: str) -> dict | None:
         return None
 
 
+def query_invoices(start_position: int = 1, max_results: int = 1000,
+                   order_by: str = "MetaData.LastUpdatedTime") -> list[dict]:
+    """One page of raw QBO Invoice resources (max 1000 per QBO limit). Callers
+    paginate by bumping start_position until a short page comes back."""
+    t = ensure_valid_access_token()
+    if not t:
+        raise PermissionError("Not connected to QuickBooks — reconnect required")
+    max_results = max(1, min(int(max_results), 1000))
+    q = (f"SELECT * FROM Invoice ORDERBY {order_by} "
+         f"STARTPOSITION {int(start_position)} MAXRESULTS {max_results}")
+    res = qbo_request("GET", f"/v3/company/{t.realm_id}/query", params={"query": q})
+    return ((res.get("QueryResponse") or {}).get("Invoice")) or []
+
+
 def fetch_payment(payment_id: str) -> dict | None:
     t = ensure_valid_access_token()
     if not t or not payment_id:

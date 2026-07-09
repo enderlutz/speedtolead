@@ -2005,6 +2005,67 @@ class QuickBooksToken(Base):
     last_webhook_received_at = Column(Text, default="")
 
 
+class QuickbooksInvoice(Base):
+    """Canonical mirror of every QBO Invoice, keyed by the QuickBooks invoice
+    id, with a nullable lead_id for the manual assignment. Lets us pull the
+    full invoice list (who paid, how much, what's outstanding) and attach each
+    to a lead the way Google-Calendar events attach to a ScheduledJob.
+
+    Separate from the denormalized qb_invoice_* columns on ScheduledJob (which
+    track only the invoices WE generate); this table is the superset — every
+    invoice in the QBO company, including ones created directly in QuickBooks."""
+    __tablename__ = "quickbooks_invoices"
+    __table_args__ = (
+        Index("idx_qb_invoices_lead", "lead_id"),
+        Index("idx_qb_invoices_status", "status"),
+    )
+
+    id = Column(Text, primary_key=True)                    # our uuid
+    qb_invoice_id = Column(Text, unique=True, nullable=False)  # QBO Invoice.Id
+    doc_number = Column(Text, default="")                  # DocNumber (invoice #)
+    customer_ref_id = Column(Text, default="")            # QBO CustomerRef.value
+    customer_name = Column(Text, default="")              # CustomerRef.name
+    customer_email = Column(Text, default="")             # BillEmail.Address
+    total_amount = Column(Numeric, default=0)             # TotalAmt
+    balance = Column(Numeric, default=0)                  # Balance (outstanding)
+    amount_paid = Column(Numeric, default=0)             # TotalAmt - Balance
+    status = Column(Text, default="unpaid")               # paid | partial | unpaid | void
+    txn_date = Column(Text, default="")                   # TxnDate
+    due_date = Column(Text, default="")                   # DueDate
+    private_note = Column(Text, default="")               # PrivateNote (carries Lead ID for our invoices)
+    lead_id = Column(Text, nullable=True)                 # manual assignment
+    assigned_by = Column(Text, default="")
+    assigned_at = Column(Text, default="")
+    synced_at = Column(Text, default="")                  # last pull from QBO
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        def _num(v):
+            try:
+                return float(v) if v is not None else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+        return {
+            "id": self.id,
+            "qb_invoice_id": self.qb_invoice_id,
+            "doc_number": self.doc_number or "",
+            "customer_ref_id": self.customer_ref_id or "",
+            "customer_name": self.customer_name or "",
+            "customer_email": self.customer_email or "",
+            "total_amount": _num(self.total_amount),
+            "balance": _num(self.balance),
+            "amount_paid": _num(self.amount_paid),
+            "status": self.status or "unpaid",
+            "txn_date": self.txn_date or "",
+            "due_date": self.due_date or "",
+            "lead_id": self.lead_id,
+            "assigned_by": self.assigned_by or "",
+            "assigned_at": self.assigned_at or "",
+            "synced_at": self.synced_at or "",
+        }
+
+
 class QBTimeToken(Base):
     """Single-row OAuth token for the connected QuickBooks Time (formerly
     TSheets) account. Separate from QuickBooksToken because QB Time runs
