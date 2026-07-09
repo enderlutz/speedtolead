@@ -590,7 +590,8 @@ export default function LeadDetail() {
 
       {/* Header — always visible above the Estimate / Call tabs so Alan never
           loses sight of "who am I looking at" when flipping between them. */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
         <button
           onClick={() => {
             // Go back to wherever they came from (Leads map, Daily Task List,
@@ -601,7 +602,7 @@ export default function LeadDetail() {
             else navigate("/leads");
           }}
           aria-label="Back"
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -641,7 +642,8 @@ export default function LeadDetail() {
             proposalLastViewedAt={lead.proposal_last_viewed_at}
           />
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+        </div>
+        <div className="flex items-center gap-2 flex-wrap sm:shrink-0 sm:justify-end">
           {trainingModeOn && !activeCall && (
             <Button
               variant="outline"
