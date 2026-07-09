@@ -138,7 +138,8 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
             .filter(
                 Lead.pipeline_version == "v2",
                 Lead.is_test.isnot(True),
-                Lead.is_archived.isnot(True),
+                # Leads are soft-deleted via status == "archived" (no boolean col).
+                func.coalesce(Lead.status, "") != "archived",
                 # Our testing account — never belongs on the work queue.
                 func.lower(func.coalesce(Lead.contact_name, "")) != "fragne delgado",
             )
