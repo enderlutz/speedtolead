@@ -158,6 +158,129 @@ function TierPrices({ tiers }: { tiers?: { essential: number; signature: number;
     </div>
   );
 }
+// The Call cell: badge + last-action, and a click-to-open call log whose notes
+// are editable inline (autosave on pause/blur + an explicit Save button).
+function CallCell({ task, onLogCall, onNotesSaved }: { task: DailyTask; onLogCall: () => void; onNotesSaved: (leadId: string, dispositionId: string, notes: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const hasLog = task.dispositions.length > 0;
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        onClick={() => (hasLog ? setOpen((o) => !o) : onLogCall())}
+        title={hasLog ? "View / edit call log" : "Log a call"}
+        className="text-left"
+      >
+        {task.called ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-0.5 text-[11px] font-medium">
+            <Phone className="h-3 w-3" /> Called{task.call_count > 1 ? ` ×${task.call_count}` : ""}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-0.5 text-[11px] font-medium">
+            <PhoneOff className="h-3 w-3" /> No call
+          </span>
+        )}
+      </button>
+      {task.last_action_at && (
+        <div className="mt-1 space-y-0.5" title={fmtDateTimeCST(task.last_action_at)}>
+          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+            <Clock className="h-2.5 w-2.5" /> {fmtTimeCST(task.last_action_at)} CST
+          </div>
+          {task.last_action_by && (
+            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+              <User className="h-2.5 w-2.5" /> {task.last_action_by}
+            </div>
+          )}
+        </div>
+      )}
+      {open && hasLog && (
+        <div className="absolute z-30 left-0 top-full mt-1 w-80 max-w-[85vw] rounded-lg border bg-popover p-2 shadow-lg space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Call log — click a note to edit</p>
+            <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground" title="Close">
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          {task.dispositions.map((d) => (
+            <CallLogEntry key={d.id} leadId={task.id} disposition={d} onSaved={(notes) => onNotesSaved(task.id, d.id, notes)} />
+          ))}
+          <button onClick={() => { setOpen(false); onLogCall(); }} className="text-[11px] text-primary hover:underline">
+            + Log another call
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One editable call-log entry — the outcome/author/time stay as the historical
+// record; only the note is editable. Autosaves 800ms after you stop typing (and
+// on blur), plus a Save button.
+function CallLogEntry({ leadId, disposition, onSaved }: { leadId: string; disposition: DailyTask["dispositions"][number]; onSaved: (notes: string) => void }) {
+  const [notes, setNotes] = useState(disposition.notes || "");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const timer = useRef<number | null>(null);
+  const savedRef = useRef(disposition.notes || "");
+
+  const save = useCallback(async (val: string) => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
+    if (val === savedRef.current) return;
+    setStatus("saving");
+    try {
+      await api.updateCallDispositionNotes(leadId, disposition.id, val);
+      savedRef.current = val;
+      onSaved(val);
+      setStatus("saved");
+      window.setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 1500);
+    } catch {
+      setStatus("idle");
+      toast.error("Couldn't save note");
+    }
+  }, [leadId, disposition.id, onSaved]);
+
+  const onChange = (val: string) => {
+    setNotes(val);
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => save(val), 800);
+  };
+  useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+
+  const dirty = notes !== savedRef.current;
+  return (
+    <div className="border-l-2 border-primary/40 pl-2">
+      <div className="text-[11px] font-medium">{OUTCOME_LABELS[disposition.outcome] || disposition.outcome}</div>
+      <div className="text-[10px] text-muted-foreground">{disposition.disposed_by || "Staff"} · {fmtDateTimeCST(disposition.disposed_at)}</div>
+      <textarea
+        value={notes}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => save(notes)}
+        rows={2}
+        placeholder="Add a note…"
+        className="mt-1 w-full text-[11px] rounded border border-input bg-background px-1.5 py-1 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      <div className="flex items-center justify-between mt-0.5">
+        <span className="text-[10px] text-muted-foreground">
+          {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : dirty ? "Unsaved changes" : ""}
+        </span>
+        <button
+          onClick={() => save(notes)}
+          disabled={!dirty || status === "saving"}
+          className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground disabled:opacity-40 hover:bg-primary/90"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function isUpcoming(t: DailyTask): boolean {
   const fu = t.next_follow_up;
   if (!fu?.due_at) return false;
@@ -237,6 +360,15 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Keep the in-memory task list in sync after an inline call-note edit so
+  // reopening the call log shows the saved text (no full reload needed).
+  const onNotesSaved = useCallback((leadId: string, dispositionId: string, notes: string) => {
+    setTasks((prev) => prev ? prev.map((t) => t.id !== leadId ? t : {
+      ...t,
+      dispositions: t.dispositions.map((d) => d.id === dispositionId ? { ...d, notes } : d),
+    }) : prev);
+  }, []);
   // Persist the tab + stage filter so returning from a lead restores them.
   useEffect(() => { try { localStorage.setItem("at_tasks_tab", tab); } catch { /* ignore */ } }, [tab]);
   useEffect(() => { try { localStorage.setItem("at_tasks_stage", JSON.stringify(stageFilters)); } catch { /* ignore */ } }, [stageFilters]);
@@ -498,41 +630,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
                   {/* Call status — click to log a call, hover for the full log */}
                   <td className="px-4 py-3 align-top">
-                    <div className="relative group inline-block cursor-pointer" onClick={() => setLogFor(t)} title="Log a call">
-                      {t.called ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-200 px-2 py-0.5 text-[11px] font-medium">
-                          <Phone className="h-3 w-3" /> Called{t.call_count > 1 ? ` ×${t.call_count}` : ""}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 px-2 py-0.5 text-[11px] font-medium">
-                          <PhoneOff className="h-3 w-3" /> No call
-                        </span>
-                      )}
-                      {t.last_action_at && (
-                        <div className="mt-1 space-y-0.5" title={fmtDateTimeCST(t.last_action_at)}>
-                          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <Clock className="h-2.5 w-2.5" /> {fmtTimeCST(t.last_action_at)} CST
-                          </div>
-                          {t.last_action_by && (
-                            <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                              <User className="h-2.5 w-2.5" /> {t.last_action_by}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {t.dispositions.length > 0 && (
-                        <div className="hidden group-hover:block absolute z-30 left-0 top-full mt-1 w-72 rounded-lg border bg-popover p-2 shadow-lg space-y-2 cursor-default" onClick={(e) => e.stopPropagation()}>
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Call log</p>
-                          {t.dispositions.map((d, i) => (
-                            <div key={i} className="border-l-2 border-primary/40 pl-2">
-                              <div className="text-[11px] font-medium">{OUTCOME_LABELS[d.outcome] || d.outcome}</div>
-                              <div className="text-[10px] text-muted-foreground">{d.disposed_by || "Staff"} · {fmtDateTimeCST(d.disposed_at)}</div>
-                              {d.notes && <div className="text-[11px] text-foreground mt-0.5 whitespace-pre-wrap">{d.notes}</div>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <CallCell task={t} onLogCall={() => setLogFor(t)} onNotesSaved={onNotesSaved} />
                   </td>
 
                   {/* Notes — the client's connected note (form_data.additional_notes) */}

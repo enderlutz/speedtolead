@@ -409,6 +409,7 @@ export interface CallDispositionEntry {
 }
 
 export interface DailyTaskDisposition {
+  id: string;
   outcome: string;
   notes: string;
   disposed_by: string;
@@ -1865,6 +1866,11 @@ export const api = {
     }),
   listCallDispositions: (leadId: string) =>
     request<{ dispositions: CallDispositionEntry[] }>(`/api/leads/${leadId}/call-dispositions`),
+  updateCallDispositionNotes: (leadId: string, dispositionId: string, notes: string) =>
+    request<{ id: string; notes: string }>(`/api/leads/${leadId}/call-dispositions/${dispositionId}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+    }),
   getDailyTasks: () => request<{ tasks: DailyTask[] }>("/api/daily-tasks"),
   createFollowUp: (
     leadId: string,

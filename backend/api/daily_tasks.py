@@ -158,6 +158,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
             )
             for d in disps:
                 disp_by_lead.setdefault(d.lead_id, []).append({
+                    "id": d.id,
                     "outcome": d.outcome or "",
                     "notes": d.notes or "",
                     "disposed_by": d.disposed_by or "",

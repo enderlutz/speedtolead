@@ -118,6 +118,40 @@ def log_disposition(
         db.close()
 
 
+class UpdateDispositionNotesBody(BaseModel):
+    notes: str = ""
+
+
+@router.post("/leads/{lead_id}/call-dispositions/{disposition_id}/notes")
+def update_disposition_notes(
+    lead_id: str,
+    disposition_id: str,
+    body: UpdateDispositionNotesBody,
+    user: dict = Depends(require_staff),
+):
+    """Edit the notes on an existing call-log entry (inline edit from the Daily
+    Task List). Only the notes are mutable — the outcome, timestamp, and author
+    stay as the historical record."""
+    del user
+    db = get_db()
+    try:
+        row = (
+            db.query(CallDisposition)
+            .filter(
+                CallDisposition.id == disposition_id,
+                CallDisposition.lead_id == lead_id,
+            )
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Call log entry not found")
+        row.notes = (body.notes or "").strip()
+        db.commit()
+        return {"id": row.id, "notes": row.notes}
+    finally:
+        db.close()
+
+
 def _ingest_calls_in_background(lead_id: str) -> None:
     """T4.D worker — runs after the disposition response is sent. Opens
     a fresh DB session and walks GHL conversations for the lead. Logs
