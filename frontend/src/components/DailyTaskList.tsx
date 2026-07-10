@@ -721,6 +721,103 @@ function todayYMD(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+function ymdOf(year: number, month0: number, day: number): string {
+  return `${year}-${String(month0 + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** A bigger, nicer inline calendar to replace the native date input. Expands
+ *  in-flow below the trigger (so it never gets clipped inside the modal). */
+function DatePicker({ value, onChange }: { value: string; onChange: (ymd: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const [cursor, setCursor] = useState(() => {
+    const d = value ? new Date(`${value}T12:00:00`) : new Date();
+    return { year: d.getFullYear(), month0: d.getMonth() };
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const today = todayYMD();
+  const grid = useMemo(() => {
+    const startDow = new Date(cursor.year, cursor.month0, 1).getDay();
+    const daysInMonth = new Date(cursor.year, cursor.month0 + 1, 0).getDate();
+    const cells: ({ date: string; day: number } | null)[] = [];
+    for (let i = 0; i < startDow; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push({ date: ymdOf(cursor.year, cursor.month0, d), day: d });
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  }, [cursor]);
+
+  const monthLabel = new Date(cursor.year, cursor.month0, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  const shiftMonth = (delta: number) => setCursor((c) => {
+    const m = c.month0 + delta;
+    if (m < 0) return { year: c.year - 1, month0: 11 };
+    if (m > 11) return { year: c.year + 1, month0: 0 };
+    return { year: c.year, month0: m };
+  });
+  const pick = (ymd: string) => { onChange(ymd); setOpen(false); };
+  const label = value
+    ? new Date(`${value}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    : "Pick a date";
+
+  return (
+    <div ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="mt-1 w-full flex items-center justify-between border border-input rounded-md px-3 py-2 text-sm bg-background hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <span className={value ? "" : "text-muted-foreground"}>{label}</span>
+        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-xl border bg-popover p-3 shadow-lg">
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={() => shiftMonth(-1)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground" title="Previous month">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="text-sm font-semibold">{monthLabel}</div>
+            <button type="button" onClick={() => shiftMonth(1)} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground" title="Next month">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-[11px] font-medium text-muted-foreground text-center mb-1">
+            {DOW.map((d) => <div key={d} className="py-1">{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {grid.map((cell, idx) => cell ? (
+              <button
+                type="button"
+                key={idx}
+                onClick={() => pick(cell.date)}
+                className={`h-9 rounded-md text-sm flex items-center justify-center transition-colors ${
+                  cell.date === value
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : cell.date === today
+                      ? "ring-1 ring-primary text-foreground hover:bg-muted"
+                      : "text-foreground hover:bg-muted"
+                }`}
+              >
+                {cell.day}
+              </button>
+            ) : <div key={idx} className="h-9" />)}
+          </div>
+          <div className="flex items-center justify-between mt-2 pt-2 border-t">
+            <button type="button" onClick={() => pick(today)} className="text-xs text-primary hover:underline">Today</button>
+            <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Multi-select stage filter — pick any number of stages (none = all). */
 function StageMultiSelect({ selected, onChange }: { selected: StageKey[]; onChange: (next: StageKey[]) => void }) {
   const [open, setOpen] = useState(false);
@@ -786,12 +883,12 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDa
           <option value="other">Follow up</option>
         </select>
       </div>
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label className="text-xs font-semibold text-muted-foreground">Date</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
-        </div>
-        <div className="w-28">
+      <div>
+        <label className="text-xs font-semibold text-muted-foreground">Date</label>
+        <DatePicker value={date} onChange={setDate} />
+      </div>
+      <div className="flex items-end gap-3">
+        <div className="w-32">
           <label className="text-xs font-semibold text-muted-foreground">Time</label>
           <input
             type="time"
@@ -801,11 +898,11 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDa
             className={`${inputCls} disabled:opacity-40 disabled:cursor-not-allowed`}
           />
         </div>
+        <label className="flex items-center gap-2 text-xs cursor-pointer pb-2">
+          <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="h-3.5 w-3.5" />
+          <span>All day (any time)</span>
+        </label>
       </div>
-      <label className="flex items-center gap-2 text-xs cursor-pointer">
-        <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="h-3.5 w-3.5" />
-        <span>All day — no set time (do it any point that day)</span>
-      </label>
       <div>
         <label className="text-xs font-semibold text-muted-foreground">Follow-up note</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className={inputCls} />
