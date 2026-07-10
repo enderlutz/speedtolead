@@ -762,8 +762,13 @@ function DatePicker({ value, onChange }: { value: string; onChange: (ymd: string
     return { year: c.year, month0: m };
   });
   const pick = (ymd: string) => { onChange(ymd); setOpen(false); };
+  // e.g. "Sat, 07/11/2026" — weekday prefix + numeric MM/DD/YYYY.
   const label = value
-    ? new Date(`${value}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })
+    ? (() => {
+        const wd = new Date(`${value}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
+        const [y, m, d] = value.split("-");
+        return `${wd}, ${m}/${d}/${y}`;
+      })()
     : "Pick a date";
 
   return (
