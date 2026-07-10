@@ -67,7 +67,7 @@ def _text_deposit_link(lead, link: str, amount: float) -> bool:
         return False
     first = (lead.contact_name or "").strip().split(" ")[0] or "there"
     msg = (
-        f"Hi {first}, thanks for choosing A&T's Fence Staining! Here's your "
+        f"Hi {first}, thanks for choosing Sterling Fence Staining! Here's your "
         f"secure link to pay the ${amount:.0f} deposit and lock in your "
         f"appointment: {link}"
     )
