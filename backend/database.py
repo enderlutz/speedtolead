@@ -1254,8 +1254,10 @@ class CallDisposition(Base):
       objection_price  — customer balked at price
       objection_timing — not ready yet, life thing, etc.
       objection_spouse — needs to check with spouse / partner first
+      objection_hoa    — HOA approval / restriction concern
       no_answer        — didn't pick up
       voicemail        — left a voicemail
+      voicemail_texted — left a voicemail and sent a text
       callback         — customer asked to be called back later
       other            — anything else (notes-only)
     """

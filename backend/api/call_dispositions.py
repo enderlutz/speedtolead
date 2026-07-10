@@ -42,8 +42,10 @@ ALLOWED_OUTCOMES = {
     "objection_price",
     "objection_timing",
     "objection_spouse",
+    "objection_hoa",
     "no_answer",
     "voicemail",
+    "voicemail_texted",
     "callback",
     "other",
 }

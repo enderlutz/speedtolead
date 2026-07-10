@@ -3509,8 +3509,10 @@ const DISPOSITION_OPTIONS: Array<{
   { value: "objection_price",  label: "Objection: Price",  icon: "💵", cls: "bg-amber-600 hover:bg-amber-700 text-white" },
   { value: "objection_timing", label: "Objection: Timing", icon: "⏳", cls: "bg-amber-600 hover:bg-amber-700 text-white" },
   { value: "objection_spouse", label: "Objection: Spouse", icon: "👫", cls: "bg-amber-600 hover:bg-amber-700 text-white" },
+  { value: "objection_hoa",    label: "Objection: HOA",    icon: "🏘️", cls: "bg-amber-600 hover:bg-amber-700 text-white" },
   { value: "callback",         label: "Call back",         icon: "📞", cls: "bg-blue-600 hover:bg-blue-700 text-white" },
   { value: "voicemail",        label: "Voicemail",         icon: "📭", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
+  { value: "voicemail_texted", label: "Voicemail & texted", icon: "📨", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
   { value: "no_answer",        label: "No answer",         icon: "🤷", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
   { value: "other",            label: "Other",             icon: "✏️", cls: "bg-slate-500 hover:bg-slate-600 text-white" },
 ];

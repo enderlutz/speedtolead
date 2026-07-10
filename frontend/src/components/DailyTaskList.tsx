@@ -78,13 +78,15 @@ const OUTCOME_LABELS: Record<string, string> = {
   objection_price: "Objection — price",
   objection_timing: "Objection — timing",
   objection_spouse: "Objection — spouse",
+  objection_hoa: "Objection — HOA",
   no_answer: "No answer",
   voicemail: "Left voicemail",
+  voicemail_texted: "Left voicemail & texted",
   callback: "Callback requested",
   other: "Other",
 };
 const OUTCOMES: CallDispositionOutcome[] = [
-  "no_answer", "voicemail", "callback", "objection_price", "objection_timing", "objection_spouse", "closed", "other",
+  "no_answer", "voicemail", "voicemail_texted", "callback", "objection_price", "objection_timing", "objection_spouse", "objection_hoa", "closed", "other",
 ];
 const ACTION_LABELS: Record<string, string> = { call: "Call back", text: "Send text", other: "Follow up" };
 
