@@ -717,7 +717,7 @@ def generate_invoice(job_id: str, body: GenerateInvoiceBody, user: dict = Depend
 
             # Build the public memo shown on the invoice page. Address +
             # service type make it instantly clear which job this is for.
-            memo_parts = [f"Thanks for choosing A&T's Fence Staining!"]
+            memo_parts = [f"Thanks for choosing Sterling Fence Staining!"]
             if address:
                 memo_parts.append(f"Service: {service_label} at {address}")
             else:
@@ -920,7 +920,7 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
             # clear this is a non-refundable scheduling deposit so there's
             # no surprise when they tap to pay.
             memo_lines = [
-                "Thanks for choosing A&T's Fence Staining!",
+                "Thanks for choosing Sterling Fence Staining!",
                 f"This is a non-refundable $250 deposit to lock in your "
                 f"{service_label} appointment.",
             ]
