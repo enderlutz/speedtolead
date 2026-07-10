@@ -300,10 +300,10 @@ function fmtFollowUpWhen(fu: { due_at: string; all_day?: boolean }): string {
   if (!fu.due_at) return "";
   if (fu.all_day) {
     const d = new Date(fu.due_at);
-    return isNaN(d.getTime()) ? "" : `${d.toLocaleDateString("en-US", { timeZone: CST, month: "short", day: "numeric" })} · all day`;
+    return isNaN(d.getTime()) ? "" : `${d.toLocaleDateString("en-US", { timeZone: CST, weekday: "short", month: "short", day: "numeric" })} · all day`;
   }
   const d = new Date(fu.due_at);
-  return isNaN(d.getTime()) ? "" : d.toLocaleString("en-US", { timeZone: CST, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return isNaN(d.getTime()) ? "" : d.toLocaleString("en-US", { timeZone: CST, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 // Effective stage for display + filtering (the waiting overlay wins).
 function effectiveStage(t: DailyTask): string {
