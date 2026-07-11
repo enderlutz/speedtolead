@@ -10,8 +10,9 @@ The initial seed content is the script Olga uses today, marked up with
 """
 from __future__ import annotations
 import logging
+import re
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
 
 from database import get_db, CallScript
@@ -185,6 +186,58 @@ def get_call_script(user: dict = Depends(get_current_user)):
         return row.to_dict()
     finally:
         db.close()
+
+
+def _clean_pdf_text(raw: str) -> str:
+    """Tidy raw PyMuPDF text into a readable script. Normalizes line endings,
+    de-hyphenates words split across line breaks, collapses runs of blank
+    lines, and trims trailing whitespace per line — turns a PDF dump into
+    'normal words' the admin can review and save as-is."""
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n")
+    # Join words hyphenated across a line break: "resto-\nration" -> "restoration"
+    text = re.sub(r"-\n(\w)", r"\1", text)
+    lines = [ln.rstrip() for ln in text.split("\n")]
+    out: list[str] = []
+    blanks = 0
+    for ln in lines:
+        if ln.strip():
+            blanks = 0
+            out.append(ln)
+        else:
+            blanks += 1
+            if blanks <= 1:   # collapse 2+ blank lines into one
+                out.append("")
+    return "\n".join(out).strip()
+
+
+@router.post("/call-script/extract-pdf")
+async def extract_call_script_pdf(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    """Pull the text out of an uploaded PDF so an admin can drop in a script
+    that was written elsewhere (e.g. the VA's own doc) instead of retyping it.
+    Returns the extracted text; the caller loads it into the editor to review
+    + save. Does NOT save on its own."""
+    name = (file.filename or "").lower()
+    if not name.endswith(".pdf"):
+        raise HTTPException(400, "Please upload a PDF file.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file was empty.")
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=data, filetype="pdf")
+        try:
+            pages = [page.get_text("text") for page in doc]
+        finally:
+            doc.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Call-script PDF extract failed: {e}")
+        raise HTTPException(400, "Couldn't read that PDF — it may be scanned images rather than text.")
+    text = _clean_pdf_text("\n\n".join(pages))
+    if not text:
+        raise HTTPException(422, "No text found — this looks like a scanned/image PDF, so there's nothing to import.")
+    return {"text": text, "pages": len(pages)}
 
 
 @router.put("/call-script")

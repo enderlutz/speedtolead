@@ -2138,6 +2138,19 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ content }),
     }),
+  // Extract text from an uploaded script PDF (doesn't save — caller reviews first).
+  extractCallScriptPdf: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/call-script/extract-pdf`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Couldn't read that PDF");
+    return res.json() as Promise<{ text: string; pages: number }>;
+  },
 
   // Wrapped (CEO digest) — cached. Reads hit cache; force=true triggers
   // a regenerate (re-spends Claude tokens).

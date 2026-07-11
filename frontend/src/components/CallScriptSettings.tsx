@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { api } from "@/lib/api";
 import {
   renderTemplate, sampleContext,
@@ -7,7 +7,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { PhoneCall, Save, Loader2, ChevronDown, ChevronRight, Eye, Code2 } from "lucide-react";
+import { PhoneCall, Save, Loader2, ChevronDown, ChevronRight, Eye, Code2, UploadCloud } from "lucide-react";
 import { CallScriptRenderer } from "@/components/CallScriptRenderer";
 
 /**
@@ -24,6 +24,9 @@ export default function CallScriptSettings() {
   const [saving, setSaving] = useState(false);
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
   const [view, setView] = useState<"preview" | "split">("split");
+  const [importing, setImporting] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.getCallScript()
@@ -54,6 +57,29 @@ export default function CallScriptSettings() {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Drop a PDF (e.g. the VA's own script doc) → extract its text into the
+  // editor. Doesn't auto-save; admin reviews, tweaks, then hits Save.
+  const importPdf = async (f: File | null) => {
+    if (!f) return;
+    if (!f.name.toLowerCase().endsWith(".pdf")) {
+      toast.error("Please drop a PDF file.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const r = await api.extractCallScriptPdf(f);
+      if (!r.text.trim()) { toast.error("No text found in that PDF."); return; }
+      setView("split");
+      setContent(r.text);
+      toast.success(`Imported ${r.pages} page${r.pages === 1 ? "" : "s"} — review and Save`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't read that PDF");
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -94,6 +120,24 @@ export default function CallScriptSettings() {
           <div className="h-64 bg-muted rounded animate-pulse" />
         ) : (
           <>
+            {/* Import from a PDF — drop the VA's own script doc to pull its text
+                into the editor (converted to plain words), then review + save. */}
+            <label
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => { e.preventDefault(); setDragging(false); importPdf(e.dataTransfer.files?.[0] || null); }}
+              className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-center cursor-pointer transition-colors ${
+                dragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-muted-foreground/40 hover:bg-muted/30"
+              }`}
+            >
+              <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
+                onChange={(e) => importPdf(e.target.files?.[0] || null)} />
+              {importing ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <UploadCloud className="h-4 w-4 text-muted-foreground" />}
+              <span className="text-xs">
+                {importing ? "Reading PDF…" : <><span className="font-medium">Import a script from PDF</span> — drag &amp; drop or click. Replaces the editor text (review before saving).</>}
+              </span>
+            </label>
+
             <div className={`grid gap-3 ${view === "split" ? "lg:grid-cols-2" : "grid-cols-1"}`}>
               {view === "split" && (
                 <div>
