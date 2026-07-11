@@ -274,9 +274,6 @@ _PRE_ESTIMATE_IDS = {
     "616087fa-4144-454e-b3d3-ff3669cb9461",  # HOT LEAD_SEND ESTIMATE
     "86fd0197-38ee-4999-bd26-4cf175aeba6b",  # Address Follow Up
     "92585169-bbc1-42c5-945d-63caf780e0b1",  # Responded to Address Follow Up
-    "1e8a52ac-a85a-4ee6-bcd5-0699ff64d3a7",  # Call 1 Pre Estimate
-    "fe74a5e6-e173-4783-a8a9-1f28168a6c1b",  # Call 2 Pre Estimate
-    "3020bb38-8c84-455d-a840-3650fbe50ecd",  # Call 3 Pre Estimate
 }
 # Closed-deal stages. Both are mapped so the owner can plan trips around
 # closed work: "not scheduled" leads still need a job booked (shown in the

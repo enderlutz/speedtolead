@@ -29,9 +29,6 @@ const STAGE_PINS: Record<string, { label: string; color: string }> = {
   "616087fa-4144-454e-b3d3-ff3669cb9461": { label: "Hot Lead", color: "#f97316" },
   "86fd0197-38ee-4999-bd26-4cf175aeba6b": { label: "Address Follow Up", color: "#f59e0b" },
   "92585169-bbc1-42c5-945d-63caf780e0b1": { label: "Responded to Address", color: "#eab308" },
-  "1e8a52ac-a85a-4ee6-bcd5-0699ff64d3a7": { label: "Call 1 Pre-Estimate", color: "#06b6d4" },
-  "fe74a5e6-e173-4783-a8a9-1f28168a6c1b": { label: "Call 2 Pre-Estimate", color: "#0ea5e9" },
-  "3020bb38-8c84-455d-a840-3650fbe50ecd": { label: "Call 3 Pre-Estimate", color: "#3b82f6" },
 };
 function catForStage(stageId: string): string {
   return STAGE_PINS[stageId] ? stageId : NEW_LEAD_ID;   // blank/unknown → New Lead

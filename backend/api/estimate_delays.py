@@ -45,16 +45,6 @@ POST_ESTIMATE_STAGE_IDS = {
     "3ed8e7e3-6852-469c-bb72-effc1b6df76c",  # ESTIMATE_FOLLOW UP LATER
     "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b",  # RESPONDED TO ESTIMATE
     "147bd53b-3848-449d-b7c2-7a2cfad2a5f5",  # Top Priority-Responded to Estimate
-    # Post-estimate callback campaign — by definition, lead is here
-    # ONLY because an estimate already went out. Include these so the
-    # 24h-no-estimate badge stays suppressed.
-    "1cca8bd9-83a4-4138-84bf-10d38efa0e49",  # Call 1 Post Estimate
-    "1ad50871-3d2f-460a-bb38-6ca586aeef36",  # Call 2 Post Estimate
-    "9f348720-939a-4064-b50f-3b391fb7b281",  # Call 3 Post Estimate
-    "a2e09473-5711-4fbc-b246-2f5d70efc5d2",  # Call 4 Post Estimate
-    "f9b4c5d3-d72c-4a64-b799-d9fcab0624a8",  # Call 5 Post Estimate
-    "07de5d8f-11db-448c-9af8-1d92aa8d36d7",  # Call 6 Post Estimate
-    "73b2553d-4b42-461c-8857-48e7d9c73191",  # Call 7 Post Estimate
     "f207a600-81c9-4150-941c-e977ea876929",  # DECLINED ESTIMATE
     "bbebbdac-0011-4253-9ed7-65522bafde02",  # DEAL CLOSED & NOT SCHEDULED
     "3eed5964-573f-445e-a181-1ee28068f066",  # CLOSED & SCHEDULED
