@@ -576,3 +576,156 @@ def get_activity(
         }
     finally:
         db.close()
+
+
+# ── Scoreboard (gamification) ───────────────────────────────────────────────
+# Point weights. Estimates sent are the headline metric the game rewards;
+# scheduling/closing a deal are the big bonuses stacked on top. Baseline calls
+# and follow-ups keep the score ticking so day-to-day effort is always visible.
+_POINTS = {
+    "call": 1,
+    "follow_up": 1,
+    "estimate": 5,
+    "closed": 10,
+    "scheduled": 15,
+}
+_KINDS = list(_POINTS.keys())
+_DAILY_GOAL_LEADS = 30   # team target: distinct leads worked in a day
+
+
+def _today_cst() -> str:
+    return datetime.now(timezone.utc).astimezone(_CENTRAL).date().isoformat()
+
+
+def _cst_date(iso: str) -> str:
+    """YYYY-MM-DD (Central) for an ISO-UTC timestamp string; '' on parse fail."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_CENTRAL).date().isoformat()
+    except Exception:
+        return ""
+
+
+@router.get("/daily-tasks/scoreboard")
+def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
+    """Gamified daily + weekly scoreboard for the task list. Aggregates scored
+    actions per person from the same sources as the Activity feed — calls,
+    follow-ups, estimates sent, and deals scheduled/closed — plus a per-person
+    day streak and the team's daily-goal progress. Read-only, best-effort."""
+    del user
+    db = get_db()
+    try:
+        target_day = (date or "").strip() or _today_cst()
+        try:
+            end_d = _date.fromisoformat(target_day)
+        except Exception:
+            target_day = _today_cst()
+            end_d = _date.fromisoformat(target_day)
+
+        # Streaks need history — scan a 60-day window ending at target_day.
+        win_start_utc = (
+            datetime.combine(end_d - timedelta(days=60), _time.min, tzinfo=_CENTRAL)
+            .astimezone(timezone.utc).isoformat()
+        )
+        week_start = (end_d - timedelta(days=end_d.weekday())).isoformat()  # Monday
+
+        # (name, sub, cst_date, kind, lead_id) for every scored action in window.
+        events: list[tuple[str, str, str, str, str]] = []
+
+        def add(name, sub, iso, kind, lead_id):
+            d = _cst_date(iso)
+            if d:
+                events.append((name or "", sub or "", d, kind, lead_id or ""))
+
+        for c in db.query(CallDisposition).filter(CallDisposition.disposed_at >= win_start_utc).all():
+            add(c.disposed_by, getattr(c, "disposed_by_sub", ""), c.disposed_at, "call", c.lead_id)
+        for f in db.query(TaskFollowUp).filter(TaskFollowUp.created_at >= win_start_utc).all():
+            add(getattr(f, "created_by", ""), "", f.created_at, "follow_up", f.lead_id)
+        for a in db.query(LeadActivity).filter(LeadActivity.created_at >= win_start_utc).all():
+            at = a.action_type or ""
+            summ = (a.summary or "").upper()
+            if at in ("estimate_sent", "proposal_sent"):
+                kind = "estimate"
+            elif at == "scheduled" or (at == "stage_changed" and "CLOSED & SCHEDULED" in summ):
+                kind = "scheduled"
+            elif at == "closed" or (at == "stage_changed" and "DEAL CLOSED" in summ):
+                kind = "closed"
+            else:
+                continue
+            add(a.actor_name, a.actor_sub, a.created_at, kind, a.lead_id)
+
+        # Resolve sub → display name so a sub-only row (e.g. a follow-up with no
+        # name) collapses into the same player as their named rows. Matches the
+        # touched_by dedup: one person, one card.
+        sub_to_name: dict[str, str] = {}
+        for name, sub, *_ in events:
+            if name and sub:
+                sub_to_name[sub.strip().lower()] = name
+
+        def resolve(name: str, sub: str) -> tuple[str, str]:
+            rn = name or sub_to_name.get((sub or "").strip().lower(), sub)
+            return rn, (rn or sub).strip().lower()
+
+        players: dict[str, dict] = {}
+        for name, sub, d, kind, lead_id in events:
+            rn, key = resolve(name, sub)
+            if not key:
+                continue
+            p = players.get(key)
+            if p is None:
+                p = players[key] = {
+                    "name": rn, "sub": sub,
+                    "today": {k: 0 for k in _KINDS}, "today_leads": set(),
+                    "week": {k: 0 for k in _KINDS}, "week_leads": set(),
+                    "active_dates": set(),
+                }
+            if sub and not p["sub"]:
+                p["sub"] = sub
+            p["active_dates"].add(d)
+            if d == target_day:
+                p["today"][kind] += 1
+                if lead_id:
+                    p["today_leads"].add(lead_id)
+            if week_start <= d <= target_day:
+                p["week"][kind] += 1
+                if lead_id:
+                    p["week_leads"].add(lead_id)
+
+        def _score(counts: dict) -> int:
+            return sum(_POINTS[k] * counts.get(k, 0) for k in _KINDS)
+
+        def _streak(active: set) -> int:
+            # Consecutive active days ending at target_day (or yesterday if they
+            # haven't worked yet today, so an in-progress day never breaks it).
+            cur = end_d if target_day in active else end_d - timedelta(days=1)
+            n = 0
+            while cur.isoformat() in active:
+                n += 1
+                cur -= timedelta(days=1)
+            return n
+
+        team_today_leads: set = set()
+        out_players = []
+        for p in players.values():
+            team_today_leads |= p["today_leads"]
+            out_players.append({
+                "name": p["name"], "sub": p["sub"],
+                "today": {**p["today"], "leads": len(p["today_leads"]), "points": _score(p["today"])},
+                "week": {**p["week"], "leads": len(p["week_leads"]), "points": _score(p["week"])},
+                "streak": _streak(p["active_dates"]),
+            })
+        out_players.sort(key=lambda x: x["week"]["points"], reverse=True)
+
+        return {
+            "date": target_day,
+            "week_start": week_start,
+            "points": _POINTS,
+            "goal": {"target": _DAILY_GOAL_LEADS, "worked": len(team_today_leads)},
+            "players": out_players,
+        }
+    finally:
+        db.close()

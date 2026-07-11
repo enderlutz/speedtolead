@@ -250,11 +250,15 @@ export interface LeadMapPin {
   lat: number;
   lng: number;
   stage_id: string;
-  group: "pre" | "sent" | "completed" | "closed_scheduled" | "closed_unscheduled";
+  group: "pre" | "sent" | "completed" | "closed_scheduled" | "closed_unscheduled" | "other";
   /** Signature-tier quote, whole dollars — present on estimate-sent pins. */
   signature_price?: number;
   /** Full job card — present on Closed & Scheduled pins (shown on hover). */
   schedule?: LeadMapSchedule;
+  /** True when this lead has paid us (any QB invoice with money paid). */
+  paid?: boolean;
+  /** Total paid across their QB invoices, whole dollars. */
+  paid_amount?: number;
 }
 export interface LeadMapSchedule {
   job_date: string;
@@ -270,6 +274,10 @@ export interface LeadMapData {
   route_dates: { date: string; count: number }[];
   stops: LeadMapStop[];
   leads: LeadMapPin[];
+  /** Count of leads that have paid us at least once. */
+  paid_customers?: number;
+  /** ZIP-code leaderboard by paying customers, most first. */
+  zip_stats?: { zip: string; customers: number; total_paid: number }[];
   diag?: {
     v2_rows: number;
     candidates: number;
@@ -461,6 +469,29 @@ export interface DailyActivityEvent {
   actor_sub: string;
   action: string;   // call | follow_up | stage_changed | note_edited | call_note_edited | estimate_sent | proposal_sent
   summary: string;
+}
+export interface ScoreStats {
+  call: number;
+  follow_up: number;
+  estimate: number;
+  closed: number;
+  scheduled: number;
+  leads: number;
+  points: number;
+}
+export interface ScorePlayer {
+  name: string;
+  sub: string;
+  today: ScoreStats;
+  week: ScoreStats;
+  streak: number;
+}
+export interface Scoreboard {
+  date: string;
+  week_start: string;
+  points: { call: number; follow_up: number; estimate: number; closed: number; scheduled: number };
+  goal: { target: number; worked: number };
+  players: ScorePlayer[];
 }
 
 /** Sprint 2 T2.E — Follow-up rule engine output. Surfaces on the lead
@@ -1906,6 +1937,8 @@ export const api = {
       `/api/daily-tasks/activity${qs ? `?${qs}` : ""}`,
     );
   },
+  getScoreboard: (date?: string) =>
+    request<Scoreboard>(`/api/daily-tasks/scoreboard${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   createFollowUp: (
     leadId: string,
     body: { due_date: string; time?: string; all_day?: boolean; action_type: string; note?: string },

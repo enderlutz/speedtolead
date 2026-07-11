@@ -523,6 +523,14 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         db.commit()
         db.refresh(job)
 
+        # Audit trail for the Daily Task List scoreboard / Activity tab. A
+        # scheduled job is the "yes" — the biggest scoreboard bonus.
+        try:
+            from services.lead_activity import record_activity
+            record_activity(lead.id, user, "scheduled", "Scheduled the job")
+        except Exception:
+            pass
+
         # Google Calendar event (best-effort — don't fail the schedule if Google fails)
         if body.send_calendar_invite:
             try:

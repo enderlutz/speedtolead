@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor } from "@/lib/api";
+import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type Scoreboard as ScoreboardData, type ScorePlayer } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
+import { playSuccessSound } from "@/hooks/useNotificationSound";
 import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
   CheckCircle2, Clock, CalendarClock, Search, X, AlertTriangle,
   CalendarDays, ChevronLeft, ChevronRight, User, ChevronDown, SlidersHorizontal,
+  Flame, Trophy, Target,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -173,6 +175,145 @@ function TouchedAvatars({ actors }: { actors: TouchedActor[] }) {
     </div>
   );
 }
+// ── Gamification: confetti + scoreboard ─────────────────────────────────────
+// One-shot confetti burst on a self-removing canvas overlay. No dependency.
+function fireConfetti() {
+  if (typeof document === "undefined") return;
+  const canvas = document.createElement("canvas");
+  canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999";
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) { canvas.remove(); return; }
+  const colors = ["#2563eb", "#ec4899", "#16a34a", "#f59e0b", "#8b5cf6", "#ef4444"];
+  const parts = Array.from({ length: 150 }, () => ({
+    x: canvas.width / 2 + (Math.random() - 0.5) * 240,
+    y: canvas.height / 3,
+    vx: (Math.random() - 0.5) * 13,
+    vy: Math.random() * -15 - 4,
+    size: Math.random() * 7 + 4,
+    color: colors[(Math.random() * colors.length) | 0],
+    rot: Math.random() * Math.PI,
+    vr: (Math.random() - 0.5) * 0.3,
+  }));
+  const start = performance.now();
+  const DURATION = 2400;
+  const frame = (now: number) => {
+    const t = now - start;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const p of parts) {
+      p.vy += 0.35; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = Math.max(0, 1 - t / DURATION);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      ctx.restore();
+    }
+    if (t < DURATION) requestAnimationFrame(frame);
+    else canvas.remove();
+  };
+  requestAnimationFrame(frame);
+}
+
+// Team + head-to-head scoreboard. Reads /daily-tasks/scoreboard (calls,
+// follow-ups, estimates sent, deals scheduled/closed → points). Estimates are
+// the headline metric; scheduling/closing stack big bonuses on top.
+function Scoreboard({ reloadKey }: { reloadKey: number }) {
+  const [data, setData] = useState<ScoreboardData | null>(null);
+  const [range, setRange] = useState<"today" | "week">("today");
+  const celebratedRef = useRef<string>("");
+
+  const fetchIt = useCallback(() => {
+    api.getScoreboard().then(setData).catch(() => { /* non-fatal */ });
+  }, []);
+  useEffect(() => { fetchIt(); }, [fetchIt, reloadKey]);
+  useEffect(() => {
+    const id = window.setInterval(fetchIt, 30000);
+    const onFocus = () => fetchIt();
+    window.addEventListener("focus", onFocus);
+    return () => { window.clearInterval(id); window.removeEventListener("focus", onFocus); };
+  }, [fetchIt]);
+
+  // Celebrate hitting the team's daily goal — once per day.
+  useEffect(() => {
+    if (!data) return;
+    const { worked, target } = data.goal;
+    if (target > 0 && worked >= target && celebratedRef.current !== data.date) {
+      celebratedRef.current = data.date;
+      fireConfetti();
+      playSuccessSound();
+    }
+  }, [data]);
+
+  if (!data || data.players.length === 0) return null;
+
+  const goalPct = data.goal.target > 0 ? Math.min(100, Math.round((data.goal.worked / data.goal.target) * 100)) : 0;
+  const stats = (p: ScorePlayer) => (range === "today" ? p.today : p.week);
+
+  return (
+    <div className="rounded-xl border bg-gradient-to-br from-muted/40 to-background p-4">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-amber-500" />
+          <span className="font-semibold text-sm">Scoreboard</span>
+          <div className="ml-1 inline-flex rounded-md border overflow-hidden text-xs">
+            <button type="button" onClick={() => setRange("today")}
+              className={`px-2.5 py-1 ${range === "today" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}>Today</button>
+            <button type="button" onClick={() => setRange("week")}
+              className={`px-2.5 py-1 ${range === "week" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}>This week</button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-1 min-w-[220px] max-w-sm">
+          <Target className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex-1">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-muted-foreground">Leads worked today</span>
+              <span className="font-semibold">{data.goal.worked} / {data.goal.target}</span>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full transition-all"
+                style={{ width: `${goalPct}%`, background: goalPct >= 100 ? "#16a34a" : "#2563eb" }} />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {data.players.map((p, i) => {
+          const s = stats(p);
+          const isLeader = range === "week" && i === 0 && data.players.length > 1 && s.points > 0;
+          return (
+            <div key={p.sub || p.name}
+              className={`flex items-center gap-3 rounded-lg border bg-background p-3 ${isLeader ? "ring-2 ring-amber-400" : ""}`}>
+              <ActorAvatar actor={p} size={38} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-sm truncate">{p.name}</span>
+                  {isLeader && <Trophy className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                  {p.streak > 0 && (
+                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-orange-500" title={`${p.streak}-day streak`}>
+                      <Flame className="h-3.5 w-3.5" />{p.streak}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-muted-foreground truncate">
+                  {s.estimate} est · {s.scheduled} sched · {s.closed} closed · {s.call} calls
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-xl font-bold leading-none">{s.points}</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">pts</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Essential / Signature / Legacy tier prices, stacked. Signature is the headline
 // tier so it's bold. Shows "—" when there's no estimate yet.
 function TierPrices({ tiers }: { tiers?: { essential: number; signature: number; legacy: number } | null }) {
@@ -398,13 +539,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Bumped whenever the task list reloads so the Scoreboard refetches too
+  // (a logged call / sent estimate updates the score right away).
+  const [scoreTick, setScoreTick] = useState(0);
 
   const load = useCallback(() => {
     setLoading(true);
     api.getDailyTasks()
       .then((r) => setTasks(r.tasks))
       .catch(() => toast.error("Couldn't load the task list"))
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); setScoreTick((t) => t + 1); });
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -530,6 +674,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
         </Button>
       </div>
       )}
+
+      {!leadId && <Scoreboard reloadKey={scoreTick} />}
 
       {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
