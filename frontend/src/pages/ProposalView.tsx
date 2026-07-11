@@ -4,7 +4,7 @@ import { api, type ProposalData, type CorrectionRequest } from "@/lib/api";
 import { Phone, X, CheckCircle2 } from "lucide-react";
 import ChatbotWidget from "@/components/ChatbotWidget";
 
-const SUPPORT_PHONE = "+18323346528";  // 832-334-6528
+const SUPPORT_PHONE = "+13465897877";  // 346-589-7877
 
 function formatDateShort(iso: string): string {
   try {
@@ -171,13 +171,6 @@ export default function ProposalView() {
                       </li>
                     ))}
                   </ul>
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionOpen(true)}
-                    className="mt-2 text-xs text-white/50 hover:text-white/80 underline underline-offset-2 transition-colors"
-                  >
-                    These sides don't look right
-                  </button>
                 </div>
               )}
             </div>
