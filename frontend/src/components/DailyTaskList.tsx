@@ -371,7 +371,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     try { return (localStorage.getItem("at_tasks_tab") as TaskTab) || "today"; } catch { return "today"; }
   });
   const [dateYMD, setDateYMD] = useState<string>(() => {
-    try { return localStorage.getItem("at_tasks_date") || todayCST(); } catch { return todayCST(); }
+    const today = todayCST();
+    try {
+      const saved = localStorage.getItem("at_tasks_date");
+      // Resume a saved date only if it's today or in the future — never
+      // resurrect a stale PAST date from a previous session. YYYY-MM-DD
+      // strings sort chronologically, so a simple compare is enough. This is
+      // what makes the "Today" view always land on the real current day even
+      // if the tab was left open / reloaded on a later calendar day.
+      return saved && saved >= today ? saved : today;
+    } catch { return today; }
   });
   const [stageFilters, setStageFilters] = useState<StageKey[]>(() => {
     try {
@@ -524,7 +533,13 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
       {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as TaskTab)}>
+        <Tabs value={tab} onValueChange={(v) => {
+          const next = v as TaskTab;
+          // The "Today" tab must always open on the real current date, not
+          // wherever the date navigator was last left.
+          if (next === "date") setDateYMD(todayCST());
+          setTab(next);
+        }}>
           <TabsList>
             <TabsTrigger value="today">Untapped Leads ({counts.today})</TabsTrigger>
             <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
