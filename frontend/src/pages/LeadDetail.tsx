@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { api, canSeeRevenue, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -121,7 +121,10 @@ export default function LeadDetail() {
   // user last opened the Call tab for THIS lead. Stored per-lead in
   // localStorage so the badge resets correctly when you actually look at the
   // messages, not just when you load the page.
-  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator">("estimate");
+  // Estimators live in the Estimator tab — open straight to it for them.
+  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator">(
+    () => (getCurrentUser()?.role === "estimator" ? "estimator" : "estimate"),
+  );
   const callTabSeenKey = id ? `at_lead_${id}_call_seen_at` : "";
   const [callTabSeenAt, setCallTabSeenAt] = useState<string>(() => {
     if (!callTabSeenKey) return "1970-01-01T00:00:00.000Z";
