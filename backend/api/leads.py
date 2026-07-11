@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, 
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee
+from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee, QuickbooksInvoice
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
@@ -357,6 +357,18 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 "lng": v.lng,
             } for v in visits]
 
+        # Paid customers, from the QuickBooks invoice mirror. A lead counts as a
+        # paying customer once any invoice assigned to it has money paid against
+        # it (paid OR partial). Summed per lead so a pin can show total paid.
+        paid_rows = (
+            db.query(QuickbooksInvoice.lead_id, func.sum(QuickbooksInvoice.amount_paid))
+            .filter(QuickbooksInvoice.lead_id.isnot(None))
+            .filter(QuickbooksInvoice.amount_paid > 0)
+            .group_by(QuickbooksInvoice.lead_id)
+            .all()
+        )
+        paid_by_lead: dict[str, float] = {lid: float(amt or 0) for lid, amt in paid_rows if lid}
+
         # Candidate leads: pre-estimate (incl. blank/unknown stage) + estimate-sent.
         # is_test.isnot(True) also keeps rows where is_test is NULL.
         rows = (
@@ -372,6 +384,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
             if lead.id in stop_lead_ids:
                 continue
             sid = lead.ghl_pipeline_stage_id or ""
+            is_paid = lead.id in paid_by_lead
             if sid == _ESTIMATE_SENT_ID:
                 group = "sent"
             elif sid in _COMPLETED_IDS:
@@ -382,8 +395,10 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 group = "closed_unscheduled"
             elif sid in _PRE_ESTIMATE_IDS or sid == "":
                 group = "pre"
+            elif is_paid:
+                group = "other"   # keep paying customers on the map whatever stage they're in
             else:
-                continue  # other post-estimate stage — not on this map
+                continue  # other post-estimate stage, not paid — not on this map
             if not (lead.address or "").strip():
                 continue
             candidates += 1
@@ -410,6 +425,8 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 "lng": lead.lng,
                 "stage_id": sid,
                 "group": group,
+                "paid": is_paid,
+                "paid_amount": round(paid_by_lead.get(lead.id, 0)) if is_paid else 0,
             })
 
         # Signature-tier price for estimate-sent pins (shown on hover). Batch
@@ -488,12 +505,39 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                     "crew": crew_by_job.get(j.id, []),
                 }
 
+        # ZIP-code leaderboard: which ZIPs have produced the most paying
+        # customers (and total revenue). Aggregated across ALL paid leads —
+        # including any not pinned above (missing coords / v1) — so the ranking
+        # is complete even when a pin can't render.
+        zip_stats: list[dict] = []
+        if paid_by_lead:
+            zips = dict(
+                db.query(Lead.id, Lead.zip_code)
+                .filter(Lead.id.in_(list(paid_by_lead.keys())))
+                .all()
+            )
+            from collections import defaultdict
+            zc: dict[str, dict] = defaultdict(lambda: {"customers": 0, "total_paid": 0.0})
+            for lid, amt in paid_by_lead.items():
+                z = (zips.get(lid) or "").strip()[:5]
+                if not z:
+                    continue
+                zc[z]["customers"] += 1
+                zc[z]["total_paid"] += amt
+            zip_stats = sorted(
+                ({"zip": z, "customers": v["customers"], "total_paid": round(v["total_paid"])}
+                 for z, v in zc.items()),
+                key=lambda r: (-r["customers"], -r["total_paid"]),
+            )
+
         return {
             "date": date or "",
             "maps_api_key": settings.google_maps_browser_key or settings.google_maps_api_key or "",
             "route_dates": route_dates,
             "stops": stops,
             "leads": leads_out,
+            "paid_customers": len(paid_by_lead),
+            "zip_stats": zip_stats,
             # Diagnostics — helps explain an empty map (0 pins).
             "diag": {
                 "v2_rows": len(rows),

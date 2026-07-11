@@ -21,6 +21,7 @@ const SENT_COLOR = "#8b5cf6";              // purple — estimate sent
 const COMPLETED_COLOR = "#16a34a";         // green — job completed
 const CLOSED_SCHEDULED_COLOR = "#4f46e5";  // indigo — closed deal, job scheduled
 const CLOSED_UNSCHEDULED_COLOR = "#ec4899";// pink — closed deal, still needs scheduling
+const PAID_COLOR = "#f59e0b";              // gold — paying customer (QB paid invoice)
 
 // Pre-estimate stage → pin color + label (mirror of the Sterling V2 stages).
 const NEW_LEAD_ID = "e77fa568-8dd1-4f66-83c3-fa70dbd4d570";
@@ -36,15 +37,18 @@ function catForStage(stageId: string): string {
 function pinColor(stageId: string): string {
   return (STAGE_PINS[stageId] || STAGE_PINS[NEW_LEAD_ID]).color;
 }
-// A lead's legend category + pin color, honoring its group.
-function leadCat(l: { group: string; stage_id: string }): string {
+// A lead's legend category + pin color, honoring its group. Paid customers win
+// over everything else so they're always identifiable as a paying customer.
+function leadCat(l: { group: string; stage_id: string; paid?: boolean }): string {
+  if (l.paid) return "paid";
   if (l.group === "sent") return "sent";
   if (l.group === "completed") return "completed";
   if (l.group === "closed_scheduled") return "closed_scheduled";
   if (l.group === "closed_unscheduled") return "closed_unscheduled";
   return catForStage(l.stage_id);
 }
-function leadColor(l: { group: string; stage_id: string }): string {
+function leadColor(l: { group: string; stage_id: string; paid?: boolean }): string {
+  if (l.paid) return PAID_COLOR;
   if (l.group === "sent") return SENT_COLOR;
   if (l.group === "completed") return COMPLETED_COLOR;
   if (l.group === "closed_scheduled") return CLOSED_SCHEDULED_COLOR;
@@ -84,7 +88,11 @@ function hoverHtml(lead: LeadMapPin): string {
     extra = `<br/><strong>Signature: $${lead.signature_price.toLocaleString()}</strong>`;
   else if (lead.group === "closed_scheduled" && lead.schedule)
     extra = scheduleLines(lead.schedule);
-  return `<div style="font-size:12px;line-height:1.4;max-width:220px"><strong>${esc(lead.contact_name || "Lead")}</strong><br/>${esc(lead.address || "")}${extra}</div>`;
+  // Paying customer badge — shown on top of whatever else the pin carries.
+  const paid = lead.paid && lead.paid_amount
+    ? `<br/><span style="color:#b45309;font-weight:700">💰 Paid: $${lead.paid_amount.toLocaleString()}</span>`
+    : "";
+  return `<div style="font-size:12px;line-height:1.4;max-width:220px"><strong>${esc(lead.contact_name || "Lead")}</strong><br/>${esc(lead.address || "")}${extra}${paid}</div>`;
 }
 
 export default function LeadMap() {
@@ -97,6 +105,7 @@ export default function LeadMap() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [legendOpen, setLegendOpen] = useState(true);
   const [needsSchedOpen, setNeedsSchedOpen] = useState(true);
+  const [zipsOpen, setZipsOpen] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "nokey">("loading");
   const [backfill, setBackfill] = useState<{ running: boolean; total: number; done: number; ok: number } | null>(null);
@@ -218,9 +227,13 @@ export default function LeadMap() {
       if (hidden.has(cat)) continue;
       const color = leadColor(lead);
       const pos = { lat: lead.lat, lng: lead.lng };
+      // Paying customers pop: bigger gold pin, dark ring, drawn on top.
       const marker = new maps.Marker({
         position: pos, map,
-        icon: { path: maps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 1.5 },
+        zIndex: lead.paid ? 900 : undefined,
+        icon: lead.paid
+          ? { path: maps.SymbolPath.CIRCLE, scale: 8.5, fillColor: PAID_COLOR, fillOpacity: 1, strokeColor: "#7c2d12", strokeWeight: 2 }
+          : { path: maps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 1, strokeColor: "#ffffff", strokeWeight: 1.5 },
       });
       marker.addListener("mouseover", () => {
         iw.setContent(hoverHtml(lead));
@@ -284,6 +297,7 @@ export default function LeadMap() {
     const present = new Map<string, { label: string; color: string }>();
     if (stops.length) present.set("stops", { label: "Estimator stop", color: STOP_COLOR });
     for (const l of data?.leads || []) {
+      if (l.paid) { present.set("paid", { label: "Paid customer", color: PAID_COLOR }); continue; }
       if (l.group === "sent") present.set("sent", { label: "Estimate Sent", color: SENT_COLOR });
       else if (l.group === "completed") present.set("completed", { label: "Job completed", color: COMPLETED_COLOR });
       else if (l.group === "closed_scheduled") present.set("closed_scheduled", { label: "Closed & Scheduled", color: CLOSED_SCHEDULED_COLOR });
@@ -298,6 +312,9 @@ export default function LeadMap() {
     () => (data?.leads || []).filter((l) => l.group === "closed_unscheduled"),
     [data]
   );
+
+  // ZIP leaderboard by paying customers (backend already ranks it).
+  const zipStats = useMemo(() => data?.zip_stats || [], [data]);
 
   // Name/address search — matches among the mapped leads (capped for the dropdown).
   const matches = useMemo(() => {
@@ -480,6 +497,41 @@ export default function LeadMap() {
                       {l.address && <div className="text-[10px] text-muted-foreground truncate">{l.address}</div>}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bottom-left — ZIP leaderboard by paying customers (from QuickBooks) */}
+          {status === "ready" && zipStats.length > 0 && (
+            <div className="absolute bottom-2 left-2 w-56 rounded-lg border bg-background/95 shadow-sm backdrop-blur">
+              <button onClick={() => setZipsOpen((o) => !o)} className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full border border-white shadow" style={{ backgroundColor: PAID_COLOR }} />
+                  Top ZIPs — paying customers
+                </span>
+                {zipsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              {zipsOpen && (
+                <div className="px-2 pb-2 max-h-56 overflow-y-auto">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-muted-foreground border-b">
+                        <th className="text-left font-medium py-0.5 px-1">ZIP</th>
+                        <th className="text-right font-medium py-0.5 px-1">Cust.</th>
+                        <th className="text-right font-medium py-0.5 px-1">Paid</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {zipStats.slice(0, 15).map((z, i) => (
+                        <tr key={z.zip} className={`hover:bg-muted transition-colors ${i === 0 ? "font-semibold" : ""}`}>
+                          <td className="py-0.5 px-1">{z.zip}</td>
+                          <td className="text-right py-0.5 px-1">{z.customers}</td>
+                          <td className="text-right py-0.5 px-1">${z.total_paid.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
