@@ -579,17 +579,32 @@ def get_activity(
 
 
 # ── Scoreboard (gamification) ───────────────────────────────────────────────
-# Point weights. Estimates sent are the headline metric the game rewards;
-# scheduling/closing a deal are the big bonuses stacked on top. Baseline calls
-# and follow-ups keep the score ticking so day-to-day effort is always visible.
-_POINTS = {
-    "call": 1,
-    "follow_up": 1,
-    "estimate": 5,
-    "closed": 10,
-    "scheduled": 15,
+# Point values. Calls score by OUTCOME (a live conversation is worth the most,
+# then VM+text, then VM, then a plain no-answer dial). Closing a deal is the
+# big prize; estimates + follow-ups tick the baseline.
+_ESTIMATE_PTS = 1
+_CLOSED_PTS = 25
+_SCHEDULED_PTS = 25    # a booked job is a closed deal too
+_FOLLOWUP_PTS = 1
+# Call points by CallDisposition.outcome. "closed"/objection/callback all mean
+# the customer answered (7); the deal-closed 25 is scored separately from the
+# stage move, so a closed call isn't double-counted here.
+_CALL_PTS_BY_OUTCOME = {
+    "closed": 7,
+    "objection_price": 7,
+    "objection_timing": 7,
+    "objection_spouse": 7,
+    "objection_hoa": 7,
+    "callback": 7,
+    "voicemail_texted": 5,
+    "voicemail": 3,
+    "no_answer": 1,
+    "other": 1,
 }
-_KINDS = list(_POINTS.keys())
+_CALL_PTS_DEFAULT = 1
+# Display counters shown per player (points are summed per-event, not derived
+# from these — calls of different outcomes are worth different amounts).
+_KINDS = ["call", "follow_up", "estimate", "closed", "scheduled"]
 _DAILY_GOAL_LEADS = 30   # team target: distinct leads worked in a day
 
 
@@ -633,30 +648,31 @@ def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
         )
         week_start = (end_d - timedelta(days=end_d.weekday())).isoformat()  # Monday
 
-        # (name, sub, cst_date, kind, lead_id) for every scored action in window.
-        events: list[tuple[str, str, str, str, str]] = []
+        # (name, sub, cst_date, kind, lead_id, points) per scored action in window.
+        events: list[tuple[str, str, str, str, str, int]] = []
 
-        def add(name, sub, iso, kind, lead_id):
+        def add(name, sub, iso, kind, lead_id, points):
             d = _cst_date(iso)
             if d:
-                events.append((name or "", sub or "", d, kind, lead_id or ""))
+                events.append((name or "", sub or "", d, kind, lead_id or "", points))
 
         for c in db.query(CallDisposition).filter(CallDisposition.disposed_at >= win_start_utc).all():
-            add(c.disposed_by, getattr(c, "disposed_by_sub", ""), c.disposed_at, "call", c.lead_id)
+            pts = _CALL_PTS_BY_OUTCOME.get(c.outcome or "", _CALL_PTS_DEFAULT)
+            add(c.disposed_by, getattr(c, "disposed_by_sub", ""), c.disposed_at, "call", c.lead_id, pts)
         for f in db.query(TaskFollowUp).filter(TaskFollowUp.created_at >= win_start_utc).all():
-            add(getattr(f, "created_by", ""), "", f.created_at, "follow_up", f.lead_id)
+            add(getattr(f, "created_by", ""), "", f.created_at, "follow_up", f.lead_id, _FOLLOWUP_PTS)
         for a in db.query(LeadActivity).filter(LeadActivity.created_at >= win_start_utc).all():
             at = a.action_type or ""
             summ = (a.summary or "").upper()
             if at in ("estimate_sent", "proposal_sent"):
-                kind = "estimate"
+                kind, pts = "estimate", _ESTIMATE_PTS
             elif at == "scheduled" or (at == "stage_changed" and "CLOSED & SCHEDULED" in summ):
-                kind = "scheduled"
+                kind, pts = "scheduled", _SCHEDULED_PTS
             elif at == "closed" or (at == "stage_changed" and "DEAL CLOSED" in summ):
-                kind = "closed"
+                kind, pts = "closed", _CLOSED_PTS
             else:
                 continue
-            add(a.actor_name, a.actor_sub, a.created_at, kind, a.lead_id)
+            add(a.actor_name, a.actor_sub, a.created_at, kind, a.lead_id, pts)
 
         # Resolve sub → display name so a sub-only row (e.g. a follow-up with no
         # name) collapses into the same player as their named rows. Matches the
@@ -671,7 +687,7 @@ def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
             return rn, (rn or sub).strip().lower()
 
         players: dict[str, dict] = {}
-        for name, sub, d, kind, lead_id in events:
+        for name, sub, d, kind, lead_id, points in events:
             rn, key = resolve(name, sub)
             if not key:
                 continue
@@ -679,8 +695,8 @@ def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
             if p is None:
                 p = players[key] = {
                     "name": rn, "sub": sub,
-                    "today": {k: 0 for k in _KINDS}, "today_leads": set(),
-                    "week": {k: 0 for k in _KINDS}, "week_leads": set(),
+                    "today": {k: 0 for k in _KINDS}, "today_pts": 0, "today_leads": set(),
+                    "week": {k: 0 for k in _KINDS}, "week_pts": 0, "week_leads": set(),
                     "active_dates": set(),
                 }
             if sub and not p["sub"]:
@@ -688,15 +704,14 @@ def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
             p["active_dates"].add(d)
             if d == target_day:
                 p["today"][kind] += 1
+                p["today_pts"] += points
                 if lead_id:
                     p["today_leads"].add(lead_id)
             if week_start <= d <= target_day:
                 p["week"][kind] += 1
+                p["week_pts"] += points
                 if lead_id:
                     p["week_leads"].add(lead_id)
-
-        def _score(counts: dict) -> int:
-            return sum(_POINTS[k] * counts.get(k, 0) for k in _KINDS)
 
         def _streak(active: set) -> int:
             # Consecutive active days ending at target_day (or yesterday if they
@@ -714,8 +729,8 @@ def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
             team_today_leads |= p["today_leads"]
             out_players.append({
                 "name": p["name"], "sub": p["sub"],
-                "today": {**p["today"], "leads": len(p["today_leads"]), "points": _score(p["today"])},
-                "week": {**p["week"], "leads": len(p["week_leads"]), "points": _score(p["week"])},
+                "today": {**p["today"], "leads": len(p["today_leads"]), "points": p["today_pts"]},
+                "week": {**p["week"], "leads": len(p["week_leads"]), "points": p["week_pts"]},
                 "streak": _streak(p["active_dates"]),
             })
         out_players.sort(key=lambda x: x["week"]["points"], reverse=True)
@@ -723,7 +738,16 @@ def get_scoreboard(date: str = "", user: dict = Depends(require_staff)):
         return {
             "date": target_day,
             "week_start": week_start,
-            "points": _POINTS,
+            "points": {
+                "estimate": _ESTIMATE_PTS,
+                "closed": _CLOSED_PTS,
+                "scheduled": _SCHEDULED_PTS,
+                "follow_up": _FOLLOWUP_PTS,
+                "call_answered": _CALL_PTS_BY_OUTCOME["callback"],
+                "call_vm_text": _CALL_PTS_BY_OUTCOME["voicemail_texted"],
+                "call_vm": _CALL_PTS_BY_OUTCOME["voicemail"],
+                "call_no_answer": _CALL_PTS_BY_OUTCOME["no_answer"],
+            },
             "goal": {"target": _DAILY_GOAL_LEADS, "worked": len(team_today_leads)},
             "players": out_players,
         }

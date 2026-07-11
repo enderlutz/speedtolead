@@ -489,7 +489,7 @@ export interface ScorePlayer {
 export interface Scoreboard {
   date: string;
   week_start: string;
-  points: { call: number; follow_up: number; estimate: number; closed: number; scheduled: number };
+  points: Record<string, number>;
   goal: { target: number; worked: number };
   players: ScorePlayer[];
 }
