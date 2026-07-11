@@ -4,7 +4,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2, AlertTriangle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import type { LeanLead } from "@/lib/api";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
@@ -122,6 +123,9 @@ export default function Calendar() {
   // Events Alan booked directly in Google Calendar (read-only — to edit, he
   // opens them in Google).
   const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
+  // Real connection health — a dead OAuth token silently stops the Google pull,
+  // so surface it instead of showing a mysteriously empty calendar.
+  const [googleBroken, setGoogleBroken] = useState(false);
   const [activeGoogleEvent, setActiveGoogleEvent] = useState<GoogleEvent | null>(null);
   // Employee View editor — Alan curates exactly what the crew sees for a
   // calendar event. Keyed by the event's google_event_id; rawFallback seeds
@@ -170,6 +174,12 @@ export default function Calendar() {
     api.getGoogleEvents(monthStart, monthEnd)
       .then((r) => setGoogleEvents(r.events))
       .catch(() => setGoogleEvents([]));
+    // Check whether the Google connection is actually alive. The events call
+    // above returns an empty list (not an error) when the token is dead, so we
+    // can't detect the outage from it — this is the real signal for the banner.
+    api.getGoogleStatus()
+      .then((s) => setGoogleBroken(!!s.connected && s.healthy === false))
+      .catch(() => { /* leave the banner as-is */ });
   }, [monthStart, monthEnd]);
 
   useEffect(() => { load(); }, [load]);
@@ -286,6 +296,20 @@ export default function Calendar() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-7xl">
+      {googleBroken && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <span className="font-medium">Google Calendar is disconnected.</span>{" "}
+            New events booked in Google aren't pulling in until it's reconnected.{" "}
+            {isAdmin ? (
+              <Link to="/settings" className="font-semibold underline underline-offset-2">Reconnect in Settings →</Link>
+            ) : (
+              <span>Ask an admin to reconnect it in Settings.</span>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">

@@ -158,13 +158,25 @@ def disconnect(db: Session) -> bool:
 def get_connection_status(db: Session) -> dict:
     existing = db.query(GoogleOAuthToken).filter(GoogleOAuthToken.id == "alan").first()
     if not existing:
-        return {"connected": False}
-    return {
+        return {"connected": False, "healthy": False}
+    out = {
         "connected": True,
         "email": existing.connected_email or "",
         "calendar_id": existing.calendar_id or "primary",
         "connected_at": existing.connected_at,
     }
+    # A stored token row does NOT mean Google still honors it — refresh tokens
+    # get revoked, and OAuth apps left in "Testing" publishing status expire
+    # them every 7 days. Actually exercise the token so "Connected" reflects
+    # reality; a dead token is what silently stops the calendar from pulling.
+    try:
+        _get_access_token(db)
+        out["healthy"] = True
+    except Exception as e:
+        out["healthy"] = False
+        out["error"] = str(e)[:300]
+        logger.warning(f"Google Calendar token unhealthy — reconnect needed: {e}")
+    return out
 
 
 # --- Token refresh ---

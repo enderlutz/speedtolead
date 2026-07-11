@@ -834,7 +834,7 @@ function SterlingBackfillCard() {
 function GoogleCalendarCard() {
   const user = getCurrentUser();
   const isAdmin = user?.role === "admin";
-  const [status, setStatus] = useState<{ connected: boolean; email?: string; connected_at?: string } | null>(null);
+  const [status, setStatus] = useState<{ connected: boolean; healthy?: boolean; error?: string; email?: string; connected_at?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
@@ -891,6 +891,22 @@ function GoogleCalendarCard() {
         </p>
         {!status ? (
           <p className="text-xs text-muted-foreground">Loading…</p>
+        ) : status.connected && status.healthy === false ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className="bg-amber-100 text-amber-800 text-[10px]">Reconnect needed</Badge>
+              <span className="text-sm">{status.email || "(unknown account)"}</span>
+              {isAdmin && (
+                <Button size="sm" className="ml-auto" onClick={connect} disabled={busy}>
+                  {busy ? "Redirecting…" : "Reconnect Google"}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-amber-700">
+              The saved Google login has stopped working, so the calendar can't pull new events. Reconnect to fix it.
+              {status.error ? <span className="block text-muted-foreground mt-0.5">Details: {status.error}</span> : null}
+            </p>
+          </div>
         ) : status.connected ? (
           <div className="flex items-center gap-2 flex-wrap">
             <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">Connected</Badge>

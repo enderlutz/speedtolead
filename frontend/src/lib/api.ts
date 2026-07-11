@@ -1606,7 +1606,7 @@ export const api = {
 
   // Google OAuth
   getGoogleAuthUrl: () => request<{ url: string }>("/api/google/auth-url"),
-  getGoogleStatus: () => request<{ connected: boolean; email?: string; calendar_id?: string; connected_at?: string }>("/api/google/status"),
+  getGoogleStatus: () => request<{ connected: boolean; healthy?: boolean; error?: string; email?: string; calendar_id?: string; connected_at?: string }>("/api/google/status"),
   disconnectGoogle: () => request<{ status: string }>("/api/google/disconnect", { method: "POST" }),
   /** Read Alan's Google Calendar events for the given date range. Returns
    * an empty array when Google isn't connected so the caller doesn't crash. */
