@@ -117,8 +117,9 @@ def notify_new_lead(lead: dict):
             logger.warning(f"Dashboard-link GHL note failed for lead {lead_id}: {e}")
 
 
-def notify_estimate_sent(lead: dict, tiers: dict):
-    """Notify Alan (SMS) and Olga (WhatsApp) that an estimate was sent."""
+def notify_estimate_sent(lead: dict, tiers: dict, sender_name: str = ""):
+    """Notify Alan (SMS) and Olga (WhatsApp) that an estimate was sent.
+    When we know who sent it, lead with their name ("Alan sent estimate to …")."""
     settings = get_settings()
     name = lead.get("contact_name", "Unknown")
     lead_id = lead["id"]
@@ -127,8 +128,10 @@ def notify_estimate_sent(lead: dict, tiers: dict):
     sig = tiers.get("signature", 0)
     leg = tiers.get("legacy", 0)
 
+    sender = (sender_name or "").strip()
+    header = f"{sender} sent estimate to {name}" if sender else f"Estimate sent to {name}"
     msg = (
-        f"Estimate sent to {name}: "
+        f"{header}: "
         f"Essential ${ess:,.0f} / Signature ${sig:,.0f} / Legacy ${leg:,.0f}"
     )
 

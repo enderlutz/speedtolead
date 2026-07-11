@@ -566,6 +566,7 @@ def _approve_estimate_background(
     also_email_flag: bool,
     scheduled_send_at: str | None,
     apply_tag: bool = True,
+    sender_name: str = "",
 ):
     """Heavy work for /estimates/{id}/approve, run after the response is
     sent so VA gets a sub-second reply instead of waiting 3-7s for PDF gen.
@@ -781,7 +782,7 @@ def _approve_estimate_background(
             logger.warning(f"opportunity_value push failed for lead {lead.id}: {e}")
 
         # ── Team notify + activity log + SSE ──────────────────────────
-        notify_estimate_sent(lead.to_dict(), tiers_dict)
+        notify_estimate_sent(lead.to_dict(), tiers_dict, sender_name=sender_name)
         log_event(lead.id, "estimate_approved",
                   f"Estimate approved and sent to {lead.contact_name}",
                   {"estimate_id": estimate_id, "tiers": tiers_dict})
@@ -897,6 +898,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
             also_email_flag=also_email_flag,
             scheduled_send_at=scheduled_send_at,
             apply_tag=(bool(body.apply_tag) if body else True),
+            sender_name=((user or {}).get("name") or "").strip(),
         )
 
         result = est.to_dict()
@@ -1358,7 +1360,7 @@ class SavePdfBody(BaseModel):
 
 
 @router.post("/estimates/{estimate_id}/save-pdf")
-def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
+def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = Depends(get_current_user_optional)):
     """Generate PDF from canvas editor fields, optionally send to customer."""
     db = get_db()
     try:
@@ -1519,7 +1521,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody):
                     lead.ghl_location_id or None)
 
             # Notify team
-            notify_estimate_sent(lead.to_dict(), est.to_dict()["tiers"])
+            notify_estimate_sent(lead.to_dict(), est.to_dict()["tiers"], sender_name=((user or {}).get("name") or "").strip())
             publish("estimate_sent", {"lead_id": lead.id, "contact_name": lead.contact_name})
 
         db.commit()
