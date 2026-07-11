@@ -25,7 +25,7 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
   const [photoBlobs, setPhotoBlobs] = useState<Record<string, string>>({});
   const photoBlobsRef = useRef<Record<string, string>>({});
   useEffect(() => { photoBlobsRef.current = photoBlobs; }, [photoBlobs]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoProgress, setPhotoProgress] = useState<{ done: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [recBlobs, setRecBlobs] = useState<Record<string, string>>({});
@@ -81,18 +81,27 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
   };
 
   const onPickPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files || []);
     e.target.value = "";
-    if (!file) return;
-    setUploadingPhoto(true);
-    try {
-      await api.uploadEstimatorPhoto(leadId, file);
-      load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploadingPhoto(false);
+    if (!files.length) return;
+    // Upload each selected photo sequentially (robust on flaky on-site mobile
+    // connections — each is independent), reloading once at the end.
+    setPhotoProgress({ done: 0, total: files.length });
+    let failed = 0;
+    for (let i = 0; i < files.length; i++) {
+      try {
+        await api.uploadEstimatorPhoto(leadId, files[i]);
+      } catch {
+        failed++;
+      }
+      setPhotoProgress({ done: i + 1, total: files.length });
     }
+    setPhotoProgress(null);
+    await load();
+    const ok = files.length - failed;
+    if (failed === 0) toast.success(`${ok} photo${ok === 1 ? "" : "s"} uploaded`);
+    else if (ok === 0) toast.error("Photos failed to upload");
+    else toast.error(`${ok} uploaded · ${failed} failed`);
   };
 
   const deletePhoto = async (id: string) => {
@@ -157,10 +166,12 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
       {/* Pre-inspection photos */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold flex items-center gap-2"><ImageIcon className="h-4 w-4 text-primary" /> Pre-inspection photos</h3>
-        <p className="text-[11px] text-muted-foreground">These also show up in the job's Inspection Pictures once it's on the schedule.</p>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onPickPhoto} className="hidden" />
-        <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={uploadingPhoto}>
-          {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Camera className="h-4 w-4 mr-1" />} Add photo
+        <p className="text-[11px] text-muted-foreground">Pick several at once. These also show up in the job's Inspection Pictures once it's on the schedule.</p>
+        <input ref={fileRef} type="file" accept="image/*" multiple onChange={onPickPhoto} className="hidden" />
+        <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={!!photoProgress}>
+          {photoProgress
+            ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Uploading {photoProgress.done}/{photoProgress.total}…</>
+            : <><Camera className="h-4 w-4 mr-1" /> Add photos</>}
         </Button>
         {caps?.photos.length ? (
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -231,10 +242,19 @@ function Recorder({ leadId, onUploaded }: { leadId: string; onUploaded: () => vo
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       chunksRef.current = [];
-      const mr = new MediaRecorder(stream);
+      // Pick a mime the browser actually supports (iOS/Safari records MP4/AAC,
+      // not webm). Force-labeling everything "audio/webm" makes iPhone
+      // recordings fail to play back — so we negotiate here and use the real
+      // type on the resulting blob.
+      const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg"];
+      const supported = typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported
+        ? preferred.find((t) => MediaRecorder.isTypeSupported(t))
+        : undefined;
+      const mr = supported ? new MediaRecorder(stream, { mimeType: supported }) : new MediaRecorder(stream);
       mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
       mr.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const type = mr.mimeType || supported || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
         const dur = (performance.now() - startRef.current) / 1000;
         stopTracks();
         setRecording(false);

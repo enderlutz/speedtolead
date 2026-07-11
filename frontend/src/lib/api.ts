@@ -1746,7 +1746,10 @@ export const api = {
     request<{ ok: boolean }>(`/api/estimator/photos/${photoId}`, { method: "DELETE" }),
   uploadEstimatorRecording: async (leadId: string, blob: Blob, durationSeconds: number) => {
     const fd = new FormData();
-    fd.append("file", blob, "estimate.webm");
+    // Match the extension to the real recorded type (iOS records mp4/aac).
+    const t = blob.type || "audio/webm";
+    const ext = t.includes("mp4") ? "mp4" : t.includes("mpeg") ? "mp3" : t.includes("ogg") ? "ogg" : "webm";
+    fd.append("file", blob, `estimate.${ext}`);
     fd.append("duration_seconds", String(Math.round(durationSeconds)));
     const token = getToken();
     const res = await fetch(`${BASE}/api/estimator/leads/${leadId}/recordings`, {
