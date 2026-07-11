@@ -73,7 +73,9 @@ export default function LeadDetail() {
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
   const [sendSms, setSendSms] = useState(true);
-  const [alsoEmail, setAlsoEmail] = useState(false);
+  // Default to also emailing the estimate — VA can uncheck. Only actually
+  // sends when the lead has an email (see the checked= guard on the box).
+  const [alsoEmail, setAlsoEmail] = useState(true);
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -519,6 +521,7 @@ export default function LeadDetail() {
 
   const handleArchive = async () => {
     if (!id) return;
+    if (!window.confirm(`Archive ${lead?.contact_name || "this lead"}? It'll be removed from the board and task list. You can restore it later.`)) return;
     try {
       await api.archiveLead(id);
       const data = await api.getLead(id);
@@ -1598,17 +1601,6 @@ export default function LeadDetail() {
               </CardContent>
             </Card>
           )}
-
-          {/* Archive */}
-          {lead.status === "archived" ? (
-            <Button variant="outline" onClick={handleUnarchive} className="w-full">
-              <ArchiveRestore className="h-4 w-4 mr-2" /> Restore from Archive
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={handleArchive} className="w-full text-muted-foreground">
-              <Archive className="h-4 w-4 mr-2" /> Archive Lead
-            </Button>
-          )}
         </div>
       </div>
 
@@ -1714,6 +1706,20 @@ export default function LeadDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Archive — parked at the very bottom (and behind a confirm) so a lead
+          never gets archived by accident. */}
+      <div className="mt-8 pt-6 border-t flex justify-center">
+        {lead.status === "archived" ? (
+          <Button variant="outline" onClick={handleUnarchive} className="max-w-xs">
+            <ArchiveRestore className="h-4 w-4 mr-2" /> Restore from Archive
+          </Button>
+        ) : (
+          <Button variant="ghost" onClick={handleArchive} className="max-w-xs text-muted-foreground hover:text-destructive">
+            <Archive className="h-4 w-4 mr-2" /> Archive Lead
+          </Button>
+        )}
+      </div>
 
       {/* PDF Preview Modal */}
       {estimate && lead && (
