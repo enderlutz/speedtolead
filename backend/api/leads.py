@@ -557,7 +557,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
 _map_backfill = {"running": False, "total": 0, "done": 0, "ok": 0}
 
 
-def _run_map_backfill(force: bool = False):
+def _run_map_backfill(force: bool = False, limit: int | None = None):
     from services.geocoder import geocode_address
     map_key = get_settings().google_maps_browser_key or get_settings().google_maps_api_key
     db = get_db()
@@ -583,6 +583,11 @@ def _run_map_backfill(force: bool = False):
             if not force and _in_home_region(lead.lat, lead.lng):
                 continue  # already has valid Texas coords (force re-does all)
             todo.append(lead)
+        # Newest leads first so fresh arrivals pin within one cycle even when a
+        # backlog exists; limit caps how many we geocode per pass (auto loop).
+        todo.sort(key=lambda l: l.created_at or "", reverse=True)
+        if limit is not None:
+            todo = todo[:limit]
         _map_backfill.update(total=len(todo), done=0, ok=0)
         for lead in todo:
             try:
@@ -598,6 +603,19 @@ def _run_map_backfill(force: bool = False):
     finally:
         db.close()
         _map_backfill["running"] = False
+
+
+def auto_geocode_new_leads(limit: int = 150):
+    """Periodic auto-pin: geocode any mappable lead still missing coords so new
+    leads show on the map WITHOUT a manual re-sync. force=False means leads that
+    already have valid coords are skipped, so steady state only touches new
+    arrivals (newest first, capped per pass). Skips when a manual 'Re-geocode
+    all' is already running to avoid double geocoding. Best-effort — the loop
+    wrapper logs any error."""
+    if _map_backfill["running"]:
+        return
+    _map_backfill.update(running=True, total=0, done=0, ok=0)
+    _run_map_backfill(force=False, limit=limit)  # its finally clears running
 
 
 @router.post("/leads-map/backfill")

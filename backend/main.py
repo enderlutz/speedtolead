@@ -125,6 +125,21 @@ async def _call_recording_poller_loop():
         await asyncio.sleep(600)
 
 
+async def _map_geocode_loop():
+    """Background task: auto-pin new leads. Every 5 min, geocode any mappable
+    lead still missing coords so the Lead Map fills in on its own — no manual
+    'Re-geocode all'. force=False, newest-first, capped per pass, so steady
+    state only touches fresh arrivals. Offset t+90 to spread startup load."""
+    await asyncio.sleep(90)
+    while True:
+        try:
+            from api.leads import auto_geocode_new_leads
+            await asyncio.to_thread(auto_geocode_new_leads)
+        except Exception as e:
+            logger.error(f"Map geocode loop error: {e}")
+        await asyncio.sleep(300)
+
+
 async def _qb_reconcile_loop():
     """Background task: nightly QB reconciliation pass (W3, 2026-06-08).
 
@@ -346,6 +361,7 @@ async def lifespan(app: FastAPI):
     followup_engine = asyncio.create_task(_followup_engine_loop())
     followup_learning = asyncio.create_task(_followup_learning_loop())
     followup_backfill = asyncio.create_task(_followup_backfill_loop())
+    map_geocoder = asyncio.create_task(_map_geocode_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -365,6 +381,7 @@ async def lifespan(app: FastAPI):
     followup_engine.cancel()
     followup_learning.cancel()
     followup_backfill.cancel()
+    map_geocoder.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)
