@@ -33,7 +33,7 @@ from pydantic import BaseModel
 
 from config import get_settings
 from database import get_db, ScheduledJob, Lead, QuickBooksToken, TaskAllocation, TimeEntry
-from api.auth import require_admin
+from api.auth import require_admin, require_staff
 from services import ghl
 from services import quickbooks_client as qb
 from services.event_bus import publish
@@ -825,7 +825,7 @@ DEPOSIT_AMOUNT_USD = 250.0
 
 
 @router.post("/quickbooks/leads/{lead_id}/send-deposit-invoice")
-def send_deposit_invoice(lead_id: str, user: dict = Depends(require_admin)):
+def send_deposit_invoice(lead_id: str, user: dict = Depends(require_staff)):
     """Create a QuickBooks invoice for the $250 non-refundable deposit and
     return the hosted payment link. Idempotent — if an invoice was
     already created for this lead's deposit, return the existing record
