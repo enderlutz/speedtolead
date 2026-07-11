@@ -113,6 +113,8 @@ export default function LeadMap() {
   // Latest selected date, read inside async polling without stale closures.
   const selectedDateRef = useRef("");
   useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
+  const backfillRunningRef = useRef(false);
+  const mapSigRef = useRef("");  // pin-relevant snapshot; skips no-op refreshes
 
   // Remember the picked route day across visits; clear it if it's no longer an
   // available date (e.g. it rolled into the past and dropped off the list).
@@ -136,6 +138,32 @@ export default function LeadMap() {
   // Initial load — pins for every active lead (no date yet).
   useEffect(() => {
     api.getLeadMap().then(setData).catch(() => setStatus("error"));
+  }, []);
+
+  // Keep a ref of the manual-backfill state so the auto-refresh below can read
+  // it without re-subscribing its interval.
+  useEffect(() => { backfillRunningRef.current = !!backfill?.running; }, [backfill]);
+
+  // Auto-refresh pins every 60s so a lead that changes stage recolors on its
+  // own (and newly auto-pinned leads appear) without a manual reload. Uses the
+  // cached-only fetch (skip_geocode) so it never triggers geocoding; paused
+  // while a manual backfill is already live-refreshing to avoid clashing.
+  useEffect(() => {
+    const iv = window.setInterval(async () => {
+      if (backfillRunningRef.current) return;
+      try {
+        const d = selectedDateRef.current;
+        const fresh = await api.getLeadMap(d || undefined, true);
+        // Only rebuild markers when something pin-relevant actually changed
+        // (stage/color, paid status, or position) — otherwise leave them be.
+        const sig = (fresh.leads || []).map((l) => `${l.id}:${l.group}:${l.paid ? 1 : 0}:${l.lat},${l.lng}`).join("|");
+        if (sig === mapSigRef.current) return;
+        mapSigRef.current = sig;
+        setData(fresh);
+        if (d) setStops(fresh.stops);
+      } catch { /* keep the current pins */ }
+    }, 60000);
+    return () => window.clearInterval(iv);
   }, []);
 
   // Create the map once we have a key.
