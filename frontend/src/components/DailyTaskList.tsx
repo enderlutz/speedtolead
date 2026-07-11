@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type DailyTask, type Lead, type CallDispositionOutcome } from "@/lib/api";
+import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -49,7 +49,7 @@ const STAGE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 type StageKey = "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded" | "other";
-type TaskTab = "today" | "upcoming" | "date" | "all";
+type TaskTab = "today" | "upcoming" | "date" | "all" | "activity";
 
 // Options in the multi-select stage filter (empty selection = all stages).
 const STAGE_FILTER_OPTIONS: { key: StageKey; label: string }[] = [
@@ -126,6 +126,52 @@ function dateLabel(ymd: string): string {
 }
 function money(n: number): string {
   return n > 0 ? `$${n.toLocaleString()}` : "—";
+}
+
+// ── Owner / who-touched avatars ─────────────────────────────────────────────
+const ACTOR_PALETTE = ["#0891b2", "#7c3aed", "#16a34a", "#ea580c", "#0d9488", "#9333ea", "#ca8a04", "#be123c"];
+function actorColor(a: { name: string; sub: string }): string {
+  const k = (a.sub || a.name || "").toLowerCase();
+  if (k.includes("alan")) return "#2563eb";   // royal blue
+  if (k.includes("olga")) return "#ec4899";   // pink
+  let h = 0;
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0;
+  return ACTOR_PALETTE[h % ACTOR_PALETTE.length];
+}
+function actorLetter(a: { name: string; sub: string }): string {
+  const s = (a.name || a.sub || "?").trim();
+  return (s[0] || "?").toUpperCase();
+}
+function ActorAvatar({ actor, size = 22, title }: { actor: { name: string; sub: string }; size?: number; title?: string }) {
+  return (
+    <span
+      title={title || actor.name}
+      className="inline-flex items-center justify-center rounded-full text-white font-semibold ring-2 ring-background shrink-0"
+      style={{ background: actorColor(actor), width: size, height: size, fontSize: Math.round(size * 0.46) }}
+    >
+      {actorLetter(actor)}
+    </span>
+  );
+}
+function TouchedAvatars({ actors }: { actors: TouchedActor[] }) {
+  if (!actors.length) return <span className="text-muted-foreground text-xs">—</span>;
+  const shown = actors.slice(0, 3);
+  return (
+    <div className="flex -space-x-1.5">
+      {shown.map((a, i) => (
+        <ActorAvatar key={i} actor={a} title={`${a.name}${a.at ? ` · ${fmtDateTimeCST(a.at)}` : ""}`} />
+      ))}
+      {actors.length > 3 && (
+        <span
+          className="inline-flex items-center justify-center rounded-full bg-muted text-muted-foreground text-[10px] font-semibold ring-2 ring-background"
+          style={{ width: 22, height: 22 }}
+          title={actors.slice(3).map((a) => a.name).join(", ")}
+        >
+          +{actors.length - 3}
+        </span>
+      )}
+    </div>
+  );
 }
 // Essential / Signature / Legacy tier prices, stacked. Signature is the headline
 // tier so it's bold. Shows "—" when there's no estimate yet.
@@ -484,8 +530,10 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
             <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
             <TabsTrigger value="date">Today</TabsTrigger>
             <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
         </Tabs>
+        {tab !== "activity" && (
         <div className="flex items-center gap-2 flex-wrap">
         {tab === "date" && (
           <div className="flex items-center gap-1.5">
@@ -531,8 +579,11 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
         </div>
         <StageMultiSelect selected={stageFilters} onChange={setStageFilters} />
         </div>
+        )}
       </div>
       )}
+
+      {!leadId && tab === "activity" && <ActivityLog />}
 
       {!leadId && tab === "date" && (
         <p className="text-xs text-muted-foreground">
@@ -541,7 +592,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
         </p>
       )}
 
-      {loading && !tasks ? (
+      {(leadId || tab !== "activity") && (loading && !tasks ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : shown.length === 0 ? (
         <div className="rounded-xl border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
@@ -556,6 +607,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="pl-4 pr-1 py-2.5 font-medium" title="Who has worked this lead">Who</th>
                 <th className="px-4 py-2.5 font-medium">Lead</th>
                 <th className="px-4 py-2.5 font-medium">Stage</th>
                 <th className="px-4 py-2.5 font-medium">Call</th>
@@ -572,8 +624,13 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                     t.carried_over ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/20"
                   }`}
                 >
+                  {/* Who — owner / who-touched avatars */}
+                  <td className={`pl-4 pr-1 py-3 align-top ${t.carried_over ? "border-l-4 border-red-500" : ""}`}>
+                    <TouchedAvatars actors={t.touched_by} />
+                  </td>
+
                   {/* Lead */}
-                  <td className={`px-4 py-3 align-top ${t.carried_over ? "border-l-4 border-red-500" : ""}`}>
+                  <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-1.5">
                       <button onClick={() => navigate(`/leads/${t.id}`)} className="font-medium text-primary hover:underline text-left">
                         {t.contact_name || "Lead"}
@@ -678,7 +735,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
       {logFor && (
         <LogCallModal task={logFor} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} />
@@ -855,6 +912,108 @@ function StageMultiSelect({ selected, onChange }: { selected: StageKey[]; onChan
               <span>{o.label}</span>
             </label>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Activity tab — a filterable running log of who touched what lead, when. */
+function ActivityLog() {
+  const navigate = useNavigate();
+  const [events, setEvents] = useState<DailyActivityEvent[]>([]);
+  const [actors, setActors] = useState<{ name: string; sub: string }[]>([]);
+  const [total, setTotal] = useState(0);
+  const [q, setQ] = useState("");
+  const [actor, setActor] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const fetchPage = useCallback(async (offset: number, replace: boolean) => {
+    setLoading(true);
+    try {
+      const toIso = (v: string) => { if (!v) return undefined; const d = new Date(v); return isNaN(d.getTime()) ? undefined : d.toISOString(); };
+      const r = await api.getDailyActivity({ q: q.trim(), actor, from_ts: toIso(from), to_ts: toIso(to), limit: 50, offset });
+      setActors(r.actors);
+      setTotal(r.total);
+      setEvents((prev) => (replace ? r.events : [...prev, ...r.events]));
+    } catch {
+      toast.error("Couldn't load the activity log");
+    } finally {
+      setLoading(false);
+    }
+  }, [q, actor, from, to]);
+
+  // Debounced reload whenever a filter changes (and on mount).
+  useEffect(() => {
+    const t = window.setTimeout(() => fetchPage(0, true), 250);
+    return () => window.clearTimeout(t);
+  }, [fetchPage]);
+
+  const inputCls = "text-sm rounded-md border bg-background px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring";
+  const anyFilter = !!(q || actor || from || to);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-end gap-2 flex-wrap rounded-lg border bg-muted/20 p-2.5">
+        <div>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Lead</label>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Lead name…" className={`${inputCls} pl-7 w-44`} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Who</label>
+          <select value={actor} onChange={(e) => setActor(e.target.value)} className={inputCls}>
+            <option value="">Everyone</option>
+            {actors.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">From</label>
+          <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">To</label>
+          <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
+        </div>
+        {anyFilter && (
+          <Button size="sm" variant="ghost" onClick={() => { setQ(""); setActor(""); setFrom(""); setTo(""); }}>Clear</Button>
+        )}
+      </div>
+
+      {loading && events.length === 0 ? (
+        <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+      ) : events.length === 0 ? (
+        <div className="rounded-xl border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+          No activity for these filters. Default window is the last 14 days — set a <span className="font-medium">From</span> date to go further back.
+        </div>
+      ) : (
+        <div className="rounded-xl border bg-background divide-y">
+          {events.map((e) => (
+            <div key={e.id} className="flex items-start gap-2.5 px-3 py-2">
+              <ActorAvatar actor={{ name: e.actor_name, sub: e.actor_sub }} title={e.actor_name} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm">
+                  <span className="font-medium">{e.actor_name || "Someone"}</span> {e.summary}
+                  {e.lead_name && (
+                    <> · <button onClick={() => navigate(`/leads/${e.lead_id}`)} className="text-primary hover:underline">{e.lead_name}</button></>
+                  )}
+                </div>
+                <div className="text-[11px] text-muted-foreground">{fmtDateTimeCST(e.at)}</div>
+              </div>
+            </div>
+          ))}
+          {events.length < total && (
+            <div className="p-3 text-center">
+              <Button variant="outline" size="sm" onClick={() => fetchPage(events.length, false)} disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+                Load more ({events.length} of {total})
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

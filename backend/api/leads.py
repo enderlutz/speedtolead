@@ -771,7 +771,7 @@ def update_kanban_column(lead_id: str, body: ColumnUpdate):
 
 
 @router.put("/leads/{lead_id}/stage")
-def update_pipeline_stage(lead_id: str, body: StageUpdate):
+def update_pipeline_stage(lead_id: str, body: StageUpdate, user: dict = Depends(get_current_user)):
     """Update the v2 pipeline stage for a lead. Pushes back to GHL when the
     lead has a valid opportunity ID (i.e., was sourced from the new GHL account).
     Returns ghl_sync_status so the UI can surface rate-limit retries."""
@@ -802,6 +802,14 @@ def update_pipeline_stage(lead_id: str, body: StageUpdate):
                 logger.warning(f"Stage update saved locally but GHL push failed for {lead_id}: {e}")
 
         log_event(lead_id, "stage_changed", f"Stage → {body.stage_id}")
+        # Audit trail for the Daily Task List owner-avatars + Activity tab.
+        try:
+            from services.pipeline_stages import STAGE_NAME_BY_ID
+            from services.lead_activity import record_activity
+            stage_name = STAGE_NAME_BY_ID.get(body.stage_id, "another stage")
+            record_activity(lead_id, user, "stage_changed", f"Moved to {stage_name}")
+        except Exception:
+            pass
         out = lead.to_dict()
         out["ghl_sync_status"] = ghl_sync_status
         return out

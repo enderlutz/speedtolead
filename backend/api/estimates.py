@@ -7,7 +7,8 @@ import json
 import logging
 import math
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, Depends
+from api.auth import get_current_user_optional
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
@@ -801,7 +802,7 @@ def _approve_estimate_background(
 
 
 @router.post("/estimates/{estimate_id}/approve")
-def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: ApproveBody | None = None):
+def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: ApproveBody | None = None, user: dict | None = Depends(get_current_user_optional)):
     """Approve an estimate. The request handler does only validation +
     status flip + proposal-stub creation, then schedules the slow work
     (PDF gen, rasterize, page upload, customer SMS, GHL note/tag, team
@@ -874,6 +875,12 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
         db.add(proposal)
         db.commit()
 
+        try:
+            from services.lead_activity import record_activity
+            record_activity(lead.id, user, "estimate_sent", "Sent estimate (Approve & Send)")
+        except Exception:
+            pass
+
         proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
 
         # Capture only primitives + IDs — the background task opens its
@@ -916,7 +923,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
 
 
 @router.post("/leads/{lead_id}/custom-proposal")
-async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick: bool = Form(False)):
+async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick: bool = Form(False), user: dict | None = Depends(get_current_user_optional)):
     """Upload a pre-made PDF and send it to the customer as a proposal.
 
     Same customer experience as a generated estimate — a /proposal/{token}
@@ -983,6 +990,12 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick
         _mark_lead_estimate_sent(lead)
         lead.updated_at = now
         db.commit()
+
+        try:
+            from services.lead_activity import record_activity
+            record_activity(lead.id, user, "proposal_sent", "Sent a custom proposal")
+        except Exception:
+            pass
 
         proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
 

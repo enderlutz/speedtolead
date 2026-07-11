@@ -134,7 +134,6 @@ def update_disposition_notes(
     """Edit the notes on an existing call-log entry (inline edit from the Daily
     Task List). Only the notes are mutable — the outcome, timestamp, and author
     stay as the historical record."""
-    del user
     db = get_db()
     try:
         row = (
@@ -149,6 +148,11 @@ def update_disposition_notes(
             raise HTTPException(404, "Call log entry not found")
         row.notes = (body.notes or "").strip()
         db.commit()
+        try:
+            from services.lead_activity import record_activity
+            record_activity(lead_id, user, "call_note_edited", "Edited a call note")
+        except Exception:
+            pass
         return {"id": row.id, "notes": row.notes}
     finally:
         db.close()

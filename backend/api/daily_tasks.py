@@ -19,14 +19,14 @@ import json
 import logging
 import math
 import uuid
-from datetime import datetime, timezone, date as _date, time as _time
+from datetime import datetime, timezone, timedelta, date as _date, time as _time
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import desc, func
 
-from database import get_db, Lead, Estimate, CallDisposition, TaskFollowUp
+from database import get_db, Lead, Estimate, CallDisposition, TaskFollowUp, LeadActivity
 from api.auth import require_staff
 from services.pipeline_stages import STAGE_NAME_BY_ID
 
@@ -147,6 +147,30 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
         )
         lead_ids = [l.id for l in leads]
 
+        # Distinct people who've touched each lead → owner avatars.
+        # {lead_id: {actor_key: {"name", "sub", "at"}}}
+        touched_by_lead: dict[str, dict[str, dict]] = {}
+
+        def _touch(lid: str, name: str, sub: str, at: str) -> None:
+            name = (name or "").strip()
+            sub = (sub or "").strip()
+            if not name and not sub:
+                return
+            # Key by display name first so the same person merges across sources
+            # (a follow-up stores only the name; a call also stores the sub).
+            key = (name or sub).lower()
+            bucket = touched_by_lead.setdefault(lid, {})
+            cur = bucket.get(key)
+            if cur is None:
+                bucket[key] = {"name": name or sub, "sub": sub, "at": at or ""}
+            else:
+                if (at or "") > (cur["at"] or ""):
+                    cur["at"] = at or cur["at"]
+                if sub and not cur["sub"]:
+                    cur["sub"] = sub
+                if name and not cur["name"]:
+                    cur["name"] = name
+
         # Call dispositions per lead (newest first) → notes log + called flag.
         disp_by_lead: dict[str, list[dict]] = {}
         if lead_ids:
@@ -164,6 +188,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                     "disposed_by": d.disposed_by or "",
                     "disposed_at": d.disposed_at or "",
                 })
+                _touch(d.lead_id, d.disposed_by, getattr(d, "disposed_by_sub", "") or "", d.disposed_at or "")
 
         # Follow-ups per lead: soonest pending = the lead's "next" one; also
         # track the latest creation time for the last-activity stamp.
@@ -181,8 +206,18 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 if (f.created_at or "") > fu_created_by_lead.get(f.lead_id, ""):
                     fu_created_by_lead[f.lead_id] = f.created_at or ""
                     fu_creator_by_lead[f.lead_id] = f.created_by or ""
+                _touch(f.lead_id, f.created_by or "", "", f.created_at or "")
                 if (f.status or "pending") == "pending":
                     pending_by_lead.setdefault(f.lead_id, []).append(f)
+
+        # Fold in the LeadActivity audit rows (stage moves, note edits, sends).
+        if lead_ids:
+            for a in (
+                db.query(LeadActivity)
+                .filter(LeadActivity.lead_id.in_(lead_ids))
+                .all()
+            ):
+                _touch(a.lead_id, a.actor_name or "", a.actor_sub or "", a.created_at or "")
             for lid, plist in pending_by_lead.items():
                 plist.sort(key=lambda f: f.due_at or "")
                 nf = plist[0]  # soonest due
@@ -250,6 +285,14 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "tier_prices": prices.get(l.id, _empty_tiers),
                 "carried_over": carried_over,
                 "days_waiting": days_waiting,
+                # Distinct people who've touched this lead, most-recent first.
+                "touched_by": [
+                    {"name": a["name"], "sub": a["sub"], "at": a["at"]}
+                    for a in sorted(
+                        touched_by_lead.get(l.id, {}).values(),
+                        key=lambda a: a["at"] or "", reverse=True,
+                    )
+                ],
             })
 
         # Carried-over (unfinished from a prior day) float to the very top, then
@@ -375,7 +418,6 @@ def set_client_note(lead_id: str, body: ClientNoteBody, user: dict = Depends(req
     """Save the client's connected note into form_data.additional_notes — the
     same field Lead Detail shows — so the two stay in sync. Lightweight: merges
     the one key, no estimate recalculation."""
-    del user
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -389,6 +431,11 @@ def set_client_note(lead_id: str, body: ClientNoteBody, user: dict = Depends(req
         lead.form_data = json.dumps(fd)
         lead.updated_at = _now_iso()
         db.commit()
+        try:
+            from services.lead_activity import record_activity
+            record_activity(lead_id, user, "note_edited", "Edited the lead note")
+        except Exception:
+            pass
         return {"lead_id": lead_id, "client_note": fd["additional_notes"]}
     finally:
         db.close()
@@ -408,5 +455,124 @@ def complete_follow_up(follow_up_id: str, user: dict = Depends(require_staff)):
         db.commit()
         db.refresh(fu)
         return fu.to_dict()
+    finally:
+        db.close()
+
+
+# ── Activity feed (who touched what lead, when) ─────────────────────────────
+_OUTCOME_LABELS = {
+    "closed": "Closed — won",
+    "objection_price": "Objection — price",
+    "objection_timing": "Objection — timing",
+    "objection_spouse": "Objection — spouse",
+    "objection_hoa": "Objection — HOA",
+    "no_answer": "No answer",
+    "voicemail": "Left voicemail",
+    "voicemail_texted": "Left voicemail & texted",
+    "callback": "Callback requested",
+    "other": "Other",
+}
+_FU_ACTION_LABELS = {"call": "call-back", "text": "text", "other": "follow-up"}
+
+
+@router.get("/daily-tasks/activity")
+def get_activity(
+    q: str = "",
+    actor: str = "",
+    from_ts: str = "",
+    to_ts: str = "",
+    limit: int = 100,
+    offset: int = 0,
+    user: dict = Depends(require_staff),
+):
+    """Unified, filterable audit feed of who touched what lead and when.
+    Unions calls (CallDisposition) + follow-ups (TaskFollowUp) + the
+    LeadActivity table (stage moves, note edits, sends). Filters: lead name (q),
+    actor name/username, and an ISO-UTC datetime window (from_ts/to_ts)."""
+    del user
+    db = get_db()
+    try:
+        lo = (from_ts or "").strip() or (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        hi = (to_ts or "").strip() or None
+        cap = 1500
+
+        # Lead-name filter → restrict to matching lead_ids + capture names.
+        lead_name_by_id: dict[str, str] = {}
+        restrict_ids: set[str] | None = None
+        qq = (q or "").strip()
+        if qq:
+            matched = (
+                db.query(Lead.id, Lead.contact_name)
+                .filter(Lead.contact_name.ilike(f"%{qq}%"))
+                .all()
+            )
+            restrict_ids = {lid for lid, _ in matched}
+            lead_name_by_id = {lid: (name or "") for lid, name in matched}
+            if not restrict_ids:
+                return {"events": [], "total": 0, "actors": []}
+
+        events: list[dict] = []
+
+        def _bounded(query, col, lead_col):
+            query = query.filter(col >= lo)
+            if hi:
+                query = query.filter(col <= hi)
+            if restrict_ids is not None:
+                query = query.filter(lead_col.in_(restrict_ids))
+            return query.order_by(desc(col)).limit(cap).all()
+
+        for d in _bounded(db.query(CallDisposition), CallDisposition.disposed_at, CallDisposition.lead_id):
+            label = _OUTCOME_LABELS.get(d.outcome or "", d.outcome or "call")
+            events.append({
+                "id": f"call:{d.id}", "lead_id": d.lead_id, "at": d.disposed_at or "",
+                "actor_name": d.disposed_by or "", "actor_sub": getattr(d, "disposed_by_sub", "") or "",
+                "action": "call",
+                "summary": f"Logged call — {label}" + (f": {d.notes}" if d.notes else ""),
+            })
+        for f in _bounded(db.query(TaskFollowUp), TaskFollowUp.created_at, TaskFollowUp.lead_id):
+            events.append({
+                "id": f"fu:{f.id}", "lead_id": f.lead_id, "at": f.created_at or "",
+                "actor_name": f.created_by or "", "actor_sub": "",
+                "action": "follow_up",
+                "summary": f"Scheduled a {_FU_ACTION_LABELS.get(f.action_type or 'call', 'follow-up')}",
+            })
+        for a in _bounded(db.query(LeadActivity), LeadActivity.created_at, LeadActivity.lead_id):
+            events.append({
+                "id": f"act:{a.id}", "lead_id": a.lead_id, "at": a.created_at or "",
+                "actor_name": a.actor_name or "", "actor_sub": a.actor_sub or "",
+                "action": a.action_type or "", "summary": a.summary or "",
+            })
+
+        # Distinct actors (for the filter dropdown) — before applying actor filter.
+        actor_map: dict[str, dict] = {}
+        for e in events:
+            key = (e["actor_name"] or e["actor_sub"]).lower()
+            if not key:
+                continue
+            if key not in actor_map:
+                actor_map[key] = {"name": e["actor_name"] or e["actor_sub"], "sub": e["actor_sub"]}
+            elif e["actor_sub"] and not actor_map[key]["sub"]:
+                actor_map[key]["sub"] = e["actor_sub"]
+
+        af = (actor or "").strip().lower()
+        if af:
+            events = [e for e in events if af in (e["actor_name"] or "").lower() or af in (e["actor_sub"] or "").lower()]
+
+        events.sort(key=lambda e: e["at"] or "", reverse=True)
+        total = len(events)
+        page = events[max(0, offset): max(0, offset) + min(max(1, limit), 500)]
+
+        need = {e["lead_id"] for e in page if e["lead_id"] not in lead_name_by_id}
+        if need:
+            for lid, name in db.query(Lead.id, Lead.contact_name).filter(Lead.id.in_(need)).all():
+                lead_name_by_id[lid] = name or ""
+        for e in page:
+            e["lead_name"] = lead_name_by_id.get(e["lead_id"], "")
+
+        return {
+            "events": page,
+            "total": total,
+            "actors": sorted(actor_map.values(), key=lambda a: a["name"].lower()),
+        }
     finally:
         db.close()

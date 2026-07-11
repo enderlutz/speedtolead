@@ -1239,6 +1239,27 @@ class TaskFollowUp(Base):
         }
 
 
+class LeadActivity(Base):
+    """Append-only audit trail of who touched a lead and what they did. Powers
+    the Daily Task List owner-avatars + the Activity tab. Calls and follow-ups
+    already live in their own tables (CallDisposition, TaskFollowUp) and are
+    unioned into the feed at read time; this table captures the OTHER attributed
+    actions (stage moves, note edits, estimate/proposal sends)."""
+    __tablename__ = "lead_activity"
+    __table_args__ = (
+        Index("idx_lead_activity_lead", "lead_id"),
+        Index("idx_lead_activity_created", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    actor_name = Column(Text, default="")     # display name from JWT (e.g. "Alan")
+    actor_sub = Column(Text, default="")      # username from JWT (e.g. "alanbonner")
+    action_type = Column(Text, default="")    # stage_changed | note_edited | call_note_edited | estimate_sent | proposal_sent
+    summary = Column(Text, default="")        # human one-liner
+    created_at = Column(Text, default="")     # ISO datetime UTC
+
+
 class CallDisposition(Base):
     """One row per call Alan (or any staff) logs after talking to a lead.
     Append-only history — every call gets a new row so we can track

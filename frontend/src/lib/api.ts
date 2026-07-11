@@ -445,6 +445,22 @@ export interface DailyTask {
   tier_prices: { essential: number; signature: number; legacy: number };
   carried_over: boolean; // unfinished from a prior day — rolled into today's queue
   days_waiting: number;  // days since last worked (Central time)
+  touched_by: TouchedActor[]; // distinct people who worked this lead, newest first
+}
+export interface TouchedActor {
+  name: string;
+  sub: string;
+  at: string;
+}
+export interface DailyActivityEvent {
+  id: string;
+  lead_id: string;
+  lead_name?: string;
+  at: string;
+  actor_name: string;
+  actor_sub: string;
+  action: string;   // call | follow_up | stage_changed | note_edited | call_note_edited | estimate_sent | proposal_sent
+  summary: string;
 }
 
 /** Sprint 2 T2.E — Follow-up rule engine output. Surfaces on the lead
@@ -1877,6 +1893,19 @@ export const api = {
       body: JSON.stringify({ notes }),
     }),
   getDailyTasks: () => request<{ tasks: DailyTask[] }>("/api/daily-tasks"),
+  getDailyActivity: (params: { q?: string; actor?: string; from_ts?: string; to_ts?: string; limit?: number; offset?: number } = {}) => {
+    const sp = new URLSearchParams();
+    if (params.q) sp.set("q", params.q);
+    if (params.actor) sp.set("actor", params.actor);
+    if (params.from_ts) sp.set("from_ts", params.from_ts);
+    if (params.to_ts) sp.set("to_ts", params.to_ts);
+    if (params.limit != null) sp.set("limit", String(params.limit));
+    if (params.offset != null) sp.set("offset", String(params.offset));
+    const qs = sp.toString();
+    return request<{ events: DailyActivityEvent[]; total: number; actors: { name: string; sub: string }[] }>(
+      `/api/daily-tasks/activity${qs ? `?${qs}` : ""}`,
+    );
+  },
   createFollowUp: (
     leadId: string,
     body: { due_date: string; time?: string; all_day?: boolean; action_type: string; note?: string },

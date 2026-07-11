@@ -49,6 +49,20 @@ def get_current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+def get_current_user_optional(creds: HTTPAuthorizationCredentials = Depends(bearer)):
+    """Like get_current_user but returns None instead of raising when there's no
+    valid token. For endpoints that want best-effort attribution (e.g. who sent
+    an estimate) without enforcing auth or changing their contract."""
+    if not creds:
+        return None
+    try:
+        settings = get_settings()
+        payload = jwt.decode(creds.credentials, settings.auth_secret, algorithms=[SECRET_ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
 def require_admin(user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
