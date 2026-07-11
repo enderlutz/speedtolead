@@ -122,21 +122,33 @@ def _format_price(amount: float, include_financing: bool) -> str:
     return f"${math.ceil(amount):,}"
 
 
+def _original_price(amount: float, discount_percent: float) -> float | None:
+    """Recover the pre-discount "was" price.
+
+    Our embedded tier prices are ALREADY the discounted price (e.g. 20% off),
+    so the slashed "original" is the price we discounted FROM — i.e. reverse
+    the discount: original = discounted / (1 - d).  NOT discounted * (1 + d),
+    which would tack the percentage onto the already-reduced number.
+
+    Example: a $1,000 discounted price at 20% off → original $1,250
+    (1000 / 0.80), so "You save $250" — a true 20% off.
+
+    Returns None when the promotion is disabled or the percent is out of the
+    valid 0-99 range (100%+ can't be reversed)."""
+    if discount_percent <= 0 or discount_percent >= 100 or amount <= 0:
+        return None
+    return amount / (1.0 - discount_percent / 100.0)
+
+
 def _format_slashed_price(amount: float, markup_percent: float) -> str:
-    """Build the slashed "summer special" pre-discount price string.
-
-    Returns an empty string when the promotion is disabled (markup=0) or
-    the amount is zero. The PDF renderer treats empty as "skip the
-    strike-through", so existing leads / templates keep working with no
-    changes when the feature is off.
-
-    Rounded UP to the next dollar so it reads as a clean integer; cents
-    on a marked-up "was" price felt fussy on the new template.
-    """
-    if markup_percent <= 0 or amount <= 0:
+    """Build the slashed "summer special" pre-discount price string — the price
+    we discounted FROM. Empty when the promotion is off (markup=0) or the amount
+    is zero, so the PDF renderer skips the strike-through. Rounded UP to a clean
+    whole dollar."""
+    orig = _original_price(amount, markup_percent)
+    if orig is None:
         return ""
-    marked_up = amount * (1.0 + markup_percent / 100.0)
-    return f"${math.ceil(marked_up):,}"
+    return f"${math.ceil(orig):,}"
 
 
 def _slashed_price_values(tiers: dict, markup_percent: float) -> dict:
@@ -160,10 +172,15 @@ def _format_save_amount(amount: float, markup_percent: float) -> str:
 
     Rounded UP so the savings amount stays a clean whole dollar and
     visually matches the strikethrough + actual price."""
-    if markup_percent <= 0 or amount <= 0:
+    orig = _original_price(amount, markup_percent)
+    if orig is None:
         return ""
-    save = amount * (markup_percent / 100.0)
-    return f"You save ${math.ceil(save):,}"
+    # Difference between the two prices AS SHOWN (both ceil'd) so the page
+    # always reads consistently: was − save = actual.
+    save = math.ceil(orig) - math.ceil(amount)
+    if save <= 0:
+        return ""
+    return f"You save ${save:,}"
 
 
 def _save_amount_values(tiers: dict, markup_percent: float) -> dict:

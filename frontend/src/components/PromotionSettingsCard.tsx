@@ -6,8 +6,9 @@
 // admin set a markup percentage that gets rendered as a slashed,
 // strikethrough "original" price above each tier on the PDF.
 //
-// Math: slashed = actual × (1 + markup/100). Set the markup to 0 to
-// disable slashed pricing entirely without redeploying.
+// Math: our tier prices are ALREADY the discounted price, so we reverse the
+// discount to show the true "was" price: slashed = actual ÷ (1 − discount/100).
+// e.g. $1,000 at 20% → was $1,250, "You save $250". Set to 0 to disable.
 
 import { useEffect, useState } from "react";
 import { api, getCurrentUser } from "@/lib/api";
@@ -77,7 +78,9 @@ export default function PromotionSettingsCard() {
         <p className="text-xs text-muted-foreground">
           Adds a strikethrough "original" price above each tier on the
           proposal PDF so the customer sees the discount they're getting.
-          Slashed = actual price × (1 + markup%). Set to 0 to disable.
+          Our prices are already discounted, so this is the % <em>off</em> —
+          the "was" price = actual ÷ (1 − %). e.g. $1,000 at 20% → was $1,250,
+          "You save $250". Set to 0 to disable.
         </p>
         {loading ? (
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -91,11 +94,11 @@ export default function PromotionSettingsCard() {
                 value={markup}
                 onChange={(e) => setMarkup(e.target.value)}
                 min={0}
-                max={200}
+                max={99}
                 step={1}
                 className="w-24"
               />
-              <span className="text-sm text-muted-foreground">% markup</span>
+              <span className="text-sm text-muted-foreground">% off</span>
               <Button
                 size="sm"
                 onClick={handleSave}

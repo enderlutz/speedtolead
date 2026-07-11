@@ -95,18 +95,20 @@ PROMOTION_MARKUP_DEFAULT = 20.0
 
 
 def get_promotion_markup_percent(db) -> float:
-    """Read the current promotion markup % from SystemConfig.
+    """Read the current promotion discount % from SystemConfig.
 
-    Returns the percentage to ADD on top of the actual price to display
-    as the slashed "original" price. Example: actual $1,000 + 20% markup
-    → strikethrough shows $1,200. 0 disables the slashed price entirely."""
+    This is the discount ALREADY baked into our embedded tier prices. The
+    proposal reverses it to show the pre-discount "was" price:
+    original = discounted / (1 - d). Example: discounted $1,000 at 20% →
+    strikethrough shows $1,250 ("You save $250"). 0 disables the slashed
+    price entirely."""
     raw = SystemConfig.get(db, PROMOTION_MARKUP_KEY, "")
     if not raw:
         return PROMOTION_MARKUP_DEFAULT
     try:
         v = float(raw)
-        # Clamp to a sane range so a typo can't render absurd PDFs.
-        return max(0.0, min(v, 200.0))
+        # Clamp to a sane discount range (must be < 100 to be reversible).
+        return max(0.0, min(v, 99.0))
     except Exception:
         return PROMOTION_MARKUP_DEFAULT
 
@@ -127,10 +129,10 @@ class PromotionUpdate(BaseModel):
 
 @router.put("/settings/promotion")
 def update_promotion(body: PromotionUpdate):
-    """Set the promotion markup % used to render slashed prices on
-    proposal PDFs. Set to 0 to disable slashed pricing across the board."""
-    if body.markup_percent < 0 or body.markup_percent > 200:
-        raise HTTPException(status_code=400, detail="markup_percent must be 0-200")
+    """Set the promotion discount % baked into tier prices, used to render the
+    slashed 'was' price on proposal PDFs. Set to 0 to disable slashed pricing."""
+    if body.markup_percent < 0 or body.markup_percent >= 100:
+        raise HTTPException(status_code=400, detail="Discount percent must be 0-99")
     db = get_db()
     try:
         SystemConfig.set(db, PROMOTION_MARKUP_KEY, f"{body.markup_percent:g}")
