@@ -28,6 +28,29 @@ TARGET_STAGES = {
     "hot lead_send estimate": "HOT",
 }
 
+# Backward-move guard. The poller only queries the two pre-send stages above,
+# so every opp it syncs is reported by GHL as "New Lead" or "Hot Lead". When we
+# send an estimate (with OR without the GHL tag) we move the lead to ESTIMATE
+# SENT locally AND push the opp to GHL. On the no-tag path there's no GHL
+# workflow to move the opp for us, so if our direct push lags/fails the opp is
+# still sitting in its pre-send stage — and a naive sync would drag the lead
+# right back out of the Estimate Sent column. Rule: never let a poll move a
+# lead BACKWARD across the estimate-sent line. Instead re-assert our post-send
+# stage to GHL (self-heal) so GHL converges. Bounded to the 24h window after
+# the lead's last local change so we still defer to genuine manual GHL edits.
+from services.pipeline_stages import V2_STAGE_IDS_IN_ORDER, STAGE_NAME_BY_ID
+_STAGE_ORDER: dict[str, int] = {sid: i for i, (sid, _) in enumerate(V2_STAGE_IDS_IN_ORDER)}
+_ESTIMATE_SENT_STAGE_ID = "dc3600f2-009b-4075-95fa-786823131416"
+_ESTIMATE_SENT_ORDER = _STAGE_ORDER.get(_ESTIMATE_SENT_STAGE_ID, 4)
+_SELF_HEAL_WINDOW = timedelta(hours=24)
+
+
+def _is_backward_across_send(current_stage_id: str, incoming_stage_id: str) -> bool:
+    """True when GHL wants to pull a post-send lead back to a pre-send stage."""
+    cur = _STAGE_ORDER.get(current_stage_id or "", -1)
+    inc = _STAGE_ORDER.get(incoming_stage_id or "", -1)
+    return cur >= _ESTIMATE_SENT_ORDER and 0 <= inc < _ESTIMATE_SENT_ORDER
+
 # --- Smart GHL field resolver (value-based, works across locations) ---
 
 _HEIGHT_VALUES = {"6ft", "6.5ft", "7ft", "8ft", "standard", "rot board", "not sure"}
@@ -222,6 +245,44 @@ def _sync_location(location_id: str, label: str):
                     if existing:
                         changed = False
                         stage_changed = bool(stage_id and existing.ghl_pipeline_stage_id != stage_id)
+
+                        # Never let a poll drag a lead BACKWARD across the
+                        # estimate-sent line. This is the no-tag send race: we
+                        # moved the lead to ESTIMATE SENT and pushed GHL, but
+                        # the opp is still showing pre-send here because our
+                        # push lagged/failed and (no tag) no GHL workflow moved
+                        # it. Reverting would bounce it out of Estimate Sent.
+                        # Re-assert our stage to GHL instead. Scoped to the 24h
+                        # window after the lead's last local change so genuine
+                        # manual GHL moves still win once the send race is over.
+                        if stage_changed and _is_backward_across_send(existing.ghl_pipeline_stage_id, stage_id):
+                            recent = False
+                            try:
+                                upd = datetime.fromisoformat(str(existing.updated_at).replace("Z", "+00:00"))
+                                if upd.tzinfo is None:
+                                    upd = upd.replace(tzinfo=timezone.utc)
+                                recent = (datetime.now(timezone.utc) - upd) <= _SELF_HEAL_WINDOW
+                            except Exception:
+                                recent = False
+                            if recent:
+                                logger.warning(
+                                    f"Poller: GHL shows lead {existing.id} back in pre-send stage "
+                                    f"'{stage_name}' but local is post-send "
+                                    f"'{STAGE_NAME_BY_ID.get(existing.ghl_pipeline_stage_id, existing.ghl_pipeline_stage_id)}'; "
+                                    f"re-asserting to GHL instead of reverting (no-tag send race)."
+                                )
+                                if existing.ghl_opportunity_id:
+                                    try:
+                                        from services.ghl import update_opportunity_stage
+                                        update_opportunity_stage(
+                                            existing.ghl_opportunity_id,
+                                            existing.ghl_pipeline_stage_id,
+                                            existing.ghl_location_id or None,
+                                        )
+                                    except Exception as e:
+                                        logger.warning(f"Poller self-heal stage push failed for {existing.id}: {e}")
+                                stage_changed = False  # suppress the revert
+
                         if stage_changed:
                             existing.ghl_pipeline_stage_id = stage_id
                             changed = True
