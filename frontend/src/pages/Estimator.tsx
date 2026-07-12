@@ -47,6 +47,7 @@ export default function Estimator() {
   // estimator themself only views their week. The drive-path / location map
   // stays admin-only (it lives on the day page, not here).
   const isStaff = user?.role === "admin" || user?.role === "va";
+  const isAdmin = user?.role === "admin";   // worked-hours are admin-only for now
   const navigate = useNavigate();
 
   const [weekStart, setWeekStart] = useState<string>(() => toYMD(mondayOf(new Date())));
@@ -94,7 +95,7 @@ export default function Estimator() {
             {isEstimator ? "Your week" : schedule?.estimator_name ? `${schedule.estimator_name}'s week` : "Schedule"}
             {totalStops ? ` • ${totalStops} stop${totalStops === 1 ? "" : "s"}` : ""}
           </p>
-          {totalWorked > 0 && (
+          {isAdmin && totalWorked > 0 && (
             <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-xs font-semibold px-2 py-0.5">
               <Clock className="h-3 w-3" /> {fmtHours(totalWorked)} worked this week
             </span>
@@ -132,7 +133,7 @@ export default function Estimator() {
         <div className="space-y-2">
           {schedule?.days.map((day) => (
             <DayRow key={day.date} date={day.date} weekday={day.weekday} visits={day.visits}
-                    workedHours={day.worked_hours} canSchedule={isStaff}
+                    workedHours={day.worked_hours} showWorked={isAdmin} canSchedule={isStaff}
                     onEditTime={setEditVisit}
                     onOpen={() => navigate(`/estimator/day/${day.date}`)} />
           ))}
@@ -158,8 +159,8 @@ export default function Estimator() {
   );
 }
 
-function DayRow({ date, weekday, visits, workedHours, canSchedule, onEditTime, onOpen }: {
-  date: string; weekday: string; visits: EstimatorVisit[]; workedHours: number;
+function DayRow({ date, weekday, visits, workedHours, showWorked, canSchedule, onEditTime, onOpen }: {
+  date: string; weekday: string; visits: EstimatorVisit[]; workedHours: number; showWorked: boolean;
   canSchedule: boolean; onEditTime: (v: EstimatorVisit) => void; onOpen: () => void;
 }) {
   const dayNum = new Date(`${date}T00:00:00`).getDate();
@@ -185,7 +186,7 @@ function DayRow({ date, weekday, visits, workedHours, canSchedule, onEditTime, o
                 {fmtTime(visits[0].start_time)}{visits.length > 1 ? ` – ${fmtTime(visits[visits.length - 1].start_time)}` : ""}
               </span>
             )}
-            {workedHours > 0 && (
+            {showWorked && workedHours > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-[10px] font-medium px-1.5 py-0.5">
                 <Clock className="h-2.5 w-2.5" /> {fmtHours(workedHours)} worked
               </span>

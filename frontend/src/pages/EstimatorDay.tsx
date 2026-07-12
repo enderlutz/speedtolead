@@ -84,7 +84,7 @@ export default function EstimatorDay() {
 
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-semibold tracking-tight">{heading}</h1>
-        {day && day.worked_hours > 0 && (
+        {isAdmin && day && day.worked_hours > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-xs font-medium px-2 py-1">
             <Clock className="h-3 w-3" /> {fmtHours(day.worked_hours)} worked
           </span>
