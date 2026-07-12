@@ -559,21 +559,37 @@ def list_events(
 
     cal_id = _calendar_id(db)
     try:
-        r = _client.get(
-            f"{CALENDAR_BASE}/calendars/{cal_id}/events",
-            headers={"Authorization": f"Bearer {access}"},
-            params={
-                "timeMin": time_min,
-                "timeMax": time_max,
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": "250",
-            },
-        )
-        if r.status_code != 200:
-            logger.warning(f"GCal list_events HTTP {r.status_code}: {r.text[:200]}")
-            return []
-        items = r.json().get("items", [])
+        # Page through EVERY event in the window. Google returns at most
+        # maxResults per response and hands back a nextPageToken when there's
+        # more; the old single-request version silently truncated busy months
+        # (recurring events expand into many instances and count too), which
+        # dropped yellow jobs past the first page. maxResults is bumped to the
+        # API max (2500) so one request usually suffices, with pagination as a
+        # safety net (capped at 20 pages).
+        url = f"{CALENDAR_BASE}/calendars/{cal_id}/events"
+        headers = {"Authorization": f"Bearer {access}"}
+        base_params = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": "2500",
+        }
+        items: list = []
+        page_token = None
+        for _ in range(20):
+            params = dict(base_params)
+            if page_token:
+                params["pageToken"] = page_token
+            r = _client.get(url, headers=headers, params=params)
+            if r.status_code != 200:
+                logger.warning(f"GCal list_events HTTP {r.status_code}: {r.text[:200]}")
+                break  # return whatever we've gathered so far (may be empty)
+            payload = r.json()
+            items.extend(payload.get("items", []))
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
         out = []
         for it in items:
             color_id = str(it.get("colorId") or "")
@@ -694,25 +710,33 @@ def list_events_debug(db: Session, *, time_min: str, time_max: str, calendar_id:
 
     cal_id = calendar_id or _calendar_id(db)
     try:
-        r = _client.get(
-            f"{CALENDAR_BASE}/calendars/{cal_id}/events",
-            headers={"Authorization": f"Bearer {access}"},
-            params={
-                "timeMin": time_min,
-                "timeMax": time_max,
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "maxResults": "250",
-            },
-        )
-        if r.status_code != 200:
-            return {
-                "error": f"HTTP {r.status_code}: {r.text[:500]}",
-                "queried_calendar_id": cal_id,
-                "items": [],
-            }
-        raw = r.json()
-        items = raw.get("items", []) or []
+        # Paginate so the diagnostic reflects the TRUE total (matches the live
+        # list_events fix) rather than capping the count at one page.
+        url = f"{CALENDAR_BASE}/calendars/{cal_id}/events"
+        headers = {"Authorization": f"Bearer {access}"}
+        base_params = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": "2500",
+        }
+        items: list = []
+        page_token = None
+        for _ in range(20):
+            params = dict(base_params)
+            if page_token:
+                params["pageToken"] = page_token
+            r = _client.get(url, headers=headers, params=params)
+            if r.status_code != 200:
+                if not items:
+                    return {"error": f"HTTP {r.status_code}: {r.text[:500]}", "queried_calendar_id": cal_id, "items": []}
+                break
+            payload = r.json()
+            items.extend(payload.get("items", []) or [])
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
 
         # Color-distribution histogram is the key diagnostic — tells us
         # whether events have colorId set (good — filter logic is the
