@@ -535,6 +535,9 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   const [search, setSearch] = useState(() => {
     try { return localStorage.getItem("at_tasks_search") ?? ""; } catch { return ""; }
   });
+  const [whoFilter, setWhoFilter] = useState(() => {
+    try { return localStorage.getItem("at_tasks_who") ?? ""; } catch { return ""; }
+  });
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
   const [noteFor, setNoteFor] = useState<DailyTask | null>(null);
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
@@ -565,6 +568,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   useEffect(() => { try { localStorage.setItem("at_tasks_tab", tab); } catch { /* ignore */ } }, [tab]);
   useEffect(() => { try { localStorage.setItem("at_tasks_stage", JSON.stringify(stageFilters)); } catch { /* ignore */ } }, [stageFilters]);
   useEffect(() => { try { localStorage.setItem("at_tasks_search", search); } catch { /* ignore */ } }, [search]);
+  useEffect(() => { try { localStorage.setItem("at_tasks_who", whoFilter); } catch { /* ignore */ } }, [whoFilter]);
   useEffect(() => { try { localStorage.setItem("at_tasks_date", dateYMD); } catch { /* ignore */ } }, [dateYMD]);
 
   const openSchedule = async (id: string) => {
@@ -633,6 +637,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
     else if (tab === "date") list = list.filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD);
     if (stageFilters.length) list = list.filter((t) => stageFilters.includes(effectiveStage(t) as StageKey));
+    if (whoFilter) list = list.filter((t) => (t.touched_by || []).some((a) => a.name === whoFilter));
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
     return [...list].sort((a, b) => {
@@ -641,7 +646,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
     });
-  }, [tasks, tab, stageFilters, search, dateYMD, leadId]);
+  }, [tasks, tab, stageFilters, search, whoFilter, dateYMD, leadId]);
+
+  // Distinct people who have touched any loaded lead — powers the "Who" filter.
+  const whoOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tasks ?? []) for (const a of t.touched_by || []) if (a.name) names.add(a.name);
+    return [...names].sort();
+  }, [tasks]);
 
   const dateCount = useMemo(
     () => (tasks ?? []).filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD).length,
@@ -740,6 +752,15 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           )}
         </div>
         <StageMultiSelect selected={stageFilters} onChange={setStageFilters} />
+        <select
+          value={whoFilter}
+          onChange={(e) => setWhoFilter(e.target.value)}
+          title="Filter by who touched the lead"
+          className="text-sm rounded-md border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">Anyone</option>
+          {whoOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
         </div>
         )}
       </div>
