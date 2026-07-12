@@ -655,6 +655,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     return [...names].sort();
   }, [tasks]);
 
+  // Embedded (single-lead) view: the scheduled call lives in the Lead column's
+  // "Call back" pill, which scrolls off-screen in the narrow lead-detail card.
+  // Pull it out so it can be surfaced in an always-visible banner above the table.
+  const embeddedSchedule = useMemo(() => {
+    if (!leadId) return null;
+    const t = (shown ?? [])[0];
+    if (!t || !t.next_follow_up) return null;
+    return { task: t, fu: t.next_follow_up };
+  }, [leadId, shown]);
+
   const dateCount = useMemo(
     () => (tasks ?? []).filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD).length,
     [tasks, dateYMD],
@@ -773,6 +783,27 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
           {dateCount} task{dateCount === 1 ? "" : "s"} scheduled for <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span>
         </p>
+      )}
+
+      {/* Embedded lead view: always-visible scheduled-call banner so it isn't
+          hidden in the horizontally-scrolling table's Lead column. */}
+      {embeddedSchedule && (
+        <button
+          onClick={() => setFollowUpFor(embeddedSchedule.task)}
+          title="Reschedule"
+          className={`mb-3 w-full flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-left ${
+            embeddedSchedule.fu && fuOverdue(embeddedSchedule.fu)
+              ? "border-red-300 bg-red-50 text-red-800"
+              : "border-amber-300 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <CalendarClock className="h-4 w-4 shrink-0" />
+          <span>
+            <span className="font-semibold">Scheduled call:</span>{" "}
+            {ACTION_LABELS[embeddedSchedule.fu.action_type] || "Follow up"} · {fmtFollowUpWhen(embeddedSchedule.fu)}
+          </span>
+          <span className="ml-auto text-xs underline shrink-0">Reschedule</span>
+        </button>
       )}
 
       {(leadId || tab !== "activity") && (loading && !tasks ? (
