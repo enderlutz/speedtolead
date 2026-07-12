@@ -26,6 +26,11 @@ const CLOSED_NOT_SCHEDULED_ID = "bbebbdac-0011-4253-9ed7-65522bafde02";
 const SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066";
 const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";
 const WAITING_VALUE = "status:waiting_updated_estimate"; // dashboard-only overlay
+// A closed-WON deal — either flavor (scheduled or not-yet-scheduled). Drives the
+// green row + celebration on the Daily Task List.
+function isWonStage(stageId: string): boolean {
+  return stageId === CLOSED_NOT_SCHEDULED_ID || stageId === SCHEDULED_STAGE_ID;
+}
 
 // Options in the per-row stage picker — every V2 pipeline stage, in pipeline
 // order (mirrors backend services/pipeline_stages.py). "status:*" values set a
@@ -584,6 +589,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
   const changeStage = async (t: DailyTask, value: string) => {
     if (value === currentStageValue(t)) return;
+    // Celebrate a fresh win: moving a lead INTO closed-won (from a non-won stage).
+    const justWon = !value.startsWith("status:") && isWonStage(value) && !isWonStage(currentStageValue(t));
     setBusyId(t.id);
     try {
       if (value.startsWith("status:")) {
@@ -591,7 +598,13 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       } else {
         await api.updateStage(t.id, value);
       }
-      toast.success("Stage updated");
+      if (justWon) {
+        fireConfetti();
+        playSuccessSound();
+        toast.success(`🎉 Closed won — ${t.contact_name || "deal"}! Nice work.`, { duration: 6000 });
+      } else {
+        toast.success("Stage updated");
+      }
       load();
     } catch {
       toast.error("Couldn't update the stage");
@@ -835,11 +848,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                 <tr
                   key={t.id}
                   className={`border-b last:border-0 transition-colors ${
-                    t.carried_over ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/20"
+                    isWonStage(t.stage_id) ? "bg-green-50 hover:bg-green-100/70"
+                      : t.carried_over ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/20"
                   }`}
                 >
-                  {/* Who — owner / who-touched avatars */}
-                  <td className={`pl-4 pr-1 py-3 align-top ${t.carried_over ? "border-l-4 border-red-500" : ""}`}>
+                  {/* Who — owner / who-touched avatars (won leads get a green rail) */}
+                  <td className={`pl-4 pr-1 py-3 align-top ${
+                    isWonStage(t.stage_id) ? "border-l-4 border-green-500"
+                      : t.carried_over ? "border-l-4 border-red-500" : ""}`}>
                     <TouchedAvatars actors={t.touched_by} />
                   </td>
 
