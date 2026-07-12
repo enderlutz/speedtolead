@@ -389,7 +389,7 @@ def gen_crew_token(employee_id: str, user: dict = Depends(require_staff)):
         if not emp.crew_token:
             emp.crew_token = uuid.uuid4().hex
             db.commit()
-        return {"employee_id": emp.id, "crew_token": emp.crew_token, "path": f"/crew/{emp.crew_token}"}
+        return {"employee_id": emp.id, "crew_token": emp.crew_token, "path": f"/crew-app/{emp.crew_token}"}
     finally:
         db.close()
 

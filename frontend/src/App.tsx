@@ -15,6 +15,7 @@ import Settings from "@/pages/Settings";
 import EditPdf from "@/pages/EditPdf";
 import Pricing from "@/pages/Pricing";
 import ProposalView from "@/pages/ProposalView";
+import CrewToday from "@/pages/CrewToday";
 import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
@@ -128,6 +129,7 @@ function AppLayout() {
     location.pathname.startsWith("/proposal/") ||
     location.pathname.startsWith("/approve/") ||
     location.pathname.startsWith("/capture/") ||
+    location.pathname.startsWith("/crew-app/") ||
     location.pathname.startsWith("/legal/");
 
   if (isPublic) {
@@ -135,6 +137,7 @@ function AppLayout() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalView />} />
+        <Route path="/crew-app/:token" element={<CrewToday />} />
         <Route path="/approve/:token" element={<QuickApprove />} />
         <Route path="/capture/:token" element={<ExteriorCapture />} />
         <Route path="/legal/eula" element={<Eula />} />

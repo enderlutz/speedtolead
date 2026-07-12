@@ -884,6 +884,67 @@ export interface QbInvoiceSyncStatus {
   error?: string | null;
 }
 
+// ── Crew App ────────────────────────────────────────────────────────────────
+export interface CrewCard {
+  job_task_id: string;
+  scheduled_job_id: string;
+  lead_id: string;
+  task_type: "clean" | "stain" | "powerwash";
+  emoji: string;
+  task_label: string;
+  status: "pending" | "in_progress" | "interrupted" | "complete";
+  customer_name: string;
+  address: string;
+  maps_url: string;
+  package: string;
+  stain_color: string;
+  sides: string;
+  linear_feet: number | null;
+  height: string;
+  pm_note: string;
+  budgeted_hours: number | null;
+  is_backup: boolean;
+  wrapping_up_at: string | null;
+  running: boolean;
+}
+export interface CrewSegment {
+  id: string; employee_id: string; kind: "travel" | "work" | "shop";
+  job_task_id: string | null; started_at: string; ended_at: string | null; end_reason: string;
+}
+export interface CrewToday {
+  worker: { id: string; name: string; first_name: string };
+  date: string;
+  day_started: boolean;
+  open_segment: CrewSegment | null;
+  primary: CrewCard[];
+  backup: CrewCard[];
+}
+export interface CrewTask {
+  id: string; scheduled_job_id: string; lead_id: string; task_type: string;
+  budgeted_hours: number | null; status: string; progress_note: string;
+  bleach_gallons: number | null; stain_gallons: number | null; stain_color: string;
+  wrapping_up_at: string | null; completed_at: string | null; sort_order: number;
+}
+export interface CrewAssignmentRow {
+  id: string; job_task_id: string; employee_id: string; work_date: string;
+  sort_order: number; is_backup: boolean;
+  task: CrewTask & { emoji: string; task_label: string; customer_name: string; address: string; package: string; job_date: string };
+}
+export interface CrewBoard {
+  week_start: string;
+  days: string[];
+  workers: { id: string; name: string; first_name: string; has_token: boolean }[];
+  assignments: CrewAssignmentRow[];
+  unassigned: CrewAssignmentRow["task"][];
+  interrupted: CrewAssignmentRow["task"][];
+}
+export interface CrewStats {
+  range: { start: string; end: string };
+  by_worker: { employee_id: string; name: string; travel_hours: number; work_hours: number; shop_hours: number; total_hours: number }[];
+  by_task: { job_task_id: string; task_label: string; customer_name: string; actual_hours: number; budgeted_hours: number | null; status: string }[];
+  materials: { bleach_gallons: number; stain_by_color: { color: string; gallons: number }[] };
+}
+
 export const api = {
   // Auth
   login: (username: string, password: string) =>
@@ -2507,6 +2568,32 @@ export const api = {
       skipped_already_pushed: number;
       failures: { lead_id: string; name: string; error: string }[];
     }>(`/api/painting-upsell/push-all-to-v2-ghl`, { method: "POST" }),
+
+  // ── Crew App — public crew page (token-keyed, no auth) ──
+  getCrewToday: (token: string) => request<CrewToday>(`/api/crew-app/${token}/today`),
+  crewStartDay: (token: string) => request<{ status: string; open_segment: CrewSegment }>(`/api/crew-app/${token}/start-day`, { method: "POST" }),
+  crewArrive: (token: string, jobTaskId: string) =>
+    request<{ status: string; open_segment: CrewSegment; task: CrewTask }>(`/api/crew-app/${token}/arrive`, { method: "POST", body: JSON.stringify({ job_task_id: jobTaskId }) }),
+  crewWrappingUp: (token: string, jobTaskId: string) =>
+    request<{ status: string; wrapping_up_at: string }>(`/api/crew-app/${token}/wrapping-up`, { method: "POST", body: JSON.stringify({ job_task_id: jobTaskId }) }),
+  crewFinish: (token: string, body: { job_task_id: string; outcome: "done" | "rain" | "other"; gallons?: number; stain_color?: string; progress_note?: string }) =>
+    request<{ status: string; task: CrewTask; open_segment: CrewSegment | null }>(`/api/crew-app/${token}/finish`, { method: "POST", body: JSON.stringify(body) }),
+  crewEndDay: (token: string) => request<{ status: string; segments_closed: number }>(`/api/crew-app/${token}/end-day`, { method: "POST" }),
+
+  // ── Crew App — PM board + reports (staff) ──
+  getCrewBoard: (weekStart?: string) => request<CrewBoard>(`/api/crew-app/board${weekStart ? `?week_start=${weekStart}` : ""}`),
+  genCrewToken: (employeeId: string) => request<{ employee_id: string; crew_token: string; path: string }>(`/api/crew-app/employees/${employeeId}/crew-token`, { method: "POST" }),
+  createCrewTask: (body: { scheduled_job_id: string; task_type: string; budgeted_hours?: number }) =>
+    request<CrewTask>(`/api/crew-app/tasks`, { method: "POST", body: JSON.stringify(body) }),
+  createCrewDefaultTasks: (scheduledJobId: string) =>
+    request<{ status: string }>(`/api/crew-app/jobs/${scheduledJobId}/default-tasks`, { method: "POST" }),
+  updateCrewTask: (taskId: string, body: { budgeted_hours?: number; task_type?: string; status?: string; progress_note?: string }) =>
+    request<CrewTask>(`/api/crew-app/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(body) }),
+  upsertCrewAssignment: (body: { job_task_id: string; employee_id: string; work_date: string; is_backup?: boolean; sort_order?: number }) =>
+    request<CrewAssignmentRow>(`/api/crew-app/assignments`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteCrewAssignment: (id: string) => request<{ status: string }>(`/api/crew-app/assignments/${id}`, { method: "DELETE" }),
+  crewShiftDay: (date: string) => request<{ status: string; moved_to: string; moved: number; promoted: number }>(`/api/crew-app/board/shift-day`, { method: "POST", body: JSON.stringify({ date }) }),
+  getCrewStats: (start?: string, end?: string) => request<CrewStats>(`/api/crew-app/stats${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
 };
 
 // --- Training simulator types ---
