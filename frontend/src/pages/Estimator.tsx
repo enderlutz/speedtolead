@@ -80,6 +80,8 @@ export default function Estimator() {
   })();
 
   const totalStops = schedule?.days.reduce((n, d) => n + d.visits.length, 0) ?? 0;
+  // Total hours clocked across the week (sum of each day's clock-in→out).
+  const totalWorked = schedule?.days.reduce((n, d) => n + (d.worked_hours || 0), 0) ?? 0;
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-3xl mx-auto">
@@ -92,6 +94,11 @@ export default function Estimator() {
             {isEstimator ? "Your week" : schedule?.estimator_name ? `${schedule.estimator_name}'s week` : "Schedule"}
             {totalStops ? ` • ${totalStops} stop${totalStops === 1 ? "" : "s"}` : ""}
           </p>
+          {totalWorked > 0 && (
+            <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-green-100 text-green-800 text-xs font-semibold px-2 py-0.5">
+              <Clock className="h-3 w-3" /> {fmtHours(totalWorked)} worked this week
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={loadSchedule} disabled={loading}>
