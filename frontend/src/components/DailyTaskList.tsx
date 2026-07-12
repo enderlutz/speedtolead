@@ -224,6 +224,33 @@ function fireConfetti() {
   requestAnimationFrame(frame);
 }
 
+// Full-screen "Congratulations!" takeover on a closed-won deal. Sits just under
+// the confetti canvas (z-9999) so the confetti rains over the green. Fades +
+// pops in, auto-dismisses after ~4.5s, tap anywhere to close early.
+function WinOverlay({ name, onClose }: { name: string; onClose: () => void }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const inT = setTimeout(() => setShown(true), 20);      // trigger the enter transition
+    const outT = setTimeout(onClose, 4500);
+    return () => { clearTimeout(inT); clearTimeout(outT); };
+  }, [onClose]);
+  return (
+    <div
+      onClick={onClose}
+      className={`fixed inset-0 z-[9000] flex flex-col items-center justify-center text-center px-6 cursor-pointer select-none
+        bg-gradient-to-br from-green-500 via-emerald-500 to-green-600 text-white
+        transition-all duration-500 ${shown ? "opacity-100" : "opacity-0"}`}
+    >
+      <div className={`transition-transform duration-500 ${shown ? "scale-100" : "scale-75"}`}>
+        <div className="text-7xl mb-4 animate-bounce">🎉</div>
+        <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tight drop-shadow-lg">Congratulations!</h1>
+        <p className="mt-4 text-2xl sm:text-3xl font-bold opacity-95">Closed won{name ? ` — ${name}` : ""}! 🥳</p>
+        <p className="mt-8 text-sm uppercase tracking-widest opacity-80">tap anywhere to continue</p>
+      </div>
+    </div>
+  );
+}
+
 // Team + head-to-head scoreboard. Reads /daily-tasks/scoreboard (calls,
 // follow-ups, estimates sent, deals scheduled/closed → points). Estimates are
 // the headline metric; scheduling/closing stack big bonuses on top.
@@ -548,6 +575,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<string | null>(null);  // closed-won takeover
   // Bumped whenever the task list reloads so the Scoreboard refetches too
   // (a logged call / sent estimate updates the score right away).
   const [scoreTick, setScoreTick] = useState(0);
@@ -601,7 +629,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       if (justWon) {
         fireConfetti();
         playSuccessSound();
-        toast.success(`🎉 Closed won — ${t.contact_name || "deal"}! Nice work.`, { duration: 6000 });
+        setCelebration(t.contact_name || "");
       } else {
         toast.success("Stage updated");
       }
@@ -693,6 +721,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
   return (
     <div className="space-y-3">
+      {celebration !== null && <WinOverlay name={celebration} onClose={() => setCelebration(null)} />}
       {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">
