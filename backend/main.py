@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
@@ -424,6 +424,7 @@ app.include_router(fence_ai.router, prefix="/api")
 app.include_router(chatbot.router, prefix="/api")
 app.include_router(calls.router, prefix="/api")
 app.include_router(crew.router, prefix="/api")
+app.include_router(crew_app.router, prefix="/api")
 app.include_router(scheduling.router, prefix="/api")
 app.include_router(estimate_delays.router, prefix="/api")
 app.include_router(time_logs.router, prefix="/api")

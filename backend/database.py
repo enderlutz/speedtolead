@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, Numeric, inspect, text
+from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, Numeric, UniqueConstraint, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker, deferred
 from config import get_settings
 
@@ -841,6 +841,10 @@ class Employee(Base):
     qb_employee_id = Column(Text, default="")
     qb_time_user_id = Column(Text, default="")
     qb_synced_at = Column(Text, default="")
+    # Crew App: unguessable token for this employee's public phone page
+    # (/crew/{token}, no login — same pattern as proposal pages). Empty until
+    # the PM generates one.
+    crew_token = Column(Text, default="")
     # Existence flag set on upload. Crew listing endpoints serialized every
     # employee twice via bool(w9_file_data) — each access loaded the entire
     # W9 PDF blob from Postgres. This flag avoids that hit.
@@ -1339,6 +1343,131 @@ class JobAssignment(Base):
             "employee_id": self.employee_id,
             "notified_at": self.notified_at,
             "created_at": self.created_at,
+        }
+
+
+# ── Crew App (field crew phone page + task tracking) ────────────────────────
+# The "job" is an existing ScheduledJob (date/package/color/sides/gallons). We
+# split it into JobTasks (clean/stain/powerwash) done by different Employees on
+# different days, track button-tap TimeSegments (travel/work/shop), and let the
+# PM schedule + rain-shuffle from a week grid. Reuses Employee (crew_token added)
+# and ScheduledJob rather than forking new people/job tables.
+
+class JobTask(Base):
+    """One unit of crew work on a scheduled job — clean, stain, or powerwash.
+    A job usually has clean → stain, done by different people on different days.
+    Actual hours = Σ its work TimeSegments (so rain-interrupted tasks that resume
+    on another day still total correctly)."""
+    __tablename__ = "job_tasks"
+    __table_args__ = (
+        Index("idx_job_tasks_scheduled_job", "scheduled_job_id"),
+        Index("idx_job_tasks_status", "status"),
+    )
+
+    id = Column(Text, primary_key=True)
+    scheduled_job_id = Column(Text, nullable=False)       # → ScheduledJob.id
+    lead_id = Column(Text, default="")                    # denormalized (job.lead_id)
+    task_type = Column(Text, nullable=False)              # clean | stain | powerwash
+    budgeted_hours = Column(Numeric(10, 2), nullable=True)  # Phase 1: PM enters; Phase 2: estimator
+    status = Column(Text, default="pending")              # pending | in_progress | interrupted | complete
+    progress_note = Column(Text, default="")              # "3 of 4 sides stained, rain"
+    bleach_gallons = Column(Numeric(10, 2), nullable=True)  # cleaner enters at completion
+    stain_gallons = Column(Numeric(10, 2), nullable=True)   # stainer enters at completion
+    stain_color = Column(Text, default="")                # confirmed by stainer (may differ from estimate)
+    wrapping_up_at = Column(Text, nullable=True)          # crew tapped "~20 min out"
+    completed_at = Column(Text, nullable=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        def _num(v):
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+        return {
+            "id": self.id,
+            "scheduled_job_id": self.scheduled_job_id,
+            "lead_id": self.lead_id or "",
+            "task_type": self.task_type,
+            "budgeted_hours": _num(self.budgeted_hours),
+            "status": self.status or "pending",
+            "progress_note": self.progress_note or "",
+            "bleach_gallons": _num(self.bleach_gallons),
+            "stain_gallons": _num(self.stain_gallons),
+            "stain_color": self.stain_color or "",
+            "wrapping_up_at": self.wrapping_up_at,
+            "completed_at": self.completed_at,
+            "sort_order": self.sort_order or 0,
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+        }
+
+
+class CrewAssignment(Base):
+    """PM schedules a JobTask to an Employee on a date, with a route sort order,
+    as primary or backup (rain plan B). Distinct from JobAssignment (which is
+    job↔worker only) — this is task-level + dated + backup-aware."""
+    __tablename__ = "crew_assignments"
+    __table_args__ = (
+        Index("idx_crew_assignments_task", "job_task_id"),
+        Index("idx_crew_assignments_worker_date", "employee_id", "work_date"),
+        UniqueConstraint("job_task_id", "employee_id", "work_date", name="uq_crew_assignment"),
+    )
+
+    id = Column(Text, primary_key=True)
+    job_task_id = Column(Text, nullable=False)            # → JobTask.id
+    employee_id = Column(Text, nullable=False)            # → Employee.id
+    work_date = Column(Text, nullable=False)              # YYYY-MM-DD, Central
+    sort_order = Column(Integer, default=0)               # route order within the day
+    is_backup = Column(Boolean, default=False)            # rain plan B
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "job_task_id": self.job_task_id,
+            "employee_id": self.employee_id,
+            "work_date": self.work_date,
+            "sort_order": self.sort_order or 0,
+            "is_backup": bool(self.is_backup),
+            "created_at": self.created_at or "",
+        }
+
+
+class TimeSegment(Base):
+    """A timestamped interval per worker: travel | work | shop. Work segments
+    attach to a JobTask; a task can have many across days (rain = multiple partial
+    sessions). Server guard: at most one open (ended_at IS NULL) segment per worker."""
+    __tablename__ = "time_segments"
+    __table_args__ = (
+        Index("idx_time_segments_worker", "employee_id"),
+        Index("idx_time_segments_task", "job_task_id"),
+        Index("idx_time_segments_open", "employee_id", "ended_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    employee_id = Column(Text, nullable=False)            # → Employee.id
+    kind = Column(Text, nullable=False)                   # travel | work | shop
+    job_task_id = Column(Text, nullable=True)             # NULL unless kind='work'
+    started_at = Column(Text, nullable=False)             # ISO UTC
+    ended_at = Column(Text, nullable=True)                # NULL = currently running
+    end_reason = Column(Text, default="")                # done | rain | other
+    auto_closed = Column(Boolean, default=False)          # midnight guard flagged it for PM review
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "employee_id": self.employee_id,
+            "kind": self.kind,
+            "job_task_id": self.job_task_id,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "end_reason": self.end_reason or "",
+            "auto_closed": bool(self.auto_closed),
+            "created_at": self.created_at or "",
         }
 
 
@@ -2902,6 +3031,7 @@ def _run_migrations():
             ("qb_employee_id",  "ALTER TABLE employees ADD COLUMN qb_employee_id TEXT DEFAULT ''"),
             ("qb_time_user_id", "ALTER TABLE employees ADD COLUMN qb_time_user_id TEXT DEFAULT ''"),
             ("qb_synced_at",    "ALTER TABLE employees ADD COLUMN qb_synced_at TEXT DEFAULT ''"),
+            ("crew_token",      "ALTER TABLE employees ADD COLUMN crew_token TEXT DEFAULT ''"),
         ]:
             if new_col not in emp_cols:
                 with _engine.begin() as conn:
