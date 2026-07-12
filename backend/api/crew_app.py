@@ -611,6 +611,21 @@ def board(week_start: str = "", user: dict = Depends(require_staff)):
             lead = leads.get(t.lead_id or (job.lead_id if job else ""))
             return _pm_task_brief(t, job, lead)
 
+        # Upcoming scheduled jobs (this week) that have no tasks yet → PM can seed.
+        week_jobs = (db.query(ScheduledJob)
+                     .filter(ScheduledJob.job_date.in_(days), ScheduledJob.status.in_(["scheduled", "in_progress"]))
+                     .all())
+        jobbed_task_job_ids = {t.scheduled_job_id for t in db.query(JobTask.scheduled_job_id)
+                               .filter(JobTask.scheduled_job_id.in_([j.id for j in week_jobs])).all()} if week_jobs else set()
+        needs_lead_ids = {j.lead_id for j in week_jobs if j.id not in jobbed_task_job_ids and j.lead_id}
+        needs_leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_(needs_lead_ids)).all()} if needs_lead_ids else {}
+        needs_tasks = [
+            {"scheduled_job_id": j.id, "job_date": j.job_date or "", "package": j.package_tier or "",
+             "customer_name": (needs_leads.get(j.lead_id).contact_name if needs_leads.get(j.lead_id) else "") or "Customer",
+             "address": j.address or ""}
+            for j in week_jobs if j.id not in jobbed_task_job_ids
+        ]
+
         return {
             "week_start": ws,
             "days": days,
@@ -621,6 +636,7 @@ def board(week_start: str = "", user: dict = Depends(require_staff)):
             ],
             "unassigned": [brief(t) for t in tray_tasks],
             "interrupted": [brief(t) for t in interrupted_tasks],
+            "needs_tasks": needs_tasks,
         }
     finally:
         db.close()

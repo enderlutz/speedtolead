@@ -937,6 +937,7 @@ export interface CrewBoard {
   assignments: CrewAssignmentRow[];
   unassigned: CrewAssignmentRow["task"][];
   interrupted: CrewAssignmentRow["task"][];
+  needs_tasks: { scheduled_job_id: string; job_date: string; package: string; customer_name: string; address: string }[];
 }
 export interface CrewStats {
   range: { start: string; end: string };
