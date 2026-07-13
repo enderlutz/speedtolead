@@ -372,50 +372,6 @@ SERVICE_TYPE_BY_COLOR = {
 }
 
 
-def _is_job_hex(hex_str: str) -> bool:
-    """True when a hex color is yellow-ish (banana) or red-ish (tomato) — i.e. a
-    job color. Robust to the exact palette shade so it works for both the event
-    palette (#fbd75b banana / #dc2127 tomato) and the calendar palette."""
-    h = (hex_str or "").lstrip("#")
-    if len(h) != 6:
-        return False
-    try:
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    except ValueError:
-        return False
-    yellow = r > 200 and g > 170 and b < 150
-    red = r > 170 and g < 130 and b < 130
-    return yellow or red
-
-
-def _calendar_default_job_type(access: str, cal_id: str) -> str | None:
-    """A Google event with NO explicit colorId inherits the calendar's default
-    color. When that default is banana/tomato, uncolored events ARE jobs (this is
-    the common case — the whole calendar is set to yellow, so nobody colors each
-    event). Returns 'fence_staining' (yellow default), 'power_washing' (red
-    default), or None (default isn't a job color → don't fold in uncolored events).
-    """
-    try:
-        r = _client.get(
-            f"{CALENDAR_BASE}/users/me/calendarList/{cal_id}",
-            headers={"Authorization": f"Bearer {access}"},
-        )
-        if r.status_code != 200:
-            return None
-        bg = (r.json().get("backgroundColor") or "").strip()
-    except Exception:
-        return None
-    if not _is_job_hex(bg):
-        return None
-    h = bg.lstrip("#")
-    try:
-        r_, g_, b_ = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    except ValueError:
-        return "fence_staining"
-    # Red-ish default → power washing; otherwise treat yellow as fence staining.
-    return "power_washing" if (r_ > 170 and g_ < 130 and b_ < 130) else "fence_staining"
-
-
 def backfill_add_attendee_to_color(
     db: Session,
     *,
@@ -634,21 +590,11 @@ def list_events(
             page_token = payload.get("nextPageToken")
             if not page_token:
                 break
-        # Events with NO explicit colorId inherit the calendar's default color;
-        # when that default is banana/tomato they're jobs too. This is the usual
-        # setup — the whole calendar is yellow, so individual events are left
-        # uncolored and only a handful get an explicit color. Without this we'd
-        # only ever surface the explicitly-colored minority.
-        default_job_type = _calendar_default_job_type(access, cal_id)
         out = []
         for it in items:
             color_id = str(it.get("colorId") or "")
-            if color_id in JOB_COLOR_IDS:
-                effective_color = color_id
-            elif not color_id and default_job_type is not None:
-                effective_color = GCAL_COLOR_TOMATO if default_job_type == "power_washing" else GCAL_COLOR_BANANA
-            else:
-                continue  # not a job-colored event (e.g. an explicit blue "call")
+            if color_id not in JOB_COLOR_IDS:
+                continue  # skip non-job-colored events per spec
             event_id = it.get("id", "")
             # Worker filter — only events linked to their assigned
             # ScheduledJobs. Personal events (Alan's lunch, vendor
@@ -681,8 +627,8 @@ def list_events(
                 "all_day": all_day,
                 "html_link": it.get("htmlLink", ""),
                 "status": it.get("status", "confirmed"),
-                "color_id": effective_color,
-                "service_type": SERVICE_TYPE_BY_COLOR.get(effective_color, "fence_staining"),
+                "color_id": color_id,
+                "service_type": SERVICE_TYPE_BY_COLOR.get(color_id, "fence_staining"),
             })
         return out
     except Exception as e:
@@ -801,14 +747,9 @@ def list_events_debug(db: Session, *, time_min: str, time_max: str, calendar_id:
             cid = str(it.get("colorId") or "(none)")
             color_histogram[cid] = color_histogram.get(cid, 0) + 1
 
-        # Calendar default color — uncolored events inherit it; when it's a job
-        # color they now count as jobs.
-        default_job_type = _calendar_default_job_type(access, cal_id)
-
-        def _passes(it) -> bool:
-            cid = str(it.get("colorId") or "")
-            return cid in JOB_COLOR_IDS or (not cid and default_job_type is not None)
-
+        # Slim each item to the fields that matter for diagnosis. Strip
+        # the full payload because Google's responses are noisy (description
+        # HTML, attendee lists, etc.) and we just need the signal.
         slim_items = [
             {
                 "id": it.get("id", ""),
@@ -819,16 +760,15 @@ def list_events_debug(db: Session, *, time_min: str, time_max: str, calendar_id:
                 "creator": (it.get("creator") or {}).get("email", ""),
                 "organizer": (it.get("organizer") or {}).get("email", ""),
                 "status": it.get("status", ""),
-                "passes_filter": _passes(it),
+                "passes_current_filter": str(it.get("colorId") or "") in JOB_COLOR_IDS,
             }
             for it in items
         ]
         return {
             "queried_calendar_id": cal_id,
-            "calendar_default_job_type": default_job_type,   # None = default isn't yellow/red
             "total_events_in_window": len(items),
-            "passing_filter": sum(1 for s in slim_items if s["passes_filter"]),
-            "filter_rule": f"colorId in {sorted(JOB_COLOR_IDS)} OR uncolored when the calendar default is a job color",
+            "passing_current_filter": sum(1 for s in slim_items if s["passes_current_filter"]),
+            "filter_rule": f"colorId must be in {sorted(JOB_COLOR_IDS)}",
             "color_histogram": color_histogram,
             "items": slim_items,
         }
