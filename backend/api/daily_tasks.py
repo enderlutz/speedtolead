@@ -264,6 +264,13 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
             else:
                 days_waiting = max((today_ct - touch_date).days, 0)
                 carried_over = touch_date < today_ct
+            # Brand-new: arrived today and never worked (no call, no follow-up).
+            # These are the most time-sensitive (speed-to-lead) — flagged so the
+            # UI can star them and pin them to the top of the queue.
+            is_new = (
+                last_action_at is None
+                and _to_central_date(l.created_at or "") == today_ct
+            )
             rows.append({
                 "id": l.id,
                 "contact_name": l.contact_name or "",
@@ -285,6 +292,8 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "tier_prices": prices.get(l.id, _empty_tiers),
                 "carried_over": carried_over,
                 "days_waiting": days_waiting,
+                "is_new": is_new,
+                "created_at": l.created_at or "",
                 # Distinct people who've touched this lead, most-recent first.
                 "touched_by": [
                     {"name": a["name"], "sub": a["sub"], "at": a["at"]}

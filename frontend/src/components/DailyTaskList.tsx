@@ -10,7 +10,7 @@ import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
   CheckCircle2, Clock, CalendarClock, Search, X, AlertTriangle,
   CalendarDays, ChevronLeft, ChevronRight, User, ChevronDown, SlidersHorizontal,
-  Flame, Trophy, Target,
+  Flame, Trophy, Target, Sparkles,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -499,6 +499,19 @@ function isUpcoming(t: DailyTask): boolean {
   // A follow-up scheduled for a later Central day is "upcoming".
   return ymdCST(fu.due_at) > todayCST();
 }
+// Does this lead belong on the "Today" queue for the viewed day? When viewing
+// today, unworked work ROLLS FORWARD so nothing gets stranded on a past date:
+// a follow-up due today or overdue counts, and a lead that aged without any
+// follow-up scheduled (first contact never happened) is pulled in too. A
+// specific past/future date shows exactly what was scheduled that day.
+function belongsOnDate(t: DailyTask, dateYMD: string, isToday: boolean): boolean {
+  const fu = t.next_follow_up;
+  if (isToday) {
+    if (fu?.due_at) return ymdCST(fu.due_at) <= dateYMD;  // due today or overdue
+    return t.carried_over || t.is_new;                    // aged in, or fresh today
+  }
+  return !!fu?.due_at && ymdCST(fu.due_at) === dateYMD;
+}
 // Overdue = the follow-up's day has already passed (all-day tasks aren't
 // "overdue" mid-day; a timed task is overdue once its time has passed today).
 function fuOverdue(fu: { due_at: string; all_day?: boolean } | null | undefined): boolean {
@@ -676,13 +689,15 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     let list = tasks ?? [];
     if (tab === "today") list = list.filter((t) => !isUpcoming(t));
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
-    else if (tab === "date") list = list.filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD);
+    else if (tab === "date") { const isToday = dateYMD === todayCST(); list = list.filter((t) => belongsOnDate(t, dateYMD, isToday)); }
     if (stageFilters.length) list = list.filter((t) => stageFilters.includes(effectiveStage(t) as StageKey));
     if (whoFilter) list = list.filter((t) => (t.touched_by || []).some((a) => a.name === whoFilter));
     const q = search.trim().toLowerCase();
     if (q) list = list.filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
     return [...list].sort((a, b) => {
-      // Carried-over (unfinished from a prior day) float to the top of the queue.
+      // Brand-new leads (arrived today, untouched) get the very top — speed to
+      // lead wins deals — then carried-over (unfinished from a prior day).
+      if (a.is_new !== b.is_new) return a.is_new ? -1 : 1;
       if (a.carried_over !== b.carried_over) return a.carried_over ? -1 : 1;
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
@@ -706,10 +721,10 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     return { task: t, fu: t.next_follow_up };
   }, [leadId, shown]);
 
-  const dateCount = useMemo(
-    () => (tasks ?? []).filter((t) => t.next_follow_up && ymdCST(t.next_follow_up.due_at) === dateYMD).length,
-    [tasks, dateYMD],
-  );
+  const dateCount = useMemo(() => {
+    const isToday = dateYMD === todayCST();
+    return (tasks ?? []).filter((t) => belongsOnDate(t, dateYMD, isToday)).length;
+  }, [tasks, dateYMD]);
 
   const carriedCount = useMemo(() => (tasks ?? []).filter((t) => t.carried_over).length, [tasks]);
 
@@ -754,7 +769,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           <TabsList>
             <TabsTrigger value="today">Untapped Leads ({counts.today})</TabsTrigger>
             <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
-            <TabsTrigger value="date">Today</TabsTrigger>
+            <TabsTrigger value="date">Today ({dateCount})</TabsTrigger>
             <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
@@ -823,7 +838,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       {!leadId && tab === "date" && (
         <p className="text-xs text-muted-foreground">
           <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-          {dateCount} task{dateCount === 1 ? "" : "s"} scheduled for <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span>
+          {dateCount} lead{dateCount === 1 ? "" : "s"} to work {dateYMD === todayCST() ? "today" : <>on <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span></>}
+          {dateYMD === todayCST() && <span className="text-muted-foreground"> — includes overdue callbacks and untouched leads rolled forward</span>}
         </p>
       )}
 
@@ -878,12 +894,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   key={t.id}
                   className={`border-b last:border-0 transition-colors ${
                     isWonStage(t.stage_id) ? "bg-green-50 hover:bg-green-100/70"
+                      : t.is_new ? "bg-sky-50/70 hover:bg-sky-100/60"
                       : t.carried_over ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/20"
                   }`}
                 >
                   {/* Who — owner / who-touched avatars (won leads get a green rail) */}
                   <td className={`pl-4 pr-1 py-3 align-top ${
                     isWonStage(t.stage_id) ? "border-l-4 border-green-500"
+                      : t.is_new ? "border-l-4 border-sky-500"
                       : t.carried_over ? "border-l-4 border-red-500" : ""}`}>
                     <TouchedAvatars actors={t.touched_by} />
                   </td>
@@ -894,6 +912,15 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                       <button onClick={() => navigate(`/leads/${t.id}`)} className="font-medium text-primary hover:underline text-left">
                         {t.contact_name || "Lead"}
                       </button>
+                      {t.is_new && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-700 px-1.5 py-0.5 text-[10px] font-semibold"
+                          title="Brand-new lead — just came in today. Call ASAP (speed to lead wins deals)."
+                        >
+                          <Sparkles className="h-2.5 w-2.5" />
+                          New
+                        </span>
+                      )}
                       {t.carried_over && (
                         <span
                           className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold"
