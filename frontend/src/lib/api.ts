@@ -1959,11 +1959,14 @@ export const api = {
     }),
   /** Send the $250 non-refundable scheduling deposit invoice for a Lead.
    *  Returns the hosted QB payment link. Idempotent — re-calling on a
-   *  lead that already has one returns the existing record. */
-  sendDepositInvoice: (leadId: string) =>
-    request<DepositInvoiceResult>(`/api/quickbooks/leads/${leadId}/send-deposit-invoice`, {
-      method: "POST",
-    }),
+   *  lead that already has one returns the existing record. Pass
+   *  textCustomer=false to create/return the link WITHOUT auto-texting the
+   *  customer (the "Copy Link" fallback — admin pastes it manually). */
+  sendDepositInvoice: (leadId: string, textCustomer = true) =>
+    request<DepositInvoiceResult>(
+      `/api/quickbooks/leads/${leadId}/send-deposit-invoice${textCustomer ? "" : "?text_customer=false"}`,
+      { method: "POST" },
+    ),
   /** Mark a lead's deposit as waived (Alan's call for trusted repeat
    *  customers). Frees the soft schedule gate without taking payment. */
   waiveDeposit: (leadId: string) =>

@@ -825,12 +825,16 @@ DEPOSIT_AMOUNT_USD = 250.0
 
 
 @router.post("/quickbooks/leads/{lead_id}/send-deposit-invoice")
-def send_deposit_invoice(lead_id: str, user: dict = Depends(require_staff)):
+def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = Depends(require_staff)):
     """Create a QuickBooks invoice for the $250 non-refundable deposit and
     return the hosted payment link. Idempotent — if an invoice was
     already created for this lead's deposit, return the existing record
     instead of creating a duplicate. If the deposit is already paid or
-    waived, refuse (200 with explanation) so admin can see the state."""
+    waived, refuse (200 with explanation) so admin can see the state.
+
+    text_customer=False creates/returns the link WITHOUT auto-texting the
+    customer — used by the dashboard's "Copy Link" fallback so admin can
+    paste the link into WhatsApp/email themselves."""
     del user
     db = get_db()
     try:
@@ -855,8 +859,12 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_staff)):
         # Idempotent: an invoice already exists for this lead's deposit.
         # Return the existing link rather than racing QB on duplicates.
         if lead.deposit_qb_invoice_id:
-            # Re-text the existing link so pressing Send again re-sends it.
-            sms_sent = _text_deposit_link(lead, lead.deposit_payment_link or "", lead.deposit_amount or DEPOSIT_AMOUNT_USD)
+            # Re-text the existing link so pressing Send again re-sends it
+            # (unless this is a copy-only call).
+            sms_sent = (
+                _text_deposit_link(lead, lead.deposit_payment_link or "", lead.deposit_amount or DEPOSIT_AMOUNT_USD)
+                if text_customer else False
+            )
             return {
                 "status": "already_sent",
                 "sms_sent": sms_sent,
@@ -878,7 +886,7 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_staff)):
             lead.updated_at = _now()
             db.commit()
             db.refresh(lead)
-            sms_sent = _text_deposit_link(lead, invoice_url, DEPOSIT_AMOUNT_USD)
+            sms_sent = _text_deposit_link(lead, invoice_url, DEPOSIT_AMOUNT_USD) if text_customer else False
             return {
                 "mode": "mock",
                 "status": "sent",
@@ -973,7 +981,8 @@ def send_deposit_invoice(lead_id: str, user: dict = Depends(require_staff)):
         from api.qb_invoices import upsert_invoice_id
         upsert_invoice_id(db, inv["invoice_id"], commit=True)
         # Text the customer the hosted payment link (the whole point of "Send").
-        sms_sent = _text_deposit_link(lead, lead.deposit_payment_link, lead.deposit_amount)
+        # Skipped for copy-only calls, where admin sends the link themselves.
+        sms_sent = _text_deposit_link(lead, lead.deposit_payment_link, lead.deposit_amount) if text_customer else False
         return {
             "mode": "live",
             "status": "sent",

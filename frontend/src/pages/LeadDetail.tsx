@@ -2704,6 +2704,7 @@ function DepositRow({
 }) {
   const [sending, setSending] = useState(false);
   const [waiving, setWaiving] = useState(false);
+  const [copyingLink, setCopyingLink] = useState(false);
   const status = (lead.deposit_status || "").toLowerCase();
   const link = lead.deposit_payment_link || "";
   const sentAt = lead.deposit_invoice_sent_at || "";
@@ -2760,6 +2761,31 @@ function DepositRow({
     }
   };
 
+  // Fallback: generate the deposit invoice and copy its payment link so admin
+  // can paste it anywhere (WhatsApp, email) WITHOUT auto-texting the customer.
+  const handleCopyLink = async () => {
+    setCopyingLink(true);
+    try {
+      const r = await api.sendDepositInvoice(lead.id, false);
+      const url = r.deposit_payment_link || "";
+      if (!url) {
+        toast.error("Couldn't get a payment link — try Send instead.");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success("Deposit link copied — paste it anywhere.");
+      } catch {
+        toast.info("Link ready — copy it from the field below.");
+      }
+      onChange();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to create deposit link");
+    } finally {
+      setCopyingLink(false);
+    }
+  };
+
   const badgeCls =
     status === "paid"    ? "bg-emerald-600 text-white"
     : status === "pending" ? "bg-amber-600 text-white"
@@ -2786,17 +2812,37 @@ function DepositRow({
       </div>
 
       {!status && (
-        <div className="flex gap-2 flex-wrap">
-          <Button size="sm" onClick={handleSend} disabled={sending}>
-            {sending ? (
-              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Sending…</>
-            ) : (
-              <><Send className="h-3.5 w-3.5 mr-1" /> Send ${amount.toFixed(0)} Deposit Link</>
-            )}
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving} title="Skip the gate for trusted repeat customers">
-            {waiving ? "Waiving…" : "Waive (trusted)"}
-          </Button>
+        <div className="space-y-1.5">
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" onClick={handleSend} disabled={sending || copyingLink}>
+              {sending ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Sending…</>
+              ) : (
+                <><Send className="h-3.5 w-3.5 mr-1" /> Send ${amount.toFixed(0)} Deposit Link</>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleCopyLink}
+              disabled={copyingLink || sending}
+              title="Generate the deposit link and copy it — paste it into WhatsApp/email yourself (doesn't text the customer)"
+            >
+              {copyingLink ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Getting link…</>
+              ) : (
+                <><Copy className="h-3.5 w-3.5 mr-1" /> Copy Link</>
+              )}
+            </Button>
+          </div>
+          <button
+            onClick={handleWaive}
+            disabled={waiving}
+            className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
+            title="Skip the deposit gate for trusted repeat customers"
+          >
+            {waiving ? "Waiving…" : "Waive for trusted repeat"}
+          </button>
         </div>
       )}
 
