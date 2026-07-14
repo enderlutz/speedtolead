@@ -280,6 +280,25 @@ _PRE_ESTIMATE_IDS = {
 # map's side panel), "scheduled" leads carry a full job card on hover.
 _CLOSED_NOT_SCHEDULED_ID = "bbebbdac-0011-4253-9ed7-65522bafde02"
 _CLOSED_SCHEDULED_ID = "3eed5964-573f-445e-a181-1ee28068f066"
+# B (STERLING) stage IDs folded into the map grouping so v2b leads bucket
+# correctly. A's single-ID constants above are unchanged (other callers use them).
+from services.pipeline_stages_b import (
+    ESTIMATE_SENT_STAGE_ID_B as _B_SENT, COMPLETED_HAPPY_STAGE_ID_B as _B_CH,
+    COMPLETED_UNHAPPY_STAGE_ID_B as _B_CU, CLOSED_SCHEDULED_STAGE_ID_B as _B_CS,
+    CLOSED_NOT_SCHEDULED_STAGE_ID_B as _B_CNS,
+)
+_MAP_SENT_IDS = {_ESTIMATE_SENT_ID, _B_SENT}
+_MAP_COMPLETED_IDS = _COMPLETED_IDS | {_B_CH, _B_CU}
+_MAP_CLOSED_SCHEDULED_IDS = {_CLOSED_SCHEDULED_ID, _B_CS}
+_MAP_CLOSED_NOT_SCHEDULED_IDS = {_CLOSED_NOT_SCHEDULED_ID, _B_CNS}
+_MAP_PRE_ESTIMATE_IDS = _PRE_ESTIMATE_IDS | {
+    "13dd5565-5d19-4ebd-bb84-5e57fdfc848e",  # New Lead (B)
+    "3883dc86-e182-4633-9308-cbcc085abc02",  # HOT LEAD (B)
+    "b382eea2-670c-4d3f-b2a1-a6053ce6e412",  # ESTIMATE SCHEDULED (B)
+    "a17b60c4-ea92-4703-bdb2-d7de1661ba1a",  # No response to scheduling (B)
+    "43a325dd-76ba-4aaf-aba1-f950ac2dd187",  # Address Follow Up (B)
+    "a7f4039b-0425-492e-a50b-30bf37ad432f",  # Responded To ADDRESS Follow Up (B)
+}
 _MAP_GEOCODE_CAP = 30  # geocode at most N uncoordinated leads per request
 
 
@@ -373,7 +392,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
         # is_test.isnot(True) also keeps rows where is_test is NULL.
         rows = (
             db.query(Lead)
-            .filter(Lead.pipeline_version == "v2", Lead.is_test.isnot(True))
+            .filter(Lead.pipeline_version.in_(["v2", "v2b"]), Lead.is_test.isnot(True))
             .all()
         )
         geocoded = 0            # geocode attempts this request
@@ -385,15 +404,15 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 continue
             sid = lead.ghl_pipeline_stage_id or ""
             is_paid = lead.id in paid_by_lead
-            if sid == _ESTIMATE_SENT_ID:
+            if sid in _MAP_SENT_IDS:
                 group = "sent"
-            elif sid in _COMPLETED_IDS:
+            elif sid in _MAP_COMPLETED_IDS:
                 group = "completed"
-            elif sid == _CLOSED_SCHEDULED_ID:
+            elif sid in _MAP_CLOSED_SCHEDULED_IDS:
                 group = "closed_scheduled"
-            elif sid == _CLOSED_NOT_SCHEDULED_ID:
+            elif sid in _MAP_CLOSED_NOT_SCHEDULED_IDS:
                 group = "closed_unscheduled"
-            elif sid in _PRE_ESTIMATE_IDS or sid == "":
+            elif sid in _MAP_PRE_ESTIMATE_IDS or sid == "":
                 group = "pre"
             elif is_paid:
                 group = "other"   # keep paying customers on the map whatever stage they're in
@@ -425,6 +444,7 @@ def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = D
                 "lng": lead.lng,
                 "stage_id": sid,
                 "group": group,
+                "pipeline_version": lead.pipeline_version or "",
                 "paid": is_paid,
                 "paid_amount": round(paid_by_lead.get(lead.id, 0)) if is_paid else 0,
             })
@@ -564,7 +584,7 @@ def _run_map_backfill(force: bool = False, limit: int | None = None):
     try:
         rows = (
             db.query(Lead)
-            .filter(Lead.pipeline_version == "v2", Lead.is_test.isnot(True))
+            .filter(Lead.pipeline_version.in_(["v2", "v2b"]), Lead.is_test.isnot(True))
             .all()
         )
         todo = []

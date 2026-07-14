@@ -252,6 +252,8 @@ export interface LeadMapPin {
   lng: number;
   stage_id: string;
   group: "pre" | "sent" | "completed" | "closed_scheduled" | "closed_unscheduled" | "other";
+  /** Which pipeline the lead is on ("v2" = Sterling A, "v2b" = Sterling B). */
+  pipeline_version?: string;
   /** Signature-tier quote, whole dollars — present on estimate-sent pins. */
   signature_price?: number;
   /** Full job card — present on Closed & Scheduled pins (shown on hover). */

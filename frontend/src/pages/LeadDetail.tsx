@@ -682,7 +682,7 @@ export default function LeadDetail() {
               Practice call
             </Button>
           )}
-          {lead.pipeline_version === "v2" && lead.ghl_opportunity_id && (
+          {lead.pipeline_version !== "v1" && lead.ghl_opportunity_id && (
             <Button
               variant="outline"
               size="sm"

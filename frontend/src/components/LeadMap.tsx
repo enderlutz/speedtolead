@@ -103,6 +103,7 @@ export default function LeadMap() {
   });
   const [stops, setStops] = useState<LeadMapStop[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [showB, setShowB] = useState(true);   // toggle Sterling B pins on/off
   const [legendOpen, setLegendOpen] = useState(true);
   const [needsSchedOpen, setNeedsSchedOpen] = useState(true);
   const [zipsOpen, setZipsOpen] = useState(true);
@@ -253,6 +254,7 @@ export default function LeadMap() {
     for (const lead of data?.leads || []) {
       const cat = leadCat(lead);
       if (hidden.has(cat)) continue;
+      if (!showB && lead.pipeline_version === "v2b") continue;  // Sterling B toggle
       const color = leadColor(lead);
       const pos = { lat: lead.lat, lng: lead.lng };
       // Paying customers pop: bigger gold pin, dark ring, drawn on top.
@@ -309,7 +311,7 @@ export default function LeadMap() {
       else if (leadCount > 0) map.fitBounds(leadBounds);
       fitSigRef.current = sig;
     }
-  }, [status, data, stops, hidden, selectedDate, navigate]);
+  }, [status, data, stops, hidden, showB, selectedDate, navigate]);
 
   // Reset the map on unmount so it rebuilds cleanly when the tab reopens.
   useEffect(() => () => {
@@ -485,6 +487,15 @@ export default function LeadMap() {
               </button>
               {legendOpen && (
                 <div className="px-2 pb-2 space-y-0.5 max-h-64 overflow-y-auto">
+                  <button
+                    onClick={() => setShowB((v) => !v)}
+                    className={`w-full flex items-center gap-2 rounded px-1.5 py-1 text-[11px] hover:bg-muted transition-colors border-b mb-1 ${showB ? "" : "opacity-40"}`}
+                    title={showB ? "Hide Sterling B leads" : "Show Sterling B leads"}
+                  >
+                    <span className="h-3 w-3 shrink-0 rounded-full border border-white shadow bg-indigo-500" />
+                    <span className="truncate">Sterling B leads</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">{showB ? "on" : "off"}</span>
+                  </button>
                   {categories.map((c) => {
                     const off = hidden.has(c.key);
                     return (
