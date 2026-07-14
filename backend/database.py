@@ -2068,6 +2068,11 @@ class EstimatorRecording(Base):
     lead_id = Column(Text, nullable=False)
     audio_data = deferred(Column(LargeBinary, nullable=True))
     has_audio_data = Column(Boolean, default=False, nullable=False)
+    # Newer recordings live in Supabase Storage (no DB egress on playback).
+    # audio_url = public CDN URL; storage_path = object path for deletion.
+    # Legacy rows keep audio_data and leave these empty.
+    audio_url = Column(Text, default="")
+    storage_path = Column(Text, default="")
     mime = Column(Text, default="audio/webm")
     duration_seconds = Column(Float, nullable=True)
     filename = Column(Text, default="")
@@ -2083,6 +2088,9 @@ class EstimatorRecording(Base):
             "filename": self.filename or "",
             "recorded_at": self.recorded_at or "",
             "recorded_by": self.recorded_by or "",
+            # Present → the frontend plays straight from the CDN. Empty →
+            # legacy row, fall back to the /recordings/{id} BLOB route.
+            "audio_url": self.audio_url or "",
         }
 
 
@@ -2915,6 +2923,17 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE call_recordings ADD COLUMN notes TEXT DEFAULT ''"))
             logger.info("Migration: added call_recordings.notes")
+
+    if inspector.has_table("estimator_recordings"):
+        er_cols = {c["name"] for c in inspector.get_columns("estimator_recordings")}
+        if "audio_url" not in er_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE estimator_recordings ADD COLUMN audio_url TEXT DEFAULT ''"))
+            logger.info("Migration: added estimator_recordings.audio_url")
+        if "storage_path" not in er_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE estimator_recordings ADD COLUMN storage_path TEXT DEFAULT ''"))
+            logger.info("Migration: added estimator_recordings.storage_path")
 
     if inspector.has_table("users"):
         user_cols = {c["name"] for c in inspector.get_columns("users")}

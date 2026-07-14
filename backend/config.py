@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     # customers via the public /capture/<token> page. Must exist + be
     # public. ~500KB-2MB per photo, ~8-12 photos per lead.
     supabase_exterior_photos_bucket: str = "exterior-photos"
+    # Bucket name for estimator conversation recordings. Must exist + be
+    # public. Can be large (a full estimate conversation, tens of MB) —
+    # keeping these out of the DB is exactly why they live in Storage.
+    supabase_estimator_recordings_bucket: str = "estimator-recordings"
 
     # Server
     port: int = 8000

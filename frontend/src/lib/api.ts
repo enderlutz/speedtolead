@@ -225,6 +225,7 @@ export interface EstimatorRecordingMeta {
   filename: string;
   recorded_at: string;
   recorded_by: string;
+  audio_url: string; // CDN URL when stored in Supabase Storage; "" for legacy DB-blob rows
 }
 
 export interface EstimatorCaptures {

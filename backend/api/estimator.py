@@ -13,10 +13,11 @@ The estimator is identified by username (JWT sub), so the model already
 supports more than one estimator if we add them later. Working hours are a
 fixed 8 AM–6 PM with 1-hour slots per the client's spec."""
 from __future__ import annotations
+import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel
 
 from database import (
@@ -30,6 +31,7 @@ from services.geocoder import geocode_address
 from services.drive_time import drive_minutes
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Bookable window — 8 AM to 6 PM, 1-hour slots (last start 5 PM → ends 6 PM).
 WORK_START_HOUR = 8
@@ -479,7 +481,31 @@ def flag_lead(lead_id: str, body: FlagBody, user: dict = Depends(require_staff))
 
 # ── Per-lead estimate captures: notes, photos, recordings ─────────────────
 _MAX_PHOTO_BYTES = 12 * 1024 * 1024
-_MAX_AUDIO_BYTES = 30 * 1024 * 1024
+# Audio now lives in Supabase Storage (not the DB), so a long estimate
+# conversation is fine. Cap is a memory/abuse guard on the whole-file read,
+# not a length limit — 200 MB is several hours of compressed audio.
+_MAX_AUDIO_BYTES = 200 * 1024 * 1024
+
+
+def _audio_ext(mime: str, filename: str) -> str:
+    """Pick a file extension for the stored object from the MIME, falling back
+    to the uploaded filename's extension, then 'webm'."""
+    m = (mime or "").lower()
+    if "mp4" in m or "m4a" in m or "aac" in m or "x-m4a" in m:
+        return "m4a"
+    if "mpeg" in m or "mp3" in m:
+        return "mp3"
+    if "ogg" in m:
+        return "ogg"
+    if "wav" in m:
+        return "wav"
+    if "webm" in m:
+        return "webm"
+    if "." in (filename or ""):
+        ext = filename.rsplit(".", 1)[-1].lower()
+        if 1 <= len(ext) <= 4 and ext.isalnum():
+            return ext
+    return "webm"
 
 
 def _assert_lead_access(db, user: dict, lead_id: str) -> None:
@@ -667,15 +693,34 @@ async def upload_lead_recording(
         if not data:
             raise HTTPException(400, "Empty upload")
         if len(data) > _MAX_AUDIO_BYTES:
-            raise HTTPException(400, "Recording too large (>30 MB)")
+            raise HTTPException(400, "Recording too large (>200 MB)")
         mime = file.content_type or "audio/webm"
         if not mime.startswith("audio/"):
             raise HTTPException(400, "Only audio files accepted")
+
+        rec_id = str(uuid.uuid4())
+        # Store in Supabase Storage so large audio never touches the DB (no
+        # egress on playback). Falls back to a DB BLOB if Storage isn't
+        # configured or the upload fails, so recordings are never lost.
+        audio_url, storage_path = "", ""
+        try:
+            from services.supabase_storage import upload_image
+            bucket = get_settings().supabase_estimator_recordings_bucket or "estimator-recordings"
+            path = f"{lead_id}/{rec_id}.{_audio_ext(mime, file.filename or '')}"
+            url = upload_image(bucket, path, data, content_type=mime)
+            if url:
+                audio_url, storage_path = url, path
+        except Exception as e:
+            logger.warning(f"Estimator recording storage upload failed, using DB blob: {e}")
+
+        in_bucket = bool(audio_url)
         rec = EstimatorRecording(
-            id=str(uuid.uuid4()),
+            id=rec_id,
             lead_id=lead_id,
-            audio_data=data,
-            has_audio_data=True,
+            audio_data=None if in_bucket else data,
+            has_audio_data=not in_bucket,
+            audio_url=audio_url,
+            storage_path=storage_path,
             mime=mime,
             duration_seconds=duration_seconds or None,
             filename=file.filename or "recording",
@@ -698,6 +743,11 @@ def get_lead_recording(rec_id: str, user: dict = Depends(get_current_user)):
         if not rec:
             raise HTTPException(404, "Recording not found")
         _assert_lead_access(db, user, rec.lead_id)
+        # Newer rows live in Storage — hand the client the CDN URL. (The
+        # frontend normally plays straight from audio_url and never hits this
+        # route; the redirect covers any legacy caller.)
+        if rec.audio_url:
+            return RedirectResponse(rec.audio_url)
         if not rec.audio_data:
             raise HTTPException(404, "Recording not found")
         return Response(content=rec.audio_data, media_type=rec.mime or "audio/webm")
@@ -713,6 +763,14 @@ def delete_lead_recording(rec_id: str, user: dict = Depends(get_current_user)):
         if not rec:
             raise HTTPException(404, "Recording not found")
         _assert_lead_access(db, user, rec.lead_id)
+        # Remove the Storage object too so we don't leave orphans.
+        if rec.storage_path:
+            try:
+                from services.supabase_storage import delete_object
+                bucket = get_settings().supabase_estimator_recordings_bucket or "estimator-recordings"
+                delete_object(bucket, rec.storage_path)
+            except Exception as e:
+                logger.warning(f"Estimator recording storage delete failed: {e}")
         db.delete(rec)
         db.commit()
         return {"ok": True}
