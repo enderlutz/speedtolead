@@ -38,18 +38,53 @@ TARGET_STAGES = {
 # lead BACKWARD across the estimate-sent line. Instead re-assert our post-send
 # stage to GHL (self-heal) so GHL converges. Bounded to the 24h window after
 # the lead's last local change so we still defer to genuine manual GHL edits.
+from dataclasses import dataclass
 from services.pipeline_stages import V2_STAGE_IDS_IN_ORDER, STAGE_NAME_BY_ID
+from services.pipeline_stages_b import (
+    V2B_STAGE_IDS_IN_ORDER, STAGE_NAME_BY_ID_B, PIPELINE_VERSION_B,
+    ESTIMATE_SENT_STAGE_ID_B,
+)
 _STAGE_ORDER: dict[str, int] = {sid: i for i, (sid, _) in enumerate(V2_STAGE_IDS_IN_ORDER)}
 _ESTIMATE_SENT_STAGE_ID = "dc3600f2-009b-4075-95fa-786823131416"
 _ESTIMATE_SENT_ORDER = _STAGE_ORDER.get(_ESTIMATE_SENT_STAGE_ID, 4)
+_STAGE_ORDER_B: dict[str, int] = {sid: i for i, (sid, _) in enumerate(V2B_STAGE_IDS_IN_ORDER)}
+_ESTIMATE_SENT_ORDER_B = _STAGE_ORDER_B.get(ESTIMATE_SENT_STAGE_ID_B, 6)
 _SELF_HEAL_WINDOW = timedelta(hours=24)
 
 
-def _is_backward_across_send(current_stage_id: str, incoming_stage_id: str) -> bool:
+@dataclass(frozen=True)
+class _PipelineCfg:
+    """Per-pipeline knobs for the poller so one code path serves both the
+    fence pipeline (A) and STERLING (B). Defaults everywhere = A, so A's
+    behavior is unchanged."""
+    name: str                      # case-insensitive substring matched against GHL pipeline names
+    version: str                   # pipeline_version stamped on created leads
+    brand: str                     # on_lead_created brand key (controls sequence enrollment)
+    board_label: str               # human board name for new-lead alerts
+    stage_order: dict              # stage_id -> index, for the backward-move guard
+    estimate_sent_order: int       # index of the "estimate sent" stage
+    stage_name_by_id: dict         # id -> name, for log messages
+
+
+_CFG_A = _PipelineCfg(
+    name=TARGET_PIPELINE, version="v2", brand="sterling",
+    board_label="Sterling Leads A", stage_order=_STAGE_ORDER,
+    estimate_sent_order=_ESTIMATE_SENT_ORDER, stage_name_by_id=STAGE_NAME_BY_ID,
+)
+# STERLING (B) — same Cypress location, different pipeline. brand="sterling_b"
+# so B leads never enroll in A's "sterling" follow-up sequences.
+_CFG_B = _PipelineCfg(
+    name="sterling", version=PIPELINE_VERSION_B, brand="sterling_b",
+    board_label="Sterling Leads B", stage_order=_STAGE_ORDER_B,
+    estimate_sent_order=_ESTIMATE_SENT_ORDER_B, stage_name_by_id=STAGE_NAME_BY_ID_B,
+)
+
+
+def _is_backward_across_send(current_stage_id: str, incoming_stage_id: str, cfg: "_PipelineCfg" = _CFG_A) -> bool:
     """True when GHL wants to pull a post-send lead back to a pre-send stage."""
-    cur = _STAGE_ORDER.get(current_stage_id or "", -1)
-    inc = _STAGE_ORDER.get(incoming_stage_id or "", -1)
-    return cur >= _ESTIMATE_SENT_ORDER and 0 <= inc < _ESTIMATE_SENT_ORDER
+    cur = cfg.stage_order.get(current_stage_id or "", -1)
+    inc = cfg.stage_order.get(incoming_stage_id or "", -1)
+    return cur >= cfg.estimate_sent_order and 0 <= inc < cfg.estimate_sent_order
 
 # --- Smart GHL field resolver (value-based, works across locations) ---
 
@@ -152,17 +187,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _find_pipeline_and_stages(location_id: str) -> tuple[str | None, dict[str, str]]:
+def _find_pipeline_and_stages(location_id: str, cfg: "_PipelineCfg" = _CFG_A) -> tuple[str | None, dict[str, str]]:
     """Find the target pipeline ID and stage IDs for the target stages.
     Uses cached pipeline IDs from env vars when available to avoid rate-limited API calls."""
     settings = get_settings()
 
-    # Check if we have a cached pipeline ID for this location
+    # Check if we have a cached pipeline ID for this location. The cached IDs
+    # in settings are the FENCE pipeline (A) only, so this fallback applies to
+    # cfg A; B (and any other pipeline) always resolves by name.
     cached_pid = ""
-    if location_id == settings.ghl_location_id and settings.ghl_pipeline_id:
-        cached_pid = settings.ghl_pipeline_id
-    elif location_id == settings.ghl_location_id_2 and settings.ghl_pipeline_id_2:
-        cached_pid = settings.ghl_pipeline_id_2
+    if cfg.name == TARGET_PIPELINE:
+        if location_id == settings.ghl_location_id and settings.ghl_pipeline_id:
+            cached_pid = settings.ghl_pipeline_id
+        elif location_id == settings.ghl_location_id_2 and settings.ghl_pipeline_id_2:
+            cached_pid = settings.ghl_pipeline_id_2
 
     pipelines = get_pipelines(location_id)
 
@@ -174,7 +212,7 @@ def _find_pipeline_and_stages(location_id: str) -> tuple[str | None, dict[str, s
 
     for p in pipelines:
         name = (p.get("name") or "").lower().strip()
-        if TARGET_PIPELINE in name:
+        if cfg.name in name:
             pipeline_id = p.get("id", "")
             stages = p.get("stages", [])
             # Return ALL stages so existing leads get their stage re-synced
@@ -190,8 +228,8 @@ def _find_pipeline_and_stages(location_id: str) -> tuple[str | None, dict[str, s
     return None, {}
 
 
-def _sync_location(location_id: str, label: str):
-    """Sync leads from the fence staining pipeline for one GHL location."""
+def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
+    """Sync leads from one GHL pipeline (cfg) for one GHL location."""
     import time
 
     if not location_id:
@@ -202,14 +240,14 @@ def _sync_location(location_id: str, label: str):
         # Retry pipeline fetch up to 3 times with backoff (handles 429s)
         pipeline_id, stage_map = None, {}
         for attempt in range(3):
-            pipeline_id, stage_map = _find_pipeline_and_stages(location_id)
+            pipeline_id, stage_map = _find_pipeline_and_stages(location_id, cfg)
             if pipeline_id:
                 break
-            logger.warning(f"Poller: pipeline not found for {label}, attempt {attempt + 1}/3, retrying in {5 * (attempt + 1)}s...")
+            logger.warning(f"Poller: pipeline not found for {label}/{cfg.name}, attempt {attempt + 1}/3, retrying in {5 * (attempt + 1)}s...")
             time.sleep(5 * (attempt + 1))
 
         if not pipeline_id:
-            logger.warning(f"Poller: pipeline '{TARGET_PIPELINE}' not found for {label} after 3 attempts")
+            logger.warning(f"Poller: pipeline '{cfg.name}' not found for {label} after 3 attempts")
             return
 
         logger.info(f"Poller: found pipeline for {label}, stages: {list(stage_map.keys())}")
@@ -242,6 +280,14 @@ def _sync_location(location_id: str, label: str):
                     # makes in GHL show up on the dashboard within one poll
                     # cycle.
                     existing = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
+                    # ghl_contact_id is UNIQUE, so a contact has exactly one lead
+                    # row. If that row belongs to the OTHER twin (A's v2 vs B's
+                    # v2b), never touch it — leave it on whichever board claimed
+                    # the contact first, so the two passes can't fight over a
+                    # contact that sits in both GHL pipelines. (v1/legacy handling
+                    # is unchanged.)
+                    if existing and existing.pipeline_version in ("v2", "v2b") and existing.pipeline_version != cfg.version:
+                        continue
                     if existing:
                         changed = False
                         stage_changed = bool(stage_id and existing.ghl_pipeline_stage_id != stage_id)
@@ -255,7 +301,7 @@ def _sync_location(location_id: str, label: str):
                         # Re-assert our stage to GHL instead. Scoped to the 24h
                         # window after the lead's last local change so genuine
                         # manual GHL moves still win once the send race is over.
-                        if stage_changed and _is_backward_across_send(existing.ghl_pipeline_stage_id, stage_id):
+                        if stage_changed and _is_backward_across_send(existing.ghl_pipeline_stage_id, stage_id, cfg):
                             recent = False
                             try:
                                 upd = datetime.fromisoformat(str(existing.updated_at).replace("Z", "+00:00"))
@@ -268,7 +314,7 @@ def _sync_location(location_id: str, label: str):
                                 logger.warning(
                                     f"Poller: GHL shows lead {existing.id} back in pre-send stage "
                                     f"'{stage_name}' but local is post-send "
-                                    f"'{STAGE_NAME_BY_ID.get(existing.ghl_pipeline_stage_id, existing.ghl_pipeline_stage_id)}'; "
+                                    f"'{cfg.stage_name_by_id.get(existing.ghl_pipeline_stage_id, existing.ghl_pipeline_stage_id)}'; "
                                     f"re-asserting to GHL instead of reverting (no-tag send race)."
                                 )
                                 if existing.ghl_opportunity_id:
@@ -531,7 +577,7 @@ def _sync_location(location_id: str, label: str):
                         status="archived" if already_sent else ("estimated" if low > 0 else "new"),
                         kanban_column="archived" if already_sent else kanban_col,
                         priority=est_priority,
-                        pipeline_version="v2",
+                        pipeline_version=cfg.version,
                         form_data=json.dumps(form_data),
                         ghl_opportunity_id=opp.get("id", ""),
                         ghl_pipeline_stage_id=stage_id or "",
@@ -561,14 +607,14 @@ def _sync_location(location_id: str, label: str):
                     new_count += 1
 
                     if is_target_stage and not already_sent:
-                        logger.info(f"Poller: new lead {lead_id} from {label}/{stage_name}: {name}")
-                        notify_new_lead(lead.to_dict())
-                        # Start any sequence triggered by lead_created. The
-                        # poller covers Sterling (Cypress + Woodlands) — both
-                        # map to the `sterling` brand key, same as webhooks.
+                        logger.info(f"Poller: new lead {lead_id} from {label}/{cfg.name}/{stage_name}: {name}")
+                        notify_new_lead(lead.to_dict(), board_label=cfg.board_label)
+                        # Start any sequence triggered by lead_created, keyed on
+                        # the pipeline's brand (A="sterling"; B="sterling_b",
+                        # which has no seeded sequences → no enrollment).
                         try:
                             from services.followup_engine import on_lead_created
-                            on_lead_created(lead_id, brand="sterling")
+                            on_lead_created(lead_id, brand=cfg.brand)
                         except Exception as e:
                             logger.warning(f"Poller on_lead_created hook failed for {lead_id}: {e}")
                     else:
@@ -591,7 +637,11 @@ def poll_ghl_contacts():
     """Sync leads from both GHL locations with delay between to avoid rate limits."""
     import time
     settings = get_settings()
-    _sync_location(settings.ghl_location_id, settings.ghl_location_1_label)
+    _sync_location(settings.ghl_location_id, settings.ghl_location_1_label, _CFG_A)
+    # Sterling Leads B — the STERLING pipeline, same Cypress location as A.
+    # Sequential pass (paced by the shared GHL rate-limit bucket).
+    time.sleep(2)
+    _sync_location(settings.ghl_location_id, settings.ghl_location_1_label, _CFG_B)
     # Woodlands disabled — no longer pulling leads from this location
     # time.sleep(10)
     # _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)

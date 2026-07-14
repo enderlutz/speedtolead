@@ -34,10 +34,13 @@ def _log_notification(lead_id: str, channel: str, recipient: str, event: str, de
         logger.error(f"Failed to log notification: {e}")
 
 
-def notify_new_lead(lead: dict):
+def notify_new_lead(lead: dict, board_label: str = "Sterling Leads A"):
     """Notify Alan (SMS) and Olga (WhatsApp) about a new lead, and pin a
     dashboard hyperlink to the GHL contact's notes so the team can jump
     from GHL to our system in one click.
+
+    board_label prefixes the alert (e.g. "Sterling Leads A" vs "Sterling
+    Leads B") so the team knows which board the lead landed on.
 
     Body mirrors Alan's original P01 Step 3+4 GHL workflow format —
     summary + dashboard link on top for one-glance scanning, full detail
@@ -63,7 +66,7 @@ def notify_new_lead(lead: dict):
     link = f"{settings.frontend_url}/leads/{lead_id}"
 
     msg = (
-        f"New lead: {name} — {address} ({location}). View: {link}\n\n"
+        f"[{board_label}] New lead: {name} — {address} ({location}). View: {link}\n\n"
         f"NAME: {name}\n"
         f"PHONE: {phone}\n"
         f"EMAIL: {email}\n"
