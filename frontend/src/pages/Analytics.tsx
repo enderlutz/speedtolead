@@ -35,7 +35,7 @@ function _weekRange(offset: number): { start: string; end: string; label: string
   return { start: start.toISOString(), end: end.toISOString(), label };
 }
 
-type PipelineFilter = "v2" | "v1" | "all";
+type PipelineFilter = "v2" | "v2b" | "v1" | "all";
 const FILTER_KEY = "at_dashboard_pipeline_filter";
 
 export default function Analytics() {
@@ -97,7 +97,8 @@ export default function Analytics() {
         </div>
         <Tabs value={filter} onValueChange={(v) => handleFilterChange(v as PipelineFilter)}>
           <TabsList>
-            <TabsTrigger value="v2">New Leads</TabsTrigger>
+            <TabsTrigger value="v2">Sterling A</TabsTrigger>
+            <TabsTrigger value="v2b">Sterling B</TabsTrigger>
             <TabsTrigger value="v1">Old Leads</TabsTrigger>
             <TabsTrigger value="all">All</TabsTrigger>
           </TabsList>

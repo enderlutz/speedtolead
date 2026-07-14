@@ -16,7 +16,7 @@ router = APIRouter()
 
 def _apply_pipeline_filter(query, pipeline_version: str | None):
     """Filter a Lead query by pipeline_version when set. 'all' / None = no filter."""
-    if pipeline_version and pipeline_version in ("v1", "v2"):
+    if pipeline_version and pipeline_version in ("v1", "v2", "v2b"):
         return query.filter(Lead.pipeline_version == pipeline_version)
     return query
 
