@@ -304,7 +304,7 @@ export interface Lead {
   status: string;
   kanban_column: string;
   priority: string;
-  pipeline_version: "v1" | "v2";
+  pipeline_version: "v1" | "v2" | "v2b";
   ghl_pipeline_stage_id: string;
   /** Internal-only estimator routing: "" | "needed" | "scheduled". Not a GHL stage. */
   estimator_status?: string;
@@ -732,7 +732,7 @@ export interface PendingEstimate extends EstimateDetail {
   location_label: string;
   kanban_column: string;
   priority: string;
-  pipeline_version: "v1" | "v2";
+  pipeline_version: "v1" | "v2" | "v2b";
 }
 
 export interface MessageEntry {

@@ -29,7 +29,8 @@ import { formatCurrency } from "@/lib/utils";
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
   { to: "/daily-tasks", icon: ListChecks, label: "Daily Tasks", perm: "dashboard" },
-  { to: "/leads", icon: Users, label: "Sterling Leads", perm: "leads" },
+  { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads" },
+  { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads" },
   // { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" }, // hidden 2026-07-14 (page/route kept)
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
