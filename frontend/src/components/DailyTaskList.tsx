@@ -499,18 +499,17 @@ function isUpcoming(t: DailyTask): boolean {
   // A follow-up scheduled for a later Central day is "upcoming".
   return ymdCST(fu.due_at) > todayCST();
 }
-// Does this lead belong on the "Today" queue for the viewed day? When viewing
-// today, unworked work ROLLS FORWARD so nothing gets stranded on a past date:
-// a follow-up due today or overdue counts, and a lead that aged without any
-// follow-up scheduled (first contact never happened) is pulled in too. A
-// specific past/future date shows exactly what was scheduled that day.
+// Does this lead belong on the "Today" queue for the viewed day? Today is for
+// leads with a scheduled action DUE — a follow-up due today, or overdue (which
+// rolls forward so a missed callback never gets stranded on a past date). Leads
+// nobody has started yet (no follow-up) stay in the Untapped list until someone
+// works them — they do NOT flood Today. A specific past/future date shows
+// exactly what was scheduled that day.
 function belongsOnDate(t: DailyTask, dateYMD: string, isToday: boolean): boolean {
   const fu = t.next_follow_up;
-  if (isToday) {
-    if (fu?.due_at) return ymdCST(fu.due_at) <= dateYMD;  // due today or overdue
-    return t.carried_over || t.is_new;                    // aged in, or fresh today
-  }
-  return !!fu?.due_at && ymdCST(fu.due_at) === dateYMD;
+  if (!fu?.due_at) return false;                          // untapped → Untapped tab only
+  if (isToday) return ymdCST(fu.due_at) <= dateYMD;       // due today or overdue (rolls forward)
+  return ymdCST(fu.due_at) === dateYMD;
 }
 // Overdue = the follow-up's day has already passed (all-day tasks aren't
 // "overdue" mid-day; a timed task is overdue once its time has passed today).
@@ -839,7 +838,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
         <p className="text-xs text-muted-foreground">
           <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
           {dateCount} lead{dateCount === 1 ? "" : "s"} to work {dateYMD === todayCST() ? "today" : <>on <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span></>}
-          {dateYMD === todayCST() && <span className="text-muted-foreground"> — includes overdue callbacks and untouched leads rolled forward</span>}
+          {dateYMD === todayCST() && <span className="text-muted-foreground"> — includes overdue callbacks rolled forward</span>}
         </p>
       )}
 
