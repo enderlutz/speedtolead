@@ -26,10 +26,27 @@ const CLOSED_NOT_SCHEDULED_ID = "bbebbdac-0011-4253-9ed7-65522bafde02";
 const SCHEDULED_STAGE_ID = "3eed5964-573f-445e-a181-1ee28068f066";
 const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";
 const WAITING_VALUE = "status:waiting_updated_estimate"; // dashboard-only overlay
+const COMPLETED_HAPPY_ID = "c77b052f-845c-47e9-bba2-4cdba35a94d0";
+const COMPLETED_UNHAPPY_ID = "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc";
 // A closed-WON deal — either flavor (scheduled or not-yet-scheduled). Drives the
 // green row + celebration on the Daily Task List.
 function isWonStage(stageId: string): boolean {
   return stageId === CLOSED_NOT_SCHEDULED_ID || stageId === SCHEDULED_STAGE_ID;
+}
+// Terminal stages that LEAVE the daily task list — the deal is resolved and
+// there's no more sales work to do: declined (a "no"), closed & scheduled (a
+// booked "yes"), or a completed job. Every other lead carries forward day to
+// day until it reaches one of these, so nothing gets stranded in the past.
+// NOTE: "Closed — not scheduled" is deliberately NOT terminal — it's a won deal
+// that still needs to be put on the calendar, so it keeps showing.
+const TERMINAL_STAGE_IDS = new Set<string>([
+  DECLINED_STAGE_ID,
+  SCHEDULED_STAGE_ID,
+  COMPLETED_HAPPY_ID,
+  COMPLETED_UNHAPPY_ID,
+]);
+function isTerminalStage(t: DailyTask): boolean {
+  return TERMINAL_STAGE_IDS.has(t.stage_id);
 }
 
 // Options in the per-row stage picker — every V2 pipeline stage, in pipeline
@@ -681,11 +698,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     }
   };
 
+  // Active working set: everything except terminal (declined / closed &
+  // scheduled / completed) leads, which leave the list. Everything here carries
+  // forward until it's resolved. (Single-lead embedded mode is unaffected.)
+  const activeTasks = useMemo(() => (tasks ?? []).filter((t) => !isTerminalStage(t)), [tasks]);
+
   const shown = useMemo(() => {
     // Single-lead mode (embedded on the Lead Detail page): just this lead's row,
     // no tab / stage / search filtering.
     if (leadId) return (tasks ?? []).filter((t) => t.id === leadId);
-    let list = tasks ?? [];
+    let list = activeTasks;
     if (tab === "today") list = list.filter((t) => !isUpcoming(t));
     else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
     else if (tab === "date") { const isToday = dateYMD === todayCST(); list = list.filter((t) => belongsOnDate(t, dateYMD, isToday)); }
@@ -701,7 +723,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
     });
-  }, [tasks, tab, stageFilters, search, whoFilter, dateYMD, leadId]);
+  }, [tasks, activeTasks, tab, stageFilters, search, whoFilter, dateYMD, leadId]);
 
   // Distinct people who have touched any loaded lead — powers the "Who" filter.
   const whoOptions = useMemo(() => {
@@ -722,16 +744,15 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
   const dateCount = useMemo(() => {
     const isToday = dateYMD === todayCST();
-    return (tasks ?? []).filter((t) => belongsOnDate(t, dateYMD, isToday)).length;
-  }, [tasks, dateYMD]);
+    return activeTasks.filter((t) => belongsOnDate(t, dateYMD, isToday)).length;
+  }, [activeTasks, dateYMD]);
 
-  const carriedCount = useMemo(() => (tasks ?? []).filter((t) => t.carried_over).length, [tasks]);
+  const carriedCount = useMemo(() => activeTasks.filter((t) => t.carried_over).length, [activeTasks]);
 
   const counts = useMemo(() => {
-    const list = tasks ?? [];
-    const upcoming = list.filter(isUpcoming).length;
-    return { today: list.length - upcoming, upcoming, all: list.length };
-  }, [tasks]);
+    const upcoming = activeTasks.filter(isUpcoming).length;
+    return { today: activeTasks.length - upcoming, upcoming, all: activeTasks.length };
+  }, [activeTasks]);
 
   return (
     <div className="space-y-3">
