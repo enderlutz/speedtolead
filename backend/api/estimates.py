@@ -34,6 +34,14 @@ def _upload_page_to_storage(token: str, page_num: int, jpeg_data: bytes) -> str:
 # New GHL pipeline "ESTIMATE SENT" stage ID — used to advance v2 leads when
 # their estimate is approved + sent.
 V2_ESTIMATE_SENT_STAGE_ID = "dc3600f2-009b-4075-95fa-786823131416"
+from services.pipeline_stages_b import ESTIMATE_SENT_STAGE_ID_B
+
+
+def _estimate_sent_tag(lead: "Lead") -> str:
+    """The GHL 'estimate sent' tag for this lead's pipeline. B (STERLING) uses
+    its own tag 'estimate sent sterling' (exact lowercase spelling) so Alan's
+    B-side GHL workflows fire off the right trigger."""
+    return "estimate sent sterling" if lead.pipeline_version == "v2b" else "estimate sent"
 
 
 def _parse_dt(iso: str | None):
@@ -56,11 +64,17 @@ def _mark_lead_estimate_sent(lead: Lead) -> None:
     v1 leads use kanban_column; v2 leads also need ghl_pipeline_stage_id, and we
     push the stage change back to GHL when there's a real opportunity to update."""
     lead.kanban_column = "estimate_sent"
+    # Pick the pipeline's own "estimate sent" stage. v1 uses kanban_column only.
+    stage_id = None
     if lead.pipeline_version == "v2":
-        lead.ghl_pipeline_stage_id = V2_ESTIMATE_SENT_STAGE_ID
+        stage_id = V2_ESTIMATE_SENT_STAGE_ID
+    elif lead.pipeline_version == "v2b":
+        stage_id = ESTIMATE_SENT_STAGE_ID_B
+    if stage_id:
+        lead.ghl_pipeline_stage_id = stage_id
         if lead.ghl_opportunity_id:
             try:
-                update_opportunity_stage(lead.ghl_opportunity_id, V2_ESTIMATE_SENT_STAGE_ID, lead.ghl_location_id or None)
+                update_opportunity_stage(lead.ghl_opportunity_id, stage_id, lead.ghl_location_id or None)
             except Exception as e:
                 logger.warning(f"Failed to push estimate-sent stage to GHL for {lead.id}: {e}")
 
@@ -780,7 +794,7 @@ def _approve_estimate_background(
             # update stage + log everything, but suppress this tag so the
             # GHL workflows don't kick in.
             if apply_tag:
-                add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
+                add_contact_tag(lead.ghl_contact_id, _estimate_sent_tag(lead), lead.ghl_location_id or None)
             else:
                 log_event(lead.id, "estimate_sent_tag_skipped",
                           "Estimate sent without applying 'estimate sent' GHL tag "
@@ -1043,7 +1057,7 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick
             add_contact_note(lead.ghl_contact_id,
                              f"Custom proposal sent — {proposal_url}",
                              lead.ghl_location_id or None)
-            add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
+            add_contact_tag(lead.ghl_contact_id, _estimate_sent_tag(lead), lead.ghl_location_id or None)
 
         # Team notify + activity log + SSE (same event the board listens on).
         notify_custom_proposal_sent(lead.to_dict(), proposal_url)
@@ -1529,7 +1543,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = D
             # GHL workflow vocabulary, which is what P1 Sterling Estimate
             # Sent + P04-REPLY trigger off of.
             if lead.ghl_contact_id:
-                add_contact_tag(lead.ghl_contact_id, "estimate sent", lead.ghl_location_id or None)
+                add_contact_tag(lead.ghl_contact_id, _estimate_sent_tag(lead), lead.ghl_location_id or None)
                 tiers_dict = est.to_dict()["tiers"]
                 add_contact_note(lead.ghl_contact_id,
                     f"Estimate sent — Essential: ${tiers_dict.get('essential',0):,.0f} | "

@@ -1249,7 +1249,10 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
         if lead.ghl_contact_id:
             try:
                 from services.ghl import add_contact_tag
-                tagged = add_contact_tag(lead.ghl_contact_id, "asking-for-address", lead.ghl_location_id or None)
+                # B (STERLING) leads use their own GHL tag (exact lowercase
+                # spelling) so Alan's B-side address automation fires.
+                addr_tag = "asking for address sterling" if lead.pipeline_version == "v2b" else "asking-for-address"
+                tagged = add_contact_tag(lead.ghl_contact_id, addr_tag, lead.ghl_location_id or None)
             except Exception as e:
                 logger.warning(f"asking-for-address tag failed for lead {lead_id}: {e}")
 
