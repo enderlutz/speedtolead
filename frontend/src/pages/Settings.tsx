@@ -546,15 +546,28 @@ export default function Settings() {
               </button>
               {pipelinesOpen && (
                 <div className="border-t px-3 pb-3 space-y-3">
-                  {Object.entries(pipelines).map(([name, stages]) => (
-                    <div key={name} className="pt-3">
-                      <p className="text-sm font-semibold">{name}</p>
-                      <div className="mt-1 space-y-0.5">
-                        {Array.isArray(stages) && stages.map((stage, i) => (
-                          <p key={i} className="text-xs text-muted-foreground pl-3">
-                            {typeof stage === "object" && stage !== null ? (stage as Record<string, string>).name || JSON.stringify(stage) : String(stage)}
-                          </p>
-                        ))}
+                  {/* Each location → its pipelines → each pipeline's stages, in
+                      order, with the stage id (needed to wire a pipeline into
+                      the dashboard's hardcoded stage lists). */}
+                  {Object.entries(pipelines).map(([location, pls]) => (
+                    <div key={location} className="pt-3">
+                      <p className="text-sm font-semibold">{location}</p>
+                      <div className="mt-1 space-y-2">
+                        {Array.isArray(pls) && pls.map((pl, i) => {
+                          const p = pl as { id?: string; name?: string; stages?: { id?: string; name?: string }[] };
+                          return (
+                            <div key={i} className="pl-2 border-l-2 border-muted">
+                              <p className="text-xs font-medium pl-1">{p.name || "(unnamed pipeline)"} <span className="text-muted-foreground font-mono opacity-60">{p.id}</span></p>
+                              <div className="mt-0.5 space-y-0.5">
+                                {(p.stages || []).map((s, j) => (
+                                  <p key={j} className="text-[11px] text-muted-foreground pl-3 font-mono">
+                                    {j + 1}. {s.name} <span className="opacity-60">— {s.id}</span>
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}
