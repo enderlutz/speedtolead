@@ -78,6 +78,11 @@ function overdueBadge(days: number): { cls: string; label: string; pulse: boolea
   if (d >= 2) return { cls: "bg-red-500 text-white", label, pulse: false };
   return { cls: "bg-amber-100 text-amber-800", label, pulse: false };
 }
+// A post-estimate lead with NO scheduled follow-up is stalled — nobody has set
+// the next step. Flag it so staff schedule a callback / kick off the process.
+function needsProcess(t: DailyTask): boolean {
+  return !t.next_follow_up?.due_at && POST_ESTIMATE_STAGE_IDS.has(t.stage_id);
+}
 // Row tint + left rail for a carried-over lead, escalating with days waiting.
 function carriedTint(days: number): { row: string; rail: string } {
   if (days >= 4) return { row: "bg-red-100/70 hover:bg-red-100", rail: "border-l-[6px] border-red-600" };
@@ -1055,6 +1060,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                           </span>
                         );
                       })()}
+                      {needsProcess(t) && (
+                        <button
+                          onClick={() => setFollowUpFor(t)}
+                          title="Estimate sent but no next step scheduled — click to schedule a follow-up and start the process"
+                          className="inline-flex items-center gap-1 rounded-full bg-violet-600 text-white hover:bg-violet-700 px-1.5 py-0.5 text-[10px] font-semibold"
+                        >
+                          <CalendarClock className="h-2.5 w-2.5" />
+                          Start process
+                        </button>
+                      )}
                     </div>
                     {t.address && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.address}</div>}
                     {t.next_follow_up && (
