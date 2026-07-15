@@ -28,7 +28,7 @@ import { formatCurrency } from "@/lib/utils";
 // when the user has it. `restrictTo` is the legacy fragned-only escape hatch.
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
-  { to: "/daily-tasks", icon: ListChecks, label: "Daily Tasks", perm: "dashboard" },
+  { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard" },
   { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads" },
   { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads" },
   // { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" }, // hidden 2026-07-14 (page/route kept)

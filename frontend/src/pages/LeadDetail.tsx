@@ -526,7 +526,7 @@ export default function LeadDetail() {
 
   const handleArchive = async () => {
     if (!id) return;
-    if (!window.confirm(`Archive ${lead?.contact_name || "this lead"}? It'll be removed from the board and task list. You can restore it later.`)) return;
+    if (!window.confirm(`Archive ${lead?.contact_name || "this lead"}? It'll be removed from the board and Hit List. You can restore it later.`)) return;
     try {
       await api.archiveLead(id);
       const data = await api.getLead(id);
@@ -1653,7 +1653,7 @@ export default function LeadDetail() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                <MessageSquare className="h-4 w-4" /> Daily Task List
+                <MessageSquare className="h-4 w-4" /> The Hit List
               </CardTitle>
             </CardHeader>
             <CardContent>
