@@ -56,6 +56,35 @@ function isTerminalStage(t: DailyTask): boolean {
 const DECLINED_IDS = new Set<string>([DECLINED_STAGE_ID, B_DECLINED_STAGE_ID]);
 const CLOSED_SCHEDULED_IDS = new Set<string>([SCHEDULED_STAGE_ID, B_SCHEDULED_STAGE_ID]);
 
+// Post-estimate stages (A + B): the estimate is out and the deal isn't resolved.
+// These belong on the TODAY queue even with NO scheduled follow-up, so a sent
+// estimate is always in front of staff until it's booked or declined (owner
+// request 2026-07-15 — "people we sent an estimate to should show even if nobody
+// scheduled a callback"). They anchor to today only, not to any other date.
+const POST_ESTIMATE_STAGE_IDS = new Set<string>([
+  ESTIMATE_SENT_ID, RESPONDED_ID, TOP_PRIORITY_ID, EST_FU_LATER_ID,
+  "8c082ba1-95ea-467e-a225-c1750b611bbe", // B — Estimate sent
+  "f7a09296-a9bb-4d69-9398-28c495743b4b", // B — Responded to estimate
+  "26a01635-5f91-415d-a6c1-671d15c6bd36", // B — Top priority
+  "dacf7848-c812-4d33-86ef-d70fc4e4e479", // B — Estimate follow-up later
+]);
+
+// Pronounced "past due" treatment for carried-over leads — escalates with age so
+// an aging lead reads as URGENT, never as a silent duplicate of today's row.
+function overdueBadge(days: number): { cls: string; label: string; pulse: boolean } {
+  const d = Math.max(days, 1);
+  const label = `${d} day${d === 1 ? "" : "s"} past due!`;
+  if (d >= 4) return { cls: "bg-red-600 text-white ring-1 ring-red-700", label, pulse: true };
+  if (d >= 2) return { cls: "bg-red-500 text-white", label, pulse: false };
+  return { cls: "bg-amber-100 text-amber-800", label, pulse: false };
+}
+// Row tint + left rail for a carried-over lead, escalating with days waiting.
+function carriedTint(days: number): { row: string; rail: string } {
+  if (days >= 4) return { row: "bg-red-100/70 hover:bg-red-100", rail: "border-l-[6px] border-red-600" };
+  if (days >= 2) return { row: "bg-red-50/80 hover:bg-red-100/70", rail: "border-l-4 border-red-500" };
+  return { row: "bg-amber-50/70 hover:bg-amber-100/60", rail: "border-l-4 border-amber-400" };
+}
+
 // Options in the per-row stage picker — every pipeline stage in order. A leads
 // use A's stages; B leads use B's (so a B lead can't be moved to an A stage).
 // "status:*" values set a dashboard-only overlay (no GHL push).
@@ -556,7 +585,11 @@ function isUpcoming(t: DailyTask): boolean {
 // exactly what was scheduled that day.
 function belongsOnDate(t: DailyTask, dateYMD: string, isToday: boolean): boolean {
   const fu = t.next_follow_up;
-  if (!fu?.due_at) return false;                          // untapped → Untapped tab only
+  if (!fu?.due_at) {
+    // No scheduled follow-up. Post-estimate leads still belong on TODAY so a sent
+    // estimate never slips through the cracks; they don't anchor to any other day.
+    return isToday && POST_ESTIMATE_STAGE_IDS.has(t.stage_id);
+  }
   if (isToday) return ymdCST(fu.due_at) <= dateYMD;       // due today or overdue (rolls forward)
   return ymdCST(fu.due_at) === dateYMD;
 }
@@ -976,14 +1009,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   className={`border-b last:border-0 transition-colors ${
                     isWonStage(t.stage_id) ? "bg-green-50 hover:bg-green-100/70"
                       : t.is_new ? "bg-sky-50/70 hover:bg-sky-100/60"
-                      : t.carried_over ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-muted/20"
+                      : t.carried_over ? carriedTint(t.days_waiting).row : "hover:bg-muted/20"
                   }`}
                 >
                   {/* Who — owner / who-touched avatars (won leads get a green rail) */}
                   <td className={`pl-4 pr-1 py-3 align-top ${
                     isWonStage(t.stage_id) ? "border-l-4 border-green-500"
                       : t.is_new ? "border-l-4 border-sky-500"
-                      : t.carried_over ? "border-l-4 border-red-500" : ""}`}>
+                      : t.carried_over ? carriedTint(t.days_waiting).rail : ""}`}>
                     <TouchedAvatars actors={t.touched_by} />
                   </td>
 
@@ -1010,15 +1043,18 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                           New
                         </span>
                       )}
-                      {t.carried_over && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-1.5 py-0.5 text-[10px] font-semibold"
-                          title={`Unworked from a prior day — waiting ${t.days_waiting} day${t.days_waiting === 1 ? "" : "s"}`}
-                        >
-                          <AlertTriangle className="h-2.5 w-2.5" />
-                          {t.days_waiting}d waiting
-                        </span>
-                      )}
+                      {t.carried_over && (() => {
+                        const b = overdueBadge(t.days_waiting);
+                        return (
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${b.cls} ${b.pulse ? "animate-pulse" : ""}`}
+                            title={`Unworked since a prior day — ${b.label}`}
+                          >
+                            <AlertTriangle className="h-2.5 w-2.5" />
+                            {b.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     {t.address && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.address}</div>}
                     {t.next_follow_up && (
