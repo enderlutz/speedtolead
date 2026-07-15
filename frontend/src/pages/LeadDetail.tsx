@@ -219,6 +219,7 @@ export default function LeadDetail() {
       (m) => m.direction === "inbound" && (m.created_at || "") > callTabSeenAt,
     ).length;
   }, [messages, callTabSeenAt]);
+  void unreadCallCount; // consumed by the Call tab badge (hidden 2026-07-14; kept for restore)
 
   // Sorted newest-first for the switcher tabs. Cancelled estimates (e.g. a
   // retracted custom-PDF proposal) are hidden — they're managed from the
@@ -808,6 +809,9 @@ export default function LeadDetail() {
       >
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="estimate">Estimate</TabsTrigger>
+          {/* Call / Exterior / Upsell tabs hidden 2026-07-14 to trim visual fat.
+              Their tab panels + logic are untouched; uncomment to restore. */}
+          {/*
           <TabsTrigger value="call">
             Call
             {unreadCallCount > 0 && (
@@ -825,6 +829,7 @@ export default function LeadDetail() {
             )}
           </TabsTrigger>
           <TabsTrigger value="upsell">Upsell</TabsTrigger>
+          */}
           <TabsTrigger value="estimator">Estimator</TabsTrigger>
         </TabsList>
 

@@ -6,7 +6,7 @@ import uuid
 import json
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, Depends
 from api.auth import get_current_user_optional
 from fastapi.responses import Response
@@ -77,6 +77,41 @@ def _mark_lead_estimate_sent(lead: Lead) -> None:
                 update_opportunity_stage(lead.ghl_opportunity_id, stage_id, lead.ghl_location_id or None)
             except Exception as e:
                 logger.warning(f"Failed to push estimate-sent stage to GHL for {lead.id}: {e}")
+    _schedule_next_day_estimate_followup(lead)
+
+
+def _schedule_next_day_estimate_followup(lead: Lead) -> None:
+    """After an estimate is sent, drop the lead onto the Daily Task List the
+    NEXT calendar day so the team follows up (both Sterling A and B). Creates an
+    all-day follow-up due tomorrow (Central), superseding any pending one — the
+    task list's 'one pending follow-up per lead' model. Best-effort."""
+    try:
+        from sqlalchemy.orm import object_session
+        from zoneinfo import ZoneInfo
+        from database import TaskFollowUp
+        db = object_session(lead)
+        if db is None:
+            return
+        central = ZoneInfo("America/Chicago")
+        tomorrow_ct = (datetime.now(timezone.utc).astimezone(central) + timedelta(days=1))
+        due_ct = tomorrow_ct.replace(hour=12, minute=0, second=0, microsecond=0)  # noon anchor
+        due_utc = due_ct.astimezone(timezone.utc).isoformat()
+        (db.query(TaskFollowUp)
+           .filter(TaskFollowUp.lead_id == lead.id, TaskFollowUp.status == "pending")
+           .update({TaskFollowUp.status: "cancelled"}, synchronize_session=False))
+        db.add(TaskFollowUp(
+            id=str(uuid.uuid4()),
+            lead_id=lead.id,
+            due_at=due_utc,
+            all_day=True,
+            action_type="call",
+            note="Follow up on estimate",
+            status="pending",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            created_by="System",
+        ))
+    except Exception as e:
+        logger.warning(f"Estimate follow-up scheduling failed for {lead.id}: {e}")
 
 
 def _now() -> str:
