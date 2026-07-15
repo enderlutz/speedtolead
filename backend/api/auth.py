@@ -102,6 +102,8 @@ def login(body: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        if getattr(user, "disabled", False):
+            raise HTTPException(status_code=403, detail="This account has been deactivated.")
         # Resolve effective permissions (lazy import avoids an auth↔permissions
         # import cycle) and stamp them into the token.
         from api.permissions import perms_for_user
@@ -301,8 +303,16 @@ def seed_emmanuel_user():
     try:
         existing = db.query(User).filter(User.username == "EmmanuelOnibayo").first()
         if existing:
+            changed = False
             if existing.role != "estimator":
                 existing.role = "estimator"
+                changed = True
+            # Archived 2026-07-14 — Emmanuel quit. Keep the row (history/links
+            # stay intact) but block login. To re-hire, set disabled = False.
+            if not existing.disabled:
+                existing.disabled = True
+                changed = True
+            if changed:
                 db.commit()
             return
         now = datetime.now(timezone.utc).isoformat()
@@ -313,6 +323,7 @@ def seed_emmanuel_user():
             password_hash=bcrypt.hashpw("EmmanuelFences1$2".encode(), bcrypt.gensalt()).decode(),
             role="estimator",
             see_all_jobs=False,
+            disabled=True,   # archived — Emmanuel quit (2026-07-14)
             created_at=now,
         ))
         db.commit()

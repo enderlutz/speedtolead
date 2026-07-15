@@ -483,6 +483,9 @@ class User(Base):
     # top of the role defaults (see api/permissions.py). Empty = pure role
     # defaults. The base role still governs server-side data security.
     permissions = Column(Text, default="{}")
+    # Archived / offboarded account — blocks login without deleting the row
+    # (so history + linked data stay intact). Flip back to False to re-enable.
+    disabled = Column(Boolean, default=False)
     created_at = Column(Text, default="")
 
 
@@ -2960,6 +2963,10 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN employee_id TEXT DEFAULT ''"))
             logger.info("Migration: added users.employee_id (links worker logins to Employee rows)")
+        if "disabled" not in user_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE"))
+            logger.info("Migration: added users.disabled (archived/offboarded accounts blocked from login)")
 
     # leads.lead_source — marketing attribution. Default "ad" since virtually
     # all incoming leads are paid ads; admin overrides on lead detail.
