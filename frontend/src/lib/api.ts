@@ -459,6 +459,7 @@ export interface DailyTask {
   days_waiting: number;  // days since last worked (Central time)
   is_new: boolean;       // arrived today & never worked — pin to top with a star
   created_at: string;    // ISO-UTC lead creation timestamp
+  pipeline_version: string; // "v2" = Sterling A, "v2b" = Sterling B
   touched_by: TouchedActor[]; // distinct people who worked this lead, newest first
 }
 export interface TouchedActor {

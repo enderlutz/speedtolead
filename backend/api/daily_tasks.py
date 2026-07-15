@@ -51,6 +51,15 @@ _STAGE_KEYS = {
     **{sid: "responded" for sid in _RESPONDED_IDS},
     _NURTURE_ID: "nurture",
     _NURTURE_RESPONDED_ID: "nurture_responded",
+    # Sterling B (STERLING pipeline) stage IDs → same buckets, so B leads
+    # sort/filter like A in the shared Daily Task List.
+    "13dd5565-5d19-4ebd-bb84-5e57fdfc848e": "new_lead",
+    "3883dc86-e182-4633-9308-cbcc085abc02": "hot",
+    "8c082ba1-95ea-467e-a225-c1750b611bbe": "estimate_sent",
+    "f7a09296-a9bb-4d69-9398-28c495743b4b": "responded",
+    "26a01635-5f91-415d-a6c1-671d15c6bd36": "responded",  # B Top Priority
+    "084b08b5-a217-4b54-9506-28dd68107468": "nurture",
+    "969a4e4b-535c-4215-b91c-cbf6867754ad": "nurture_responded",
 }
 _STAGE_LABELS = {
     "new_lead": "New lead",
@@ -136,7 +145,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
         leads = (
             db.query(Lead)
             .filter(
-                Lead.pipeline_version == "v2",
+                Lead.pipeline_version.in_(["v2", "v2b"]),
                 Lead.is_test.isnot(True),
                 # Leads are soft-deleted via status == "archived" (no boolean col).
                 func.coalesce(Lead.status, "") != "archived",
@@ -294,6 +303,7 @@ def get_daily_tasks(user: dict = Depends(require_staff)):
                 "days_waiting": days_waiting,
                 "is_new": is_new,
                 "created_at": l.created_at or "",
+                "pipeline_version": l.pipeline_version or "",
                 # Distinct people who've touched this lead, most-recent first.
                 "touched_by": [
                     {"name": a["name"], "sub": a["sub"], "at": a["at"]}

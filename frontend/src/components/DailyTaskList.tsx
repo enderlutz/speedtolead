@@ -28,30 +28,37 @@ const DECLINED_STAGE_ID = "f207a600-81c9-4150-941c-e977ea876929";
 const WAITING_VALUE = "status:waiting_updated_estimate"; // dashboard-only overlay
 const COMPLETED_HAPPY_ID = "c77b052f-845c-47e9-bba2-4cdba35a94d0";
 const COMPLETED_UNHAPPY_ID = "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc";
-// A closed-WON deal — either flavor (scheduled or not-yet-scheduled). Drives the
-// green row + celebration on the Daily Task List.
+// ── Sterling B (STERLING pipeline) stage IDs — twin of A ──────────────────
+const B_NEW_LEAD_ID = "13dd5565-5d19-4ebd-bb84-5e57fdfc848e";
+const B_CLOSED_NOT_SCHEDULED_ID = "43fa0566-e118-4e70-81ff-429c3afa22e3";
+const B_SCHEDULED_STAGE_ID = "09d3a03d-0571-4fd8-b677-9a74d15a094d";
+const B_DECLINED_STAGE_ID = "b5f54570-4077-4d83-97e7-328201373930";
+const B_COMPLETED_HAPPY_ID = "64d3e3e1-c91c-49e8-86ba-e2d4c8699a72";
+const B_COMPLETED_UNHAPPY_ID = "aac2bf8e-27ee-4301-81f6-9b5bf39b61ec";
+
+// A closed-WON deal — either flavor (scheduled or not-yet-scheduled), A or B.
+// Drives the green row + celebration on the Daily Task List.
 function isWonStage(stageId: string): boolean {
-  return stageId === CLOSED_NOT_SCHEDULED_ID || stageId === SCHEDULED_STAGE_ID;
+  return stageId === CLOSED_NOT_SCHEDULED_ID || stageId === SCHEDULED_STAGE_ID
+    || stageId === B_CLOSED_NOT_SCHEDULED_ID || stageId === B_SCHEDULED_STAGE_ID;
 }
-// Terminal stages that LEAVE the daily task list — the deal is resolved and
-// there's no more sales work to do: declined (a "no"), closed & scheduled (a
-// booked "yes"), or a completed job. Every other lead carries forward day to
-// day until it reaches one of these, so nothing gets stranded in the past.
-// NOTE: "Closed — not scheduled" is deliberately NOT terminal — it's a won deal
-// that still needs to be put on the calendar, so it keeps showing.
+// Terminal stages that leave the ACTIVE daily-task queue (A + B): declined,
+// closed & scheduled, or a completed job. They are NOT deleted — the "Show"
+// dropdown surfaces declined + closed & scheduled so nothing is lost.
+// "Closed — not scheduled" is deliberately NOT terminal (still needs booking).
 const TERMINAL_STAGE_IDS = new Set<string>([
-  DECLINED_STAGE_ID,
-  SCHEDULED_STAGE_ID,
-  COMPLETED_HAPPY_ID,
-  COMPLETED_UNHAPPY_ID,
+  DECLINED_STAGE_ID, SCHEDULED_STAGE_ID, COMPLETED_HAPPY_ID, COMPLETED_UNHAPPY_ID,
+  B_DECLINED_STAGE_ID, B_SCHEDULED_STAGE_ID, B_COMPLETED_HAPPY_ID, B_COMPLETED_UNHAPPY_ID,
 ]);
 function isTerminalStage(t: DailyTask): boolean {
   return TERMINAL_STAGE_IDS.has(t.stage_id);
 }
+const DECLINED_IDS = new Set<string>([DECLINED_STAGE_ID, B_DECLINED_STAGE_ID]);
+const CLOSED_SCHEDULED_IDS = new Set<string>([SCHEDULED_STAGE_ID, B_SCHEDULED_STAGE_ID]);
 
-// Options in the per-row stage picker — every V2 pipeline stage, in pipeline
-// order (mirrors backend services/pipeline_stages.py). "status:*" values set a
-// dashboard-only overlay (no GHL push); everything else is a real GHL stage.
+// Options in the per-row stage picker — every pipeline stage in order. A leads
+// use A's stages; B leads use B's (so a B lead can't be moved to an A stage).
+// "status:*" values set a dashboard-only overlay (no GHL push).
 const STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: NEW_LEAD_ID, label: "New lead" },
   { value: HOT_LEAD_ID, label: "Hot lead — send estimate" },
@@ -71,6 +78,31 @@ const STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: "c77b052f-845c-47e9-bba2-4cdba35a94d0", label: "Completed — happy (send review)" },
   { value: "5f2cea8e-1f10-411b-b5fd-fa7ffa40cdcc", label: "Completed — unhappy" },
 ];
+const B_STAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: B_NEW_LEAD_ID, label: "New lead" },
+  { value: "3883dc86-e182-4633-9308-cbcc085abc02", label: "Hot lead — send estimate" },
+  { value: "b382eea2-670c-4d3f-b2a1-a6053ce6e412", label: "Estimate scheduled" },
+  { value: "a17b60c4-ea92-4703-bdb2-d7de1661ba1a", label: "No response to scheduling" },
+  { value: "43a325dd-76ba-4aaf-aba1-f950ac2dd187", label: "Address follow-up" },
+  { value: "a7f4039b-0425-492e-a50b-30bf37ad432f", label: "Responded to address follow-up" },
+  { value: "8c082ba1-95ea-467e-a225-c1750b611bbe", label: "Estimate sent" },
+  { value: "dacf7848-c812-4d33-86ef-d70fc4e4e479", label: "Estimate follow-up later" },
+  { value: "f7a09296-a9bb-4d69-9398-28c495743b4b", label: "Responded to estimate" },
+  { value: "26a01635-5f91-415d-a6c1-671d15c6bd36", label: "Top priority" },
+  { value: WAITING_VALUE, label: "Waiting for updated estimate" },
+  { value: "084b08b5-a217-4b54-9506-28dd68107468", label: "Long-term nurture" },
+  { value: "969a4e4b-535c-4215-b91c-cbf6867754ad", label: "Responded to nurture" },
+  { value: "64dccea5-049f-4c3d-9c26-1142170dd0b6", label: "Cold lead (never answered)" },
+  { value: B_DECLINED_STAGE_ID, label: "Declined" },
+  { value: B_CLOSED_NOT_SCHEDULED_ID, label: "Closed — not scheduled" },
+  { value: B_SCHEDULED_STAGE_ID, label: "Closed & scheduled" },
+  { value: B_COMPLETED_HAPPY_ID, label: "Completed — happy (send review)" },
+  { value: B_COMPLETED_UNHAPPY_ID, label: "Completed — unhappy" },
+  { value: "c54b66d1-0a65-40f7-b851-27d714b76936", label: "Painting upsell" },
+];
+function stageOptionsFor(t: DailyTask): { value: string; label: string }[] {
+  return t.pipeline_version === "v2b" ? B_STAGE_OPTIONS : STAGE_OPTIONS;
+}
 
 type StageKey = "new_lead" | "hot" | "estimate_sent" | "responded" | "waiting" | "nurture" | "nurture_responded" | "other";
 type TaskTab = "today" | "upcoming" | "date" | "all" | "activity";
@@ -553,7 +585,7 @@ function effectiveStage(t: DailyTask): string {
 }
 function currentStageValue(t: DailyTask): string {
   if (t.task_status === "waiting_updated_estimate") return WAITING_VALUE;
-  return t.stage_id || NEW_LEAD_ID;
+  return t.stage_id || (t.pipeline_version === "v2b" ? B_NEW_LEAD_ID : NEW_LEAD_ID);
 }
 function stageSelectCls(t: DailyTask): string {
   const s = effectiveStage(t);
@@ -599,6 +631,9 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   const [whoFilter, setWhoFilter] = useState(() => {
     try { return localStorage.getItem("at_tasks_who") ?? ""; } catch { return ""; }
   });
+  // "Show" dropdown: the active work queue (default) or resolved-lead views that
+  // are kept accessible instead of deleted (owner request).
+  const [resolvedFilter, setResolvedFilter] = useState<"active" | "declined" | "closed_scheduled">("active");
   const [logFor, setLogFor] = useState<DailyTask | null>(null);
   const [noteFor, setNoteFor] = useState<DailyTask | null>(null);
   const [followUpFor, setFollowUpFor] = useState<DailyTask | null>(null);
@@ -707,23 +742,38 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     // Single-lead mode (embedded on the Lead Detail page): just this lead's row,
     // no tab / stage / search filtering.
     if (leadId) return (tasks ?? []).filter((t) => t.id === leadId);
-    let list = activeTasks;
-    if (tab === "today") list = list.filter((t) => !isUpcoming(t));
-    else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
-    else if (tab === "date") { const isToday = dateYMD === todayCST(); list = list.filter((t) => belongsOnDate(t, dateYMD, isToday)); }
-    if (stageFilters.length) list = list.filter((t) => stageFilters.includes(effectiveStage(t) as StageKey));
-    if (whoFilter) list = list.filter((t) => (t.touched_by || []).some((a) => a.name === whoFilter));
     const q = search.trim().toLowerCase();
-    if (q) list = list.filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
-    return [...list].sort((a, b) => {
+    const sortFn = (a: DailyTask, b: DailyTask) => {
       // Brand-new leads (arrived today, untouched) get the very top — speed to
       // lead wins deals — then carried-over (unfinished from a prior day).
       if (a.is_new !== b.is_new) return a.is_new ? -1 : 1;
       if (a.carried_over !== b.carried_over) return a.carried_over ? -1 : 1;
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
-    });
-  }, [tasks, activeTasks, tab, stageFilters, search, whoFilter, dateYMD, leadId]);
+    };
+
+    // GLOBAL SEARCH: a name/address query surfaces the customer wherever they
+    // are — any tab, any date, even declined/closed — so staff never have to
+    // hunt tab-by-tab. It jumps straight to the matching customer(s).
+    if (q) {
+      let list = (tasks ?? []).filter((t) => (t.contact_name || "").toLowerCase().includes(q) || (t.address || "").toLowerCase().includes(q));
+      if (whoFilter) list = list.filter((t) => (t.touched_by || []).some((a) => a.name === whoFilter));
+      return [...list].sort(sortFn);
+    }
+
+    // "Show" dropdown — resolved leads are NOT deleted, just tucked behind here.
+    if (resolvedFilter === "declined") return (tasks ?? []).filter((t) => DECLINED_IDS.has(t.stage_id)).sort(sortFn);
+    if (resolvedFilter === "closed_scheduled") return (tasks ?? []).filter((t) => CLOSED_SCHEDULED_IDS.has(t.stage_id)).sort(sortFn);
+
+    // Active queue (excludes terminal), tab-filtered.
+    let list = activeTasks;
+    if (tab === "today") list = list.filter((t) => !isUpcoming(t));
+    else if (tab === "upcoming") list = list.filter((t) => isUpcoming(t));
+    else if (tab === "date") { const isToday = dateYMD === todayCST(); list = list.filter((t) => belongsOnDate(t, dateYMD, isToday)); }
+    if (stageFilters.length) list = list.filter((t) => stageFilters.includes(effectiveStage(t) as StageKey));
+    if (whoFilter) list = list.filter((t) => (t.touched_by || []).some((a) => a.name === whoFilter));
+    return [...list].sort(sortFn);
+  }, [tasks, activeTasks, tab, stageFilters, search, whoFilter, dateYMD, leadId, resolvedFilter]);
 
   // Distinct people who have touched any loaded lead — powers the "Who" filter.
   const whoOptions = useMemo(() => {
@@ -785,6 +835,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           // wherever the date navigator was last left.
           if (next === "date") setDateYMD(todayCST());
           setTab(next);
+          setResolvedFilter("active");   // leaving the resolved-leads view
         }}>
           <TabsList>
             <TabsTrigger value="today">Untapped Leads ({counts.today})</TabsTrigger>
@@ -796,6 +847,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
         </Tabs>
         {tab !== "activity" && (
         <div className="flex items-center gap-2 flex-wrap">
+        <select
+          value={resolvedFilter}
+          onChange={(e) => setResolvedFilter(e.target.value as "active" | "declined" | "closed_scheduled")}
+          className={`text-sm rounded-md border px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring ${resolvedFilter === "active" ? "bg-background" : "bg-amber-50 border-amber-300 text-amber-800"}`}
+          title="Show the active work queue, or resolved leads that were kept (not deleted)"
+        >
+          <option value="active">Active queue</option>
+          <option value="declined">Declined estimates</option>
+          <option value="closed_scheduled">Closed &amp; scheduled</option>
+        </select>
         {tab === "date" && (
           <div className="flex items-center gap-1.5">
             <button
@@ -932,6 +993,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                       <button onClick={() => navigate(`/leads/${t.id}`)} className="font-medium text-primary hover:underline text-left">
                         {t.contact_name || "Lead"}
                       </button>
+                      {t.pipeline_version === "v2b" && (
+                        <span
+                          className="inline-flex items-center justify-center rounded bg-indigo-100 text-indigo-700 px-1 py-0.5 text-[10px] font-bold leading-none"
+                          title="Sterling Leads B"
+                        >
+                          B
+                        </span>
+                      )}
                       {t.is_new && (
                         <span
                           className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-700 px-1.5 py-0.5 text-[10px] font-semibold"
@@ -979,7 +1048,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                       {!STAGE_OPTIONS.some((o) => o.value === currentStageValue(t)) && (
                         <option value={currentStageValue(t)}>{t.stage_label || "Current stage"}</option>
                       )}
-                      {STAGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {stageOptionsFor(t).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>
 
