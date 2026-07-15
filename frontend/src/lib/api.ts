@@ -360,6 +360,8 @@ export const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
 export interface LeadDetail extends Lead {
   estimates: EstimateDetail[];
   estimate?: EstimateDetail;
+  estimated_in_person?: boolean;      // effective: manual override if set, else auto-detected
+  estimated_in_person_auto?: boolean; // whether estimator activity was detected for this lead
 }
 
 export interface EstimateDetail {

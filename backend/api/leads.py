@@ -699,6 +699,28 @@ def get_lead(lead_id: str):
 
         result = lead.to_dict()
         result["estimates"] = est_list
+
+        # "Estimated in Person" — auto-detected from estimator activity (photos/
+        # videos, recordings, or notes on this lead), with a manual override
+        # that wins. form_data.estimated_in_person: bool = explicit override;
+        # absent = fall back to auto-detection.
+        from database import EstimatorPhoto, EstimatorRecording
+        has_activity = bool(
+            (lead.estimator_notes or "").strip()
+            or db.query(EstimatorPhoto.id).filter(EstimatorPhoto.lead_id == lead_id).first()
+            or db.query(EstimatorRecording.id).filter(EstimatorRecording.lead_id == lead_id).first()
+        )
+        fd = result.get("form_data")
+        if isinstance(fd, str):
+            try:
+                fd = json.loads(fd or "{}")
+            except (TypeError, ValueError):
+                fd = {}
+        if not isinstance(fd, dict):
+            fd = {}
+        manual = fd.get("estimated_in_person")
+        result["estimated_in_person_auto"] = has_activity
+        result["estimated_in_person"] = manual if isinstance(manual, bool) else has_activity
         return result
     finally:
         db.close()
