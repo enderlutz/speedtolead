@@ -794,8 +794,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     const q = search.trim().toLowerCase();
     const sortFn = (a: DailyTask, b: DailyTask) => {
       // Brand-new leads (arrived today, untouched) get the very top — speed to
-      // lead wins deals — then carried-over (unfinished from a prior day).
+      // lead wins deals.
       if (a.is_new !== b.is_new) return a.is_new ? -1 : 1;
+      // Leads we've actually started (a follow-up is scheduled) rank ABOVE
+      // post-estimate leads nobody has started the process on yet — those
+      // "Start process" estimates sink to the bottom of the queue.
+      const aNP = needsProcess(a), bNP = needsProcess(b);
+      if (aNP !== bNP) return aNP ? 1 : -1;
+      // Then carried-over (unfinished from a prior day) floats up, oldest first.
       if (a.carried_over !== b.carried_over) return a.carried_over ? -1 : 1;
       if (a.carried_over && b.carried_over && a.days_waiting !== b.days_waiting) return b.days_waiting - a.days_waiting;
       return (a.next_follow_up?.due_at || "").localeCompare(b.next_follow_up?.due_at || "");
