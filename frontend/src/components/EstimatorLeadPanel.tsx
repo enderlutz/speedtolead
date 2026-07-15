@@ -65,6 +65,7 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
     let alive = true;
     (async () => {
       for (const p of caps.photos) {
+        if (p.media_url) continue;                  // stored in Storage — loaded straight from the CDN
         if (photoBlobsRef.current[p.id]) continue;
         const url = await api.fetchEstimatorPhotoBlobUrl(p.id);
         if (alive && url) setPhotoBlobs((prev) => ({ ...prev, [p.id]: url }));
@@ -219,22 +220,27 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
         )}
       </section>
 
-      {/* Pre-inspection photos */}
+      {/* Pre-inspection photos & videos */}
       <section className="space-y-2">
-        <h3 className="text-sm font-semibold flex items-center gap-2"><ImageIcon className="h-4 w-4 text-primary" /> Pre-inspection photos</h3>
-        <p className="text-[11px] text-muted-foreground">Pick several at once. These also show up in the job's Inspection Pictures once it's on the schedule.</p>
-        <input ref={fileRef} type="file" accept="image/*" multiple onChange={onPickPhoto} className="hidden" />
+        <h3 className="text-sm font-semibold flex items-center gap-2"><ImageIcon className="h-4 w-4 text-primary" /> Pre-inspection photos &amp; videos</h3>
+        <p className="text-[11px] text-muted-foreground">Pick several at once — photos or videos. These also show up in the job's Inspection Pictures once it's on the schedule.</p>
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple onChange={onPickPhoto} className="hidden" />
         <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={!!photoProgress}>
           {photoProgress
             ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> Uploading {photoProgress.done}/{photoProgress.total}…</>
-            : <><Camera className="h-4 w-4 mr-1" /> Add photos</>}
+            : <><Camera className="h-4 w-4 mr-1" /> Add photos/videos</>}
         </Button>
         {caps?.photos.length ? (
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            {caps.photos.map((p) => (
+            {caps.photos.map((p) => {
+              const src = p.media_url || photoBlobs[p.id] || "";
+              const isVideo = (p.mime || "").startsWith("video/");
+              return (
               <div key={p.id} className="relative group aspect-square rounded border overflow-hidden bg-muted/40">
-                {photoBlobs[p.id] ? (
-                  <img src={photoBlobs[p.id]} alt="estimate" className="h-full w-full object-cover" />
+                {src ? (
+                  isVideo
+                    ? <video src={src} controls preload="metadata" className="h-full w-full object-cover" />
+                    : <img src={src} alt="estimate" className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
                 )}
@@ -245,7 +251,8 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
                   <Trash2 className="h-3 w-3" />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">No photos yet.</p>

@@ -215,6 +215,7 @@ export interface EstimatorPhotoMeta {
   mime: string;
   uploaded_at: string;
   uploaded_by: string;
+  media_url: string; // CDN URL when stored in Supabase Storage; "" for legacy DB-blob rows
 }
 
 export interface EstimatorRecordingMeta {

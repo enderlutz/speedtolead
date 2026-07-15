@@ -481,6 +481,26 @@ def flag_lead(lead_id: str, body: FlagBody, user: dict = Depends(require_staff))
 
 # ── Per-lead estimate captures: notes, photos, recordings ─────────────────
 _MAX_PHOTO_BYTES = 12 * 1024 * 1024
+# Videos go to Storage (never a DB BLOB) so a bigger cap is fine.
+_MAX_VIDEO_BYTES = 200 * 1024 * 1024
+
+
+def _media_ext(mime: str, filename: str) -> str:
+    """File extension for a stored image/video, from the MIME (then filename)."""
+    m = (mime or "").lower()
+    for needle, ext in (
+        ("jpeg", "jpg"), ("jpg", "jpg"), ("png", "png"), ("webp", "webp"),
+        ("gif", "gif"), ("heic", "heic"), ("heif", "heif"),
+        ("quicktime", "mov"), ("mov", "mov"), ("mp4", "mp4"), ("webm", "webm"),
+        ("x-matroska", "mkv"), ("3gpp", "3gp"),
+    ):
+        if needle in m:
+            return ext
+    if "." in (filename or ""):
+        ext = filename.rsplit(".", 1)[-1].lower()
+        if 1 <= len(ext) <= 5 and ext.isalnum():
+            return ext
+    return "bin"
 # Audio now lives in Supabase Storage (not the DB), so a long estimate
 # conversation is fine. Cap is a memory/abuse guard on the whole-file read,
 # not a length limit — 200 MB is several hours of compressed audio.
@@ -613,7 +633,7 @@ async def upload_lead_photo(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    """Add one pre-inspection photo to a lead. Appends — never replaces."""
+    """Add one pre-inspection photo OR video to a lead. Appends — never replaces."""
     db = get_db()
     try:
         _assert_lead_access(db, user, lead_id)
@@ -622,17 +642,41 @@ async def upload_lead_photo(
         data = await file.read()
         if not data:
             raise HTTPException(400, "Empty upload")
-        if len(data) > _MAX_PHOTO_BYTES:
-            raise HTTPException(400, "Photo too large (>12 MB)")
         mime = file.content_type or "image/jpeg"
-        if not mime.startswith("image/"):
-            raise HTTPException(400, "Only image files accepted")
+        is_video = mime.startswith("video/")
+        if not (mime.startswith("image/") or is_video):
+            raise HTTPException(400, "Only image or video files accepted")
+        cap = _MAX_VIDEO_BYTES if is_video else _MAX_PHOTO_BYTES
+        if len(data) > cap:
+            raise HTTPException(400, f"File too large (> {cap // (1024 * 1024)} MB)")
+
+        photo_id = str(uuid.uuid4())
+        # Store in Supabase Storage (no DB egress on view; and the only sane
+        # place for video). Images fall back to a DB BLOB if Storage is down;
+        # videos require Storage (too big for the DB).
+        media_url, storage_path = "", ""
+        try:
+            from services.supabase_storage import upload_image
+            bucket = get_settings().supabase_estimator_recordings_bucket or "estimator-recordings"
+            path = f"{lead_id}/{photo_id}.{_media_ext(mime, file.filename or '')}"
+            url = upload_image(bucket, path, data, content_type=mime)
+            if url:
+                media_url, storage_path = url, path
+        except Exception as e:
+            logger.warning(f"Estimator photo/video storage upload failed, using DB blob: {e}")
+
+        in_bucket = bool(media_url)
+        if is_video and not in_bucket:
+            raise HTTPException(503, "Video upload needs cloud storage, which isn't available right now — try again shortly.")
+
         photo = EstimatorPhoto(
-            id=str(uuid.uuid4()),
+            id=photo_id,
             lead_id=lead_id,
-            photo_data=data,
-            has_photo_data=True,
-            filename=file.filename or "photo",
+            photo_data=None if in_bucket else data,
+            has_photo_data=not in_bucket,
+            media_url=media_url,
+            storage_path=storage_path,
+            filename=file.filename or ("video" if is_video else "photo"),
             mime=mime,
             uploaded_at=_now(),
             uploaded_by=user.get("name", ""),
@@ -654,6 +698,10 @@ def get_lead_photo(photo_id: str, user: dict = Depends(get_current_user)):
         if not photo:
             raise HTTPException(404, "Photo not found")
         _assert_lead_access(db, user, photo.lead_id)
+        # Newer rows live in Storage — hand back the CDN URL. (The frontend
+        # normally loads media_url directly; this covers any legacy caller.)
+        if photo.media_url:
+            return RedirectResponse(photo.media_url)
         if not photo.photo_data:
             raise HTTPException(404, "Photo not found")
         return Response(content=photo.photo_data, media_type=photo.mime or "image/jpeg")
@@ -669,6 +717,13 @@ def delete_lead_photo(photo_id: str, user: dict = Depends(get_current_user)):
         if not photo:
             raise HTTPException(404, "Photo not found")
         _assert_lead_access(db, user, photo.lead_id)
+        if photo.storage_path:
+            try:
+                from services.supabase_storage import delete_object
+                bucket = get_settings().supabase_estimator_recordings_bucket or "estimator-recordings"
+                delete_object(bucket, photo.storage_path)
+            except Exception as e:
+                logger.warning(f"Estimator photo/video storage delete failed: {e}")
         db.delete(photo)
         db.commit()
         return {"ok": True}

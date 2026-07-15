@@ -2039,6 +2039,11 @@ class EstimatorPhoto(Base):
     lead_id = Column(Text, nullable=False)
     photo_data = deferred(Column(LargeBinary, nullable=True))
     has_photo_data = Column(Boolean, default=False, nullable=False)
+    # Newer photos/videos live in Supabase Storage (no DB egress on view; also
+    # how videos — too big for a DB BLOB — are supported). Legacy rows keep
+    # photo_data and leave these empty.
+    media_url = Column(Text, default="")
+    storage_path = Column(Text, default="")
     filename = Column(Text, default="")
     mime = Column(Text, default="")
     uploaded_at = Column(Text, default="")
@@ -2052,6 +2057,9 @@ class EstimatorPhoto(Base):
             "mime": self.mime or "image/jpeg",
             "uploaded_at": self.uploaded_at or "",
             "uploaded_by": self.uploaded_by or "",
+            # Present → the frontend loads straight from the CDN (and knows to
+            # render <video> vs <img> from mime). Empty → legacy DB-blob row.
+            "media_url": self.media_url or "",
         }
 
 
@@ -2934,6 +2942,17 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE estimator_recordings ADD COLUMN storage_path TEXT DEFAULT ''"))
             logger.info("Migration: added estimator_recordings.storage_path")
+
+    if inspector.has_table("estimator_photos"):
+        ep_cols = {c["name"] for c in inspector.get_columns("estimator_photos")}
+        if "media_url" not in ep_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE estimator_photos ADD COLUMN media_url TEXT DEFAULT ''"))
+            logger.info("Migration: added estimator_photos.media_url")
+        if "storage_path" not in ep_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE estimator_photos ADD COLUMN storage_path TEXT DEFAULT ''"))
+            logger.info("Migration: added estimator_photos.storage_path")
 
     if inspector.has_table("users"):
         user_cols = {c["name"] for c in inspector.get_columns("users")}
