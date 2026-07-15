@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EstimatorLeadPanel from "@/components/EstimatorLeadPanel";
+import LeadActivityHistory from "@/components/LeadActivityHistory";
 import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
@@ -831,6 +832,7 @@ export default function LeadDetail() {
           <TabsTrigger value="upsell">Upsell</TabsTrigger>
           */}
           <TabsTrigger value="estimator">Estimator</TabsTrigger>
+          <TabsTrigger value="history">Activity History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="estimate" className="space-y-4 sm:space-y-6 mt-4">
@@ -1737,6 +1739,17 @@ export default function LeadDetail() {
           <Card>
             <CardContent className="p-4">
               <EstimatorLeadPanel leadId={lead.id} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-4 sm:space-y-6 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Activity History</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <LeadActivityHistory leadId={lead.id} />
             </CardContent>
           </Card>
         </TabsContent>

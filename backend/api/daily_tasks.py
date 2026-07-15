@@ -598,6 +598,66 @@ def get_activity(
         db.close()
 
 
+@router.get("/leads/{lead_id}/activity")
+def get_lead_activity(lead_id: str, user: dict = Depends(require_staff)):
+    """Full per-lead timeline for the Lead Detail → Activity History tab: calls,
+    every scheduled follow-up (annotated done / missed-and-rolled / superseded /
+    upcoming), stage moves, note edits, and sends. This is where the day-by-day
+    scheduling record lives now that the Daily Task List collapses a lead onto a
+    single day — so nothing is lost when a missed callback rolls forward."""
+    del user
+    db = get_db()
+    try:
+        events: list[dict] = []
+
+        for d in (
+            db.query(CallDisposition)
+            .filter(CallDisposition.lead_id == lead_id)
+            .order_by(desc(CallDisposition.disposed_at))
+            .all()
+        ):
+            label = _OUTCOME_LABELS.get(d.outcome or "", d.outcome or "call")
+            events.append({
+                "id": f"call:{d.id}", "lead_id": lead_id, "at": d.disposed_at or "",
+                "actor_name": d.disposed_by or "", "actor_sub": getattr(d, "disposed_by_sub", "") or "",
+                "action": "call",
+                "summary": f"Logged call — {label}" + (f": {d.notes}" if d.notes else ""),
+            })
+
+        today_ct = datetime.now(_CENTRAL).date()
+        for f in db.query(TaskFollowUp).filter(TaskFollowUp.lead_id == lead_id).all():
+            action_label = _FU_ACTION_LABELS.get(f.action_type or "call", "follow-up")
+            due_d = _to_central_date(f.due_at or "")
+            due_str = due_d.strftime("%b %-d") if due_d else "?"
+            status = f.status or "pending"
+            if status == "done":
+                tail = " — done ✓"
+            elif status == "cancelled":
+                tail = " — replaced by a newer follow-up"
+            elif due_d and due_d < today_ct:
+                tail = " — missed, rolled forward"
+            else:
+                tail = " — upcoming"
+            events.append({
+                "id": f"fu:{f.id}", "lead_id": lead_id, "at": f.created_at or "",
+                "actor_name": f.created_by or "", "actor_sub": "",
+                "action": "follow_up",
+                "summary": f"Scheduled a {action_label} for {due_str}{tail}",
+            })
+
+        for a in db.query(LeadActivity).filter(LeadActivity.lead_id == lead_id).all():
+            events.append({
+                "id": f"act:{a.id}", "lead_id": lead_id, "at": a.created_at or "",
+                "actor_name": a.actor_name or "", "actor_sub": a.actor_sub or "",
+                "action": a.action_type or "", "summary": a.summary or "",
+            })
+
+        events.sort(key=lambda e: e["at"] or "", reverse=True)
+        return {"events": events}
+    finally:
+        db.close()
+
+
 # ── Scoreboard (gamification) ───────────────────────────────────────────────
 # Point values. Calls score by OUTCOME (a live conversation is worth the most,
 # then VM+text, then VM, then a plain no-answer dial). Closing a deal is the

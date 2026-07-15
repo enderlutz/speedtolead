@@ -2012,6 +2012,8 @@ export const api = {
       `/api/daily-tasks/activity${qs ? `?${qs}` : ""}`,
     );
   },
+  getLeadActivity: (leadId: string) =>
+    request<{ events: DailyActivityEvent[] }>(`/api/leads/${leadId}/activity`),
   getScoreboard: (date?: string) =>
     request<Scoreboard>(`/api/daily-tasks/scoreboard${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   createFollowUp: (
