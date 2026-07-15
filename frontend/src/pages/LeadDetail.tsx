@@ -1507,6 +1507,25 @@ export default function LeadDetail() {
                   <Clock className="h-4 w-4 mr-1" /> Schedule
                 </Button>
               </div>
+              {/* Marks that this estimate was done on-site (in person) vs remote.
+                  Stored on the lead's form_data, same pattern as addons_handled. */}
+              <label className="flex items-center gap-2 text-xs mt-1 cursor-pointer text-muted-foreground w-fit">
+                <input
+                  type="checkbox"
+                  checked={Boolean(lead?.form_data?.estimated_in_person)}
+                  onChange={async (e) => {
+                    if (!id) return;
+                    try {
+                      await api.updateFormData(id, { estimated_in_person: e.target.checked });
+                      const data = await api.getLead(id);
+                      setLead(data);
+                      toast.success(e.target.checked ? "Marked estimated in person" : "Unmarked");
+                    } catch { toast.error("Failed to save"); }
+                  }}
+                  className="rounded border-input"
+                />
+                Estimated in Person
+              </label>
               {/* Second send path — same proposal + customer SMS, but skips
                   the "estimate sent" GHL tag so the P1/P04 follow-up
                   automations don't fire for this send. Confirmation prompt
