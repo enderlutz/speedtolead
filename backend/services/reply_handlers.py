@@ -47,6 +47,15 @@ ADDRESS_FOLLOW_UP_STAGE_ID = "86fd0197-38ee-4999-bd26-4cf175aeba6b"
 RESPONDED_TO_ADDRESS_STAGE_ID = "92585169-bbc1-42c5-945d-63caf780e0b1"
 RESPONDED_TO_ESTIMATE_STAGE_ID = "8e1eb2cd-b9db-4eb7-aacf-901945cfca9b"
 RESPONDED_TO_LTN_STAGE_ID = "8e17bd4c-5181-40b9-ba1e-bbe9b0547c01"
+# Sterling B (STERLING) reply-move equivalents. P04 (estimate reply) mirrors A
+# but uses B's tag + stage. P01/P03/P06 can't fire for B: P01 needs a P0 intake
+# run (B has no seeded sequences), and P03/P06 gate on tags B never gets.
+RESPONDED_TO_ESTIMATE_STAGE_ID_B = "f7a09296-a9bb-4d69-9398-28c495743b4b"
+TAG_ESTIMATE_SENT_B = "estimate sent sterling"
+# OFF until the B reply-move behavior is certified with the owner. While False,
+# a B customer's reply never auto-moves the card (A is unaffected). Flip to True
+# to enable.
+B_P04_REPLY_ENABLED = False
 
 # Tag names mirror Alan's GHL workflow vocabulary so it's obvious where
 # they come from. Lowercase + space-collapsed for matching.
@@ -144,7 +153,12 @@ def _handle_p04_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     Nothing extra to do here."""
     if not is_external_workflow_active(EXTERNAL_WORKFLOW_P04_REPLY_NAME):
         return False
-    if TAG_ESTIMATE_SENT not in tags:
+    # B leads carry "estimate sent sterling"; A leads carry "estimate sent".
+    is_b = lead.pipeline_version == "v2b"
+    if is_b and not B_P04_REPLY_ENABLED:
+        return False  # B reply-move disabled until certified
+    sent_tag = TAG_ESTIMATE_SENT_B if is_b else TAG_ESTIMATE_SENT
+    if sent_tag not in tags:
         return False
     if TAG_REPLIED_TO_ESTIMATE in tags:
         return False  # idempotent — already handled
@@ -159,13 +173,14 @@ def _handle_p04_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     except Exception as e:
         logger.warning(f"P04-REPLY tag add failed for lead {lead.id}: {e}")
 
+    resp_stage = RESPONDED_TO_ESTIMATE_STAGE_ID_B if is_b else RESPONDED_TO_ESTIMATE_STAGE_ID
     previous_stage = lead.ghl_pipeline_stage_id or ""
-    lead.ghl_pipeline_stage_id = RESPONDED_TO_ESTIMATE_STAGE_ID
+    lead.ghl_pipeline_stage_id = resp_stage
     if lead.ghl_opportunity_id:
         try:
             update_opportunity_stage(
                 lead.ghl_opportunity_id,
-                RESPONDED_TO_ESTIMATE_STAGE_ID,
+                resp_stage,
                 lead.ghl_location_id or None,
             )
         except Exception as e:
@@ -175,7 +190,7 @@ def _handle_p04_reply(db, lead: Lead, body: str, tags: set[str]) -> bool:
     _notify_estimate_replied(lead, body)
     logger.info(
         f"P04-REPLY fired for lead {lead.id} "
-        f"(stage {previous_stage} -> {RESPONDED_TO_ESTIMATE_STAGE_ID})"
+        f"(stage {previous_stage} -> {resp_stage})"
     )
     return True
 
