@@ -213,6 +213,7 @@ function dateLabel(ymd: string): string {
   const pretty = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   if (ymd === todayCST()) return `Today · ${pretty}`;
   if (ymd === tomorrowCST()) return `Tomorrow · ${pretty}`;
+  if (ymd === shiftDay(todayCST(), -1)) return `Yesterday · ${pretty}`;
   return pretty;
 }
 function money(n: number): string {
@@ -688,6 +689,9 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   // Bumped whenever the task list reloads so the Scoreboard refetches too
   // (a logged call / sent estimate updates the score right away).
   const [scoreTick, setScoreTick] = useState(0);
+  // Hidden native date input behind the prominent date header — clicking the
+  // header label opens its picker.
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -902,33 +906,6 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           <option value="declined">Declined estimates</option>
           <option value="closed_scheduled">Closed &amp; scheduled</option>
         </select>
-        {tab === "date" && (
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setDateYMD(shiftDay(dateYMD, -1))}
-              className="p-1.5 rounded-md border bg-background hover:bg-muted text-muted-foreground"
-              title="Previous day"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <div className="relative">
-              <CalendarDays className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-              <input
-                type="date"
-                value={dateYMD}
-                onChange={(e) => setDateYMD(e.target.value || todayCST())}
-                className="text-sm rounded-md border bg-background pl-8 pr-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            <button
-              onClick={() => setDateYMD(shiftDay(dateYMD, 1))}
-              className="p-1.5 rounded-md border bg-background hover:bg-muted text-muted-foreground"
-              title="Next day"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
         <div className="relative w-56 max-w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <input
@@ -961,12 +938,62 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
       {!leadId && tab === "activity" && <ActivityLog />}
 
+      {/* Prominent, centered date header — calendar-app pattern so the viewed
+          day is unmistakable. Chevrons step days; the big label opens a picker;
+          "Jump to today" snaps back when you've navigated away. */}
       {!leadId && tab === "date" && (
-        <p className="text-xs text-muted-foreground">
-          <CalendarDays className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-          {dateCount} lead{dateCount === 1 ? "" : "s"} to work {dateYMD === todayCST() ? "today" : <>on <span className="font-medium text-foreground">{dateLabel(dateYMD)}</span></>}
-          {dateYMD === todayCST() && <span className="text-muted-foreground"> — includes overdue callbacks rolled forward</span>}
-        </p>
+        <div className="rounded-xl border bg-muted/30 px-3 py-3">
+          <div className="flex items-center justify-center gap-2 sm:gap-4">
+            <button
+              onClick={() => setDateYMD(shiftDay(dateYMD, -1))}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background hover:bg-muted text-muted-foreground shrink-0"
+              title="Previous day"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <div className="relative">
+              <button
+                onClick={() => { try { dateInputRef.current?.showPicker(); } catch { dateInputRef.current?.focus(); } }}
+                className="flex items-center gap-2 rounded-lg px-3 py-1.5 hover:bg-background/80 transition-colors"
+                title="Pick a date"
+              >
+                <CalendarDays className="h-5 w-5 text-primary shrink-0" />
+                <span className="text-lg sm:text-xl font-bold tracking-tight whitespace-nowrap">{dateLabel(dateYMD)}</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+              </button>
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={dateYMD}
+                onChange={(e) => setDateYMD(e.target.value || todayCST())}
+                className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+                tabIndex={-1}
+                aria-hidden
+              />
+            </div>
+            <button
+              onClick={() => setDateYMD(shiftDay(dateYMD, 1))}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background hover:bg-muted text-muted-foreground shrink-0"
+              title="Next day"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="mt-2 flex items-center justify-center gap-2 flex-wrap text-sm text-muted-foreground">
+            <span>
+              <span className="font-semibold text-foreground">{dateCount}</span> lead{dateCount === 1 ? "" : "s"} to work
+              {dateYMD === todayCST() && " — includes overdue callbacks rolled forward"}
+            </span>
+            {dateYMD !== todayCST() && (
+              <button
+                onClick={() => setDateYMD(todayCST())}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 text-primary px-2.5 py-0.5 text-xs font-medium hover:bg-primary/20"
+              >
+                <CalendarDays className="h-3 w-3" /> Jump to today
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Embedded lead view: always-visible scheduled-call banner so it isn't
