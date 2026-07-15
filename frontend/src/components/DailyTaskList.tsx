@@ -595,8 +595,15 @@ function belongsOnDate(t: DailyTask, dateYMD: string, isToday: boolean): boolean
     // estimate never slips through the cracks; they don't anchor to any other day.
     return isToday && POST_ESTIMATE_STAGE_IDS.has(t.stage_id);
   }
-  if (isToday) return ymdCST(fu.due_at) <= dateYMD;       // due today or overdue (rolls forward)
-  return ymdCST(fu.due_at) === dateYMD;
+  const due = ymdCST(fu.due_at);
+  // TODAY collects everything due today PLUS all overdue (rolled forward).
+  if (isToday) return due <= dateYMD;
+  // Every lead appears on EXACTLY ONE day. A PAST day shows nothing that rolled
+  // forward — an overdue follow-up has moved to today, so it must not re-appear
+  // on its original date (that's the "duplicate"). Only a FUTURE day shows its
+  // own scheduled follow-up. (dateYMD !== today here, so > today means future.)
+  // The lost past-day record lives in the lead's Activity History tab instead.
+  return due === dateYMD && dateYMD > todayCST();
 }
 // Overdue = the follow-up's day has already passed (all-day tasks aren't
 // "overdue" mid-day; a timed task is overdue once its time has passed today).
