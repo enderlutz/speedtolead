@@ -49,14 +49,23 @@ def _today() -> str:
 
 
 def _default_estimator_id(db) -> str:
-    """The single estimator account, used when an admin doesn't name one."""
-    u = (
-        db.query(User)
-        .filter(User.role == "estimator")
-        .order_by(User.created_at)
-        .first()
-    )
-    return u.username if u else "EmmanuelOnibayo"
+    """The active estimator account, used when an admin doesn't name one.
+
+    Prefers the earliest-created estimator that is NOT disabled, so the
+    schedule (and new-visit assignment, which also routes through here)
+    defaults to whoever is currently working — not an archived account like
+    Emmanuel, who quit. Without the disabled filter the default stuck on the
+    oldest row (Emmanuel), hiding visits moved to Neo and mis-assigning new
+    estimates to the dead account. Falls back to any estimator if somehow all
+    are disabled."""
+    base = db.query(User).filter(User.role == "estimator").order_by(User.created_at)
+    active = base.filter(
+        (User.disabled.is_(False)) | (User.disabled.is_(None))
+    ).first()
+    if active:
+        return active.username
+    any_est = base.first()
+    return any_est.username if any_est else "NeoHerrera"
 
 
 def _resolve_estimator_id(db, user: dict, requested: str | None) -> str:
