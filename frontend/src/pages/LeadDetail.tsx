@@ -2750,6 +2750,8 @@ function DepositRow({
   const [sending, setSending] = useState(false);
   const [waiving, setWaiving] = useState(false);
   const [copyingLink, setCopyingLink] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const status = (lead.deposit_status || "").toLowerCase();
   const link = lead.deposit_payment_link || "";
   const sentAt = lead.deposit_invoice_sent_at || "";
@@ -2803,6 +2805,44 @@ function DepositRow({
       toast.success("Payment link copied");
     } catch {
       toast.error("Couldn't copy — select and copy manually");
+    }
+  };
+
+  // Re-pull the public pay link WITHOUT texting the customer, so admin can
+  // Open + eyeball it before sending. Heals a stale/login link on the server
+  // side (send-deposit-invoice refreshes a non-public link when text_customer
+  // is false).
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const r = await api.sendDepositInvoice(lead.id, false);
+      const url = r.deposit_payment_link || "";
+      if (!url) {
+        toast.error("Couldn't get a link — try Cancel & start over.");
+      } else {
+        toast.success("Link refreshed. Open it to verify, then Text to customer.");
+      }
+      onChange();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to refresh link");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Void the QB invoice + reset the deposit so admin can start fresh.
+  const handleCancel = async () => {
+    if (!confirm(`Cancel this deposit for ${lead.contact_name || "this customer"}? The QuickBooks invoice will be voided and you can send a new one.`)) return;
+    setCanceling(true);
+    try {
+      const r = await api.cancelDeposit(lead.id);
+      if (r.voided_in_qb) toast.success("Deposit canceled and invoice voided in QuickBooks.");
+      else toast.warning("Deposit reset here, but QuickBooks didn't void the invoice — void it in QB.");
+      onChange();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to cancel deposit");
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -2911,9 +2951,40 @@ function DepositRow({
               </a>
             </div>
           )}
-          <Button size="sm" variant="outline" onClick={handleWaive} disabled={waiving}>
+          <p className="text-[11px] text-muted-foreground">
+            Verify with <span className="font-medium">Open</span> before you text the customer. A good link starts with{" "}
+            <span className="font-mono">connect.intuit.com</span>.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={refreshing || sending || canceling}>
+              {refreshing ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Refreshing…</>
+              ) : (
+                <><RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh link</>
+              )}
+            </Button>
+            <Button size="sm" onClick={handleSend} disabled={sending || refreshing || canceling}>
+              {sending ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Texting…</>
+              ) : (
+                <><Send className="h-3.5 w-3.5 mr-1" /> Text to customer</>
+              )}
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleCancel} disabled={canceling || sending || refreshing}>
+              {canceling ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Canceling…</>
+              ) : (
+                <><X className="h-3.5 w-3.5 mr-1" /> Cancel &amp; start over</>
+              )}
+            </Button>
+          </div>
+          <button
+            onClick={handleWaive}
+            disabled={waiving}
+            className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
+          >
             {waiving ? "Waiving…" : "Waive instead"}
-          </Button>
+          </button>
         </div>
       )}
 

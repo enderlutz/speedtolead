@@ -846,6 +846,30 @@ def fetch_invoice(invoice_id: str) -> dict | None:
         return None
 
 
+def void_invoice(invoice_id: str) -> bool:
+    """Void an invoice in QuickBooks. QB keeps the record at $0 marked VOID
+    (standard audit trail) rather than deleting it. Needs the current SyncToken,
+    so we GET first. Returns True on success, False if not connected, the
+    invoice is gone, or QB rejects it (e.g. already paid). Never raises."""
+    t = ensure_valid_access_token()
+    if not t or not invoice_id:
+        return False
+    inv = fetch_invoice(invoice_id)
+    if not inv:
+        return False
+    try:
+        qbo_request(
+            "POST",
+            f"/v3/company/{t.realm_id}/invoice",
+            params={"operation": "void"},
+            json_body={"Id": str(invoice_id), "SyncToken": str(inv.get("SyncToken", "0"))},
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"void_invoice({invoice_id}) failed: {e}")
+        return False
+
+
 def query_invoices(start_position: int = 1, max_results: int = 1000,
                    order_by: str = "MetaData.LastUpdatedTime") -> list[dict]:
     """One page of raw QBO Invoice resources (max 1000 per QBO limit). Callers

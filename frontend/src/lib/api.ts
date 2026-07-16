@@ -1982,6 +1982,16 @@ export const api = {
       method: "POST",
     }),
 
+  /** Cancel a pending deposit: voids the QB invoice and resets the lead's
+   *  deposit to not-started so admin can send a fresh one. Refused if the
+   *  deposit is already paid. voided_in_qb=false means the dashboard reset but
+   *  QB rejected the void (clean it up in QB). */
+  cancelDeposit: (leadId: string) =>
+    request<{ status: string; voided_in_qb: boolean; invoice_id: string; lead: Lead }>(
+      `/api/quickbooks/leads/${leadId}/cancel-deposit`,
+      { method: "POST" },
+    ),
+
   /** Sprint 2 — Call dispositions. Log the outcome of a sales call so the
    *  funnel finally has why-didn't-this-close data. Append-only history. */
   logCallDisposition: (

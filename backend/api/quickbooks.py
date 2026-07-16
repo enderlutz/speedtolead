@@ -1021,6 +1021,52 @@ def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = 
         db.close()
 
 
+@router.post("/quickbooks/leads/{lead_id}/cancel-deposit")
+def cancel_deposit(lead_id: str, user: dict = Depends(require_staff)):
+    """Cancel a pending deposit: void the QB invoice and reset the lead's
+    deposit fields to not-started so admin can send a fresh one. Refuses if the
+    deposit is already paid. Voiding is best-effort — if QB rejects it we still
+    reset the dashboard (so admin isn't stuck) and report voided_in_qb=false so
+    they know to clean it up in QB."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        if lead.deposit_status == "paid":
+            raise HTTPException(400, "Deposit is already paid — it can't be canceled.")
+
+        invoice_id = (lead.deposit_qb_invoice_id or "").strip()
+        voided = False
+        if invoice_id and qb.qb_mode() != "mock":
+            voided = qb.void_invoice(invoice_id)
+            if voided:
+                # Refresh the Revenue-page mirror so the voided invoice shows
+                # as void there too. Best-effort.
+                try:
+                    from api.qb_invoices import upsert_invoice_id
+                    upsert_invoice_id(db, invoice_id, commit=True)
+                except Exception as e:
+                    logger.warning(f"Revenue mirror refresh after void failed for {invoice_id}: {e}")
+
+        lead.deposit_status = ""
+        lead.deposit_payment_link = ""
+        lead.deposit_qb_invoice_id = ""
+        lead.deposit_invoice_sent_at = None
+        lead.updated_at = _now()
+        db.commit()
+        db.refresh(lead)
+        return {
+            "status": "canceled",
+            "voided_in_qb": voided,
+            "invoice_id": invoice_id,
+            "lead": lead.to_dict(),
+        }
+    finally:
+        db.close()
+
+
 @router.post("/quickbooks/leads/{lead_id}/waive-deposit")
 def waive_deposit(lead_id: str, user: dict = Depends(require_admin)):
     """Mark the deposit as waived without sending an invoice. Used for
