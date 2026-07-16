@@ -233,6 +233,7 @@ export interface EstimatorCaptures {
   notes: string;
   photos: EstimatorPhotoMeta[];
   recordings: EstimatorRecordingMeta[];
+  additional_services?: string;
 }
 
 // --- Lead Map (Company Map) ---

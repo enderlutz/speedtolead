@@ -3,7 +3,7 @@ import { api, type EstimatorCaptures } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Camera, Mic, Square, Trash2, Loader2, StickyNote, Image as ImageIcon, AudioLines, Upload, Download, RotateCw } from "lucide-react";
+import { Camera, Mic, Square, Trash2, Loader2, StickyNote, Image as ImageIcon, AudioLines, Upload, Download, RotateCw, Sparkles } from "lucide-react";
 
 // Map a recorded/uploaded audio MIME to a sensible file extension.
 function audioExt(type: string): string {
@@ -175,8 +175,23 @@ export default function EstimatorLeadPanel({ leadId }: { leadId: string }) {
     return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
+  const extraServices = (caps?.additional_services || "").trim();
+  const showExtraServices = extraServices && extraServices.toLowerCase() !== "none";
+
   return (
     <div className="space-y-5">
+      {/* Additional services the customer asked about — surfaced from the lead so
+          the estimator can open the upsell conversation on-site. */}
+      {showExtraServices && (
+        <section className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2 text-amber-900">
+            <Sparkles className="h-4 w-4" /> Additional services to discuss
+          </h3>
+          <p className="mt-1 text-sm text-amber-900/90 whitespace-pre-wrap">{extraServices}</p>
+          <p className="mt-1 text-[11px] text-amber-700">The customer asked about these — bring it up on-site to grow the estimate.</p>
+        </section>
+      )}
+
       {/* Conversation recording */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold flex items-center gap-2"><AudioLines className="h-4 w-4 text-primary" /> Conversation recording</h3>

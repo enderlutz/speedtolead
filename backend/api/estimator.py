@@ -13,6 +13,7 @@ The estimator is identified by username (JWT sub), so the model already
 supports more than one estimator if we add them later. Working hours are a
 fixed 8 AM–6 PM with 1-hour slots per the client's spec."""
 from __future__ import annotations
+import json
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -598,10 +599,19 @@ def get_lead_captures(lead_id: str, user: dict = Depends(get_current_user)):
             .order_by(EstimatorRecording.recorded_at.asc())
             .all()
         )
+        # Additional services the customer asked about (gate painting, pressure
+        # washing, etc.) — pulled from the lead's form_data so the estimator can
+        # open the conversation about upsells on-site.
+        try:
+            fd = json.loads(lead.form_data or "{}") or {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            fd = {}
+        additional_services = (fd.get("additional_services") or "").strip()
         return {
             "notes": lead.estimator_notes or "",
             "photos": [p.meta_dict() for p in photos],
             "recordings": [r.meta_dict() for r in recs],
+            "additional_services": additional_services,
         }
     finally:
         db.close()
