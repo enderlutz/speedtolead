@@ -359,6 +359,46 @@ def seed_neo_user():
         db.close()
 
 
+def migrate_emmanuel_visits_to_neo():
+    """One-shot: hand Emmanuel's remaining estimate appointments to Neo.
+
+    Emmanuel quit (account archived 2026-07-14) and Neo replaces him, so any
+    estimate visits still on the books need to move to Neo's schedule. Scope
+    (per client request 2026-07-16): only visits dated on/after the cutoff that
+    are still 'scheduled'. Past/done/canceled visits stay attributed to Emmanuel
+    so history and his time records are untouched.
+
+    Idempotent: after the first run there are no matching Emmanuel rows left, so
+    re-running on later boots is a no-op. Hardcoded cutoff (not "today") so the
+    set of moved rows is deterministic regardless of when the container boots."""
+    from database import EstimatorVisit
+    CUTOFF = "2026-07-16"
+    OLD, NEW = "EmmanuelOnibayo", "NeoHerrera"
+    db = get_db()
+    try:
+        moved = (
+            db.query(EstimatorVisit)
+            .filter(
+                EstimatorVisit.estimator_user_id == OLD,
+                EstimatorVisit.status == "scheduled",
+                EstimatorVisit.visit_date >= CUTOFF,
+            )
+            .update(
+                {EstimatorVisit.estimator_user_id: NEW},
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        if moved:
+            import logging
+            logging.getLogger(__name__).info(
+                f"migrate_emmanuel_visits_to_neo: moved {moved} scheduled "
+                f"visit(s) (>= {CUTOFF}) from {OLD} to {NEW}"
+            )
+    finally:
+        db.close()
+
+
 def seed_olga_estimator_access():
     """Grant Olga (the VA) access to the Estimator view. One-off per client
     request (2026-07-01). She keeps her 'va' role; we just add the 'estimator'
