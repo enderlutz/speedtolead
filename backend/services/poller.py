@@ -606,6 +606,16 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                     db.commit()
                     new_count += 1
 
+                    # Pin the dashboard-link note for EVERY created lead, even
+                    # ones created past the intake stage (hot / manual / estimate
+                    # already sent) that skip the new-lead alert below and so
+                    # historically never got a note. Idempotent + best-effort.
+                    try:
+                        from services.notifications import pin_dashboard_link_note
+                        pin_dashboard_link_note(lead_id, contact_id, location_id or None)
+                    except Exception as e:
+                        logger.warning(f"Poller dashboard-note pin failed for {lead_id}: {e}")
+
                     if is_target_stage and not already_sent:
                         logger.info(f"Poller: new lead {lead_id} from {label}/{cfg.name}/{stage_name}: {name}")
                         notify_new_lead(lead.to_dict(), board_label=cfg.board_label)

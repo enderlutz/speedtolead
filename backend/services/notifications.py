@@ -16,6 +16,100 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def pin_dashboard_link_note(lead_id: str, contact_id: str = "", location_id: str | None = None) -> bool:
+    """Idempotently pin a 'Dashboard link: <url>' note to the lead's GHL contact.
+
+    No-op (returns False) if the lead has no contact or is already flagged
+    _dashboard_link_pinned; on success writes the note, stamps the flag +
+    note id in form_data, and returns True. Best-effort: logs and swallows all
+    errors so hot-path callers (poller, notify_new_lead) never break.
+
+    Why a standalone helper: the note used to be pinned only inside
+    notify_new_lead, which the poller fires only for leads that enter at the
+    'New Lead' intake stage. Leads the poller first sees already advanced
+    (hot / manually created / estimate already sent) skip that path and so
+    never got a note. Calling this at lead-creation time closes that gap."""
+    if not contact_id:
+        return False
+    import json
+    from database import Lead
+    settings = get_settings()
+    db = get_db()
+    try:
+        row = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not row:
+            return False
+        fd_raw = row.form_data
+        fd = json.loads(fd_raw) if isinstance(fd_raw, str) and fd_raw else (fd_raw or {})
+        if fd.get("_dashboard_link_pinned"):
+            return False
+        link = f"{settings.frontend_url}/leads/{lead_id}"
+        note_id = add_contact_note(contact_id, f"Dashboard link: {link}", location_id)
+        if not note_id:
+            return False
+        fd["_dashboard_link_pinned"] = True
+        fd["_dashboard_link_note_id"] = note_id
+        row.form_data = json.dumps(fd)
+        db.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"pin_dashboard_link_note failed for lead {lead_id}: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        db.close()
+
+
+def backfill_missing_dashboard_link_notes():
+    """One-shot: pin the dashboard-link note on any active v2/v2b lead that
+    slipped through without one. Idempotent via _dashboard_link_pinned, so it's
+    a cheap no-op once every lead is covered. Runs at startup (on prod, where
+    GHL creds + GHL_DEFAULT_USER_ID exist); best-effort and throttled.
+
+    Column-scoped query (not the whole ORM row) to avoid pulling BLOB columns
+    on every boot."""
+    import time
+    import json
+    from database import Lead
+    db = get_db()
+    try:
+        rows = (
+            db.query(Lead.id, Lead.ghl_contact_id, Lead.ghl_location_id, Lead.form_data)
+            .filter(
+                Lead.pipeline_version.in_(["v2", "v2b"]),
+                Lead.ghl_contact_id != "",
+                Lead.ghl_contact_id.isnot(None),
+                Lead.status != "archived",
+            )
+            .all()
+        )
+    finally:
+        db.close()
+
+    missing = []
+    for lid, cid, loc, fd_raw in rows:
+        try:
+            fd = json.loads(fd_raw) if isinstance(fd_raw, str) and fd_raw else (fd_raw or {})
+        except Exception:
+            fd = {}
+        if not fd.get("_dashboard_link_pinned"):
+            missing.append((lid, cid, loc))
+
+    if not missing:
+        return
+    logger.info(f"Dashboard-link backfill: {len(missing)} lead(s) missing a note")
+    written = 0
+    for i, (lid, cid, loc) in enumerate(missing):
+        if i:
+            time.sleep(0.3)  # stay well under GHL's rate limit
+        if pin_dashboard_link_note(lid, cid, loc or None):
+            written += 1
+    logger.info(f"Dashboard-link backfill: wrote {written}/{len(missing)} note(s)")
+
+
 def _log_notification(lead_id: str, channel: str, recipient: str, event: str, detail: str):
     try:
         db = get_db()
@@ -92,32 +186,10 @@ def notify_new_lead(lead: dict, board_label: str = "Sterling Leads A"):
         _log_notification(lead_id, "ghl_sms", "fragne", "new_lead", msg if ok else f"FAILED: {msg}")
 
     # Pin a dashboard link on the GHL contact so the team has a one-click
-    # jump from GHL into our system. Best-effort — failures don't block.
-    # Tracks _dashboard_link_pinned in form_data so the one-shot backfill
-    # endpoint stays idempotent for any lead that came through this path.
-    contact_id = lead.get("ghl_contact_id") or ""
-    location_id = lead.get("ghl_location_id") or None
-    if contact_id:
-        note_body = f"Dashboard link: {link}"
-        try:
-            note_id = add_contact_note(contact_id, note_body, location_id)
-            if note_id:
-                from database import Lead
-                import json
-                _db = get_db()
-                try:
-                    row = _db.query(Lead).filter(Lead.id == lead_id).first()
-                    if row:
-                        fd_raw = row.form_data
-                        fd_dict = json.loads(fd_raw) if isinstance(fd_raw, str) and fd_raw else (fd_raw or {})
-                        fd_dict["_dashboard_link_pinned"] = True
-                        fd_dict["_dashboard_link_note_id"] = note_id
-                        row.form_data = json.dumps(fd_dict)
-                        _db.commit()
-                finally:
-                    _db.close()
-        except Exception as e:
-            logger.warning(f"Dashboard-link GHL note failed for lead {lead_id}: {e}")
+    # jump from GHL into our system. Idempotent + best-effort (see helper).
+    pin_dashboard_link_note(
+        lead_id, lead.get("ghl_contact_id") or "", lead.get("ghl_location_id") or None
+    )
 
 
 def notify_estimate_sent(lead: dict, tiers: dict, sender_name: str = ""):

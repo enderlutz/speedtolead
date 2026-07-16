@@ -292,6 +292,14 @@ async def _async_db_init():
             await asyncio.to_thread(auth.seed_neo_user)
             await asyncio.to_thread(auth.migrate_emmanuel_visits_to_neo)
             await asyncio.to_thread(auth.seed_olga_estimator_access)
+            # Backfill dashboard-link notes for any A/B leads that entered past
+            # the intake stage and never got one. Idempotent — cheap no-op once
+            # all leads are covered. Off-thread so it never blocks boot.
+            try:
+                from services.notifications import backfill_missing_dashboard_link_notes
+                await asyncio.to_thread(backfill_missing_dashboard_link_notes)
+            except Exception as bf_err:
+                logger.warning(f"Dashboard-link backfill skipped: {bf_err}")
             # Pre-warm the 16MB PDF template into module-level RAM so the
             # first customer-facing request after deploy doesn't pay the
             # cold-start tax (BLOB transfer + the retry-with-sleep loop in
