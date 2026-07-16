@@ -130,6 +130,9 @@ class Lead(Base):
     # QB invoice id for the deposit — used by the webhook handler to map
     # an incoming payment confirmation back to the right Lead row.
     deposit_qb_invoice_id = Column(Text, default="")
+    # How the deposit was paid when recorded manually (e.g. "Zelle", "Cash",
+    # "Check"). Empty for QB-link payments (the normal, automatic path).
+    deposit_paid_method = Column(Text, default="")
 
     # Sprint 3 T3.A (2026-06-07). Geocoded lat/lng for route-clustering
     # against ScheduledJob.lat/lng. Lazy-filled the first time the
@@ -203,6 +206,7 @@ class Lead(Base):
             "deposit_paid_at": self.deposit_paid_at,
             "deposit_payment_link": self.deposit_payment_link or "",
             "deposit_qb_invoice_id": self.deposit_qb_invoice_id or "",
+            "deposit_paid_method": self.deposit_paid_method or "",
             "exterior_capture_token": self.exterior_capture_token or "",
             "exterior_photos": _j(self.exterior_photos_json) if self.exterior_photos_json else [],
             "exterior_estimate": _j(self.exterior_estimate_json) if self.exterior_estimate_json else {},
@@ -2827,6 +2831,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN daily_task_status TEXT DEFAULT ''"))
         logger.info("Migration: added leads.daily_task_status")
+
+    if "deposit_paid_method" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN deposit_paid_method TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.deposit_paid_method")
 
     if "precall_done" not in existing:
         with _engine.begin() as conn:

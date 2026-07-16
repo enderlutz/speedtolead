@@ -1067,6 +1067,62 @@ def cancel_deposit(lead_id: str, user: dict = Depends(require_staff)):
         db.close()
 
 
+class MarkDepositPaidBody(BaseModel):
+    method: str = "Zelle"   # how they paid outside QB — Zelle / Cash / Check / etc.
+
+
+@router.post("/quickbooks/leads/{lead_id}/mark-deposit-paid")
+def mark_deposit_paid(lead_id: str, body: MarkDepositPaidBody, user: dict = Depends(require_staff)):
+    """Manually record the deposit as paid when the customer pays outside the
+    QB link (Zelle, cash, check). Opens the schedule gate just like a QB-link
+    payment. Records the method for the audit trail. Idempotent — returns
+    already_paid without re-firing anything. Does NOT touch the QB invoice
+    (if one exists it stays open in QuickBooks — reconcile there separately)."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        if lead.deposit_status == "paid":
+            return {
+                "status": "already_paid",
+                "deposit_paid_at": lead.deposit_paid_at,
+                "deposit_paid_method": lead.deposit_paid_method or "",
+                "lead": lead.to_dict(),
+            }
+
+        method = (body.method or "").strip() or "offline"
+        lead.deposit_status = "paid"
+        lead.deposit_paid_at = _now()
+        lead.deposit_paid_method = method
+        if not lead.deposit_amount or float(lead.deposit_amount) <= 0:
+            lead.deposit_amount = DEPOSIT_AMOUNT_USD
+        lead.updated_at = _now()
+        db.commit()
+        db.refresh(lead)
+        logger.info(f"Deposit manually marked paid for lead {lead.id} via {method}")
+        # Update the Dashboard's Payment Activity feed in real time. Best-effort.
+        try:
+            publish("deposit_paid", {
+                "lead_id": lead.id,
+                "customer_name": lead.contact_name or "",
+                "amount": float(lead.deposit_amount or DEPOSIT_AMOUNT_USD),
+                "paid_at": lead.deposit_paid_at,
+                "method": method,
+            })
+        except Exception as e:
+            logger.warning(f"deposit_paid (manual) publish failed for lead {lead.id}: {e}")
+        return {
+            "status": "marked_paid",
+            "deposit_paid_at": lead.deposit_paid_at,
+            "deposit_paid_method": method,
+            "lead": lead.to_dict(),
+        }
+    finally:
+        db.close()
+
+
 @router.post("/quickbooks/leads/{lead_id}/waive-deposit")
 def waive_deposit(lead_id: str, user: dict = Depends(require_admin)):
     """Mark the deposit as waived without sending an invoice. Used for

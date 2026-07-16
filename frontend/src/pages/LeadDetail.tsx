@@ -2752,6 +2752,7 @@ function DepositRow({
   const [copyingLink, setCopyingLink] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [markingPaid, setMarkingPaid] = useState(false);
   const status = (lead.deposit_status || "").toLowerCase();
   const link = lead.deposit_payment_link || "";
   const sentAt = lead.deposit_invoice_sent_at || "";
@@ -2830,6 +2831,27 @@ function DepositRow({
     }
   };
 
+  // Record the deposit as paid outside QB (Zelle/cash/check). Opens the
+  // schedule gate without needing the QB link to work.
+  const handleMarkPaid = async () => {
+    const method = window.prompt(
+      `How did ${lead.contact_name || "the customer"} pay the $${amount.toFixed(0)} deposit?`,
+      "Zelle",
+    );
+    if (method === null) return; // canceled
+    setMarkingPaid(true);
+    try {
+      const r = await api.markDepositPaid(lead.id, method.trim() || "offline");
+      if (r.status === "already_paid") toast.info("Deposit was already marked paid.");
+      else toast.success(`Deposit marked paid${r.deposit_paid_method ? ` via ${r.deposit_paid_method}` : ""}.`);
+      onChange();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark deposit paid");
+    } finally {
+      setMarkingPaid(false);
+    }
+  };
+
   // Void the QB invoice + reset the deposit so admin can start fresh.
   const handleCancel = async () => {
     if (!confirm(`Cancel this deposit for ${lead.contact_name || "this customer"}? The QuickBooks invoice will be voided and you can send a new one.`)) return;
@@ -2888,8 +2910,10 @@ function DepositRow({
         <DollarSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold">Deposit · ${amount.toFixed(0)}</span>
         <Badge className={`${badgeCls} text-[10px] h-5`}>{badgeLabel}</Badge>
-        {status === "paid" && paidAt && (
-          <span className="text-[11px] text-emerald-700 ml-auto">paid {timeAgo(paidAt)}</span>
+        {status === "paid" && (
+          <span className="text-[11px] text-emerald-700 ml-auto">
+            paid{lead.deposit_paid_method ? ` via ${lead.deposit_paid_method}` : ""}{paidAt ? ` · ${timeAgo(paidAt)}` : ""}
+          </span>
         )}
         {status === "pending" && sentAt && (
           <span className="text-[11px] text-amber-700 ml-auto">sent {timeAgo(sentAt)}</span>
@@ -2919,6 +2943,16 @@ function DepositRow({
                 <><Copy className="h-3.5 w-3.5 mr-1" /> Copy Link</>
               )}
             </Button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleMarkPaid}
+              disabled={markingPaid}
+              className="text-[11px] text-emerald-700 hover:text-emerald-900 underline underline-offset-2 disabled:opacity-50"
+              title="Record a deposit paid outside QuickBooks (Zelle, cash, check)"
+            >
+              {markingPaid ? "Marking paid…" : "Mark paid (Zelle/cash)"}
+            </button>
           </div>
           <button
             onClick={handleWaive}
@@ -2978,13 +3012,23 @@ function DepositRow({
               )}
             </Button>
           </div>
-          <button
-            onClick={handleWaive}
-            disabled={waiving}
-            className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
-          >
-            {waiving ? "Waiving…" : "Waive instead"}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleMarkPaid}
+              disabled={markingPaid}
+              className="text-[11px] text-emerald-700 hover:text-emerald-900 underline underline-offset-2 disabled:opacity-50"
+              title="Record a deposit paid outside QuickBooks (Zelle, cash, check)"
+            >
+              {markingPaid ? "Marking paid…" : "Mark paid (Zelle/cash)"}
+            </button>
+            <button
+              onClick={handleWaive}
+              disabled={waiving}
+              className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
+            >
+              {waiving ? "Waiving…" : "Waive instead"}
+            </button>
+          </div>
         </div>
       )}
 

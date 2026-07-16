@@ -339,6 +339,9 @@ export interface Lead {
   /** Hosted QB payment-link URL the customer taps to pay. */
   deposit_payment_link?: string;
   deposit_qb_invoice_id?: string;
+  /** How the deposit was paid when recorded manually (Zelle/Cash/Check).
+   *  Empty for the normal QB-link payment. */
+  deposit_paid_method?: string;
   /** Exterior painting AI estimate fields. Populated only for leads
    *  where the rep clicked "Send capture link" or ran the estimator. */
   exterior_capture_token?: string;
@@ -1990,6 +1993,14 @@ export const api = {
     request<{ status: string; voided_in_qb: boolean; invoice_id: string; lead: Lead }>(
       `/api/quickbooks/leads/${leadId}/cancel-deposit`,
       { method: "POST" },
+    ),
+
+  /** Manually record the deposit as paid when the customer pays outside QB
+   *  (Zelle/cash/check). Opens the schedule gate like a QB-link payment. */
+  markDepositPaid: (leadId: string, method: string) =>
+    request<{ status: string; deposit_paid_at: string | null; deposit_paid_method: string; lead: Lead }>(
+      `/api/quickbooks/leads/${leadId}/mark-deposit-paid`,
+      { method: "POST", body: JSON.stringify({ method }) },
     ),
 
   /** Sprint 2 — Call dispositions. Log the outcome of a sales call so the
