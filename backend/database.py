@@ -2110,24 +2110,30 @@ class EstimatorRecording(Base):
 
 
 class CallScript(Base):
-    """Single-row table holding the company's master call script. The VA's
-    sticky panel on Lead Detail renders this template with {{var}}
-    substitutions + {{#if X}}{{/if}} conditional blocks against the lead's
-    data. Admin edits via Settings → Call Script.
+    """A named call script in the company's shared script library. The VA's
+    sticky panel on Lead Detail renders the selected script as a template with
+    {{var}} substitutions + {{#if X}}{{/if}} conditional blocks against the
+    lead's data. Admin manages the library via Settings → Call Script.
 
-    Single-row pattern (id always = 'default') matches GoogleOAuthToken,
-    QuickBooksToken, ChatbotConfig in this codebase."""
+    Originally a single-row table (id='default'); now multi-row. The seeded
+    'default' row is kept and named 'Main Script' so existing content survives
+    the upgrade. New scripts get a uuid id. sort_order controls dropdown order
+    (ascending); ties break on name."""
     __tablename__ = "call_scripts"
 
-    id = Column(Text, primary_key=True)              # always "default"
+    id = Column(Text, primary_key=True)              # "default" (seed) or uuid
+    name = Column(Text, default="")                  # dropdown label
     content = Column(Text, nullable=False, default="")
+    sort_order = Column(Integer, default=0)
     updated_at = Column(Text, default="")
     updated_by = Column(Text, default="")
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "name": self.name or "",
             "content": self.content or "",
+            "sort_order": self.sort_order or 0,
             "updated_at": self.updated_at or "",
             "updated_by": self.updated_by or "",
         }
@@ -2906,6 +2912,20 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE estimates ADD COLUMN label TEXT DEFAULT ''"))
         logger.info("Migration: added estimates.label")
+
+    # Call-script library: single-row → multi-row upgrade (add name + order).
+    if inspector.has_table("call_scripts"):
+        cs_cols = {c["name"] for c in inspector.get_columns("call_scripts")}
+        if "name" not in cs_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_scripts ADD COLUMN name TEXT DEFAULT ''"))
+                # Name the pre-existing single script so it shows in the dropdown.
+                conn.execute(text("UPDATE call_scripts SET name = 'Main Script' WHERE (name IS NULL OR name = '')"))
+            logger.info("Migration: added call_scripts.name (backfilled 'Main Script')")
+        if "sort_order" not in cs_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_scripts ADD COLUMN sort_order INTEGER DEFAULT 0"))
+            logger.info("Migration: added call_scripts.sort_order")
 
     if inspector.has_table("call_analyses"):
         ca_cols = {c["name"] for c in inspector.get_columns("call_analyses")}

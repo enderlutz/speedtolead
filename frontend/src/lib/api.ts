@@ -2230,25 +2230,35 @@ export const api = {
       },
     ),
 
-  // Call Script (single-row, admin-edited)
-  getCallScript: () => request<CallScript>("/api/call-script"),
-  updateCallScript: (content: string) =>
-    request<CallScript>("/api/call-script", {
-      method: "PUT",
-      body: JSON.stringify({ content }),
+  // Call Script library (shared, admin-managed named scripts)
+  listCallScripts: () => request<{ scripts: CallScript[] }>("/api/call-scripts"),
+  createCallScript: (name: string, content = "") =>
+    request<CallScript>("/api/call-scripts", {
+      method: "POST",
+      body: JSON.stringify({ name, content }),
     }),
-  // Extract text from an uploaded script PDF (doesn't save — caller reviews first).
-  extractCallScriptPdf: async (file: File) => {
+  updateCallScriptById: (id: string, patch: { name?: string; content?: string }) =>
+    request<CallScript>(`/api/call-scripts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+  deleteCallScript: (id: string) =>
+    request<{ deleted: string }>(`/api/call-scripts/${id}`, { method: "DELETE" }),
+  // Back-compat single-script read (returns the default/first script).
+  getCallScript: () => request<CallScript>("/api/call-script"),
+  // Extract text from an uploaded PDF / Word .docx / .txt/.md file
+  // (doesn't save — caller reviews first, then saves into a script).
+  extractCallScriptFile: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
     const token = getToken();
-    const res = await fetch(`${BASE}/api/call-script/extract-pdf`, {
+    const res = await fetch(`${BASE}/api/call-scripts/extract`, {
       method: "POST",
       body: fd,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!res.ok) throw new Error((await res.text()) || "Couldn't read that PDF");
-    return res.json() as Promise<{ text: string; pages: number }>;
+    if (!res.ok) throw new Error((await res.text()) || "Couldn't read that file");
+    return res.json() as Promise<{ text: string }>;
   },
 
   // Wrapped (CEO digest) — cached. Reads hit cache; force=true triggers
@@ -3865,7 +3875,9 @@ export interface OverheadBody {
 
 export interface CallScript {
   id: string;
+  name: string;
   content: string;
+  sort_order: number;
   updated_at: string;
   updated_by: string;
 }

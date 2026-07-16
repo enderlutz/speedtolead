@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   api, getCurrentUser,
-  type LeadDetail as LeadDetailType, type EstimateDetail,
+  type LeadDetail as LeadDetailType, type EstimateDetail, type CallScript,
 } from "@/lib/api";
 import { buildContext, renderTemplate } from "@/lib/callScript";
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,23 @@ interface Props {
 }
 
 const STORAGE_KEY = "at_call_script_open";
+const SELECTED_KEY = "at_call_script_selected";
 
 /**
  * Sticky right-side panel rendered on the Lead Detail page. Shows the
- * call script auto-filled from the active lead. Collapsible to a small
+ * selected call script auto-filled from the active lead, with a dropdown to
+ * switch between the scripts in the shared library. Collapsible to a small
  * pill button so it doesn't fight the page layout when not in use.
  *
- * State (open vs collapsed) persists in localStorage so the VA's choice
- * survives navigations.
+ * Panel open/collapsed state and the picked script both persist in
+ * localStorage so the VA's choices survive navigations.
  */
 export default function CallScriptPanel({ lead, estimate }: Props) {
   const user = getCurrentUser();
-  const [template, setTemplate] = useState("");
+  const [scripts, setScripts] = useState<CallScript[]>([]);
+  const [selectedId, setSelectedId] = useState<string>(
+    () => (typeof window !== "undefined" ? localStorage.getItem(SELECTED_KEY) || "" : ""),
+  );
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<boolean>(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
@@ -34,8 +39,15 @@ export default function CallScriptPanel({ lead, estimate }: Props) {
   const [wide, setWide] = useState(false);
 
   useEffect(() => {
-    api.getCallScript()
-      .then((s) => setTemplate(s.content))
+    api.listCallScripts()
+      .then((r) => {
+        const list = r.scripts || [];
+        setScripts(list);
+        // Keep the saved pick if it still exists, else fall back to the first.
+        setSelectedId((prev) =>
+          list.some((s) => s.id === prev) ? prev : (list[0]?.id || ""),
+        );
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -43,6 +55,16 @@ export default function CallScriptPanel({ lead, estimate }: Props) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, open ? "1" : "0");
   }, [open]);
+
+  useEffect(() => {
+    if (selectedId) localStorage.setItem(SELECTED_KEY, selectedId);
+  }, [selectedId]);
+
+  const selected = useMemo(
+    () => scripts.find((s) => s.id === selectedId) || scripts[0] || null,
+    [scripts, selectedId],
+  );
+  const template = selected?.content || "";
 
   const ctx = useMemo(
     () => buildContext({ lead, estimate, yourName: user?.name || "" }),
@@ -98,6 +120,23 @@ export default function CallScriptPanel({ lead, estimate }: Props) {
         </div>
       </div>
 
+      {/* Script picker — shown whenever there's more than one to choose from. */}
+      {scripts.length > 1 && (
+        <div className="px-3 py-2 border-b bg-background">
+          <label className="sr-only" htmlFor="call-script-select">Choose script</label>
+          <select
+            id="call-script-select"
+            value={selected?.id || ""}
+            onChange={(e) => setSelectedId(e.target.value)}
+            className="w-full text-xs h-8 rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {scripts.map((s) => (
+              <option key={s.id} value={s.id}>{s.name || "Untitled script"}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
           <div className="grid place-items-center h-full">
@@ -117,7 +156,7 @@ export default function CallScriptPanel({ lead, estimate }: Props) {
       <div className="px-3 py-2 border-t bg-muted/20 text-[10px] text-muted-foreground flex items-center justify-between">
         <span>Auto-filled from this lead</span>
         <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => window.location.assign("/settings")}>
-          Edit script
+          Edit scripts
         </Button>
       </div>
     </aside>

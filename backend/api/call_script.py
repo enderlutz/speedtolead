@@ -11,9 +11,11 @@ The initial seed content is the script Olga uses today, marked up with
 from __future__ import annotations
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from pydantic import BaseModel
+from sqlalchemy import func
 
 from database import get_db, CallScript
 from api.auth import require_admin, get_current_user
@@ -157,15 +159,32 @@ class CallScriptBody(BaseModel):
     content: str
 
 
+class CallScriptCreate(BaseModel):
+    name: str
+    content: str = ""
+
+
+class CallScriptUpdate(BaseModel):
+    name: str | None = None
+    content: str | None = None
+
+
 def _ensure_seed(db) -> CallScript:
-    """Lazy seed — first read on a fresh DB inserts the initial script.
-    Subsequent reads return whatever admin has saved."""
+    """Lazy seed — first read on a fresh DB inserts the initial script as the
+    library's first named entry. Subsequent reads return whatever admin saved."""
     row = db.query(CallScript).filter(CallScript.id == DEFAULT_SCRIPT_ID).first()
     if row:
+        # Heal a pre-multi-script row that predates the name column.
+        if not (row.name or "").strip():
+            row.name = "Main Script"
+            db.commit()
+            db.refresh(row)
         return row
     row = CallScript(
         id=DEFAULT_SCRIPT_ID,
+        name="Main Script",
         content=INITIAL_SCRIPT,
+        sort_order=0,
         updated_at=_now(),
         updated_by="system",
     )
@@ -175,23 +194,132 @@ def _ensure_seed(db) -> CallScript:
     return row
 
 
-@router.get("/call-script")
-def get_call_script(user: dict = Depends(get_current_user)):
-    """Open to all roles — VA + admin both load the script. Workers don't
-    have a use case but no reason to hide it."""
+def _list(db) -> list[CallScript]:
+    _ensure_seed(db)  # guarantee at least one script exists
+    return (
+        db.query(CallScript)
+        .order_by(CallScript.sort_order, CallScript.name)
+        .all()
+    )
+
+
+# ── List / read ───────────────────────────────────────────────────────────
+@router.get("/call-scripts")
+def list_call_scripts(user: dict = Depends(get_current_user)):
+    """Full script library (all roles can read). Ordered for the dropdown."""
     del user
     db = get_db()
     try:
-        row = _ensure_seed(db)
+        return {"scripts": [s.to_dict() for s in _list(db)]}
+    finally:
+        db.close()
+
+
+@router.get("/call-script")
+def get_call_script(user: dict = Depends(get_current_user)):
+    """Back-compat single-script read — returns the first (default) script.
+    Kept so any older client keeps working; new UI uses /call-scripts."""
+    del user
+    db = get_db()
+    try:
+        return _ensure_seed(db).to_dict()
+    finally:
+        db.close()
+
+
+# ── Create / update / delete ──────────────────────────────────────────────
+@router.post("/call-scripts")
+def create_call_script(body: CallScriptCreate, user: dict = Depends(require_admin)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Give the script a name.")
+    db = get_db()
+    try:
+        _ensure_seed(db)
+        max_order = db.query(func.max(CallScript.sort_order)).scalar() or 0
+        row = CallScript(
+            id=str(uuid.uuid4()),
+            name=name,
+            content=body.content or "",
+            sort_order=int(max_order) + 1,
+            updated_at=_now(),
+            updated_by=user.get("name", ""),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
         return row.to_dict()
     finally:
         db.close()
 
 
-def _clean_pdf_text(raw: str) -> str:
-    """Tidy raw PyMuPDF text into a readable script. Normalizes line endings,
+@router.put("/call-scripts/{script_id}")
+def update_call_script_by_id(script_id: str, body: CallScriptUpdate, user: dict = Depends(require_admin)):
+    db = get_db()
+    try:
+        row = db.query(CallScript).filter(CallScript.id == script_id).first()
+        if not row:
+            raise HTTPException(404, "Script not found")
+        if body.name is not None:
+            new_name = body.name.strip()
+            if not new_name:
+                raise HTTPException(400, "Script name can't be empty.")
+            row.name = new_name
+        if body.content is not None:
+            row.content = body.content
+        row.updated_at = _now()
+        row.updated_by = user.get("name", "")
+        db.commit()
+        db.refresh(row)
+        return row.to_dict()
+    finally:
+        db.close()
+
+
+@router.delete("/call-scripts/{script_id}")
+def delete_call_script(script_id: str, user: dict = Depends(require_admin)):
+    del user
+    db = get_db()
+    try:
+        # Never leave the library empty — the panel needs at least one script.
+        if db.query(CallScript).count() <= 1:
+            raise HTTPException(400, "Can't delete the only script — add another first.")
+        row = db.query(CallScript).filter(CallScript.id == script_id).first()
+        if not row:
+            raise HTTPException(404, "Script not found")
+        db.delete(row)
+        db.commit()
+        return {"deleted": script_id}
+    finally:
+        db.close()
+
+
+# ── Back-compat single-script update (updates the default script) ──────────
+@router.put("/call-script")
+def update_call_script(body: CallScriptBody, user: dict = Depends(require_admin)):
+    db = get_db()
+    try:
+        row = _ensure_seed(db)
+        row.content = body.content or ""
+        row.updated_at = _now()
+        row.updated_by = user.get("name", "")
+        db.commit()
+        db.refresh(row)
+        return row.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, str(e))
+    finally:
+        db.close()
+
+
+# ── Import: extract text from an uploaded file ─────────────────────────────
+def _clean_extracted_text(raw: str) -> str:
+    """Tidy raw extracted text into a readable script. Normalizes line endings,
     de-hyphenates words split across line breaks, collapses runs of blank
-    lines, and trims trailing whitespace per line — turns a PDF dump into
+    lines, and trims trailing whitespace per line — turns a file dump into
     'normal words' the admin can review and save as-is."""
     text = (raw or "").replace("\r\n", "\n").replace("\r", "\n")
     # Join words hyphenated across a line break: "resto-\nration" -> "restoration"
@@ -210,49 +338,79 @@ def _clean_pdf_text(raw: str) -> str:
     return "\n".join(out).strip()
 
 
-@router.post("/call-script/extract-pdf")
-async def extract_call_script_pdf(file: UploadFile = File(...), user: dict = Depends(require_admin)):
-    """Pull the text out of an uploaded PDF so an admin can drop in a script
-    that was written elsewhere (e.g. the VA's own doc) instead of retyping it.
-    Returns the extracted text; the caller loads it into the editor to review
-    + save. Does NOT save on its own."""
+def _extract_pdf(data: bytes) -> str:
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        pages = [page.get_text("text") for page in doc]
+    finally:
+        doc.close()
+    return "\n\n".join(pages)
+
+
+def _extract_docx(data: bytes) -> str:
+    import io
+    from docx import Document
+    doc = Document(io.BytesIO(data))
+    parts: list[str] = [p.text for p in doc.paragraphs]
+    # Pull table cell text too — scripts sometimes live in a 2-column table.
+    for table in doc.tables:
+        for trow in table.rows:
+            cells = [c.text.strip() for c in trow.cells if c.text.strip()]
+            if cells:
+                parts.append(" — ".join(cells))
+    return "\n".join(parts)
+
+
+async def _extract_upload_text(file: UploadFile) -> str:
+    """Read an uploaded PDF / .docx / .txt / .md and return its plain text.
+    Raises HTTPException with a friendly message on unsupported/empty/unreadable
+    files. Never stores the file — text only."""
     name = (file.filename or "").lower()
-    if not name.endswith(".pdf"):
-        raise HTTPException(400, "Please upload a PDF file.")
     data = await file.read()
     if not data:
         raise HTTPException(400, "That file was empty.")
     try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(stream=data, filetype="pdf")
-        try:
-            pages = [page.get_text("text") for page in doc]
-        finally:
-            doc.close()
+        if name.endswith(".pdf"):
+            raw = _extract_pdf(data)
+            if not raw.strip():
+                raise HTTPException(422, "No text found — this looks like a scanned/image PDF, so there's nothing to import.")
+        elif name.endswith(".docx"):
+            raw = _extract_docx(data)
+        elif name.endswith((".txt", ".md")):
+            raw = data.decode("utf-8", errors="replace")
+        elif name.endswith(".doc"):
+            raise HTTPException(400, "Old .doc files aren't supported — open it in Word and 'Save As' .docx (or export a PDF), then upload that.")
+        else:
+            raise HTTPException(400, "Unsupported file — upload a PDF, Word .docx, or a .txt/.md text file.")
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning(f"Call-script PDF extract failed: {e}")
-        raise HTTPException(400, "Couldn't read that PDF — it may be scanned images rather than text.")
-    text = _clean_pdf_text("\n\n".join(pages))
+        logger.warning(f"Call-script extract failed for {name!r}: {e}")
+        raise HTTPException(400, "Couldn't read that file — it may be corrupt or not really that format.")
+    text = _clean_extracted_text(raw)
     if not text:
-        raise HTTPException(422, "No text found — this looks like a scanned/image PDF, so there's nothing to import.")
-    return {"text": text, "pages": len(pages)}
+        raise HTTPException(422, "No text found in that file — nothing to import.")
+    return text
 
 
-@router.put("/call-script")
-def update_call_script(body: CallScriptBody, user: dict = Depends(require_admin)):
-    db = get_db()
-    try:
-        row = _ensure_seed(db)
-        row.content = body.content or ""
-        row.updated_at = _now()
-        row.updated_by = user.get("name", "")
-        db.commit()
-        db.refresh(row)
-        return row.to_dict()
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(500, str(e))
-    finally:
-        db.close()
+@router.post("/call-scripts/extract")
+async def extract_call_script_file(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    """Pull the text out of an uploaded PDF / Word (.docx) / text file so admin
+    can import a script written elsewhere instead of retyping it. Returns the
+    extracted text; the caller loads it into the editor to review + save. Does
+    NOT save on its own, and never stores the raw file."""
+    del user
+    text = await _extract_upload_text(file)
+    return {"text": text}
+
+
+@router.post("/call-script/extract-pdf")
+async def extract_call_script_pdf(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    """Back-compat alias — now accepts PDF / .docx / text too (name kept so
+    older clients keep working)."""
+    del user
+    text = await _extract_upload_text(file)
+    # 'pages' kept in the response shape for the old client; not meaningful for
+    # non-PDF sources, so report 1.
+    return {"text": text, "pages": 1}
