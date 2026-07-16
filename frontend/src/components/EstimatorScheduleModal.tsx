@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { api, type EstimatorAvailability, type EstimatorVisit, type LeanLead } from "@/lib/api";
+import { api, type EstimatorAvailability, type EstimatorVisit, type LeanLead, type Estimator } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CustomerSearchInput } from "@/components/SearchInput";
@@ -52,13 +52,28 @@ export default function EstimatorScheduleModal({ lead, visit, initialDate, onClo
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Which estimator this visit is assigned to. Defaults to the visit's current
+  // estimator (reschedule) or the active default (new booking) once the list
+  // loads. "" until we know, so the availability fetch waits for a real id.
+  const [estimators, setEstimators] = useState<Estimator[]>([]);
+  const [estimatorId, setEstimatorId] = useState<string>(visit?.estimator_user_id || "");
+
+  useEffect(() => {
+    api.getEstimators()
+      .then((r) => {
+        setEstimators(r.estimators);
+        setEstimatorId((cur) => cur || r.default_estimator_id || r.estimators[0]?.user_id || "");
+      })
+      .catch(() => { /* non-fatal — dropdown just won't populate */ });
+  }, []);
+
   const loadAvail = useCallback(() => {
     setLoading(true);
-    api.getEstimatorAvailability(date)
+    api.getEstimatorAvailability(date, estimatorId || undefined)
       .then(setAvail)
       .catch(() => toast.error("Couldn't load availability"))
       .finally(() => setLoading(false));
-  }, [date]);
+  }, [date, estimatorId]);
 
   useEffect(() => { loadAvail(); }, [loadAvail]);
 
@@ -67,12 +82,13 @@ export default function EstimatorScheduleModal({ lead, visit, initialDate, onClo
     if (!time) { toast.error("Pick a time first"); return; }
     setBusy(true);
     try {
+      const estName = estimators.find((e) => e.user_id === estimatorId)?.name || "the estimator";
       if (isEdit && visit) {
-        await api.updateEstimatorVisit(visit.id, { visit_date: date, start_time: time });
-        toast.success(`Moved to ${fmtTime(time)}`);
+        await api.updateEstimatorVisit(visit.id, { visit_date: date, start_time: time, estimator_user_id: estimatorId || undefined });
+        toast.success(`Moved to ${fmtTime(time)} · ${estName}`);
       } else {
-        await api.createEstimatorVisit({ lead_id: effectiveLead.id, visit_date: date, start_time: time });
-        toast.success(`Estimate booked for ${fmtTime(time)}`);
+        await api.createEstimatorVisit({ lead_id: effectiveLead.id, visit_date: date, start_time: time, estimator_user_id: estimatorId || undefined });
+        toast.success(`Estimate booked for ${fmtTime(time)} · ${estName}`);
       }
       onSaved(effectiveLead.id);
     } catch (e) {
@@ -114,6 +130,24 @@ export default function EstimatorScheduleModal({ lead, visit, initialDate, onClo
                   placeholder="Search customers…"
                 />
               )}
+            </div>
+          )}
+
+          {/* Estimator assignment — pick which registered estimator gets this
+              stop. Hidden until the list loads; single-estimator shops just see
+              their one name. Changing it reloads that estimator's day/slots. */}
+          {estimators.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Estimator</label>
+              <select
+                value={estimatorId}
+                onChange={(e) => { setEstimatorId(e.target.value); setTime(""); }}
+                className="w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                {estimators.map((e) => (
+                  <option key={e.user_id} value={e.user_id}>{e.name}</option>
+                ))}
+              </select>
             </div>
           )}
 

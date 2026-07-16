@@ -315,6 +315,34 @@ def post_location(body: PingBody, user: dict = Depends(get_current_user)):
 
 
 # ── Availability + scheduling (admin/va) ──────────────────────────────────
+@router.get("/estimator/estimators")
+def list_estimators(user: dict = Depends(require_staff)):
+    """Active estimator accounts for the admin scheduler's assignment dropdown.
+    Excludes disabled/archived accounts (e.g. Emmanuel). Oldest-first so the
+    default (first) is stable; default_estimator_id marks the pre-selected one."""
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(User)
+            .filter(
+                User.role == "estimator",
+                (User.disabled.is_(False)) | (User.disabled.is_(None)),
+            )
+            .order_by(User.created_at)
+            .all()
+        )
+        return {
+            "estimators": [
+                {"user_id": u.username, "name": u.display_name or u.username}
+                for u in rows
+            ],
+            "default_estimator_id": _default_estimator_id(db),
+        }
+    finally:
+        db.close()
+
+
 @router.get("/estimator/availability")
 def get_availability(
     date: str,
@@ -435,30 +463,37 @@ def cancel_visit(visit_id: str, user: dict = Depends(require_staff)):
 class VisitUpdateBody(BaseModel):
     visit_date: str | None = None        # move to another day
     start_time: str | None = None        # change the visit time
+    estimator_user_id: str | None = None # reassign to another estimator
 
 
 @router.patch("/estimator/visits/{visit_id}")
 def update_visit(visit_id: str, body: VisitUpdateBody, user: dict = Depends(require_staff)):
-    """Reschedule a stop — change its time and/or move it to another day. Both
-    the old and new day get re-ordered + drive-times refreshed."""
+    """Reschedule a stop — change its time, move it to another day, and/or
+    reassign it to another estimator. Every (estimator, day) the visit leaves or
+    joins gets re-ordered + drive-times refreshed."""
     db = get_db()
     try:
         v = db.query(EstimatorVisit).filter(EstimatorVisit.id == visit_id).first()
         if not v:
             raise HTTPException(404, "Visit not found")
         old_date = v.visit_date
+        old_eid = v.estimator_user_id
         if body.visit_date:
             v.visit_date = body.visit_date
         if body.start_time is not None:
             v.start_time = body.start_time
+        new_eid = old_eid
+        if body.estimator_user_id and body.estimator_user_id.strip():
+            new_eid = body.estimator_user_id.strip()
+            v.estimator_user_id = new_eid
         v.updated_at = _now()
         db.commit()
-        eid = v.estimator_user_id
         new_date = v.visit_date
-        _recompute_day(db, eid, old_date)
-        if new_date != old_date:
-            _recompute_day(db, eid, new_date)
-        return {"visit": v.to_dict(), "day": _day_visits(db, eid, new_date)}
+        # Renumber + drive-times for whichever (estimator, day) the visit left
+        # and joined. Calling twice on the same pair is a harmless no-op.
+        _recompute_day(db, old_eid, old_date)
+        _recompute_day(db, new_eid, new_date)
+        return {"visit": v.to_dict(), "day": _day_visits(db, new_eid, new_date)}
     finally:
         db.close()
 

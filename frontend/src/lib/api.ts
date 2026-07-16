@@ -190,6 +190,12 @@ export interface EstimatorAvailability {
   last_stop: EstimatorVisit | null;
 }
 
+/** A registered estimator account (for the scheduler's assignment dropdown). */
+export interface Estimator {
+  user_id: string;
+  name: string;
+}
+
 export interface EstimatorDrivePath {
   estimator_user_id: string;
   date: string;
@@ -1801,11 +1807,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  updateEstimatorVisit: (visitId: string, body: { visit_date?: string; start_time?: string }) =>
+  updateEstimatorVisit: (visitId: string, body: { visit_date?: string; start_time?: string; estimator_user_id?: string }) =>
     request<{ visit: EstimatorVisit; day: EstimatorVisit[] }>(`/api/estimator/visits/${visitId}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  // Active estimator accounts for the admin scheduler's assignment dropdown.
+  getEstimators: () =>
+    request<{ estimators: Estimator[]; default_estimator_id: string }>(`/api/estimator/estimators`),
   cancelEstimatorVisit: (visitId: string) =>
     request<{ ok: boolean; day: EstimatorVisit[] }>(`/api/estimator/visits/${visitId}`, { method: "DELETE" }),
   flagLeadEstimator: (leadId: string, status: "needed" | "") =>
