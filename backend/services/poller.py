@@ -363,8 +363,18 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                         contact = None
                         opp_updated_raw = opp.get("updatedAt") or opp.get("dateUpdated") or opp.get("lastStageChangeAt") or ""
                         last_sync_raw = existing.dashboard_synced_at or ""
+                        # Renaming the CUSTOMER edits the CONTACT, which bumps the
+                        # contact's timestamp — NOT the opportunity's. So the
+                        # updatedAt check below would skip the rename forever. The
+                        # opp payload carries an embedded contact snapshot; when its
+                        # name no longer matches what we have stored, force a full
+                        # re-fetch so the new name (and any other edited fields)
+                        # sync. Trim-compared so trailing-space noise isn't churn.
+                        embedded_name = (opp.get("contact") or {}).get("name") or ""
+                        contact_name_changed = bool(embedded_name.strip()) and \
+                            embedded_name.strip() != (existing.contact_name or "").strip()
                         should_skip_contact = False
-                        if not stage_changed and opp_updated_raw and last_sync_raw:
+                        if not stage_changed and not contact_name_changed and opp_updated_raw and last_sync_raw:
                             try:
                                 opp_dt = datetime.fromisoformat(str(opp_updated_raw).replace("Z", "+00:00"))
                                 sync_dt = datetime.fromisoformat(str(last_sync_raw).replace("Z", "+00:00"))
