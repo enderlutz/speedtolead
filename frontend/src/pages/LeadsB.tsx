@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus, Home, Hammer, AlertTriangle, MapPin } from "lucide-react";
+import { Search, LayoutGrid, List, RefreshCw, Clock, PhoneCall, Eye, Wrench, Check, CalendarPlus, Home, Hammer, AlertTriangle, MapPin, ChevronDown } from "lucide-react";
 import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
@@ -390,14 +390,25 @@ export default function LeadsB() {
         </TabsList>
 
         <TabsContent value="kanban" className="mt-3">
+          {/* Desktop / tablet: the side-by-side drag board. Hidden on phones,
+              where narrow columns cut cards off and waste space on empty ones. */}
           <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div ref={kanbanScrollRef} className="flex gap-2 overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x">
+            <div ref={kanbanScrollRef} className="hidden sm:flex gap-2 overflow-x-auto pb-4 snap-x">
               {KANBAN_COLUMNS.map((stage) => (
                 <KanbanColumn key={stage.id} stage={stage} leads={grouped[stage.id]} delays={delays} />
               ))}
             </div>
             <DragOverlay>{draggedLead ? <LeadCard lead={draggedLead} isDragging /> : null}</DragOverlay>
           </DndContext>
+
+          {/* Phone: each stage is a full-width collapsible section stacked
+              vertically. Cards get the whole width (nothing cut off) and empty
+              stages shrink to a thin bar. */}
+          <div className="sm:hidden space-y-2">
+            {KANBAN_COLUMNS.map((stage) => (
+              <MobileStageSection key={stage.id} stage={stage} leads={grouped[stage.id]} delays={delays} />
+            ))}
+          </div>
         </TabsContent>
 
         <TabsContent value="queue" className="mt-3">
@@ -496,6 +507,38 @@ function KanbanColumn({ stage, leads, delays }: { stage: StageDef; leads: Lead[]
           <DraggableCard key={lead.id} lead={lead} delayInfo={delays[lead.id]} />
         ))}
       </div>
+    </div>
+  );
+}
+
+// Phone-only stage section: a full-width, collapsible group of leads for one
+// kanban stage. Replaces the horizontal column (which cuts cards off on a
+// narrow screen). Cards link straight to Lead Detail — no drag on mobile,
+// which never worked well on touch anyway.
+function MobileStageSection({ stage, leads, delays }: { stage: StageDef; leads: Lead[]; delays: Record<string, { reason: string }> }) {
+  const [open, setOpen] = useState(leads.length > 0);
+  return (
+    <div className={`rounded-lg border overflow-hidden ${stage.bgCls}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full px-3 py-2.5 flex items-center gap-2 ${stage.headerCls}`}
+        aria-expanded={open}
+      >
+        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${stage.dotCls}`} />
+        <span className="text-sm font-semibold truncate" title={stage.label}>{stage.label}</span>
+        <span className="ml-auto text-xs font-semibold opacity-70 tabular-nums">{leads.length}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
+      </button>
+      {open && (
+        <div className="p-2 space-y-2 bg-background/50">
+          {leads.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-3">No leads in this stage</p>
+          ) : (
+            leads.map((lead) => <LeadCard key={lead.id} lead={lead} delayInfo={delays[lead.id]} />)
+          )}
+        </div>
+      )}
     </div>
   );
 }
