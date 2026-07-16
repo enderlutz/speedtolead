@@ -484,28 +484,19 @@ export interface DailyActivityEvent {
   action: string;   // call | follow_up | stage_changed | note_edited | call_note_edited | estimate_sent | proposal_sent
   summary: string;
 }
-export interface ScoreStats {
-  call: number;
-  follow_up: number;
-  estimate: number;
-  closed: number;
-  scheduled: number;
-  leads: number;
-  points: number;
-}
-export interface ScorePlayer {
+/** Per-person call count for the task-list header. */
+export interface CallTallyPerson {
   name: string;
   sub: string;
-  today: ScoreStats;
-  week: ScoreStats;
-  streak: number;
+  today: number;
+  week: number;
 }
-export interface Scoreboard {
+export interface CallTally {
   date: string;
   week_start: string;
-  points: Record<string, number>;
-  goal: { target: number; worked: number };
-  players: ScorePlayer[];
+  today_total: number;
+  week_total: number;
+  people: CallTallyPerson[];
 }
 
 /** Sprint 2 T2.E — Follow-up rule engine output. Surfaces on the lead
@@ -2041,8 +2032,8 @@ export const api = {
   },
   getLeadActivity: (leadId: string) =>
     request<{ events: DailyActivityEvent[] }>(`/api/leads/${leadId}/activity`),
-  getScoreboard: (date?: string) =>
-    request<Scoreboard>(`/api/daily-tasks/scoreboard${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+  getCallTally: (date?: string) =>
+    request<CallTally>(`/api/daily-tasks/call-tally${date ? `?date=${encodeURIComponent(date)}` : ""}`),
   createFollowUp: (
     leadId: string,
     body: { due_date: string; time?: string; all_day?: boolean; action_type: string; note?: string },

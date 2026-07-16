@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type Scoreboard as ScoreboardData, type ScorePlayer } from "@/lib/api";
+import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type CallTally as CallTallyData } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -10,7 +10,7 @@ import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
   CheckCircle2, Clock, CalendarClock, Search, X, AlertTriangle,
   CalendarDays, ChevronLeft, ChevronRight, User, ChevronDown, SlidersHorizontal,
-  Flame, Trophy, Target, Sparkles,
+  PhoneCall, Sparkles,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -335,16 +335,15 @@ function WinOverlay({ name, onClose }: { name: string; onClose: () => void }) {
   );
 }
 
-// Team + head-to-head scoreboard. Reads /daily-tasks/scoreboard (calls,
-// follow-ups, estimates sent, deals scheduled/closed → points). Estimates are
-// the headline metric; scheduling/closing stack big bonuses on top.
-function Scoreboard({ reloadKey }: { reloadKey: number }) {
-  const [data, setData] = useState<ScoreboardData | null>(null);
-  const [range, setRange] = useState<"today" | "week">("today");
-  const celebratedRef = useRef<string>("");
+// Running call tally for the task-list header: team totals (today + this week)
+// plus a per-person breakdown of who made how many calls. Reads
+// /daily-tasks/call-tally. Phone team only — estimator/worker accounts are
+// excluded server-side, so it's Alan + the VAs.
+function CallTally({ reloadKey }: { reloadKey: number }) {
+  const [data, setData] = useState<CallTallyData | null>(null);
 
   const fetchIt = useCallback(() => {
-    api.getScoreboard().then(setData).catch(() => { /* non-fatal */ });
+    api.getCallTally().then(setData).catch(() => { /* non-fatal */ });
   }, []);
   useEffect(() => { fetchIt(); }, [fetchIt, reloadKey]);
   useEffect(() => {
@@ -354,79 +353,45 @@ function Scoreboard({ reloadKey }: { reloadKey: number }) {
     return () => { window.clearInterval(id); window.removeEventListener("focus", onFocus); };
   }, [fetchIt]);
 
-  // Celebrate hitting the team's daily goal — once per day.
-  useEffect(() => {
-    if (!data) return;
-    const { worked, target } = data.goal;
-    if (target > 0 && worked >= target && celebratedRef.current !== data.date) {
-      celebratedRef.current = data.date;
-      fireConfetti();
-      playSuccessSound();
-    }
-  }, [data]);
-
-  if (!data || data.players.length === 0) return null;
-
-  const goalPct = data.goal.target > 0 ? Math.min(100, Math.round((data.goal.worked / data.goal.target) * 100)) : 0;
-  const stats = (p: ScorePlayer) => (range === "today" ? p.today : p.week);
+  if (!data) return null;
 
   return (
     <div className="rounded-xl border bg-gradient-to-br from-muted/40 to-background p-4">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <Trophy className="h-4 w-4 text-amber-500" />
-          <span className="font-semibold text-sm">Scoreboard</span>
-          <div className="ml-1 inline-flex rounded-md border overflow-hidden text-xs">
-            <button type="button" onClick={() => setRange("today")}
-              className={`px-2.5 py-1 ${range === "today" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}>Today</button>
-            <button type="button" onClick={() => setRange("week")}
-              className={`px-2.5 py-1 ${range === "week" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}>This week</button>
-          </div>
+          <PhoneCall className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-sm">Calls</span>
         </div>
-        <div className="flex items-center gap-2 flex-1 min-w-[220px] max-w-sm">
-          <Target className="h-4 w-4 text-muted-foreground shrink-0" />
-          <div className="flex-1">
-            <div className="flex justify-between text-xs mb-1">
-              <span className="text-muted-foreground">Leads worked today</span>
-              <span className="font-semibold">{data.goal.worked} / {data.goal.target}</span>
-            </div>
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full transition-all"
-                style={{ width: `${goalPct}%`, background: goalPct >= 100 ? "#16a34a" : "#2563eb" }} />
-            </div>
+        <div className="flex items-center gap-5">
+          <div className="text-center">
+            <div className="text-2xl font-bold leading-none tabular-nums">{data.today_total}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">Today</div>
+          </div>
+          <div className="h-8 w-px bg-border" />
+          <div className="text-center">
+            <div className="text-2xl font-bold leading-none tabular-nums">{data.week_total}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">This week</div>
           </div>
         </div>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {data.players.map((p, i) => {
-          const s = stats(p);
-          const isLeader = range === "week" && i === 0 && data.players.length > 1 && s.points > 0;
-          return (
-            <div key={p.sub || p.name}
-              className={`flex items-center gap-3 rounded-lg border bg-background p-3 ${isLeader ? "ring-2 ring-amber-400" : ""}`}>
-              <ActorAvatar actor={p} size={38} />
+      {data.people.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-2">No calls logged yet this week.</p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {data.people.map((p) => (
+            <div key={p.sub || p.name} className="flex items-center gap-3 rounded-lg border bg-background p-2.5">
+              <ActorAvatar actor={p} size={34} />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-sm truncate">{p.name}</span>
-                  {isLeader && <Trophy className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
-                  {p.streak > 0 && (
-                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-orange-500" title={`${p.streak}-day streak`}>
-                      <Flame className="h-3.5 w-3.5" />{p.streak}
-                    </span>
-                  )}
+                <div className="font-semibold text-sm truncate">{p.name}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  <span className="font-semibold text-foreground tabular-nums">{p.today}</span> today ·{" "}
+                  <span className="font-semibold text-foreground tabular-nums">{p.week}</span> this week
                 </div>
-                <div className="text-[11px] text-muted-foreground truncate">
-                  {s.estimate} est · {s.scheduled} sched · {s.closed} closed · {s.call} calls
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <div className="text-xl font-bold leading-none">{s.points}</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">pts</div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -880,7 +845,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       </div>
       )}
 
-      {!leadId && <Scoreboard reloadKey={scoreTick} />}
+      {!leadId && <CallTally reloadKey={scoreTick} />}
 
       {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
