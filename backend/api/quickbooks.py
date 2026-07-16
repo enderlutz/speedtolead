@@ -65,6 +65,12 @@ def _text_deposit_link(lead, link: str, amount: float) -> bool:
     contact_id = (lead.ghl_contact_id or "").strip()
     if not contact_id or not link:
         return False
+    # Never text the admin/login URL — it opens our QuickBooks and dead-ends
+    # the customer at an Intuit sign-in. Better to send nothing and let admin
+    # retry (the caller refreshes bad links before reaching here).
+    if not qb.is_public_pay_link(link):
+        logger.warning(f"Skipped deposit SMS for lead {lead.id}: link is not a public pay link ({link[:60]})")
+        return False
     first = (lead.contact_name or "").strip().split(" ")[0] or "there"
     msg = (
         f"Hi {first}, thanks for choosing Sterling Fence Staining! Here's your "
@@ -859,8 +865,26 @@ def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = 
         # Idempotent: an invoice already exists for this lead's deposit.
         # Return the existing link rather than racing QB on duplicates.
         if lead.deposit_qb_invoice_id:
+            # Self-heal: if the stored link is the login-required admin URL
+            # (a transient /send hiccup at creation fell back to it), fetch the
+            # real public pay link now and persist it before re-sending. This
+            # is what turns "customer sees an Intuit login" back into a working
+            # payment link on the next Send.
+            if qb.qb_mode() != "mock" and not qb.is_public_pay_link(lead.deposit_payment_link or ""):
+                try:
+                    fresh = qb.get_public_share_link(
+                        lead.deposit_qb_invoice_id, (lead.contact_email or "").strip()
+                    )
+                    if fresh and qb.is_public_pay_link(fresh):
+                        lead.deposit_payment_link = fresh
+                        lead.updated_at = _now()
+                        db.commit()
+                        db.refresh(lead)
+                except Exception as e:
+                    logger.warning(f"Deposit link refresh failed for lead {lead.id}: {e}")
             # Re-text the existing link so pressing Send again re-sends it
-            # (unless this is a copy-only call).
+            # (unless this is a copy-only call). _text_deposit_link refuses to
+            # send anything that still isn't a public pay link.
             sms_sent = (
                 _text_deposit_link(lead, lead.deposit_payment_link or "", lead.deposit_amount or DEPOSIT_AMOUNT_USD)
                 if text_customer else False

@@ -746,9 +746,16 @@ def create_invoice(
                 sent_inv = sent.get("Invoice") or {}
                 invoice_url = _try_extract_share_link(sent_inv)
                 if not invoice_url:
+                    # The /send response often omits the Link[] array even
+                    # though the send DID generate the public link — a
+                    # follow-up GET on the invoice returns it. This is the
+                    # step whose absence let a transient hiccup fall through
+                    # to the login-required admin URL.
+                    invoice_url = _try_extract_share_link(fetch_invoice(invoice_id) or {})
+                if not invoice_url:
                     logger.warning(
                         f"QB /send completed for invoice {invoice_id} but no InvoiceLink in "
-                        f"response. Response keys: {list(sent_inv.keys())[:20]}"
+                        f"response or follow-up GET. Response keys: {list(sent_inv.keys())[:20]}"
                     )
             except Exception as e:
                 logger.warning(f"QB /send to generate share link failed (non-fatal): {e}")
@@ -789,6 +796,42 @@ def _try_extract_share_link(inv: dict) -> str:
         if val and isinstance(val, str):
             return val
     return ""
+
+
+def is_public_pay_link(url: str) -> bool:
+    """True only for a customer-facing, login-free payment link. The admin URL
+    (app.qbo.intuit.com/app/invoice?txnId=…) opens the merchant's QuickBooks
+    and forces the recipient to sign in — never hand that to a customer."""
+    if not url:
+        return False
+    return "/app/invoice" not in url
+
+
+def get_public_share_link(invoice_id: str, send_to_email: str = "") -> str:
+    """Best-effort fetch of the login-free customer payment link for an existing
+    invoice. The Link[] array is usually populated once the invoice has been
+    sent, but the POST /invoice and even the /send response don't always echo
+    it — a follow-up GET reliably does. So: GET and extract; if still missing
+    and we have an email, trigger /send and GET again. Returns '' if no public
+    link can be obtained (caller must NOT fall back to the admin URL for a
+    customer)."""
+    t = ensure_valid_access_token()
+    if not t or not invoice_id:
+        return ""
+    url = _try_extract_share_link(fetch_invoice(invoice_id) or {})
+    if url:
+        return url
+    if send_to_email:
+        try:
+            qbo_request(
+                "POST",
+                f"/v3/company/{t.realm_id}/invoice/{invoice_id}/send",
+                params={"sendTo": send_to_email},
+            )
+        except Exception as e:
+            logger.warning(f"get_public_share_link /send failed for {invoice_id}: {e}")
+        url = _try_extract_share_link(fetch_invoice(invoice_id) or {})
+    return url
 
 
 def fetch_invoice(invoice_id: str) -> dict | None:
