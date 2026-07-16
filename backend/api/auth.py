@@ -331,6 +331,34 @@ def seed_emmanuel_user():
         db.close()
 
 
+def seed_neo_user():
+    """Create the NeoHerrera estimator account if it doesn't exist. One-shot
+    addition per client request (2026-07-16) — Neo replaces Emmanuel. Same
+    locked-down 'estimator' role (Estimator page only). Idempotent: never
+    overwrites a changed password; backfills the role on an existing row."""
+    db = get_db()
+    try:
+        existing = db.query(User).filter(User.username == "NeoHerrera").first()
+        if existing:
+            if existing.role != "estimator":
+                existing.role = "estimator"
+                db.commit()
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="NeoHerrera",
+            display_name="Neo",
+            password_hash=bcrypt.hashpw("NeoFences979#!".encode(), bcrypt.gensalt()).decode(),
+            role="estimator",
+            see_all_jobs=False,
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def seed_olga_estimator_access():
     """Grant Olga (the VA) access to the Estimator view. One-off per client
     request (2026-07-01). She keeps her 'va' role; we just add the 'estimator'
