@@ -1734,6 +1734,11 @@ export const api = {
     request<{ events: PaymentEvent[]; collected_today: number; today_iso: string }>(
       `/api/payments/recent?limit=${limit}`,
     ),
+  // Leads with a deposit invoice sent but not yet paid (oldest first).
+  getPendingDeposits: () =>
+    request<{ count: number; total: number; deposits: PendingDeposit[] }>(
+      `/api/quickbooks/deposits/pending`,
+    ),
   // W3 (2026-06-08) — manual reconciliation safety-net trigger.
   // Returns per-pass stats. Skipped_mock=true means QB_MODE isn't 'live'
   // and nothing was checked — caller should surface that to the user.
@@ -3658,6 +3663,17 @@ export interface PaymentEvent {
   paid_at: string;
   /** "quickbooks_invoice" | "cash" | "zelle" | "check" | "bnpl" | ... */
   payment_method: string;
+}
+
+/** A lead whose deposit invoice was sent but isn't paid yet. */
+export interface PendingDeposit {
+  lead_id: string;
+  contact_name: string;
+  contact_phone: string;
+  amount: number;
+  /** ISO timestamp the invoice was sent, or null. */
+  sent_at: string | null;
+  payment_link: string;
 }
 
 export interface OutstandingJob {

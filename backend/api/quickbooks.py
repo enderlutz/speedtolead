@@ -1021,6 +1021,41 @@ def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = 
         db.close()
 
 
+@router.get("/quickbooks/deposits/pending")
+def list_pending_deposits(user: dict = Depends(require_staff)):
+    """Leads whose deposit invoice was sent but isn't paid yet
+    (deposit_status='pending'). Oldest-sent first so the ones aging the longest
+    float to the top. Column-scoped query to stay egress-light."""
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(
+                Lead.id, Lead.contact_name, Lead.contact_phone,
+                Lead.deposit_amount, Lead.deposit_invoice_sent_at,
+                Lead.deposit_payment_link,
+            )
+            .filter(Lead.deposit_status == "pending")
+            .order_by(Lead.deposit_invoice_sent_at.asc())
+            .all()
+        )
+        deposits = [{
+            "lead_id": r.id,
+            "contact_name": r.contact_name or "",
+            "contact_phone": r.contact_phone or "",
+            "amount": float(r.deposit_amount or 0),
+            "sent_at": r.deposit_invoice_sent_at,
+            "payment_link": r.deposit_payment_link or "",
+        } for r in rows]
+        return {
+            "count": len(deposits),
+            "total": sum(d["amount"] for d in deposits),
+            "deposits": deposits,
+        }
+    finally:
+        db.close()
+
+
 @router.post("/quickbooks/leads/{lead_id}/cancel-deposit")
 def cancel_deposit(lead_id: str, user: dict = Depends(require_staff)):
     """Cancel a pending deposit: void the QB invoice and reset the lead's

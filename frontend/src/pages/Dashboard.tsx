@@ -13,6 +13,7 @@ import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
 import WrappedModal from "@/components/WrappedModal";
 import RecentPaymentsCard from "@/components/RecentPaymentsCard";
+import PendingDepositsCard from "@/components/PendingDepositsCard";
 
 const PRIORITY_CLS: Record<string, string> = {
   HOT: "bg-red-500/10 text-red-600 border-red-200",
@@ -271,7 +272,10 @@ export default function Dashboard() {
           the instant the QB webhook fires. Today's running tally lives
           in the badge so the moment-by-moment "money is flowing in"
           signal is always visible. */}
-      <RecentPaymentsCard />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+        <RecentPaymentsCard />
+        <PendingDepositsCard />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
         {/* Pending Action Queue */}
