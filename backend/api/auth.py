@@ -290,15 +290,13 @@ def seed_brent_user():
 
 
 def seed_emmanuel_user():
-    """Create the EmmanuelOnibayo estimator account if it doesn't exist.
-    One-shot addition per client request (2026-06-29). Role is the new
-    'estimator' base role, which is locked to ONLY the Estimator page (its
-    baseline grants the 'estimator' view and nothing else — no prices, no
-    leads, no calendar). The admin view of that page (drive-path map) is a
-    role check inside the page, not a permission, so the estimator never sees
-    it. Idempotent — never overwrites a changed password; backfills the role
-    on an already-seeded row so an older account picks up 'estimator' on
-    deploy."""
+    """Ensure the EmmanuelOnibayo estimator account exists and is ACTIVE.
+
+    Timeline: created 2026-06-29; archived 2026-07-14 (quit) and replaced by
+    Neo; re-hired 2026-07-16 — so this now REACTIVATES him (disabled=False) and
+    Neo is the archived one instead (see seed_neo_user). Locked-down 'estimator'
+    role (Estimator page only). Idempotent — never overwrites a changed
+    password; re-asserts role + active state on each boot."""
     db = get_db()
     try:
         existing = db.query(User).filter(User.username == "EmmanuelOnibayo").first()
@@ -307,10 +305,9 @@ def seed_emmanuel_user():
             if existing.role != "estimator":
                 existing.role = "estimator"
                 changed = True
-            # Archived 2026-07-14 — Emmanuel quit. Keep the row (history/links
-            # stay intact) but block login. To re-hire, set disabled = False.
-            if not existing.disabled:
-                existing.disabled = True
+            # Re-hired 2026-07-16 — unblock login.
+            if existing.disabled:
+                existing.disabled = False
                 changed = True
             if changed:
                 db.commit()
@@ -323,7 +320,7 @@ def seed_emmanuel_user():
             password_hash=bcrypt.hashpw("EmmanuelFences1$2".encode(), bcrypt.gensalt()).decode(),
             role="estimator",
             see_all_jobs=False,
-            disabled=True,   # archived — Emmanuel quit (2026-07-14)
+            disabled=False,
             created_at=now,
         ))
         db.commit()
@@ -332,16 +329,25 @@ def seed_emmanuel_user():
 
 
 def seed_neo_user():
-    """Create the NeoHerrera estimator account if it doesn't exist. One-shot
-    addition per client request (2026-07-16) — Neo replaces Emmanuel. Same
-    locked-down 'estimator' role (Estimator page only). Idempotent: never
-    overwrites a changed password; backfills the role on an existing row."""
+    """Ensure the NeoHerrera estimator account exists but is ARCHIVED.
+
+    Neo covered for Emmanuel starting 2026-07-16 then stepped out when Emmanuel
+    was re-hired — so this now DEACTIVATES Neo (disabled=True), keeping the row
+    (history/links intact) while blocking login. To reactivate, set
+    disabled=False. Idempotent; never overwrites a changed password."""
     db = get_db()
     try:
         existing = db.query(User).filter(User.username == "NeoHerrera").first()
         if existing:
+            changed = False
             if existing.role != "estimator":
                 existing.role = "estimator"
+                changed = True
+            # Stepped out 2026-07-16 (Emmanuel re-hired) — block login.
+            if not existing.disabled:
+                existing.disabled = True
+                changed = True
+            if changed:
                 db.commit()
             return
         now = datetime.now(timezone.utc).isoformat()
@@ -352,6 +358,7 @@ def seed_neo_user():
             password_hash=bcrypt.hashpw("NeoFences979#!".encode(), bcrypt.gensalt()).decode(),
             role="estimator",
             see_all_jobs=False,
+            disabled=True,
             created_at=now,
         ))
         db.commit()
@@ -359,21 +366,16 @@ def seed_neo_user():
         db.close()
 
 
-def migrate_emmanuel_visits_to_neo():
-    """One-shot: hand Emmanuel's remaining estimate appointments to Neo.
+def migrate_neo_visits_to_emmanuel():
+    """One-shot: hand Neo's remaining estimate appointments back to Emmanuel.
 
-    Emmanuel quit (account archived 2026-07-14) and Neo replaces him, so any
-    estimate visits still on the books need to move to Neo's schedule. Scope
-    (per client request 2026-07-16): only visits dated on/after the cutoff that
-    are still 'scheduled'. Past/done/canceled visits stay attributed to Emmanuel
-    so history and his time records are untouched.
-
-    Idempotent: after the first run there are no matching Emmanuel rows left, so
-    re-running on later boots is a no-op. Hardcoded cutoff (not "today") so the
-    set of moved rows is deterministic regardless of when the container boots."""
+    Reverses the 2026-07-16 Emmanuel→Neo transfer now that Emmanuel is re-hired
+    and Neo is archived. Moves EVERY still-'scheduled' visit from Neo to
+    Emmanuel; done/canceled visits stay attributed to Neo so history + his time
+    records are untouched. Idempotent: after the first run Neo has no scheduled
+    rows left, so later boots are a no-op."""
     from database import EstimatorVisit
-    CUTOFF = "2026-07-16"
-    OLD, NEW = "EmmanuelOnibayo", "NeoHerrera"
+    OLD, NEW = "NeoHerrera", "EmmanuelOnibayo"
     db = get_db()
     try:
         moved = (
@@ -381,7 +383,6 @@ def migrate_emmanuel_visits_to_neo():
             .filter(
                 EstimatorVisit.estimator_user_id == OLD,
                 EstimatorVisit.status == "scheduled",
-                EstimatorVisit.visit_date >= CUTOFF,
             )
             .update(
                 {EstimatorVisit.estimator_user_id: NEW},
@@ -392,8 +393,7 @@ def migrate_emmanuel_visits_to_neo():
         if moved:
             import logging
             logging.getLogger(__name__).info(
-                f"migrate_emmanuel_visits_to_neo: moved {moved} scheduled "
-                f"visit(s) (>= {CUTOFF}) from {OLD} to {NEW}"
+                f"migrate_neo_visits_to_emmanuel: moved {moved} scheduled visit(s) from {OLD} to {NEW}"
             )
     finally:
         db.close()
