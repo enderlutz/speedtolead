@@ -349,17 +349,31 @@ def _extract_pdf(data: bytes) -> str:
 
 
 def _extract_docx(data: bytes) -> str:
+    """Extract text from a .docx using only the standard library — a .docx is a
+    zip whose word/document.xml holds the body; text lives in <w:t> elements and
+    paragraphs are <w:p> (table cells contain their own <w:p>s, so iterating all
+    paragraphs in document order captures body + table text). No third-party dep
+    (avoids python-docx → lxml, which breaks the Nixpacks build)."""
     import io
-    from docx import Document
-    doc = Document(io.BytesIO(data))
-    parts: list[str] = [p.text for p in doc.paragraphs]
-    # Pull table cell text too — scripts sometimes live in a 2-column table.
-    for table in doc.tables:
-        for trow in table.rows:
-            cells = [c.text.strip() for c in trow.cells if c.text.strip()]
-            if cells:
-                parts.append(" — ".join(cells))
-    return "\n".join(parts)
+    import zipfile
+    from xml.etree import ElementTree as ET
+    W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        xml = z.read("word/document.xml")
+    body = ET.fromstring(xml).find(f"{W}body")
+    if body is None:
+        return ""
+    lines: list[str] = []
+    for p in body.iter(f"{W}p"):
+        # Join every run's text; treat <w:tab/> as a space so columns don't glue.
+        buf: list[str] = []
+        for node in p.iter():
+            if node.tag == f"{W}t":
+                buf.append(node.text or "")
+            elif node.tag == f"{W}tab":
+                buf.append(" ")
+        lines.append("".join(buf))
+    return "\n".join(lines)
 
 
 async def _extract_upload_text(file: UploadFile) -> str:
