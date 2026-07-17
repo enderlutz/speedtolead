@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { api, getCurrentUser, type EstimatorSchedule, type EstimatorVisit } from "@/lib/api";
+import { api, getCurrentUser, type EstimatorSchedule, type EstimatorVisit, type Estimator } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
@@ -56,13 +56,28 @@ export default function Estimator() {
   const [addOpen, setAddOpen] = useState(false);
   const [editVisit, setEditVisit] = useState<EstimatorVisit | null>(null);
 
+  // Staff (admin/va) can view any estimator's schedule; the picked one drives
+  // the fetch. Estimators only ever see their own, so no selector for them.
+  const [estimators, setEstimators] = useState<Estimator[]>([]);
+  const [viewEstimatorId, setViewEstimatorId] = useState<string>("");
+
+  useEffect(() => {
+    if (!isStaff) return;
+    api.getEstimators()
+      .then((r) => {
+        setEstimators(r.estimators);
+        setViewEstimatorId((cur) => cur || r.default_estimator_id || r.estimators[0]?.user_id || "");
+      })
+      .catch(() => { /* non-fatal — falls back to the default estimator */ });
+  }, [isStaff]);
+
   const loadSchedule = useCallback(() => {
     setLoading(true);
-    api.getEstimatorSchedule(weekStart)
+    api.getEstimatorSchedule(weekStart, isStaff ? (viewEstimatorId || undefined) : undefined)
       .then(setSchedule)
       .catch(() => toast.error("Couldn't load the schedule"))
       .finally(() => setLoading(false));
-  }, [weekStart]);
+  }, [weekStart, isStaff, viewEstimatorId]);
 
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
 
@@ -113,6 +128,23 @@ export default function Estimator() {
         </div>
       </div>
 
+      {/* Estimator picker — staff can flip between estimators' schedules.
+          Only shown once there's more than one to choose from. */}
+      {isStaff && estimators.length > 1 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground">Viewing</span>
+          <select
+            value={viewEstimatorId}
+            onChange={(e) => setViewEstimatorId(e.target.value)}
+            className="text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          >
+            {estimators.map((e) => (
+              <option key={e.user_id} value={e.user_id}>{e.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Week navigation */}
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={() => shiftWeek(-7)}>
@@ -135,7 +167,7 @@ export default function Estimator() {
             <DayRow key={day.date} date={day.date} weekday={day.weekday} visits={day.visits}
                     workedHours={day.worked_hours} showWorked={isAdmin} canSchedule={isStaff}
                     onEditTime={setEditVisit}
-                    onOpen={() => navigate(`/estimator/day/${day.date}`)} />
+                    onOpen={() => navigate(`/estimator/day/${day.date}${isStaff && viewEstimatorId ? `?e=${encodeURIComponent(viewEstimatorId)}` : ""}`)} />
           ))}
         </div>
       )}

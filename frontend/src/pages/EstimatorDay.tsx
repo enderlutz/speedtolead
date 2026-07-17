@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { api, getCurrentUser, type EstimatorScheduleDay, type EstimatorDrivePath, type EstimatorVisit } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,11 +49,16 @@ function fmtHours(h: number): string {
  *  map of where the estimator actually drove that day. */
 export default function EstimatorDay() {
   const { date = "" } = useParams<{ date: string }>();
+  const [searchParams] = useSearchParams();
   const user = getCurrentUser();
   const isEstimator = user?.role === "estimator";
   const isAdmin = user?.role === "admin";
+  // Staff can arrive here viewing a specific estimator (?e=<id> from the week
+  // page). Estimators are pinned to their own schedule server-side regardless.
+  const viewEstimatorId = isEstimator ? undefined : (searchParams.get("e") || undefined);
 
   const [day, setDay] = useState<EstimatorScheduleDay | null>(null);
+  const [estimatorName, setEstimatorName] = useState("");
   const [loading, setLoading] = useState(true);
   const [editVisit, setEditVisit] = useState<EstimatorVisit | null>(null);
 
@@ -61,11 +66,14 @@ export default function EstimatorDay() {
     if (!date) return;
     setLoading(true);
     const weekStart = toYMD(mondayOf(new Date(`${date}T00:00:00`)));
-    api.getEstimatorSchedule(weekStart)
-      .then((s) => setDay(s.days.find((d) => d.date === date) || { date, weekday: "", visits: [], worked_hours: 0 }))
+    api.getEstimatorSchedule(weekStart, viewEstimatorId)
+      .then((s) => {
+        setDay(s.days.find((d) => d.date === date) || { date, weekday: "", visits: [], worked_hours: 0 });
+        setEstimatorName(s.estimator_name || "");
+      })
       .catch(() => toast.error("Couldn't load the day"))
       .finally(() => setLoading(false));
-  }, [date]);
+  }, [date, viewEstimatorId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -153,7 +161,7 @@ export default function EstimatorDay() {
       {isEstimator && visits.length > 0 && <RoutePreviewSection date={date} />}
 
       {/* Admin-only: suggested route + where he actually drove this day */}
-      {isAdmin && <DrivePathSection date={date} estimatorName={user?.name || "Estimator"} />}
+      {isAdmin && <DrivePathSection date={date} estimatorName={estimatorName || "the estimator"} estimatorUserId={viewEstimatorId} />}
 
       {editVisit && (
         <EstimatorScheduleModal
@@ -275,14 +283,14 @@ function RoutePreviewSection({ date }: { date: string }) {
 }
 
 // ── Admin-only drive path for this day ──────────────────────────────────────
-function DrivePathSection({ date, estimatorName }: { date: string; estimatorName: string }) {
+function DrivePathSection({ date, estimatorName, estimatorUserId }: { date: string; estimatorName: string; estimatorUserId?: string }) {
   const [data, setData] = useState<EstimatorDrivePath | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const load = () => {
     setLoading(true);
-    api.getEstimatorDrivePath(date)
+    api.getEstimatorDrivePath(date, estimatorUserId)
       .then((d) => { setData(d); setLoaded(true); })
       .catch(() => toast.error("Couldn't load the drive path"))
       .finally(() => setLoading(false));
