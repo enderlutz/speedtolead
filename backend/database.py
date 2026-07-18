@@ -2003,6 +2003,35 @@ class EstimatorTimeEntry(Base):
         }
 
 
+class WorkerShift(Base):
+    """A worker's general daily check-in / check-out — a shift clock for the
+    whole day, separate from the per-job start/complete on My Schedule.
+    clock_out is null while they're still on the clock. work_date is the local
+    (Central) date of check-in, denormalized for fast per-day lookups. Mirrors
+    EstimatorTimeEntry but keyed by employee_id (the worker's Employee row)."""
+    __tablename__ = "worker_shifts"
+    __table_args__ = (
+        Index("idx_worker_shifts_day", "employee_id", "work_date"),
+    )
+
+    id = Column(Text, primary_key=True)
+    employee_id = Column(Text, nullable=False)
+    work_date = Column(Text, default="")               # "YYYY-MM-DD" Central
+    clock_in = Column(Text, default="")                # ISO timestamp UTC
+    clock_out = Column(Text, nullable=True)            # ISO timestamp, null = open
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "employee_id": self.employee_id,
+            "work_date": self.work_date or "",
+            "clock_in": self.clock_in or "",
+            "clock_out": self.clock_out,
+            "is_open": not self.clock_out,
+        }
+
+
 class EstimatorLocationPing(Base):
     """One GPS sample from the estimator's phone while the Estimator page is
     open (foreground tracking). The admin-only drive-path map strings these

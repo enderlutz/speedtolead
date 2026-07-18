@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { api, getCurrentUser, type ScheduledJob, type WeatherDay } from "@/lib/api";
+import { api, getCurrentUser, type ScheduledJob, type WeatherDay, type WorkerShift } from "@/lib/api";
 // TEMPORARY FAKE DATA (employeefragne test account only) — see src/lib/fakeSchedule.ts
 import { isFakeScheduleUser, isFakeJobId, buildFakeJobs } from "@/lib/fakeSchedule";
 import { Card, CardContent } from "@/components/ui/card";
@@ -475,6 +475,79 @@ function groupByDate(jobs: ScheduledJob[], descending = false): { date: string; 
   }));
 }
 
+// General daily check-in / check-out for the day — a shift clock separate from
+// per-job start/complete. Reuses the same slide control as the job cards.
+function DailyCheckInCard() {
+  const [shift, setShift] = useState<WorkerShift | null | undefined>(undefined); // undefined = loading
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.getWorkerShiftToday()
+      .then((r) => setShift(r.shift))
+      .catch(() => setShift(null));
+  }, []);
+
+  const checkIn = async () => {
+    setBusy(true);
+    try {
+      const r = await api.workerCheckIn();
+      setShift(r.shift);
+      toast.success("Checked in — have a great day!");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't check in");
+    } finally { setBusy(false); }
+  };
+  const checkOut = async () => {
+    setBusy(true);
+    try {
+      const r = await api.workerCheckOut();
+      setShift(r.shift);
+      toast.success("Checked out — nice work today!");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't check out");
+    } finally { setBusy(false); }
+  };
+
+  if (shift === undefined) return null; // stay quiet until we know the state
+
+  const fmt = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const onClock = !!shift && shift.is_open;
+  const done = !!shift && !shift.is_open;
+
+  return (
+    <div className="rounded-xl border p-3 mb-4 bg-card shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold flex items-center gap-1.5">
+          <Clock className="h-4 w-4 text-muted-foreground" /> Your day
+        </span>
+        {onClock && <Badge className="bg-green-600 text-white text-[10px] h-5">On the clock</Badge>}
+        {done && <Badge className="bg-slate-500 text-white text-[10px] h-5">Day complete</Badge>}
+      </div>
+
+      {!shift && (
+        <>
+          <p className="text-xs text-muted-foreground mb-2">Check in to start your day.</p>
+          <SlideToConfirm label="Slide to check in for the day" variant="green" onConfirm={checkIn} disabled={busy} />
+        </>
+      )}
+      {onClock && (
+        <>
+          <p className="text-xs text-muted-foreground mb-2">
+            Checked in at <span className="font-medium text-foreground">{fmt(shift!.clock_in)}</span>.
+          </p>
+          <SlideToConfirm label="Slide to check out for the day" variant="blue" onConfirm={checkOut} disabled={busy} />
+        </>
+      )}
+      {done && (
+        <p className="text-xs text-muted-foreground">
+          Checked in <span className="font-medium text-foreground">{fmt(shift!.clock_in)}</span> ·
+          checked out <span className="font-medium text-foreground">{fmt(shift!.clock_out!)}</span>. 👏
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function MySchedule() {
   const user = getCurrentUser();
   const [tab, setTab] = useState<Tab>("today");
@@ -602,6 +675,9 @@ export default function MySchedule() {
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
       </div>
+
+      {/* General daily check-in / check-out for the day */}
+      <DailyCheckInCard />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">

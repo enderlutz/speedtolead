@@ -182,6 +182,16 @@ export interface EstimatorTimeEntry {
   is_open: boolean;
 }
 
+/** A worker's daily check-in/check-out (general day clock). */
+export interface WorkerShift {
+  id: string;
+  employee_id: string;
+  work_date: string;
+  clock_in: string;
+  clock_out: string | null;
+  is_open: boolean;
+}
+
 export interface EstimatorAvailability {
   estimator_user_id: string;
   date: string;
@@ -1790,6 +1800,13 @@ export const api = {
     request<EstimatorSchedule>(
       `/api/estimator/schedule?week_start=${weekStart}${estimatorUserId ? `&estimator_user_id=${encodeURIComponent(estimatorUserId)}` : ""}`,
     ),
+  // Worker daily check-in / check-out (general day clock).
+  getWorkerShiftToday: () =>
+    request<{ work_date: string; shift: WorkerShift | null }>(`/api/worker/shift/today`),
+  workerCheckIn: () =>
+    request<{ work_date: string; shift: WorkerShift }>(`/api/worker/shift/check-in`, { method: "POST" }),
+  workerCheckOut: () =>
+    request<{ work_date: string; shift: WorkerShift }>(`/api/worker/shift/check-out`, { method: "POST" }),
   getEstimatorClockStatus: () =>
     request<{ is_open: boolean; entry: EstimatorTimeEntry | null }>(`/api/estimator/clock-status`),
   estimatorClockIn: () =>
