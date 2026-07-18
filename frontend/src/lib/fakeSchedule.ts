@@ -108,39 +108,97 @@ function todayJobs(D: (o: number) => string): ScheduledJob[] {
 
 function upcomingJobs(D: (o: number) => string): ScheduledJob[] {
   return [
+    // ── Tomorrow ──
     mk("FAKE-U1", {
       job_date: D(1), arrival_time: "08:00", customer_name: "Rebecca Tran",
       address: "7104 Lakeshore Bend Dr, Cypress, TX", fence_sides_label: "All 8 sides",
       package_tier: "legacy", color_choice: "Chestnut", gallons_estimate: 18, estimated_duration_hours: 5,
     }),
     mk("FAKE-U2", {
-      job_date: D(1), arrival_time: "13:30", customer_name: "Jamal Whitfield",
+      job_date: D(1), arrival_time: "11:30", customer_name: "Jamal Whitfield",
       address: "4419 Prairie Vale Ct, Katy, TX", zip_code: "77494",
       fence_sides_label: "Inside Front, Inside Left, Inside Back, Inside Right",
       package_tier: "signature", color_choice: "Cedar Natural", gallons_estimate: 11, estimated_duration_hours: 3,
     }),
     mk("FAKE-U3", {
+      job_date: D(1), arrival_time: "14:30", customer_name: "Nathan Alvarado",
+      address: "15810 Maple Crest Dr, Houston, TX", zip_code: "77070",
+      fence_sides_label: "Outside Front, Outside Right", package_tier: "essential",
+      color_choice: "Clear / Natural", gallons_estimate: 8, estimated_duration_hours: 2,
+    }),
+    // ── Day 2 ──
+    mk("FAKE-U4", {
       job_date: D(2), arrival_time: "08:30", customer_name: "Olivia MendezRosario",
       address: "12530 Canyon Fields Ln, Cypress, TX", fence_sides_label: "Outside Front, Outside Back",
       package_tier: "essential", color_choice: "Clear / Natural", gallons_estimate: 7, estimated_duration_hours: 2,
     }),
-    mk("FAKE-U4", {
+    mk("FAKE-U5", {
       job_date: D(2), arrival_time: "11:00", customer_name: "The Halvorsen Family",
       address: "9007 Windmill Estates Dr, Houston, TX", zip_code: "77064",
       fence_sides_label: "All 8 sides", package_tier: "legacy", color_choice: "Dark Walnut",
       gallons_estimate: 22, needs_test_spots: true, estimated_duration_hours: 6,
       worker_notes: "Large corner lot — bring the extra 25ft ladder.",
     }),
-    mk("FAKE-U5", {
+    mk("FAKE-U6", {
+      job_date: D(2), arrival_time: "15:00", customer_name: "Kayla Simmons",
+      address: "8302 Rustling Pines Ct, Cypress, TX", fence_sides_label: "Inside Front, Inside Back",
+      package_tier: "signature", color_choice: "Redwood", gallons_estimate: 9, estimated_duration_hours: 3,
+    }),
+    // ── Day 3 ──
+    mk("FAKE-U7", {
+      job_date: D(3), arrival_time: "08:00", customer_name: "Diego Fuentes",
+      address: "21406 Elk Meadow Ln, Katy, TX", zip_code: "77449",
+      fence_sides_label: "All 8 sides", package_tier: "signature", color_choice: "Cedar Natural",
+      gallons_estimate: 14, estimated_duration_hours: 4,
+    }),
+    mk("FAKE-U8", {
+      job_date: D(3), arrival_time: "12:30", customer_name: "The Osei Family",
+      address: "5119 Whispering Oaks Dr, Houston, TX", zip_code: "77091",
+      fence_sides_label: "Inside Front, Inside Left, Inside Back, Inside Right",
+      package_tier: "legacy", color_choice: "Dark Walnut", gallons_estimate: 17, estimated_duration_hours: 5,
+    }),
+    // ── Day 4 ──
+    mk("FAKE-U9", {
       job_date: D(4), arrival_time: "09:00", customer_name: "Sean Okafor",
       address: "18122 Timber Falls Dr, Cypress, TX", fence_sides_label: "Inside Front, Inside Back",
       package_tier: "signature", color_choice: "Redwood", gallons_estimate: 10, estimated_duration_hours: 3,
     }),
-    mk("FAKE-U6", {
+    mk("FAKE-U10", {
+      job_date: D(4), arrival_time: "12:00", customer_name: "Brianna Whitaker",
+      address: "3944 Coral Ridge Dr, Katy, TX", zip_code: "77493",
+      fence_sides_label: "Outside Front, Outside Left, Outside Right", package_tier: "essential",
+      color_choice: "Clear / Natural", gallons_estimate: 9, estimated_duration_hours: 3,
+    }),
+    mk("FAKE-U11", {
+      job_date: D(4), arrival_time: "15:00", customer_name: "Roberto Salinas",
+      address: "10711 Autumn Harvest Ln, Houston, TX", zip_code: "77064",
+      fence_sides_label: "Inside Front, Inside Right", package_tier: "signature",
+      color_choice: "Chestnut", gallons_estimate: 8, estimated_duration_hours: 2,
+    }),
+    // ── Day 5 ──
+    mk("FAKE-U12", {
       job_date: D(5), arrival_time: "08:00", customer_name: "Grace Lindqvist",
       address: "6521 Meadow Vista Ln, Katy, TX", zip_code: "77493",
       fence_sides_label: "All 8 sides", package_tier: "signature", color_choice: "Chestnut",
       gallons_estimate: 15, estimated_duration_hours: 4,
+    }),
+    mk("FAKE-U13", {
+      job_date: D(5), arrival_time: "13:00", customer_name: "The Delacroix Household",
+      address: "14028 Prairie Song Dr, Cypress, TX", fence_sides_label: "All 8 sides",
+      package_tier: "legacy", color_choice: "Dark Walnut", gallons_estimate: 21, needs_test_spots: true,
+      estimated_duration_hours: 6, worker_notes: "Pool in backyard — keep equipment clear of the deck.",
+    }),
+    // ── Day 6 ──
+    mk("FAKE-U14", {
+      job_date: D(6), arrival_time: "08:30", customer_name: "Tyler Beaumont",
+      address: "19233 Silver Sage Ct, Cypress, TX", fence_sides_label: "Inside Front, Inside Left, Inside Back, Inside Right",
+      package_tier: "signature", color_choice: "Cedar Natural", gallons_estimate: 12, estimated_duration_hours: 4,
+    }),
+    mk("FAKE-U15", {
+      job_date: D(6), arrival_time: "12:30", customer_name: "Amara Nwosu",
+      address: "7740 Bent Brook Dr, Houston, TX", zip_code: "77095",
+      fence_sides_label: "Outside Front, Outside Back", package_tier: "essential",
+      color_choice: "Clear / Natural", gallons_estimate: 7, estimated_duration_hours: 2,
     }),
   ];
 }
