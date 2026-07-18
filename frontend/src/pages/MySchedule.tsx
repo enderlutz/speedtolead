@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api, getCurrentUser, type ScheduledJob, type WeatherDay } from "@/lib/api";
+// TEMPORARY FAKE DATA (employeefragne test account only) — see src/lib/fakeSchedule.ts
+import { isFakeScheduleUser, isFakeJobId, buildFakeJobs } from "@/lib/fakeSchedule";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -484,6 +486,14 @@ export default function MySchedule() {
 
   const load = useCallback(async (which: Tab) => {
     setLoading(true);
+    // TEMPORARY: the employeefragne test account sees sample jobs (frontend
+    // only, never hits the API/DB). Remove with the fakeSchedule import.
+    if (isFakeScheduleUser(user)) {
+      setJobs(buildFakeJobs(which, ctISO));
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       const employee_id = user?.employee_id || undefined;
       const adminPreview = user?.role === "admin" && employee_id ? { employee_id } : {};
@@ -509,6 +519,12 @@ export default function MySchedule() {
   useEffect(() => { load(tab); }, [tab, load]);
 
   const handleStart = async (job: ScheduledJob) => {
+    // TEMPORARY: fake jobs mutate local state only (no API/DB).
+    if (isFakeJobId(job.id)) {
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "in_progress", started_at: new Date().toISOString() } : j)));
+      toast.success(`Started: ${job.customer_name}`);
+      return;
+    }
     try {
       const updated = await api.startScheduledJob(job.id);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
@@ -519,6 +535,12 @@ export default function MySchedule() {
   };
 
   const handleComplete = async (job: ScheduledJob) => {
+    // TEMPORARY: fake jobs mutate local state only (no API/DB).
+    if (isFakeJobId(job.id)) {
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "completed", completed_at: new Date().toISOString() } : j)));
+      toast.success(`Job complete: ${job.customer_name}`);
+      return;
+    }
     try {
       const updated = await api.completeScheduledJob(job.id);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
