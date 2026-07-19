@@ -41,6 +41,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/accounting", icon: Calculator, label: "Accounting", perm: "accounting" },
   { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
   { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" },
+  { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
   { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
   { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator" },

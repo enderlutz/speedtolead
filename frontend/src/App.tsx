@@ -18,6 +18,7 @@ import Pricing from "@/pages/Pricing";
 import ProposalView from "@/pages/ProposalView";
 import CrewToday from "@/pages/CrewToday";
 import CrewSchedule from "@/pages/CrewSchedule";
+import PmHq from "@/pages/PmHq";
 import CrewStats from "@/pages/CrewStats";
 import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
@@ -177,6 +178,7 @@ function AppLayout() {
               <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
               <Route path="/estimator/day/:date" element={<RequireView view="estimator"><EstimatorDay /></RequireView>} />
               <Route path="/crew-schedule" element={<StaffOnly><CrewSchedule /></StaffOnly>} />
+              <Route path="/pm-hq" element={<RequireView view="assign_crew"><PmHq /></RequireView>} />
               <Route path="/crew-stats" element={<StaffOnly><CrewStats /></StaffOnly>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />

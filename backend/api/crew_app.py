@@ -17,8 +17,9 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 
-from database import get_db, Employee, ScheduledJob, Lead, JobTask, CrewAssignment, TimeSegment
+from database import get_db, Employee, ScheduledJob, Lead, JobTask, CrewAssignment, TimeSegment, JobAssignment
 from api.auth import require_staff, require_admin
+from api.permissions import require_perm
 from services.ghl import send_sms
 from config import get_settings
 
@@ -401,7 +402,7 @@ class TaskCreateBody(BaseModel):
 
 
 @router.post("/crew-app/tasks")
-def create_task(body: TaskCreateBody, user: dict = Depends(require_staff)):
+def create_task(body: TaskCreateBody, user: dict = Depends(require_perm("assign_crew"))):
     """Create a work task on a scheduled job (PM enters budgeted hours in
     Phase 1)."""
     del user
@@ -427,7 +428,7 @@ def create_task(body: TaskCreateBody, user: dict = Depends(require_staff)):
 
 
 @router.post("/crew-app/jobs/{scheduled_job_id}/default-tasks")
-def create_default_tasks(scheduled_job_id: str, user: dict = Depends(require_staff)):
+def create_default_tasks(scheduled_job_id: str, user: dict = Depends(require_perm("assign_crew"))):
     """Convenience: seed a job with a Clean → Stain pair if it has no tasks yet."""
     del user
     db = get_db()
@@ -458,7 +459,7 @@ class TaskUpdateBody(BaseModel):
 
 
 @router.put("/crew-app/tasks/{task_id}")
-def update_task(task_id: str, body: TaskUpdateBody, user: dict = Depends(require_staff)):
+def update_task(task_id: str, body: TaskUpdateBody, user: dict = Depends(require_perm("assign_crew"))):
     """PM edits: budgeted hours (Phase 1), task type, or a manual status/note fix."""
     del user
     db = get_db()
@@ -495,7 +496,7 @@ class AssignBody(BaseModel):
 
 
 @router.put("/crew-app/assignments")
-def upsert_assignment(body: AssignBody, user: dict = Depends(require_staff)):
+def upsert_assignment(body: AssignBody, user: dict = Depends(require_perm("assign_crew"))):
     """Assign a task to a worker on a day (drag onto the grid). Upserts by
     (task, worker, date). A primary assignment is exclusive — assigning a task
     as primary clears its other primary assignments (it moves)."""
@@ -534,7 +535,7 @@ def upsert_assignment(body: AssignBody, user: dict = Depends(require_staff)):
 
 
 @router.delete("/crew-app/assignments/{assignment_id}")
-def delete_assignment(assignment_id: str, user: dict = Depends(require_staff)):
+def delete_assignment(assignment_id: str, user: dict = Depends(require_perm("assign_crew"))):
     del user
     db = get_db()
     try:
@@ -571,6 +572,83 @@ def shift_day(body: ShiftDayBody, user: dict = Depends(require_staff)):
                 moved += 1
         db.commit()
         return {"status": "shifted", "moved_to": nxt, "moved": moved, "promoted": promoted}
+    finally:
+        db.close()
+
+
+@router.get("/crew-app/pm-board")
+def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("assign_crew"))):
+    """Job-centric assignment board for the Project Manager HQ. Returns jobs in
+    the [start, end] date window (Central; empty end = open-ended future), each
+    with its JOB-LEVEL crew (JobAssignment) and its TASKS (JobTask) + per-task
+    assignments (CrewAssignment: one primary + optional backups). Plus the
+    active-crew roster for the pickers. Column-scoped job query (no BLOBs)."""
+    del user
+    db = get_db()
+    try:
+        s = (start or "").strip() or _today_central()
+        e = (end or "").strip()
+        jq = db.query(
+            ScheduledJob.id, ScheduledJob.lead_id, ScheduledJob.customer_name,
+            ScheduledJob.job_date, ScheduledJob.arrival_time, ScheduledJob.address,
+            ScheduledJob.status,
+        ).filter(ScheduledJob.status != "cancelled", ScheduledJob.job_date >= s)
+        if e:
+            jq = jq.filter(ScheduledJob.job_date <= e)
+        job_rows = jq.order_by(ScheduledJob.job_date, ScheduledJob.arrival_time).all()
+        job_ids = [r.id for r in job_rows]
+
+        # Job-level crew (JobAssignment).
+        crew_by_job: dict[str, list[str]] = {}
+        if job_ids:
+            for a in db.query(JobAssignment).filter(JobAssignment.scheduled_job_id.in_(job_ids)).all():
+                crew_by_job.setdefault(a.scheduled_job_id, []).append(a.employee_id)
+
+        # Tasks (JobTask) + their per-task assignments (CrewAssignment).
+        tasks_by_job: dict[str, list[dict]] = {}
+        if job_ids:
+            tasks = (db.query(JobTask)
+                       .filter(JobTask.scheduled_job_id.in_(job_ids))
+                       .order_by(JobTask.sort_order).all())
+            task_ids = [t.id for t in tasks]
+            ca_by_task: dict[str, list[CrewAssignment]] = {}
+            if task_ids:
+                for ca in db.query(CrewAssignment).filter(CrewAssignment.job_task_id.in_(task_ids)).all():
+                    ca_by_task.setdefault(ca.job_task_id, []).append(ca)
+            for t in tasks:
+                cas = ca_by_task.get(t.id, [])
+                primary = next((c for c in cas if not c.is_backup), None)
+                backups = [c for c in cas if c.is_backup]
+                tasks_by_job.setdefault(t.scheduled_job_id, []).append({
+                    "id": t.id,
+                    "task_type": t.task_type,
+                    "task_label": TASK_LABEL.get(t.task_type, t.task_type.title()),
+                    "emoji": TASK_EMOJI.get(t.task_type, ""),
+                    "status": t.status or "pending",
+                    "budgeted_hours": float(t.budgeted_hours) if t.budgeted_hours is not None else None,
+                    "primary": ({"assignment_id": primary.id, "employee_id": primary.employee_id,
+                                 "work_date": primary.work_date} if primary else None),
+                    "backups": [{"assignment_id": b.id, "employee_id": b.employee_id,
+                                 "work_date": b.work_date} for b in backups],
+                })
+
+        roster = [
+            {"id": em.id, "name": (em.display_name or f"{em.first_name or ''} {em.last_name or ''}").strip() or em.id}
+            for em in db.query(Employee).filter(Employee.status == "active").order_by(Employee.first_name).all()
+        ]
+
+        jobs = [{
+            "id": r.id,
+            "lead_id": r.lead_id or "",
+            "customer_name": r.customer_name or "",
+            "job_date": r.job_date,
+            "arrival_time": r.arrival_time or "",
+            "address": r.address or "",
+            "status": r.status or "scheduled",
+            "assigned_employee_ids": crew_by_job.get(r.id, []),
+            "tasks": tasks_by_job.get(r.id, []),
+        } for r in job_rows]
+        return {"employees": roster, "jobs": jobs}
     finally:
         db.close()
 

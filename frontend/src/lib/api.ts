@@ -950,6 +950,34 @@ export interface CrewAssignmentRow {
   sort_order: number; is_backup: boolean;
   task: CrewTask & { emoji: string; task_label: string; customer_name: string; address: string; package: string; job_date: string };
 }
+/** Project Manager HQ board — jobs with job-level crew + per-task assignments. */
+export interface PmBoardAssignment { assignment_id: string; employee_id: string; work_date: string }
+export interface PmBoardTask {
+  id: string;
+  task_type: string;
+  task_label: string;
+  emoji: string;
+  status: string;
+  budgeted_hours: number | null;
+  primary: PmBoardAssignment | null;
+  backups: PmBoardAssignment[];
+}
+export interface PmBoardJob {
+  id: string;
+  lead_id: string;
+  customer_name: string;
+  job_date: string;
+  arrival_time: string;
+  address: string;
+  status: string;
+  assigned_employee_ids: string[];
+  tasks: PmBoardTask[];
+}
+export interface PmBoard {
+  employees: { id: string; name: string }[];
+  jobs: PmBoardJob[];
+}
+
 export interface CrewBoard {
   week_start: string;
   days: string[];
@@ -2651,6 +2679,9 @@ export const api = {
 
   // ── Crew App — PM board + reports (staff) ──
   getCrewBoard: (weekStart?: string) => request<CrewBoard>(`/api/crew-app/board${weekStart ? `?week_start=${weekStart}` : ""}`),
+  // Project Manager HQ — job-centric board (job-level crew + per-task assignments).
+  getPmBoard: (start?: string, end?: string) =>
+    request<PmBoard>(`/api/crew-app/pm-board${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
   genCrewToken: (employeeId: string) => request<{ employee_id: string; crew_token: string; path: string }>(`/api/crew-app/employees/${employeeId}/crew-token`, { method: "POST" }),
   createCrewTask: (body: { scheduled_job_id: string; task_type: string; budgeted_hours?: number }) =>
     request<CrewTask>(`/api/crew-app/tasks`, { method: "POST", body: JSON.stringify(body) }),
