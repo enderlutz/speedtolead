@@ -591,7 +591,9 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
         jq = db.query(
             ScheduledJob.id, ScheduledJob.lead_id, ScheduledJob.customer_name,
             ScheduledJob.job_date, ScheduledJob.arrival_time, ScheduledJob.address,
-            ScheduledJob.status,
+            ScheduledJob.status, ScheduledJob.color_choice, ScheduledJob.fence_sides_override,
+            ScheduledJob.additional_sides_text, ScheduledJob.gallons_estimate,
+            ScheduledJob.stain_gallons_used, ScheduledJob.bleach_gallons,
         ).filter(ScheduledJob.status != "cancelled", ScheduledJob.job_date >= s)
         if e:
             jq = jq.filter(ScheduledJob.job_date <= e)
@@ -637,6 +639,12 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             for em in db.query(Employee).filter(Employee.status == "active").order_by(Employee.first_name).all()
         ]
 
+        def _num(v):
+            try:
+                return float(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
         jobs = [{
             "id": r.id,
             "lead_id": r.lead_id or "",
@@ -645,10 +653,51 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             "arrival_time": r.arrival_time or "",
             "address": r.address or "",
             "status": r.status or "scheduled",
+            "color_choice": r.color_choice or "",
+            "fence_sides_override": r.fence_sides_override or "",
+            "additional_sides_text": r.additional_sides_text or "",
+            "gallons_estimate": _num(r.gallons_estimate),
+            "stain_gallons_used": _num(r.stain_gallons_used),
+            "bleach_gallons": _num(r.bleach_gallons),
             "assigned_employee_ids": crew_by_job.get(r.id, []),
             "tasks": tasks_by_job.get(r.id, []),
         } for r in job_rows]
         return {"employees": roster, "jobs": jobs}
+    finally:
+        db.close()
+
+
+class JobDetailsBody(BaseModel):
+    color_choice: str | None = None          # comma-separated for multiple colors
+    fence_sides_override: str | None = None  # CSV of checked sides
+    additional_sides_text: str | None = None # free-form "additional info" addendum
+
+
+@router.put("/crew-app/jobs/{job_id}/details")
+def update_job_details(job_id: str, body: JobDetailsBody, user: dict = Depends(require_perm("assign_crew"))):
+    """PM edits to a job's field-facing details from the Project Manager HQ:
+    stain color(s), the fence sides to stain, and the additional-info note. Only
+    these three fields — price/schedule/proposal stay on the full staff job PUT."""
+    del user
+    db = get_db()
+    try:
+        job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not job:
+            raise HTTPException(404, "Job not found")
+        if body.color_choice is not None:
+            job.color_choice = body.color_choice.strip()
+        if body.fence_sides_override is not None:
+            job.fence_sides_override = body.fence_sides_override.strip()
+        if body.additional_sides_text is not None:
+            job.additional_sides_text = body.additional_sides_text.strip()
+        job.updated_at = _now()
+        db.commit()
+        return {
+            "id": job.id,
+            "color_choice": job.color_choice or "",
+            "fence_sides_override": job.fence_sides_override or "",
+            "additional_sides_text": job.additional_sides_text or "",
+        }
     finally:
         db.close()
 

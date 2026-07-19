@@ -3,7 +3,7 @@ import { api, type PmBoard, type PmBoardJob, type PmBoardTask } from "@/lib/api"
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { HardHat, RefreshCw, Loader2, MapPin, X, Plus, Clock } from "lucide-react";
+import { HardHat, RefreshCw, Loader2, MapPin, X, Plus, Clock, ChevronDown, Save, Droplet } from "lucide-react";
 
 // Central-time date offset as YYYY-MM-DD (matches how job_date is stored).
 function ctISO(offsetDays = 0): string {
@@ -21,6 +21,19 @@ function fmtTime(hhmm: string): string {
   const period = h >= 12 ? "PM" : "AM";
   return `${h % 12 || 12}:${String(m || 0).padStart(2, "0")} ${period}`;
 }
+
+// The 8 standard fence sides (4 inside, 4 outside) for the checkbox grid.
+const FENCE_SIDES = [
+  "Inside Front", "Inside Left", "Inside Back", "Inside Right",
+  "Outside Front", "Outside Left", "Outside Back", "Outside Right",
+];
+// Stain-color suggestions for the datalist (free text still allowed).
+const STAIN_COLORS = ["Cedar Natural", "Redwood", "Chestnut", "Dark Walnut", "Clear / Natural"];
+
+const splitCsv = (s: string): string[] => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
+const galTxt = (n: number | null): string => (n == null ? "—" : `${n} gal`);
+
+export interface JobDetailsPatch { color_choice: string; fence_sides_override: string; additional_sides_text: string }
 
 /**
  * Project Manager HQ — job-centric crew assignment. For each upcoming job the
@@ -71,6 +84,12 @@ export default function PmHq() {
     } catch (e: any) { toast.error(e?.message || "Couldn't assign task"); }
     finally { setBusy(false); }
   };
+  const saveDetails = async (jobId: string, patch: JobDetailsPatch) => {
+    setBusy(true);
+    try { await api.updateJobDetails(jobId, patch); await Promise.resolve(load()); toast.success("Job details saved"); }
+    catch (e: any) { toast.error(e?.message || "Couldn't save details"); }
+    finally { setBusy(false); }
+  };
 
   // Group jobs by day, ascending.
   const days = useMemo(() => {
@@ -119,6 +138,7 @@ export default function PmHq() {
                   onSetCrew={(ids) => setCrew(job.id, ids)}
                   onSeedTasks={() => seedTasks(job.id)}
                   onSetTaskPrimary={(task, empId) => setTaskPrimary(job, task, empId)}
+                  onSaveDetails={(patch) => saveDetails(job.id, patch)}
                 />
               ))}
             </div>
@@ -130,7 +150,7 @@ export default function PmHq() {
 }
 
 function JobRow({
-  job, roster, empName, onSetCrew, onSeedTasks, onSetTaskPrimary,
+  job, roster, empName, onSetCrew, onSeedTasks, onSetTaskPrimary, onSaveDetails,
 }: {
   job: PmBoardJob;
   roster: { id: string; name: string }[];
@@ -138,6 +158,7 @@ function JobRow({
   onSetCrew: (employeeIds: string[]) => void;
   onSeedTasks: () => void;
   onSetTaskPrimary: (task: PmBoardTask, empId: string) => void;
+  onSaveDetails: (patch: JobDetailsPatch) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -154,6 +175,33 @@ function JobRow({
     if (picked.size) onSetCrew([...job.assigned_employee_ids, ...picked]);
     closeAdd();
   };
+
+  // ── Job-details editor (color / sides / additional info) ──
+  const [editing, setEditing] = useState(false);
+  const [colors, setColors] = useState<string[]>(() => { const c = splitCsv(job.color_choice); return c.length ? c : [""]; });
+  const [sides, setSides] = useState<Set<string>>(() => new Set(splitCsv(job.fence_sides_override)));
+  const [info, setInfo] = useState(job.additional_sides_text || "");
+
+  const openEditor = () => {
+    // Re-seed from the latest job data each time it opens.
+    const c = splitCsv(job.color_choice); setColors(c.length ? c : [""]);
+    setSides(new Set(splitCsv(job.fence_sides_override)));
+    setInfo(job.additional_sides_text || "");
+    setEditing(true);
+  };
+  const toggleSide = (side: string) => setSides((prev) => {
+    const next = new Set(prev); next.has(side) ? next.delete(side) : next.add(side); return next;
+  });
+  const saveDetails = () => {
+    onSaveDetails({
+      color_choice: colors.map((c) => c.trim()).filter(Boolean).join(", "),
+      fence_sides_override: [...sides].join(", "),
+      additional_sides_text: info.trim(),
+    });
+    setEditing(false);
+  };
+  const currentColors = splitCsv(job.color_choice);
+  const currentSides = splitCsv(job.fence_sides_override);
 
   return (
     <div className={`rounded-lg border p-3 space-y-3 ${noCrew ? "border-amber-300 bg-amber-50/40" : "bg-card"}`}>
@@ -251,6 +299,85 @@ function JobRow({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Job details — color(s), sides, additional info + gallons used */}
+      <div className="border-t pt-2">
+        {!editing ? (
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] text-muted-foreground min-w-0 truncate">
+              <span className="font-medium text-foreground">{currentColors.length ? currentColors.join(", ") : "No color set"}</span>
+              {" · "}{currentSides.length ? `${currentSides.length} side${currentSides.length === 1 ? "" : "s"}` : "no sides set"}
+              {job.additional_sides_text ? ` · ${job.additional_sides_text}` : ""}
+            </div>
+            <button onClick={openEditor} className="text-[11px] text-primary hover:underline flex items-center gap-0.5 shrink-0">
+              <ChevronDown className="h-3 w-3" /> Edit details
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Color(s) — multiple allowed */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Color(s)</div>
+              <div className="space-y-1">
+                {colors.map((c, i) => (
+                  <div key={i} className="flex gap-1.5">
+                    <input
+                      list="pm-stain-colors" value={c}
+                      onChange={(e) => setColors((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+                      placeholder={i === 0 ? "Type or pick a color" : "Another color"}
+                      className="flex-1 text-sm rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                    {(colors.length > 1 || c.trim()) && (
+                      <button
+                        onClick={() => setColors((prev) => { const n = prev.filter((_, j) => j !== i); return n.length ? n : [""]; })}
+                        className="px-2 rounded border text-muted-foreground hover:text-red-600" aria-label="Remove color"
+                      ><X className="h-3.5 w-3.5" /></button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => setColors((prev) => [...prev, ""])} className="text-xs text-primary hover:underline flex items-center gap-0.5">
+                  <Plus className="h-3 w-3" /> Add color
+                </button>
+              </div>
+              <datalist id="pm-stain-colors">{STAIN_COLORS.map((c) => <option key={c} value={c} />)}</datalist>
+            </div>
+
+            {/* Sides to stain — checkbox grid */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Sides to stain</div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                {FENCE_SIDES.map((side) => (
+                  <label key={side} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={sides.has(side)} onChange={() => toggleSide(side)} className="h-3.5 w-3.5" />
+                    <span>{side}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Additional info */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Additional info</div>
+              <textarea
+                value={info} onChange={(e) => setInfo(e.target.value)} rows={2}
+                placeholder="e.g. back deck rails, extra gate, gate code…"
+                className="w-full text-sm rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={saveDetails}><Save className="h-3.5 w-3.5 mr-1" /> Save details</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+
+        {/* Gallons used — read only (crew enters these) */}
+        <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1">
+          <Droplet className="h-3 w-3 shrink-0" />
+          Stain used {galTxt(job.stain_gallons_used)}{job.gallons_estimate != null ? ` (assigned ${job.gallons_estimate})` : ""} · Bleach used {galTxt(job.bleach_gallons)}
+        </div>
       </div>
     </div>
   );

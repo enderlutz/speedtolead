@@ -970,6 +970,12 @@ export interface PmBoardJob {
   arrival_time: string;
   address: string;
   status: string;
+  color_choice: string;             // comma-separated for multiple colors
+  fence_sides_override: string;     // CSV of sides
+  additional_sides_text: string;    // "additional info" addendum
+  gallons_estimate: number | null;  // stain assigned
+  stain_gallons_used: number | null;
+  bleach_gallons: number | null;
   assigned_employee_ids: string[];
   tasks: PmBoardTask[];
 }
@@ -2682,6 +2688,11 @@ export const api = {
   // Project Manager HQ — job-centric board (job-level crew + per-task assignments).
   getPmBoard: (start?: string, end?: string) =>
     request<PmBoard>(`/api/crew-app/pm-board${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
+  // PM edits to a job's field details (color/sides/additional info).
+  updateJobDetails: (jobId: string, body: { color_choice?: string; fence_sides_override?: string; additional_sides_text?: string }) =>
+    request<{ id: string; color_choice: string; fence_sides_override: string; additional_sides_text: string }>(
+      `/api/crew-app/jobs/${jobId}/details`, { method: "PUT", body: JSON.stringify(body) },
+    ),
   genCrewToken: (employeeId: string) => request<{ employee_id: string; crew_token: string; path: string }>(`/api/crew-app/employees/${employeeId}/crew-token`, { method: "POST" }),
   createCrewTask: (body: { scheduled_job_id: string; task_type: string; budgeted_hours?: number }) =>
     request<CrewTask>(`/api/crew-app/tasks`, { method: "POST", body: JSON.stringify(body) }),
