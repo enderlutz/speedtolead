@@ -116,8 +116,7 @@ export default function PmHq() {
                   job={job}
                   roster={roster}
                   empName={empName}
-                  onAddCrew={(empId) => setCrew(job.id, [...job.assigned_employee_ids, empId])}
-                  onRemoveCrew={(empId) => setCrew(job.id, job.assigned_employee_ids.filter((id) => id !== empId))}
+                  onSetCrew={(ids) => setCrew(job.id, ids)}
                   onSeedTasks={() => seedTasks(job.id)}
                   onSetTaskPrimary={(task, empId) => setTaskPrimary(job, task, empId)}
                 />
@@ -131,18 +130,30 @@ export default function PmHq() {
 }
 
 function JobRow({
-  job, roster, empName, onAddCrew, onRemoveCrew, onSeedTasks, onSetTaskPrimary,
+  job, roster, empName, onSetCrew, onSeedTasks, onSetTaskPrimary,
 }: {
   job: PmBoardJob;
   roster: { id: string; name: string }[];
   empName: (id: string) => string;
-  onAddCrew: (empId: string) => void;
-  onRemoveCrew: (empId: string) => void;
+  onSetCrew: (employeeIds: string[]) => void;
   onSeedTasks: () => void;
   onSetTaskPrimary: (task: PmBoardTask, empId: string) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const unassignedRoster = roster.filter((e) => !job.assigned_employee_ids.includes(e.id));
   const noCrew = job.assigned_employee_ids.length === 0;
+
+  const toggle = (id: string) => setPicked((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const closeAdd = () => { setAdding(false); setPicked(new Set()); };
+  const applyAdd = () => {
+    if (picked.size) onSetCrew([...job.assigned_employee_ids, ...picked]);
+    closeAdd();
+  };
 
   return (
     <div className={`rounded-lg border p-3 space-y-3 ${noCrew ? "border-amber-300 bg-amber-50/40" : "bg-card"}`}>
@@ -174,25 +185,43 @@ function JobRow({
           {job.assigned_employee_ids.map((id) => (
             <span key={id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2 py-0.5">
               {empName(id)}
-              <button onClick={() => onRemoveCrew(id)} className="hover:text-red-600" title="Remove from job">
+              <button onClick={() => onSetCrew(job.assigned_employee_ids.filter((x) => x !== id))} className="hover:text-red-600" title="Remove from job">
                 <X className="h-3 w-3" />
               </button>
             </span>
           ))}
-          {unassignedRoster.length > 0 && (
-            <select
-              value=""
-              onChange={(e) => { if (e.target.value) onAddCrew(e.target.value); }}
-              className="text-xs rounded border bg-background px-1.5 py-0.5 text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+          {!adding && unassignedRoster.length > 0 && (
+            <button
+              onClick={() => setAdding(true)}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed text-xs px-2 py-0.5 text-muted-foreground hover:bg-muted"
             >
-              <option value="">+ Add</option>
-              {unassignedRoster.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
+              <Plus className="h-3 w-3" /> Add crew
+            </button>
           )}
           {job.assigned_employee_ids.length === 0 && unassignedRoster.length === 0 && (
             <span className="text-[11px] text-muted-foreground">No active crew to assign.</span>
           )}
         </div>
+
+        {/* Multi-select: check several people, add them all at once. */}
+        {adding && (
+          <div className="mt-2 rounded-lg border bg-muted/20 p-2 space-y-2">
+            <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
+              {unassignedRoster.map((e) => (
+                <label key={e.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={picked.has(e.id)} onChange={() => toggle(e.id)} className="h-3.5 w-3.5" />
+                  <span className="truncate">{e.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={applyAdd} disabled={picked.size === 0}>
+                Add{picked.size ? ` ${picked.size}` : ""}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={closeAdd}>Cancel</Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Per-task primary assignment */}
