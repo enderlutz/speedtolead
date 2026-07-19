@@ -959,8 +959,7 @@ export interface PmBoardTask {
   emoji: string;
   status: string;
   budgeted_hours: number | null;
-  primary: PmBoardAssignment | null;
-  backups: PmBoardAssignment[];
+  assignees: PmBoardAssignment[];   // multiple workers can be on a task
 }
 export interface PmBoardJob {
   id: string;
@@ -2690,9 +2689,9 @@ export const api = {
   // Project Manager HQ — job-centric board (job-level crew + per-task assignments).
   getPmBoard: (start?: string, end?: string) =>
     request<PmBoard>(`/api/crew-app/pm-board${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
-  // PM edits to a job's field details (color/sides/additional info/per-color gallons).
-  updateJobDetails: (jobId: string, body: { color_choice?: string; fence_sides_override?: string; additional_sides_text?: string; color_gallons?: Record<string, number> }) =>
-    request<{ id: string; color_choice: string; fence_sides_override: string; additional_sides_text: string; color_gallons: Record<string, number> }>(
+  // PM edits to a job's field details (color/sides/additional info/gallons).
+  updateJobDetails: (jobId: string, body: { color_choice?: string; fence_sides_override?: string; additional_sides_text?: string; color_gallons?: Record<string, number>; stain_gallons_used?: number; bleach_gallons?: number }) =>
+    request<{ id: string; color_choice: string; fence_sides_override: string; additional_sides_text: string; color_gallons: Record<string, number>; stain_gallons_used: number; bleach_gallons: number }>(
       `/api/crew-app/jobs/${jobId}/details`, { method: "PUT", body: JSON.stringify(body) },
     ),
   genCrewToken: (employeeId: string) => request<{ employee_id: string; crew_token: string; path: string }>(`/api/crew-app/employees/${employeeId}/crew-token`, { method: "POST" }),
@@ -2702,7 +2701,7 @@ export const api = {
     request<{ status: string }>(`/api/crew-app/jobs/${scheduledJobId}/default-tasks`, { method: "POST" }),
   updateCrewTask: (taskId: string, body: { budgeted_hours?: number; task_type?: string; status?: string; progress_note?: string }) =>
     request<CrewTask>(`/api/crew-app/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(body) }),
-  upsertCrewAssignment: (body: { job_task_id: string; employee_id: string; work_date: string; is_backup?: boolean; sort_order?: number }) =>
+  upsertCrewAssignment: (body: { job_task_id: string; employee_id: string; work_date: string; is_backup?: boolean; sort_order?: number; exclusive?: boolean }) =>
     request<CrewAssignmentRow>(`/api/crew-app/assignments`, { method: "PUT", body: JSON.stringify(body) }),
   deleteCrewAssignment: (id: string) => request<{ status: string }>(`/api/crew-app/assignments/${id}`, { method: "DELETE" }),
   crewShiftDay: (date: string) => request<{ status: string; moved_to: string; moved: number; promoted: number }>(`/api/crew-app/board/shift-day`, { method: "POST", body: JSON.stringify({ date }) }),

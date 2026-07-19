@@ -493,13 +493,15 @@ class AssignBody(BaseModel):
     work_date: str                    # YYYY-MM-DD
     is_backup: bool = False
     sort_order: int = 0
+    exclusive: bool = True            # True = single primary (moves); False = add alongside others
 
 
 @router.put("/crew-app/assignments")
 def upsert_assignment(body: AssignBody, user: dict = Depends(require_perm("assign_crew"))):
     """Assign a task to a worker on a day (drag onto the grid). Upserts by
-    (task, worker, date). A primary assignment is exclusive — assigning a task
-    as primary clears its other primary assignments (it moves)."""
+    (task, worker, date). By default a primary assignment is exclusive — it
+    clears the task's other primary assignments (it moves). Pass exclusive=False
+    to ADD a worker alongside the existing crew (multi-worker tasks in PM HQ)."""
     del user
     db = get_db()
     try:
@@ -508,8 +510,8 @@ def upsert_assignment(body: AssignBody, user: dict = Depends(require_perm("assig
             raise HTTPException(404, "Task not found")
         if not db.query(Employee).filter(Employee.id == body.employee_id).first():
             raise HTTPException(404, "Employee not found")
-        if not body.is_backup:
-            # A task has a single primary slot — moving it removes the old one.
+        if not body.is_backup and body.exclusive:
+            # Exclusive primary — moving it removes the task's other primaries.
             (db.query(CrewAssignment)
                .filter(CrewAssignment.job_task_id == body.job_task_id, CrewAssignment.is_backup.is_(False))
                .delete(synchronize_session=False))
@@ -619,8 +621,7 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
                     ca_by_task.setdefault(ca.job_task_id, []).append(ca)
             for t in tasks:
                 cas = ca_by_task.get(t.id, [])
-                primary = next((c for c in cas if not c.is_backup), None)
-                backups = [c for c in cas if c.is_backup]
+                assignees = [c for c in cas if not c.is_backup]
                 tasks_by_job.setdefault(t.scheduled_job_id, []).append({
                     "id": t.id,
                     "task_type": t.task_type,
@@ -628,10 +629,8 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
                     "emoji": TASK_EMOJI.get(t.task_type, ""),
                     "status": t.status or "pending",
                     "budgeted_hours": float(t.budgeted_hours) if t.budgeted_hours is not None else None,
-                    "primary": ({"assignment_id": primary.id, "employee_id": primary.employee_id,
-                                 "work_date": primary.work_date} if primary else None),
-                    "backups": [{"assignment_id": b.id, "employee_id": b.employee_id,
-                                 "work_date": b.work_date} for b in backups],
+                    "assignees": [{"assignment_id": c.id, "employee_id": c.employee_id,
+                                   "work_date": c.work_date} for c in assignees],
                 })
 
         roster = [
@@ -713,6 +712,8 @@ class JobDetailsBody(BaseModel):
     fence_sides_override: str | None = None  # CSV of checked sides
     additional_sides_text: str | None = None # free-form "additional info" addendum
     color_gallons: dict[str, float] | None = None  # {color: gallons} for multi-color jobs
+    stain_gallons_used: float | None = None  # single-color total stain gallons
+    bleach_gallons: float | None = None      # bleach gallons
 
 
 @router.put("/crew-app/jobs/{job_id}/details")
@@ -737,6 +738,10 @@ def update_job_details(job_id: str, body: JobDetailsBody, user: dict = Depends(r
             # Keep only non-zero entries so a cleared field doesn't linger.
             cg = {str(k): float(v) for k, v in body.color_gallons.items() if v}
             job.color_gallons = json.dumps(cg) if cg else ""
+        if body.stain_gallons_used is not None:
+            job.stain_gallons_used = body.stain_gallons_used
+        if body.bleach_gallons is not None:
+            job.bleach_gallons = body.bleach_gallons
         job.updated_at = _now()
         db.commit()
         return {
@@ -745,6 +750,8 @@ def update_job_details(job_id: str, body: JobDetailsBody, user: dict = Depends(r
             "fence_sides_override": job.fence_sides_override or "",
             "additional_sides_text": job.additional_sides_text or "",
             "color_gallons": json.loads(job.color_gallons) if job.color_gallons else {},
+            "stain_gallons_used": float(job.stain_gallons_used or 0),
+            "bleach_gallons": float(job.bleach_gallons or 0),
         }
     finally:
         db.close()

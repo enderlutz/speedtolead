@@ -33,7 +33,7 @@ const STAIN_COLORS = ["Cedar Natural", "Redwood", "Chestnut", "Dark Walnut", "Cl
 const splitCsv = (s: string): string[] => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
 const galTxt = (n: number | null): string => (n == null ? "—" : `${n} gal`);
 
-export interface JobDetailsPatch { color_choice: string; fence_sides_override: string; additional_sides_text: string; color_gallons: Record<string, number> }
+export interface JobDetailsPatch { color_choice: string; fence_sides_override: string; additional_sides_text: string; color_gallons: Record<string, number>; stain_gallons_used?: number; bleach_gallons?: number }
 
 /**
  * Project Manager HQ — job-centric crew assignment. For each upcoming job the
@@ -72,16 +72,21 @@ export default function PmHq() {
     catch (e: any) { toast.error(e?.message || "Couldn't set up tasks"); }
     finally { setBusy(false); }
   };
-  const setTaskPrimary = async (job: PmBoardJob, task: PmBoardTask, empId: string) => {
+  const addTaskWorkers = async (job: PmBoardJob, task: PmBoardTask, empIds: string[]) => {
     setBusy(true);
     try {
-      if (!empId) {
-        if (task.primary) await api.deleteCrewAssignment(task.primary.assignment_id);
-      } else {
-        await api.upsertCrewAssignment({ job_task_id: task.id, employee_id: empId, work_date: job.job_date, is_backup: false });
+      for (const id of empIds) {
+        // exclusive:false → add alongside the task's existing crew (multi-worker).
+        await api.upsertCrewAssignment({ job_task_id: task.id, employee_id: id, work_date: job.job_date, is_backup: false, exclusive: false });
       }
       load();
     } catch (e: any) { toast.error(e?.message || "Couldn't assign task"); }
+    finally { setBusy(false); }
+  };
+  const removeTaskWorker = async (assignmentId: string) => {
+    setBusy(true);
+    try { await api.deleteCrewAssignment(assignmentId); load(); }
+    catch (e: any) { toast.error(e?.message || "Couldn't remove"); }
     finally { setBusy(false); }
   };
   const saveDetails = async (jobId: string, patch: JobDetailsPatch) => {
@@ -137,7 +142,8 @@ export default function PmHq() {
                   empName={empName}
                   onSetCrew={(ids) => setCrew(job.id, ids)}
                   onSeedTasks={() => seedTasks(job.id)}
-                  onSetTaskPrimary={(task, empId) => setTaskPrimary(job, task, empId)}
+                  onAddTaskWorkers={(task, ids) => addTaskWorkers(job, task, ids)}
+                  onRemoveTaskWorker={(assignmentId) => removeTaskWorker(assignmentId)}
                   onSaveDetails={(patch) => saveDetails(job.id, patch)}
                 />
               ))}
@@ -150,14 +156,15 @@ export default function PmHq() {
 }
 
 function JobRow({
-  job, roster, empName, onSetCrew, onSeedTasks, onSetTaskPrimary, onSaveDetails,
+  job, roster, empName, onSetCrew, onSeedTasks, onAddTaskWorkers, onRemoveTaskWorker, onSaveDetails,
 }: {
   job: PmBoardJob;
   roster: { id: string; name: string }[];
   empName: (id: string) => string;
   onSetCrew: (employeeIds: string[]) => void;
   onSeedTasks: () => void;
-  onSetTaskPrimary: (task: PmBoardTask, empId: string) => void;
+  onAddTaskWorkers: (task: PmBoardTask, employeeIds: string[]) => void;
+  onRemoveTaskWorker: (assignmentId: string) => void;
   onSaveDetails: (patch: JobDetailsPatch) => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -192,6 +199,8 @@ function JobRow({
   const [sides, setSides] = useState<Set<string>>(() => new Set(splitCsv(job.fence_sides_override)));
   const [info, setInfo] = useState(job.additional_sides_text || "");
   const [colorGallons, setColorGallons] = useState<Record<string, string>>({});
+  const [stainGal, setStainGal] = useState("");
+  const [bleachGal, setBleachGal] = useState("");
 
   const openEditor = () => {
     // Re-seed from the latest job data each time it opens.
@@ -201,6 +210,8 @@ function JobRow({
     setSides(new Set(overrideSides.length ? overrideSides : job.estimate_sides));
     setInfo(job.additional_sides_text || "");
     setColorGallons(Object.fromEntries(Object.entries(job.color_gallons || {}).map(([k, v]) => [k, String(v)])));
+    setStainGal(job.stain_gallons_used != null ? String(job.stain_gallons_used) : "");
+    setBleachGal(job.bleach_gallons != null ? String(job.bleach_gallons) : "");
     setEditing(true);
   };
   const toggleSide = (side: string) => setSides((prev) => {
@@ -214,11 +225,15 @@ function JobRow({
       const n = parseFloat(colorGallons[c] || "");
       if (!Number.isNaN(n) && n > 0) cg[c] = n;
     }
+    const parseGal = (v: string) => { const n = parseFloat(v); return Number.isNaN(n) ? 0 : n; };
     onSaveDetails({
       color_choice: cleanColors.join(", "),
       fence_sides_override: availableSides.filter((s) => sides.has(s)).join(", "),
       additional_sides_text: info.trim(),
       color_gallons: cg,
+      // Single-color total goes to stain_gallons_used; multi-color uses color_gallons.
+      stain_gallons_used: cleanColors.length >= 2 ? undefined : parseGal(stainGal),
+      bleach_gallons: parseGal(bleachGal),
     });
     setEditing(false);
   };
@@ -302,22 +317,13 @@ function JobRow({
             <Plus className="h-3.5 w-3.5 mr-1" /> Set up tasks (Clean + Stain)
           </Button>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {job.tasks.map((task) => (
-              <div key={task.id} className="flex items-center gap-2">
-                <span className="text-sm w-28 shrink-0">{task.emoji} {task.task_label}</span>
-                <select
-                  value={task.primary?.employee_id || ""}
-                  onChange={(e) => onSetTaskPrimary(task, e.target.value)}
-                  className="flex-1 text-xs rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                >
-                  <option value="">— Unassigned —</option>
-                  {roster.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-                {task.status !== "pending" && (
-                  <Badge className="text-[10px] h-5 shrink-0 capitalize bg-slate-200 text-slate-700">{task.status.replace("_", " ")}</Badge>
-                )}
-              </div>
+              <TaskRow
+                key={task.id} task={task} roster={roster} empName={empName}
+                onAdd={(ids) => onAddTaskWorkers(task, ids)}
+                onRemove={onRemoveTaskWorker}
+              />
             ))}
           </div>
         )}
@@ -403,6 +409,31 @@ function JobRow({
               </div>
             )}
 
+            {/* Gallons — PM inputs. Single stain total (hidden when per-color is
+                in play) + bleach, always editable. */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Gallons</div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {cleanColors.length < 2 && (
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <span className="text-muted-foreground">Stain</span>
+                    <input type="number" step="0.1" min="0" inputMode="decimal" value={stainGal}
+                      onChange={(e) => setStainGal(e.target.value)} placeholder="0"
+                      className="w-20 text-sm rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40" />
+                    <span className="text-[11px] text-muted-foreground">gal</span>
+                  </label>
+                )}
+                <label className="flex items-center gap-1.5 text-sm">
+                  <span className="text-muted-foreground">Bleach</span>
+                  <input type="number" step="0.1" min="0" inputMode="decimal" value={bleachGal}
+                    onChange={(e) => setBleachGal(e.target.value)} placeholder="0"
+                    className="w-20 text-sm rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40" />
+                  <span className="text-[11px] text-muted-foreground">gal</span>
+                </label>
+                {cleanColors.length >= 2 && <span className="text-[11px] text-muted-foreground">Stain is tracked per color above.</span>}
+              </div>
+            </div>
+
             {/* Additional info */}
             <div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Additional info</div>
@@ -434,6 +465,65 @@ function JobRow({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// One task (clean / stain / powerwash) with its assigned crew — multiple
+// workers allowed. Chips remove per-person; "Add" opens a multi-select.
+function TaskRow({ task, roster, empName, onAdd, onRemove }: {
+  task: PmBoardTask;
+  roster: { id: string; name: string }[];
+  empName: (id: string) => string;
+  onAdd: (employeeIds: string[]) => void;
+  onRemove: (assignmentId: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const assignedIds = new Set(task.assignees.map((a) => a.employee_id));
+  const unassigned = roster.filter((e) => !assignedIds.has(e.id));
+  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const close = () => { setAdding(false); setPicked(new Set()); };
+  const apply = () => { if (picked.size) onAdd([...picked]); close(); };
+
+  return (
+    <div className="rounded-md border bg-background p-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium shrink-0">{task.emoji} {task.task_label}</span>
+        {task.status !== "pending" && (
+          <Badge className="text-[10px] h-5 shrink-0 capitalize bg-slate-200 text-slate-700">{task.status.replace("_", " ")}</Badge>
+        )}
+        <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+          {task.assignees.length === 0 && <span className="text-[11px] text-muted-foreground">Unassigned</span>}
+          {task.assignees.map((a) => (
+            <span key={a.assignment_id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2 py-0.5">
+              {empName(a.employee_id)}
+              <button onClick={() => onRemove(a.assignment_id)} className="hover:text-red-600" title="Remove"><X className="h-3 w-3" /></button>
+            </span>
+          ))}
+          {!adding && unassigned.length > 0 && (
+            <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-full border border-dashed text-xs px-2 py-0.5 text-muted-foreground hover:bg-muted">
+              <Plus className="h-3 w-3" /> Add
+            </button>
+          )}
+        </div>
+      </div>
+      {adding && (
+        <div className="mt-2 rounded-lg border bg-muted/20 p-2 space-y-2">
+          <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
+            {unassigned.map((e) => (
+              <label key={e.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={picked.has(e.id)} onChange={() => toggle(e.id)} className="h-3.5 w-3.5" />
+                <span className="truncate">{e.name}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={apply} disabled={picked.size === 0}>Add{picked.size ? ` ${picked.size}` : ""}</Button>
+            <Button size="sm" variant="ghost" onClick={close}>Cancel</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
