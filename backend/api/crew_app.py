@@ -593,7 +593,7 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             ScheduledJob.job_date, ScheduledJob.arrival_time, ScheduledJob.address,
             ScheduledJob.status, ScheduledJob.color_choice, ScheduledJob.fence_sides_override,
             ScheduledJob.additional_sides_text, ScheduledJob.gallons_estimate,
-            ScheduledJob.stain_gallons_used, ScheduledJob.bleach_gallons,
+            ScheduledJob.stain_gallons_used, ScheduledJob.bleach_gallons, ScheduledJob.color_gallons,
         ).filter(ScheduledJob.status != "cancelled", ScheduledJob.job_date >= s)
         if e:
             jq = jq.filter(ScheduledJob.job_date <= e)
@@ -639,11 +639,27 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             for em in db.query(Employee).filter(Employee.status == "active").order_by(Employee.first_name).all()
         ]
 
+        # Estimate sides straight from the customer's lead (form_data.fence_sides) —
+        # so the PM's sides grid syncs to what was quoted. Same parse as the
+        # scheduler modal (list / JSON-array-string / CSV).
+        sides_by_lead: dict[str, list[str]] = {}
+        lead_ids = [r.lead_id for r in job_rows if r.lead_id]
+        if lead_ids:
+            for lid, fd_raw in db.query(Lead.id, Lead.form_data).filter(Lead.id.in_(lead_ids)).all():
+                sides_by_lead[lid] = _parse_estimate_sides(fd_raw)
+
         def _num(v):
             try:
                 return float(v) if v is not None else None
             except (TypeError, ValueError):
                 return None
+
+        def _color_gallons(raw):
+            try:
+                obj = json.loads(raw) if raw else {}
+                return {str(k): float(v) for k, v in obj.items()} if isinstance(obj, dict) else {}
+            except Exception:
+                return {}
 
         jobs = [{
             "id": r.id,
@@ -655,10 +671,12 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             "status": r.status or "scheduled",
             "color_choice": r.color_choice or "",
             "fence_sides_override": r.fence_sides_override or "",
+            "estimate_sides": sides_by_lead.get(r.lead_id or "", []),
             "additional_sides_text": r.additional_sides_text or "",
             "gallons_estimate": _num(r.gallons_estimate),
             "stain_gallons_used": _num(r.stain_gallons_used),
             "bleach_gallons": _num(r.bleach_gallons),
+            "color_gallons": _color_gallons(r.color_gallons),
             "assigned_employee_ids": crew_by_job.get(r.id, []),
             "tasks": tasks_by_job.get(r.id, []),
         } for r in job_rows]
@@ -667,17 +685,42 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
         db.close()
 
 
+def _parse_estimate_sides(form_data_raw) -> list[str]:
+    """The customer's quoted fence sides from lead.form_data.fence_sides. Handles
+    a list, a JSON-array string, or a CSV string — mirrors the scheduler modal."""
+    try:
+        fd = json.loads(form_data_raw) if isinstance(form_data_raw, str) and form_data_raw else (form_data_raw or {})
+    except Exception:
+        return []
+    raw = (fd or {}).get("fence_sides")
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    s = str(raw).strip()
+    if s.startswith("["):
+        try:
+            p = json.loads(s)
+            if isinstance(p, list):
+                return [str(x).strip() for x in p if str(x).strip()]
+        except Exception:
+            pass
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
 class JobDetailsBody(BaseModel):
     color_choice: str | None = None          # comma-separated for multiple colors
     fence_sides_override: str | None = None  # CSV of checked sides
     additional_sides_text: str | None = None # free-form "additional info" addendum
+    color_gallons: dict[str, float] | None = None  # {color: gallons} for multi-color jobs
 
 
 @router.put("/crew-app/jobs/{job_id}/details")
 def update_job_details(job_id: str, body: JobDetailsBody, user: dict = Depends(require_perm("assign_crew"))):
     """PM edits to a job's field-facing details from the Project Manager HQ:
-    stain color(s), the fence sides to stain, and the additional-info note. Only
-    these three fields — price/schedule/proposal stay on the full staff job PUT."""
+    stain color(s), the fence sides to stain, the additional-info note, and
+    per-color gallons (multi-color jobs). Only these fields — price/schedule/
+    proposal stay on the full staff job PUT."""
     del user
     db = get_db()
     try:
@@ -690,6 +733,10 @@ def update_job_details(job_id: str, body: JobDetailsBody, user: dict = Depends(r
             job.fence_sides_override = body.fence_sides_override.strip()
         if body.additional_sides_text is not None:
             job.additional_sides_text = body.additional_sides_text.strip()
+        if body.color_gallons is not None:
+            # Keep only non-zero entries so a cleared field doesn't linger.
+            cg = {str(k): float(v) for k, v in body.color_gallons.items() if v}
+            job.color_gallons = json.dumps(cg) if cg else ""
         job.updated_at = _now()
         db.commit()
         return {
@@ -697,6 +744,7 @@ def update_job_details(job_id: str, body: JobDetailsBody, user: dict = Depends(r
             "color_choice": job.color_choice or "",
             "fence_sides_override": job.fence_sides_override or "",
             "additional_sides_text": job.additional_sides_text or "",
+            "color_gallons": json.loads(job.color_gallons) if job.color_gallons else {},
         }
     finally:
         db.close()

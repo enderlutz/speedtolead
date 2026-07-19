@@ -33,7 +33,7 @@ const STAIN_COLORS = ["Cedar Natural", "Redwood", "Chestnut", "Dark Walnut", "Cl
 const splitCsv = (s: string): string[] => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
 const galTxt = (n: number | null): string => (n == null ? "—" : `${n} gal`);
 
-export interface JobDetailsPatch { color_choice: string; fence_sides_override: string; additional_sides_text: string }
+export interface JobDetailsPatch { color_choice: string; fence_sides_override: string; additional_sides_text: string; color_gallons: Record<string, number> }
 
 /**
  * Project Manager HQ — job-centric crew assignment. For each upcoming job the
@@ -176,27 +176,49 @@ function JobRow({
     closeAdd();
   };
 
-  // ── Job-details editor (color / sides / additional info) ──
+  // The sides grid = 8 standard ∪ the customer's estimate sides ∪ any override,
+  // deduped in order — so it syncs to the quote and still shows extras.
+  const availableSides = useMemo(() => {
+    const out: string[] = []; const seen = new Set<string>();
+    for (const s of [...FENCE_SIDES, ...job.estimate_sides, ...splitCsv(job.fence_sides_override)]) {
+      const t = s.trim(); if (t && !seen.has(t)) { seen.add(t); out.push(t); }
+    }
+    return out;
+  }, [job.estimate_sides, job.fence_sides_override]);
+
+  // ── Job-details editor (color / sides / additional info / per-color gallons) ──
   const [editing, setEditing] = useState(false);
   const [colors, setColors] = useState<string[]>(() => { const c = splitCsv(job.color_choice); return c.length ? c : [""]; });
   const [sides, setSides] = useState<Set<string>>(() => new Set(splitCsv(job.fence_sides_override)));
   const [info, setInfo] = useState(job.additional_sides_text || "");
+  const [colorGallons, setColorGallons] = useState<Record<string, string>>({});
 
   const openEditor = () => {
     // Re-seed from the latest job data each time it opens.
     const c = splitCsv(job.color_choice); setColors(c.length ? c : [""]);
-    setSides(new Set(splitCsv(job.fence_sides_override)));
+    // Sides sync: use the PM override if set, else the customer's estimate sides.
+    const overrideSides = splitCsv(job.fence_sides_override);
+    setSides(new Set(overrideSides.length ? overrideSides : job.estimate_sides));
     setInfo(job.additional_sides_text || "");
+    setColorGallons(Object.fromEntries(Object.entries(job.color_gallons || {}).map(([k, v]) => [k, String(v)])));
     setEditing(true);
   };
   const toggleSide = (side: string) => setSides((prev) => {
     const next = new Set(prev); next.has(side) ? next.delete(side) : next.add(side); return next;
   });
+  const cleanColors = colors.map((c) => c.trim()).filter(Boolean);
   const saveDetails = () => {
+    // Only keep per-color gallons for colors still on the job.
+    const cg: Record<string, number> = {};
+    for (const c of cleanColors) {
+      const n = parseFloat(colorGallons[c] || "");
+      if (!Number.isNaN(n) && n > 0) cg[c] = n;
+    }
     onSaveDetails({
-      color_choice: colors.map((c) => c.trim()).filter(Boolean).join(", "),
-      fence_sides_override: [...sides].join(", "),
+      color_choice: cleanColors.join(", "),
+      fence_sides_override: availableSides.filter((s) => sides.has(s)).join(", "),
       additional_sides_text: info.trim(),
+      color_gallons: cg,
     });
     setEditing(false);
   };
@@ -343,11 +365,14 @@ function JobRow({
               <datalist id="pm-stain-colors">{STAIN_COLORS.map((c) => <option key={c} value={c} />)}</datalist>
             </div>
 
-            {/* Sides to stain — checkbox grid */}
+            {/* Sides to stain — checkbox grid, synced from the estimate */}
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Sides to stain</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">
+                Sides to stain
+                {job.estimate_sides.length > 0 && <span className="ml-1 font-normal normal-case text-muted-foreground/70">· from estimate</span>}
+              </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                {FENCE_SIDES.map((side) => (
+                {availableSides.map((side) => (
                   <label key={side} className="flex items-center gap-2 text-sm cursor-pointer">
                     <input type="checkbox" checked={sides.has(side)} onChange={() => toggleSide(side)} className="h-3.5 w-3.5" />
                     <span>{side}</span>
@@ -355,6 +380,28 @@ function JobRow({
                 ))}
               </div>
             </div>
+
+            {/* Per-color gallons — only when the job uses more than one color */}
+            {cleanColors.length >= 2 && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Gallons per color</div>
+                <div className="space-y-1">
+                  {cleanColors.map((c) => (
+                    <div key={c} className="flex items-center gap-2">
+                      <span className="text-sm flex-1 truncate">{c}</span>
+                      <input
+                        type="number" step="0.1" min="0" inputMode="decimal"
+                        value={colorGallons[c] ?? ""}
+                        onChange={(e) => setColorGallons((prev) => ({ ...prev, [c]: e.target.value }))}
+                        placeholder="0"
+                        className="w-20 text-sm rounded border bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
+                      <span className="text-[11px] text-muted-foreground">gal</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Additional info */}
             <div>
@@ -373,10 +420,18 @@ function JobRow({
           </div>
         )}
 
-        {/* Gallons used — read only (crew enters these) */}
-        <div className="mt-2 text-[11px] text-muted-foreground flex items-center gap-1">
-          <Droplet className="h-3 w-3 shrink-0" />
-          Stain used {galTxt(job.stain_gallons_used)}{job.gallons_estimate != null ? ` (assigned ${job.gallons_estimate})` : ""} · Bleach used {galTxt(job.bleach_gallons)}
+        {/* Gallons used — read only. Per-color breakdown when multiple colors. */}
+        <div className="mt-2 text-[11px] text-muted-foreground flex items-start gap-1">
+          <Droplet className="h-3 w-3 shrink-0 mt-0.5" />
+          {Object.keys(job.color_gallons || {}).length > 0 ? (
+            <span>
+              Stain: {Object.entries(job.color_gallons).map(([c, g]) => `${c} ${g} gal`).join(" · ")} · Bleach {galTxt(job.bleach_gallons)}
+            </span>
+          ) : (
+            <span>
+              Stain used {galTxt(job.stain_gallons_used)}{job.gallons_estimate != null ? ` (assigned ${job.gallons_estimate})` : ""} · Bleach used {galTxt(job.bleach_gallons)}
+            </span>
+          )}
         </div>
       </div>
     </div>

@@ -994,7 +994,11 @@ class ScheduledJob(Base):
     # latest Proposal row. Lets admin paste a manual link (e.g. a re-sent or
     # reformatted proposal) without disturbing the source data.
     custom_proposal_url = Column(Text, default="")
-    color_choice = Column(Text, default="")               # stain color (free text + dropdown)
+    color_choice = Column(Text, default="")               # stain color(s), comma-separated when multiple
+    # Per-color gallons breakdown when a job uses MORE THAN ONE color, so the PM
+    # can track gallons used per color. JSON object {colorName: gallons}. Empty
+    # for single-color jobs (they use stain_gallons_used for the single total).
+    color_gallons = Column(Text, default="")
     needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
     gallons_estimate = Column(Numeric(10, 2), default=0)  # stain ASSIGNED — admin's planned amount (sqft/175 default; editable)
     bleach_gallons = Column(Numeric(10, 2), default=0)    # bleach USED — crew input, post-cleanup
@@ -3101,6 +3105,7 @@ def _run_migrations():
             ("google_event_html_link", "ALTER TABLE scheduled_jobs ADD COLUMN google_event_html_link TEXT DEFAULT ''"),
             ("stain_gallons_used", "ALTER TABLE scheduled_jobs ADD COLUMN stain_gallons_used NUMERIC(10,2) DEFAULT 0"),
             ("inspection_notes", "ALTER TABLE scheduled_jobs ADD COLUMN inspection_notes TEXT DEFAULT ''"),
+            ("color_gallons", "ALTER TABLE scheduled_jobs ADD COLUMN color_gallons TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

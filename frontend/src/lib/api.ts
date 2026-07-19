@@ -971,11 +971,13 @@ export interface PmBoardJob {
   address: string;
   status: string;
   color_choice: string;             // comma-separated for multiple colors
-  fence_sides_override: string;     // CSV of sides
+  fence_sides_override: string;     // CSV of sides (PM's override)
+  estimate_sides: string[];         // customer's quoted sides (from the estimate)
   additional_sides_text: string;    // "additional info" addendum
   gallons_estimate: number | null;  // stain assigned
   stain_gallons_used: number | null;
   bleach_gallons: number | null;
+  color_gallons: Record<string, number>;  // per-color gallons (multi-color jobs)
   assigned_employee_ids: string[];
   tasks: PmBoardTask[];
 }
@@ -2688,9 +2690,9 @@ export const api = {
   // Project Manager HQ — job-centric board (job-level crew + per-task assignments).
   getPmBoard: (start?: string, end?: string) =>
     request<PmBoard>(`/api/crew-app/pm-board${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
-  // PM edits to a job's field details (color/sides/additional info).
-  updateJobDetails: (jobId: string, body: { color_choice?: string; fence_sides_override?: string; additional_sides_text?: string }) =>
-    request<{ id: string; color_choice: string; fence_sides_override: string; additional_sides_text: string }>(
+  // PM edits to a job's field details (color/sides/additional info/per-color gallons).
+  updateJobDetails: (jobId: string, body: { color_choice?: string; fence_sides_override?: string; additional_sides_text?: string; color_gallons?: Record<string, number> }) =>
+    request<{ id: string; color_choice: string; fence_sides_override: string; additional_sides_text: string; color_gallons: Record<string, number> }>(
       `/api/crew-app/jobs/${jobId}/details`, { method: "PUT", body: JSON.stringify(body) },
     ),
   genCrewToken: (employeeId: string) => request<{ employee_id: string; crew_token: string; path: string }>(`/api/crew-app/employees/${employeeId}/crew-token`, { method: "POST" }),
