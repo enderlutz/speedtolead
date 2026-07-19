@@ -57,7 +57,36 @@ export function clearToken() {
   document.cookie = "at_auth=; max-age=0; path=/";
 }
 
-export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string; see_all_jobs?: boolean; perms?: string[] } | null {
+// --- Account switching (admin impersonation) ---
+// Stash the admin's own token so they can return after switching accounts.
+function getImpersonatorToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(/(?:^|;\s*)at_auth_admin=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+/** Switch into another account: stash the current (admin) token, set the new one.
+ *  Only stashes if there isn't one already, so chained switches still return to
+ *  the ORIGINAL admin account. */
+export function startImpersonation(newToken: string) {
+  const current = getToken();
+  if (current && !getImpersonatorToken()) {
+    document.cookie = `at_auth_admin=${encodeURIComponent(current)}; path=/; max-age=604800; SameSite=Lax`;
+  }
+  setToken(newToken);
+}
+/** Return to the admin account. Returns true if a stashed token was restored. */
+export function stopImpersonation(): boolean {
+  const admin = getImpersonatorToken();
+  if (!admin) return false;
+  setToken(admin);
+  document.cookie = "at_auth_admin=; max-age=0; path=/";
+  return true;
+}
+export function isImpersonating(): boolean {
+  return !!getCurrentUser()?.impersonated_by;
+}
+
+export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string; see_all_jobs?: boolean; perms?: string[]; impersonated_by?: { sub: string; name: string } } | null {
   const token = getToken();
   if (!token) return null;
   try {
@@ -1025,6 +1054,11 @@ export const api = {
     password?: string; permissions?: Record<string, boolean>;
   }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),
+  /** Mint a token to switch into another account (admin only). */
+  impersonateUser: (id: string) =>
+    request<{ token: string; user: { username: string; name: string; role: string } }>(
+      `/api/admin/users/${id}/impersonate`, { method: "POST" },
+    ),
   setRoleDefaults: (role: string, permissions: Record<string, boolean>) =>
     request<{ role: string; defaults: Record<string, boolean> }>(`/api/admin/permissions/roles/${role}`, {
       method: "PUT", body: JSON.stringify({ permissions }),

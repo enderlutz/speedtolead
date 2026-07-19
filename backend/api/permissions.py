@@ -319,6 +319,37 @@ def delete_user(user_id: str, user: dict = Depends(require_perm("manage_users"))
         db.close()
 
 
+@router.post("/admin/users/{user_id}/impersonate")
+def impersonate_user(user_id: str, user: dict = Depends(require_perm("manage_users"))):
+    """Mint a session token for another account so an admin can switch to it and
+    act fully as that user. The token carries impersonated_by so the app shows a
+    'return to your account' banner. Gated on manage_users (admin-only)."""
+    db = get_db()
+    try:
+        target = db.query(User).filter(User.id == user_id).first()
+        if not target:
+            raise HTTPException(404, "User not found")
+        if target.username == user.get("sub"):
+            raise HTTPException(400, "You're already on this account.")
+        perms = perms_for_user(db, target)
+        imp = {"sub": user.get("sub", ""), "name": user.get("name", "")}
+        logger.info(f"[IMPERSONATE] {user.get('sub')} → {target.username}")
+        return {
+            "token": make_token(target, perms, impersonated_by=imp),
+            "user": {
+                "username": target.username,
+                "name": target.display_name,
+                "role": target.role,
+                "employee_id": target.employee_id or "",
+                "see_all_jobs": bool(getattr(target, "see_all_jobs", False)),
+                "perms": perms,
+                "impersonated_by": imp,
+            },
+        }
+    finally:
+        db.close()
+
+
 # ── Per-role defaults ────────────────────────────────────────────────────
 
 @router.put("/admin/permissions/roles/{role}")

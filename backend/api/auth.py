@@ -22,7 +22,7 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def make_token(user: User, perms: list[str] | None = None) -> str:
+def make_token(user: User, perms: list[str] | None = None, impersonated_by: dict | None = None) -> str:
     settings = get_settings()
     payload = {
         "sub": user.username,
@@ -35,6 +35,10 @@ def make_token(user: User, perms: list[str] | None = None) -> str:
         "perms": perms or [],
         "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS),
     }
+    # Impersonation session: which admin is acting as this user. Drives the
+    # "return to your account" banner. Absent on normal logins.
+    if impersonated_by:
+        payload["impersonated_by"] = impersonated_by
     return jwt.encode(payload, settings.auth_secret, algorithm=SECRET_ALGORITHM)
 
 
@@ -140,8 +144,10 @@ def refresh(user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=401, detail="User no longer exists")
         from api.permissions import perms_for_user
         perms = perms_for_user(db, u)
+        # Carry the impersonation marker across refresh so the banner persists.
+        imp = user.get("impersonated_by")
         return {
-            "token": make_token(u, perms),
+            "token": make_token(u, perms, impersonated_by=imp),
             "user": {
                 "username": u.username,
                 "name": u.display_name,
@@ -149,6 +155,7 @@ def refresh(user: dict = Depends(get_current_user)):
                 "employee_id": u.employee_id or "",
                 "see_all_jobs": bool(getattr(u, "see_all_jobs", False)),
                 "perms": perms,
+                "impersonated_by": imp,
             },
         }
     finally:

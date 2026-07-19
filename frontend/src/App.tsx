@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-route
 import { Toaster } from "sonner";
 import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
@@ -155,6 +156,7 @@ function AppLayout() {
       <div className="flex h-dvh bg-background overflow-hidden">
         <Sidebar open={sidebarOpen} onClose={closeSidebar} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <ImpersonationBanner />
           <MobileHeader onToggle={() => setSidebarOpen(true)} />
           <main className="flex-1 overflow-y-auto">
             <Routes>

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { api, getCurrentUser, type AdminUser, type PermissionCatalog } from "@/lib/api";
+import { api, getCurrentUser, startImpersonation, type AdminUser, type PermissionCatalog } from "@/lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Users, Trash2, Plus, ChevronDown, ChevronRight, ShieldCheck, Loader2 } from "lucide-react";
+import { Users, Trash2, Plus, ChevronDown, ChevronRight, ShieldCheck, Loader2, LogIn } from "lucide-react";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
@@ -99,6 +99,17 @@ function UserRow({
     }
   };
 
+  const switchTo = async () => {
+    if (!confirm(`Switch to ${u.display_name || u.username}'s account? You'll act as them until you return to your own account.`)) return;
+    try {
+      const r = await api.impersonateUser(u.id);
+      startImpersonation(r.token);
+      window.location.assign("/");   // reload as the target user, land on their home
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't switch accounts");
+    }
+  };
+
   return (
     <div className="border rounded-md">
       <div className="flex items-center gap-2 p-2">
@@ -113,6 +124,11 @@ function UserRow({
           <div className="text-[11px] text-muted-foreground truncate">@{u.username}</div>
         </div>
         <span className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">{ROLE_LABEL[u.role] || u.role}</span>
+        {u.username !== currentUsername && (
+          <button onClick={switchTo} className="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-[11px]" title={`Switch to ${u.username}'s account`}>
+            <LogIn className="h-3.5 w-3.5" /> Switch
+          </button>
+        )}
         {u.username !== currentUsername && (
           <button onClick={remove} className="text-red-600 hover:text-red-700" title="Delete account">
             <Trash2 className="h-3.5 w-3.5" />
