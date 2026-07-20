@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken } from "@/lib/api";
-import Sidebar, { MobileHeader } from "@/components/Sidebar";
+import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken, getDivision } from "@/lib/api";
+import Sidebar, { MobileHeader, isBrickAllowedPath } from "@/components/Sidebar";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
@@ -137,6 +137,12 @@ function AppLayout() {
     location.pathname.startsWith("/capture/") ||
     location.pathname.startsWith("/crew-app/") ||
     location.pathname.startsWith("/legal/");
+
+  // Brick division: keep the user on brick-safe pages so no fence data is ever
+  // shown (covers direct-URL access, not just nav). Fence mode is unaffected.
+  if (!isPublic && getDivision() === "brick" && !isBrickAllowedPath(location.pathname)) {
+    return <Navigate to="/leads-brick" replace />;
+  }
 
   if (isPublic) {
     return (

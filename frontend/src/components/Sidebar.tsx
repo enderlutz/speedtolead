@@ -27,7 +27,9 @@ function DivisionSwitcher() {
   const pick = (d: Division) => {
     if (d === current) return;
     setDivision(d);
-    window.location.href = "/";
+    // Land on a page that exists in the target division (Dashboard is fence-only
+    // for now, so brick lands on its Leads board).
+    window.location.href = d === "brick" ? "/leads-brick" : "/";
   };
   const opt = (d: Division, label: string) => (
     <button
@@ -72,33 +74,48 @@ function DivisionSwitcher() {
 // `divisions` (if set) restricts the item to those divisions (fence | brick).
 // Items without it show in every division.
 const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string; divisions?: Division[] }[] = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
-  { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard" },
+  // divisions:["fence"] = not division-scoped yet, so hidden in brick mode to
+  // avoid showing fence data. Reveal each as it gets scoped for brick.
+  { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard", divisions: ["fence"] },
+  { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard", divisions: ["fence"] },
   { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
   { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
   // { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" }, // hidden 2026-07-14 (page/route kept)
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
-  { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics" },
-  { to: "/calls", icon: Mic, label: "Call Coach", perm: "calls" },
-  { to: "/training", icon: Brain, label: "Training", perm: "training" },
-  { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll" },
-  { to: "/accounting", icon: Calculator, label: "Accounting", perm: "accounting" },
+  { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics", divisions: ["fence"] },
+  { to: "/calls", icon: Mic, label: "Call Coach", perm: "calls", divisions: ["fence"] },
+  { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
+  { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
+  { to: "/accounting", icon: Calculator, label: "Accounting", perm: "accounting", divisions: ["fence"] },
+  // Division-aware (scoped) — visible in both fence and brick:
   { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
   // { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" }, // archived 2026-07-18 — replaced by Project Manager (PM HQ). Route/page kept.
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
-  { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"] },
+  { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
-  { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator" },
-  { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue" },
-  { to: "/revenue", icon: TrendingUp, label: "Revenue", restrictToAny: ["fragned", "alanbonner"] },
+  { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] },
+  { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },
+  { to: "/revenue", icon: TrendingUp, label: "Revenue", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
-  { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing" },
+  { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing", divisions: ["fence"] },
   // { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" }, // hidden 2026-06-07
   { to: "/internal", icon: Gauge, label: "Internal", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings", perm: "settings" },
 ];
+
+// Paths reachable in brick mode (nav + direct URL). Everything else redirects
+// to the Brick Leads board while brick is the active division, so no fence data
+// is shown. Prefix match, except "/" which must be exact (Dashboard is fence-only).
+const BRICK_ALLOWED_PREFIXES = [
+  "/leads-brick", "/leads/", "/calendar", "/pm-hq", "/my-schedule",
+  "/sops/", "/settings", "/internal", "/login",
+];
+export function isBrickAllowedPath(path: string): boolean {
+  if (path === "/") return false;  // Dashboard — fence-only for now
+  return BRICK_ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(p));
+}
 
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   return (
