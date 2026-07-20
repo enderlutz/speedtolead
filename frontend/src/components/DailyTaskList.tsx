@@ -589,6 +589,15 @@ function fmtFollowUpWhen(fu: { due_at: string; all_day?: boolean }): string {
   const d = new Date(fu.due_at);
   return isNaN(d.getTime()) ? "" : d.toLocaleString("en-US", { timeZone: CST, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
+// The most recent non-empty note logged on the hit list (from the call log), so
+// it shows alongside the customer note without opening the log.
+function latestHitListNote(t: DailyTask): { text: string; by: string } | null {
+  const withNotes = (t.dispositions || []).filter((d) => (d.notes || "").trim());
+  if (!withNotes.length) return null;
+  const latest = [...withNotes].sort((a, b) => (b.disposed_at || "").localeCompare(a.disposed_at || ""))[0];
+  return { text: (latest.notes || "").trim(), by: latest.disposed_by || "" };
+}
+
 // Effective stage for display + filtering (the waiting overlay wins).
 function effectiveStage(t: DailyTask): string {
   if (t.task_status === "waiting_updated_estimate") return "waiting";
@@ -1116,7 +1125,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                     <CallCell task={t} onLogCall={() => setLogFor(t)} onNotesSaved={onNotesSaved} />
                   </td>
 
-                  {/* Notes — the client's connected note (form_data.additional_notes) */}
+                  {/* Notes — the client's connected note (form_data.additional_notes)
+                      + the most recent note logged on the hit list (call log). */}
                   <td className="px-4 py-3 align-top max-w-[240px]">
                     <button onClick={() => setNoteFor(t)} className="text-left w-full group" title="Edit the client's note">
                       {t.client_note ? (
@@ -1131,6 +1141,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                         <span className="text-xs text-primary hover:underline">+ Add note</span>
                       )}
                     </button>
+                    {(() => {
+                      const ln = latestHitListNote(t);
+                      return ln ? (
+                        <div className="mt-1 text-[10px] text-blue-800/90 line-clamp-2" title={ln.text}>
+                          <span className="font-semibold">Latest:</span> {ln.text}{ln.by ? ` — ${ln.by}` : ""}
+                        </div>
+                      ) : null;
+                    })()}
                   </td>
 
                   {/* Estimate — Essential / Signature / Legacy tier prices */}
@@ -1247,6 +1265,16 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                 {t.client_note && (
                   <div className="text-xs text-foreground whitespace-pre-wrap line-clamp-2 bg-muted/30 rounded px-2 py-1">{t.client_note}</div>
                 )}
+                {(() => {
+                  const ln = latestHitListNote(t);
+                  return ln ? (
+                    <div className="text-[11px] rounded px-2 py-1 bg-blue-50 border border-blue-100">
+                      <span className="font-semibold text-blue-800">Latest note:</span>{" "}
+                      <span className="text-foreground whitespace-pre-wrap">{ln.text}</span>
+                      {ln.by && <span className="text-muted-foreground"> — {ln.by}</span>}
+                    </div>
+                  ) : null;
+                })()}
 
                 {/* Actions — Schedule up top (primary), then Log call / Decline.
                     "Log call" also schedules follow-ups, so there's no separate
@@ -1609,7 +1637,7 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   const [fuAction, setFuAction] = useState("call");
   const [fuDate, setFuDate] = useState(todayYMD());
   const [fuTime, setFuTime] = useState("09:00");
-  const [fuAllDay, setFuAllDay] = useState(false);
+  const [fuAllDay, setFuAllDay] = useState(true);   // default all-day — no need to pick a time per lead
   const [fuNote, setFuNote] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -1698,7 +1726,9 @@ function FollowUpModal({ task, onClose, onSaved, onComplete }: { task: DailyTask
   const [time, setTime] = useState(existingDate && !isNaN(existingDate.getTime())
     ? `${String(existingDate.getHours()).padStart(2, "0")}:${String(existingDate.getMinutes()).padStart(2, "0")}`
     : "09:00");
-  const [allDay, setAllDay] = useState(!!existing?.all_day);
+  // New follow-ups default to all-day (no per-lead time needed); an existing one
+  // keeps whatever it was saved with.
+  const [allDay, setAllDay] = useState(existing ? !!existing.all_day : true);
   const [note, setNote] = useState(existing?.note || "");
   const [saving, setSaving] = useState(false);
 
