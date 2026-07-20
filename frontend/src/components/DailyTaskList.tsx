@@ -857,7 +857,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           setTab(next);
           setResolvedFilter("active");   // leaving the resolved-leads view
         }}>
-          <TabsList>
+          <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="today">Untapped Leads ({counts.today})</TabsTrigger>
             <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
             <TabsTrigger value="date">Today ({dateCount})</TabsTrigger>
@@ -866,7 +866,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           </TabsList>
         </Tabs>
         {tab !== "activity" && (
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
         <select
           value={resolvedFilter}
           onChange={(e) => setResolvedFilter(e.target.value as "active" | "declined" | "closed_scheduled")}
@@ -877,7 +877,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           <option value="declined">Declined estimates</option>
           <option value="closed_scheduled">Closed &amp; scheduled</option>
         </select>
-        <div className="relative w-56 max-w-full">
+        <div className="relative w-full sm:w-56">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <input
             value={search}
@@ -999,7 +999,10 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
             : "No leads match this filter."}
         </div>
       ) : (
-        <div className="rounded-xl border overflow-x-auto bg-background">
+        <>
+        {/* Desktop / tablet: the full table. Hidden on phones — its 7 columns
+            don't fit and force a sideways scroll. */}
+        <div className="hidden sm:block rounded-xl border overflow-x-auto bg-background">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -1166,6 +1169,111 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
             </tbody>
           </table>
         </div>
+
+        {/* Phone: stacked cards — one full-width card per lead so nothing gets
+            cut off, with big touch targets for the common actions. */}
+        <div className="sm:hidden space-y-2.5">
+          {shown.map((t) => {
+            const tint = isWonStage(t.stage_id)
+              ? "border-l-4 border-l-green-500 bg-green-50/60"
+              : t.is_new
+                ? "border-l-4 border-l-sky-500 bg-sky-50/50"
+                : t.carried_over
+                  ? `${carriedTint(t.days_waiting).rail} ${carriedTint(t.days_waiting).row}`
+                  : "";
+            return (
+              <div key={t.id} className={`rounded-xl border bg-background p-3 space-y-2.5 ${tint}`}>
+                {/* Header: name + badges + who-touched */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button onClick={() => navigate(`/leads/${t.id}`)} className="font-semibold text-primary text-left text-[15px] leading-tight">
+                        {t.contact_name || "Lead"}
+                      </button>
+                      {t.pipeline_version === "v2b" && (
+                        <span className="inline-flex items-center justify-center rounded bg-indigo-100 text-indigo-700 px-1 py-0.5 text-[10px] font-bold leading-none" title="Sterling Leads B">B</span>
+                      )}
+                      {t.is_new && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-700 px-1.5 py-0.5 text-[10px] font-semibold"><Sparkles className="h-2.5 w-2.5" />New</span>
+                      )}
+                      {t.carried_over && (() => {
+                        const b = overdueBadge(t.days_waiting);
+                        return (
+                          <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${b.cls} ${b.pulse ? "animate-pulse" : ""}`}>
+                            <AlertTriangle className="h-2.5 w-2.5" />{b.label}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    {t.address && <div className="text-xs text-muted-foreground truncate mt-0.5">{t.address}</div>}
+                  </div>
+                  <TouchedAvatars actors={t.touched_by} />
+                </div>
+
+                {/* Follow-up / start-process pills */}
+                {(needsProcess(t) || t.next_follow_up) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {needsProcess(t) && (
+                      <button onClick={() => setFollowUpFor(t)} className="inline-flex items-center gap-1 rounded-full bg-violet-600 text-white px-2 py-1 text-[11px] font-semibold">
+                        <CalendarClock className="h-3 w-3" /> Start process
+                      </button>
+                    )}
+                    {t.next_follow_up && (
+                      <button onClick={() => setFollowUpFor(t)} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${fuOverdue(t.next_follow_up) ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"}`}>
+                        <CalendarClock className="h-3 w-3" /> {ACTION_LABELS[t.next_follow_up.action_type] || "Follow up"} · {fmtFollowUpWhen(t.next_follow_up)}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Stage picker + tier prices */}
+                <div className="flex items-start justify-between gap-2">
+                  <select
+                    value={currentStageValue(t)}
+                    disabled={busyId === t.id}
+                    onChange={(e) => changeStage(t, e.target.value)}
+                    className={`text-[11px] font-medium rounded-full border px-2 py-1.5 max-w-[58%] focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 ${stageSelectCls(t)}`}
+                  >
+                    {!STAGE_OPTIONS.some((o) => o.value === currentStageValue(t)) && (
+                      <option value={currentStageValue(t)}>{t.stage_label || "Current stage"}</option>
+                    )}
+                    {stageOptionsFor(t).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <TierPrices tiers={t.tier_prices} />
+                </div>
+
+                {/* Call status + client note */}
+                <div className="flex items-center justify-between gap-2">
+                  <CallCell task={t} onLogCall={() => setLogFor(t)} onNotesSaved={onNotesSaved} />
+                  <button onClick={() => setNoteFor(t)} className="text-xs text-primary hover:underline shrink-0">
+                    {t.client_note ? "Edit note" : "+ Add note"}
+                  </button>
+                </div>
+                {t.client_note && (
+                  <div className="text-xs text-foreground whitespace-pre-wrap line-clamp-2 bg-muted/30 rounded px-2 py-1">{t.client_note}</div>
+                )}
+
+                {/* Actions — 2×2 grid of full-width touch targets */}
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-700 text-white" disabled={busyId === t.id} onClick={() => openSchedule(t.id)}>
+                    <Calendar className="h-4 w-4 mr-1" /> Schedule
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-9" onClick={() => setLogFor(t)}>
+                    <MessageSquare className="h-4 w-4 mr-1" /> Log call
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-9 text-amber-700 border-amber-200 hover:bg-amber-50" onClick={() => setFollowUpFor(t)}>
+                    <CalendarClock className="h-4 w-4 mr-1" /> Follow-up
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-9 text-red-600 border-red-200 hover:bg-red-50" disabled={busyId === t.id}
+                    onClick={() => quickAction(t, DECLINED_STAGE_ID, `Mark ${t.contact_name || "this lead"} as declined?`, "Marked declined")}>
+                    <XCircle className="h-4 w-4 mr-1" /> Decline
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       ))}
 
       {logFor && (
