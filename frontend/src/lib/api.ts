@@ -57,6 +57,26 @@ export function clearToken() {
   document.cookie = "at_auth=; max-age=0; path=/";
 }
 
+// --- Division scoping (Sterling Fence Staining ⟷ Sterling Brick Staining) ---
+// The whole dashboard can operate as either division. The active one rides on
+// every API request as the X-Division header. Gated to the `fragned` account
+// for now — everyone else is always "fence" (the switcher only shows for them).
+export type Division = "fence" | "brick";
+const DIVISIONS: readonly string[] = ["fence", "brick"];
+
+export function getDivision(): Division {
+  const u = getCurrentUser();
+  if (!u || u.sub !== "fragned") return "fence";
+  if (typeof document === "undefined") return "fence";
+  const m = document.cookie.match(/(?:^|;\s*)at_division=([^;]*)/);
+  const v = m ? decodeURIComponent(m[1]) : "fence";
+  return DIVISIONS.includes(v) ? (v as Division) : "fence";
+}
+
+export function setDivision(d: Division) {
+  document.cookie = `at_division=${d}; path=/; max-age=31536000; SameSite=Lax`;
+}
+
 // --- Account switching (admin impersonation) ---
 // Stash the admin's own token so they can return after switching accounts.
 function getImpersonatorToken(): string | null {
@@ -874,6 +894,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  headers["X-Division"] = getDivision();   // active dashboard division scope
   const res = await fetch(`${BASE}${path}`, {
     headers: { ...headers, ...(options?.headers || {}) },
     ...options,

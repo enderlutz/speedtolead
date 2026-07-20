@@ -6,8 +6,51 @@ import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp,
 //   matching icon here.
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, type KPIs, getCurrentUser, clearToken, hasPerm } from "@/lib/api";
+import { api, type KPIs, getCurrentUser, clearToken, hasPerm, getDivision, setDivision, type Division } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+
+// Per-division branding for the sidebar/header. Only the `fragned` account can
+// switch to brick for now (see DivisionSwitcher); everyone else stays on fence.
+function divisionBrand(d: Division): { name: string; subtitle: string } {
+  return d === "brick"
+    ? { name: "Sterling Brick Staining", subtitle: "Brick Restoration" }
+    : { name: "Sterling Fence Staining", subtitle: "Fence Restoration" };
+}
+
+// Fence Staining ⟷ Brick Staining toggle, shown directly under the header.
+// Visible only to fragned for now. Switching writes the cookie and reloads so
+// every page refetches its data scoped to the new division.
+function DivisionSwitcher() {
+  const u = getCurrentUser();
+  if (u?.sub !== "fragned") return null;
+  const current = getDivision();
+  const pick = (d: Division) => {
+    if (d === current) return;
+    setDivision(d);
+    window.location.href = "/";
+  };
+  const opt = (d: Division, label: string) => (
+    <button
+      onClick={() => pick(d)}
+      className={`flex-1 text-[11px] font-semibold py-1.5 rounded-md transition-colors ${
+        current === d
+          ? "bg-primary text-primary-foreground shadow"
+          : "text-sidebar-foreground/60 hover:bg-sidebar-accent"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="px-3 pt-3 shrink-0">
+      <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-1 mb-1">Division</p>
+      <div className="flex gap-1 bg-sidebar-accent/50 p-1 rounded-lg">
+        {opt("fence", "Fence Staining")}
+        {opt("brick", "Brick Staining")}
+      </div>
+    </div>
+  );
+}
 
 // `allowedRoles` (if set) restricts visibility to listed roles. Items without
 // it are visible to admin + va but hidden from workers — workers only see
@@ -61,7 +104,7 @@ export function MobileHeader({ onToggle }: { onToggle: () => void }) {
         <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
           <Zap className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">{"Sterling Fence Staining"}</span>
+        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">{divisionBrand(getDivision()).name}</span>
       </div>
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
@@ -166,14 +209,17 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               <Zap className="h-4.5 w-4.5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">{"Sterling Fence Staining"}</h1>
-              <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">Fence Restoration</p>
+              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">{divisionBrand(getDivision()).name}</h1>
+              <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">{divisionBrand(getDivision()).subtitle}</p>
             </div>
           </div>
           <button onClick={onClose} className="md:hidden p-1.5 rounded-md text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Division switcher — fragned only, directly under the header. */}
+        <DivisionSwitcher />
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1">
