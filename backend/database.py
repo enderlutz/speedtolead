@@ -46,6 +46,10 @@ class Lead(Base):
     kanban_column = Column(Text, default="new_lead")
     priority = Column(Text, default="MEDIUM")
     pipeline_version = Column(Text, default="v1", nullable=False)
+    # Company division this lead belongs to: "fence" (Sterling Fence Staining,
+    # the default/original) or "brick" (Sterling Brick Staining). Scopes the
+    # whole dashboard when a division is active. Existing rows backfill to "fence".
+    division = Column(Text, default="fence", nullable=False)
     form_data = Column(Text, default="{}")
     customer_responded = Column(Boolean, default=False)
     customer_response_text = Column(Text, default="")
@@ -177,6 +181,7 @@ class Lead(Base):
             "kanban_column": self.kanban_column,
             "priority": self.priority,
             "pipeline_version": self.pipeline_version or "v1",
+            "division": self.division or "fence",
             "ghl_pipeline_stage_id": self.ghl_pipeline_stage_id or "",
             "estimator_status": self.estimator_status or "",
             "form_data": _j(self.form_data),
@@ -980,6 +985,8 @@ class ScheduledJob(Base):
 
     id = Column(Text, primary_key=True)
     lead_id = Column(Text, nullable=False)
+    # Division this job belongs to ("fence" | "brick") — inherited from its lead.
+    division = Column(Text, default="fence", nullable=False)
     job_date = Column(Text, nullable=False)               # YYYY-MM-DD, Central Time
     arrival_time = Column(Text, default="07:30")          # HH:MM, default 7:30 AM
     estimated_duration_hours = Column(Numeric(10, 2), default=0)
@@ -1098,6 +1105,7 @@ class ScheduledJob(Base):
             "lat": float(self.lat or 0.0),
             "lng": float(self.lng or 0.0),
             "customer_name": self.customer_name or "",
+            "division": self.division or "fence",
             "package_tier": self.package_tier or "",
             "color_choice": self.color_choice or "",
             "needs_test_spots": bool(self.needs_test_spots),
@@ -3119,11 +3127,20 @@ def _run_migrations():
             ("inspection_notes", "ALTER TABLE scheduled_jobs ADD COLUMN inspection_notes TEXT DEFAULT ''"),
             ("color_gallons", "ALTER TABLE scheduled_jobs ADD COLUMN color_gallons TEXT DEFAULT ''"),
             ("customer_question_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_question_notes TEXT DEFAULT ''"),
+            ("division", "ALTER TABLE scheduled_jobs ADD COLUMN division TEXT NOT NULL DEFAULT 'fence'"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added scheduled_jobs.{new_col}")
+
+    # Division split (fence | brick) on leads — existing rows backfill to 'fence'.
+    if inspector.has_table("leads"):
+        lead_cols = {c["name"] for c in inspector.get_columns("leads")}
+        if "division" not in lead_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE leads ADD COLUMN division TEXT NOT NULL DEFAULT 'fence'"))
+            logger.info("Migration: added leads.division")
 
     # JobPhoto per-service before/after columns
     if inspector.has_table("job_photos"):

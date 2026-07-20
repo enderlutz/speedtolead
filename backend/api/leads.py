@@ -65,6 +65,7 @@ def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:
     except Exception as e:
         log.warning(f"GHL custom-field push for {lead.id} failed (non-fatal): {e}")
 from api.auth import get_current_user, require_staff
+from api.divisions import get_division
 from config import get_settings
 
 router = APIRouter()
@@ -151,11 +152,14 @@ def list_leads(
     location: str | None = Query(None),
     pipeline_version: str | None = Query(None),
     include_archived: bool = Query(False),
+    division: str = Depends(get_division),
 ):
     db = get_db()
     try:
         # Defer the screenshot blob — to_dict() only flags whether it exists.
         q = db.query(Lead).options(defer(Lead.measurement_image_data))
+        # Division scope (fence | brick) — the active dashboard division.
+        q = q.filter(Lead.division == division)
         if status:
             q = q.filter(Lead.status == status)
         elif not include_archived:

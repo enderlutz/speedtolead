@@ -20,6 +20,7 @@ from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employ
 from api.auth import require_admin, require_staff, get_current_user
 from api.permissions import require_perm
 from api.crew_app import TASK_LABEL, TASK_EMOJI
+from api.divisions import get_division
 from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
 from config import get_settings
@@ -461,6 +462,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         job = ScheduledJob(
             id=str(uuid.uuid4()),
             lead_id=body.lead_id,
+            division=lead.division or "fence",   # jobs live in their lead's division
             job_date=body.job_date,
             arrival_time=body.arrival_time or "07:30",
             estimated_duration_hours=body.estimated_duration_hours,
@@ -572,6 +574,7 @@ def list_scheduled_jobs(
     end: str | None = Query(None, description="YYYY-MM-DD inclusive"),
     employee_id: str | None = Query(None),
     user: dict = Depends(get_current_user),
+    division: str = Depends(get_division),
 ):
     """Read endpoint — open to all roles. Workers get sanitized rows for
     only their assignments."""
@@ -582,7 +585,9 @@ def list_scheduled_jobs(
         # list view — admin Calendar, MySchedule, and the worker map all
         # filter them out. To resurrect a cancelled job, flip its status
         # back via direct DB write or the PUT update endpoint.
-        q = db.query(ScheduledJob).filter(ScheduledJob.status != "cancelled")
+        q = (db.query(ScheduledJob)
+               .filter(ScheduledJob.status != "cancelled",
+                       ScheduledJob.division == division))  # active dashboard division
         if start:
             q = q.filter(ScheduledJob.job_date >= start)
         if end:
