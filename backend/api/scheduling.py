@@ -1664,6 +1664,44 @@ def update_job_materials(
         db.close()
 
 
+class PmInternalBody(BaseModel):
+    """PM/admin internal-schedule override + private notes. All optional; pass ""
+    (or 0 for duration) to clear an override back to the customer-invite value."""
+    internal_job_date: str | None = None       # YYYY-MM-DD, "" = use invite date
+    internal_arrival_time: str | None = None   # HH:MM, "" = use invite time
+    internal_duration_hours: float | None = None  # 0 = use estimated_duration_hours
+    pm_private_notes: str | None = None
+
+
+@router.put("/schedule/jobs/{job_id}/pm-internal")
+def update_job_pm_internal(job_id: str, body: PmInternalBody,
+                           user: dict = Depends(require_perm("assign_crew"))):
+    """PM/admin-only: set the crew's INTERNAL work date/time/duration and the
+    private admin↔PM notes on a job. Deliberately does NOT touch the Google
+    Calendar invite — the customer keeps their original date/time. Gated on
+    assign_crew (admins + the PM), so workers can't change it."""
+    del user
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        if body.internal_job_date is not None:
+            j.internal_job_date = (body.internal_job_date or "").strip()
+        if body.internal_arrival_time is not None:
+            j.internal_arrival_time = (body.internal_arrival_time or "").strip()
+        if body.internal_duration_hours is not None:
+            j.internal_duration_hours = body.internal_duration_hours or 0
+        if body.pm_private_notes is not None:
+            j.pm_private_notes = body.pm_private_notes
+        j.updated_at = _now()
+        db.commit()
+        db.refresh(j)
+        return j.to_dict(role="admin")
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Job lifecycle — start / complete (the right-side system flow)
 # ---------------------------------------------------------------------------

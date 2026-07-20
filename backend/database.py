@@ -987,9 +987,19 @@ class ScheduledJob(Base):
     lead_id = Column(Text, nullable=False)
     # Division this job belongs to ("fence" | "brick") — inherited from its lead.
     division = Column(Text, default="fence", nullable=False)
-    job_date = Column(Text, nullable=False)               # YYYY-MM-DD, Central Time
-    arrival_time = Column(Text, default="07:30")          # HH:MM, default 7:30 AM
+    job_date = Column(Text, nullable=False)               # YYYY-MM-DD, Central Time — the CUSTOMER-FACING date (Google invite)
+    arrival_time = Column(Text, default="07:30")          # HH:MM, default 7:30 AM — customer-facing time
     estimated_duration_hours = Column(Numeric(10, 2), default=0)
+    # PM's INTERNAL schedule override — what the crew actually works to. Never
+    # touches the Google Calendar invite (customer keeps job_date/arrival_time).
+    # Empty/0 = no override → the crew sees the invite values. Set by the PM in
+    # My Schedule.
+    internal_job_date = Column(Text, default="")          # YYYY-MM-DD or "" (use job_date)
+    internal_arrival_time = Column(Text, default="")      # HH:MM or "" (use arrival_time)
+    internal_duration_hours = Column(Numeric(10, 2), default=0)   # 0 = use estimated_duration_hours
+    # Private notes between Admin and the Project Manager on this job. Never
+    # shown to workers (stripped from the worker to_dict).
+    pm_private_notes = Column(Text, default="")
     package_tier = Column(Text, default="")               # essential | signature | legacy | custom
     closed_price = Column(Numeric(10, 2), default=0)
     # Whether the closed_price line on the Google invite should show "+ Tax".
@@ -1100,6 +1110,11 @@ class ScheduledJob(Base):
             "job_date": self.job_date,
             "arrival_time": self.arrival_time or "07:30",
             "estimated_duration_hours": float(self.estimated_duration_hours or 0),
+            # PM internal-schedule override (crew works to these when set; the
+            # customer invite keeps job_date/arrival_time). Visible to workers.
+            "internal_job_date": self.internal_job_date or "",
+            "internal_arrival_time": self.internal_arrival_time or "",
+            "internal_duration_hours": float(self.internal_duration_hours or 0),
             "address": self.address or "",
             "zip_code": self.zip_code or "",
             "lat": float(self.lat or 0.0),
@@ -1145,6 +1160,7 @@ class ScheduledJob(Base):
             "customer_phone": self.customer_phone or "",
             "customer_notes": self.customer_notes or "",
             "admin_notes": self.admin_notes or "",
+            "pm_private_notes": self.pm_private_notes or "",   # admin ↔ PM only (never returned to workers)
             "customer_invited": bool(self.customer_invited),
             "customer_thank_you_sent": bool(self.customer_thank_you_sent),
             "materials_cost": float(self.materials_cost or 0),
@@ -3128,6 +3144,10 @@ def _run_migrations():
             ("color_gallons", "ALTER TABLE scheduled_jobs ADD COLUMN color_gallons TEXT DEFAULT ''"),
             ("customer_question_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_question_notes TEXT DEFAULT ''"),
             ("division", "ALTER TABLE scheduled_jobs ADD COLUMN division TEXT NOT NULL DEFAULT 'fence'"),
+            ("internal_job_date", "ALTER TABLE scheduled_jobs ADD COLUMN internal_job_date TEXT DEFAULT ''"),
+            ("internal_arrival_time", "ALTER TABLE scheduled_jobs ADD COLUMN internal_arrival_time TEXT DEFAULT ''"),
+            ("internal_duration_hours", "ALTER TABLE scheduled_jobs ADD COLUMN internal_duration_hours NUMERIC(10,2) DEFAULT 0"),
+            ("pm_private_notes", "ALTER TABLE scheduled_jobs ADD COLUMN pm_private_notes TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:
