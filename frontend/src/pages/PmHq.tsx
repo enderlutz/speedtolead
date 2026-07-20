@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { api, type PmBoard, type PmBoardJob, type PmBoardTask, type PmService } from "@/lib/api";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { api, type PmBoard, type PmBoardJob, type PmBoardTask, type PmService, type PmCompletedJob, type PmCompletedService } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { HardHat, RefreshCw, Loader2, MapPin, X, Plus, Clock, ChevronDown, Save, Droplet } from "lucide-react";
+import { HardHat, RefreshCw, Loader2, MapPin, X, Plus, Clock, ChevronDown, Save, Droplet, Image as ImageIcon, Users, CheckCircle2 } from "lucide-react";
 
 // Central-time date offset as YYYY-MM-DD (matches how job_date is stored).
 function ctISO(offsetDays = 0): string {
@@ -42,6 +42,7 @@ export interface JobDetailsPatch { color_choice: string; fence_sides_override: s
  * assign_crew permission at the route + nav level.
  */
 export default function PmHq() {
+  const [tab, setTab] = useState<"upcoming" | "completed">("upcoming");
   const [board, setBoard] = useState<PmBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -121,14 +122,35 @@ export default function PmHq() {
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
             <HardHat className="h-5 w-5 text-primary" /> Project Manager HQ
           </h1>
-          <p className="text-xs text-muted-foreground">Assign crew to jobs and tasks · next 3 weeks</p>
+          <p className="text-xs text-muted-foreground">
+            {tab === "upcoming" ? "Assign crew to jobs and tasks · next 3 weeks" : "Finished jobs with before/after photos"}
+          </p>
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        {tab === "upcoming" && (
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        )}
       </div>
 
-      {loading && !board ? (
+      {/* Upcoming | Completed */}
+      <div className="flex gap-1 bg-muted/50 p-1 rounded-lg">
+        {(["upcoming", "completed"] as const).map((k) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors capitalize ${
+              tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            {k === "upcoming" ? "Upcoming" : "Completed Jobs"}
+          </button>
+        ))}
+      </div>
+
+      {tab === "completed" ? (
+        <CompletedJobsView />
+      ) : loading && !board ? (
         <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
       ) : days.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-10">No upcoming jobs to assign.</p>
@@ -567,6 +589,138 @@ function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Completed Jobs tab ───────────────────────────────────────────────────────
+
+function fmtStampLocal(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// Completed jobs (last 30 days) with each service's before/after photos, the
+// start (first photo) / end (last photo) times, and the crew.
+function CompletedJobsView() {
+  const [jobs, setJobs] = useState<PmCompletedJob[] | null>(null);
+  useEffect(() => {
+    api.getPmCompletedJobs()
+      .then((r) => setJobs(r.jobs))
+      .catch(() => { setJobs([]); toast.error("Couldn't load completed jobs"); });
+  }, []);
+
+  if (jobs === null) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  if (jobs.length === 0) return <p className="text-sm text-muted-foreground text-center py-10">No completed jobs in the last 30 days.</p>;
+  return <div className="space-y-3">{jobs.map((j) => <CompletedJobCard key={j.id} job={j} />)}</div>;
+}
+
+function CompletedJobCard({ job }: { job: PmCompletedJob }) {
+  const [open, setOpen] = useState(false);
+  const [blobs, setBlobs] = useState<Record<string, string>>({});
+  const blobsRef = useRef(blobs);
+  useEffect(() => { blobsRef.current = blobs; }, [blobs]);
+
+  const allPhotos = useMemo(() => job.services.flatMap((s) => [...s.before, ...s.after]), [job]);
+
+  // Lazy-load thumbnails only when the card is expanded.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    (async () => {
+      for (const p of allPhotos) {
+        if (blobsRef.current[p.id]) continue;
+        const url = await api.fetchJobPhotoBlobUrl(job.id, p.id);
+        if (alive && url) setBlobs((prev) => ({ ...prev, [p.id]: url }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [open, allPhotos, job.id]);
+  useEffect(() => () => { Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u)); }, []);
+
+  const totalPhotos = allPhotos.length;
+
+  return (
+    <div className="rounded-lg border bg-card">
+      <button onClick={() => setOpen((v) => !v)} className="w-full text-left p-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm truncate">{job.customer_name || "(no name)"}</span>
+            <Badge className="bg-green-600 text-white text-[10px] h-5"><CheckCircle2 className="h-3 w-3 mr-0.5" /> Completed</Badge>
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            {fmtDay(job.job_date)}
+            {job.started_at && ` · worked ${fmtStampLocal(job.started_at)}–${fmtStampLocal(job.ended_at)}`}
+          </div>
+          {job.crew.length > 0 && (
+            <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+              <Users className="h-3 w-3 shrink-0" /> {job.crew.join(", ")}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[11px] text-muted-foreground">{job.services.length} service{job.services.length === 1 ? "" : "s"}</div>
+          <div className="text-[11px] text-muted-foreground">{totalPhotos} photo{totalPhotos === 1 ? "" : "s"}</div>
+          <ChevronDown className={`h-4 w-4 ml-auto mt-0.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+      {open && (
+        <div className="border-t p-3 space-y-3">
+          {job.address && (
+            <a href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`} target="_blank" rel="noreferrer"
+               className="text-[11px] text-blue-600 hover:underline flex items-center gap-0.5">
+              <MapPin className="h-3 w-3 shrink-0" /> <span className="truncate">{job.address}</span>
+            </a>
+          )}
+          {job.services.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground italic">No services recorded on this job.</p>
+          ) : (
+            job.services.map((s) => <CompletedServiceBlock key={s.task_id} service={s} blobs={blobs} />)
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompletedServiceBlock({ service, blobs }: { service: PmCompletedService; blobs: Record<string, string> }) {
+  const gallery = (label: string, photos: PmCompletedService["before"]) => (
+    <div className="space-y-1">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold">{label} ({photos.length})</div>
+      {photos.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground italic">None</p>
+      ) : (
+        <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+          {photos.map((p) => (
+            <a key={p.id} href={blobs[p.id] || undefined} target="_blank" rel="noreferrer"
+               className="relative aspect-square rounded overflow-hidden border bg-muted block" title={fmtStampLocal(p.uploaded_at)}>
+              {blobs[p.id]
+                ? <img src={blobs[p.id]} alt={label} className="h-full w-full object-cover" />
+                : <div className="h-full w-full grid place-items-center text-muted-foreground"><ImageIcon className="h-4 w-4" /></div>}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div className="rounded-md border p-2 space-y-2 bg-background">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium">{service.emoji} {service.task_label}</span>
+        {service.done
+          ? <Badge className="bg-green-600 text-white text-[10px] h-5">Done</Badge>
+          : <Badge className="bg-amber-500 text-white text-[10px] h-5">Incomplete</Badge>}
+        {service.started_at && (
+          <span className="text-[10px] text-muted-foreground ml-auto">
+            {fmtStampLocal(service.started_at)}–{fmtStampLocal(service.ended_at)}
+          </span>
+        )}
+      </div>
+      {service.by.length > 0 && <div className="text-[10px] text-muted-foreground">By {service.by.join(", ")}</div>}
+      {gallery("Before", service.before)}
+      {gallery("After", service.after)}
     </div>
   );
 }
