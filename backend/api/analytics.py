@@ -15,7 +15,16 @@ router = APIRouter()
 
 
 def _apply_pipeline_filter(query, pipeline_version: str | None):
-    """Filter a Lead query by pipeline_version when set. 'all' / None = no filter."""
+    """Filter a Lead query by pipeline_version when set. 'all' / None = no
+    pipeline filter.
+
+    ALWAYS scoped to the fence division. Analytics is a fence reporting surface
+    (v1/v2/v2b are all fence pipelines); brick leads (division='brick') must
+    never mix into fence numbers. Every caller here already includes Lead in the
+    query (the pipeline filter below references it), so this is safe to add
+    unconditionally. Build brick analytics as a separate, division-parametrized
+    path when brick reporting is needed."""
+    query = query.filter(Lead.division == "fence")
     if pipeline_version and pipeline_version in ("v1", "v2", "v2b"):
         return query.filter(Lead.pipeline_version == pipeline_version)
     return query
