@@ -1147,13 +1147,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                       <Button size="sm" className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" disabled={busyId === t.id} onClick={() => openSchedule(t.id)}>
                         <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule
                       </Button>
-                      <button
-                        title="Reschedule follow-up"
-                        onClick={() => setFollowUpFor(t)}
-                        className="p-1 rounded text-amber-600 hover:bg-amber-50"
-                      >
-                        <CalendarClock className="h-4 w-4" />
-                      </button>
+                      {/* Follow-up scheduling lives inside "Log call"; reschedule an
+                          existing one via the follow-up pill in the Lead column. */}
                       <button
                         title="Decline (a 'no' — moves to DECLINED ESTIMATE)"
                         disabled={busyId === t.id}
@@ -1253,21 +1248,22 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   <div className="text-xs text-foreground whitespace-pre-wrap line-clamp-2 bg-muted/30 rounded px-2 py-1">{t.client_note}</div>
                 )}
 
-                {/* Actions — 2×2 grid of full-width touch targets */}
-                <div className="grid grid-cols-2 gap-2 pt-0.5">
-                  <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-700 text-white" disabled={busyId === t.id} onClick={() => openSchedule(t.id)}>
+                {/* Actions — Schedule up top (primary), then Log call / Decline.
+                    "Log call" also schedules follow-ups, so there's no separate
+                    Follow-up button; reschedule via the follow-up pill above. */}
+                <div className="space-y-2 pt-0.5">
+                  <Button size="sm" className="w-full h-9 bg-emerald-600 hover:bg-emerald-700 text-white" disabled={busyId === t.id} onClick={() => openSchedule(t.id)}>
                     <Calendar className="h-4 w-4 mr-1" /> Schedule
                   </Button>
-                  <Button size="sm" variant="outline" className="h-9" onClick={() => setLogFor(t)}>
-                    <MessageSquare className="h-4 w-4 mr-1" /> Log call
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-9 text-amber-700 border-amber-200 hover:bg-amber-50" onClick={() => setFollowUpFor(t)}>
-                    <CalendarClock className="h-4 w-4 mr-1" /> Follow-up
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-9 text-red-600 border-red-200 hover:bg-red-50" disabled={busyId === t.id}
-                    onClick={() => quickAction(t, DECLINED_STAGE_ID, `Mark ${t.contact_name || "this lead"} as declined?`, "Marked declined")}>
-                    <XCircle className="h-4 w-4 mr-1" /> Decline
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button size="sm" variant="outline" className="h-9" onClick={() => setLogFor(t)}>
+                      <MessageSquare className="h-4 w-4 mr-1" /> Log call
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-9 text-red-600 border-red-200 hover:bg-red-50" disabled={busyId === t.id}
+                      onClick={() => quickAction(t, DECLINED_STAGE_ID, `Mark ${t.contact_name || "this lead"} as declined?`, "Marked declined")}>
+                      <XCircle className="h-4 w-4 mr-1" /> Decline
+                    </Button>
+                  </div>
                 </div>
               </div>
             );
@@ -1617,15 +1613,25 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   const [fuNote, setFuNote] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Log call and Follow-up used to be separate buttons that mostly overlapped
+  // (Log call always offered a follow-up). They're now one action: log the call
+  // AND/OR schedule a follow-up. Call-logging is optional so this can also set a
+  // pure reminder with no call.
+  const [logCall, setLogCall] = useState(true);
+
   const onOutcome = (o: CallDispositionOutcome) => {
     setOutcome(o);
     if (o === "callback") setScheduleFu(true);
   };
 
   const save = async () => {
+    if (!logCall && !scheduleFu) {
+      toast.error("Log a call or schedule a follow-up (or both).");
+      return;
+    }
     setSaving(true);
     try {
-      await api.logCallDisposition(task.id, { outcome, notes: notes.trim() });
+      if (logCall) await api.logCallDisposition(task.id, { outcome, notes: notes.trim() });
       if (scheduleFu) {
         await api.createFollowUp(task.id, {
           due_date: fuDate,
@@ -1635,7 +1641,10 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
           note: fuNote.trim(),
         });
       }
-      toast.success(scheduleFu ? "Call logged + follow-up scheduled" : "Call logged");
+      toast.success(
+        logCall && scheduleFu ? "Call logged + follow-up scheduled"
+          : logCall ? "Call logged" : "Follow-up scheduled",
+      );
       onSaved();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save");
@@ -1645,18 +1654,27 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   };
 
   return (
-    <ModalShell title="Log a call" subtitle={task.contact_name || "Lead"} onClose={onClose}>
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground">Outcome</label>
-        <select value={outcome} onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
-          {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
-        </select>
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground">Notes</label>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="What did the customer say?" className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
-      </div>
-      <label className="flex items-center gap-2 text-sm cursor-pointer pt-1 border-t">
+    <ModalShell title="Log a call / follow-up" subtitle={task.contact_name || "Lead"} onClose={onClose}>
+      <label className="flex items-center gap-2 text-sm cursor-pointer font-medium">
+        <input type="checkbox" checked={logCall} onChange={(e) => setLogCall(e.target.checked)} className="h-4 w-4" />
+        <span>Log a call</span>
+        <span className="text-xs text-muted-foreground font-normal">(uncheck to only set a reminder)</span>
+      </label>
+      {logCall && (
+        <>
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Outcome</label>
+            <select value={outcome} onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+              {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground">Notes</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="What did the customer say?" className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+          </div>
+        </>
+      )}
+      <label className="flex items-center gap-2 text-sm cursor-pointer pt-2 border-t">
         <input type="checkbox" checked={scheduleFu} onChange={(e) => setScheduleFu(e.target.checked)} className="h-4 w-4 mt-2" />
         <span className="mt-2">Schedule a follow-up</span>
       </label>
