@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock, Clock, MapPin, Droplets, Cloud } from "lucide-react";
+import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock, Clock, MapPin, Droplets, Cloud, MessageSquare, Loader2 } from "lucide-react";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import ToolsNeededChecklist from "@/components/ToolsNeededChecklist";
 
@@ -150,6 +150,57 @@ function JobHeader({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Scheduled
 // writes outright); here we mirror that by disabling every input and
 // showing a banner. Admin/VA always get `editable: true`.
 
+// Customer Question checklist — a free-text prompt the crew fills at the job:
+// anything the customer mentioned, extra cleaning they noticed, or a neighbor
+// who could use a service. Saves on blur; visible to admin/PM as a lead signal.
+function CustomerQuestionChecklist({ job, onSaved }: { job: ScheduledJob; onSaved: (j: ScheduledJob) => void }) {
+  const [text, setText] = useState(job.customer_question_notes || "");
+  const [saving, setSaving] = useState(false);
+  const initial = useRef(job.customer_question_notes || "");
+  useEffect(() => {
+    setText(job.customer_question_notes || "");
+    initial.current = job.customer_question_notes || "";
+  }, [job.id, job.customer_question_notes]);
+
+  const save = async () => {
+    if (text === initial.current) return;
+    setSaving(true);
+    try {
+      const updated = await api.updateJobMaterials(job.id, { customer_question_notes: text });
+      initial.current = text;
+      onSaved(updated);
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="border-blue-200">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-blue-600" />
+          <h3 className="text-sm font-semibold">Customer Question checklist</h3>
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Is there anything the customer mentioned? Did you notice anything that needs cleaning?
+          Do you notice the neighbor needs a service too?
+        </p>
+        <Textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={save}
+          rows={3}
+          placeholder="Type anything worth following up on…"
+          className="text-sm"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function JobSops() {
   const { jobId = "" } = useParams<{ jobId: string }>();
   const user = getCurrentUser();
@@ -273,6 +324,8 @@ export default function JobSops() {
             to attach a template.
           </CardContent>
         </Card>
+
+        {job && <div className="mt-4"><CustomerQuestionChecklist job={job} onSaved={setJob} /></div>}
 
         {/* Photo buckets still apply to every job, SOP template or not. */}
         <div id="photos" className="mt-4 scroll-mt-4">
@@ -432,6 +485,9 @@ export default function JobSops() {
           </Card>
         ))}
       </div>
+
+      {/* Customer Question checklist — crew's free-text field report. */}
+      {job && <div className="mt-6"><CustomerQuestionChecklist job={job} onSaved={setJob} /></div>}
 
       {/* Job photos — inspection / post-cleanup / post-staining buckets the
           crew shoots from their phone. Uploadable any day (the clean→dry→stain

@@ -3382,6 +3382,7 @@ export interface ScheduledJob {
   bleach_gallons?: number;           // bleach used (crew)
   stain_gallons_used?: number;       // stain used (crew)
   inspection_notes?: string;         // crew inspection notes
+  customer_question_notes?: string;  // "Customer Question checklist" free text
   job_description: string;
   /** Worker-facing notes (sanitized when role=worker on backend). */
   worker_notes?: string;
