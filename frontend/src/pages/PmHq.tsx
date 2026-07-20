@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { api, type PmBoard, type PmBoardJob, type PmBoardTask } from "@/lib/api";
+import { api, type PmBoard, type PmBoardJob, type PmBoardTask, type PmService } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -66,10 +66,16 @@ export default function PmHq() {
     catch (e: any) { toast.error(e?.message || "Couldn't update crew"); }
     finally { setBusy(false); }
   };
-  const seedTasks = async (jobId: string) => {
+  const addTask = async (jobId: string, taskType: string) => {
     setBusy(true);
-    try { await api.createCrewDefaultTasks(jobId); load(); }
-    catch (e: any) { toast.error(e?.message || "Couldn't set up tasks"); }
+    try { await api.createCrewTask({ scheduled_job_id: jobId, task_type: taskType }); load(); }
+    catch (e: any) { toast.error(e?.message || "Couldn't add service"); }
+    finally { setBusy(false); }
+  };
+  const removeTask = async (taskId: string) => {
+    setBusy(true);
+    try { await api.deleteCrewTask(taskId); load(); }
+    catch (e: any) { toast.error(e?.message || "Couldn't remove service"); }
     finally { setBusy(false); }
   };
   const addTaskWorkers = async (job: PmBoardJob, task: PmBoardTask, empIds: string[]) => {
@@ -139,9 +145,11 @@ export default function PmHq() {
                   key={job.id}
                   job={job}
                   roster={roster}
+                  services={board?.services || []}
                   empName={empName}
                   onSetCrew={(ids) => setCrew(job.id, ids)}
-                  onSeedTasks={() => seedTasks(job.id)}
+                  onAddTask={(taskType) => addTask(job.id, taskType)}
+                  onRemoveTask={(taskId) => removeTask(taskId)}
                   onAddTaskWorkers={(task, ids) => addTaskWorkers(job, task, ids)}
                   onRemoveTaskWorker={(assignmentId) => removeTaskWorker(assignmentId)}
                   onSaveDetails={(patch) => saveDetails(job.id, patch)}
@@ -156,13 +164,15 @@ export default function PmHq() {
 }
 
 function JobRow({
-  job, roster, empName, onSetCrew, onSeedTasks, onAddTaskWorkers, onRemoveTaskWorker, onSaveDetails,
+  job, roster, services, empName, onSetCrew, onAddTask, onRemoveTask, onAddTaskWorkers, onRemoveTaskWorker, onSaveDetails,
 }: {
   job: PmBoardJob;
   roster: { id: string; name: string }[];
+  services: PmService[];
   empName: (id: string) => string;
   onSetCrew: (employeeIds: string[]) => void;
-  onSeedTasks: () => void;
+  onAddTask: (taskType: string) => void;
+  onRemoveTask: (taskId: string) => void;
   onAddTaskWorkers: (task: PmBoardTask, employeeIds: string[]) => void;
   onRemoveTaskWorker: (assignmentId: string) => void;
   onSaveDetails: (patch: JobDetailsPatch) => void;
@@ -309,24 +319,37 @@ function JobRow({
         )}
       </div>
 
-      {/* Per-task primary assignment */}
+      {/* Services checklist — check a service to add it to the job, then assign
+          one or more workers to it. */}
       <div>
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Tasks</div>
-        {job.tasks.length === 0 ? (
-          <Button size="sm" variant="outline" onClick={onSeedTasks}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Set up tasks (Clean + Stain)
-          </Button>
-        ) : (
-          <div className="space-y-2">
-            {job.tasks.map((task) => (
-              <TaskRow
-                key={task.id} task={task} roster={roster} empName={empName}
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-1">Services</div>
+        <div className="space-y-1.5">
+          {services.map((svc) => {
+            const task = job.tasks.find((t) => t.task_type === svc.key) || null;
+            return (
+              <ServiceRow
+                key={svc.key} service={svc} task={task} roster={roster} empName={empName}
+                onToggle={() => (task ? onRemoveTask(task.id) : onAddTask(svc.key))}
+                onAdd={(ids) => task && onAddTaskWorkers(task, ids)}
+                onRemove={onRemoveTaskWorker}
+              />
+            );
+          })}
+          {/* Any legacy tasks whose type isn't in the service catalog (e.g. an
+              older "powerwash") — still shown so their crew isn't orphaned. */}
+          {job.tasks
+            .filter((t) => !services.some((s) => s.key === t.task_type))
+            .map((task) => (
+              <ServiceRow
+                key={task.id}
+                service={{ key: task.task_type, label: task.task_label, emoji: task.emoji }}
+                task={task} roster={roster} empName={empName}
+                onToggle={() => onRemoveTask(task.id)}
                 onAdd={(ids) => onAddTaskWorkers(task, ids)}
                 onRemove={onRemoveTaskWorker}
               />
             ))}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Job details — color(s), sides, additional info + gallons used */}
@@ -469,46 +492,66 @@ function JobRow({
   );
 }
 
-// One task (clean / stain / powerwash) with its assigned crew — multiple
-// workers allowed. Chips remove per-person; "Add" opens a multi-select.
-function TaskRow({ task, roster, empName, onAdd, onRemove }: {
-  task: PmBoardTask;
+// One service on a job. A checkbox turns the service on/off (creates/deletes the
+// underlying task); when it's on, one or more workers can be assigned to it.
+// Chips remove per-person; "Add" opens a multi-select.
+function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove }: {
+  service: PmService;
+  task: PmBoardTask | null;
   roster: { id: string; name: string }[];
   empName: (id: string) => string;
+  onToggle: () => void;
   onAdd: (employeeIds: string[]) => void;
   onRemove: (assignmentId: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const assignedIds = new Set(task.assignees.map((a) => a.employee_id));
+  const assignees = task?.assignees || [];
+  const assignedIds = new Set(assignees.map((a) => a.employee_id));
   const unassigned = roster.filter((e) => !assignedIds.has(e.id));
   const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const close = () => { setAdding(false); setPicked(new Set()); };
   const apply = () => { if (picked.size) onAdd([...picked]); close(); };
 
+  // Unchecking a service with crew on it warns first — it drops those workers.
+  const handleToggle = () => {
+    if (task && assignees.length > 0 &&
+        !window.confirm(`Remove "${service.label}"? Its ${assignees.length} assigned worker${assignees.length === 1 ? "" : "s"} will be unassigned.`)) {
+      return;
+    }
+    if (adding) close();
+    onToggle();
+  };
+  const on = !!task;
+
   return (
-    <div className="rounded-md border bg-background p-2">
+    <div className={`rounded-md border p-2 ${on ? "bg-background" : "bg-muted/20"}`}>
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium shrink-0">{task.emoji} {task.task_label}</span>
-        {task.status !== "pending" && (
+        <label className="flex items-center gap-2 cursor-pointer shrink-0 select-none">
+          <input type="checkbox" checked={on} onChange={handleToggle} className="h-4 w-4" />
+          <span className={`text-sm font-medium ${on ? "" : "text-muted-foreground"}`}>{service.emoji} {service.label}</span>
+        </label>
+        {task && task.status !== "pending" && (
           <Badge className="text-[10px] h-5 shrink-0 capitalize bg-slate-200 text-slate-700">{task.status.replace("_", " ")}</Badge>
         )}
-        <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-          {task.assignees.length === 0 && <span className="text-[11px] text-muted-foreground">Unassigned</span>}
-          {task.assignees.map((a) => (
-            <span key={a.assignment_id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2 py-0.5">
-              {empName(a.employee_id)}
-              <button onClick={() => onRemove(a.assignment_id)} className="hover:text-red-600" title="Remove"><X className="h-3 w-3" /></button>
-            </span>
-          ))}
-          {!adding && unassigned.length > 0 && (
-            <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-full border border-dashed text-xs px-2 py-0.5 text-muted-foreground hover:bg-muted">
-              <Plus className="h-3 w-3" /> Add
-            </button>
-          )}
-        </div>
+        {on && (
+          <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+            {assignees.length === 0 && <span className="text-[11px] text-muted-foreground">Unassigned</span>}
+            {assignees.map((a) => (
+              <span key={a.assignment_id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs px-2 py-0.5">
+                {empName(a.employee_id)}
+                <button onClick={() => onRemove(a.assignment_id)} className="hover:text-red-600" title="Remove"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+            {!adding && unassigned.length > 0 && (
+              <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-full border border-dashed text-xs px-2 py-0.5 text-muted-foreground hover:bg-muted">
+                <Plus className="h-3 w-3" /> Add
+              </button>
+            )}
+          </div>
+        )}
       </div>
-      {adding && (
+      {on && adding && (
         <div className="mt-2 rounded-lg border bg-muted/20 p-2 space-y-2">
           <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
             {unassigned.map((e) => (

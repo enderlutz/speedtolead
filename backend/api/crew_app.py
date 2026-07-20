@@ -27,9 +27,25 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 _CENTRAL = ZoneInfo("America/Chicago")
 
-TASK_EMOJI = {"clean": "🧽", "stain": "🎨", "powerwash": "💦"}
-TASK_LABEL = {"clean": "Clean", "stain": "Stain", "powerwash": "Powerwash"}
-VALID_TASK_TYPES = set(TASK_EMOJI)
+# Services the PM can put on a job (the PM HQ checklist). "stain" and "clean"
+# keep their legacy keys so the crew phone page's gallon logic (bleach on clean,
+# stain on stain) keeps working; the rest are new service types.
+SERVICE_TYPES = [
+    ("stain", "Fence staining", "🎨"),
+    ("clean", "Fence cleaning", "🧽"),
+    ("driveway", "Driveway cleaning", "🚗"),
+    ("gutter", "Gutter cleaning", "🏠"),
+    ("roof", "Roofwashing", "🧼"),
+    ("window", "Window cleaning", "🪟"),
+    ("pool_deck", "Back pool deck / patio", "🏖️"),
+    ("rock", "Landscape rock cleaning", "🪨"),
+]
+TASK_EMOJI = {k: e for k, _l, e in SERVICE_TYPES}
+TASK_LABEL = {k: l for k, l, _e in SERVICE_TYPES}
+# Legacy alias — old jobs may still carry a "powerwash" task; keep it displayable.
+TASK_EMOJI.setdefault("powerwash", "💦")
+TASK_LABEL.setdefault("powerwash", "Powerwash")
+VALID_TASK_TYPES = set(TASK_LABEL)
 
 
 def _now() -> str:
@@ -407,7 +423,7 @@ def create_task(body: TaskCreateBody, user: dict = Depends(require_perm("assign_
     Phase 1)."""
     del user
     if body.task_type not in VALID_TASK_TYPES:
-        raise HTTPException(400, "task_type must be clean, stain, or powerwash")
+        raise HTTPException(400, f"task_type must be one of: {', '.join(sorted(VALID_TASK_TYPES))}")
     db = get_db()
     try:
         job = db.query(ScheduledJob).filter(ScheduledJob.id == body.scheduled_job_id).first()
@@ -483,6 +499,26 @@ def update_task(task_id: str, body: TaskUpdateBody, user: dict = Depends(require
         db.commit()
         db.refresh(task)
         return task.to_dict()
+    finally:
+        db.close()
+
+
+@router.delete("/crew-app/tasks/{task_id}")
+def delete_task(task_id: str, user: dict = Depends(require_perm("assign_crew"))):
+    """Remove a service from a job (PM unchecks it). Deletes the task and any
+    crew assignments on it."""
+    del user
+    db = get_db()
+    try:
+        task = db.query(JobTask).filter(JobTask.id == task_id).first()
+        if not task:
+            return {"status": "deleted"}
+        (db.query(CrewAssignment)
+           .filter(CrewAssignment.job_task_id == task_id)
+           .delete(synchronize_session=False))
+        db.delete(task)
+        db.commit()
+        return {"status": "deleted"}
     finally:
         db.close()
 
@@ -679,7 +715,8 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             "assigned_employee_ids": crew_by_job.get(r.id, []),
             "tasks": tasks_by_job.get(r.id, []),
         } for r in job_rows]
-        return {"employees": roster, "jobs": jobs}
+        services = [{"key": k, "label": l, "emoji": e} for k, l, e in SERVICE_TYPES]
+        return {"employees": roster, "jobs": jobs, "services": services}
     finally:
         db.close()
 

@@ -1009,9 +1009,11 @@ export interface PmBoardJob {
   assigned_employee_ids: string[];
   tasks: PmBoardTask[];
 }
+export interface PmService { key: string; label: string; emoji: string }
 export interface PmBoard {
   employees: { id: string; name: string }[];
   jobs: PmBoardJob[];
+  services: PmService[];            // the service checklist catalog
 }
 
 export interface CrewBoard {
@@ -2735,6 +2737,7 @@ export const api = {
     request<{ status: string }>(`/api/crew-app/jobs/${scheduledJobId}/default-tasks`, { method: "POST" }),
   updateCrewTask: (taskId: string, body: { budgeted_hours?: number; task_type?: string; status?: string; progress_note?: string }) =>
     request<CrewTask>(`/api/crew-app/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteCrewTask: (taskId: string) => request<{ status: string }>(`/api/crew-app/tasks/${taskId}`, { method: "DELETE" }),
   upsertCrewAssignment: (body: { job_task_id: string; employee_id: string; work_date: string; is_backup?: boolean; sort_order?: number; exclusive?: boolean }) =>
     request<CrewAssignmentRow>(`/api/crew-app/assignments`, { method: "PUT", body: JSON.stringify(body) }),
   deleteCrewAssignment: (id: string) => request<{ status: string }>(`/api/crew-app/assignments/${id}`, { method: "DELETE" }),
