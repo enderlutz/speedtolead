@@ -77,7 +77,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // divisions:["fence"] = not division-scoped yet, so hidden in brick mode to
   // avoid showing fence data. Reveal each as it gets scoped for brick.
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard", divisions: ["fence"] },
-  { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard", divisions: ["fence"] },
+  { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard" },  // division-scoped → both
   { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
   { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
@@ -110,7 +110,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
 // is shown. Prefix match, except "/" which must be exact (Dashboard is fence-only).
 const BRICK_ALLOWED_PREFIXES = [
   "/leads-brick", "/leads/", "/calendar", "/pm-hq", "/my-schedule",
-  "/sops/", "/settings", "/internal", "/login",
+  "/daily-tasks", "/sops/", "/settings", "/internal", "/login",
 ];
 export function isBrickAllowedPath(path: string): boolean {
   if (path === "/") return false;  // Dashboard — fence-only for now

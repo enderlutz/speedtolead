@@ -24,10 +24,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 
 from database import get_db, Lead, Estimate, CallDisposition, TaskFollowUp, LeadActivity, User
 from api.auth import require_staff
+from api.divisions import get_division
 from services.pipeline_stages import STAGE_NAME_BY_ID
 
 router = APIRouter()
@@ -133,27 +134,30 @@ def _tier_prices(db, lead_ids: list[str]) -> dict[str, dict[str, int]]:
 
 
 @router.get("/daily-tasks")
-def get_daily_tasks(user: dict = Depends(require_staff)):
-    """EVERY v2 lead in EVERY pipeline stage (nothing slips through the cracks),
+def get_daily_tasks(user: dict = Depends(require_staff), division: str = Depends(get_division)):
+    """EVERY lead in EVERY pipeline stage (nothing slips through the cracks),
     with its call log, next scheduled follow-up, last-activity timestamp, and
     Essential/Signature/Legacy prices. Excludes test + archived leads. Ordered
     so the most-actionable float up. The frontend splits into Today / Upcoming /
-    By date / All by follow-up due date."""
+    By date / All by follow-up due date.
+
+    Division-scoped: fence shows the fence pipelines (v2/v2b); brick shows brick
+    leads. Neither ever includes the other."""
     del user
     db = get_db()
     try:
-        leads = (
-            db.query(Lead)
-            .filter(
-                Lead.pipeline_version.in_(["v2", "v2b"]),
-                Lead.is_test.isnot(True),
-                # Leads are soft-deleted via status == "archived" (no boolean col).
-                func.coalesce(Lead.status, "") != "archived",
-                # Our testing account — never belongs on the work queue.
-                func.lower(func.coalesce(Lead.contact_name, "")) != "fragne delgado",
-            )
-            .all()
+        q = db.query(Lead).filter(
+            Lead.is_test.isnot(True),
+            # Leads are soft-deleted via status == "archived" (no boolean col).
+            func.coalesce(Lead.status, "") != "archived",
+            # Our testing account — never belongs on the work queue.
+            func.lower(func.coalesce(Lead.contact_name, "")) != "fragne delgado",
         )
+        if division == "brick":
+            q = q.filter(Lead.division == "brick")
+        else:
+            q = q.filter(Lead.pipeline_version.in_(["v2", "v2b"]))
+        leads = q.all()
         lead_ids = [l.id for l in leads]
 
         # Distinct people who've touched each lead → owner avatars.
@@ -504,17 +508,24 @@ def get_activity(
     limit: int = 100,
     offset: int = 0,
     user: dict = Depends(require_staff),
+    division: str = Depends(get_division),
 ):
     """Unified, filterable audit feed of who touched what lead and when.
     Unions calls (CallDisposition) + follow-ups (TaskFollowUp) + the
     LeadActivity table (stage moves, note edits, sends). Filters: lead name (q),
-    actor name/username, and an ISO-UTC datetime window (from_ts/to_ts)."""
+    actor name/username, and an ISO-UTC datetime window (from_ts/to_ts).
+    Division-scoped: brick sees only brick-lead activity, fence excludes it."""
     del user
     db = get_db()
     try:
         lo = (from_ts or "").strip() or (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
         hi = (to_ts or "").strip() or None
         cap = 1500
+
+        # Division isolation via the (small) set of brick lead ids.
+        brick_ids = {lid for (lid,) in db.query(Lead.id).filter(Lead.division == "brick").all()}
+        if division == "brick" and not brick_ids:
+            return {"events": [], "total": 0, "actors": []}
 
         # Lead-name filter → restrict to matching lead_ids + capture names.
         lead_name_by_id: dict[str, str] = {}
@@ -539,6 +550,12 @@ def get_activity(
                 query = query.filter(col <= hi)
             if restrict_ids is not None:
                 query = query.filter(lead_col.in_(restrict_ids))
+            # Division isolation: brick → only brick-lead rows; fence → exclude
+            # brick-lead rows (keep null-lead rows, which are division-agnostic).
+            if division == "brick":
+                query = query.filter(lead_col.in_(brick_ids))
+            elif brick_ids:
+                query = query.filter(or_(lead_col.is_(None), lead_col.notin_(brick_ids)))
             return query.order_by(desc(col)).limit(cap).all()
 
         for d in _bounded(db.query(CallDisposition), CallDisposition.disposed_at, CallDisposition.lead_id):
@@ -681,11 +698,13 @@ def _cst_date(iso: str) -> str:
 
 
 @router.get("/daily-tasks/call-tally")
-def get_call_tally(date: str = "", user: dict = Depends(require_staff)):
+def get_call_tally(date: str = "", user: dict = Depends(require_staff),
+                   division: str = Depends(get_division)):
     """Running call count for the task-list header: how many calls each person
     logged today and this week (Mon–target_day, Central), plus team totals. A
     "call" is one CallDisposition row. Only the phone team is counted — estimator
-    and worker accounts are excluded (this tracks Alan + the VAs). Read-only."""
+    and worker accounts are excluded (this tracks Alan + the VAs). Read-only.
+    Division-scoped: brick counts only brick-lead calls; fence excludes them."""
     del user
     db = get_db()
     try:
@@ -714,7 +733,18 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff)):
                 if u.display_name:
                     excluded_names.add(u.display_name.strip().lower())
 
-        calls = db.query(CallDisposition).filter(CallDisposition.disposed_at >= win_start_utc).all()
+        # Division isolation via the (small) set of brick lead ids.
+        brick_ids = {lid for (lid,) in db.query(Lead.id).filter(Lead.division == "brick").all()}
+        if division == "brick" and not brick_ids:
+            return {"date": target_day, "week_start": week_start,
+                    "today_total": 0, "week_total": 0, "people": []}
+        calls_q = db.query(CallDisposition).filter(CallDisposition.disposed_at >= win_start_utc)
+        if division == "brick":
+            calls_q = calls_q.filter(CallDisposition.lead_id.in_(brick_ids))
+        elif brick_ids:
+            calls_q = calls_q.filter(or_(CallDisposition.lead_id.is_(None),
+                                         CallDisposition.lead_id.notin_(brick_ids)))
+        calls = calls_q.all()
 
         # sub → display name so a person collapses to a single row.
         sub_to_name: dict[str, str] = {}
