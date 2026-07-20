@@ -7,7 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight } from "lucide-react";
+import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check } from "lucide-react";
+import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
@@ -275,14 +276,181 @@ function MaterialsEditor({
   );
 }
 
+// Format an ISO timestamp as a short local time, e.g. "3:45 PM".
+function fmtStamp(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+// Demo services shown on the temporary fake-schedule jobs (employeefragne) so
+// the layout is dogfoodable. Uploads are disabled for these.
+const DEMO_TASKS: MyJobTask[] = [
+  { id: "demo-stain", task_type: "stain", task_label: "Fence staining", emoji: "🎨", status: "pending", before_count: 0, after_count: 0, done: false, started_at: "", ended_at: "" },
+  { id: "demo-clean", task_type: "clean", task_label: "Fence cleaning", emoji: "🧽", status: "pending", before_count: 0, after_count: 0, done: false, started_at: "", ended_at: "" },
+];
+
+// Before/After photo bucket for ONE service on a job. Uploading photos is how
+// the crew signals progress — a service is "done" once it has at least one
+// before AND one after photo (the timestamps bound when work started/ended).
+function ServicePhotoSection({
+  task, photos, blobs, disabled, uploading, onUpload, onDelete,
+}: {
+  task: MyJobTask;
+  photos: JobPhotoMeta[];
+  blobs: Record<string, string>;
+  disabled?: boolean;
+  uploading: string | null;   // `${taskId}:${phase}` currently uploading
+  onUpload: (taskId: string, phase: "before" | "after", files: FileList | null) => void;
+  onDelete: (photoId: string) => void;
+}) {
+  const renderBucket = (phase: "before" | "after", label: string) => {
+    const items = photos
+      .filter((p) => p.job_task_id === task.id && p.phase === phase)
+      .sort((a, b) => (a.uploaded_at || "").localeCompare(b.uploaded_at || ""));
+    const busy = uploading === `${task.id}:${phase}`;
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}{items.length > 0 && <span className="ml-1 font-normal text-muted-foreground/70">({items.length})</span>}
+          </span>
+          {!disabled && (
+            <label className={`inline-flex items-center gap-1 text-[11px] cursor-pointer text-primary hover:underline ${busy ? "opacity-60 pointer-events-none" : ""}`}>
+              {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
+              {busy ? "Uploading…" : `Add ${label.toLowerCase()}`}
+              <input type="file" accept="image/*" capture="environment" multiple className="hidden" disabled={busy}
+                onChange={(e) => { onUpload(task.id, phase, e.target.files); e.currentTarget.value = ""; }} />
+            </label>
+          )}
+        </div>
+        {items.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground italic">No {label.toLowerCase()} photos yet.</p>
+        ) : (
+          <div className="grid grid-cols-4 gap-1.5">
+            {items.map((p) => (
+              <div key={p.id} className="relative group aspect-square rounded overflow-hidden border bg-muted">
+                {blobs[p.id]
+                  ? <img src={blobs[p.id]} alt={label} className="h-full w-full object-cover" />
+                  : <div className="h-full w-full grid place-items-center text-muted-foreground"><ImageIcon className="h-4 w-4" /></div>}
+                {!disabled && (
+                  <button onClick={() => onDelete(p.id)} title="Remove"
+                    className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded p-0.5 opacity-0 group-hover:opacity-100 transition">
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-lg border p-2.5 space-y-2 bg-background">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-semibold">{task.emoji} {task.task_label}</span>
+        {task.done
+          ? <Badge className="bg-green-600 text-white text-[10px] h-5 gap-0.5"><Check className="h-3 w-3" /> Done</Badge>
+          : <Badge className="bg-slate-200 text-slate-700 text-[10px] h-5">Needs before + after</Badge>}
+      </div>
+      {renderBucket("before", "Before")}
+      {renderBucket("after", "After")}
+      {(task.started_at || task.ended_at) && (
+        <div className="text-[10px] text-muted-foreground flex flex-wrap gap-x-3">
+          {task.started_at && <span>Started {fmtStamp(task.started_at)}</span>}
+          {task.ended_at && <span>Ended {fmtStamp(task.ended_at)}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TodayJobCard({
-  job, onStart, onComplete, onMaterialsSaved,
+  job, onMaterialsSaved,
 }: {
   job: ScheduledJob;
-  onStart: (j: ScheduledJob) => void;
-  onComplete: (j: ScheduledJob) => void;
   onMaterialsSaved: (updated: ScheduledJob) => void;
 }) {
+  const isFake = isFakeJobId(job.id);
+  const [tasks, setTasks] = useState<MyJobTask[] | null>(null);
+  const [photos, setPhotos] = useState<JobPhotoMeta[]>([]);
+  const [blobs, setBlobs] = useState<Record<string, string>>({});
+  const blobsRef = useRef(blobs);
+  useEffect(() => { blobsRef.current = blobs; }, [blobs]);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [notifying, setNotifying] = useState(false);
+
+  const loadTasks = useCallback(async () => {
+    if (isFake) { setTasks(DEMO_TASKS); return; }
+    try { const r = await api.getMyJobTasks(job.id); setTasks(r.tasks); }
+    catch { setTasks([]); }
+  }, [job.id, isFake]);
+
+  const loadPhotos = useCallback(async () => {
+    if (isFake) return;
+    try {
+      const r = await api.listJobPhotos(job.id);
+      const svc = r.photos.filter((p) => p.job_task_id && (p.phase === "before" || p.phase === "after"));
+      setPhotos(svc);
+      await Promise.all(svc.map(async (p) => {
+        const url = await api.fetchJobPhotoBlobUrl(job.id, p.id);
+        if (url) setBlobs((prev) => ({ ...prev, [p.id]: url }));
+      }));
+    } catch { /* empty is fine */ }
+  }, [job.id, isFake]);
+
+  useEffect(() => { loadTasks(); loadPhotos(); }, [loadTasks, loadPhotos]);
+  // Revoke blob URLs on unmount.
+  useEffect(() => () => { Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u)); }, []);
+
+  const handleUpload = async (taskId: string, phase: "before" | "after", files: FileList | null) => {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    setUploading(`${taskId}:${phase}`);
+    try {
+      for (const f of list) {
+        const meta = await api.uploadJobPhoto(job.id, "", f, { jobTaskId: taskId, phase });
+        setPhotos((prev) => [...prev, meta]);
+        const url = await api.fetchJobPhotoBlobUrl(job.id, meta.id);
+        if (url) setBlobs((prev) => ({ ...prev, [meta.id]: url }));
+      }
+      await loadTasks(); // refresh done + timestamps
+      toast.success(list.length > 1 ? `${list.length} photos uploaded` : "Photo uploaded");
+    } catch (e: any) {
+      toast.error(e?.message || "Upload failed");
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const handleDelete = async (photoId: string) => {
+    if (!confirm("Remove this photo?")) return;
+    try {
+      await api.deleteJobPhoto(job.id, photoId);
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      setBlobs((prev) => { const u = prev[photoId]; if (u) URL.revokeObjectURL(u); const n = { ...prev }; delete n[photoId]; return n; });
+      await loadTasks();
+    } catch (e: any) {
+      toast.error(e?.message || "Delete failed");
+    }
+  };
+
+  const handleNotify = async () => {
+    if (isFake) { toast.success("30-min heads-up sent (demo)"); return; }
+    setNotifying(true);
+    try {
+      const r = await api.notifyAlmostDone(job.id);
+      toast.success(r.recipients > 0 ? "30-minute heads-up sent" : "Sent — no SMS recipients configured yet");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't send notification");
+    } finally {
+      setNotifying(false);
+    }
+  };
+
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-4 space-y-3">
@@ -296,6 +464,20 @@ function TodayJobCard({
           </div>
           {statusBadge(job.status)}
         </div>
+
+        {/* Your tasks — the services THIS worker is assigned to on this job. */}
+        {tasks && tasks.length > 0 && (
+          <div className="rounded-lg bg-primary/5 border border-primary/20 p-2">
+            <div className="text-[10px] uppercase tracking-wide text-primary font-bold mb-1">Your tasks</div>
+            <div className="flex flex-wrap gap-1.5">
+              {tasks.map((t) => (
+                <span key={t.id} className={`inline-flex items-center gap-1 rounded-full text-xs px-2 py-0.5 ${t.done ? "bg-green-600 text-white" : "bg-primary/10 text-primary"}`}>
+                  {t.emoji} {t.task_label}{t.done && <Check className="h-3 w-3" />}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {job.weather_today && <WeatherBadge w={job.weather_today} />}
 
@@ -363,39 +545,63 @@ function TodayJobCard({
           </div>
         )}
 
-        {/* Materials editor — workers see and edit stain + bleach gallons.
-            Renders on scheduled / in_progress / completed (skips cancelled
-            since the job's dead). Pre-fills from admin's input when set,
-            blank otherwise. Crew tweaks before, during, or after. */}
+        {/* Materials editor — workers see and edit stain + bleach gallons. */}
         {job.status !== "cancelled" && (
           <MaterialsEditor job={job} onSaved={onMaterialsSaved} />
         )}
 
-        {job.status === "scheduled" && (
-          <SlideToConfirm label="Slide to start job" variant="blue" onConfirm={() => onStart(job)} />
+        {/* Before/After photos per service — this is how the job gets marked
+            done: each service needs at least one before and one after photo. */}
+        {tasks && tasks.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold">
+              Before &amp; After Photos
+            </div>
+            {tasks.map((t) => (
+              <ServicePhotoSection
+                key={t.id} task={t} photos={photos} blobs={blobs}
+                disabled={isFake} uploading={uploading}
+                onUpload={handleUpload} onDelete={handleDelete}
+              />
+            ))}
+          </div>
+        )}
+        {tasks && tasks.length === 0 && !isFake && (
+          <p className="text-[11px] text-muted-foreground italic">
+            No services assigned to you on this job yet — your project manager assigns these.
+          </p>
         )}
 
-        {job.status === "in_progress" && (
-          <>
-            <div className="flex gap-2">
-              <Link to={`/sops/job/${job.id}`} className="flex-1">
-                <Button variant="outline" className="w-full">
-                  <ClipboardList className="h-4 w-4 mr-2" /> SOP Checklist
-                </Button>
-              </Link>
-              <Link to={`/sops/job/${job.id}#photos`}>
-                <Button variant="outline" size="icon" aria-label="Photos">
-                  <Camera className="h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-            <SlideToConfirm label="Slide to complete job" variant="green" onConfirm={() => onComplete(job)} />
-          </>
+        {/* 30-minute heads-up → texts Alan + Edward. */}
+        <Button
+          variant="outline"
+          className="w-full border-amber-300 text-amber-800 hover:bg-amber-50"
+          onClick={handleNotify}
+          disabled={notifying}
+        >
+          {notifying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BellRing className="h-4 w-4 mr-2" />}
+          30-minute notification
+        </Button>
+
+        {/* SOP checklist (steps + Customer Question checklist) + all-photos view. */}
+        {!isFake && (
+          <div className="flex gap-2">
+            <Link to={`/sops/job/${job.id}`} className="flex-1">
+              <Button variant="outline" className="w-full">
+                <ClipboardList className="h-4 w-4 mr-2" /> SOP Checklist
+              </Button>
+            </Link>
+            <Link to={`/sops/job/${job.id}#photos`}>
+              <Button variant="outline" size="icon" aria-label="Photos">
+                <Camera className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         )}
 
         {job.status === "completed" && job.completed_at && (
-          <div className="text-xs text-muted-foreground text-center pt-1">
-            Completed{" "}
+          <div className="text-xs text-green-700 text-center pt-1 font-medium">
+            ✓ Completed{" "}
             {new Date(job.completed_at).toLocaleTimeString("en-US", {
               hour: "numeric", minute: "2-digit", hour12: true,
             })}
@@ -475,17 +681,39 @@ function groupByDate(jobs: ScheduledJob[], descending = false): { date: string; 
   }));
 }
 
+// Live "how long since check-in" string, e.g. "2h 14m" / "6m 03s".
+function fmtElapsed(ms: number): string {
+  if (ms < 0) ms = 0;
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
 // General daily check-in / check-out for the day — a shift clock separate from
-// per-job start/complete. Reuses the same slide control as the job cards.
+// per-job photos. Reuses the same slide control as the check-in gesture, and
+// shows a live day timer while the worker is on the clock.
 function DailyCheckInCard() {
   const [shift, setShift] = useState<WorkerShift | null | undefined>(undefined); // undefined = loading
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     api.getWorkerShiftToday()
       .then((r) => setShift(r.shift))
       .catch(() => setShift(null));
   }, []);
+
+  // Tick the live timer every second only while on the clock.
+  const onClockNow = !!shift && shift.is_open;
+  useEffect(() => {
+    if (!onClockNow) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [onClockNow]);
 
   const checkIn = async () => {
     setBusy(true);
@@ -532,8 +760,15 @@ function DailyCheckInCard() {
       )}
       {onClock && (
         <>
-          <p className="text-xs text-muted-foreground mb-2">
-            Checked in at <span className="font-medium text-foreground">{fmt(shift!.clock_in)}</span>.
+          {/* Live day timer — how long they've been on the clock today. */}
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-green-50 border border-green-200 py-2 mb-2">
+            <Timer className="h-5 w-5 text-green-700" />
+            <span className="text-2xl font-bold tabular-nums text-green-800">
+              {fmtElapsed(now - new Date(shift!.clock_in).getTime())}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-2 text-center">
+            On the clock since <span className="font-medium text-foreground">{fmt(shift!.clock_in)}</span>
           </p>
           <SlideToConfirm label="Slide to check out for the day" variant="blue" onConfirm={checkOut} disabled={busy} />
         </>
@@ -591,37 +826,8 @@ export default function MySchedule() {
 
   useEffect(() => { load(tab); }, [tab, load]);
 
-  const handleStart = async (job: ScheduledJob) => {
-    // TEMPORARY: fake jobs mutate local state only (no API/DB).
-    if (isFakeJobId(job.id)) {
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "in_progress", started_at: new Date().toISOString() } : j)));
-      toast.success(`Started: ${job.customer_name}`);
-      return;
-    }
-    try {
-      const updated = await api.startScheduledJob(job.id);
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
-      toast.success(`Started: ${job.customer_name}`);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to start job");
-    }
-  };
-
-  const handleComplete = async (job: ScheduledJob) => {
-    // TEMPORARY: fake jobs mutate local state only (no API/DB).
-    if (isFakeJobId(job.id)) {
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "completed", completed_at: new Date().toISOString() } : j)));
-      toast.success(`Job complete: ${job.customer_name}`);
-      return;
-    }
-    try {
-      const updated = await api.completeScheduledJob(job.id);
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
-      toast.success(`Job complete: ${job.customer_name}`);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to complete job");
-    }
-  };
+  // Job start/complete slides were removed — a job now completes automatically
+  // once every service has its before + after photos (tracked server-side).
 
   // Crew submitted materials-used from the inline editor — swap the job
   // in place so the values render back in the "Job specs" block without
@@ -712,7 +918,7 @@ export default function MySchedule() {
           ) : (
             <div className="space-y-4">
               {todaySorted.map((job) => (
-                <TodayJobCard key={job.id} job={job} onStart={handleStart} onComplete={handleComplete} onMaterialsSaved={handleMaterialsSaved} />
+                <TodayJobCard key={job.id} job={job} onMaterialsSaved={handleMaterialsSaved} />
               ))}
             </div>
           )}

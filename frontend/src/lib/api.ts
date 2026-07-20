@@ -1734,9 +1734,16 @@ export const api = {
   // metadata only; thumbnails load on-demand via fetchJobPhotoBlobUrl.
   listJobPhotos: (jobId: string) =>
     request<{ photos: JobPhotoMeta[] }>(`/api/schedule/jobs/${jobId}/photos`),
-  uploadJobPhoto: async (jobId: string, category: string, file: File) => {
+  uploadJobPhoto: async (
+    jobId: string,
+    category: string,
+    file: File,
+    opts?: { jobTaskId?: string; phase?: "before" | "after" },
+  ) => {
     const fd = new FormData();
-    fd.append("category", category);
+    if (category) fd.append("category", category);
+    if (opts?.jobTaskId) fd.append("job_task_id", opts.jobTaskId);
+    if (opts?.phase) fd.append("phase", opts.phase);
     fd.append("file", file);
     const token = getToken();
     const res = await fetch(`${BASE}/api/schedule/jobs/${jobId}/photos`, {
@@ -1747,6 +1754,16 @@ export const api = {
     if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
     return res.json() as Promise<JobPhotoMeta>;
   },
+  /** Services on a job that the calling worker is assigned to, with before/after
+   *  photo status. Admin/VA get every service. */
+  getMyJobTasks: (jobId: string) =>
+    request<{ tasks: MyJobTask[] }>(`/api/schedule/jobs/${jobId}/my-tasks`),
+  /** Crew taps "30-minute notification" → SMS Alan + Edward. */
+  notifyAlmostDone: (jobId: string) =>
+    request<{ status: string; recipients: number }>(`/api/schedule/jobs/${jobId}/almost-done`, { method: "POST" }),
+  /** PM "Completed Jobs" — completed jobs with per-service before/after photos. */
+  getPmCompletedJobs: (start?: string, end?: string) =>
+    request<{ jobs: PmCompletedJob[] }>(`/api/schedule/pm-completed${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
   fetchJobPhotoBlobUrl: async (jobId: string, photoId: string): Promise<string | null> => {
     const token = getToken();
     const res = await fetch(`${BASE}/api/schedule/jobs/${jobId}/photos/${photoId}`, {
@@ -1859,7 +1876,7 @@ export const api = {
    *  Either field can be omitted to leave it unchanged. */
   updateJobMaterials: (
     jobId: string,
-    body: { stain_gallons?: number; bleach_gallons?: number; inspection_notes?: string; color_choice?: string; stain_assigned?: number; package_tier?: string },
+    body: { stain_gallons?: number; bleach_gallons?: number; inspection_notes?: string; color_choice?: string; stain_assigned?: number; package_tier?: string; customer_question_notes?: string },
   ) =>
     request<ScheduledJob>(`/api/schedule/jobs/${jobId}/materials`, {
       method: "POST",
@@ -3266,10 +3283,53 @@ export interface JobPhotoMeta {
   id: string;
   scheduled_job_id: string;
   category: string;
+  job_task_id: string;       // set for per-service before/after photos
+  phase: string;             // "before" | "after" | "" (legacy bucket)
   filename: string;
   mime: string;
   uploaded_at: string;
   uploaded_by: string;
+}
+
+/** A service on a job that the current worker is assigned to, plus its
+ *  before/after photo status. Done = has >=1 before and >=1 after photo. */
+export interface MyJobTask {
+  id: string;
+  task_type: string;
+  task_label: string;
+  emoji: string;
+  status: string;
+  before_count: number;
+  after_count: number;
+  done: boolean;
+  started_at: string;   // first photo timestamp (ISO)
+  ended_at: string;     // last photo timestamp (ISO)
+}
+
+/** PM "Completed Jobs" — a finished job with per-service before/after photos. */
+export interface PmCompletedPhoto { id: string; uploaded_at: string; uploaded_by: string; mime: string }
+export interface PmCompletedService {
+  task_id: string;
+  task_type: string;
+  task_label: string;
+  emoji: string;
+  before: PmCompletedPhoto[];
+  after: PmCompletedPhoto[];
+  started_at: string;
+  ended_at: string;
+  by: string[];
+  done: boolean;
+}
+export interface PmCompletedJob {
+  id: string;
+  customer_name: string;
+  address: string;
+  job_date: string;
+  completed_at: string;
+  crew: string[];
+  started_at: string;
+  ended_at: string;
+  services: PmCompletedService[];
 }
 
 export interface GCalAttendeeBackfillBody {
