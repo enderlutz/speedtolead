@@ -539,6 +539,15 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
         db.close()
 
 
+def _sqft_from_estimate(est) -> float:
+    """Square footage used to build the estimate (stored as inputs._sqft by the
+    estimator). 0 when unknown."""
+    try:
+        return float((est.to_dict().get("inputs") or {}).get("_sqft", 0) or 0)
+    except Exception:
+        return 0.0
+
+
 def _build_pricing_includes(fence_sides: list[str], form_data: dict | None = None) -> str:
     """Generate pricing includes text from selected fence sides."""
     inside_all = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
@@ -816,11 +825,13 @@ def _approve_estimate_background(
             sides_text = _build_pricing_includes(sides_list, fd_note)
 
             header = f"Estimate #{estimate_number} sent" if estimate_number > 1 else "Estimate sent"
+            _sqft = _sqft_from_estimate(est)
             note_body = (
                 f"{header} — Essential: ${tiers_dict.get('essential', 0):,.0f} | "
                 f"Signature: ${tiers_dict.get('signature', 0):,.0f} | "
                 f"Legacy: ${tiers_dict.get('legacy', 0):,.0f}\n"
-                f"Sides included: {sides_text}\n"
+                + (f"Sq ft: {_sqft:,.0f}\n" if _sqft > 0 else "")
+                + f"Sides included: {sides_text}\n"
                 f"Proposal: {proposal_url}"
             )
             add_contact_note(lead.ghl_contact_id, note_body, lead.ghl_location_id or None)
@@ -1580,10 +1591,12 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = D
             if lead.ghl_contact_id:
                 add_contact_tag(lead.ghl_contact_id, _estimate_sent_tag(lead), lead.ghl_location_id or None)
                 tiers_dict = est.to_dict()["tiers"]
+                _sqft = _sqft_from_estimate(est)
                 add_contact_note(lead.ghl_contact_id,
                     f"Estimate sent — Essential: ${tiers_dict.get('essential',0):,.0f} | "
                     f"Signature: ${tiers_dict.get('signature',0):,.0f} | Legacy: ${tiers_dict.get('legacy',0):,.0f}\n"
-                    f"Proposal: {proposal_url}",
+                    + (f"Sq ft: {_sqft:,.0f}\n" if _sqft > 0 else "")
+                    + f"Proposal: {proposal_url}",
                     lead.ghl_location_id or None)
 
             # Notify team
