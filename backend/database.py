@@ -999,6 +999,10 @@ class ScheduledJob(Base):
     # can track gallons used per color. JSON object {colorName: gallons}. Empty
     # for single-color jobs (they use stain_gallons_used for the single total).
     color_gallons = Column(Text, default="")
+    # Free-text "Customer Question checklist" the crew fills on the SOP page:
+    # anything the customer mentioned, extra cleaning they noticed, or a neighbor
+    # who could use a service. Visible to admin/PM; a lead-gen signal.
+    customer_question_notes = Column(Text, default="")
     needs_test_spots = Column(Boolean, default=False)     # separate same-day test patches
     gallons_estimate = Column(Numeric(10, 2), default=0)  # stain ASSIGNED — admin's planned amount (sqft/175 default; editable)
     bleach_gallons = Column(Numeric(10, 2), default=0)    # bleach USED — crew input, post-cleanup
@@ -1101,6 +1105,7 @@ class ScheduledJob(Base):
             "bleach_gallons": float(self.bleach_gallons or 0),       # bleach used
             "stain_gallons_used": float(self.stain_gallons_used or 0),
             "inspection_notes": self.inspection_notes or "",
+            "customer_question_notes": self.customer_question_notes or "",
             "job_description": self.job_description or "",
             "worker_notes": self.worker_notes or "",
             "status": self.status or "scheduled",
@@ -1906,6 +1911,11 @@ class JobPhoto(Base):
     id = Column(Text, primary_key=True)
     scheduled_job_id = Column(Text, nullable=False)
     category = Column(Text, nullable=False)            # inspection | post_cleanup | post_staining
+    # Per-service before/after tracking (PM-HQ service model). When a photo is
+    # tied to a specific service the crew is assigned to, job_task_id → JobTask.id
+    # and phase is "before" | "after". Empty for the legacy 3-bucket job photos.
+    job_task_id = Column(Text, default="")
+    phase = Column(Text, default="")                   # before | after | "" (legacy)
     # Deferred — a job's photo bytes load only when someone opens that
     # specific thumbnail, never in the metadata list.
     photo_data = deferred(Column(LargeBinary, nullable=True))
@@ -1920,6 +1930,8 @@ class JobPhoto(Base):
             "id": self.id,
             "scheduled_job_id": self.scheduled_job_id,
             "category": self.category,
+            "job_task_id": self.job_task_id or "",
+            "phase": self.phase or "",
             "filename": self.filename or "",
             "mime": self.mime or "image/jpeg",
             "uploaded_at": self.uploaded_at or "",
@@ -3106,11 +3118,24 @@ def _run_migrations():
             ("stain_gallons_used", "ALTER TABLE scheduled_jobs ADD COLUMN stain_gallons_used NUMERIC(10,2) DEFAULT 0"),
             ("inspection_notes", "ALTER TABLE scheduled_jobs ADD COLUMN inspection_notes TEXT DEFAULT ''"),
             ("color_gallons", "ALTER TABLE scheduled_jobs ADD COLUMN color_gallons TEXT DEFAULT ''"),
+            ("customer_question_notes", "ALTER TABLE scheduled_jobs ADD COLUMN customer_question_notes TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added scheduled_jobs.{new_col}")
+
+    # JobPhoto per-service before/after columns
+    if inspector.has_table("job_photos"):
+        jp_cols = {c["name"] for c in inspector.get_columns("job_photos")}
+        for new_col, ddl in [
+            ("job_task_id", "ALTER TABLE job_photos ADD COLUMN job_task_id TEXT DEFAULT ''"),
+            ("phase",       "ALTER TABLE job_photos ADD COLUMN phase TEXT DEFAULT ''"),
+        ]:
+            if new_col not in jp_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added job_photos.{new_col}")
 
     # User.see_all_jobs — manager capability (worker view, all jobs)
     if inspector.has_table("users"):

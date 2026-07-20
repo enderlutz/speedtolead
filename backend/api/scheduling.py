@@ -16,9 +16,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import or_
 
-from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User, Proposal, EmployeeEventView, JobPhoto
+from database import get_db, ScheduledJob, JobAssignment, Lead, Estimate, Employee, User, Proposal, EmployeeEventView, JobPhoto, JobTask, CrewAssignment
 from api.auth import require_admin, require_staff, get_current_user
 from api.permissions import require_perm
+from api.crew_app import TASK_LABEL, TASK_EMOJI
 from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
 from config import get_settings
@@ -1143,21 +1144,36 @@ def list_job_photos(job_id: str, user: dict = Depends(get_current_user)):
 @router.post("/schedule/jobs/{job_id}/photos")
 async def upload_job_photo(
     job_id: str,
-    category: str = Form(...),
+    category: str = Form(""),
+    job_task_id: str = Form(""),
+    phase: str = Form(""),
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    """Upload one job-site photo into a category. Appends — never replaces —
-    so the crew can post all their shots. Returns the new photo's metadata."""
+    """Upload one job-site photo. Two modes:
+      • Per-service before/after — pass job_task_id + phase ("before"|"after").
+        This is the crew's new flow (a service is "done" once it has ≥1 before
+        and ≥1 after photo). category defaults to the phase.
+      • Legacy 3-bucket — pass category (inspection|post_cleanup|post_staining).
+    Appends, never replaces. Returns the new photo's metadata."""
+    task_id = (job_task_id or "").strip()
+    ph = (phase or "").strip().lower()
     cat = (category or "").strip().lower()
-    if cat not in JOB_PHOTO_CATEGORIES:
-        raise HTTPException(400, f"category must be one of {JOB_PHOTO_CATEGORIES}")
+    if task_id:
+        if ph not in ("before", "after"):
+            raise HTTPException(400, "phase must be 'before' or 'after' for a service photo")
+        cat = cat or ph
+    else:
+        if cat not in JOB_PHOTO_CATEGORIES:
+            raise HTTPException(400, f"category must be one of {JOB_PHOTO_CATEGORIES}")
     db = get_db()
     try:
         j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
         if not j:
             raise HTTPException(404, "Job not found")
         _assert_user_assigned_or_staff(db, user, job_id)
+        if task_id and not db.query(JobTask).filter(JobTask.id == task_id, JobTask.scheduled_job_id == job_id).first():
+            raise HTTPException(404, "Service not found on this job")
 
         data = await file.read()
         if not data:
@@ -1172,16 +1188,22 @@ async def upload_job_photo(
             id=str(uuid.uuid4()),
             scheduled_job_id=job_id,
             category=cat,
+            job_task_id=task_id,
+            phase=ph if task_id else "",
             photo_data=data,
             filename=file.filename or "photo",
             mime=mime,
             uploaded_at=_now(),
-            uploaded_by=user.get("name", ""),
+            uploaded_by=_resolve_worker_name(db, user) or user.get("name", ""),
         )
         db.add(photo)
         db.commit()
         db.refresh(photo)
-        return photo.meta_dict()
+        meta = photo.meta_dict()
+        # A service photo may have just completed its task / the whole job.
+        if task_id:
+            _recompute_job_completion(db, job_id)
+        return meta
     finally:
         db.close()
 
@@ -1221,6 +1243,254 @@ def delete_job_photo(job_id: str, photo_id: str, user: dict = Depends(get_curren
             db.delete(photo)
             db.commit()
         return {"status": "deleted"}
+    finally:
+        db.close()
+
+
+def _service_photo_status(db, job_id: str) -> dict:
+    """Per-service before/after photo tallies for a job:
+    {task_id: {before, after, done, first_at, last_at, by[]}}. `done` means it
+    has at least one before AND one after photo. first_at/last_at bound the work
+    (start = first photo, end = last)."""
+    rows = (db.query(JobPhoto.job_task_id, JobPhoto.phase, JobPhoto.uploaded_at, JobPhoto.uploaded_by)
+              .filter(JobPhoto.scheduled_job_id == job_id, JobPhoto.job_task_id != "")
+              .all())
+    out: dict = {}
+    for task_id, phase, uploaded_at, uploaded_by in rows:
+        st = out.setdefault(task_id, {"before": 0, "after": 0, "first_at": "", "last_at": "", "_by": set()})
+        if phase == "before":
+            st["before"] += 1
+        elif phase == "after":
+            st["after"] += 1
+        if uploaded_at:
+            if not st["first_at"] or uploaded_at < st["first_at"]:
+                st["first_at"] = uploaded_at
+            if not st["last_at"] or uploaded_at > st["last_at"]:
+                st["last_at"] = uploaded_at
+        if uploaded_by:
+            st["_by"].add(uploaded_by)
+    for st in out.values():
+        st["done"] = st["before"] > 0 and st["after"] > 0
+        st["by"] = sorted(st.pop("_by"))
+    return out
+
+
+def _recompute_job_completion(db, job_id: str) -> None:
+    """Flip tasks / the job to complete based on before+after photos. A service
+    is complete once it has ≥1 before and ≥1 after photo; the job is complete
+    when every one of its tasks is. Best-effort — swallows errors so it never
+    breaks a photo upload."""
+    try:
+        tasks = db.query(JobTask).filter(JobTask.scheduled_job_id == job_id).all()
+        if not tasks:
+            return
+        status = _service_photo_status(db, job_id)
+        changed = False
+        all_done = True
+        for t in tasks:
+            done = status.get(t.id, {}).get("done", False)
+            if done and t.status != "complete":
+                t.status = "complete"
+                t.completed_at = t.completed_at or _now()
+                t.updated_at = _now()
+                changed = True
+            if not done:
+                all_done = False
+        if all_done:
+            job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+            if job and job.status not in ("completed", "cancelled"):
+                job.status = "completed"
+                job.completed_at = job.completed_at or _now()
+                job.updated_at = _now()
+                changed = True
+        if changed:
+            db.commit()
+    except Exception as e:
+        logger.warning(f"job completion recompute failed (non-fatal): {e}")
+        db.rollback()
+
+
+@router.get("/schedule/jobs/{job_id}/my-tasks")
+def list_my_job_tasks(job_id: str, user: dict = Depends(get_current_user)):
+    """Services on a job that the calling worker is assigned to, each with its
+    before/after photo status. Admin/VA (or see_all_jobs) get every service on
+    the job so they can preview/monitor."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        tasks = (db.query(JobTask)
+                   .filter(JobTask.scheduled_job_id == job_id)
+                   .order_by(JobTask.sort_order).all())
+        role = (user.get("role") or "").lower()
+        is_staff = role in ("admin", "va") or bool(user.get("see_all_jobs"))
+        emp_id = (user.get("employee_id") or "").strip()
+        if not is_staff and emp_id and tasks:
+            mine = {r.job_task_id for r in db.query(CrewAssignment.job_task_id)
+                    .filter(CrewAssignment.employee_id == emp_id,
+                            CrewAssignment.job_task_id.in_([t.id for t in tasks])).all()}
+            tasks = [t for t in tasks if t.id in mine]
+        status = _service_photo_status(db, job_id)
+        out = []
+        for t in tasks:
+            st = status.get(t.id, {})
+            out.append({
+                "id": t.id,
+                "task_type": t.task_type,
+                "task_label": TASK_LABEL.get(t.task_type, t.task_type.title()),
+                "emoji": TASK_EMOJI.get(t.task_type, ""),
+                "status": t.status or "pending",
+                "before_count": st.get("before", 0),
+                "after_count": st.get("after", 0),
+                "done": st.get("done", False),
+                "started_at": st.get("first_at", ""),
+                "ended_at": st.get("last_at", ""),
+            })
+        return {"tasks": out}
+    finally:
+        db.close()
+
+
+def _job_crew_names(db, job_id: str) -> list[str]:
+    """Everyone on a job: job-level crew (JobAssignment) ∪ per-service crew
+    (CrewAssignment on the job's tasks)."""
+    emp_ids = {r.employee_id for r in db.query(JobAssignment.employee_id)
+               .filter(JobAssignment.scheduled_job_id == job_id).all()}
+    task_ids = [t.id for t in db.query(JobTask.id).filter(JobTask.scheduled_job_id == job_id).all()]
+    if task_ids:
+        for r in db.query(CrewAssignment.employee_id).filter(CrewAssignment.job_task_id.in_(task_ids)).all():
+            emp_ids.add(r.employee_id)
+    if not emp_ids:
+        return []
+    names = []
+    for e in db.query(Employee).filter(Employee.id.in_(emp_ids)).all():
+        nm = (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip()
+        if nm:
+            names.append(nm)
+    return sorted(names)
+
+
+@router.get("/schedule/pm-completed")
+def pm_completed_jobs(start: str = Query(""), end: str = Query(""),
+                      user: dict = Depends(require_perm("assign_crew"))):
+    """Project-Manager "Completed Jobs" view. Completed jobs in a date window
+    (default: last 30 days), each with its services' before/after photos, the
+    start (first photo) and end (last photo) times, and the crew. Photo bytes
+    are NOT included — the frontend streams thumbnails per id (egress-safe)."""
+    del user
+    db = get_db()
+    try:
+        e = (end or "").strip() or _ct_today_iso()
+        s = (start or "").strip() or (date_cls.fromisoformat(e) - timedelta(days=30)).isoformat()
+        rows = (db.query(ScheduledJob.id, ScheduledJob.customer_name, ScheduledJob.address,
+                         ScheduledJob.job_date, ScheduledJob.completed_at)
+                  .filter(ScheduledJob.status == "completed",
+                          ScheduledJob.job_date >= s, ScheduledJob.job_date <= e)
+                  .order_by(ScheduledJob.job_date.desc()).all())
+        job_ids = [r.id for r in rows]
+        if not job_ids:
+            return {"jobs": []}
+
+        # Tasks per job.
+        tasks_by_job: dict = {}
+        for t in db.query(JobTask).filter(JobTask.scheduled_job_id.in_(job_ids)).order_by(JobTask.sort_order).all():
+            tasks_by_job.setdefault(t.scheduled_job_id, []).append(t)
+
+        # Service photos per (job, task, phase) — metadata only.
+        photos_by_task: dict = {}
+        pr = (db.query(JobPhoto.id, JobPhoto.scheduled_job_id, JobPhoto.job_task_id,
+                       JobPhoto.phase, JobPhoto.uploaded_at, JobPhoto.uploaded_by, JobPhoto.mime)
+                .filter(JobPhoto.scheduled_job_id.in_(job_ids), JobPhoto.job_task_id != "")
+                .order_by(JobPhoto.uploaded_at.asc()).all())
+        for p in pr:
+            photos_by_task.setdefault(p.job_task_id, {"before": [], "after": []})
+            bucket = "before" if p.phase == "before" else "after" if p.phase == "after" else None
+            if bucket:
+                photos_by_task[p.job_task_id][bucket].append(
+                    {"id": p.id, "uploaded_at": p.uploaded_at or "", "uploaded_by": p.uploaded_by or "",
+                     "mime": p.mime or "image/jpeg"})
+
+        out = []
+        for r in rows:
+            services = []
+            job_first, job_last = "", ""
+            for t in tasks_by_job.get(r.id, []):
+                ph = photos_by_task.get(t.id, {"before": [], "after": []})
+                allp = ph["before"] + ph["after"]
+                stamps = [x["uploaded_at"] for x in allp if x["uploaded_at"]]
+                first = min(stamps) if stamps else ""
+                last = max(stamps) if stamps else ""
+                if first and (not job_first or first < job_first):
+                    job_first = first
+                if last and (not job_last or last > job_last):
+                    job_last = last
+                by = sorted({x["uploaded_by"] for x in allp if x["uploaded_by"]})
+                services.append({
+                    "task_id": t.id,
+                    "task_type": t.task_type,
+                    "task_label": TASK_LABEL.get(t.task_type, t.task_type.title()),
+                    "emoji": TASK_EMOJI.get(t.task_type, ""),
+                    "before": ph["before"],
+                    "after": ph["after"],
+                    "started_at": first,
+                    "ended_at": last,
+                    "by": by,
+                    "done": len(ph["before"]) > 0 and len(ph["after"]) > 0,
+                })
+            out.append({
+                "id": r.id,
+                "customer_name": r.customer_name or "",
+                "address": r.address or "",
+                "job_date": r.job_date or "",
+                "completed_at": r.completed_at or "",
+                "crew": _job_crew_names(db, r.id),
+                "started_at": job_first,
+                "ended_at": job_last,
+                "services": services,
+            })
+        return {"jobs": out}
+    finally:
+        db.close()
+
+
+@router.post("/schedule/jobs/{job_id}/almost-done")
+def notify_almost_done(job_id: str, user: dict = Depends(get_current_user)):
+    """Crew taps "30-minute notification" → SMS Alan + Edward that the job is
+    ~30 minutes from finishing. Carries who tapped it, the customer/job, the
+    full crew on the job, and the time sent (Central)."""
+    db = get_db()
+    try:
+        j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+        if not j:
+            raise HTTPException(404, "Job not found")
+        _assert_user_assigned_or_staff(db, user, job_id)
+        worker_name = _resolve_worker_name(db, user) or "A crew member"
+        customer = (j.customer_name or "the customer").strip()
+        address = (j.address or "").strip()
+        crew = _job_crew_names(db, job_id)
+        ct = datetime.now(timezone.utc) - timedelta(hours=5)  # CT (UTC-5)
+        now_ct = ct.strftime("%I:%M %p").lstrip("0")
+        msg = (
+            f"⏱️ 30-min heads-up from {worker_name}\n"
+            f"{customer}" + (f" — {address}" if address else "") + "\n"
+            f"~30 minutes from finishing.\n"
+            f"Crew: {', '.join(crew) if crew else worker_name}\n"
+            f"Sent {now_ct} CT"
+        )
+        settings = get_settings()
+        sent = 0
+        for label, cid in (("alan", settings.owner_ghl_contact_id),
+                           ("edward", settings.edward_ghl_contact_id)):
+            if not cid:
+                continue
+            try:
+                ghl.send_sms(cid, msg)
+                sent += 1
+            except Exception as e:
+                logger.warning(f"almost-done SMS to {label} failed (non-fatal): {e}")
+        return {"status": "sent", "recipients": sent}
     finally:
         db.close()
 
@@ -1282,6 +1552,7 @@ class MaterialsBody(BaseModel):
     color_choice: str | None = None         # stain color (crew can set if PM didn't)
     stain_assigned: float | None = None     # stain ASSIGNED → gallons_estimate
     package_tier: str | None = None         # essential | signature | legacy | custom
+    customer_question_notes: str | None = None  # "Customer Question checklist" free text
 
 
 @router.post("/schedule/jobs/{job_id}/materials")
@@ -1325,6 +1596,8 @@ def update_job_materials(
             j.bleach_gallons = body.bleach_gallons
         if body.inspection_notes is not None:
             j.inspection_notes = body.inspection_notes
+        if body.customer_question_notes is not None:
+            j.customer_question_notes = body.customer_question_notes
         if body.color_choice is not None:
             j.color_choice = body.color_choice
         if body.stain_assigned is not None:
@@ -1434,6 +1707,7 @@ def _assert_user_assigned_or_staff(db, user: dict, job_id: str) -> None:
     emp_id = (user.get("employee_id") or "").strip()
     if not emp_id:
         raise HTTPException(403, "No employee record linked to this user")
+    # Assigned at the job level (JobAssignment) …
     assignment = (
         db.query(JobAssignment)
         .filter(
@@ -1442,8 +1716,19 @@ def _assert_user_assigned_or_staff(db, user: dict, job_id: str) -> None:
         )
         .first()
     )
-    if not assignment:
-        raise HTTPException(403, "You're not assigned to this job")
+    if assignment:
+        return
+    # … or at the service level (CrewAssignment on any of the job's tasks). PM HQ
+    # can put a worker on a specific service without job-level crew.
+    task_ids = [t.id for t in db.query(JobTask.id).filter(JobTask.scheduled_job_id == job_id).all()]
+    if task_ids:
+        ca = (db.query(CrewAssignment)
+                .filter(CrewAssignment.employee_id == emp_id,
+                        CrewAssignment.job_task_id.in_(task_ids))
+                .first())
+        if ca:
+            return
+    raise HTTPException(403, "You're not assigned to this job")
 
 
 @router.post("/schedule/jobs/{job_id}/start")

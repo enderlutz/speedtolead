@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     olga_ghl_contact_id: str = ""   # Olga - WhatsApp
     fragne_ghl_contact_id: str = "" # Fragne - SMS
     pm_ghl_contact_id: str = ""     # PM - Crew App "wrapping up" alerts (falls back to owner)
+    edward_ghl_contact_id: str = "" # Edward - "30-min / almost done" crew alerts (SMS)
 
     # Labels
     ghl_location_1_label: str = "Cypress"
