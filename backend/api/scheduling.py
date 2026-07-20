@@ -11,7 +11,7 @@ import uuid
 import logging
 from datetime import datetime, timezone, date as date_cls, timedelta
 from typing import Any
-from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import or_
@@ -1455,11 +1455,53 @@ def pm_completed_jobs(start: str = Query(""), end: str = Query(""),
         db.close()
 
 
+_edward_contact_cache: dict = {}
+
+
+def _resolve_edward_contact_id() -> str:
+    """Edward's GHL contact for the 30-min alert. Prefers an explicit
+    edward_ghl_contact_id; otherwise resolves his phone to a contact via GHL
+    upsert (deduped by phone) and caches the id for the process lifetime."""
+    s = get_settings()
+    if s.edward_ghl_contact_id:
+        return s.edward_ghl_contact_id
+    phone = (s.edward_phone or "").strip()
+    if not phone:
+        return ""
+    if _edward_contact_cache.get(phone):
+        return _edward_contact_cache[phone]
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    e164 = phone if phone.startswith("+") else (f"+1{digits}" if len(digits) == 10 else f"+{digits}")
+    try:
+        cid = ghl.upsert_contact(s.ghl_location_id, name="Edward", phone=e164)
+        if cid:
+            _edward_contact_cache[phone] = cid
+        return cid or ""
+    except Exception as e:
+        logger.warning(f"resolve Edward contact failed (non-fatal): {e}")
+        return ""
+
+
+def _send_almost_done(msg: str) -> None:
+    """Fire the 30-min heads-up to Alan + Edward out-of-band so the crew's tap
+    returns instantly. Best-effort — each send is logged, never raised."""
+    settings = get_settings()
+    targets = [("alan", settings.owner_ghl_contact_id), ("edward", _resolve_edward_contact_id())]
+    for label, cid in targets:
+        if not cid:
+            continue
+        try:
+            ghl.send_sms(cid, msg)
+        except Exception as e:
+            logger.warning(f"almost-done SMS to {label} failed (non-fatal): {e}")
+
+
 @router.post("/schedule/jobs/{job_id}/almost-done")
-def notify_almost_done(job_id: str, user: dict = Depends(get_current_user)):
+def notify_almost_done(job_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     """Crew taps "30-minute notification" → SMS Alan + Edward that the job is
     ~30 minutes from finishing. Carries who tapped it, the customer/job, the
-    full crew on the job, and the time sent (Central)."""
+    full crew on the job, and the time sent (Central). Sends fire in the
+    background so the tap returns immediately."""
     db = get_db()
     try:
         j = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
@@ -1480,17 +1522,10 @@ def notify_almost_done(job_id: str, user: dict = Depends(get_current_user)):
             f"Sent {now_ct} CT"
         )
         settings = get_settings()
-        sent = 0
-        for label, cid in (("alan", settings.owner_ghl_contact_id),
-                           ("edward", settings.edward_ghl_contact_id)):
-            if not cid:
-                continue
-            try:
-                ghl.send_sms(cid, msg)
-                sent += 1
-            except Exception as e:
-                logger.warning(f"almost-done SMS to {label} failed (non-fatal): {e}")
-        return {"status": "sent", "recipients": sent}
+        recipients = (1 if settings.owner_ghl_contact_id else 0) + \
+                     (1 if (settings.edward_ghl_contact_id or settings.edward_phone) else 0)
+        background_tasks.add_task(_send_almost_done, msg)
+        return {"status": "sent", "recipients": recipients}
     finally:
         db.close()
 

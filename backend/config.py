@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     fragne_ghl_contact_id: str = "" # Fragne - SMS
     pm_ghl_contact_id: str = ""     # PM - Crew App "wrapping up" alerts (falls back to owner)
     edward_ghl_contact_id: str = "" # Edward - "30-min / almost done" crew alerts (SMS)
+    edward_phone: str = "+12817449324"  # Edward's phone — resolved to a GHL contact when no contact_id is set
 
     # Labels
     ghl_location_1_label: str = "Cypress"
