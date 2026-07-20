@@ -69,11 +69,14 @@ function DivisionSwitcher() {
 //   - AI Fence Est. ("/ai-fence")  — internal dev tool
 // `perm` (if set) is the permission key that gates this item — visible only
 // when the user has it. `restrictTo` is the legacy fragned-only escape hatch.
-const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string }[] = [
+// `divisions` (if set) restricts the item to those divisions (fence | brick).
+// Items without it show in every division.
+const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; restrictTo?: string; restrictToAny?: string[]; perm?: string; divisions?: Division[] }[] = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard" },
   { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard" },
-  { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads" },
-  { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads" },
+  { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
+  { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
+  { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
   // { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" }, // hidden 2026-07-14 (page/route kept)
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07
@@ -226,6 +229,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-3 mb-2">Menu</p>
           {NAV_ITEMS.filter(item => {
             const u = getCurrentUser();
+            // Division scope — hide items not meant for the active division.
+            if (item.divisions && !item.divisions.includes(getDivision())) return false;
             if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
             if (item.perm) return hasPerm(item.perm);

@@ -9,6 +9,7 @@ import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import LeadsV2 from "@/pages/LeadsV2";
 import LeadsB from "@/pages/LeadsB";
+import LeadsBrick from "@/pages/LeadsBrick";
 import LeadsPaintingUpsell from "@/pages/LeadsPaintingUpsell";
 import LeadDetail from "@/pages/LeadDetail";
 import SentLog from "@/pages/SentLog";
@@ -164,6 +165,7 @@ function AppLayout() {
               <Route path="/daily-tasks" element={<RequireView view="dashboard"><DailyTasks /></RequireView>} />
               <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
               <Route path="/leads-b" element={<RequireView view="leads"><LeadsB /></RequireView>} />
+              <Route path="/leads-brick" element={<RequireView view="leads"><LeadsBrick /></RequireView>} />
               <Route path="/leads/painting-upsell" element={<RequireView view="painting_upsell"><LeadsPaintingUpsell /></RequireView>} />
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
               <Route path="/leads/:id" element={<RequireLeadDetail><LeadDetail /></RequireLeadDetail>} />
