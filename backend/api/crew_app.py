@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from database import get_db, Employee, ScheduledJob, Lead, JobTask, CrewAssignment, TimeSegment, JobAssignment
 from api.auth import require_staff, require_admin
 from api.permissions import require_perm
+from api.divisions import get_division
 from services.ghl import send_sms
 from config import get_settings
 
@@ -615,12 +616,14 @@ def shift_day(body: ShiftDayBody, user: dict = Depends(require_staff)):
 
 
 @router.get("/crew-app/pm-board")
-def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("assign_crew"))):
+def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("assign_crew")),
+             division: str = Depends(get_division)):
     """Job-centric assignment board for the Project Manager HQ. Returns jobs in
     the [start, end] date window (Central; empty end = open-ended future), each
     with its JOB-LEVEL crew (JobAssignment) and its TASKS (JobTask) + per-task
     assignments (CrewAssignment: one primary + optional backups). Plus the
-    active-crew roster for the pickers. Column-scoped job query (no BLOBs)."""
+    active-crew roster for the pickers. Column-scoped job query (no BLOBs).
+    Scoped to the active dashboard division."""
     del user
     db = get_db()
     try:
@@ -632,7 +635,8 @@ def pm_board(start: str = "", end: str = "", user: dict = Depends(require_perm("
             ScheduledJob.status, ScheduledJob.color_choice, ScheduledJob.fence_sides_override,
             ScheduledJob.additional_sides_text, ScheduledJob.gallons_estimate,
             ScheduledJob.stain_gallons_used, ScheduledJob.bleach_gallons, ScheduledJob.color_gallons,
-        ).filter(ScheduledJob.status != "cancelled", ScheduledJob.job_date >= s)
+        ).filter(ScheduledJob.status != "cancelled", ScheduledJob.division == division,
+                 ScheduledJob.job_date >= s)
         if e:
             jq = jq.filter(ScheduledJob.job_date <= e)
         job_rows = jq.order_by(ScheduledJob.job_date, ScheduledJob.arrival_time).all()

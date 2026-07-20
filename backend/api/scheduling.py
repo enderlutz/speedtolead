@@ -585,9 +585,13 @@ def list_scheduled_jobs(
         # list view — admin Calendar, MySchedule, and the worker map all
         # filter them out. To resurrect a cancelled job, flip its status
         # back via direct DB write or the PUT update endpoint.
-        q = (db.query(ScheduledJob)
-               .filter(ScheduledJob.status != "cancelled",
-                       ScheduledJob.division == division))  # active dashboard division
+        q = db.query(ScheduledJob).filter(ScheduledJob.status != "cancelled")
+        # Office/admin views scope to the active dashboard division. Workers,
+        # though, see ALL of their own assigned jobs regardless of division —
+        # crew is shared across divisions, so a worker on a brick job must still
+        # see it even though their app is always the (default) fence division.
+        if role != "worker":
+            q = q.filter(ScheduledJob.division == division)
         if start:
             q = q.filter(ScheduledJob.job_date >= start)
         if end:
@@ -1379,7 +1383,8 @@ def _job_crew_names(db, job_id: str) -> list[str]:
 
 @router.get("/schedule/pm-completed")
 def pm_completed_jobs(start: str = Query(""), end: str = Query(""),
-                      user: dict = Depends(require_perm("assign_crew"))):
+                      user: dict = Depends(require_perm("assign_crew")),
+                      division: str = Depends(get_division)):
     """Project-Manager "Completed Jobs" view. Completed jobs in a date window
     (default: last 30 days), each with its services' before/after photos, the
     start (first photo) and end (last photo) times, and the crew. Photo bytes
@@ -1391,7 +1396,7 @@ def pm_completed_jobs(start: str = Query(""), end: str = Query(""),
         s = (start or "").strip() or (date_cls.fromisoformat(e) - timedelta(days=30)).isoformat()
         rows = (db.query(ScheduledJob.id, ScheduledJob.customer_name, ScheduledJob.address,
                          ScheduledJob.job_date, ScheduledJob.completed_at)
-                  .filter(ScheduledJob.status == "completed",
+                  .filter(ScheduledJob.status == "completed", ScheduledJob.division == division,
                           ScheduledJob.job_date >= s, ScheduledJob.job_date <= e)
                   .order_by(ScheduledJob.job_date.desc()).all())
         job_ids = [r.id for r in rows]
@@ -2007,6 +2012,7 @@ def google_events(
     start: str = Query(...),
     end: str = Query(...),
     user: dict = Depends(get_current_user),
+    division: str = Depends(get_division),
 ):
     """Pull events directly from Alan's Google Calendar for the given range
     (YYYY-MM-DD, treated as inclusive). Used by the Calendar page so jobs
@@ -2020,6 +2026,11 @@ def google_events(
         worker's assigned ScheduledJobs. Descriptions are sanitized
         (price + proposal URL + sales vocab stripped) before return.
         Personal events (Alan's lunch, vendor meetings) never leak."""
+    # Alan's Google Calendar is the fence company calendar (not division-tagged).
+    # In brick mode we don't overlay it, so no fence events leak — the brick
+    # calendar shows only brick ScheduledJobs.
+    if division == "brick":
+        return {"events": []}
     db = get_db()
     try:
         time_min = f"{start}T00:00:00Z"
