@@ -1903,6 +1903,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** PM/admin only — set the crew's internal date/time/duration (never touches
+   *  the Google invite) and the private admin↔PM notes. */
+  updateJobPmInternal: (
+    jobId: string,
+    body: { internal_job_date?: string; internal_arrival_time?: string; internal_duration_hours?: number; pm_private_notes?: string },
+  ) =>
+    request<ScheduledJob>(`/api/schedule/jobs/${jobId}/pm-internal`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   // --- Estimator feature ---
   getEstimatorSchedule: (weekStart: string, estimatorUserId?: string) =>
@@ -3385,6 +3395,12 @@ export interface ScheduledJob {
   job_date: string;
   arrival_time: string;
   estimated_duration_hours: number;
+  // PM internal-schedule override (crew works to these when set; the customer
+  // invite keeps job_date/arrival_time). "" / 0 = no override.
+  internal_job_date?: string;
+  internal_arrival_time?: string;
+  internal_duration_hours?: number;
+  pm_private_notes?: string;   // admin ↔ PM only (absent for workers)
   address: string;
   zip_code: string;
   lat?: number;

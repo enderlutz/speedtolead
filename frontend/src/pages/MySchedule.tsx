@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { api, getCurrentUser, type ScheduledJob, type WeatherDay, type WorkerShift } from "@/lib/api";
+import { api, getCurrentUser, hasPerm, type ScheduledJob, type WeatherDay, type WorkerShift } from "@/lib/api";
 // TEMPORARY FAKE DATA (employeefragne test account only) — see src/lib/fakeSchedule.ts
 import { isFakeScheduleUser, isFakeJobId, buildFakeJobs } from "@/lib/fakeSchedule";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check } from "lucide-react";
+import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check, ChevronDown, Lock, CalendarClock } from "lucide-react";
 import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 
@@ -368,6 +368,102 @@ function ServicePhotoSection({
   );
 }
 
+// Effective (crew-facing) schedule = the PM's internal override when set, else
+// the customer-invite values. The Google invite always keeps job_date/arrival_time.
+function effArrival(job: ScheduledJob): string { return job.internal_arrival_time || job.arrival_time; }
+function hasInternal(job: ScheduledJob): boolean {
+  return !!(job.internal_arrival_time || job.internal_job_date || (job.internal_duration_hours || 0) > 0);
+}
+function shortDate(ymd: string): string {
+  if (!ymd) return "";
+  const d = new Date(ymd + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+// PM/admin-only controls on a job card: an INTERNAL schedule override (date /
+// time / duration the crew works to, without touching the customer's Google
+// invite) + private notes shared only between the Admin and the PM. Renders
+// nothing for anyone without assign_crew (workers, estimators).
+function PmJobControls({ job, onSaved }: { job: ScheduledJob; onSaved: (j: ScheduledJob) => void }) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(job.internal_job_date || "");
+  const [time, setTime] = useState(job.internal_arrival_time || "");
+  const [dur, setDur] = useState(job.internal_duration_hours ? String(job.internal_duration_hours) : "");
+  const [notes, setNotes] = useState(job.pm_private_notes || "");
+  const [saving, setSaving] = useState(false);
+
+  if (!hasPerm("assign_crew") || isFakeJobId(job.id)) return null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await api.updateJobPmInternal(job.id, {
+        internal_job_date: date.trim(),
+        internal_arrival_time: time.trim(),
+        internal_duration_hours: parseFloat(dur) || 0,
+        pm_private_notes: notes,
+      });
+      onSaved(updated);
+      toast.success("Internal schedule saved");
+      setOpen(false);
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't save");
+    } finally { setSaving(false); }
+  };
+  const revert = async () => {
+    setDate(""); setTime(""); setDur("");
+    setSaving(true);
+    try {
+      const updated = await api.updateJobPmInternal(job.id, {
+        internal_job_date: "", internal_arrival_time: "", internal_duration_hours: 0,
+      });
+      onSaved(updated);
+      toast.success("Reverted to the invite time");
+    } catch (e: any) { toast.error(e?.message || "Couldn't revert"); }
+    finally { setSaving(false); }
+  };
+
+  const inputCls = "mt-0.5 w-full text-sm rounded border bg-background px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-primary/40";
+  return (
+    <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/50 p-2">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between gap-2 text-xs font-semibold text-amber-800">
+        <span className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> PM controls · internal time &amp; private notes</span>
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2.5">
+          <p className="text-[10px] text-muted-foreground flex items-start gap-1">
+            <CalendarClock className="h-3 w-3 mt-0.5 shrink-0" />
+            Internal only — the customer's calendar invite ({shortDate(job.job_date)} {formatArrivalTime(job.arrival_time)}) is not changed.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="text-[11px] text-muted-foreground">Date
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+            </label>
+            <label className="text-[11px] text-muted-foreground">Time
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+            </label>
+            <label className="text-[11px] text-muted-foreground">Hours
+              <input type="number" step="0.5" min="0" inputMode="decimal" value={dur}
+                placeholder={job.estimated_duration_hours ? String(job.estimated_duration_hours) : "0"}
+                onChange={(e) => setDur(e.target.value)} className={inputCls} />
+            </label>
+          </div>
+          <label className="text-[11px] text-muted-foreground block">Private notes (Admin ↔ PM — workers never see these)
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Internal notes for this job…"
+              className="mt-0.5 w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40" />
+          </label>
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+            {hasInternal(job) && <Button size="sm" variant="ghost" onClick={revert} disabled={saving}>Revert time to invite</Button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TodayJobCard({
   job, onMaterialsSaved,
 }: {
@@ -457,9 +553,15 @@ function TodayJobCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-semibold text-base truncate">{job.customer_name || "(no name)"}</div>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground mt-0.5">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5 flex-wrap">
               <Clock className="h-3.5 w-3.5 shrink-0" />
-              {formatArrivalTime(job.arrival_time)}
+              {formatArrivalTime(effArrival(job))}
+              {job.internal_job_date && job.internal_job_date !== job.job_date && (
+                <span className="font-medium text-foreground">· {shortDate(job.internal_job_date)}</span>
+              )}
+              {hasInternal(job) && (
+                <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 font-medium" title="Internal PM schedule — customer invite unchanged">Internal</span>
+              )}
             </div>
           </div>
           {statusBadge(job.status)}
@@ -599,6 +701,9 @@ function TodayJobCard({
           </div>
         )}
 
+        {/* PM/admin: internal schedule override + private notes (hidden for workers) */}
+        <PmJobControls job={job} onSaved={onMaterialsSaved} />
+
         {job.status === "completed" && job.completed_at && (
           <div className="text-xs text-green-700 text-center pt-1 font-medium">
             ✓ Completed{" "}
@@ -614,20 +719,27 @@ function TodayJobCard({
 
 // Compact read-only card for Upcoming/Past tabs. Whole card links to the
 // SOP page (which renders read-only until the job's actual day).
-function ListJobCard({ job }: { job: ScheduledJob }) {
+function ListJobCard({ job, onSaved }: { job: ScheduledJob; onSaved: (j: ScheduledJob) => void }) {
   return (
+    <div className="space-y-1.5">
     <Link to={`/sops/job/${job.id}`} className="block">
       <Card className="overflow-hidden hover:bg-muted/30 transition-colors">
         <CardContent className="p-3">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-sm truncate">{job.customer_name || "(no name)"}</span>
                 {statusBadge(job.status)}
+                {hasInternal(job) && (
+                  <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 font-medium" title="Internal PM schedule — customer invite unchanged">Internal</span>
+                )}
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                 <Clock className="h-3 w-3 shrink-0" />
-                {formatArrivalTime(job.arrival_time)}
+                {formatArrivalTime(effArrival(job))}
+                {job.internal_job_date && job.internal_job_date !== job.job_date && (
+                  <span className="ml-1 font-medium text-foreground">· {shortDate(job.internal_job_date)}</span>
+                )}
                 {job.address && (
                   <>
                     <span className="mx-1">·</span>
@@ -663,6 +775,9 @@ function ListJobCard({ job }: { job: ScheduledJob }) {
         </CardContent>
       </Card>
     </Link>
+    {/* PM/admin: internal schedule override + private notes (hidden for workers) */}
+    <PmJobControls job={job} onSaved={onSaved} />
+    </div>
   );
 }
 
@@ -940,7 +1055,7 @@ export default function MySchedule() {
                   </h2>
                   <div className="space-y-2">
                     {group.jobs.map((job) => (
-                      <ListJobCard key={job.id} job={job} />
+                      <ListJobCard key={job.id} job={job} onSaved={handleMaterialsSaved} />
                     ))}
                   </div>
                 </div>
