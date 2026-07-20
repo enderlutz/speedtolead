@@ -64,6 +64,7 @@ class _PipelineCfg:
     stage_order: dict              # stage_id -> index, for the backward-move guard
     estimate_sent_order: int       # index of the "estimate sent" stage
     stage_name_by_id: dict         # id -> name, for log messages
+    division: str = "fence"        # company division these leads belong to (fence | brick)
 
 
 _CFG_A = _PipelineCfg(
@@ -565,13 +566,24 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                     lead_id = str(uuid.uuid4())
                     now = _now()
 
-                    low, high, breakdown, meta = calculate_estimate("fence_staining", form_data, postal)
-                    est_priority = meta.get("priority") or priority
-                    approval_status = meta.get("approval_status", "red")
-                    approval_reason = meta.get("approval_reason", "")
-                    kanban_col = determine_kanban_column(
-                        {**form_data, "address": full_address}, approval_status, postal, approval_reason
-                    )
+                    if cfg.division == "brick":
+                        # Brick leads skip the fence auto-estimate — brick pricing
+                        # is a separate later phase. They land on New Lead with no
+                        # price; VAs work them manually.
+                        service_type = "brick_staining"
+                        low, high, breakdown, meta = 0, 0, {}, {}
+                        est_priority = priority
+                        approval_status, approval_reason = "pending", ""
+                        kanban_col = "new_lead"
+                    else:
+                        service_type = "fence_staining"
+                        low, high, breakdown, meta = calculate_estimate("fence_staining", form_data, postal)
+                        est_priority = meta.get("priority") or priority
+                        approval_status = meta.get("approval_status", "red")
+                        approval_reason = meta.get("approval_reason", "")
+                        kanban_col = determine_kanban_column(
+                            {**form_data, "address": full_address}, approval_status, postal, approval_reason
+                        )
 
                     lead = Lead(
                         id=lead_id,
@@ -583,11 +595,12 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                         contact_email=email,
                         address=full_address,
                         zip_code=postal,
-                        service_type="fence_staining",
+                        service_type=service_type,
                         status="archived" if already_sent else ("estimated" if low > 0 else "new"),
                         kanban_column="archived" if already_sent else kanban_col,
                         priority=est_priority,
                         pipeline_version=cfg.version,
+                        division=cfg.division,
                         form_data=json.dumps(form_data),
                         ghl_opportunity_id=opp.get("id", ""),
                         ghl_pipeline_stage_id=stage_id or "",
@@ -601,7 +614,7 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                     estimate = Estimate(
                         id=str(uuid.uuid4()),
                         lead_id=lead_id,
-                        service_type="fence_staining",
+                        service_type=service_type,
                         status="pending",
                         inputs=json.dumps({**form_data, **{f"_{k}": v for k, v in meta.items()}}),
                         breakdown=json.dumps(breakdown),
@@ -662,6 +675,20 @@ def poll_ghl_contacts():
     # Sequential pass (paced by the shared GHL rate-limit bucket).
     time.sleep(2)
     _sync_location(settings.ghl_location_id, settings.ghl_location_1_label, _CFG_B)
+
+    # Brick Staining division — off until a brick pipeline name is configured.
+    # Stage-agnostic: leads are created for every stage (1:1 GHL mirror) and
+    # stamped division="brick", so intake works before we know brick's stages.
+    brick_name = (settings.ghl_pipeline_brick_name or "").strip()
+    if brick_name:
+        cfg_brick = _PipelineCfg(
+            name=brick_name.lower(), version="brick", brand="brick",
+            board_label="Brick Leads", stage_order={}, estimate_sent_order=9999,
+            stage_name_by_id={}, division="brick",
+        )
+        brick_loc = (settings.ghl_pipeline_brick_location_id or "").strip() or settings.ghl_location_id
+        time.sleep(2)
+        _sync_location(brick_loc, "Brick", cfg_brick)
     # Woodlands disabled — no longer pulling leads from this location
     # time.sleep(10)
     # _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)

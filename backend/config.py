@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     ghl_pipeline_id: str = ""
     ghl_pipeline_id_2: str = ""
 
+    # Brick Staining division intake. Empty name = brick intake OFF (the poller
+    # skips it). Set to the brick GHL pipeline's name (case-insensitive substring
+    # match) to turn it on; leads it creates are stamped division="brick".
+    ghl_pipeline_brick_name: str = ""
+    ghl_pipeline_brick_location_id: str = ""  # empty → same Cypress location as fence (ghl_location_id)
+
     # GHL user ID — required by POST /contacts/{id}/notes (every note must
     # be attributed to a real GHL user). Find yours in GHL → My Profile.
     ghl_default_user_id: str = ""
