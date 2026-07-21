@@ -373,6 +373,8 @@ export interface Lead {
   status: string;
   kanban_column: string;
   priority: string;
+  /** Manual "top priority" star, admin-toggled. Visual flag only. */
+  starred?: boolean;
   pipeline_version: "v1" | "v2" | "v2b";
   ghl_pipeline_stage_id: string;
   /** Internal-only estimator routing: "" | "needed" | "scheduled". Not a GHL stage. */
@@ -517,6 +519,8 @@ export interface DailyTask {
   stage_id: string; // raw GHL pipeline stage id (drives the stage picker)
   stage_label: string;
   is_top_priority: boolean;
+  /** Manual "top priority" star, admin-toggled. Visual flag only. */
+  starred?: boolean;
   task_status: string; // "" | "waiting_updated_estimate"
   client_note: string; // connected to the lead's form_data.additional_notes
   called: boolean;
@@ -1145,6 +1149,9 @@ export const api = {
     request<Lead>(`/api/leads/${id}/archive`, { method: "POST" }),
   unarchiveLead: (id: string) =>
     request<Lead>(`/api/leads/${id}/unarchive`, { method: "POST" }),
+  /** Toggle a lead's top-priority star. Admin-only (server-enforced). */
+  setLeadStarred: (id: string, starred: boolean) =>
+    request<Lead>(`/api/leads/${id}/starred`, { method: "POST", body: JSON.stringify({ starred }) }),
   checkResponse: (id: string) =>
     request<{ new_count: number; messages: { direction: string; body: string }[] }>(
       `/api/leads/${id}/check-response`, { method: "POST" }

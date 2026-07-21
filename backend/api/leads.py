@@ -64,7 +64,7 @@ def _push_estimate_inputs_to_ghl(db, lead: Lead, form_data: dict) -> None:
             log.info(f"GHL push for {lead.id}: nothing to push, skipped={skipped}")
     except Exception as e:
         log.warning(f"GHL custom-field push for {lead.id} failed (non-fatal): {e}")
-from api.auth import get_current_user, require_staff
+from api.auth import get_current_user, require_staff, require_admin
 from api.divisions import get_division
 from config import get_settings
 
@@ -847,6 +847,33 @@ def unarchive_lead(lead_id: str):
         lead.kanban_column = "new_lead"
         lead.updated_at = _now()
         db.commit()
+        return lead.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+class StarredUpdate(BaseModel):
+    starred: bool
+
+
+@router.post("/leads/{lead_id}/starred")
+def set_lead_starred(lead_id: str, body: StarredUpdate, user: dict = Depends(require_admin)):
+    """Toggle a lead's 'top priority' star. Admin-only — VAs see the star but
+    can't change it. Visual flag only (does not reorder any queue)."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead.starred = bool(body.starred)
+        lead.updated_at = _now()
+        db.commit()
+        log_event(lead_id, "lead_starred", f"{'Starred' if body.starred else 'Unstarred'}: {lead.contact_name}")
         return lead.to_dict()
     except HTTPException:
         raise

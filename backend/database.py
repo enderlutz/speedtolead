@@ -45,6 +45,9 @@ class Lead(Base):
     status = Column(Text, default="new")
     kanban_column = Column(Text, default="new_lead")
     priority = Column(Text, default="MEDIUM")
+    # Manual "top priority" star, toggled by an admin from the Hit List. Purely a
+    # visual flag (does not reorder the queue). Distinct from `priority` above.
+    starred = Column(Boolean, default=False, nullable=False)
     pipeline_version = Column(Text, default="v1", nullable=False)
     # Company division this lead belongs to: "fence" (Sterling Fence Staining,
     # the default/original) or "brick" (Sterling Brick Staining). Scopes the
@@ -180,6 +183,7 @@ class Lead(Base):
             "status": self.status,
             "kanban_column": self.kanban_column,
             "priority": self.priority,
+            "starred": bool(self.starred),
             "pipeline_version": self.pipeline_version or "v1",
             "division": self.division or "fence",
             "ghl_pipeline_stage_id": self.ghl_pipeline_stage_id or "",
@@ -2886,6 +2890,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN pipeline_version TEXT NOT NULL DEFAULT 'v1'"))
         logger.info("Migration: added leads.pipeline_version (backfilled all rows to 'v1')")
+
+    if "starred" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN starred BOOLEAN NOT NULL DEFAULT FALSE"))
+        logger.info("Migration: added leads.starred (backfilled all rows to FALSE)")
 
     if "ghl_pipeline_stage_id" not in existing:
         with _engine.begin() as conn:
