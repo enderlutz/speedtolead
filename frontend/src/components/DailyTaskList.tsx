@@ -163,11 +163,12 @@ const OUTCOME_LABELS: Record<string, string> = {
   no_answer: "No answer",
   voicemail: "Left voicemail",
   voicemail_texted: "Left voicemail & texted",
+  hung_up: "Hung up on call",
   callback: "Callback requested",
   other: "Other",
 };
 const OUTCOMES: CallDispositionOutcome[] = [
-  "no_answer", "voicemail", "voicemail_texted", "callback", "objection_price", "objection_timing", "objection_spouse", "objection_hoa", "objection_more_estimates", "closed", "other",
+  "no_answer", "voicemail", "voicemail_texted", "hung_up", "callback", "objection_price", "objection_timing", "objection_spouse", "objection_hoa", "objection_more_estimates", "closed", "other",
 ];
 const ACTION_LABELS: Record<string, string> = { call: "Call back", text: "Send text", other: "Follow up" };
 
@@ -858,7 +859,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
 
       {!leadId && (
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <Tabs value={tab} onValueChange={(v) => {
+        <Tabs className="w-full sm:w-auto min-w-0" value={tab} onValueChange={(v) => {
           const next = v as TaskTab;
           // The "Today" tab must always open on the real current date, not
           // wherever the date navigator was last left.
@@ -866,12 +867,12 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
           setTab(next);
           setResolvedFilter("active");   // leaving the resolved-leads view
         }}>
-          <TabsList className="h-auto flex-wrap justify-start">
-            <TabsTrigger value="today">Untapped Leads ({counts.today})</TabsTrigger>
-            <TabsTrigger value="upcoming">Upcoming ({counts.upcoming})</TabsTrigger>
-            <TabsTrigger value="date">Today ({dateCount})</TabsTrigger>
-            <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsList className="h-8 w-full sm:w-auto max-w-full flex-nowrap justify-start overflow-x-auto">
+            <TabsTrigger value="today" className="flex-none whitespace-nowrap">Untapped Leads ({counts.today})</TabsTrigger>
+            <TabsTrigger value="upcoming" className="flex-none whitespace-nowrap">Upcoming ({counts.upcoming})</TabsTrigger>
+            <TabsTrigger value="date" className="flex-none whitespace-nowrap">Today ({dateCount})</TabsTrigger>
+            <TabsTrigger value="all" className="flex-none whitespace-nowrap">All ({counts.all})</TabsTrigger>
+            <TabsTrigger value="activity" className="flex-none whitespace-nowrap">Activity</TabsTrigger>
           </TabsList>
         </Tabs>
         {tab !== "activity" && (
@@ -1585,12 +1586,13 @@ function ActivityLog() {
 }
 
 /** Follow-up form fields — shared by the log-call and reschedule modals. */
-function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDay, setAllDay, note, setNote }: {
+function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDay, setAllDay, note, setNote, hideNote }: {
   action: string; setAction: (v: string) => void;
   date: string; setDate: (v: string) => void;
   time: string; setTime: (v: string) => void;
   allDay: boolean; setAllDay: (v: boolean) => void;
   note: string; setNote: (v: string) => void;
+  hideNote?: boolean;
 }) {
   const inputCls = "mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
   return (
@@ -1623,10 +1625,12 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDa
           <span>All day (any time)</span>
         </label>
       </div>
-      <div>
-        <label className="text-xs font-semibold text-muted-foreground">What did the customer say? Any notes for the follow up call?</label>
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className={inputCls} />
-      </div>
+      {!hideNote && (
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground">What did the customer say? Any notes for the follow up call?</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className={inputCls} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1639,7 +1643,6 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   const [fuDate, setFuDate] = useState(todayYMD());
   const [fuTime, setFuTime] = useState("09:00");
   const [fuAllDay, setFuAllDay] = useState(true);   // default all-day — no need to pick a time per lead
-  const [fuNote, setFuNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Log call and Follow-up used to be separate buttons that mostly overlapped
@@ -1667,7 +1670,7 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
           time: fuAllDay ? "" : fuTime,
           all_day: fuAllDay,
           action_type: fuAction,
-          note: fuNote.trim(),
+          note: notes.trim(),
         });
       }
       toast.success(
@@ -1690,26 +1693,24 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
         <span className="text-xs text-muted-foreground font-normal">(uncheck to only set a reminder)</span>
       </label>
       {logCall && (
-        <>
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground">Outcome</label>
-            <select value={outcome} onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
-              {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="What did the customer say?" className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
-          </div>
-        </>
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground">Outcome</label>
+          <select value={outcome} onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+            {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
+          </select>
+        </div>
       )}
-      <label className="flex items-center gap-2 text-sm cursor-pointer pt-2 border-t">
-        <input type="checkbox" checked={scheduleFu} onChange={(e) => setScheduleFu(e.target.checked)} className="h-4 w-4 mt-2" />
-        <span className="mt-2">Schedule a follow-up</span>
+      <div>
+        <label className="text-xs font-semibold text-muted-foreground">What did the customer say? Any notes for the follow up call?</label>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="e.g. Deciding with spouse, call after 5pm" className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+      </div>
+      <label className="flex items-center gap-3 text-base font-medium cursor-pointer mt-2 rounded-lg border p-3.5 min-h-12 hover:bg-muted/40 transition-colors">
+        <input type="checkbox" checked={scheduleFu} onChange={(e) => setScheduleFu(e.target.checked)} className="h-5 w-5 shrink-0" />
+        <span>Schedule a follow-up</span>
       </label>
       {scheduleFu && (
         <div className="rounded-lg border bg-muted/30 p-2.5">
-          <FollowUpFields action={fuAction} setAction={setFuAction} date={fuDate} setDate={setFuDate} time={fuTime} setTime={setFuTime} allDay={fuAllDay} setAllDay={setFuAllDay} note={fuNote} setNote={setFuNote} />
+          <FollowUpFields action={fuAction} setAction={setFuAction} date={fuDate} setDate={setFuDate} time={fuTime} setTime={setFuTime} allDay={fuAllDay} setAllDay={setFuAllDay} note={notes} setNote={setNotes} hideNote />
         </div>
       )}
       <ModalFooter saving={saving} onClose={onClose} onSave={save} />
