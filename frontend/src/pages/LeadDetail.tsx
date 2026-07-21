@@ -63,6 +63,22 @@ const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-ba
 
 const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 
+// True below the `lg` breakpoint (single-column layout). Used to place a few
+// sections differently on phones without touching the desktop layout.
+function useIsMobile(query = "(max-width: 1023px)"): boolean {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setIsMobile(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return isMobile;
+}
+
 export default function LeadDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -70,6 +86,7 @@ export default function LeadDetail() {
   const { trainingModeOn, activeCall, startCall } = useTrainingMode();
   const [practicing, setPracticing] = useState(false);
   const [lead, setLead] = useState<LeadDetailType | null>(null);
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -1588,6 +1605,22 @@ export default function LeadDetail() {
             onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
           />
 
+          {/* Phone only: The Hit List sits right under "Send a custom PDF".
+              Desktop keeps it full-width below the grid (rendered there when
+              !isMobile). Only one instance mounts, so no double fetch. */}
+          {isMobile && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" /> The Hit List
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DailyTaskList leadId={lead.id} />
+              </CardContent>
+            </Card>
+          )}
+
           {/* Meta info */}
           <Card>
             <CardContent className="pt-4 text-xs space-y-1 text-muted-foreground">
@@ -1649,17 +1682,20 @@ export default function LeadDetail() {
 
           {/* The lead's Daily Task List row — the exact same row (stage picker,
               call log, notes, E/S/L prices, follow-up, actions) the VA sees on
-              the dashboard queue, mirrored here. */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                <MessageSquare className="h-4 w-4" /> The Hit List
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DailyTaskList leadId={lead.id} />
-            </CardContent>
-          </Card>
+              the dashboard queue, mirrored here. Desktop position; on phones
+              it's rendered up under "Send a custom PDF" instead. */}
+          {!isMobile && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" /> The Hit List
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DailyTaskList leadId={lead.id} />
+              </CardContent>
+            </Card>
+          )}
 
           {/* QuickBooks payments — restricted preview (allowlisted accounts only). */}
           {canSeeRevenue() && <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />}
