@@ -433,6 +433,30 @@ def seed_olga_estimator_access():
         db.close()
 
 
+def seed_geoconda_user():
+    """Create the Geoconda VA account if it doesn't exist. One-off addition per
+    client request (2026-07-20) — a second VA login. Plain 'va' role, same
+    access as the original olga account (no estimator override unless an admin
+    grants it later via the Permissions UI). Idempotent — never overwrites a
+    changed password."""
+    db = get_db()
+    try:
+        if db.query(User).filter(User.username == "Geoconda").first():
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="Geoconda",
+            display_name="Geoconda",
+            password_hash=bcrypt.hashpw("FenceCare5528#".encode(), bcrypt.gensalt()).decode(),
+            role="va",
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def seed_default_users():
     """Create default admin + VA users if none exist."""
     db = get_db()
