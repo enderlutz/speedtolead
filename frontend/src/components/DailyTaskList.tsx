@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type CallTally as CallTallyData } from "@/lib/api";
+import { api, getCurrentUser, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type CallTally as CallTallyData } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -10,7 +10,7 @@ import {
   Loader2, Phone, PhoneOff, Calendar, XCircle, RefreshCw, MessageSquare,
   CheckCircle2, Clock, CalendarClock, Search, X, AlertTriangle,
   CalendarDays, ChevronLeft, ChevronRight, User, ChevronDown, SlidersHorizontal,
-  PhoneCall, Sparkles,
+  PhoneCall, Sparkles, Star,
 } from "lucide-react";
 
 // V2 pipeline stage IDs.
@@ -692,6 +692,37 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
   useEffect(() => { try { localStorage.setItem("at_tasks_who", whoFilter); } catch { /* ignore */ } }, [whoFilter]);
   useEffect(() => { try { localStorage.setItem("at_tasks_date", dateYMD); } catch { /* ignore */ } }, [dateYMD]);
 
+  // Open a lead's detail page, first stashing which lead it was so we can scroll
+  // back to it when the user returns (see the restore effect below).
+  const openLead = useCallback((id: string) => {
+    try { sessionStorage.setItem("at_tasks_last_lead", id); } catch { /* ignore */ }
+    navigate(`/leads/${id}`);
+  }, [navigate]);
+
+  // Restore position: after the list loads, if we came back from a lead detail
+  // page, scroll that lead's card into view and flash it. Runs once per mount.
+  const didRestoreRef = useRef(false);
+  useEffect(() => {
+    if (leadId || loading || !tasks || didRestoreRef.current) return;
+    didRestoreRef.current = true;
+    let savedId: string | null = null;
+    try { savedId = sessionStorage.getItem("at_tasks_last_lead"); } catch { /* ignore */ }
+    if (!savedId) return;
+    try { sessionStorage.removeItem("at_tasks_last_lead"); } catch { /* ignore */ }
+    const id = savedId;
+    requestAnimationFrame(() => {
+      // Both the desktop table row and the mobile card carry data-lead-id; only
+      // one is visible (the other is display:none → no offsetParent).
+      const nodes = document.querySelectorAll(`[data-lead-id="${CSS.escape(id)}"]`);
+      const el = Array.from(nodes).find((n) => (n as HTMLElement).offsetParent !== null) as HTMLElement | undefined;
+      if (!el) return;
+      el.scrollIntoView({ block: "center", behavior: "auto" });
+      el.style.transition = "box-shadow 0.4s ease";
+      el.style.boxShadow = "0 0 0 2px rgb(59 130 246)";
+      setTimeout(() => { el.style.boxShadow = ""; }, 1800);
+    });
+  }, [leadId, loading, tasks]);
+
   const openSchedule = async (id: string) => {
     setBusyId(id);
     try {
@@ -1029,6 +1060,7 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
               {shown.map((t) => (
                 <tr
                   key={t.id}
+                  data-lead-id={t.id}
                   className={`border-b last:border-0 transition-colors ${
                     isWonStage(t.stage_id) ? "bg-green-50 hover:bg-green-100/70"
                       : t.is_new ? "bg-sky-50/70 hover:bg-sky-100/60"
@@ -1046,7 +1078,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   {/* Lead */}
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-1.5">
-                      <button onClick={() => navigate(`/leads/${t.id}`)} className="font-medium text-primary hover:underline text-left">
+                      {t.starred && <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 shrink-0" aria-label="Top priority" />}
+                      <button onClick={() => openLead(t.id)} className="font-medium text-primary hover:underline text-left">
                         {t.contact_name || "Lead"}
                       </button>
                       {t.pipeline_version === "v2b" && (
@@ -1196,12 +1229,13 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   ? `${carriedTint(t.days_waiting).rail} ${carriedTint(t.days_waiting).row}`
                   : "";
             return (
-              <div key={t.id} className={`rounded-xl border bg-background p-3 space-y-2.5 ${tint}`}>
+              <div key={t.id} data-lead-id={t.id} className={`rounded-xl border bg-background p-3 space-y-2.5 ${tint}`}>
                 {/* Header: name + badges + who-touched */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <button onClick={() => navigate(`/leads/${t.id}`)} className="font-semibold text-primary text-left text-[15px] leading-tight">
+                      {t.starred && <Star className="h-4 w-4 text-amber-400 fill-amber-400 shrink-0" aria-label="Top priority" />}
+                      <button onClick={() => openLead(t.id)} className="font-semibold text-primary text-left text-[15px] leading-tight">
                         {t.contact_name || "Lead"}
                       </button>
                       {t.pipeline_version === "v2b" && (
@@ -1303,7 +1337,8 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
       ))}
 
       {logFor && (
-        <LogCallModal task={logFor} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }} />
+        <LogCallModal task={logFor} onClose={() => setLogFor(null)} onSaved={() => { setLogFor(null); load(); }}
+          onStar={(s) => setTasks((prev) => prev ? prev.map((t) => t.id === logFor.id ? { ...t, starred: s } : t) : prev)} />
       )}
 
       {noteFor && (
@@ -1635,7 +1670,7 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDa
   );
 }
 
-function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: () => void; onSaved: () => void }) {
+function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onClose: () => void; onSaved: () => void; onStar?: (starred: boolean) => void }) {
   const [outcome, setOutcome] = useState<CallDispositionOutcome>("no_answer");
   const [notes, setNotes] = useState("");
   const [scheduleFu, setScheduleFu] = useState(false);
@@ -1644,6 +1679,26 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   const [fuTime, setFuTime] = useState("09:00");
   const [fuAllDay, setFuAllDay] = useState(true);   // default all-day — no need to pick a time per lead
   const [saving, setSaving] = useState(false);
+
+  // Top-priority star. Admin-only toggle; unstarring asks for confirmation.
+  const isAdmin = getCurrentUser()?.role === "admin";
+  const [starred, setStarred] = useState(!!task.starred);
+  const [starring, setStarring] = useState(false);
+  const toggleStar = async () => {
+    const next = !starred;
+    if (!next && !window.confirm("Are you sure? This will remove the top-priority star from this customer.")) return;
+    setStarring(true);
+    try {
+      await api.setLeadStarred(task.id, next);
+      setStarred(next);
+      onStar?.(next);
+      toast.success(next ? "Marked top priority" : "Star removed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update priority");
+    } finally {
+      setStarring(false);
+    }
+  };
 
   // Log call and Follow-up used to be separate buttons that mostly overlapped
   // (Log call always offered a follow-up). They're now one action: log the call
@@ -1686,7 +1741,25 @@ function LogCallModal({ task, onClose, onSaved }: { task: DailyTask; onClose: ()
   };
 
   return (
-    <ModalShell title="Log a call / follow-up" subtitle={task.contact_name || "Lead"} onClose={onClose}>
+    <ModalShell title="Log a call / follow-up" subtitle={task.contact_name || "Lead"} onClose={onClose}
+      headerRight={
+        isAdmin ? (
+          <button
+            type="button"
+            onClick={toggleStar}
+            disabled={starring}
+            title={starred ? "Top priority — click to remove" : "Mark as top priority"}
+            aria-pressed={starred}
+            className={`inline-flex items-center justify-center h-9 w-9 rounded-full border transition-colors disabled:opacity-50 ${starred ? "bg-amber-50 border-amber-300 text-amber-500" : "border-input text-muted-foreground hover:text-amber-500 hover:border-amber-300"}`}
+          >
+            <Star className={`h-5 w-5 ${starred ? "fill-amber-400" : ""}`} />
+          </button>
+        ) : starred ? (
+          <span title="Top priority" className="inline-flex items-center justify-center h-9 w-9 text-amber-500">
+            <Star className="h-5 w-5 fill-amber-400" />
+          </span>
+        ) : null
+      }>
       <label className="flex items-center gap-2 text-sm cursor-pointer font-medium">
         <input type="checkbox" checked={logCall} onChange={(e) => setLogCall(e.target.checked)} className="h-4 w-4" />
         <span>Log a call</span>
@@ -1808,13 +1881,16 @@ function ClientNoteModal({ task, onClose, onSaved }: { task: DailyTask; onClose:
   );
 }
 
-function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: React.ReactNode }) {
+function ModalShell({ title, subtitle, onClose, children, headerRight }: { title: string; subtitle: string; onClose: () => void; children: React.ReactNode; headerRight?: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border bg-background p-4 shadow-xl space-y-3 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div>
-          <p className="text-sm font-semibold">{title}</p>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">{title}</p>
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          </div>
+          {headerRight && <div className="shrink-0">{headerRight}</div>}
         </div>
         {children}
       </div>
