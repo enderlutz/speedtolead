@@ -1276,16 +1276,17 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   ) : null;
                 })()}
 
-                {/* Actions — Schedule up top (primary), then Log call / Decline.
-                    "Log call" also schedules follow-ups, so there's no separate
-                    Follow-up button; reschedule via the follow-up pill above. */}
+                {/* Actions — Log call up top (the main repeated action; it also
+                    schedules follow-ups), then Schedule / Decline. Reschedule an
+                    existing follow-up via the pill above. */}
                 <div className="space-y-2 pt-0.5">
-                  <Button size="sm" className="w-full h-9 bg-emerald-600 hover:bg-emerald-700 text-white" disabled={busyId === t.id} onClick={() => openSchedule(t.id)}>
-                    <Calendar className="h-4 w-4 mr-1" /> Schedule
+                  <Button size="sm" className="w-full h-9" onClick={() => setLogFor(t)}>
+                    <MessageSquare className="h-4 w-4 mr-1" /> Log call
                   </Button>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" className="h-9" onClick={() => setLogFor(t)}>
-                      <MessageSquare className="h-4 w-4 mr-1" /> Log call
+                    <Button size="sm" variant="outline" className="h-9 border-emerald-300 text-emerald-700 hover:bg-emerald-50" disabled={busyId === t.id}
+                      onClick={() => openSchedule(t.id)}>
+                      <Calendar className="h-4 w-4 mr-1" /> Schedule
                     </Button>
                     <Button size="sm" variant="outline" className="h-9 text-red-600 border-red-200 hover:bg-red-50" disabled={busyId === t.id}
                       onClick={() => quickAction(t, DECLINED_STAGE_ID, `Mark ${t.contact_name || "this lead"} as declined?`, "Marked declined")}>
@@ -1623,7 +1624,7 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDa
         </label>
       </div>
       <div>
-        <label className="text-xs font-semibold text-muted-foreground">Follow-up note</label>
+        <label className="text-xs font-semibold text-muted-foreground">What did the customer say? Any notes for the follow up call?</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Deciding with spouse, call after 5pm" className={inputCls} />
       </div>
     </div>
