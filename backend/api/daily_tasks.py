@@ -493,6 +493,7 @@ _OUTCOME_LABELS = {
     "no_answer": "No answer",
     "voicemail": "Left voicemail",
     "voicemail_texted": "Left voicemail & texted",
+    "hung_up": "Hung up on call",
     "callback": "Callback requested",
     "other": "Other",
 }

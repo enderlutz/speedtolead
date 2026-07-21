@@ -47,6 +47,7 @@ ALLOWED_OUTCOMES = {
     "no_answer",
     "voicemail",
     "voicemail_texted",
+    "hung_up",
     "callback",
     "other",
 }

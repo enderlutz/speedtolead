@@ -480,6 +480,7 @@ export type CallDispositionOutcome =
   | "no_answer"
   | "voicemail"
   | "voicemail_texted"
+  | "hung_up"
   | "callback"
   | "other";
 
