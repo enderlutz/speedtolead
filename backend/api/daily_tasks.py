@@ -268,15 +268,25 @@ def get_daily_tasks(user: dict = Depends(require_staff), division: str = Depends
             last_action_at = max(last_disp, last_fu) or None
             # Who touched it last — the actor behind the more recent of the two.
             last_action_by = (last_disp_by if last_disp >= last_fu else last_fu_by) or ""
-            # Rollover queue: a lead not worked today carries into the next day
-            # flagged. "Worked today" = last call/follow-up (or, if never
-            # touched, the lead's creation) lands on today's Central date.
-            touch_date = _to_central_date(last_action_at or l.created_at or "")
-            if touch_date is None:
-                carried_over, days_waiting = False, 0
+            # "Past due" = how overdue the next step is. When a follow-up
+            # (callback) is scheduled, count from ITS due date — that's what staff
+            # read the red flag as (card shows "Call back · Jul 17", so on Jul 20
+            # it's 3 days past due, not 6 days since last touched). A future/today
+            # callback is not past due. With NO scheduled follow-up, fall back to
+            # the last time the lead was worked (or its creation) so unworked leads
+            # still roll forward flagged.
+            nf = next_fu_by_lead.get(l.id)
+            nf_due = _to_central_date(nf["due_at"]) if (nf and nf.get("due_at")) else None
+            if nf_due is not None:
+                days_waiting = max((today_ct - nf_due).days, 0)
+                carried_over = nf_due < today_ct
             else:
-                days_waiting = max((today_ct - touch_date).days, 0)
-                carried_over = touch_date < today_ct
+                touch_date = _to_central_date(last_action_at or l.created_at or "")
+                if touch_date is None:
+                    carried_over, days_waiting = False, 0
+                else:
+                    days_waiting = max((today_ct - touch_date).days, 0)
+                    carried_over = touch_date < today_ct
             # Brand-new: arrived today and never worked (no call, no follow-up).
             # These are the most time-sensitive (speed-to-lead) — flagged so the
             # UI can star them and pin them to the top of the queue.
@@ -292,6 +302,7 @@ def get_daily_tasks(user: dict = Depends(require_staff), division: str = Depends
                 "stage_id": sid,
                 "stage_label": stage_label,
                 "is_top_priority": is_top_priority,
+                "starred": bool(l.starred),
                 "task_status": l.daily_task_status or "",
                 "client_note": client_note,
                 "called": len(log) > 0,
