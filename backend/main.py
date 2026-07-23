@@ -221,6 +221,23 @@ async def _estimate_delay_loop():
         await asyncio.sleep(600)  # Every 10 minutes
 
 
+async def _video_capture_reminder_loop():
+    """FenceScope: nudge customers who got a video-capture link but never
+    submitted (24h, then 72h), then auto-route to the estimator (>=96h). Each
+    step fires once per lead — throttled to avoid the old nudge-spam. Every
+    30 min."""
+    from services.video_estimate_capture import run_video_capture_reminders
+    await asyncio.sleep(420)  # stagger well after boot
+    while True:
+        try:
+            res = await asyncio.to_thread(run_video_capture_reminders)
+            if res and any(res.values()):
+                logger.info(f"FenceScope reminders: {res}")
+        except Exception as e:
+            logger.error(f"Video-capture reminder loop error: {e}")
+        await asyncio.sleep(1800)  # every 30 minutes
+
+
 async def _followup_engine_loop():
     """Background task: advance due follow-up runs every 5 minutes.
     Master-toggle gated — exits fast when off."""
@@ -373,6 +390,7 @@ async def lifespan(app: FastAPI):
     followup_learning = asyncio.create_task(_followup_learning_loop())
     followup_backfill = asyncio.create_task(_followup_backfill_loop())
     map_geocoder = asyncio.create_task(_map_geocode_loop())
+    video_reminders = asyncio.create_task(_video_capture_reminder_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -393,6 +411,7 @@ async def lifespan(app: FastAPI):
     followup_learning.cancel()
     followup_backfill.cancel()
     map_geocoder.cancel()
+    video_reminders.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)

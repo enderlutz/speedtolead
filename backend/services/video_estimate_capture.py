@@ -201,3 +201,69 @@ def delete_storage_object(path: str) -> bool:
 
 def new_submission_id() -> str:
     return uuid.uuid4().hex
+
+
+# ---------- Reminders / auto-route (background loop) ----------
+
+def run_video_capture_reminders() -> dict:
+    """Nudge customers who got a capture link but never submitted: a reminder at
+    24h, a second at 72h, then (>=96h) auto-route to the 1099 estimator. Each
+    step fires ONCE per lead (stamped in the activity dict) so we never re-spam
+    — the old generic nudge loop was disabled for exactly that. Runs on a slow
+    loop; does at most one action per lead per tick."""
+    from datetime import datetime, timezone
+    from database import get_db, Lead
+    from services.ghl import send_sms
+
+    settings = get_settings()
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    out = {"reminded_24": 0, "reminded_72": 0, "routed": 0}
+    try:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.video_capture_token != "")
+            .filter(Lead.status != "archived")
+            .all()
+        )
+        base = (settings.frontend_url or "").rstrip("/")
+        for lead in leads:
+            act = get_activity(lead)
+            sent = act.get("link_sent_at")
+            if not sent or act.get("submitted_at"):
+                continue  # never sent, or already done
+            try:
+                sent_dt = datetime.fromisoformat(str(sent).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            hours = (now - sent_dt).total_seconds() / 3600
+            first = (lead.contact_name or "").split()[0] if lead.contact_name else ""
+            url = f"{base}/v/{lead.video_capture_token}"
+
+            if hours >= 96 and not act.get("reminder_routed_at"):
+                # Two nudges, still nothing → hand to the in-person estimator.
+                if lead.estimator_status != "scheduled":
+                    lead.estimator_status = "needed"
+                update_activity(db, lead, {"reminder_routed_at": now.isoformat()})
+                out["routed"] += 1
+            elif hours >= 72 and not act.get("reminder_72_at"):
+                if lead.ghl_contact_id:
+                    msg = (
+                        f"{('Hi ' + first + ', ') if first else ''}still happy to get your fence "
+                        f"quote done — one short video is all we need, takes ~2 min: {url}"
+                    )
+                    send_sms(lead.ghl_contact_id, msg, lead.ghl_location_id or None)
+                update_activity(db, lead, {"reminder_72_at": now.isoformat()})
+                out["reminded_72"] += 1
+            elif hours >= 24 and not act.get("reminder_24_at"):
+                if lead.ghl_contact_id:
+                    msg = (
+                        f"{('Hi ' + first + ', ') if first else ''}quick reminder from Sterling Fence "
+                        f"Staining — tap to send a short video of your fence and we'll text your quote: {url}"
+                    )
+                    send_sms(lead.ghl_contact_id, msg, lead.ghl_location_id or None)
+                update_activity(db, lead, {"reminder_24_at": now.isoformat()})
+                out["reminded_24"] += 1
+        return out
+    finally:
+        db.close()

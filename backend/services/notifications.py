@@ -219,6 +219,27 @@ def notify_estimate_sent(lead: dict, tiers: dict, sender_name: str = ""):
         _log_notification(lead_id, "ghl_whatsapp", "olga", "estimate_sent", msg if ok else f"FAILED: {msg}")
 
 
+def notify_video_submitted(lead: dict, submission: dict):
+    """Notify Alan (SMS) + Olga (WhatsApp) that a FenceScope video estimate
+    landed — time to review + quote. Mirrors notify_estimate_sent."""
+    settings = get_settings()
+    name = lead.get("contact_name", "Unknown")
+    lead_id = lead["id"]
+    dur = submission.get("video_duration_seconds") or 0
+    both = " (wants both sides)" if submission.get("both_sides_requested") else ""
+    link = f"{settings.frontend_url}/video-estimates"
+    msg = (
+        f"New fence video from {name}{both} — {int(dur)}s clip ready to quote. "
+        f"Review: {link}"
+    )
+    if settings.owner_ghl_contact_id:
+        ok = send_sms(settings.owner_ghl_contact_id, msg)
+        _log_notification(lead_id, "ghl_sms", "alan", "video_submitted", msg if ok else f"FAILED: {msg}")
+    if settings.olga_ghl_contact_id:
+        ok = send_whatsapp(settings.olga_ghl_contact_id, msg)
+        _log_notification(lead_id, "ghl_whatsapp", "olga", "video_submitted", msg if ok else f"FAILED: {msg}")
+
+
 def notify_custom_proposal_sent(lead: dict, proposal_url: str):
     """Notify Alan (SMS) and Olga (WhatsApp) that a custom PDF proposal was
     sent. No tier prices — the price lives inside the uploaded PDF — so the
