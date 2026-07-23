@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     # public. Can be large (a full estimate conversation, tens of MB) —
     # keeping these out of the DB is exactly why they live in Storage.
     supabase_estimator_recordings_bucket: str = "estimator-recordings"
+    # Bucket for FenceScope guided video-estimate captures (customer-recorded
+    # fence walk videos + damage close-ups) via the public /v/<token> page.
+    # Must exist + be public. Videos are large (tens of MB) — Storage, not DB.
+    # See fencescope.md. Raw video purged after 90 days; frames/measurements kept.
+    supabase_estimate_video_bucket: str = "estimate-videos"
 
     # Server
     port: int = 8000

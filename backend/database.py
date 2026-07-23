@@ -168,6 +168,14 @@ class Lead(Base):
     # estimate_json so a re-run of the AI estimator doesn't blow it away.
     exterior_activity_json = Column(Text, default="{}")
 
+    # FenceScope guided video-estimate capture (see fencescope.md). Same
+    # token + activity-timeline pattern as the exterior capture above, kept as
+    # its own columns so the two customer-capture flows never conflate. The
+    # video + damage photos themselves live in VideoEstimateSubmission rows
+    # (Supabase Storage), not on the lead.
+    video_capture_token = Column(Text, default="", index=True)
+    video_capture_activity_json = Column(Text, default="{}")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -220,6 +228,8 @@ class Lead(Base):
             "exterior_photos": _j(self.exterior_photos_json) if self.exterior_photos_json else [],
             "exterior_estimate": _j(self.exterior_estimate_json) if self.exterior_estimate_json else {},
             "exterior_activity": _j(self.exterior_activity_json) if self.exterior_activity_json else {},
+            "video_capture_token": self.video_capture_token or "",
+            "video_capture_activity": _j(self.video_capture_activity_json) if self.video_capture_activity_json else {},
         }
 
 
@@ -2182,6 +2192,84 @@ class EstimatorRecording(Base):
         }
 
 
+class VideoEstimateSubmission(Base):
+    """One FenceScope guided video-estimate submission for a lead (see
+    fencescope.md). The customer walks their fence filming a guided video and
+    snaps damage close-ups; staff count pickets at review to get linear feet,
+    then quote. The video + photos live in Supabase Storage (never DB BLOBs —
+    video is too big for Postgres); we keep only URLs + metadata here, so this
+    whole model is egress-safe by construction (no deferred columns). A lead's
+    token is reusable, so a lead can accumulate several submissions — the newest
+    non-terminal one is the 'current' one to review."""
+    __tablename__ = "video_estimate_submissions"
+    __table_args__ = (
+        Index("idx_video_estimate_submissions_lead", "lead_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    created_at = Column(Text, default="")
+
+    # The guided walk video (Supabase Storage CDN URL + object path for delete).
+    video_url = Column(Text, default="")
+    video_storage_path = Column(Text, default="")
+    video_mime = Column(Text, default="video/mp4")
+    video_duration_seconds = Column(Float, nullable=True)
+    video_bytes = Column(Integer, nullable=True)
+
+    # Customer-reported damage. damage_json = {rotten_boards, leaning_posts,
+    # damaged_caps, loose_rails} → int counts. damage_photos_json = list of
+    # {id, url, storage_path, label, uploaded_at} close-up photos.
+    damage_json = Column(Text, default="{}")
+    damage_photos_json = Column(Text, default="[]")
+
+    # Back side they want done but couldn't reach (trees / neighbor / no gate).
+    # Same linear footage; condition unknown → quote clause + dashboard flag.
+    both_sides_requested = Column(Boolean, default=False, nullable=False)
+    back_side_accessible = Column(Boolean, default=True, nullable=False)
+
+    # Review lifecycle: submitted → quoted | redo_requested | unusable.
+    status = Column(Text, default="submitted")
+    reviewed_by = Column(Text, default="")
+    reviewed_at = Column(Text, nullable=True)
+
+    # Phase 2 AI frame-analysis draft (nullable until we build it). We store
+    # both the AI draft and (later) the human-corrected linear feet so we can
+    # compute model variance over ~50 jobs before ever auto-quoting.
+    ai_linear_feet_draft = Column(Float, nullable=True)
+    ai_confidence = Column(Float, nullable=True)
+
+    # Phase 4 add-on services (windows / house wash / driveway). Built day one,
+    # UI later — avoids a migration when we ship the add-on step.
+    addon_services_json = Column(Text, default="{}")
+
+    # Raw video purged after 90 days (frames/measurements kept). Stamped when
+    # the purge sweep deletes the Storage object so the UI shows "video expired".
+    video_purged_at = Column(Text, nullable=True)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "created_at": self.created_at or "",
+            "video_url": self.video_url or "",
+            "video_mime": self.video_mime or "video/mp4",
+            "video_duration_seconds": self.video_duration_seconds,
+            "video_bytes": self.video_bytes,
+            "video_purged_at": self.video_purged_at,
+            "damage": _j(self.damage_json) if self.damage_json else {},
+            "damage_photos": _j(self.damage_photos_json) if self.damage_photos_json else [],
+            "both_sides_requested": bool(self.both_sides_requested),
+            "back_side_accessible": bool(self.back_side_accessible),
+            "status": self.status or "submitted",
+            "reviewed_by": self.reviewed_by or "",
+            "reviewed_at": self.reviewed_at,
+            "ai_linear_feet_draft": self.ai_linear_feet_draft,
+            "ai_confidence": self.ai_confidence,
+            "addon_services": _j(self.addon_services_json) if self.addon_services_json else {},
+        }
+
+
 class CallScript(Base):
     """A named call script in the company's shared script library. The VA's
     sticky panel on Lead Detail renders the selected script as a template with
@@ -3413,6 +3501,18 @@ def _run_migrations():
         ("exterior_photos_json", "ALTER TABLE leads ADD COLUMN exterior_photos_json TEXT DEFAULT '[]'"),
         ("exterior_estimate_json", "ALTER TABLE leads ADD COLUMN exterior_estimate_json TEXT DEFAULT '{}'"),
         ("exterior_activity_json", "ALTER TABLE leads ADD COLUMN exterior_activity_json TEXT DEFAULT '{}'"),
+    ]:
+        if col_name not in existing:
+            with _engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"Migration: added leads.{col_name}")
+
+    # FenceScope guided video-estimate capture columns on leads (see
+    # fencescope.md). Token + activity timeline; the submissions themselves
+    # live in the auto-created video_estimate_submissions table. Idempotent.
+    for col_name, ddl in [
+        ("video_capture_token", "ALTER TABLE leads ADD COLUMN video_capture_token TEXT DEFAULT ''"),
+        ("video_capture_activity_json", "ALTER TABLE leads ADD COLUMN video_capture_activity_json TEXT DEFAULT '{}'"),
     ]:
         if col_name not in existing:
             with _engine.begin() as conn:
