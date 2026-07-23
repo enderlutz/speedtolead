@@ -28,6 +28,7 @@ import Calls from "@/pages/Calls";
 import Training from "@/pages/Training";
 import ExteriorCapture from "@/pages/ExteriorCapture";
 import VideoEstimate from "@/pages/VideoEstimate";
+import VideoEstimates from "@/pages/VideoEstimates";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
@@ -180,6 +181,7 @@ function AppLayout() {
               <Route path="/leads/:id" element={<RequireLeadDetail><LeadDetail /></RequireLeadDetail>} />
               <Route path="/leads/:id/edit-pdf" element={<RequireView view="leads"><EditPdf /></RequireView>} />
               <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
+              <Route path="/video-estimates" element={<StaffOnly><VideoEstimates /></StaffOnly>} />
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
               <Route path="/calls" element={<RequireView view="calls"><Calls /></RequireView>} />
               <Route path="/training" element={<RequireView view="training"><Training /></RequireView>} />

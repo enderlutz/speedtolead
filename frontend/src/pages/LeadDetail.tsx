@@ -29,6 +29,7 @@ import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import CustomProposalCard from "@/components/CustomProposalCard";
+import VideoEstimateCard from "@/components/VideoEstimateCard";
 import ExteriorTab from "@/components/ExteriorTab";
 import UpsellTab from "@/components/UpsellTab";
 import { V2_STAGES } from "./LeadsV2";
@@ -1604,6 +1605,9 @@ export default function LeadDetail() {
             pipelineVersion={lead.pipeline_version}
             onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
           />
+
+          {/* FenceScope — text the customer a guided-video link + track status */}
+          <VideoEstimateCard leadId={lead.id} />
 
           {/* Phone only: The Hit List sits right under "Send a custom PDF".
               Desktop keeps it full-width below the grid (rendered there when

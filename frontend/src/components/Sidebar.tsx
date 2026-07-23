@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, Video } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -81,6 +81,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
   { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },
+  { to: "/video-estimates", icon: Video, label: "Video Estimates", perm: "leads", divisions: ["fence"] },
   // { to: "/leads/painting-upsell", icon: Paintbrush, label: "Painting Upsell", perm: "painting_upsell" }, // hidden 2026-07-14 (page/route kept)
   // { to: "/old-leads", icon: UsersRound, label: "A&T Leads" },   // hidden 2026-06-07
   // { to: "/sent-log", icon: ClipboardCheck, label: "Sent Log" }, // hidden 2026-06-07

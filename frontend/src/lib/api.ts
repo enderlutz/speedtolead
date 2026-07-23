@@ -511,6 +511,35 @@ export interface DailyTaskFollowUp {
   action_type: string; // call | text | other
   note: string;
 }
+// FenceScope guided video-estimate capture (see fencescope.md).
+export interface VideoCaptureActivity {
+  link_sent_at?: string; link_sent_count?: number; link_sent_by?: string;
+  first_opened_at?: string; opened_at?: string;
+  recording_started_at?: string; submitted_at?: string; quoted_at?: string;
+  redo_count?: number; last_redo_at?: string;
+}
+export interface VideoSubmission {
+  id: string;
+  lead_id: string;
+  created_at: string;
+  video_url: string;
+  video_mime: string;
+  video_duration_seconds: number | null;
+  video_bytes: number | null;
+  video_purged_at: string | null;
+  damage: Partial<Record<"rotten_boards" | "leaning_posts" | "damaged_caps" | "loose_rails", number>>;
+  damage_photos: { id: string; url: string; label: string }[];
+  both_sides_requested: boolean;
+  back_side_accessible: boolean;
+  status: string; // submitted | quoted | redo_requested | unusable | recording
+  reviewed_by: string;
+  reviewed_at: string | null;
+  ai_linear_feet_draft: number | null;
+  ai_confidence: number | null;
+  contact_name?: string;
+  address?: string;
+}
+
 export interface DailyTask {
   id: string;
   contact_name: string;
@@ -1152,6 +1181,22 @@ export const api = {
   /** Toggle a lead's top-priority star. Admin-only (server-enforced). */
   setLeadStarred: (id: string, starred: boolean) =>
     request<Lead>(`/api/leads/${id}/starred`, { method: "POST", body: JSON.stringify({ starred }) }),
+
+  // FenceScope guided video-estimate capture.
+  issueVideoLink: (leadId: string) =>
+    request<{ token: string; url: string }>(`/api/leads/${leadId}/video-capture/link`, { method: "POST" }),
+  sendVideoLink: (leadId: string) =>
+    request<{ token: string; url: string; sent: boolean; body: string }>(`/api/leads/${leadId}/video-capture/send`, { method: "POST" }),
+  reissueVideoLink: (leadId: string) =>
+    request<{ token: string; url: string }>(`/api/leads/${leadId}/video-capture/reissue`, { method: "POST" }),
+  getLeadVideoCapture: (leadId: string) =>
+    request<{ token: string; url: string; activity: VideoCaptureActivity; submissions: VideoSubmission[] }>(`/api/leads/${leadId}/video-capture`),
+  getVideoQueue: () =>
+    request<{ submissions: VideoSubmission[] }>(`/api/video-estimate/queue`),
+  requestVideoRedo: (submissionId: string, unusable: boolean) =>
+    request<{ ok: boolean; status: string; redo_count: number; routed_to_estimator: boolean }>(`/api/video-estimate/${submissionId}/request-redo`, { method: "POST", body: JSON.stringify({ unusable }) }),
+  markVideoQuoted: (submissionId: string) =>
+    request<{ ok: boolean }>(`/api/video-estimate/${submissionId}/mark-quoted`, { method: "POST" }),
   checkResponse: (id: string) =>
     request<{ new_count: number; messages: { direction: string; body: string }[] }>(
       `/api/leads/${id}/check-response`, { method: "POST" }
