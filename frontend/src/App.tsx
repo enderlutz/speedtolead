@@ -27,6 +27,7 @@ import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
 import Training from "@/pages/Training";
 import ExteriorCapture from "@/pages/ExteriorCapture";
+import VideoEstimate from "@/pages/VideoEstimate";
 import Crew from "@/pages/Crew";
 import CrewEmployee from "@/pages/CrewEmployee";
 import CalendarPage from "@/pages/Calendar";
@@ -135,6 +136,7 @@ function AppLayout() {
     location.pathname.startsWith("/proposal/") ||
     location.pathname.startsWith("/approve/") ||
     location.pathname.startsWith("/capture/") ||
+    location.pathname.startsWith("/v/") ||
     location.pathname.startsWith("/crew-app/") ||
     location.pathname.startsWith("/legal/");
 
@@ -152,6 +154,7 @@ function AppLayout() {
         <Route path="/crew-app/:token" element={<CrewToday />} />
         <Route path="/approve/:token" element={<QuickApprove />} />
         <Route path="/capture/:token" element={<ExteriorCapture />} />
+        <Route path="/v/:token" element={<VideoEstimate />} />
         <Route path="/legal/eula" element={<Eula />} />
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
       </Routes>
