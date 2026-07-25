@@ -506,6 +506,7 @@ _OUTCOME_LABELS = {
     "voicemail_texted": "Left voicemail & texted",
     "hung_up": "Hung up on call",
     "callback": "Callback requested",
+    "estimate_sent_follow_up": "Estimate sent, call to follow up",
     "other": "Other",
 }
 _FU_ACTION_LABELS = {"call": "call-back", "text": "text", "other": "follow-up"}

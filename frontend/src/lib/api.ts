@@ -484,6 +484,7 @@ export type CallDispositionOutcome =
   | "voicemail_texted"
   | "hung_up"
   | "callback"
+  | "estimate_sent_follow_up"
   | "other";
 
 export interface CallDispositionEntry {

@@ -49,6 +49,7 @@ ALLOWED_OUTCOMES = {
     "voicemail_texted",
     "hung_up",
     "callback",
+    "estimate_sent_follow_up",
     "other",
 }
 
@@ -104,6 +105,11 @@ def log_disposition(
             callback_at=body.callback_at if outcome == "callback" else None,
         )
         db.add(row)
+        # "Estimate sent, call to follow up" auto-flags the lead top-priority
+        # (starred) so it can't slip. Done here as a side-effect of logging so
+        # it works for VAs too (the manual star endpoint is admin-only).
+        if outcome == "estimate_sent_follow_up":
+            lead.starred = True
         db.commit()
         db.refresh(row)
         result = row.to_dict()

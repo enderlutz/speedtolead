@@ -165,10 +165,11 @@ const OUTCOME_LABELS: Record<string, string> = {
   voicemail_texted: "Left voicemail & texted",
   hung_up: "Hung up on call",
   callback: "Callback requested",
+  estimate_sent_follow_up: "Estimate sent, call to follow up",
   other: "Other",
 };
 const OUTCOMES: CallDispositionOutcome[] = [
-  "no_answer", "voicemail", "voicemail_texted", "hung_up", "callback", "objection_price", "objection_timing", "objection_spouse", "objection_hoa", "objection_more_estimates", "closed", "other",
+  "no_answer", "voicemail", "voicemail_texted", "hung_up", "callback", "estimate_sent_follow_up", "objection_price", "objection_timing", "objection_spouse", "objection_hoa", "objection_more_estimates", "closed", "other",
 ];
 const ACTION_LABELS: Record<string, string> = { call: "Call back", text: "Send text", other: "Follow up" };
 
@@ -1112,14 +1113,13 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                         );
                       })()}
                       {needsProcess(t) && (
-                        <button
-                          onClick={() => setFollowUpFor(t)}
-                          title="Estimate sent but no next step scheduled — click to schedule a follow-up and start the process"
-                          className="inline-flex items-center gap-1 rounded-full bg-violet-600 text-white hover:bg-violet-700 px-1.5 py-0.5 text-[10px] font-semibold"
+                        <span
+                          title="Estimate sent but no next step scheduled — use Log call to schedule a follow-up and start the process"
+                          className="inline-flex items-center gap-1 rounded-full bg-violet-600 text-white px-1.5 py-0.5 text-[10px] font-semibold"
                         >
                           <CalendarClock className="h-2.5 w-2.5" />
                           Start process
-                        </button>
+                        </span>
                       )}
                     </div>
                     {t.address && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.address}</div>}
@@ -1262,9 +1262,9 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                 {(needsProcess(t) || t.next_follow_up) && (
                   <div className="flex flex-wrap gap-1.5">
                     {needsProcess(t) && (
-                      <button onClick={() => setFollowUpFor(t)} className="inline-flex items-center gap-1 rounded-full bg-violet-600 text-white px-2 py-1 text-[11px] font-semibold">
+                      <span title="Estimate sent but no next step scheduled — use Log call to schedule a follow-up" className="inline-flex items-center gap-1 rounded-full bg-violet-600 text-white px-2 py-1 text-[11px] font-semibold">
                         <CalendarClock className="h-3 w-3" /> Start process
-                      </button>
+                      </span>
                     )}
                     {t.next_follow_up && (
                       <button onClick={() => setFollowUpFor(t)} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${fuOverdue(t.next_follow_up) ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"}`}>
@@ -1708,7 +1708,11 @@ function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onC
 
   const onOutcome = (o: CallDispositionOutcome) => {
     setOutcome(o);
-    if (o === "callback") setScheduleFu(true);
+    // Both of these need a scheduled follow-up. "Estimate sent, call to follow
+    // up" also auto-stars the lead (top priority) — reflected optimistically
+    // here; the backend sets it for real when the disposition is logged.
+    if (o === "callback" || o === "estimate_sent_follow_up") setScheduleFu(true);
+    if (o === "estimate_sent_follow_up") { setStarred(true); onStar?.(true); }
   };
 
   const save = async () => {
@@ -1728,8 +1732,17 @@ function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onC
           note: notes.trim(),
         });
       }
+      // When the follow-up lands on a FUTURE day, the lead leaves today's list
+      // and reappears on that date — call it out so it clearly feels "taken off
+      // the list", not just silently rescheduled.
+      const movedFuture = scheduleFu && fuDate > todayYMD();
+      const niceDate = (() => {
+        const d = new Date(`${fuDate}T12:00:00`);
+        return isNaN(d.getTime()) ? fuDate : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      })();
       toast.success(
-        logCall && scheduleFu ? "Call logged + follow-up scheduled"
+        movedFuture ? `Moved to ${niceDate} — off today's list`
+          : logCall && scheduleFu ? "Call logged + follow-up scheduled"
           : logCall ? "Call logged" : "Follow-up scheduled",
       );
       onSaved();
