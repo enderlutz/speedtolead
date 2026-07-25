@@ -375,7 +375,7 @@ export default function VideoEstimate() {
                 <Video className="h-5 w-5" /> {qualityIssue ? "Re-record" : "Record"}
               </button>
             )}
-            <p className="text-center text-xs text-gray-400 mt-2">Record at least {MIN_SECONDS} seconds. Walk the whole fence.</p>
+            <p className="text-center text-xs text-gray-400 mt-2">Walk the sides that you would like to get stained.</p>
           </div>
         </div>
       )}
