@@ -310,6 +310,7 @@ async def _async_db_init():
             await asyncio.to_thread(auth.migrate_neo_visits_to_emmanuel)
             await asyncio.to_thread(auth.seed_olga_estimator_access)
             await asyncio.to_thread(auth.seed_geoconda_user)
+            await asyncio.to_thread(auth.seed_anna_moran_user)
             # Backfill dashboard-link notes for any A/B leads that entered past
             # the intake stage and never got one. Idempotent — cheap no-op once
             # all leads are covered. Off-thread so it never blocks boot.

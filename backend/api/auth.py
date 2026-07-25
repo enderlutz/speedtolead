@@ -457,6 +457,30 @@ def seed_geoconda_user():
         db.close()
 
 
+def seed_anna_moran_user():
+    """Create the AnnaMoran VA account if it doesn't exist. One-off addition per
+    client request (2026-07-24) — a third VA login. Plain 'va' role, same access
+    as the original olga account (no estimator override unless an admin grants it
+    later via the Permissions UI). Idempotent — never overwrites a changed
+    password."""
+    db = get_db()
+    try:
+        if db.query(User).filter(User.username == "AnnaMoran").first():
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        db.add(User(
+            id=str(uuid.uuid4()),
+            username="AnnaMoran",
+            display_name="Anna",
+            password_hash=bcrypt.hashpw("FenceLove803!".encode(), bcrypt.gensalt()).decode(),
+            role="va",
+            created_at=now,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def seed_default_users():
     """Create default admin + VA users if none exist."""
     db = get_db()
