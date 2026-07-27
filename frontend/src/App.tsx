@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken, getDivision } from "@/lib/api";
 import Sidebar, { MobileHeader, isBrickAllowedPath } from "@/components/Sidebar";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
+import UpdateBanner from "@/components/UpdateBanner";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
@@ -164,6 +165,7 @@ function AppLayout() {
 
   return (
     <RequireAuth>
+      <UpdateBanner />
       <div className="flex h-dvh bg-background overflow-hidden">
         <Sidebar open={sidebarOpen} onClose={closeSidebar} />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
