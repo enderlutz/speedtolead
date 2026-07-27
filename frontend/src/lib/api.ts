@@ -590,12 +590,15 @@ export interface CallTallyPerson {
   sub: string;
   today: number;
   week: number;
+  last_week: number;
 }
 export interface CallTally {
   date: string;
   week_start: string;
+  last_week_start: string;
   today_total: number;
   week_total: number;
+  last_week_total: number;
   people: CallTallyPerson[];
 }
 

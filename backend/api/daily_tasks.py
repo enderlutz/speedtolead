@@ -730,8 +730,12 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
 
         monday = end_d - timedelta(days=end_d.weekday())
         week_start = monday.isoformat()
+        # Last week = the previous Mon–Sun. We widen the query to last Monday and
+        # bucket each call into this-week vs last-week below.
+        last_monday = monday - timedelta(days=7)
+        last_week_start = last_monday.isoformat()
         win_start_utc = (
-            datetime.combine(monday, _time.min, tzinfo=_CENTRAL)
+            datetime.combine(last_monday, _time.min, tzinfo=_CENTRAL)
             .astimezone(timezone.utc).isoformat()
         )
 
@@ -749,8 +753,8 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
         # Division isolation via the (small) set of brick lead ids.
         brick_ids = {lid for (lid,) in db.query(Lead.id).filter(Lead.division == "brick").all()}
         if division == "brick" and not brick_ids:
-            return {"date": target_day, "week_start": week_start,
-                    "today_total": 0, "week_total": 0, "people": []}
+            return {"date": target_day, "week_start": week_start, "last_week_start": last_week_start,
+                    "today_total": 0, "week_total": 0, "last_week_total": 0, "people": []}
         calls_q = db.query(CallDisposition).filter(CallDisposition.disposed_at >= win_start_utc)
         if division == "brick":
             calls_q = calls_q.filter(CallDisposition.lead_id.in_(brick_ids))
@@ -768,9 +772,14 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
         people: dict[str, dict] = {}
         today_total = 0
         week_total = 0
+        last_week_total = 0
         for c in calls:
             d = _cst_date(c.disposed_at)
-            if not d or not (week_start <= d <= target_day):
+            if not d:
+                continue
+            in_this = week_start <= d <= target_day
+            in_last = last_week_start <= d < week_start
+            if not (in_this or in_last):
                 continue
             sub = (c.disposed_by_sub or "").strip().lower()
             name = c.disposed_by or sub_to_name.get(sub, "") or (c.disposed_by_sub or "")
@@ -781,19 +790,25 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
                 continue
             p = people.get(key)
             if p is None:
-                p = people[key] = {"name": name, "sub": c.disposed_by_sub or "", "today": 0, "week": 0}
-            p["week"] += 1
-            week_total += 1
-            if d == target_day:
-                p["today"] += 1
-                today_total += 1
+                p = people[key] = {"name": name, "sub": c.disposed_by_sub or "", "today": 0, "week": 0, "last_week": 0}
+            if in_this:
+                p["week"] += 1
+                week_total += 1
+                if d == target_day:
+                    p["today"] += 1
+                    today_total += 1
+            else:  # in_last
+                p["last_week"] += 1
+                last_week_total += 1
 
-        out = sorted(people.values(), key=lambda x: (x["week"], x["today"]), reverse=True)
+        out = sorted(people.values(), key=lambda x: (x["week"], x["last_week"], x["today"]), reverse=True)
         return {
             "date": target_day,
             "week_start": week_start,
+            "last_week_start": last_week_start,
             "today_total": today_total,
             "week_total": week_total,
+            "last_week_total": last_week_total,
             "people": out,
         }
     finally:
