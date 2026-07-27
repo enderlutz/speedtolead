@@ -754,7 +754,8 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
         brick_ids = {lid for (lid,) in db.query(Lead.id).filter(Lead.division == "brick").all()}
         if division == "brick" and not brick_ids:
             return {"date": target_day, "week_start": week_start, "last_week_start": last_week_start,
-                    "today_total": 0, "week_total": 0, "last_week_total": 0, "people": []}
+                    "today_total": 0, "week_total": 0, "last_week_total": 0,
+                    "revenue_today": 0, "revenue_week": 0, "revenue_last_week": 0, "people": []}
         calls_q = db.query(CallDisposition).filter(CallDisposition.disposed_at >= win_start_utc)
         if division == "brick":
             calls_q = calls_q.filter(CallDisposition.lead_id.in_(brick_ids))
@@ -773,6 +774,9 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
         today_total = 0
         week_total = 0
         last_week_total = 0
+        revenue_today = 0.0
+        revenue_week = 0.0
+        revenue_last_week = 0.0
         for c in calls:
             d = _cst_date(c.disposed_at)
             if not d:
@@ -781,6 +785,16 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
             in_last = last_week_start <= d < week_start
             if not (in_this or in_last):
                 continue
+            # Closed-won revenue (manually entered on the disposition) — team-wide
+            # total, counted before the per-person phone-team filter below.
+            if c.outcome == "closed" and c.sale_amount and c.sale_amount > 0:
+                amt = float(c.sale_amount)
+                if in_this:
+                    revenue_week += amt
+                    if d == target_day:
+                        revenue_today += amt
+                else:
+                    revenue_last_week += amt
             sub = (c.disposed_by_sub or "").strip().lower()
             name = c.disposed_by or sub_to_name.get(sub, "") or (c.disposed_by_sub or "")
             key = (name or sub).strip().lower()
@@ -809,6 +823,9 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
             "today_total": today_total,
             "week_total": week_total,
             "last_week_total": last_week_total,
+            "revenue_today": round(revenue_today, 2),
+            "revenue_week": round(revenue_week, 2),
+            "revenue_last_week": round(revenue_last_week, 2),
             "people": out,
         }
     finally:

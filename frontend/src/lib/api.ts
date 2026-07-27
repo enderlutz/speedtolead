@@ -599,6 +599,9 @@ export interface CallTally {
   today_total: number;
   week_total: number;
   last_week_total: number;
+  revenue_today: number;
+  revenue_week: number;
+  revenue_last_week: number;
   people: CallTallyPerson[];
 }
 
@@ -2205,7 +2208,7 @@ export const api = {
    *  funnel finally has why-didn't-this-close data. Append-only history. */
   logCallDisposition: (
     leadId: string,
-    body: { outcome: CallDispositionOutcome; notes?: string; callback_at?: string | null },
+    body: { outcome: CallDispositionOutcome; notes?: string; callback_at?: string | null; sale_amount?: number | null },
   ) =>
     request<CallDispositionEntry>(`/api/leads/${leadId}/call-dispositions`, {
       method: "POST",

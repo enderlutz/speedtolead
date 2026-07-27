@@ -388,6 +388,14 @@ function CallTally({ reloadKey }: { reloadKey: number }) {
         </div>
       </div>
 
+      {/* Revenue closed (manually entered on closed-won calls) */}
+      <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 mb-3">
+        <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">Revenue closed {isLast ? "last week" : "today"}</span>
+        <span className="text-xl font-bold text-emerald-700 tabular-nums">
+          ${(isLast ? data.revenue_last_week : data.revenue_today).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+        </span>
+      </div>
+
       {/* This week / Last week toggle */}
       <div className="inline-flex rounded-lg border bg-background p-0.5 mb-3 text-xs font-medium">
         <button onClick={() => setRange("this")} className={`px-3 py-1 rounded-md transition-colors ${!isLast ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>This week</button>
@@ -1737,6 +1745,7 @@ function FollowUpFields({ action, setAction, date, setDate, time, setTime, allDa
 function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onClose: () => void; onSaved: () => void; onStar?: (starred: boolean) => void }) {
   const [outcome, setOutcome] = useState<CallDispositionOutcome>("no_answer");
   const [notes, setNotes] = useState("");
+  const [saleAmount, setSaleAmount] = useState("");   // manual $ on closed-won
   const [scheduleFu, setScheduleFu] = useState(false);
   const [fuAction, setFuAction] = useState("call");
   const [fuDate, setFuDate] = useState(todayYMD());
@@ -1783,9 +1792,15 @@ function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onC
       toast.error("Log a call or schedule a follow-up (or both).");
       return;
     }
+    const isClosed = logCall && outcome === "closed";
+    const saleNum = parseFloat(saleAmount);
+    if (isClosed && (!saleNum || saleNum <= 0)) {
+      toast.error("Enter the sale amount for this closed-won deal.");
+      return;
+    }
     setSaving(true);
     try {
-      if (logCall) await api.logCallDisposition(task.id, { outcome, notes: notes.trim() });
+      if (logCall) await api.logCallDisposition(task.id, { outcome, notes: notes.trim(), sale_amount: isClosed ? saleNum : null });
       if (scheduleFu) {
         await api.createFollowUp(task.id, {
           due_date: fuDate,
@@ -1841,6 +1856,22 @@ function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onC
           <select value={outcome} onChange={(e) => onOutcome(e.target.value as CallDispositionOutcome)} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring">
             {OUTCOMES.map((o) => <option key={o} value={o}>{OUTCOME_LABELS[o]}</option>)}
           </select>
+        </div>
+      )}
+      {logCall && outcome === "closed" && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3">
+          <label className="text-xs font-semibold text-emerald-800">🎉 Sale amount</label>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-emerald-800 font-semibold">$</span>
+            <input
+              type="number" inputMode="decimal" autoFocus
+              value={saleAmount}
+              onChange={(e) => setSaleAmount(e.target.value)}
+              placeholder="0"
+              className="w-full border border-emerald-300 rounded-md px-2 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+          </div>
+          <p className="text-[11px] text-emerald-700 mt-1">Adds to today's revenue on the Hit List.</p>
         </div>
       )}
       <div>

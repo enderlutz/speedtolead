@@ -1361,6 +1361,10 @@ class CallDisposition(Base):
     # set the date/time they intend to retry. Surfaces in the call list
     # panel so the lead reappears at the right moment.
     callback_at = Column(Text, nullable=True)     # ISO datetime UTC
+    # Manually-entered sale amount when outcome == "closed" (closed-won). Feeds
+    # the "revenue closed today" figure on the Hit List stats bar. Null for any
+    # non-closed disposition. Temporary manual entry until it's wired to QB.
+    sale_amount = Column(Float, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -1372,6 +1376,7 @@ class CallDisposition(Base):
             "disposed_by": self.disposed_by or "",
             "disposed_by_sub": self.disposed_by_sub or "",
             "callback_at": self.callback_at,
+            "sale_amount": self.sale_amount,
         }
 
 
@@ -3447,6 +3452,15 @@ def _run_migrations():
                         f"WHERE {blob} IS NOT NULL AND octet_length({blob}) > 0"
                     ))
                 logger.info(f"Migration: added {tbl}.{flag} (egress fix) and backfilled")
+
+    # Manual sale amount on closed-won call dispositions (Hit List "revenue
+    # closed today" figure). Idempotent.
+    if inspector.has_table("call_dispositions"):
+        cd_cols = {c["name"] for c in inspector.get_columns("call_dispositions")}
+        if "sale_amount" not in cd_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_dispositions ADD COLUMN sale_amount FLOAT"))
+            logger.info("Migration: added call_dispositions.sale_amount")
 
     # WrappedCache table — Base.metadata.create_all() above handles initial
     # creation, but if the table existed in an older shape we'd add columns

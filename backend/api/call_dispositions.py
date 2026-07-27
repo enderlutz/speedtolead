@@ -59,6 +59,9 @@ class LogDispositionBody(BaseModel):
     notes: Optional[str] = ""
     # Only meaningful when outcome == "callback". ISO datetime in UTC.
     callback_at: Optional[str] = None
+    # Only meaningful when outcome == "closed" (closed-won). Manually entered
+    # sale amount; feeds the "revenue closed today" figure.
+    sale_amount: Optional[float] = None
 
 
 def _now_iso() -> str:
@@ -103,6 +106,7 @@ def log_disposition(
             disposed_by=(user.get("name") or "").strip(),
             disposed_by_sub=(user.get("sub") or "").strip(),
             callback_at=body.callback_at if outcome == "callback" else None,
+            sale_amount=(body.sale_amount if (outcome == "closed" and body.sale_amount and body.sale_amount > 0) else None),
         )
         db.add(row)
         # "Estimate sent, call to follow up" auto-flags the lead top-priority
