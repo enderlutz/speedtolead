@@ -40,6 +40,15 @@ LB_BOLD_NAME = "libre-baskerville-bold"
 # Fields that use Libre Baskerville instead of Montserrat
 LIBRE_FIELDS = {"customer_name"}
 
+# Client request (2026-07-27): the proposal cover identity block renders in
+# Times New Roman at a semibold weight. Times has no true semibold, so we
+# faux it — base-14 Times-Roman (no font file) filled AND lightly stroked in
+# the same color. 0.05pt reads as a clean semibold; heavier strokes get chunky.
+# Takes precedence over LIBRE_FIELDS/BOLD_FIELDS for these keys.
+TIMES_FIELDS = {"customer_name", "property_address", "prepared_by", "date", "proposal_number"}
+TIMES_FONTNAME = "tiro"            # PyMuPDF base-14 Times-Roman
+TIMES_SEMIBOLD_STROKE = 0.05      # faux-semibold stroke width, points
+
 DEFAULT_COLOR = "#2B2B2B"
 
 # Fields that should render in bold
@@ -352,26 +361,42 @@ def generate_filled_pdf(
             _render_split_price(page, x, y_baseline, font_size, text_value, PRICE_STYLE[field_key], box_width)
         else:
             font_kwargs: dict = {"fontsize": font_size, "color": color}
+            use_times = field_key in TIMES_FIELDS
             use_libre = field_key in LIBRE_FIELDS
-            if use_libre:
+            if use_times:
+                # Times New Roman, faux semibold. Base-14 font → no fontfile;
+                # fill + light stroke (same color) thickens it to semibold.
+                font_kwargs["fontname"] = TIMES_FONTNAME
+                font_kwargs["fill"] = color
+                font_kwargs["render_mode"] = 2
+                font_kwargs["border_width"] = TIMES_SEMIBOLD_STROKE
+                measure_font = fitz.Font(TIMES_FONTNAME)
+            elif use_libre:
                 if is_bold and LB_BOLD_PATH:
                     font_kwargs["fontname"] = LB_BOLD_NAME
                     font_kwargs["fontfile"] = LB_BOLD_PATH
+                    measure_font = fitz.Font(fontfile=LB_BOLD_PATH)
                 elif LB_PATH:
                     font_kwargs["fontname"] = LB_NAME
                     font_kwargs["fontfile"] = LB_PATH
+                    measure_font = fitz.Font(fontfile=LB_PATH)
+                else:
+                    measure_font = fitz.Font("helv")
             elif is_bold and FONT_BOLD_PATH:
                 font_kwargs["fontname"] = FONT_BOLD_NAME
                 font_kwargs["fontfile"] = FONT_BOLD_PATH
+                measure_font = fitz.Font(fontfile=FONT_BOLD_PATH)
             elif FONT_PATH:
                 font_kwargs["fontname"] = FONT_NAME
                 font_kwargs["fontfile"] = FONT_PATH
+                measure_font = fitz.Font(fontfile=FONT_PATH)
+            else:
+                measure_font = fitz.Font("helv")
 
             # Center text within box if width is set
             render_x = x
             if box_width > 0:
-                font_obj = fitz.Font(fontfile=FONT_BOLD_PATH if is_bold and FONT_BOLD_PATH else FONT_PATH) if (FONT_BOLD_PATH or FONT_PATH) else fitz.Font("helv")
-                tw = font_obj.text_length(text_value, fontsize=font_size)
+                tw = measure_font.text_length(text_value, fontsize=font_size)
                 render_x = x + (box_width - tw) / 2
 
             page.insert_text(fitz.Point(render_x, y_baseline), text_value, **font_kwargs)
