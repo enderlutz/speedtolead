@@ -343,6 +343,7 @@ function WinOverlay({ name, onClose }: { name: string; onClose: () => void }) {
 // excluded server-side, so it's Alan + the VAs.
 function CallTally({ reloadKey }: { reloadKey: number }) {
   const [data, setData] = useState<CallTallyData | null>(null);
+  const [range, setRange] = useState<"this" | "last">("this");
 
   const fetchIt = useCallback(() => {
     api.getCallTally().then(setData).catch(() => { /* non-fatal */ });
@@ -357,6 +358,12 @@ function CallTally({ reloadKey }: { reloadKey: number }) {
 
   if (!data) return null;
 
+  const isLast = range === "last";
+  // People sorted by the active range; hide anyone with 0 for that range.
+  const people = [...data.people]
+    .filter((p) => (isLast ? p.last_week : p.week) > 0)
+    .sort((a, b) => (isLast ? b.last_week - a.last_week : b.week - a.week));
+
   return (
     <div className="rounded-xl border bg-gradient-to-br from-muted/40 to-background p-4">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
@@ -365,29 +372,46 @@ function CallTally({ reloadKey }: { reloadKey: number }) {
           <span className="font-semibold text-sm">Calls</span>
         </div>
         <div className="flex items-center gap-5">
+          {!isLast && (
+            <>
+              <div className="text-center">
+                <div className="text-2xl font-bold leading-none tabular-nums">{data.today_total}</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">Today</div>
+              </div>
+              <div className="h-8 w-px bg-border" />
+            </>
+          )}
           <div className="text-center">
-            <div className="text-2xl font-bold leading-none tabular-nums">{data.today_total}</div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">Today</div>
-          </div>
-          <div className="h-8 w-px bg-border" />
-          <div className="text-center">
-            <div className="text-2xl font-bold leading-none tabular-nums">{data.week_total}</div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">This week</div>
+            <div className="text-2xl font-bold leading-none tabular-nums">{isLast ? data.last_week_total : data.week_total}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">{isLast ? "Last week" : "This week"}</div>
           </div>
         </div>
       </div>
-      {data.people.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-2">No calls logged yet this week.</p>
+
+      {/* This week / Last week toggle */}
+      <div className="inline-flex rounded-lg border bg-background p-0.5 mb-3 text-xs font-medium">
+        <button onClick={() => setRange("this")} className={`px-3 py-1 rounded-md transition-colors ${!isLast ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>This week</button>
+        <button onClick={() => setRange("last")} className={`px-3 py-1 rounded-md transition-colors ${isLast ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>Last week</button>
+      </div>
+
+      {people.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-2">No calls logged {isLast ? "last week" : "yet this week"}.</p>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
-          {data.people.map((p) => (
+          {people.map((p) => (
             <div key={p.sub || p.name} className="flex items-center gap-3 rounded-lg border bg-background p-2.5">
               <ActorAvatar actor={p} size={34} />
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-sm truncate">{p.name}</div>
                 <div className="text-[11px] text-muted-foreground">
-                  <span className="font-semibold text-foreground tabular-nums">{p.today}</span> today ·{" "}
-                  <span className="font-semibold text-foreground tabular-nums">{p.week}</span> this week
+                  {isLast ? (
+                    <><span className="font-semibold text-foreground tabular-nums">{p.last_week}</span> call{p.last_week === 1 ? "" : "s"} last week</>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-foreground tabular-nums">{p.today}</span> today ·{" "}
+                      <span className="font-semibold text-foreground tabular-nums">{p.week}</span> this week
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -813,7 +837,19 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     // no tab / stage / search filtering.
     if (leadId) return (tasks ?? []).filter((t) => t.id === leadId);
     const q = search.trim().toLowerCase();
+    // "Scheduled to call today" = a callback due today OR overdue (rolled
+    // forward into today's queue) — i.e. someone we're meant to call now.
+    const dueTodayOrOverdue = (t: DailyTask) => {
+      const fu = t.next_follow_up;
+      return !!fu?.due_at && ymdCST(fu.due_at) <= todayCST();
+    };
     const sortFn = (a: DailyTask, b: DailyTask) => {
+      // 1. Starred (top-priority) customers pinned to the very top.
+      if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1;
+      // 2. Anyone scheduled to call today (due today or overdue) comes before
+      //    leads with no call due — call the booked callbacks first.
+      const aToday = dueTodayOrOverdue(a), bToday = dueTodayOrOverdue(b);
+      if (aToday !== bToday) return aToday ? -1 : 1;
       // Brand-new leads (arrived today, untouched) get the very top — speed to
       // lead wins deals.
       if (a.is_new !== b.is_new) return a.is_new ? -1 : 1;
