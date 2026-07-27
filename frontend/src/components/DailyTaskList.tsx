@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, getCurrentUser, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type CallTally as CallTallyData } from "@/lib/api";
+import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type CallTally as CallTallyData } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -700,6 +700,20 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
     navigate(`/leads/${id}`);
   }, [navigate]);
 
+  // Top-priority star — click the star on any card to toggle. Any staff (incl.
+  // VAs) can do it. Optimistic; unstarring confirms first (deliberate action).
+  const toggleStar = useCallback(async (t: DailyTask) => {
+    const next = !t.starred;
+    if (!next && !window.confirm("Are you sure? This removes the top-priority star from this customer.")) return;
+    setTasks((prev) => prev ? prev.map((x) => x.id === t.id ? { ...x, starred: next } : x) : prev);
+    try {
+      await api.setLeadStarred(t.id, next);
+    } catch {
+      toast.error("Couldn't update priority");
+      setTasks((prev) => prev ? prev.map((x) => x.id === t.id ? { ...x, starred: !next } : x) : prev);
+    }
+  }, []);
+
   // Restore position: after the list loads, if we came back from a lead detail
   // page, scroll that lead's card into view and flash it. Runs once per mount.
   const didRestoreRef = useRef(false);
@@ -1079,7 +1093,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                   {/* Lead */}
                   <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-1.5">
-                      {t.starred && <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 shrink-0" aria-label="Top priority" />}
+                      <button
+                        onClick={() => toggleStar(t)}
+                        title={t.starred ? "Top priority — click to remove" : "Mark top priority"}
+                        aria-pressed={!!t.starred}
+                        className="shrink-0 leading-none"
+                      >
+                        <Star className={`h-4 w-4 ${t.starred ? "text-amber-400 fill-amber-400" : "text-muted-foreground/40 hover:text-amber-400"}`} />
+                      </button>
                       <button onClick={() => openLead(t.id)} className="font-medium text-primary hover:underline text-left">
                         {t.contact_name || "Lead"}
                       </button>
@@ -1234,7 +1255,14 @@ export default function DailyTaskList({ leadId }: { leadId?: string } = {}) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {t.starred && <Star className="h-4 w-4 text-amber-400 fill-amber-400 shrink-0" aria-label="Top priority" />}
+                      <button
+                        onClick={() => toggleStar(t)}
+                        title={t.starred ? "Top priority — tap to remove" : "Mark top priority"}
+                        aria-pressed={!!t.starred}
+                        className="shrink-0 leading-none -m-1 p-1"
+                      >
+                        <Star className={`h-5 w-5 ${t.starred ? "text-amber-400 fill-amber-400" : "text-muted-foreground/40"}`} />
+                      </button>
                       <button onClick={() => openLead(t.id)} className="font-semibold text-primary text-left text-[15px] leading-tight">
                         {t.contact_name || "Lead"}
                       </button>
@@ -1680,8 +1708,7 @@ function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onC
   const [fuAllDay, setFuAllDay] = useState(true);   // default all-day — no need to pick a time per lead
   const [saving, setSaving] = useState(false);
 
-  // Top-priority star. Admin-only toggle; unstarring asks for confirmation.
-  const isAdmin = getCurrentUser()?.role === "admin";
+  // Top-priority star. Any staff (incl. VAs) can toggle; unstarring confirms.
   const [starred, setStarred] = useState(!!task.starred);
   const [starring, setStarring] = useState(false);
   const toggleStar = async () => {
@@ -1756,22 +1783,16 @@ function LogCallModal({ task, onClose, onSaved, onStar }: { task: DailyTask; onC
   return (
     <ModalShell title="Log a call / follow-up" subtitle={task.contact_name || "Lead"} onClose={onClose}
       headerRight={
-        isAdmin ? (
-          <button
-            type="button"
-            onClick={toggleStar}
-            disabled={starring}
-            title={starred ? "Top priority — click to remove" : "Mark as top priority"}
-            aria-pressed={starred}
-            className={`inline-flex items-center justify-center h-9 w-9 rounded-full border transition-colors disabled:opacity-50 ${starred ? "bg-amber-50 border-amber-300 text-amber-500" : "border-input text-muted-foreground hover:text-amber-500 hover:border-amber-300"}`}
-          >
-            <Star className={`h-5 w-5 ${starred ? "fill-amber-400" : ""}`} />
-          </button>
-        ) : starred ? (
-          <span title="Top priority" className="inline-flex items-center justify-center h-9 w-9 text-amber-500">
-            <Star className="h-5 w-5 fill-amber-400" />
-          </span>
-        ) : null
+        <button
+          type="button"
+          onClick={toggleStar}
+          disabled={starring}
+          title={starred ? "Top priority — click to remove" : "Mark as top priority"}
+          aria-pressed={starred}
+          className={`inline-flex items-center justify-center h-9 w-9 rounded-full border transition-colors disabled:opacity-50 ${starred ? "bg-amber-50 border-amber-300 text-amber-500" : "border-input text-muted-foreground hover:text-amber-500 hover:border-amber-300"}`}
+        >
+          <Star className={`h-5 w-5 ${starred ? "fill-amber-400" : ""}`} />
+        </button>
       }>
       <label className="flex items-center gap-2 text-sm cursor-pointer font-medium">
         <input type="checkbox" checked={logCall} onChange={(e) => setLogCall(e.target.checked)} className="h-4 w-4" />

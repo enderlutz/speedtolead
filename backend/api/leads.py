@@ -862,9 +862,9 @@ class StarredUpdate(BaseModel):
 
 
 @router.post("/leads/{lead_id}/starred")
-def set_lead_starred(lead_id: str, body: StarredUpdate, user: dict = Depends(require_admin)):
-    """Toggle a lead's 'top priority' star. Admin-only — VAs see the star but
-    can't change it. Visual flag only (does not reorder any queue)."""
+def set_lead_starred(lead_id: str, body: StarredUpdate, user: dict = Depends(require_staff)):
+    """Toggle a lead's 'top priority' star. Any staff member (incl. VAs) can
+    click it right on the Hit List. Visual flag only (does not reorder any queue)."""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
