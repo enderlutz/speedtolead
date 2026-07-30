@@ -294,8 +294,23 @@ def _normalize_services(raw: list) -> list[dict]:
             "label": (item.get("label") or label_for(key)).strip() or label_for(key),
             "price": round(price, 2),
             "description": (item.get("description") or "").strip(),
+            # "OR" choice line: the customer is deciding between this and the
+            # other choice-flagged lines. Rendered as a "Choosing between …"
+            # group on the invite; not summed as a firm charge in the total.
+            "is_choice": bool(item.get("is_choice")),
         })
     return out
+
+
+def _derive_closed_price(services: list[dict]) -> float:
+    """Job's expected price from its line items. Firm (non-choice) services are
+    summed; when the customer is choosing between tiers, we add the highest
+    choice option (optimistic expected value — Alan corrects it to the real
+    tier once they pick)."""
+    firm = sum(float(s.get("price") or 0) for s in services if not s.get("is_choice"))
+    choice_prices = [float(s.get("price") or 0) for s in services if s.get("is_choice")]
+    top_choice = max(choice_prices) if choice_prices else 0.0
+    return round(firm + top_choice, 2)
 
 
 def _package_label(tier: str) -> str:
@@ -384,15 +399,20 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
     tax_suffix = " + Tax" if bool(job.closed_price_plus_tax) else ""
 
     if services:
+        clean = [s for s in services if isinstance(s, dict)]
+        firm = [s for s in clean if not s.get("is_choice")]
+        choice = [s for s in clean if s.get("is_choice")]
+
+        def _svc_label(s: dict) -> str:
+            return (s.get("label") or _package_label(s.get("key") or "")).strip()
+
         parts += ["", "Services:"]
         total = 0.0
-        for s in services:
-            if not isinstance(s, dict):
-                continue
-            label = (s.get("label") or _package_label(s.get("key") or "")).strip()
+        # Firm services first — each with its own price + description.
+        for s in firm:
             sprice = float(s.get("price") or 0)
             total += sprice
-            line = f"• {label}"
+            line = f"• {_svc_label(s)}"
             if sprice > 0:
                 line += f" — ${sprice:,.2f}"
             parts.append(line)
@@ -400,12 +420,33 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
             if desc:
                 parts.append(desc)
             parts.append("")  # spacer between services
+
+        # "OR" choice group — customer is deciding between these tiers. Shown
+        # as text with each option's price (each carries "+ Tax"); no single
+        # total for the group since the choice isn't made yet.
+        if choice:
+            names = [_svc_label(s) for s in choice]
+            parts.append(f"Choosing between {' or '.join(names)}:")
+            for s in choice:
+                sprice = float(s.get("price") or 0)
+                line = f"• {_svc_label(s)}"
+                if sprice > 0:
+                    line += f" — ${sprice:,.2f}{tax_suffix}"
+                parts.append(line)
+                desc = (s.get("description") or "").strip()
+                if desc:
+                    parts.append(desc)
+            parts.append("")
+
         if parts and parts[-1] == "":
             parts.pop()  # trim the trailing spacer
-        # Single total line carries the "+ Tax" suffix (per-line tax reads
-        # oddly). Shown whenever any line was priced.
+
+        # Total covers only the firm services (the choice is undecided). Skip
+        # it entirely when the whole job is an either/or so the invite reads
+        # like the customer's screenshot — just the two prices, no total.
         if total > 0:
-            parts += ["", f"Total: ${total:,.2f}{tax_suffix}"]
+            label = "Total (plus your chosen package)" if choice else "Total"
+            parts += ["", f"{label}: ${total:,.2f}{tax_suffix}"]
     else:
         # Legacy Package line. Skip cleanly when no tier was set rather than
         # show "Package: " with nothing after.
@@ -551,7 +592,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         services = _normalize_services(body.services)
         if services:
             from services.service_catalog import primary_tier_key
-            closed_price = round(sum(s["price"] for s in services), 2)
+            closed_price = _derive_closed_price(services)
             package_tier = primary_tier_key(services)
         else:
             closed_price = body.closed_price
@@ -856,7 +897,7 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
             j.services_json = _json.dumps(services)
             if services:
                 from services.service_catalog import primary_tier_key
-                j.closed_price = round(sum(s["price"] for s in services), 2)
+                j.closed_price = _derive_closed_price(services)
                 j.package_tier = primary_tier_key(services)
 
         j.updated_at = _now()

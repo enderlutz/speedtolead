@@ -3282,6 +3282,10 @@ export interface JobService {
   label: string;
   price: number;
   description: string;
+  /** "OR" choice line — the customer is deciding between this and the other
+   *  choice-flagged lines. Rendered as a "Choosing between …" group; not
+   *  summed as a firm charge. */
+  is_choice?: boolean;
 }
 
 /** A proposal link generated for a lead — shown in the schedule modal's

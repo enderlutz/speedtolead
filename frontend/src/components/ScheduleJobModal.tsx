@@ -23,6 +23,7 @@ interface ServiceLine {
   label: string;
   price: string;
   description: string;
+  isChoice: boolean;   // "OR" alternative — customer is choosing between these
 }
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
@@ -66,6 +67,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
         label: s.label,
         price: s.price ? String(s.price) : "",
         description: s.description || "",
+        isChoice: !!s.is_choice,
       }));
     }
     if (existing && (existing.package_tier || existing.closed_price)) {
@@ -74,9 +76,10 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
         label: "",
         price: existing.closed_price ? String(existing.closed_price) : "",
         description: "",
+        isChoice: false,
       }];
     }
-    return [{ key: "", label: "", price: "", description: "" }];
+    return [{ key: "", label: "", price: "", description: "", isChoice: false }];
   });
   // Service catalog (labels + default descriptions) + per-tier prices pulled
   // from the lead's estimate, used to prefill a line when a tier is picked.
@@ -282,10 +285,12 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   };
 
   // --- Service line editing ---
-  const addServiceLine = () =>
-    setServiceLines((prev) => [...prev, { key: "", label: "", price: "", description: "" }]);
+  const blankLine = (): ServiceLine => ({ key: "", label: "", price: "", description: "", isChoice: false });
+  const addServiceLine = () => setServiceLines((prev) => [...prev, blankLine()]);
   const removeServiceLine = (i: number) =>
-    setServiceLines((prev) => (prev.length === 1 ? [{ key: "", label: "", price: "", description: "" }] : prev.filter((_, idx) => idx !== i)));
+    setServiceLines((prev) => (prev.length === 1 ? [blankLine()] : prev.filter((_, idx) => idx !== i)));
+  const toggleServiceChoice = (i: number) =>
+    setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, isChoice: !l.isChoice } : l)));
   const pickService = (i: number, key: string) =>
     setServiceLines((prev) => prev.map((l, idx) => {
       if (idx !== i) return l;
@@ -297,17 +302,22 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
       const description = l.description.trim() ? l.description : (cat?.description || "");
       let price = l.price;
       if (cat?.is_tier && !l.price.trim() && tierPrices[key]) price = String(tierPrices[key]);
-      return { key, label, price, description };
+      return { ...l, key, label, price, description };
     }));
   const updateServicePrice = (i: number, v: string) =>
     setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, price: v } : l)));
   const updateServiceDesc = (i: number, v: string) =>
     setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, description: v } : l)));
-  const servicesTotal = serviceLines.reduce((sum, l) => sum + (parseFloat(l.price) || 0), 0);
+  // Total mirrors the backend: firm services summed, plus the highest "OR"
+  // choice option (the customer picks one). Choice-only jobs show no total.
+  const firmTotal = serviceLines.filter((l) => !l.isChoice).reduce((sum, l) => sum + (parseFloat(l.price) || 0), 0);
+  const topChoice = serviceLines.filter((l) => l.isChoice).reduce((max, l) => Math.max(max, parseFloat(l.price) || 0), 0);
+  const hasChoice = serviceLines.some((l) => l.isChoice && l.key);
+  const servicesTotal = firmTotal + topChoice;
   // Build the payload: drop blank lines, coerce price to number.
   const builtServices = serviceLines
     .filter((l) => l.key)
-    .map((l) => ({ key: l.key, label: l.label, price: parseFloat(l.price) || 0, description: l.description.trim() }));
+    .map((l) => ({ key: l.key, label: l.label, price: parseFloat(l.price) || 0, description: l.description.trim(), is_choice: l.isChoice }));
 
   const toggleEmployee = (id: string) => {
     setAssignedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -542,6 +552,12 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                           Tier price prefilled from the estimate — edit if needed.
                         </p>
                       )}
+                      {line.key && (
+                        <label className="flex items-center gap-1.5 text-[11px] mt-1.5 cursor-pointer text-muted-foreground">
+                          <input type="checkbox" checked={line.isChoice} onChange={() => toggleServiceChoice(i)} />
+                          Offer as an "OR" choice — customer decides between the choice lines
+                        </label>
+                      )}
                       <textarea
                         value={line.description}
                         onChange={(e) => updateServiceDesc(i, e.target.value)}
@@ -557,11 +573,17 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 <Button type="button" variant="outline" size="sm" onClick={addServiceLine}>
                   <Plus className="h-3.5 w-3.5 mr-1" /> Add service
                 </Button>
-                <span className="text-sm font-semibold">
-                  Total: ${servicesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span className="text-sm font-semibold" title={hasChoice ? "Firm services + the higher 'OR' option" : undefined}>
+                  {hasChoice ? "Est. total: " : "Total: "}
+                  ${servicesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   {plusTax ? " + Tax" : ""}
                 </span>
               </div>
+              {hasChoice && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  The invite shows the "OR" lines as "Choosing between … " with both prices — the customer picks one.
+                </p>
+              )}
               <label className="flex items-center gap-1.5 text-xs mt-2 cursor-pointer text-muted-foreground">
                 <input type="checkbox" checked={plusTax} onChange={(e) => setPlusTax(e.target.checked)} />
                 + Tax on invite
