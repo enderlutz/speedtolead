@@ -78,6 +78,7 @@ class ScheduleJobBody(BaseModel):
     custom_proposal_url: str = ""       # if set, overrides the auto-resolved proposal URL on the invite
     fence_sides_override: str = ""      # CSV of selected sides; empty falls back to lead.form_data.fence_sides
     additional_sides_text: str = ""     # free-form addendum appended to the Sides line
+    sides_custom_text: str = ""         # free-form text that REPLACES the Sides line when set
     color_choice: str = ""
     needs_test_spots: bool = False
     gallons_estimate: float = 0
@@ -109,6 +110,7 @@ class UpdateJobBody(BaseModel):
     custom_proposal_url: str | None = None
     fence_sides_override: str | None = None
     additional_sides_text: str | None = None
+    sides_custom_text: str | None = None
     color_choice: str | None = None
     needs_test_spots: bool | None = None
     gallons_estimate: float | None = None
@@ -184,22 +186,33 @@ _KNOWN_FENCE_SIDES = {
 
 
 def _format_sides_for_display(side_names: list[str]) -> str:
-    """Run a raw side list through the proposal formatter for the
-    standard 8 sides, then tack on any non-standard names. Empty
-    selection returns ''."""
-    from api.estimates import _build_pricing_includes
+    """Format the selected sides for the invite 'Sides:' line.
 
-    standard = [s for s in side_names if s in _KNOWN_FENCE_SIDES]
+    Grouping (per Alan, 2026-07-30): all four inside → 'Inside of fence';
+    all four outside → 'Outside of fence'; otherwise each side reads on its
+    own ('Inside Front', 'Outside Front', …). Non-standard custom labels
+    (from the lead's form_data or an admin addendum) survive verbatim and
+    are appended last. Empty selection returns ''.
+
+    This is intentionally separate from api.estimates._build_pricing_includes
+    (which feeds the proposal 'What's Included' copy) so invite wording can
+    change without touching proposals."""
+    inside_all = {"Inside Front", "Inside Left", "Inside Back", "Inside Right"}
+    outside_all = {"Outside Front", "Outside Left", "Outside Back", "Outside Right"}
+
+    inside = [s for s in side_names if s in inside_all]
+    outside = [s for s in side_names if s in outside_all]
     custom = [s for s in side_names if s not in _KNOWN_FENCE_SIDES]
 
     parts: list[str] = []
-    if standard:
-        formatted = _build_pricing_includes(standard, None)
-        # The formatter returns "fence" when no recognized side was
-        # found; with the membership filter above that can't happen
-        # for a non-empty `standard`, but guard anyway.
-        if formatted and formatted != "fence":
-            parts.append(formatted)
+    if len(inside) == 4:
+        parts.append("Inside of fence")
+    else:
+        parts.extend(inside)   # each already reads "Inside Front", etc.
+    if len(outside) == 4:
+        parts.append("Outside of fence")
+    else:
+        parts.extend(outside)
     parts.extend(custom)
     return ", ".join(parts)
 
@@ -220,7 +233,15 @@ def _resolve_fence_sides_label(job: ScheduledJob, lead) -> str:
 
     job.additional_sides_text is appended last, comma-separated, so
     one-off services like 'Fence by the pool' show up at the tail:
-        Inside Fences, Outside Fences, Fence by the pool"""
+        Inside Fences, Outside Fences, Fence by the pool
+
+    sides_custom_text short-circuits everything: when the admin types a
+    free-form fence description (2026-07-30), it REPLACES the whole Sides
+    line — checkboxes and additional-sides text are ignored."""
+    custom_text = (getattr(job, "sides_custom_text", "") or "").strip()
+    if custom_text:
+        return custom_text
+
     override_csv = (job.fence_sides_override or "").strip()
     additional = (job.additional_sides_text or "").strip()
 
@@ -554,6 +575,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             custom_proposal_url=body.custom_proposal_url or "",
             fence_sides_override=body.fence_sides_override or "",
             additional_sides_text=body.additional_sides_text or "",
+            sides_custom_text=body.sides_custom_text or "",
             color_choice=body.color_choice,
             needs_test_spots=body.needs_test_spots,
             gallons_estimate=gallons,
@@ -813,7 +835,7 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
         for field in (
             "job_date", "arrival_time", "estimated_duration_hours", "package_tier",
             "closed_price", "closed_price_plus_tax", "custom_proposal_url",
-            "fence_sides_override", "additional_sides_text",
+            "fence_sides_override", "additional_sides_text", "sides_custom_text",
             "color_choice", "needs_test_spots", "gallons_estimate", "bleach_gallons",
             "address", "zip_code", "customer_email", "customer_phone",
             "customer_name", "job_description", "worker_notes", "customer_notes",

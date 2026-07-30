@@ -158,6 +158,11 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   const [additionalSides, setAdditionalSides] = useState(
     existing?.additional_sides_text || "",
   );
+  // Free-form fence description that REPLACES the whole Sides line on the
+  // invite when filled (the side checkboxes + additional text are ignored).
+  const [sidesCustomText, setSidesCustomText] = useState(
+    existing?.sides_custom_text || "",
+  );
   // Stable serialization for the payload — keep availableSides order so
   // the rendered string matches what the admin saw checked top-to-bottom.
   const fenceSidesOverrideCsv = availableSides.filter((s) => selectedSides.has(s)).join(", ");
@@ -310,6 +315,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           custom_proposal_url: customProposalUrl.trim(),
           fence_sides_override: fenceSidesOverrideCsv,
           additional_sides_text: additionalSides.trim(),
+          sides_custom_text: sidesCustomText.trim(),
           color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -339,6 +345,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           custom_proposal_url: customProposalUrl.trim(),
           fence_sides_override: fenceSidesOverrideCsv,
           additional_sides_text: additionalSides.trim(),
+          sides_custom_text: sidesCustomText.trim(),
           color_choice: colorChoiceJoined,
           needs_test_spots: needsTestSpots,
           gallons_estimate: parseFloat(gallons) || 0,
@@ -622,10 +629,29 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 onChange={(e) => setAdditionalSides(e.target.value)}
                 placeholder="Additional sides (e.g. back deck rails)"
                 className="mt-2"
+                disabled={!!sidesCustomText.trim()}
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                Overrides the Sides line on the customer invite + worker view.
+                Appends to the Sides line on the customer invite + worker view.
               </p>
+
+              {/* Free-form replacement — when filled, this shows on the invite
+                  INSTEAD of the checked sides above. */}
+              <div className="mt-3">
+                <label className={labelCls}>Or describe the fence in your own words</label>
+                <textarea
+                  value={sidesCustomText}
+                  onChange={(e) => setSidesCustomText(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Both sides of the backyard fence + the gate"
+                  className={`${inputCls} mt-1 resize-none`}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {sidesCustomText.trim()
+                    ? "This shows on the invite instead of the checked sides above."
+                    : "Leave blank to use the checked sides. When filled, this replaces the Sides line entirely."}
+                </p>
+              </div>
             </div>
 
             {/* Additional notes — customer-facing (lands on the Google invite

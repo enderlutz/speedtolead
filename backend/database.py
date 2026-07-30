@@ -1070,6 +1070,10 @@ class ScheduledJob(Base):
     # Free-form addendum appended to the Sides line. Catches one-off sides
     # the proposal didn't enumerate ("includes back deck rails").
     additional_sides_text = Column(Text, default="")
+    # Free-form fence description that REPLACES the whole Sides line on the
+    # invite (2026-07-30). When non-empty, the side checkboxes + additional
+    # text are ignored and this text shows verbatim instead.
+    sides_custom_text = Column(Text, default="")
     job_description = Column(Text, default="")            # LEGACY single-text field; new flows use worker_notes + customer_notes below
     # Split notes: worker_notes ends up on My Day + worker calendar view (sanitized);
     # customer_notes ends up in the Google invite description block above the
@@ -1179,6 +1183,7 @@ class ScheduledJob(Base):
             "custom_proposal_url": self.custom_proposal_url or "",
             "fence_sides_override": self.fence_sides_override or "",
             "additional_sides_text": self.additional_sides_text or "",
+            "sides_custom_text": self.sides_custom_text or "",
             "google_event_html_link": self.google_event_html_link or "",
             "customer_email": self.customer_email or "",
             "customer_phone": self.customer_phone or "",
@@ -3261,6 +3266,7 @@ def _run_migrations():
             ("internal_duration_hours", "ALTER TABLE scheduled_jobs ADD COLUMN internal_duration_hours NUMERIC(10,2) DEFAULT 0"),
             ("pm_private_notes", "ALTER TABLE scheduled_jobs ADD COLUMN pm_private_notes TEXT DEFAULT ''"),
             ("services_json", "ALTER TABLE scheduled_jobs ADD COLUMN services_json TEXT DEFAULT '[]'"),
+            ("sides_custom_text", "ALTER TABLE scheduled_jobs ADD COLUMN sides_custom_text TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

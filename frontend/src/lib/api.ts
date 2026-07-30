@@ -3300,6 +3300,8 @@ export interface ScheduleJobBody {
   fence_sides_override?: string;
   /** Free-form addendum appended to the Sides line on the invite + worker view. */
   additional_sides_text?: string;
+  /** Free-form fence description that REPLACES the Sides line entirely when set. */
+  sides_custom_text?: string;
   /** Free text — supports multiple colors (e.g. "Cabot Cedar, Behr Padre"). */
   color_choice?: string;
   needs_test_spots?: boolean;
@@ -3338,6 +3340,7 @@ export interface UpdateJobBody {
   custom_proposal_url?: string;
   fence_sides_override?: string;
   additional_sides_text?: string;
+  sides_custom_text?: string;
   color_choice?: string;
   needs_test_spots?: boolean;
   gallons_estimate?: number;
@@ -3537,6 +3540,8 @@ export interface ScheduledJob {
   fence_sides_override?: string;
   /** Admin-only. Free-form addendum appended to Sides on the invite + worker view. */
   additional_sides_text?: string;
+  /** Admin-only. Free-form text that REPLACES the Sides line entirely when set. */
+  sides_custom_text?: string;
   /** Admin-only. Viewable Google Calendar URL captured at event-create time. */
   google_event_html_link?: string;
   customer_email?: string;
