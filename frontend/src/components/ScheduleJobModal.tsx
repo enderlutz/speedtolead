@@ -252,6 +252,14 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
     return () => { cancelled = true; };
   }, [lead.id]);
 
+  // Weather ZIP auto-derives from the address (the ZIP is already in there) —
+  // grab the last 5-digit group whenever the address changes so the crew's
+  // weather badge just works without anyone typing a ZIP.
+  useEffect(() => {
+    const matches = address.match(/\b\d{5}\b/g);
+    if (matches && matches.length) setZip(matches[matches.length - 1]);
+  }, [address]);
+
   // Proposal links already sent to this customer, newest first.
   useEffect(() => {
     let cancelled = false;
@@ -866,8 +874,11 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 <Input value={address} onChange={(e) => setAddress(e.target.value)} className="mt-1" />
               </div>
               <div>
-                <label className={labelCls}>ZIP (for weather)</label>
+                <label className={labelCls}>ZIP (auto-filled from address)</label>
                 <Input value={zip} onChange={(e) => setZip(e.target.value)} className="mt-1" />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Pulled from the address for the weather forecast — edit only if it's wrong.
+                </p>
               </div>
               <div>
                 <label className={labelCls}>Email (calendar invite)</label>
