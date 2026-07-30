@@ -1016,6 +1016,14 @@ class ScheduledJob(Base):
     pm_private_notes = Column(Text, default="")
     package_tier = Column(Text, default="")               # essential | signature | legacy | custom
     closed_price = Column(Numeric(10, 2), default=0)
+    # Invoice-style service line items (2026-07-30). JSON array of
+    # {key, label, price, description}. Source of truth for the "Services"
+    # block on the Google invite. package_tier (primary staining tier) and
+    # closed_price (sum of line prices) are kept in sync on save for
+    # back-compat with proposals, accounting, and the worker view. Empty
+    # "[]" on legacy rows → the invite falls back to the old Package/Price
+    # lines.
+    services_json = Column(Text, default="[]")
     # Whether the closed_price line on the Google invite should show "+ Tax".
     # Internal bookkeeping signal — does NOT actually calculate tax. New jobs
     # default off; admin opts in per-job via the schedule modal checkbox.
@@ -1166,6 +1174,8 @@ class ScheduledJob(Base):
         base.update({
             "closed_price": float(self.closed_price or 0),
             "closed_price_plus_tax": bool(self.closed_price_plus_tax),
+            # Invoice-style service line items (admin/VA only — carries price).
+            "services": _j(self.services_json) if self.services_json else [],
             "custom_proposal_url": self.custom_proposal_url or "",
             "fence_sides_override": self.fence_sides_override or "",
             "additional_sides_text": self.additional_sides_text or "",
@@ -3250,6 +3260,7 @@ def _run_migrations():
             ("internal_arrival_time", "ALTER TABLE scheduled_jobs ADD COLUMN internal_arrival_time TEXT DEFAULT ''"),
             ("internal_duration_hours", "ALTER TABLE scheduled_jobs ADD COLUMN internal_duration_hours NUMERIC(10,2) DEFAULT 0"),
             ("pm_private_notes", "ALTER TABLE scheduled_jobs ADD COLUMN pm_private_notes TEXT DEFAULT ''"),
+            ("services_json", "ALTER TABLE scheduled_jobs ADD COLUMN services_json TEXT DEFAULT '[]'"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

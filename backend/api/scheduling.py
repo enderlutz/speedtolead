@@ -69,6 +69,11 @@ class ScheduleJobBody(BaseModel):
     estimated_duration_hours: float = 6.0
     package_tier: str = ""              # essential | signature | legacy | custom
     closed_price: float = 0
+    # Invoice-style service line items: [{key, label, price, description}].
+    # When non-empty this is the source of truth — closed_price (sum) and
+    # package_tier (primary staining tier) are derived from it server-side.
+    # Empty list keeps the legacy single-package behavior.
+    services: list[dict] = []
     closed_price_plus_tax: bool = False # controls "+ Tax" on the invite price line; opt-in
     custom_proposal_url: str = ""       # if set, overrides the auto-resolved proposal URL on the invite
     fence_sides_override: str = ""      # CSV of selected sides; empty falls back to lead.form_data.fence_sides
@@ -99,6 +104,7 @@ class UpdateJobBody(BaseModel):
     estimated_duration_hours: float | None = None
     package_tier: str | None = None
     closed_price: float | None = None
+    services: list[dict] | None = None  # None = leave unchanged; [] clears line items
     closed_price_plus_tax: bool | None = None
     custom_proposal_url: str | None = None
     fence_sides_override: str | None = None
@@ -245,6 +251,32 @@ def _resolve_fence_sides_label(job: ScheduledJob, lead) -> str:
     return label
 
 
+def _normalize_services(raw: list) -> list[dict]:
+    """Clean the raw services payload into stored line items. Drops entries
+    with no key; coerces price to a 2-decimal float; back-fills the label
+    from the catalog when the client didn't send one."""
+    from services.service_catalog import label_for
+
+    out: list[dict] = []
+    for item in (raw or []):
+        if not isinstance(item, dict):
+            continue
+        key = (item.get("key") or "").strip()
+        if not key:
+            continue
+        try:
+            price = float(item.get("price") or 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        out.append({
+            "key": key,
+            "label": (item.get("label") or label_for(key)).strip() or label_for(key),
+            "price": round(price, 2),
+            "description": (item.get("description") or "").strip(),
+        })
+    return out
+
+
 def _package_label(tier: str) -> str:
     """Map a package_tier slug to the customer-facing label that lands on
     the invite line "Package: …". Unknown tiers fall back to title-case
@@ -316,19 +348,54 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
     if proposal_url:
         parts.append(proposal_url)
 
-    # Package line. Skip cleanly when no tier was set rather than show
-    # "Package: " with nothing after.
-    pkg_label = _package_label(job.package_tier or "")
-    if pkg_label:
-        parts += ["", f"Package: {pkg_label}"]
+    # Services block (2026-07-30). When the job carries invoice-style line
+    # items, render each service with its price + description so the customer
+    # sees exactly what they're getting. Legacy rows (empty services_json)
+    # fall back to the old single Package + Price lines below.
+    import json as _json
+    try:
+        services = _json.loads(job.services_json or "[]")
+    except Exception:
+        services = []
+    if not isinstance(services, list):
+        services = []
 
-    # Price line. Two-decimal format (1075.36, not 1,075). "+ Tax"
-    # suffix is opt-in via the closed_price_plus_tax flag — defaults
-    # True so existing rows render the same as the manual template.
-    price = float(job.closed_price or 0)
-    if price > 0:
-        suffix = " + Tax" if bool(job.closed_price_plus_tax) else ""
-        parts += ["", f"Price: {price:.2f}{suffix}"]
+    tax_suffix = " + Tax" if bool(job.closed_price_plus_tax) else ""
+
+    if services:
+        parts += ["", "Services:"]
+        total = 0.0
+        for s in services:
+            if not isinstance(s, dict):
+                continue
+            label = (s.get("label") or _package_label(s.get("key") or "")).strip()
+            sprice = float(s.get("price") or 0)
+            total += sprice
+            line = f"• {label}"
+            if sprice > 0:
+                line += f" — ${sprice:,.2f}"
+            parts.append(line)
+            desc = (s.get("description") or "").strip()
+            if desc:
+                parts.append(desc)
+            parts.append("")  # spacer between services
+        if parts and parts[-1] == "":
+            parts.pop()  # trim the trailing spacer
+        # Single total line carries the "+ Tax" suffix (per-line tax reads
+        # oddly). Shown whenever any line was priced.
+        if total > 0:
+            parts += ["", f"Total: ${total:,.2f}{tax_suffix}"]
+    else:
+        # Legacy Package line. Skip cleanly when no tier was set rather than
+        # show "Package: " with nothing after.
+        pkg_label = _package_label(job.package_tier or "")
+        if pkg_label:
+            parts += ["", f"Package: {pkg_label}"]
+
+        # Legacy Price line. Two-decimal format (1075.36, not 1,075).
+        price = float(job.closed_price or 0)
+        if price > 0:
+            parts += ["", f"Price: {price:.2f}{tax_suffix}"]
 
     # Color/s line. Whatever the admin typed lands verbatim — supports
     # comma-separated multiples ("Cabot Cedar, Behr Padre Brown"). When
@@ -455,6 +522,20 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
         # the crew types the actual amount post-job via the inline editor.
         gallons = body.gallons_estimate or 0
 
+        # Invoice-style service line items. When present, they're the source
+        # of truth: closed_price = sum of line prices, package_tier = the
+        # primary staining tier (or 'custom'). Legacy callers that still send
+        # package_tier/closed_price with no services keep working unchanged.
+        import json as _json
+        services = _normalize_services(body.services)
+        if services:
+            from services.service_catalog import primary_tier_key
+            closed_price = round(sum(s["price"] for s in services), 2)
+            package_tier = primary_tier_key(services)
+        else:
+            closed_price = body.closed_price
+            package_tier = body.package_tier
+
         # Geocode upfront so the worker's map has a pin immediately.
         # Failures degrade gracefully — listScheduledJobs lazy-retries on read.
         lat, lng = _geocode_job(address, zip_code)
@@ -466,8 +547,9 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             job_date=body.job_date,
             arrival_time=body.arrival_time or "07:30",
             estimated_duration_hours=body.estimated_duration_hours,
-            package_tier=body.package_tier,
-            closed_price=body.closed_price,
+            package_tier=package_tier,
+            closed_price=closed_price,
+            services_json=_json.dumps(services),
             closed_price_plus_tax=body.closed_price_plus_tax,
             custom_proposal_url=body.custom_proposal_url or "",
             fence_sides_override=body.fence_sides_override or "",
@@ -740,6 +822,21 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
             v = getattr(body, field)
             if v is not None:
                 setattr(j, field, v)
+
+        # Service line items (2026-07-30). None → leave as-is; a list (even
+        # empty) replaces them and re-derives closed_price + package_tier so
+        # the invoice-style block and the legacy back-compat fields stay in
+        # sync. Runs after the plain-field loop so it wins over any
+        # package_tier/closed_price the caller also happened to send.
+        if body.services is not None:
+            import json as _json
+            services = _normalize_services(body.services)
+            j.services_json = _json.dumps(services)
+            if services:
+                from services.service_catalog import primary_tier_key
+                j.closed_price = round(sum(s["price"] for s in services), 2)
+                j.package_tier = primary_tier_key(services)
+
         j.updated_at = _now()
 
         # Update assignments if supplied

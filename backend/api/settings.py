@@ -86,6 +86,39 @@ def update_pricing(body: PricingUpdate):
         db.close()
 
 
+# --- Service catalog (schedule / calendar-invite line items) ---
+
+@router.get("/settings/service-catalog")
+def get_service_catalog():
+    """The full list of schedulable services with their current (possibly
+    admin-edited) customer-facing descriptions. Feeds the schedule modal's
+    service picker + the Service Descriptions editor."""
+    from services.service_catalog import get_catalog
+    db = get_db()
+    try:
+        return {"services": get_catalog(db)}
+    finally:
+        db.close()
+
+
+class ServiceCatalogUpdate(BaseModel):
+    # {service_key: description}. Blank/omitted keys revert to the default.
+    descriptions: dict
+
+
+@router.put("/settings/service-catalog")
+def update_service_catalog(body: ServiceCatalogUpdate):
+    """Save Alan's per-service description edits. Returns the refreshed
+    catalog so the caller can re-render without a second fetch."""
+    from services.service_catalog import save_overrides, get_catalog
+    db = get_db()
+    try:
+        save_overrides(db, body.descriptions or {})
+        return {"status": "ok", "services": get_catalog(db)}
+    finally:
+        db.close()
+
+
 # --- Promotion markup (slashed price feature) ---
 
 # Persisted as a SystemConfig string ("20.0", "15", etc). Empty/missing

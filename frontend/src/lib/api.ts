@@ -1759,6 +1759,15 @@ export const api = {
   // Scheduling
   createScheduledJob: (body: ScheduleJobBody) =>
     request<ScheduledJob>("/api/schedule/jobs", { method: "POST", body: JSON.stringify(body) }),
+  // Service catalog for the schedule modal's line-item picker + the Service
+  // Descriptions editor. GET returns current (possibly admin-edited) copy.
+  getServiceCatalog: () =>
+    request<{ services: ServiceCatalogItem[] }>("/api/settings/service-catalog"),
+  updateServiceCatalog: (descriptions: Record<string, string>) =>
+    request<{ status: string; services: ServiceCatalogItem[] }>("/api/settings/service-catalog", {
+      method: "PUT",
+      body: JSON.stringify({ descriptions }),
+    }),
   listScheduledJobs: (params: { start?: string; end?: string; employee_id?: string } = {}) => {
     const qs = new URLSearchParams();
     if (params.start) qs.set("start", params.start);
@@ -3253,6 +3262,24 @@ export interface FollowUpConfig {
 
 // --- Scheduling types ---
 
+/** One schedulable service from the catalog, with its editable customer-facing
+ *  description. `is_tier` marks the three staining tiers (essential / signature
+ *  / legacy) whose price the schedule modal pre-fills from the estimate. */
+export interface ServiceCatalogItem {
+  key: string;
+  label: string;
+  is_tier: boolean;
+  description: string;
+}
+
+/** An invoice-style service line item on a scheduled job. */
+export interface JobService {
+  key: string;
+  label: string;
+  price: number;
+  description: string;
+}
+
 export interface ScheduleJobBody {
   lead_id: string;
   job_date: string;
@@ -3260,6 +3287,9 @@ export interface ScheduleJobBody {
   estimated_duration_hours?: number;
   package_tier?: string;
   closed_price?: number;
+  /** Invoice-style line items. When set, closed_price + package_tier are
+   *  derived from these server-side. */
+  services?: JobService[];
   /** When true, the invite price line renders "Price: X + Tax". Default off. */
   closed_price_plus_tax?: boolean;
   /** Admin-pasted override for the proposal URL on the Google invite. When
@@ -3301,6 +3331,9 @@ export interface UpdateJobBody {
   estimated_duration_hours?: number;
   package_tier?: string;
   closed_price?: number;
+  /** Invoice-style line items. null/undefined leaves them unchanged; an
+   *  array (even empty) replaces them and re-derives closed_price + package_tier. */
+  services?: JobService[];
   closed_price_plus_tax?: boolean;
   custom_proposal_url?: string;
   fence_sides_override?: string;
@@ -3473,6 +3506,8 @@ export interface ScheduledJob {
   customer_name: string;
   /** essential | signature | legacy | custom — workers also see this now */
   package_tier?: string;
+  /** Invoice-style service line items (admin/VA only — carries price). */
+  services?: JobService[];
   color_choice: string;
   needs_test_spots: boolean;
   gallons_estimate: number;          // stain assigned (admin)

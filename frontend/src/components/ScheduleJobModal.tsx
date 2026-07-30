@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Employee, type ScheduledJob, type Lead, type NearbyJob } from "@/lib/api";
+import { api, getCurrentUser, type Employee, type ScheduledJob, type Lead, type NearbyJob, type ServiceCatalogItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles } from "lucide-react";
+import ServiceDescriptionsModal from "@/components/ServiceDescriptionsModal";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
 const STAIN_COLORS = [
@@ -11,12 +12,18 @@ const STAIN_COLORS = [
   "Mahogany", "Walnut", "Dark Oak", "Ebony",
 ];
 
-const PACKAGES = [
-  { value: "essential", label: "Essential" },
-  { value: "signature", label: "Signature" },
-  { value: "legacy", label: "Legacy" },
-  { value: "custom", label: "Custom" },
-];
+// One-time nudge (admin only) pointing Alan at the Service Descriptions editor
+// the first time he opens the schedule flow after the line-items launch.
+const SERVICE_INTRO_KEY = "serviceLineItemsIntroSeen_v1";
+
+// Editor-local shape for a service line — price is a string while typing so
+// decimals aren't clobbered; it's parsed to a number on save.
+interface ServiceLine {
+  key: string;
+  label: string;
+  price: string;
+  description: string;
+}
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 const labelCls = "text-xs font-semibold text-muted-foreground";
@@ -49,8 +56,34 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   const [jobDate, setJobDate] = useState(existing?.job_date || defaultDate);
   const [arrivalTime, setArrivalTime] = useState(existing?.arrival_time || "07:30");
   const [duration, setDuration] = useState(String(existing?.estimated_duration_hours || 6));
-  const [pkg, setPkg] = useState(existing?.package_tier || "signature");
-  const [price, setPrice] = useState(String(existing?.closed_price || 0));
+  // Invoice-style service line items. Init order: saved services on the job →
+  // legacy migration (one line from package_tier + closed_price) → a single
+  // blank line to fill in.
+  const [serviceLines, setServiceLines] = useState<ServiceLine[]>(() => {
+    if (existing?.services && existing.services.length > 0) {
+      return existing.services.map((s) => ({
+        key: s.key,
+        label: s.label,
+        price: s.price ? String(s.price) : "",
+        description: s.description || "",
+      }));
+    }
+    if (existing && (existing.package_tier || existing.closed_price)) {
+      return [{
+        key: existing.package_tier || "",
+        label: "",
+        price: existing.closed_price ? String(existing.closed_price) : "",
+        description: "",
+      }];
+    }
+    return [{ key: "", label: "", price: "", description: "" }];
+  });
+  // Service catalog (labels + default descriptions) + per-tier prices pulled
+  // from the lead's estimate, used to prefill a line when a tier is picked.
+  const [catalog, setCatalog] = useState<ServiceCatalogItem[]>([]);
+  const [tierPrices, setTierPrices] = useState<Record<string, number>>({});
+  const [showDescEditor, setShowDescEditor] = useState(false);
+  const [showIntro, setShowIntro] = useState(false);
   // Defaults OFF on brand-new jobs — admin opts in per-job. Existing rows
   // respect whatever was saved (undefined treated as off so legacy rows
   // don't surprise-flip on first edit).
@@ -190,6 +223,68 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
     return () => { cancelled = true; };
   }, [lead.id]);
 
+  // Load the service catalog (labels + editable descriptions) for the picker.
+  const loadCatalog = () => api.getServiceCatalog().then((r) => setCatalog(r.services)).catch(() => { /* silent */ });
+  useEffect(() => { loadCatalog(); }, []);
+
+  // Pull the lead's estimate tier prices so picking a tier prefills its price.
+  useEffect(() => {
+    let cancelled = false;
+    api.getLead(lead.id)
+      .then((d) => {
+        const t = d.estimate?.tiers;
+        if (t && !cancelled) {
+          setTierPrices({
+            essential: t.essential || 0,
+            signature: t.signature || 0,
+            legacy: t.legacy || 0,
+          });
+        }
+      })
+      .catch(() => { /* silent — prices just won't prefill */ });
+    return () => { cancelled = true; };
+  }, [lead.id]);
+
+  // One-time intro nudge for Alan the first time he opens the schedule flow
+  // after the line-items launch, pointing him at the description editor.
+  useEffect(() => {
+    if (getCurrentUser()?.role === "admin" && !localStorage.getItem(SERVICE_INTRO_KEY)) {
+      setShowIntro(true);
+    }
+  }, []);
+  const dismissIntro = () => {
+    localStorage.setItem(SERVICE_INTRO_KEY, "1");
+    setShowIntro(false);
+  };
+
+  // --- Service line editing ---
+  const addServiceLine = () =>
+    setServiceLines((prev) => [...prev, { key: "", label: "", price: "", description: "" }]);
+  const removeServiceLine = (i: number) =>
+    setServiceLines((prev) => (prev.length === 1 ? [{ key: "", label: "", price: "", description: "" }] : prev.filter((_, idx) => idx !== i)));
+  const pickService = (i: number, key: string) =>
+    setServiceLines((prev) => prev.map((l, idx) => {
+      if (idx !== i) return l;
+      const cat = catalog.find((c) => c.key === key);
+      const label = cat?.label || key;
+      // Prefill the description from the catalog default (only if the line
+      // doesn't already carry a custom one), and the price from the estimate
+      // when this is a staining tier and the line's price is still blank.
+      const description = l.description.trim() ? l.description : (cat?.description || "");
+      let price = l.price;
+      if (cat?.is_tier && !l.price.trim() && tierPrices[key]) price = String(tierPrices[key]);
+      return { key, label, price, description };
+    }));
+  const updateServicePrice = (i: number, v: string) =>
+    setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, price: v } : l)));
+  const updateServiceDesc = (i: number, v: string) =>
+    setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, description: v } : l)));
+  const servicesTotal = serviceLines.reduce((sum, l) => sum + (parseFloat(l.price) || 0), 0);
+  // Build the payload: drop blank lines, coerce price to number.
+  const builtServices = serviceLines
+    .filter((l) => l.key)
+    .map((l) => ({ key: l.key, label: l.label, price: parseFloat(l.price) || 0, description: l.description.trim() }));
+
   const toggleEmployee = (id: string) => {
     setAssignedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
@@ -210,8 +305,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           job_date: jobDate,
           arrival_time: arrivalTime,
           estimated_duration_hours: parseFloat(duration) || 6,
-          package_tier: pkg,
-          closed_price: parseFloat(price) || 0,
+          services: builtServices,
           closed_price_plus_tax: plusTax,
           custom_proposal_url: customProposalUrl.trim(),
           fence_sides_override: fenceSidesOverrideCsv,
@@ -240,8 +334,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           job_date: jobDate,
           arrival_time: arrivalTime,
           estimated_duration_hours: parseFloat(duration) || 6,
-          package_tier: pkg,
-          closed_price: parseFloat(price) || 0,
+          services: builtServices,
           closed_price_plus_tax: plusTax,
           custom_proposal_url: customProposalUrl.trim(),
           fence_sides_override: fenceSidesOverrideCsv,
@@ -276,6 +369,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-background rounded-lg shadow-xl w-full max-w-2xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b flex items-center justify-between">
@@ -354,27 +448,94 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           {/* Job spec */}
           <section>
             <h3 className="text-sm font-semibold mb-2">Job Details</h3>
+            {/* Services — invoice-style line items. Each carries its own
+                price + description; the description shows to the customer on
+                the calendar invite. The three staining tiers prefill their
+                price from the lead's estimate; add-on services are priced by
+                hand. */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className={labelCls}>Services</label>
+                <button
+                  type="button"
+                  onClick={() => setShowDescEditor(true)}
+                  className="text-[11px] text-primary hover:underline flex items-center gap-1"
+                >
+                  <Pencil className="h-3 w-3" /> Edit descriptions
+                </button>
+              </div>
+              <div className="space-y-2">
+                {serviceLines.map((line, i) => {
+                  const cat = catalog.find((c) => c.key === line.key);
+                  const isTier = !!cat?.is_tier;
+                  return (
+                    <div key={i} className="border border-input rounded-md p-2.5 bg-muted/20">
+                      <div className="flex gap-2">
+                        <select
+                          value={line.key}
+                          onChange={(e) => pickService(i, e.target.value)}
+                          className={`${inputCls} flex-1`}
+                        >
+                          <option value="">— pick a service —</option>
+                          {catalog.map((c) => (
+                            <option key={c.key} value={c.key}>{c.label}</option>
+                          ))}
+                        </select>
+                        <div className="relative w-28 shrink-0">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={line.price}
+                            onChange={(e) => updateServicePrice(i, e.target.value)}
+                            placeholder="0.00"
+                            className="pl-5"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => removeServiceLine(i)}
+                          aria-label="Remove service"
+                          className="shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      {isTier && (
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Tier price prefilled from the estimate — edit if needed.
+                        </p>
+                      )}
+                      <textarea
+                        value={line.description}
+                        onChange={(e) => updateServiceDesc(i, e.target.value)}
+                        rows={2}
+                        placeholder="Description shown to the customer on the invite"
+                        className={`${inputCls} mt-2 resize-none text-xs`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <Button type="button" variant="outline" size="sm" onClick={addServiceLine}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add service
+                </Button>
+                <span className="text-sm font-semibold">
+                  Total: ${servicesTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {plusTax ? " + Tax" : ""}
+                </span>
+              </div>
+              <label className="flex items-center gap-1.5 text-xs mt-2 cursor-pointer text-muted-foreground">
+                <input type="checkbox" checked={plusTax} onChange={(e) => setPlusTax(e.target.checked)} />
+                + Tax on invite
+              </label>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Package</label>
-                <select value={pkg} onChange={(e) => setPkg(e.target.value)} className={`${inputCls} mt-1`}>
-                  {PACKAGES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={labelCls}>Closed Price ($)</label>
-                <Input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className="mt-1" />
-                {/* "+ Tax" toggle — defaults on. When off, the invite
-                    price line drops the "+ Tax" suffix. Bookkeeping only. */}
-                <label className="flex items-center gap-1.5 text-xs mt-1 cursor-pointer text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={plusTax}
-                    onChange={(e) => setPlusTax(e.target.checked)}
-                  />
-                  + Tax on invite
-                </label>
-              </div>
               <div>
                 <label className={labelCls}>Color/s</label>
                 <div className="space-y-1.5 mt-1">
@@ -677,5 +838,35 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
         </div>
       </div>
     </div>
+
+    {/* One-time intro nudge for Alan (admin) — points at the description editor. */}
+    {showIntro && (
+      <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={dismissIntro}>
+        <div className="bg-background rounded-lg shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+          <h3 className="text-base font-semibold flex items-center gap-2 mb-2">
+            <Sparkles className="h-5 w-5 text-primary" /> New: Services & descriptions
+          </h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            You can now add individual services to a job — each with its own price and a description
+            the customer sees on their calendar invite. Every service comes with a default description
+            you can reword once and reuse. Want to review and edit those default descriptions now?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={dismissIntro}>Maybe later</Button>
+            <Button onClick={() => { dismissIntro(); setShowDescEditor(true); }}>
+              <Pencil className="h-3.5 w-3.5 mr-1" /> Edit descriptions
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showDescEditor && (
+      <ServiceDescriptionsModal
+        onClose={() => setShowDescEditor(false)}
+        onSaved={(services) => setCatalog(services)}
+      />
+    )}
+    </>
   );
 }
