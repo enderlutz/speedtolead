@@ -3,7 +3,7 @@ import { api, getCurrentUser, type Employee, type ScheduledJob, type Lead, type 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench } from "lucide-react";
 import ServiceDescriptionsModal from "@/components/ServiceDescriptionsModal";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
@@ -445,9 +445,16 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
             </div>
           </section>
 
-          {/* Job spec */}
+          {/* Job spec — split into a Customer view (everything here lands on
+              the calendar invite) and an Operations block (internal only),
+              separated by a divider. */}
           <section>
-            <h3 className="text-sm font-semibold mb-2">Job Details</h3>
+            {/* ─── Customer view ─── */}
+            <div className="flex items-center gap-2 mb-3">
+              <Eye className="h-4 w-4 text-emerald-600" />
+              <h3 className="text-sm font-semibold">Customer view</h3>
+              <span className="text-[11px] text-muted-foreground">— what the customer sees on the invite</span>
+            </div>
             {/* Services — invoice-style line items. Each carries its own
                 price + description; the description shows to the customer on
                 the calendar invite. The three staining tiers prefill their
@@ -535,85 +542,60 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Color/s</label>
-                <div className="space-y-1.5 mt-1">
-                  {colors.map((c, i) => (
-                    <div key={i} className="flex gap-1.5">
-                      <Input
-                        list="stain-colors"
-                        value={c}
-                        onChange={(e) => updateColor(i, e.target.value)}
-                        placeholder={i === 0 ? "Type or pick" : "Another color"}
-                      />
-                      {/* Remove only renders for additional rows OR when the
-                          single row has content — keeps the empty initial
-                          state from showing a meaningless X. */}
-                      {(colors.length > 1 || c.trim()) && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          onClick={() => removeColor(i)}
-                          aria-label="Remove color"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addColor}
-                    className="w-full"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Add color
-                  </Button>
-                </div>
-                <datalist id="stain-colors">
-                  {STAIN_COLORS.map((c) => <option key={c} value={c} />)}
-                </datalist>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Leave blank if undecided — the invite will say "we'll bring colors to test."
-                </p>
+            {/* Color/s — customer-facing (renders on the invite). */}
+            <div className="mb-3">
+              <label className={labelCls}>Color/s</label>
+              <div className="space-y-1.5 mt-1">
+                {colors.map((c, i) => (
+                  <div key={i} className="flex gap-1.5">
+                    <Input
+                      list="stain-colors"
+                      value={c}
+                      onChange={(e) => updateColor(i, e.target.value)}
+                      placeholder={i === 0 ? "Type or pick" : "Another color"}
+                    />
+                    {/* Remove only renders for additional rows OR when the
+                        single row has content — keeps the empty initial
+                        state from showing a meaningless X. */}
+                    {(colors.length > 1 || c.trim()) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => removeColor(i)}
+                        aria-label="Remove color"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addColor}
+                  className="w-full"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add color
+                </Button>
               </div>
-              <div>
-                <label className={labelCls}>Stain Gallons (optional)</label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={gallons}
-                  onChange={(e) => setGallons(e.target.value)}
-                  placeholder="Project coordinator fills in at the start"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label className={labelCls}>Bleach Gallons (optional)</label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={bleach}
-                  onChange={(e) => setBleach(e.target.value)}
-                  placeholder="Project coordinator fills in at the start"
-                  className="mt-1"
-                />
-              </div>
+              <datalist id="stain-colors">
+                {STAIN_COLORS.map((c) => <option key={c} value={c} />)}
+              </datalist>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Leave blank if undecided — the invite will say "we'll bring colors to test."
+              </p>
             </div>
+
             <label className="flex items-center gap-2 text-sm mt-3 cursor-pointer">
               <input type="checkbox" checked={needsTestSpots} onChange={(e) => setNeedsTestSpots(e.target.checked)} />
               Customer wants test stain patches first (same day, before final color)
             </label>
 
             {/* Fence sides override — check the sides the crew will stain.
-                Pre-checked from the lead's proposal data. Unchecking removes
-                a side from the invite + worker view (e.g. customer dropped a
-                side after the proposal). Free-form "Additional sides" input
+                Pre-checked from the lead's proposal data. Renders on the invite
+                "Sides:" line + worker view. Free-form "Additional sides" input
                 catches the long tail. */}
             <div className="mt-3">
               <label className={labelCls}>Fence Sides for this Job</label>
@@ -646,21 +628,10 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
               </p>
             </div>
 
-            {/* Notes split into 3 audiences: workers (on the job), customer
-                (lands in Google invite description above marketing copy), and
-                admin-only (never leaves the dashboard). */}
+            {/* Additional notes — customer-facing (lands on the Google invite
+                under the "Additional notes:" header). */}
             <div className="mt-3">
-              <label className={labelCls}>Worker Notes (shown to the crew — sanitized of price/proposal language)</label>
-              <textarea
-                value={workerNotes}
-                onChange={(e) => setWorkerNotes(e.target.value)}
-                rows={2}
-                placeholder="e.g. Gate code 1234, dog in backyard until 10am, stain inside + outside"
-                className={`${inputCls} mt-1 resize-none`}
-              />
-            </div>
-            <div className="mt-3">
-              <label className={labelCls}>Customer Notes (rendered on the Google Calendar invite they receive)</label>
+              <label className={labelCls}>Additional notes (shown to the customer on the invite)</label>
               <textarea
                 value={customerNotes}
                 onChange={(e) => setCustomerNotes(e.target.value)}
@@ -669,6 +640,8 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 className={`${inputCls} mt-1 resize-none`}
               />
             </div>
+
+            {/* Proposal link — customer-facing (the Estimate Link on the invite). */}
             <div className="mt-3">
               <label className={labelCls}>Custom Proposal Link (optional — overrides auto-generated)</label>
               <Input
@@ -682,6 +655,56 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 Leave blank to use the lead's most recent proposal URL automatically.
               </p>
             </div>
+
+            {/* ═══════════ Divider — everything below is internal ═══════════ */}
+            <div className="relative my-6">
+              <div className="border-t-2 border-dashed border-muted-foreground/30" />
+              <span className="absolute left-1/2 -translate-x-1/2 -top-2 bg-background px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 whitespace-nowrap">
+                <Wrench className="h-3 w-3" /> Operations — internal, not shown to the customer
+              </span>
+            </div>
+
+            {/* Gallons — operations (PM / crew fill in). */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Stain Gallons (optional)</label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={gallons}
+                  onChange={(e) => setGallons(e.target.value)}
+                  placeholder="Project coordinator fills in at the start"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Bleach Gallons (optional)</label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={bleach}
+                  onChange={(e) => setBleach(e.target.value)}
+                  placeholder="Project coordinator fills in at the start"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            {/* Worker notes — operations (shown to the crew, sanitized). */}
+            <div className="mt-3">
+              <label className={labelCls}>Worker Notes (shown to the crew — sanitized of price/proposal language)</label>
+              <textarea
+                value={workerNotes}
+                onChange={(e) => setWorkerNotes(e.target.value)}
+                rows={2}
+                placeholder="e.g. Gate code 1234, dog in backyard until 10am, stain inside + outside"
+                className={`${inputCls} mt-1 resize-none`}
+              />
+            </div>
+
+            {/* Admin notes — operations (internal only). */}
             <div className="mt-3">
               <label className={labelCls}>Admin Notes (internal only — not on customer invite)</label>
               <textarea
