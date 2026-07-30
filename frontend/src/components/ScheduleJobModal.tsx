@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, getCurrentUser, type Employee, type ScheduledJob, type Lead, type NearbyJob, type ServiceCatalogItem } from "@/lib/api";
+import { api, getCurrentUser, type Employee, type ScheduledJob, type Lead, type NearbyJob, type ServiceCatalogItem, type ProposalLink } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench, ExternalLink } from "lucide-react";
 import ServiceDescriptionsModal from "@/components/ServiceDescriptionsModal";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
@@ -84,6 +84,8 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   const [tierPrices, setTierPrices] = useState<Record<string, number>>({});
   const [showDescEditor, setShowDescEditor] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
+  // Proposal links already sent to this customer — for the on-the-fly picker.
+  const [proposalLinks, setProposalLinks] = useState<ProposalLink[]>([]);
   // Defaults OFF on brand-new jobs — admin opts in per-job. Existing rows
   // respect whatever was saved (undefined treated as off so legacy rows
   // don't surprise-flip on first edit).
@@ -247,6 +249,15 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
         }
       })
       .catch(() => { /* silent — prices just won't prefill */ });
+    return () => { cancelled = true; };
+  }, [lead.id]);
+
+  // Proposal links already sent to this customer, newest first.
+  useEffect(() => {
+    let cancelled = false;
+    api.getProposalLinks(lead.id)
+      .then((r) => { if (!cancelled) setProposalLinks(r.links); })
+      .catch(() => { /* silent — picker just stays empty */ });
     return () => { cancelled = true; };
   }, [lead.id]);
 
@@ -667,9 +678,11 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
               />
             </div>
 
-            {/* Proposal link — customer-facing (the Estimate Link on the invite). */}
+            {/* Proposal link — customer-facing (the Estimate Link on the invite).
+                The picker below pulls every proposal link sent to this customer
+                so Alan can open + choose one on the fly without leaving the form. */}
             <div className="mt-3">
-              <label className={labelCls}>Custom Proposal Link (optional — overrides auto-generated)</label>
+              <label className={labelCls}>Proposal Link (shown on the invite)</label>
               <Input
                 type="url"
                 value={customProposalUrl}
@@ -677,9 +690,57 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 placeholder="https://proposal.atpressurewash.com/proposal/…"
                 className="mt-1"
               />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Leave blank to use the lead's most recent proposal URL automatically.
-              </p>
+              {proposalLinks.length > 0 ? (
+                <div className="mt-2 border border-input rounded-md divide-y">
+                  <div className="px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground bg-muted/30">
+                    Links sent to this customer — open one, then use it
+                  </div>
+                  {proposalLinks.map((link, i) => {
+                    const inUse = customProposalUrl.trim() === link.url;
+                    const when = (link.created_at || "").slice(0, 10);
+                    return (
+                      <div key={link.id} className="flex items-center gap-2 px-2.5 py-2 text-sm">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            Proposal {proposalLinks.length - i}
+                            {when && <span className="text-muted-foreground font-normal"> · {when}</span>}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {link.view_count > 0
+                              ? `👁 Viewed ${link.view_count}×`
+                              : "Not opened yet"}
+                          </div>
+                        </div>
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline flex items-center gap-1 text-xs shrink-0"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Open
+                        </a>
+                        {inUse ? (
+                          <span className="text-[11px] font-semibold text-emerald-600 shrink-0 w-14 text-center">✓ In use</span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 w-14"
+                            onClick={() => setCustomProposalUrl(link.url)}
+                          >
+                            Use
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Leave blank to use the lead's most recent proposal URL automatically.
+                </p>
+              )}
             </div>
 
             {/* ═══════════ Divider — everything below is internal ═══════════ */}

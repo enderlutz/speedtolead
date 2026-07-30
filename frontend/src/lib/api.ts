@@ -1763,6 +1763,10 @@ export const api = {
   // Descriptions editor. GET returns current (possibly admin-edited) copy.
   getServiceCatalog: () =>
     request<{ services: ServiceCatalogItem[] }>("/api/settings/service-catalog"),
+  // Every proposal link generated for a lead — for the schedule modal's
+  // on-the-fly proposal-link picker.
+  getProposalLinks: (leadId: string) =>
+    request<{ links: ProposalLink[] }>(`/api/schedule/leads/${leadId}/proposal-links`),
   updateServiceCatalog: (descriptions: Record<string, string>) =>
     request<{ status: string; services: ServiceCatalogItem[] }>("/api/settings/service-catalog", {
       method: "PUT",
@@ -3278,6 +3282,17 @@ export interface JobService {
   label: string;
   price: number;
   description: string;
+}
+
+/** A proposal link generated for a lead — shown in the schedule modal's
+ *  on-the-fly link picker. */
+export interface ProposalLink {
+  id: string;
+  url: string;
+  status: string;
+  view_count: number;
+  last_viewed_at: string | null;
+  created_at: string;
 }
 
 export interface ScheduleJobBody {

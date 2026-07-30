@@ -895,6 +895,40 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
         db.close()
 
 
+@router.get("/schedule/leads/{lead_id}/proposal-links")
+def list_proposal_links(lead_id: str, user: dict = Depends(require_staff)):
+    """Every proposal link ever generated for a lead, newest first, so the
+    schedule modal can let admin pick which one to drop on the invite without
+    leaving the form. Read-only; carries view stats so Alan can tell which
+    link the customer actually opened."""
+    del user
+    db = get_db()
+    try:
+        try:
+            base = get_settings().proposal_base_url.rstrip("/")
+        except Exception:
+            base = ""
+        rows = (db.query(Proposal)
+                  .filter(Proposal.lead_id == lead_id)
+                  .order_by(Proposal.created_at.desc())
+                  .all())
+        out = []
+        for p in rows:
+            if not p.token:
+                continue
+            out.append({
+                "id": p.id,
+                "url": f"{base}/proposal/{p.token}" if base else "",
+                "status": p.status or "sent",
+                "view_count": p.view_count or 0,
+                "last_viewed_at": p.last_viewed_at,
+                "created_at": p.created_at or "",
+            })
+        return {"links": out}
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Google-booked event → job (so admins can assign crew to it)
 # ---------------------------------------------------------------------------
