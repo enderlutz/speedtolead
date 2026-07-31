@@ -3,7 +3,7 @@ import { api, getCurrentUser, type Employee, type ScheduledJob, type Lead, type 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench, ExternalLink } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench, ExternalLink, Save } from "lucide-react";
 import ServiceDescriptionsModal from "@/components/ServiceDescriptionsModal";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
@@ -308,6 +308,29 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
     setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, price: v } : l)));
   const updateServiceDesc = (i: number, v: string) =>
     setServiceLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, description: v } : l)));
+  // Promote a line's typed description to the saved default for that service,
+  // so every future job prefills with it. The description as-typed still goes
+  // to THIS customer regardless — this only updates the reusable preset.
+  const [savingDefaultKey, setSavingDefaultKey] = useState<string | null>(null);
+  const saveLineAsDefault = async (i: number) => {
+    const line = serviceLines[i];
+    if (!line.key || !line.description.trim() || catalog.length === 0) return;
+    // Send the full description map so we don't wipe the other services'
+    // saved defaults (the backend replaces the whole stored blob).
+    const descriptions: Record<string, string> = {};
+    for (const c of catalog) descriptions[c.key] = c.description;
+    descriptions[line.key] = line.description.trim();
+    setSavingDefaultKey(line.key);
+    try {
+      const r = await api.updateServiceCatalog(descriptions);
+      setCatalog(r.services);
+      toast.success(`Saved as the default for ${line.label || line.key}`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to save default");
+    } finally {
+      setSavingDefaultKey(null);
+    }
+  };
   // Total mirrors the backend: firm services summed, plus the highest "OR"
   // choice option (the customer picks one). Choice-only jobs show no total.
   const firmTotal = serviceLines.filter((l) => !l.isChoice).reduce((sum, l) => sum + (parseFloat(l.price) || 0), 0);
@@ -565,6 +588,24 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                         placeholder="Description shown to the customer on the invite"
                         className={`${inputCls} mt-2 resize-none text-xs`}
                       />
+                      {line.key && line.description.trim() && line.description.trim() !== (cat?.description || "").trim() && (
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            Sends to this customer as-is.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => saveLineAsDefault(i)}
+                            disabled={savingDefaultKey === line.key}
+                            className="text-[11px] text-primary hover:underline flex items-center gap-1 disabled:opacity-50 shrink-0"
+                          >
+                            {savingDefaultKey === line.key
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <Save className="h-3 w-3" />}
+                            Save as new default
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
