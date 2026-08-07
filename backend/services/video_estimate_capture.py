@@ -206,16 +206,18 @@ def new_submission_id() -> str:
 # ---------- Reminders / auto-route (background loop) ----------
 
 def run_video_capture_reminders() -> dict:
-    """Nudge customers who got a capture link but never submitted: a reminder at
-    24h, a second at 72h, then (>=96h) auto-route to the 1099 estimator. Each
-    step fires ONCE per lead (stamped in the activity dict) so we never re-spam
-    — the old generic nudge loop was disabled for exactly that. Runs on a slow
-    loop; does at most one action per lead per tick."""
+    """FenceScope follow-up sweep.
+
+    The customer-facing 24h/72h reminder texts were REMOVED 2026-07-30 at
+    Alan's request — they were going out as unwanted automated nudges (see the
+    Stephen Mueller SMS thread). The only remaining behavior is the internal
+    hand-off: a lead that got a capture link but never submitted for >=96h is
+    routed to the 1099 in-person estimator. That's silent to the customer — no
+    SMS is ever sent from this loop anymore. Fires once per lead (stamped in
+    the activity dict). Runs on a slow loop; at most one action per lead/tick."""
     from datetime import datetime, timezone
     from database import get_db, Lead
-    from services.ghl import send_sms
 
-    settings = get_settings()
     db = get_db()
     now = datetime.now(timezone.utc)
     out = {"reminded_24": 0, "reminded_72": 0, "routed": 0}
@@ -226,7 +228,6 @@ def run_video_capture_reminders() -> dict:
             .filter(Lead.status != "archived")
             .all()
         )
-        base = (settings.frontend_url or "").rstrip("/")
         for lead in leads:
             act = get_activity(lead)
             sent = act.get("link_sent_at")
@@ -237,33 +238,14 @@ def run_video_capture_reminders() -> dict:
             except Exception:
                 continue
             hours = (now - sent_dt).total_seconds() / 3600
-            first = (lead.contact_name or "").split()[0] if lead.contact_name else ""
-            url = f"{base}/v/{lead.video_capture_token}"
 
+            # No customer reminder texts anymore — only the >=96h hand-off to
+            # the in-person estimator (internal, no SMS to the customer).
             if hours >= 96 and not act.get("reminder_routed_at"):
-                # Two nudges, still nothing → hand to the in-person estimator.
                 if lead.estimator_status != "scheduled":
                     lead.estimator_status = "needed"
                 update_activity(db, lead, {"reminder_routed_at": now.isoformat()})
                 out["routed"] += 1
-            elif hours >= 72 and not act.get("reminder_72_at"):
-                if lead.ghl_contact_id:
-                    msg = (
-                        f"{('Hi ' + first + ', ') if first else ''}still happy to get your fence "
-                        f"quote done — one short video is all we need, takes ~2 min: {url}"
-                    )
-                    send_sms(lead.ghl_contact_id, msg, lead.ghl_location_id or None)
-                update_activity(db, lead, {"reminder_72_at": now.isoformat()})
-                out["reminded_72"] += 1
-            elif hours >= 24 and not act.get("reminder_24_at"):
-                if lead.ghl_contact_id:
-                    msg = (
-                        f"{('Hi ' + first + ', ') if first else ''}quick reminder from Sterling Fence "
-                        f"Staining — tap to send a short video of your fence and we'll text your quote: {url}"
-                    )
-                    send_sms(lead.ghl_contact_id, msg, lead.ghl_location_id or None)
-                update_activity(db, lead, {"reminder_24_at": now.isoformat()})
-                out["reminded_24"] += 1
         return out
     finally:
         db.close()
