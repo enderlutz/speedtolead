@@ -215,45 +215,22 @@ def seed_eduardo_user():
 
 
 def seed_edward_user():
-    """Create the EdwardSawyer project-manager account if it doesn't exist.
-    One-shot addition per client request (2026-06-28). Role is 'worker' so he
-    gets the price-free employee view (UI, routing, nav), and see_all_jobs=True
-    lifts the assigned-only filter so he sees every crew's jobs for oversight.
-    He also gets the assign_crew permission so he can assign/unassign crews from
-    the calendar (the only action permission a worker carries here).
+    """EdwardSawyer project-manager account — DEACTIVATED 2026-07-30 (dashboard
+    access removed at Alan's request, same as Neo when he stepped out). Keeps
+    the row (history + job/crew links intact) while blocking login via
+    disabled=True; login returns 403. To reactivate, set disabled=False.
 
-    Idempotent — never overwrites a changed password. For an already-seeded
-    Edward it backfills the assign_crew permission so existing prod rows pick up
-    the new capability on deploy."""
-    import json
+    Idempotent; never overwrites a changed password. No-op create branch: if the
+    row is absent we do NOT recreate it — a deactivated one-off shouldn't come
+    back to life on a fresh DB."""
     db = get_db()
     try:
         existing = db.query(User).filter(User.username == "EdwardSawyer").first()
         if existing:
-            # Backfill assign_crew onto the existing account if missing.
-            try:
-                perms = json.loads(existing.permissions or "{}")
-            except (json.JSONDecodeError, TypeError):
-                perms = {}
-            # Only set it the first time (key absent) so a later admin revoke
-            # (assign_crew=false) isn't clobbered on the next boot.
-            if "assign_crew" not in perms:
-                perms["assign_crew"] = True
-                existing.permissions = json.dumps(perms)
+            if not existing.disabled:
+                existing.disabled = True
                 db.commit()
-            return
-        now = datetime.now(timezone.utc).isoformat()
-        db.add(User(
-            id=str(uuid.uuid4()),
-            username="EdwardSawyer",
-            display_name="Edward",
-            password_hash=bcrypt.hashpw("EdwardFences$!&".encode(), bcrypt.gensalt()).decode(),
-            role="worker",
-            see_all_jobs=True,
-            permissions=json.dumps({"assign_crew": True}),
-            created_at=now,
-        ))
-        db.commit()
+        return
     finally:
         db.close()
 
