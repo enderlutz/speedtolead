@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2, AlertTriangle, CalendarDays, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import type { LeanLead } from "@/lib/api";
@@ -78,6 +78,19 @@ const todayISO = (): string => {
   return t.toISOString().slice(0, 10);
 };
 
+// Local-timezone YYYY-MM-DD (avoids the UTC shift toISOString causes in the
+// evening for US timezones). Used by the Week/Day views whose anchor is a
+// live instant, not a constructed local-midnight date.
+const isoLocal = (d: Date): string => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const addDays = (d: Date, n: number): Date => {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+};
+
 const monthMatrix = (year: number, monthIdx: number): Date[][] => {
   // 6-week grid (Sun→Sat) like Google Calendar
   const first = new Date(year, monthIdx, 1);
@@ -144,13 +157,16 @@ export default function Calendar() {
   const [leadPickerQuery, setLeadPickerQuery] = useState("");
   const [creatingJobForLead, setCreatingJobForLead] = useState<Lead | null>(null);
   const [loadingLeadForCreate, setLoadingLeadForCreate] = useState(false);
-  // Grid vs agenda. Persisted per-browser so each user (workers on phones,
+  // Month / Week / Day. Persisted per-browser so each user (workers on phones,
   // admins on desktop) settles into their preference and it sticks across
-  // sessions. SSR-safe: localStorage check guarded for build envs.
-  const [view, setView] = useState<"grid" | "agenda">(() => {
-    if (typeof window === "undefined") return "grid";
+  // sessions. SSR-safe: localStorage check guarded for build envs. Old values
+  // ("grid" → month, "agenda" → day) migrate forward.
+  const [view, setView] = useState<"month" | "week" | "day">(() => {
+    if (typeof window === "undefined") return "month";
     const saved = window.localStorage.getItem("calendarView");
-    return saved === "agenda" ? "agenda" : "grid";
+    if (saved === "week" || saved === "day" || saved === "month") return saved;
+    if (saved === "agenda") return "day";
+    return "month";
   });
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -161,6 +177,17 @@ export default function Calendar() {
   const weeks = useMemo(() => monthMatrix(year, monthIdx), [year, monthIdx]);
   const monthStart = weeks[0][0].toISOString().slice(0, 10);
   const monthEnd = weeks[weeks.length - 1][6].toISOString().slice(0, 10);
+
+  // Week (Sun–Sat) containing `now`, for the Week view. Day view keys off `now`
+  // directly. The month-matrix fetch range already covers both (the week/day
+  // always fall inside the visible month's 6-week window), so no extra load.
+  const weekDates = useMemo(() => {
+    const start = new Date(now);
+    start.setDate(now.getDate() - now.getDay());
+    start.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }, [now]);
+  const dayISO = isoLocal(now);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -275,8 +302,16 @@ export default function Calendar() {
     return m;
   }, [googleEvents]);
 
-  const goPrev = () => setNow(new Date(year, monthIdx - 1, 1));
-  const goNext = () => setNow(new Date(year, monthIdx + 1, 1));
+  // Prev/next step by the active view: month view moves a month, week view a
+  // week, day view a day.
+  const goPrev = () => setNow(
+    view === "month" ? new Date(year, monthIdx - 1, 1)
+      : addDays(now, view === "week" ? -7 : -1),
+  );
+  const goNext = () => setNow(
+    view === "month" ? new Date(year, monthIdx + 1, 1)
+      : addDays(now, view === "week" ? 7 : 1),
+  );
   const goToday = () => setNow(new Date());
 
   const openJob = async (j: ScheduledJob) => {
@@ -316,7 +351,12 @@ export default function Calendar() {
             <CalendarIcon className="h-5 w-5 text-primary" /> Calendar
           </h1>
           <p className="text-sm text-muted-foreground">
-            {showAsWorker ? "Your assigned jobs" : "All scheduled jobs"} · {fmtMonth(year, monthIdx)}
+            {showAsWorker ? "Your assigned jobs" : "All scheduled jobs"} · {
+              view === "month" ? fmtMonth(year, monthIdx)
+                : view === "week"
+                  ? `${weekDates[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekDates[6].toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                  : now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+            }
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -345,25 +385,34 @@ export default function Calendar() {
               Schedule Job
             </Button>
           )}
-          {/* View toggle — grid (calendar) vs agenda (list grouped by date). */}
+          {/* View toggle — Month grid, Week list, or Day cards. */}
           <div className="inline-flex border rounded-md">
             <button
-              onClick={() => setView("grid")}
-              className={`px-2 py-1.5 text-sm border-r flex items-center gap-1 ${view === "grid" ? "bg-muted" : "hover:bg-muted"}`}
-              title="Calendar grid view"
-              aria-pressed={view === "grid"}
+              onClick={() => setView("month")}
+              className={`px-2 py-1.5 text-sm border-r flex items-center gap-1 ${view === "month" ? "bg-muted" : "hover:bg-muted"}`}
+              title="Month grid view"
+              aria-pressed={view === "month"}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline text-xs">Grid</span>
+              <span className="hidden sm:inline text-xs">Month</span>
             </button>
             <button
-              onClick={() => setView("agenda")}
-              className={`px-2 py-1.5 text-sm flex items-center gap-1 ${view === "agenda" ? "bg-muted" : "hover:bg-muted"}`}
-              title="Agenda list view"
-              aria-pressed={view === "agenda"}
+              onClick={() => setView("week")}
+              className={`px-2 py-1.5 text-sm border-r flex items-center gap-1 ${view === "week" ? "bg-muted" : "hover:bg-muted"}`}
+              title="Week list view"
+              aria-pressed={view === "week"}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline text-xs">Week</span>
+            </button>
+            <button
+              onClick={() => setView("day")}
+              className={`px-2 py-1.5 text-sm flex items-center gap-1 ${view === "day" ? "bg-muted" : "hover:bg-muted"}`}
+              title="Day view — job cards"
+              aria-pressed={view === "day"}
             >
               <List className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline text-xs">List</span>
+              <span className="hidden sm:inline text-xs">Day</span>
             </button>
           </div>
           <div className="inline-flex border rounded-md">
@@ -385,7 +434,7 @@ export default function Calendar() {
         </p>
       )}
 
-      {view === "grid" && (
+      {view === "month" && (
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           {loading ? (
@@ -438,15 +487,16 @@ export default function Calendar() {
                               <button
                                 key={j.id}
                                 onClick={() => openJob(j)}
-                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
+                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 overflow-hidden flex items-start md:items-center gap-1 ${borderCls}`}
                                 title={`${j.customer_name} · ${j.arrival_time}${j.service_type ? ` · ${j.service_type.replace("_", " ")}` : ""}`}
                               >
                                 {!showAsWorker && j.package_tier && (
-                                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
+                                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1 md:mt-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
                                 )}
                                 {/* Hide time on mobile — columns too narrow. Tooltip still shows it. */}
                                 <span className="font-mono text-muted-foreground hidden md:inline">{j.arrival_time}</span>
-                                <span className="truncate">{j.customer_name || "Job"}</span>
+                                {/* Mobile: wrap to 2 lines instead of "Ed…" so names are actually readable. Desktop: single-line truncate. */}
+                                <span className="min-w-0 flex-1 leading-tight break-words line-clamp-2 md:line-clamp-none md:truncate">{j.customer_name || "Job"}</span>
                                 {!showAsWorker && j.google_event_id && googleEventById.has(j.google_event_id) && (
                                   <CalendarIcon className="h-2.5 w-2.5 ml-auto shrink-0 text-muted-foreground/70" />
                                 )}
@@ -469,11 +519,11 @@ export default function Calendar() {
                               <button
                                 key={ev.google_event_id}
                                 onClick={() => setActiveGoogleEvent(ev)}
-                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
+                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 overflow-hidden flex items-start md:items-center gap-1 ${borderCls}`}
                                 title={`${ev.summary} · from Google Calendar (${ev.service_type.replace("_", " ")})`}
                               >
                                 <span className="font-mono text-muted-foreground hidden md:inline">{startTime}</span>
-                                <span className="truncate">{ev.summary}</span>
+                                <span className="min-w-0 flex-1 leading-tight break-words line-clamp-2 md:line-clamp-none md:truncate">{ev.summary}</span>
                                 <span
                                   className="ml-auto text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
                                   title="From Google Calendar — tap to open"
@@ -495,92 +545,186 @@ export default function Calendar() {
       </Card>
       )}
 
-      {view === "agenda" && (
+      {/* ── WEEK VIEW ── a full-width vertical list of the 7 days, so client
+          names are fully readable on mobile (the month grid can't fit them). */}
+      {view === "week" && (
       <Card>
         <CardContent className="p-3 sm:p-4">
           {loading ? (
             <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
-          ) : (() => {
-            // Flatten the 6-week window, dedupe, and keep only days that
-            // actually have content so the agenda stays scannable.
-            const seen = new Set<string>();
-            const agendaDays: { iso: string; date: Date; jobs: ScheduledJob[]; events: GoogleEvent[] }[] = [];
-            for (const week of weeks) {
-              for (const d of week) {
-                const iso = d.toISOString().slice(0, 10);
-                if (seen.has(iso)) continue;
-                seen.add(iso);
+          ) : (
+            <div className="space-y-4">
+              {weekDates.map((d) => {
+                const iso = isoLocal(d);
+                const isToday = iso === isoLocal(new Date());
                 const dayJobs = jobsByDate[iso] || [];
                 const dayEvents = externalEventsByDate[iso] || [];
-                if (dayJobs.length === 0 && dayEvents.length === 0) continue;
-                agendaDays.push({ iso, date: d, jobs: dayJobs, events: dayEvents });
-              }
-            }
-            if (agendaDays.length === 0) {
-              return (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  No jobs or events in {fmtMonth(year, monthIdx)}.
-                </div>
-              );
-            }
-            return (
-              <div className="space-y-4">
-                {agendaDays.map((day) => {
-                  const isToday = day.iso === todayISO();
-                  const dayZips = day.jobs.map((j) => j.zip_code).filter(Boolean);
-                  return (
-                    <div key={day.iso}>
-                      <div className="flex items-center justify-between mb-1.5 px-1">
-                        <h3 className={`text-sm font-semibold ${isToday ? "text-primary" : ""}`}>
-                          {day.date.toLocaleDateString("en-US", {
-                            weekday: "short", month: "short", day: "numeric",
-                          })}
-                          {isToday && <span className="ml-1.5 text-[10px] uppercase tracking-wide font-bold">Today</span>}
-                        </h3>
-                        <DayWeatherChip zips={dayZips} byZip={weatherByZip} iso={day.iso} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {day.jobs.map((j) => {
+                const dayZips = dayJobs.map((j) => j.zip_code).filter(Boolean);
+                return (
+                  <div key={iso}>
+                    <div className={`flex items-center justify-between mb-1.5 px-1 pb-1 border-b ${isToday ? "border-primary/40" : ""}`}>
+                      <h3 className={`text-sm font-semibold ${isToday ? "text-primary" : ""}`}>
+                        {d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+                        {isToday && <span className="ml-1.5 text-[10px] uppercase tracking-wide font-bold">Today</span>}
+                      </h3>
+                      <DayWeatherChip zips={dayZips} byZip={weatherByZip} iso={iso} />
+                    </div>
+                    {dayJobs.length === 0 && dayEvents.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-1 py-1">No jobs.</p>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {dayJobs.map((j) => {
                           const borderCls = SERVICE_BORDER[j.service_type || "fence_staining"] || DEFAULT_SERVICE_BORDER;
                           return (
                             <button
                               key={j.id}
                               onClick={() => openJob(j)}
-                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
+                              className={`text-sm text-left rounded px-2.5 py-2 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
                             >
                               {!showAsWorker && j.package_tier && (
                                 <span className={`h-2 w-2 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
                               )}
-                              <span className="font-mono text-muted-foreground shrink-0">{j.arrival_time}</span>
-                              <span className="truncate flex-1">{j.customer_name || "Job"}</span>
+                              <span className="font-mono text-xs text-muted-foreground shrink-0 w-12">{j.arrival_time}</span>
+                              <span className="font-medium flex-1 min-w-0 break-words leading-tight">{j.customer_name || "Job"}</span>
+                              {j.job_label && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-background/70 border rounded px-1 py-0.5 shrink-0">{j.job_label}</span>
+                              )}
                               {!showAsWorker && j.google_event_id && googleEventById.has(j.google_event_id) && (
-                                <CalendarIcon className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                                <CalendarIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
                               )}
                             </button>
                           );
                         })}
-                        {day.events.map((ev) => {
+                        {dayEvents.map((ev) => {
                           const startTime = ev.all_day ? "all day" : (ev.start.slice(11, 16) || "");
                           const borderCls = SERVICE_BORDER[ev.service_type] || DEFAULT_SERVICE_BORDER;
                           return (
                             <button
                               key={ev.google_event_id}
                               onClick={() => setActiveGoogleEvent(ev)}
-                              className={`text-xs text-left rounded px-2 py-1.5 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
+                              className={`text-sm text-left rounded px-2.5 py-2 hover:opacity-90 flex items-center gap-2 ${borderCls}`}
                             >
-                              <span className="font-mono text-muted-foreground shrink-0">{startTime}</span>
-                              <span className="truncate flex-1">{ev.summary}</span>
-                              <span
-                                className="text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
-                                title="From Google Calendar"
-                              >
-                                G
-                              </span>
+                              <span className="font-mono text-xs text-muted-foreground shrink-0 w-12">{startTime}</span>
+                              <span className="font-medium flex-1 min-w-0 break-words leading-tight">{ev.summary}</span>
+                              <span className="text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border" title="From Google Calendar">G</span>
                             </button>
                           );
                         })}
                       </div>
-                    </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      {/* ── DAY VIEW ── a running list of rich job cards for the selected day,
+          with time + all the key info in each card. */}
+      {view === "day" && (
+      <Card>
+        <CardContent className="p-3 sm:p-4">
+          {loading ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+          ) : (() => {
+            const dayJobs = jobsByDate[dayISO] || [];
+            const dayEvents = externalEventsByDate[dayISO] || [];
+            const empName = (id: string) => {
+              const c = crew.find((e) => e.id === id) || employees.find((e) => e.id === id);
+              return c ? (c.display_name || `${c.first_name} ${c.last_name}`.trim() || "Crew") : "";
+            };
+            const statusStyle: Record<string, string> = {
+              scheduled: "bg-slate-100 text-slate-700",
+              in_progress: "bg-blue-100 text-blue-700",
+              completed: "bg-emerald-100 text-emerald-700",
+              cancelled: "bg-red-100 text-red-700",
+            };
+            if (dayJobs.length === 0 && dayEvents.length === 0) {
+              return (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  No jobs scheduled for {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-3">
+                {dayJobs.map((j) => {
+                  const borderCls = SERVICE_BORDER[j.service_type || "fence_staining"] || DEFAULT_SERVICE_BORDER;
+                  const crewNames = (j.assigned_employee_ids || []).map(empName).filter(Boolean);
+                  return (
+                    <button
+                      key={j.id}
+                      onClick={() => openJob(j)}
+                      className={`w-full text-left rounded-lg border bg-background hover:bg-muted/40 transition-colors p-3 ${borderCls}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="font-mono text-sm font-semibold">{j.arrival_time || "—"}</span>
+                          {j.estimated_duration_hours ? (
+                            <span className="text-xs text-muted-foreground">· {j.estimated_duration_hours}h</span>
+                          ) : null}
+                        </div>
+                        <span className={`text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0 ${statusStyle[j.status] || statusStyle.scheduled}`}>
+                          {(j.status || "scheduled").replace("_", " ")}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                        <span className="text-base font-semibold">{j.customer_name || "Job"}</span>
+                        {j.job_label && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded px-1.5 py-0.5">{j.job_label}</span>
+                        )}
+                        {!showAsWorker && j.package_tier && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                            <span className={`h-2 w-2 rounded-full ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} />
+                            {j.package_tier}
+                          </span>
+                        )}
+                      </div>
+                      {j.address && (
+                        <div className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span className="break-words">{j.address}</span>
+                        </div>
+                      )}
+                      {j.fence_sides_label && (
+                        <div className="mt-1 text-xs text-muted-foreground">Sides: {j.fence_sides_label}</div>
+                      )}
+                      {crewNames.length > 0 && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Users className="h-3.5 w-3.5 shrink-0" />
+                          <span className="break-words">{crewNames.join(", ")}</span>
+                        </div>
+                      )}
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <DayWeatherChip zips={j.zip_code ? [j.zip_code] : []} byZip={weatherByZip} iso={dayISO} />
+                        {!showAsWorker && j.google_event_id && googleEventById.has(j.google_event_id) && (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><CalendarIcon className="h-3 w-3" /> Customer invited</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+                {dayEvents.map((ev) => {
+                  const startTime = ev.all_day ? "all day" : (ev.start.slice(11, 16) || "");
+                  const borderCls = SERVICE_BORDER[ev.service_type] || DEFAULT_SERVICE_BORDER;
+                  return (
+                    <button
+                      key={ev.google_event_id}
+                      onClick={() => setActiveGoogleEvent(ev)}
+                      className={`w-full text-left rounded-lg border bg-background hover:bg-muted/40 transition-colors p-3 ${borderCls}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="font-mono text-sm font-semibold">{startTime}</span>
+                        </div>
+                        <span className="text-[8px] uppercase tracking-wide text-muted-foreground font-bold px-1 rounded bg-background/80 border">From Google</span>
+                      </div>
+                      <div className="mt-1.5 text-base font-semibold break-words">{ev.summary}</div>
+                    </button>
                   );
                 })}
               </div>
