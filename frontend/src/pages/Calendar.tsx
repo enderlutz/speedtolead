@@ -435,15 +435,18 @@ export default function Calendar() {
       )}
 
       {view === "month" && (
+      <>
+      <p className="sm:hidden text-[11px] text-muted-foreground italic px-1">← Swipe sideways to see the whole month →</p>
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           {loading ? (
             <div className="h-96 grid place-items-center text-sm text-muted-foreground">Loading…</div>
           ) : (
-            // min-w gates only at md+ so the grid fits the phone viewport
-            // instead of forcing horizontal scroll. On phones each column
-            // collapses to ~50px; pills below tighten to match.
-            <div className="md:min-w-[700px]">
+            // Full-size month grid on every device: a fixed min width keeps
+            // columns wide enough to read names + times, and the parent's
+            // overflow-x-auto lets phones scroll the month sideways rather than
+            // crushing 7 columns into ~50px each.
+            <div className="min-w-[900px]">
               {/* Day headers */}
               <div className="grid grid-cols-7 border-b">
                 {WEEKDAY_LABELS.map((d) => (
@@ -487,16 +490,15 @@ export default function Calendar() {
                               <button
                                 key={j.id}
                                 onClick={() => openJob(j)}
-                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 overflow-hidden flex items-start md:items-center gap-1 ${borderCls}`}
+                                className={`text-[11px] text-left rounded px-1.5 py-0.5 md:py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
                                 title={`${j.customer_name} · ${j.arrival_time}${j.service_type ? ` · ${j.service_type.replace("_", " ")}` : ""}`}
                               >
                                 {!showAsWorker && j.package_tier && (
-                                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1 md:mt-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
+                                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PACKAGE_COLORS[j.package_tier] || "bg-slate-400"}`} title={`${j.package_tier} package`} />
                                 )}
-                                {/* Hide time on mobile — columns too narrow. Tooltip still shows it. */}
-                                <span className="font-mono text-muted-foreground hidden md:inline">{j.arrival_time}</span>
-                                {/* Mobile: wrap to 2 lines instead of "Ed…" so names are actually readable. Desktop: single-line truncate. */}
-                                <span className="min-w-0 flex-1 leading-tight break-words line-clamp-2 md:line-clamp-none md:truncate">{j.customer_name || "Job"}</span>
+                                {/* Columns are wide now (grid scrolls sideways), so show the time on mobile too. */}
+                                <span className="font-mono text-muted-foreground">{j.arrival_time}</span>
+                                <span className="truncate">{j.customer_name || "Job"}</span>
                                 {!showAsWorker && j.google_event_id && googleEventById.has(j.google_event_id) && (
                                   <CalendarIcon className="h-2.5 w-2.5 ml-auto shrink-0 text-muted-foreground/70" />
                                 )}
@@ -519,11 +521,11 @@ export default function Calendar() {
                               <button
                                 key={ev.google_event_id}
                                 onClick={() => setActiveGoogleEvent(ev)}
-                                className={`text-[10px] text-left rounded px-1 md:px-1.5 py-0.5 md:py-1 hover:opacity-90 overflow-hidden flex items-start md:items-center gap-1 ${borderCls}`}
+                                className={`text-[11px] text-left rounded px-1.5 py-0.5 md:py-1 hover:opacity-90 truncate flex items-center gap-1 ${borderCls}`}
                                 title={`${ev.summary} · from Google Calendar (${ev.service_type.replace("_", " ")})`}
                               >
-                                <span className="font-mono text-muted-foreground hidden md:inline">{startTime}</span>
-                                <span className="min-w-0 flex-1 leading-tight break-words line-clamp-2 md:line-clamp-none md:truncate">{ev.summary}</span>
+                                <span className="font-mono text-muted-foreground">{startTime}</span>
+                                <span className="truncate">{ev.summary}</span>
                                 <span
                                   className="ml-auto text-[8px] uppercase tracking-wide text-muted-foreground font-bold shrink-0 px-1 rounded bg-background/80 border"
                                   title="From Google Calendar — tap to open"
@@ -543,6 +545,7 @@ export default function Calendar() {
           )}
         </CardContent>
       </Card>
+      </>
       )}
 
       {/* ── WEEK VIEW ── a full-width vertical list of the 7 days, so client
