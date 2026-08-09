@@ -23,6 +23,7 @@ import {
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
+import ScheduledVisitsCard from "@/components/ScheduledVisitsCard";
 import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
@@ -1605,6 +1606,10 @@ export default function LeadDetail() {
             pipelineVersion={lead.pipeline_version}
             onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
           />
+
+          {/* All scheduled visits for this customer (clean/stain/finish-up) —
+              add, edit, and reschedule each; shows invite vs internal. */}
+          <ScheduledVisitsCard lead={lead} />
 
           {/* FenceScope — text the customer a guided-video link + track status */}
           <VideoEstimateCard leadId={lead.id} />
