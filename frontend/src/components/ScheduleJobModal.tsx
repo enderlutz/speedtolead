@@ -3,7 +3,7 @@ import { api, getCurrentUser, type Employee, type ScheduledJob, type Lead, type 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench, ExternalLink, Save } from "lucide-react";
+import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench, ExternalLink, Save, Send, BellOff } from "lucide-react";
 import ServiceDescriptionsModal from "@/components/ServiceDescriptionsModal";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
@@ -15,6 +15,10 @@ const STAIN_COLORS = [
 // One-time nudge (admin only) pointing Alan at the Service Descriptions editor
 // the first time he opens the schedule flow after the line-items launch.
 const SERVICE_INTRO_KEY = "serviceLineItemsIntroSeen_v1";
+
+// Visit-type presets for the job label dropdown (multi-visit sales). "Other"
+// reveals a free-text input.
+const JOB_LABEL_PRESETS = ["Clean", "Stain", "Finish-up"];
 
 // Editor-local shape for a service line — price is a string while typing so
 // decimals aren't clobbered; it's parsed to a number on save.
@@ -210,8 +214,20 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   const [materialsCost, setMaterialsCost] = useState(String(existing?.materials_cost || 0));
   const [materialsNotes, setMaterialsNotes] = useState(existing?.materials_notes || "");
   const [assignedIds, setAssignedIds] = useState<string[]>(existing?.assigned_employee_ids || []);
-  const [sendInvite, setSendInvite] = useState(true);
-  const [sendThankYou, setSendThankYou] = useState(true);
+  // Google Calendar invite — defaults OFF (jobs are internal by default now).
+  // On edit, reflect whether this job already has a customer invite.
+  const [sendInvite, setSendInvite] = useState(existing ? !!existing.google_event_id : false);
+  const [sendThankYou, setSendThankYou] = useState(false);
+
+  // Visit label (multi-visit sales): a preset dropdown + an "Other" free text.
+  const initLabel = existing?.job_label || "";
+  const [labelMode, setLabelMode] = useState<string>(
+    initLabel === "" ? "" : (JOB_LABEL_PRESETS.includes(initLabel) ? initLabel : "__other__"),
+  );
+  const [labelOther, setLabelOther] = useState(
+    JOB_LABEL_PRESETS.includes(initLabel) ? "" : initLabel,
+  );
+  const jobLabel = (labelMode === "__other__" ? labelOther : labelMode).trim();
 
   // Sprint 3 T3.D — Route-stack candidates. Loaded once on mount; UI
   // surfaces top suggestion + the count of other nearby jobs over the
@@ -377,6 +393,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_name: customerName,
+          job_label: jobLabel,
           job_description: jobDescription,
           worker_notes: workerNotes,
           customer_notes: customerNotes,
@@ -384,8 +401,9 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           materials_cost: parseFloat(materialsCost) || 0,
           materials_notes: materialsNotes,
           employee_ids: assignedIds,
+          send_calendar_invite: sendInvite,
         });
-        toast.success("Job updated");
+        toast.success(sendInvite ? "Job updated — invite refreshed" : "Job updated");
       } else {
         await api.createScheduledJob({
           lead_id: lead.id,
@@ -407,6 +425,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_name: customerName,
+          job_label: jobLabel,
           job_description: jobDescription,
           worker_notes: workerNotes,
           customer_notes: customerNotes,
@@ -414,10 +433,10 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           materials_cost: parseFloat(materialsCost) || 0,
           materials_notes: materialsNotes,
           employee_ids: assignedIds,
-          send_thank_you: sendThankYou,
+          send_thank_you: sendInvite && sendThankYou,
           send_calendar_invite: sendInvite,
         });
-        toast.success("Job scheduled — customer + crew notified");
+        toast.success(sendInvite ? "Job scheduled — customer + crew notified" : "Job scheduled internally (no customer invite)");
       }
       onSaved();
     } catch (e: unknown) {
@@ -442,6 +461,41 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* ═══ Google Calendar invite — big, impossible-to-miss toggle ═══
+              Defaults OFF: jobs are scheduled INTERNALLY unless you opt in to
+              messaging the customer. Extra visits (clean day, finish-up) stay
+              silent; flip this on only for the visit the customer should see. */}
+          <div className={`rounded-lg border-2 p-3 ${sendInvite ? "border-emerald-500 bg-emerald-50" : "border-amber-400 bg-amber-50"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {sendInvite
+                  ? <Send className="h-5 w-5 text-emerald-700 shrink-0" />
+                  : <BellOff className="h-5 w-5 text-amber-700 shrink-0" />}
+                <span className={`text-sm font-extrabold uppercase tracking-tight leading-tight ${sendInvite ? "text-emerald-900" : "text-amber-900"}`}>
+                  {sendInvite
+                    ? "Customer WILL be sent a Google Calendar invite — toggle off to not send it"
+                    : "Internal only — NO invite will be sent — toggle on to send the customer a Google Calendar invite"}
+                </span>
+              </div>
+              {/* Big pill toggle */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={sendInvite}
+                onClick={() => setSendInvite((v) => !v)}
+                className={`relative shrink-0 h-8 w-14 rounded-full transition-colors ${sendInvite ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-all ${sendInvite ? "left-7" : "left-1"}`} />
+              </button>
+            </div>
+            {sendInvite && !existing && (
+              <label className="flex items-center gap-2 text-xs mt-2 cursor-pointer text-emerald-900">
+                <input type="checkbox" checked={sendThankYou} onChange={(e) => setSendThankYou(e.target.checked)} />
+                Also send a thank-you text to the customer right now
+              </label>
+            )}
+          </div>
+
           {/* Sprint 3 T3.D — Route-stack suggestion. Shown only when nearby
               jobs exist for the next 14 days. Two states:
                 - Top pick same-ZIP → green callout with one-click date fill
@@ -502,6 +556,36 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
                 <Input type="number" step="0.5" value={duration} onChange={(e) => setDuration(e.target.value)} className="mt-1" />
               </div>
             </div>
+            {/* Visit type — for multi-visit sales (clean day, stain day, finish-up).
+                "Other" reveals a free-text field. */}
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Visit type</label>
+                <select
+                  value={labelMode}
+                  onChange={(e) => setLabelMode(e.target.value)}
+                  className={`${inputCls} mt-1`}
+                >
+                  <option value="">— none —</option>
+                  {JOB_LABEL_PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  <option value="__other__">Other…</option>
+                </select>
+              </div>
+              {labelMode === "__other__" && (
+                <div>
+                  <label className={labelCls}>Custom label</label>
+                  <Input
+                    value={labelOther}
+                    onChange={(e) => setLabelOther(e.target.value)}
+                    placeholder="e.g. Second coat, Touch-up"
+                    className="mt-1"
+                  />
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              A customer's sale is often several visits — clean day, stain day, a finish-up. Label each so the calendar + crew know what it's for.
+            </p>
           </section>
 
           {/* Job spec — split into a Customer view (everything here lands on
@@ -977,19 +1061,8 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
             </p>
           </section>
 
-          {/* Send options — create only */}
-          {!existing && (
-            <section className="border-t pt-3">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" checked={sendInvite} onChange={(e) => setSendInvite(e.target.checked)} />
-                Send Google Calendar invite to customer
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer mt-1">
-                <input type="checkbox" checked={sendThankYou} onChange={(e) => setSendThankYou(e.target.checked)} />
-                Send thank-you text to customer immediately
-              </label>
-            </section>
-          )}
+          {/* Invite + thank-you options now live in the big banner/toggle at
+              the top of the modal. */}
         </div>
 
         {/* Deposit soft-warning — anti-cancellation gate added 2026-06-07.
@@ -1017,7 +1090,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={save} disabled={saving}>
             {saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
-            {existing ? "Save Changes" : "Schedule job & text customer"}
+            {existing ? "Save Changes" : (sendInvite ? "Schedule & invite customer" : "Schedule internally")}
           </Button>
         </div>
       </div>

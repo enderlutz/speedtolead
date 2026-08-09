@@ -88,6 +88,7 @@ class ScheduleJobBody(BaseModel):
     customer_email: str = ""
     customer_phone: str = ""
     customer_name: str = ""
+    job_label: str = ""                 # "Clean" | "Stain" | "Finish-up" | free text (multi-visit sales)
     job_description: str = ""           # legacy single-text field
     worker_notes: str = ""              # worker-facing notes (sanitized on read)
     customer_notes: str = ""             # rendered into Google invite description
@@ -95,8 +96,11 @@ class ScheduleJobBody(BaseModel):
     materials_cost: float = 0
     materials_notes: str = ""
     employee_ids: list[str] = []
-    send_thank_you: bool = True
-    send_calendar_invite: bool = True
+    # Both default OFF now (2026-08-08) — jobs are scheduled INTERNALLY by
+    # default; the modal's big toggle opts in to messaging the customer. Extra
+    # visits (clean/finish-up) stay silent unless the toggle is flipped on.
+    send_thank_you: bool = False
+    send_calendar_invite: bool = False
 
 
 class UpdateJobBody(BaseModel):
@@ -120,6 +124,7 @@ class UpdateJobBody(BaseModel):
     customer_email: str | None = None
     customer_phone: str | None = None
     customer_name: str | None = None
+    job_label: str | None = None
     job_description: str | None = None
     worker_notes: str | None = None
     customer_notes: str | None = None
@@ -128,6 +133,11 @@ class UpdateJobBody(BaseModel):
     materials_notes: str | None = None
     employee_ids: list[str] | None = None
     status: str | None = None
+    # Edit-time control of the customer's Google Calendar invite:
+    #   True  → create the event if missing, else refresh it
+    #   False → retract: delete the event if one exists (internal-only)
+    #   None  → legacy: just refresh an existing event (no create/delete)
+    send_calendar_invite: bool | None = None
 
 
 class MarkPaidBody(BaseModel):
@@ -628,6 +638,7 @@ def create_scheduled_job(body: ScheduleJobBody, user: dict = Depends(require_sta
             customer_email=customer_email,
             customer_phone=customer_phone,
             customer_name=customer_name,
+            job_label=body.job_label or "",
             job_description=body.job_description,
             worker_notes=body.worker_notes or "",
             customer_notes=body.customer_notes or "",
@@ -879,7 +890,7 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
             "fence_sides_override", "additional_sides_text", "sides_custom_text",
             "color_choice", "needs_test_spots", "gallons_estimate", "bleach_gallons",
             "address", "zip_code", "customer_email", "customer_phone",
-            "customer_name", "job_description", "worker_notes", "customer_notes",
+            "customer_name", "job_label", "job_description", "worker_notes", "customer_notes",
             "admin_notes", "materials_cost", "materials_notes", "status",
         ):
             v = getattr(body, field)
@@ -915,9 +926,39 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
                 ))
         db.commit()
 
-        # Update Google event if present
-        if j.google_event_id:
-            try:
+        # Google Calendar invite handling on edit, driven by the modal's big
+        # toggle (body.send_calendar_invite):
+        #   None  → legacy: refresh an existing event only (no create/delete)
+        #   True  → ensure the customer has an up-to-date invite (create if
+        #           missing, else refresh)
+        #   False → internal-only: retract any existing invite (delete event)
+        invite = body.send_calendar_invite
+        try:
+            if invite is False:
+                if j.google_event_id:
+                    google_calendar.delete_event(db, j.google_event_id)
+                    j.google_event_id = ""
+                    j.google_event_html_link = ""
+                    j.customer_invited = False
+                    db.commit()
+            elif invite is True and not j.google_event_id:
+                event_id, html_link = google_calendar.create_event(
+                    db,
+                    job_date=j.job_date,
+                    arrival_time=j.arrival_time or "07:30",
+                    duration_hours=float(j.estimated_duration_hours or 6),
+                    customer_name=j.customer_name or "Customer",
+                    customer_email=j.customer_email or "",
+                    address=j.address or "",
+                    customer_description=_customer_invite_description(j, db),
+                )
+                if event_id:
+                    j.google_event_id = event_id
+                    j.google_event_html_link = html_link
+                    j.customer_invited = bool(j.customer_email)
+                    db.commit()
+            elif j.google_event_id:
+                # invite True (event exists) or invite None (legacy) → refresh.
                 google_calendar.update_event(
                     db, j.google_event_id,
                     job_date=j.job_date,
@@ -927,8 +968,8 @@ def update_scheduled_job(job_id: str, body: UpdateJobBody, user: dict = Depends(
                     address=j.address or "",
                     customer_description=_customer_invite_description(j, db),
                 )
-            except Exception as e:
-                logger.warning(f"Google update_event non-fatal failure: {e}")
+        except Exception as e:
+            logger.warning(f"Google Calendar sync on edit non-fatal failure: {e}")
 
         db.refresh(j)
         return j.to_dict(role="admin")

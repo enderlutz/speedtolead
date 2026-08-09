@@ -1024,6 +1024,13 @@ class ScheduledJob(Base):
     # "[]" on legacy rows → the invite falls back to the old Package/Price
     # lines.
     services_json = Column(Text, default="[]")
+    # Visit label for multi-visit sales (2026-08-08). A customer's sale is
+    # often several dated jobs — clean day, stain day, a finish-up — so this
+    # labels each visit on the calendar + crew view: "Clean" | "Stain" |
+    # "Finish-up" | free text. Empty on single-visit / legacy jobs. Only the
+    # priced (sale) job carries services/closed_price; extra visits are
+    # scheduling-only (no price), so revenue never double-counts.
+    job_label = Column(Text, default="")
     # Whether the closed_price line on the Google invite should show "+ Tax".
     # Internal bookkeeping signal — does NOT actually calculate tax. New jobs
     # default off; admin opts in per-job via the schedule modal checkbox.
@@ -1148,6 +1155,7 @@ class ScheduledJob(Base):
             "customer_name": self.customer_name or "",
             "division": self.division or "fence",
             "package_tier": self.package_tier or "",
+            "job_label": self.job_label or "",
             "color_choice": self.color_choice or "",
             "needs_test_spots": bool(self.needs_test_spots),
             "gallons_estimate": float(self.gallons_estimate or 0),   # stain assigned
@@ -3267,6 +3275,7 @@ def _run_migrations():
             ("pm_private_notes", "ALTER TABLE scheduled_jobs ADD COLUMN pm_private_notes TEXT DEFAULT ''"),
             ("services_json", "ALTER TABLE scheduled_jobs ADD COLUMN services_json TEXT DEFAULT '[]'"),
             ("sides_custom_text", "ALTER TABLE scheduled_jobs ADD COLUMN sides_custom_text TEXT DEFAULT ''"),
+            ("job_label", "ALTER TABLE scheduled_jobs ADD COLUMN job_label TEXT DEFAULT ''"),
         ]:
             if new_col not in sj_cols:
                 with _engine.begin() as conn:

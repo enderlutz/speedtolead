@@ -3332,6 +3332,8 @@ export interface ScheduleJobBody {
   customer_email?: string;
   customer_phone?: string;
   customer_name?: string;
+  /** Visit label for multi-visit sales: "Clean" | "Stain" | "Finish-up" | free text. */
+  job_label?: string;
   /** Legacy single-text field — kept for back-compat; new flows use worker/customer notes. */
   job_description?: string;
   /** Worker-facing notes. Sanitized server-side before workers read it. */
@@ -3369,6 +3371,7 @@ export interface UpdateJobBody {
   customer_email?: string;
   customer_phone?: string;
   customer_name?: string;
+  job_label?: string;
   job_description?: string;
   worker_notes?: string;
   customer_notes?: string;
@@ -3377,6 +3380,9 @@ export interface UpdateJobBody {
   materials_notes?: string;
   employee_ids?: string[];
   status?: string;
+  /** Edit-time invite control: true = create/refresh event, false = retract
+   *  (delete event), undefined = legacy refresh-only. */
+  send_calendar_invite?: boolean;
 }
 
 export type PaymentStatus = "unpaid" | "paid" | "bnpl_financed";
@@ -3528,6 +3534,8 @@ export interface ScheduledJob {
   customer_name: string;
   /** essential | signature | legacy | custom — workers also see this now */
   package_tier?: string;
+  /** Visit label for multi-visit sales: "Clean" | "Stain" | "Finish-up" | free text. */
+  job_label?: string;
   /** Invoice-style service line items (admin/VA only — carries price). */
   services?: JobService[];
   color_choice: string;
