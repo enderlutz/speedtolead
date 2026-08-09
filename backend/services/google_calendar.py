@@ -323,7 +323,12 @@ def update_event(
         r = _client.patch(
             f"{CALENDAR_BASE}/calendars/{cal_id}/events/{event_id}",
             headers={"Authorization": f"Bearer {access}"},
-            params={"sendUpdates": "all"},
+            # sendUpdates="none": the customer is NEVER emailed on an edit /
+            # reschedule (2026-08-08, per Alan). Their calendar entry still
+            # updates silently to the new date/time — Google just doesn't send
+            # a notification email. The only email a customer ever gets is the
+            # ONE initial invite from create_event.
+            params={"sendUpdates": "none"},
             json=body,
         )
         r.raise_for_status()
@@ -346,7 +351,10 @@ def delete_event(db: Session, event_id: str) -> bool:
         r = _client.delete(
             f"{CALENDAR_BASE}/calendars/{cal_id}/events/{event_id}",
             headers={"Authorization": f"Bearer {access}"},
-            params={"sendUpdates": "all"},
+            # sendUpdates="none": no cancellation email to the customer when a
+            # job is cancelled or an invite is retracted (2026-08-08, per Alan).
+            # The event is still removed from their calendar — silently.
+            params={"sendUpdates": "none"},
         )
         # 204 = success, 410 = already deleted
         if r.status_code in (204, 410):
