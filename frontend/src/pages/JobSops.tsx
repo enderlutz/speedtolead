@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock, Clock, MapPin, Droplets, Cloud, MessageSquare, Loader2 } from "lucide-react";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import ToolsNeededChecklist from "@/components/ToolsNeededChecklist";
+import { errMessage } from "@/lib/utils";
 
 const PKG_LABEL: Record<string, string> = {
   essential: "Essential finish",
@@ -169,8 +170,8 @@ function CustomerQuestionChecklist({ job, onSaved }: { job: ScheduledJob; onSave
       const updated = await api.updateJobMaterials(job.id, { customer_question_notes: text });
       initial.current = text;
       onSaved(updated);
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't save");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't save"));
     } finally {
       setSaving(false);
     }
@@ -221,8 +222,8 @@ export default function JobSops() {
       setRun(res.run);
       setEditable(res.editable !== false);
       setJobDate(res.job_date || "");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to load SOP");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to load SOP"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -252,8 +253,8 @@ export default function JobSops() {
     try {
       const updated = await api.startSopRun(run.id);
       setRun(updated);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to start SOP");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to start SOP"));
     }
   };
 
@@ -263,8 +264,8 @@ export default function JobSops() {
     try {
       const updated = await api.checkSopStep(run.id, step.step_id, checked, note);
       setRun(updated);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to update step");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to update step"));
     }
   };
 
@@ -275,8 +276,8 @@ export default function JobSops() {
     try {
       const updated = await api.setSopStepNote(run.id, step.step_id, next);
       setRun(updated);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to save note");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to save note"));
     }
   };
 
@@ -286,8 +287,8 @@ export default function JobSops() {
       const updated = await api.uploadSopStepPhoto(run.id, step.step_id, file);
       setRun(updated);
       toast.success("Photo uploaded");
-    } catch (e: any) {
-      toast.error(e?.message || "Photo upload failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Photo upload failed"));
     }
   };
 
@@ -299,8 +300,8 @@ export default function JobSops() {
       setShowHelp(null);
       setHelpDraft("");
       toast.success("Help requested — Alan was notified");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to request help");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to request help"));
     }
   };
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type FC } from "react";
 import { Link } from "react-router-dom";
-import { api, type Lead, type LeadDetail } from "@/lib/api";
+import { leadDetailCache } from "@/lib/leadDetailCache";
+import { api, type Lead } from "@/lib/api";
 import { formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -16,8 +17,8 @@ import {
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
 } from "@dnd-kit/core";
 
-// --- Lead detail prefetch cache ---
-export const leadDetailCache = new Map<string, LeadDetail>();
+// Lead detail prefetch cache — defined in @/lib/leadDetailCache so this
+// page module only exports components (keeps Fast Refresh working).
 
 function prefetchLead(id: string) {
   if (leadDetailCache.has(id)) return;
@@ -649,14 +650,17 @@ function DraggableCard({ lead, children }: { lead: Lead; children?: React.ReactN
 }
 
 const ElapsedTimer: FC<{ since: string; stoppedAt?: string | null }> = ({ since, stoppedAt }) => {
-  const [, setTick] = useState(0);
+  // Hold the clock in state rather than reading Date.now() during render —
+  // render has to stay pure (react-hooks/purity). The interval is what makes
+  // the elapsed label advance, exactly as the tick counter used to.
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (stoppedAt) return; // Don't tick if timer is stopped
-    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, [stoppedAt]);
 
-  const end = stoppedAt ? new Date(stoppedAt).getTime() : Date.now();
+  const end = stoppedAt ? new Date(stoppedAt).getTime() : now;
   const ms = end - new Date(since).getTime();
   const mins = Math.floor(ms / 60_000);
   const isCritical = !stoppedAt && mins >= 120;

@@ -75,6 +75,7 @@ export default function EstimatorDay() {
       .finally(() => setLoading(false));
   }, [date, viewEstimatorId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   const heading = (() => {
@@ -253,6 +254,7 @@ function RoutePreviewSection({ date }: { date: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     setLoading(true);
     api.getEstimatorDrivePath(date)
       .then(setData)

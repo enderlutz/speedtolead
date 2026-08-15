@@ -42,7 +42,7 @@ function isoFromYmd(year: number, month0: number, day: number): string {
 }
 
 export default function CalendarGlimpse({ lead, onPickDate, onClose }: Props) {
-  const today = useMemo(todayCstIso, []);
+  const today = useMemo(() => todayCstIso(), []);
   // Show the month containing today by default.
   const [cursor, setCursor] = useState<{ year: number; month0: number }>(() => {
     const d = new Date(today + "T12:00:00");
@@ -60,6 +60,7 @@ export default function CalendarGlimpse({ lead, onPickDate, onClose }: Props) {
     const start = isoFromYmd(cursor.year, cursor.month0, 1);
     const lastDay = new Date(cursor.year, cursor.month0 + 1, 0).getDate();
     const end = isoFromYmd(cursor.year, cursor.month0, lastDay);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     setLoading(true);
     api
       .listScheduledJobs({ start, end })

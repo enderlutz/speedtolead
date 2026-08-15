@@ -522,15 +522,17 @@ function CallLogEntry({ leadId, disposition, onSaved }: { leadId: string; dispos
   const [notes, setNotes] = useState(disposition.notes || "");
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const timer = useRef<number | null>(null);
-  const savedRef = useRef(disposition.notes || "");
+  // The last-persisted text is state, not a ref: render reads it to show the
+  // "unsaved" dot, and reading a ref during render isn't safe (react-hooks/refs).
+  const [savedNotes, setSavedNotes] = useState(disposition.notes || "");
 
   const save = useCallback(async (val: string) => {
     if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
-    if (val === savedRef.current) return;
+    if (val === savedNotes) return;
     setStatus("saving");
     try {
       await api.updateCallDispositionNotes(leadId, disposition.id, val);
-      savedRef.current = val;
+      setSavedNotes(val);
       onSaved(val);
       setStatus("saved");
       window.setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 1500);
@@ -538,7 +540,7 @@ function CallLogEntry({ leadId, disposition, onSaved }: { leadId: string; dispos
       setStatus("idle");
       toast.error("Couldn't save note");
     }
-  }, [leadId, disposition.id, onSaved]);
+  }, [leadId, disposition.id, onSaved, savedNotes]);
 
   const onChange = (val: string) => {
     setNotes(val);
@@ -547,7 +549,7 @@ function CallLogEntry({ leadId, disposition, onSaved }: { leadId: string; dispos
   };
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
 
-  const dirty = notes !== savedRef.current;
+  const dirty = notes !== savedNotes;
   return (
     <div className="border-l-2 border-primary/40 pl-2">
       <div className="text-[11px] font-medium">{OUTCOME_LABELS[disposition.outcome] || disposition.outcome}</div>

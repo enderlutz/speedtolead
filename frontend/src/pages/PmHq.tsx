@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { HardHat, RefreshCw, Loader2, MapPin, X, Plus, Clock, ChevronDown, Save, Droplet, Image as ImageIcon, Users, CheckCircle2 } from "lucide-react";
+import { errMessage } from "@/lib/utils";
 
 // Central-time date offset as YYYY-MM-DD (matches how job_date is stored).
 function ctISO(offsetDays = 0): string {
@@ -64,19 +65,19 @@ export default function PmHq() {
   const setCrew = async (jobId: string, ids: string[]) => {
     setBusy(true);
     try { await api.setJobCrew(jobId, ids); load(); }
-    catch (e: any) { toast.error(e?.message || "Couldn't update crew"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't update crew")); }
     finally { setBusy(false); }
   };
   const addTask = async (jobId: string, taskType: string) => {
     setBusy(true);
     try { await api.createCrewTask({ scheduled_job_id: jobId, task_type: taskType }); load(); }
-    catch (e: any) { toast.error(e?.message || "Couldn't add service"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't add service")); }
     finally { setBusy(false); }
   };
   const removeTask = async (taskId: string) => {
     setBusy(true);
     try { await api.deleteCrewTask(taskId); load(); }
-    catch (e: any) { toast.error(e?.message || "Couldn't remove service"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't remove service")); }
     finally { setBusy(false); }
   };
   const addTaskWorkers = async (job: PmBoardJob, task: PmBoardTask, empIds: string[]) => {
@@ -87,19 +88,19 @@ export default function PmHq() {
         await api.upsertCrewAssignment({ job_task_id: task.id, employee_id: id, work_date: job.job_date, is_backup: false, exclusive: false });
       }
       load();
-    } catch (e: any) { toast.error(e?.message || "Couldn't assign task"); }
+    } catch (e) { toast.error(errMessage(e, "Couldn't assign task")); }
     finally { setBusy(false); }
   };
   const removeTaskWorker = async (assignmentId: string) => {
     setBusy(true);
     try { await api.deleteCrewAssignment(assignmentId); load(); }
-    catch (e: any) { toast.error(e?.message || "Couldn't remove"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't remove")); }
     finally { setBusy(false); }
   };
   const saveDetails = async (jobId: string, patch: JobDetailsPatch) => {
     setBusy(true);
     try { await api.updateJobDetails(jobId, patch); await Promise.resolve(load()); toast.success("Job details saved"); }
-    catch (e: any) { toast.error(e?.message || "Couldn't save details"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't save details")); }
     finally { setBusy(false); }
   };
 
@@ -206,7 +207,7 @@ function JobRow({
 
   const toggle = (id: string) => setPicked((prev) => {
     const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
+    if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
   const closeAdd = () => { setAdding(false); setPicked(new Set()); };
@@ -247,7 +248,9 @@ function JobRow({
     setEditing(true);
   };
   const toggleSide = (side: string) => setSides((prev) => {
-    const next = new Set(prev); next.has(side) ? next.delete(side) : next.add(side); return next;
+    const next = new Set(prev);
+    if (next.has(side)) next.delete(side); else next.add(side);
+    return next;
   });
   const cleanColors = colors.map((c) => c.trim()).filter(Boolean);
   const saveDetails = () => {
@@ -531,7 +534,11 @@ function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove 
   const assignees = task?.assignees || [];
   const assignedIds = new Set(assignees.map((a) => a.employee_id));
   const unassigned = roster.filter((e) => !assignedIds.has(e.id));
-  const toggle = (id: string) => setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggle = (id: string) => setPicked((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
   const close = () => { setAdding(false); setPicked(new Set()); };
   const apply = () => { if (picked.size) onAdd([...picked]); close(); };
 

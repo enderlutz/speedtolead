@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { X, Loader2 } from "lucide-react";
 import CustomerSearchPicker from "@/components/CustomerSearchPicker";
+import { errMessage } from "@/lib/utils";
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 const selectCls = inputCls;
@@ -88,8 +89,8 @@ export function AddEmployeeModal({
       }
       toast.success(existing ? "Employee updated" : "Employee added");
       onSaved();
-    } catch (e: any) {
-      toast.error(e?.message || "Save failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Save failed"));
     } finally {
       setSaving(false);
     }
@@ -237,8 +238,8 @@ export function LogHoursModal({
         toast.success("Hours logged");
       }
       onSaved();
-    } catch (e: any) {
-      toast.error(e?.message || "Save failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Save failed"));
     } finally {
       setSaving(false);
     }
@@ -383,8 +384,8 @@ export function RecordPaymentModal({
         toast.success("Payment recorded");
       }
       onSaved();
-    } catch (e: any) {
-      toast.error(e?.message || "Save failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Save failed"));
     } finally {
       setSaving(false);
     }

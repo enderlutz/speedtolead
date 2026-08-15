@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, errMessage } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   ArrowLeft, Pencil, Upload, FileText, Clock, DollarSign, Plus, Trash2, Download, ChevronDown, ChevronUp, KeyRound, Receipt, Image as ImageIcon, Check, X,
@@ -89,8 +89,8 @@ export default function CrewEmployee() {
       toast.success("Rate updated. Future hours use the new rate; past entries keep their original rate.");
       setEditingRate(false);
       load();
-    } catch (e: any) {
-      toast.error(e?.message || "Update failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Update failed"));
     } finally {
       setSavingRate(false);
     }
@@ -101,8 +101,8 @@ export default function CrewEmployee() {
       await api.uploadW9(emp.id, file);
       toast.success("W9 uploaded");
       load();
-    } catch (e: any) {
-      toast.error(e?.message || "Upload failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Upload failed"));
     }
   };
 
@@ -113,8 +113,8 @@ export default function CrewEmployee() {
       await api.setEmployeeStatus(emp.id, next);
       toast.success(`Set to ${next}`);
       load();
-    } catch (e: any) {
-      toast.error(e?.message || "Failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed"));
     }
   };
 
@@ -132,7 +132,7 @@ export default function CrewEmployee() {
 
   const handleSetReimbStatus = async (r: ReimbursementRow, status: "approved" | "rejected") => {
     try { await api.updateReimbursement(r.id, { status }); toast.success(`Marked ${status}`); load(); }
-    catch (e: any) { toast.error(e?.message || "Failed"); }
+    catch (e) { toast.error(errMessage(e, "Failed")); }
   };
 
   const handleDeleteReimb = async (r: ReimbursementRow) => {

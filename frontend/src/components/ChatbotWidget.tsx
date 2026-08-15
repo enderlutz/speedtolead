@@ -56,14 +56,6 @@ export default function ChatbotWidget({ token, leadId }: Props) {
     return () => clearTimeout(openTimer);
   }, [config, peeked]);
 
-  useEffect(() => {
-    if (!peeked || !open || userInteracted) return;
-    const closeTimer = setTimeout(() => {
-      handleClose();
-    }, 3000);
-    return () => clearTimeout(closeTimer);
-  }, [peeked, open, userInteracted]);
-
   // Load message history when opened
   useEffect(() => {
     if (!open || loaded) return;
@@ -105,6 +97,17 @@ export default function ChatbotWidget({ token, leadId }: Props) {
       setClosing(false);
     }, 250);
   }, []);
+
+  // Auto-retract the peek after 3s unless the visitor engages. Declared after
+  // handleClose so the dependency can name it (a dep array is read during
+  // render, so it can't reference a const declared further down).
+  useEffect(() => {
+    if (!peeked || !open || userInteracted) return;
+    const closeTimer = setTimeout(() => {
+      handleClose();
+    }, 3000);
+    return () => clearTimeout(closeTimer);
+  }, [peeked, open, userInteracted, handleClose]);
 
   const handleSend = useCallback(async (text?: string) => {
     const msg = text || input.trim();

@@ -183,9 +183,11 @@ function JobCardView({ card, index, token, busy, running, anyRunning, dayStarted
  * goes running). Resets on the next running task since the component remounts. */
 function Timer() {
   const [start] = useState(() => Date.now());
-  const [, tick] = useState(0);
-  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
-  const s = Math.floor((Date.now() - start) / 1000);
+  // The interval stores the clock itself instead of bumping a counter, so
+  // render never calls Date.now() (react-hooks/purity). Same 1s cadence.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const s = Math.floor((now - start) / 1000);
   const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
   const label = hh > 0 ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` : `${mm}:${String(ss).padStart(2, "0")}`;
   return (

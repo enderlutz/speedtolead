@@ -7,6 +7,7 @@
 //   3. AI estimate card   — run/adjust/apply the AI-generated sqft.
 
 import { useEffect, useMemo, useState } from "react";
+import { useNow } from "@/hooks/useNow";
 import {
   Camera,
   Link as LinkIcon,
@@ -408,6 +409,7 @@ function StatusPill({
   activity: ExteriorActivity;
   photoCount: number;
 }) {
+  const now = useNow();
   // Status priority: submitted > stalled > uploading > opened > sent
   const submitted = !!activity.submitted_at;
   const lastUploadIso = activity.last_upload_at;
@@ -426,7 +428,7 @@ function StatusPill({
     text = `Submitted · ${photoCount} photo${photoCount === 1 ? "" : "s"}`;
     cls = "bg-emerald-500/10 text-emerald-700 border-emerald-500/30";
   } else if (firstUploadIso) {
-    const lastUpMs = lastUploadIso ? Date.now() - Date.parse(lastUploadIso) : Infinity;
+    const lastUpMs = lastUploadIso ? now - Date.parse(lastUploadIso) : Infinity;
     if (lastUpMs > 30 * 60 * 1000) {
       kind = "stalled";
       icon = <PauseCircle className="h-3.5 w-3.5" />;

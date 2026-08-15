@@ -20,6 +20,7 @@ export default function QuickBooksSettingsCard() {
       .finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { if (isAdmin) refresh(); }, [refresh, isAdmin]);
 
   // Surface OAuth callback result from URL
@@ -29,6 +30,7 @@ export default function QuickBooksSettingsCard() {
     if (params.get("qb_connected")) {
       toast.success(params.get("qb_connected") === "mock" ? "Connected (mock mode)" : "Connected to QuickBooks");
       window.history.replaceState({}, "", window.location.pathname);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
       refresh();
     } else if (params.get("qb_error")) {
       toast.error(`QuickBooks connect failed: ${params.get("qb_error")}`);

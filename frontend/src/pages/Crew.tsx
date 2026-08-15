@@ -59,6 +59,7 @@ export default function Crew() {
       .catch(() => {});
   }, [range, includeInactive]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   // Live pending-reimbursement count for the tab badge

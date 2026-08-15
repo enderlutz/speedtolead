@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check, ChevronDown, Lock, CalendarClock } from "lucide-react";
 import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
+import { errMessage } from "@/lib/utils";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
 // Three tabs:
@@ -134,11 +135,11 @@ function SlideToConfirm({
 
   const reset = useCallback(() => { setOffset(0); setDragging(false); }, []);
 
-  const handleStart = (clientX: number) => {
+  // The start offset used to be stashed on the DOM node as `_startX`, but
+  // nothing ever read it back — handleMove recomputes from the track rect.
+  const handleStart = () => {
     if (disabled || confirmed) return;
     setDragging(true);
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (rect) (trackRef.current as any)._startX = clientX - rect.left;
   };
   const handleMove = (clientX: number) => {
     if (!dragging || disabled || confirmed) return;
@@ -164,11 +165,11 @@ function SlideToConfirm({
     <div
       ref={trackRef}
       className={`relative h-14 w-full rounded-full bg-slate-200 overflow-hidden select-none ${disabled ? "opacity-50" : ""}`}
-      onMouseDown={(e) => handleStart(e.clientX)}
+      onMouseDown={() => handleStart()}
       onMouseMove={(e) => handleMove(e.clientX)}
       onMouseUp={handleEnd}
       onMouseLeave={handleEnd}
-      onTouchStart={(e) => handleStart(e.touches[0].clientX)}
+      onTouchStart={() => handleStart()}
       onTouchMove={(e) => handleMove(e.touches[0].clientX)}
       onTouchEnd={handleEnd}
     >
@@ -219,8 +220,8 @@ function MaterialsEditor({
       const updated = await api.updateJobMaterials(job.id, body);
       onSaved(updated);
       toast.success("Materials saved");
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to save materials");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to save materials"));
     } finally {
       setSaving(false);
     }
@@ -407,8 +408,8 @@ function PmJobControls({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Sched
       onSaved(updated);
       toast.success("Internal schedule saved");
       setOpen(false);
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't save");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't save"));
     } finally { setSaving(false); }
   };
   const revert = async () => {
@@ -420,7 +421,7 @@ function PmJobControls({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Sched
       });
       onSaved(updated);
       toast.success("Reverted to the invite time");
-    } catch (e: any) { toast.error(e?.message || "Couldn't revert"); }
+    } catch (e) { toast.error(errMessage(e, "Couldn't revert")); }
     finally { setSaving(false); }
   };
 
@@ -515,8 +516,8 @@ function TodayJobCard({
       }
       await loadTasks(); // refresh done + timestamps
       toast.success(list.length > 1 ? `${list.length} photos uploaded` : "Photo uploaded");
-    } catch (e: any) {
-      toast.error(e?.message || "Upload failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Upload failed"));
     } finally {
       setUploading(null);
     }
@@ -529,8 +530,8 @@ function TodayJobCard({
       setPhotos((prev) => prev.filter((p) => p.id !== photoId));
       setBlobs((prev) => { const u = prev[photoId]; if (u) URL.revokeObjectURL(u); const n = { ...prev }; delete n[photoId]; return n; });
       await loadTasks();
-    } catch (e: any) {
-      toast.error(e?.message || "Delete failed");
+    } catch (e) {
+      toast.error(errMessage(e, "Delete failed"));
     }
   };
 
@@ -540,8 +541,8 @@ function TodayJobCard({
     try {
       const r = await api.notifyAlmostDone(job.id);
       toast.success(r.recipients > 0 ? "30-minute heads-up sent" : "Sent — no SMS recipients configured yet");
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't send notification");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't send notification"));
     } finally {
       setNotifying(false);
     }
@@ -836,8 +837,8 @@ function DailyCheckInCard() {
       const r = await api.workerCheckIn();
       setShift(r.shift);
       toast.success("Checked in — have a great day!");
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't check in");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't check in"));
     } finally { setBusy(false); }
   };
   const checkOut = async () => {
@@ -846,8 +847,8 @@ function DailyCheckInCard() {
       const r = await api.workerCheckOut();
       setShift(r.shift);
       toast.success("Checked out — nice work today!");
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't check out");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't check out"));
     } finally { setBusy(false); }
   };
 
@@ -899,7 +900,10 @@ function DailyCheckInCard() {
 }
 
 export default function MySchedule() {
-  const user = getCurrentUser();
+  // getCurrentUser() re-decodes the JWT and hands back a new object each call,
+  // so memoise it — otherwise every callback depending on `user` would get a
+  // fresh identity each render and refetch in a loop.
+  const user = useMemo(() => getCurrentUser(), []);
   const [tab, setTab] = useState<Tab>("today");
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -937,7 +941,7 @@ export default function MySchedule() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [today, user?.employee_id, user?.role]);
+  }, [today, user]);
 
   useEffect(() => { load(tab); }, [tab, load]);
 

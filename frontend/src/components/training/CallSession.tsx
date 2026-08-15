@@ -43,14 +43,17 @@ export default function CallSession() {
 
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const lastReadCountRef = useRef(0);
+  // How much of the transcript the rep had seen when they last closed the
+  // sheet. State rather than a ref because render derives the unread badge
+  // from it (react-hooks/refs). While the sheet is open the badge is 0
+  // regardless, so snapshotting on close is enough.
+  const [lastReadCount, setLastReadCount] = useState(0);
   const transcriptScrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll the transcript to the bottom when it opens and as new
-  // messages arrive while it's open. Reset the unread counter on open.
+  // messages arrive while it's open.
   useEffect(() => {
     if (transcriptOpen) {
-      lastReadCountRef.current = transcript.length;
       const el = transcriptScrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     }
@@ -71,7 +74,7 @@ export default function CallSession() {
 
   const unreadCount = transcriptOpen
     ? 0
-    : Math.max(0, transcript.length - lastReadCountRef.current);
+    : Math.max(0, transcript.length - lastReadCount);
 
   const status = (() => {
     if (error) return { label: "Error", tone: "text-rose-600" };
@@ -284,7 +287,7 @@ export default function CallSession() {
 
       {/* ── Transcript modal ──────────────────────────────────────── */}
       {transcriptOpen && (
-        <SlideUpSheet onClose={() => setTranscriptOpen(false)} title="Transcript">
+        <SlideUpSheet onClose={() => { setLastReadCount(transcript.length); setTranscriptOpen(false); }} title="Transcript">
           <div ref={transcriptScrollRef} className="px-5 py-4 space-y-3 overflow-y-auto flex-1">
             {transcript.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-8">

@@ -17,6 +17,7 @@ export default function CrewStats() {
     setLoading(true);
     api.getCrewStats(start || undefined, end || undefined).then(setData).catch(() => toast.error("Couldn't load stats")).finally(() => setLoading(false));
   }, [start, end]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   return (

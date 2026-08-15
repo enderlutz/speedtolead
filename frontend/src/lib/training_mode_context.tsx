@@ -1,3 +1,9 @@
+/* eslint-disable react-refresh/only-export-components --
+ * Context module: the provider component and its consumer hook belong together
+ * — that colocation is the standard React context pattern, and eight modules
+ * import the hook from here. Splitting them to regain a hot swap on this one
+ * file is not worth the indirection.
+ */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";

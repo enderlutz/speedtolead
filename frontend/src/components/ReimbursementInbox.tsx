@@ -35,6 +35,7 @@ export default function ReimbursementInbox() {
       .catch(() => {});
   }, [filter]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { refresh(); }, [refresh]);
 
   const setStatus = async (id: string, status: "approved" | "rejected") => {

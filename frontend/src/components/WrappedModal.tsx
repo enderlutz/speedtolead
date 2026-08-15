@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type WrappedDigest } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
@@ -31,7 +31,7 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
   const [regenerating, setRegenerating] = useState(false);
   const [step, setStep] = useState(0);
 
-  const fetchDigest = (force: boolean) => {
+  const fetchDigest = useCallback((force: boolean) => {
     setLoading(true);
     const fetcher = force
       ? (cadence === "weekly" ? api.regenerateWeeklyWrapped(period) : api.regenerateMonthlyWrapped(period))
@@ -40,9 +40,9 @@ export default function WrappedModal({ cadence, period, onClose }: Props) {
       .then((d) => { setDigest(d); setStep(0); })
       .catch(() => toast.error("Failed to load wrap"))
       .finally(() => setLoading(false));
-  };
+  }, [cadence, period]);
 
-  useEffect(() => { fetchDigest(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [cadence, period]);
+  useEffect(() => { fetchDigest(false); }, [fetchDigest]);
 
   // Slide list — Score first (after intro) since it's the headline.
   // Briefing + Action sit late so the deterministic stats prime the read.

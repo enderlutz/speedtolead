@@ -41,6 +41,7 @@ export default function LeadsBrick() {
       .catch(() => toast.error("Failed to load brick leads"))
       .finally(() => setLoading(false));
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   // Real-time + safety-net refresh, mirroring the fence boards.

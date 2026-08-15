@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useNow } from "@/hooks/useNow";
 import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
-import { formatCurrency, formatDate, formatDateTime, timeAgo } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
 import { playSuccessSound, playWarningSound, playReplySound, playProposalViewedSound } from "@/hooks/useNotificationSound";
@@ -33,7 +34,7 @@ import CustomProposalCard from "@/components/CustomProposalCard";
 import VideoEstimateCard from "@/components/VideoEstimateCard";
 import ExteriorTab from "@/components/ExteriorTab";
 import UpsellTab from "@/components/UpsellTab";
-import { V2_STAGES } from "./LeadsV2";
+import { V2_STAGES } from "@/lib/leadStages";
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
 const FENCE_HEIGHT_OPTIONS = [
@@ -228,7 +229,7 @@ export default function LeadDetail() {
       playProposalViewedSound();
       toast(`${lead?.contact_name || "Customer"} is viewing their estimate right now!`, { duration: 6000 });
     }
-  }, [id]));
+  }, [id, lead?.contact_name]));
 
   // Call-tab unread counter. Counts inbound SMS that arrived after the
   // user's last visit to the Call tab for this lead. Outbound and our own
@@ -687,8 +688,8 @@ export default function LeadDetail() {
                     mood: sess.persona.default_mood || "",
                     ttsConfigured: sess.tts_configured,
                   });
-                } catch (e: any) {
-                  toast.error(e?.message || "Couldn't start practice call");
+                } catch (e) {
+                  toast.error(errMessage(e, "Couldn't start practice call"));
                 } finally {
                   setPracticing(false);
                 }
@@ -718,8 +719,8 @@ export default function LeadDetail() {
                   } else {
                     toast.info("Already in sync with GHL");
                   }
-                } catch (e: any) {
-                  toast.error(e?.message || "Couldn't sync from GHL");
+                } catch (e) {
+                  toast.error(errMessage(e, "Couldn't sync from GHL"));
                 } finally {
                   setResyncing(false);
                 }
@@ -2024,12 +2025,12 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
   const timerRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const loadCalls = () => {
+  const loadCalls = useCallback(() => {
     api.getLeadCalls(leadId)
       .then(setRecordings)
       .catch(() => {})
       .finally(() => setLoading(false));
-  };
+  }, [leadId]);
 
   const handleToggleFavorite = async (rec: CallRecordingEntry) => {
     const next = !rec.is_favorite;
@@ -2048,8 +2049,8 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
       await api.archiveCall(rec.id);
       toast.success("Recording archived");
       loadCalls();
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't archive");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't archive"));
     }
   };
 
@@ -2079,7 +2080,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
     setPlayingId(rec.id);
   };
 
-  useEffect(() => { loadCalls(); }, [leadId]);
+  useEffect(() => { loadCalls(); }, [loadCalls]);
 
   // Warn before tab close while recording
   useEffect(() => {
@@ -2161,8 +2162,8 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
       setElapsed(0);
       setRecState("recording");
       timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
-    } catch (err: any) {
-      const msg = err?.name === "NotAllowedError"
+    } catch (err) {
+      const msg = errName(err) === "NotAllowedError"
         ? "Microphone permission denied"
         : "Could not start recording";
       toast.error(msg);
@@ -2200,7 +2201,7 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
     audioRef.current?.pause();
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.onstop = null;
-      try { recorderRef.current.stop(); } catch {}
+      try { recorderRef.current.stop(); } catch { /* already stopped */ }
     }
   }, []);
 
@@ -3294,6 +3295,7 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [leadId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   const unlink = async (inv: QuickbooksInvoice) => {
@@ -3382,6 +3384,7 @@ function LinkInvoiceModal({ leadId, leadName, onClose, onLinked }: {
       .catch(() => setResults([]))
       .finally(() => setLoading(false));
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { search(leadName); }, [search, leadName]);
 
   const assign = async (inv: QuickbooksInvoice) => {
@@ -3441,6 +3444,7 @@ function NearbyJobsCard({ leadId }: { leadId: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     setLoading(true);
     api.getNearbyJobs(leadId, 14)
       .then((r) => { if (!cancelled) setData(r); })
@@ -3736,13 +3740,14 @@ function ProposalViewBadge({
   firstViewedAt?: string | null;
   lastViewedAt?: string | null;
 }) {
+  const now = useNow();
   if (viewCount <= 0 && !firstViewedAt) {
     return <Badge className="text-xs bg-slate-200 text-slate-700">Proposal not viewed</Badge>;
   }
   const ts = lastViewedAt || firstViewedAt;
   let hot = false;
   if (ts) {
-    const minutesAgo = (Date.now() - new Date(ts).getTime()) / 60000;
+    const minutesAgo = (now - new Date(ts).getTime()) / 60000;
     hot = minutesAgo <= 60;
   }
   const count = viewCount || 1;

@@ -48,6 +48,7 @@ export default function SopChecklistPanel({ scheduledJobId, asWorker }: Props) {
       .finally(() => setLoading(false));
   }, [scheduledJobId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   const refresh = (updated: SopRun) => setRun(updated);
@@ -365,7 +366,7 @@ function StepCard({
       cancelled = true;
       Object.values(localBlobs).forEach((u) => URL.revokeObjectURL(u));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [expanded, runId, step.step_id, photoMin, isMultiselect]);
 
   const saveNote = async () => {

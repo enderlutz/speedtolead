@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNow } from "@/hooks/useNow";
 import {
   api, getCurrentUser,
   type AccountingSummary, type JobProfitabilityRow,
@@ -50,6 +51,7 @@ export default function Accounting() {
     ]).finally(() => setLoading(false));
   }, [period]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   // Scroll the linked-from-Calendar job into view
@@ -229,6 +231,7 @@ export default function Accounting() {
 
 
 function QuickBooksStatusCard({ status, onChange }: { status: QuickBooksStatus | null; onChange: () => void }) {
+  const now = useNow();
   if (!status) {
     return (
       <Card className="border-dashed">
@@ -250,7 +253,7 @@ function QuickBooksStatusCard({ status, onChange }: { status: QuickBooksStatus |
     const last = status.last_webhook_received_at || "";
     const outstanding = status.outstanding_invoices || 0;
     const ageMs = last
-      ? Math.max(0, Date.now() - new Date(last).getTime())
+      ? Math.max(0, now - new Date(last).getTime())
       : Number.POSITIVE_INFINITY;
     const ageHours = ageMs / 3600000;
     const labelTime = last ? timeAgo(last) : "never";

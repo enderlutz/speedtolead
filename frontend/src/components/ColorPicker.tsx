@@ -17,7 +17,14 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
   const [hex, setHex] = useState(value);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setHex(value), [value]);
+  // Re-sync the in-progress hex text when the parent hands us a new colour.
+  // React's "adjust state during render" pattern rather than a sync effect —
+  // it lands in the same commit instead of forcing a second render pass.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setHex(value);
+  }
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { RefreshCw, MapPin, Clock, ExternalLink, FileText, Send, AlertCircle } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, errMessage } from "@/lib/utils";
 
 // Admin queue of jobs ready for QuickBooks invoicing. Surfaces every
 // in_progress / completed job that hasn't been invoiced yet. Sourced
@@ -53,8 +53,8 @@ export default function InvoiceQueue() {
         }
         return next;
       });
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to load invoice queue");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to load invoice queue"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -89,8 +89,8 @@ export default function InvoiceQueue() {
       }
       // Optimistic remove — invoice exists now, so it leaves the queue.
       setJobs((prev) => prev.filter((j) => j.id !== job.id));
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to generate invoice");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to generate invoice"));
     } finally {
       setSendingId(null);
     }
@@ -101,8 +101,8 @@ export default function InvoiceQueue() {
     try {
       const res = await api.sendInvoiceSms(job.id);
       toast.success(`SMS sent to ${res.to_phone}`);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to SMS invoice link");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to SMS invoice link"));
     } finally {
       setSendingId(null);
     }

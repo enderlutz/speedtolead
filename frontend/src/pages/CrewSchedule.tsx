@@ -24,6 +24,7 @@ export default function CrewSchedule() {
     setLoading(true);
     api.getCrewBoard(weekStart).then(setBoard).catch(() => toast.error("Couldn't load the board")).finally(() => setLoading(false));
   }, [weekStart]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { load(); }, [load]);
 
   const shiftWeek = (delta: number) => { const d = new Date(`${weekStart}T00:00:00`); d.setDate(d.getDate() + delta); setWeekStart(toYMD(mondayOf(d))); };

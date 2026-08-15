@@ -39,24 +39,25 @@ export default function Revenue() {
   const [assignFor, setAssignFor] = useState<QuickbooksInvoice | null>(null);
   const pollRef = useRef<number | null>(null);
 
-  const load = useCallback(async (reset: boolean) => {
+  // Takes the offset rather than a reset flag: reading invoices.length inside
+  // made the callback depend on the very state it appends to, so it could not
+  // be an honest effect dependency. The pagination caller passes the offset.
+  const load = useCallback(async (offset: number) => {
     setLoading(true);
     try {
-      const offset = reset ? 0 : invoices.length;
       const r = await api.listQbInvoices({ filter, q: search.trim(), limit: PAGE, offset });
       setRollup(r.rollup);
       setTotal(r.total);
-      setInvoices((prev) => (reset ? r.invoices : [...prev, ...r.invoices]));
+      setInvoices((prev) => (offset === 0 ? r.invoices : [...prev, ...r.invoices]));
     } catch {
       toast.error("Couldn't load invoices");
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, search, invoices.length]);
+  }, [filter, search]);
 
   // Reload from the top whenever the filter or search changes.
-  useEffect(() => { load(true); /* eslint-disable-next-line */ }, [filter, search]);
+  useEffect(() => { load(0); }, [load]);
   useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
 
   const runSync = async () => {
@@ -78,7 +79,7 @@ export default function Revenue() {
               toast.error(s.error || "Sync failed");
             } else {
               toast.success(`Synced ${s.synced ?? 0} invoices${s.auto_linked ? ` · ${s.auto_linked} auto-linked` : ""}`);
-              load(true);
+              load(0);
             }
           }
         } catch { /* keep polling */ }
@@ -217,7 +218,7 @@ export default function Revenue() {
           </table>
           {invoices.length < total && (
             <div className="p-3 text-center border-t">
-              <Button variant="outline" size="sm" onClick={() => load(false)} disabled={loading}>
+              <Button variant="outline" size="sm" onClick={() => load(invoices.length)} disabled={loading}>
                 {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
                 Load more ({invoices.length} of {total})
               </Button>

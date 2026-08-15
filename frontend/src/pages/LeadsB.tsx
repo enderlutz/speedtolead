@@ -14,7 +14,7 @@ import {
   DndContext, type DragEndEvent, type DragStartEvent, DragOverlay,
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
 } from "@dnd-kit/core";
-import { leadDetailCache } from "./Leads";
+import { leadDetailCache } from "@/lib/leadDetailCache";
 import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
 import LeadMap from "@/components/LeadMap";
 
@@ -65,7 +65,7 @@ type StageDef = {
 // callback campaign. The number in the shortLabel (e.g. "Pre 1") tells
 // you which call. Keeping the color uniform within each group avoids
 // turning the kanban into a rainbow.
-export const B_STAGES: StageDef[] = [
+const B_STAGES: StageDef[] = [
   { id: "13dd5565-5d19-4ebd-bb84-5e57fdfc848e", label: "New Lead", shortLabel: "New", headerCls: "bg-gray-100 text-gray-800", bgCls: "bg-gray-50/50", dotCls: "bg-gray-400" },
   { id: "3883dc86-e182-4633-9308-cbcc085abc02", label: "HOT LEAD_SEND ESTIMATE", shortLabel: "Hot", headerCls: "bg-red-100 text-red-800", bgCls: "bg-red-50/30", dotCls: "bg-red-500" },
   { id: "b382eea2-670c-4d3f-b2a1-a6053ce6e412", label: "ESTIMATE SCHEDULED", shortLabel: "Est. Sched", headerCls: "bg-cyan-100 text-cyan-800", bgCls: "bg-cyan-50/30", dotCls: "bg-cyan-500" },
@@ -172,7 +172,7 @@ export default function LeadsB() {
       api.listOpenDelays().then((r) => {
         const map: Record<string, { reason: string }> = {};
         for (const d of r.delays) {
-          let reason = d.reason_code
+          const reason = d.reason_code
             ? (d.reason_code === "other" ? d.reason_other_text : d.reason_code.replace(/_/g, " "))
             : "Reason not yet logged";
           map[d.lead_id] = { reason };
@@ -198,6 +198,7 @@ export default function LeadsB() {
     }).catch(() => toast.error("Failed to load leads")).finally(() => setLoading(false));
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { loadLeads(); }, [loadLeads]);
 
   // Auto-refresh safety net. SSE handles real-time updates; this is just
@@ -555,14 +556,16 @@ function DraggableCard({ lead, delayInfo, children }: { lead: Lead; delayInfo?: 
 }
 
 const ElapsedTimer: FC<{ since: string; stoppedAt?: string | null }> = ({ since, stoppedAt }) => {
-  const [, setTick] = useState(0);
+  // Clock lives in state so render stays pure (react-hooks/purity); the
+  // interval is what advances the elapsed label, as the tick counter did.
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (stoppedAt) return;
-    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, [stoppedAt]);
 
-  const end = stoppedAt ? new Date(stoppedAt).getTime() : Date.now();
+  const end = stoppedAt ? new Date(stoppedAt).getTime() : now;
   const ms = end - new Date(since).getTime();
   const mins = Math.floor(ms / 60_000);
   const isCritical = !stoppedAt && mins >= 120;

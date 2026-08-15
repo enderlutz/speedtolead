@@ -29,7 +29,7 @@ function DivisionSwitcher() {
     setDivision(d);
     // Land on a page that exists in the target division (Dashboard is fence-only
     // for now, so brick lands on its Leads board).
-    window.location.href = d === "brick" ? "/leads-brick" : "/";
+    window.location.assign(d === "brick" ? "/leads-brick" : "/");
   };
   const opt = (d: Division, label: string) => (
     <button
@@ -106,17 +106,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/settings", icon: Settings2, label: "Settings", perm: "settings" },
 ];
 
-// Paths reachable in brick mode (nav + direct URL). Everything else redirects
-// to the Brick Leads board while brick is the active division, so no fence data
-// is shown. Prefix match, except "/" which must be exact (Dashboard is fence-only).
-const BRICK_ALLOWED_PREFIXES = [
-  "/leads-brick", "/leads/", "/calendar", "/pm-hq", "/my-schedule",
-  "/daily-tasks", "/sops/", "/settings", "/internal", "/login",
-];
-export function isBrickAllowedPath(path: string): boolean {
-  if (path === "/") return false;  // Dashboard — fence-only for now
-  return BRICK_ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(p));
-}
+// Paths reachable in brick mode (nav + direct URL) live in @/lib/brickNav.
 
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   return (

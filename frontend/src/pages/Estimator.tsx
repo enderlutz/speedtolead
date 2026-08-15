@@ -79,6 +79,7 @@ export default function Estimator() {
       .finally(() => setLoading(false));
   }, [weekStart, isStaff, viewEstimatorId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
   useEffect(() => { loadSchedule(); }, [loadSchedule]);
 
   const shiftWeek = (deltaDays: number) => {

@@ -1,3 +1,9 @@
+/* eslint-disable react-refresh/only-export-components --
+ * Vendored shadcn/ui component. Its generator emits the cva variants next to
+ * the component, and the shadcn CLI overwrites this file on update — splitting
+ * them would be undone the next time the component is regenerated. The cost is
+ * only a full reload instead of a hot swap while editing this file.
+ */
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 

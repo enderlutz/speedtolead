@@ -38,6 +38,7 @@ export default function LeadActivityHistory({ leadId }: { leadId: string }) {
 
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     setLoading(true);
     api.getLeadActivity(leadId)
       .then((r) => { if (alive) setEvents(r.events); })

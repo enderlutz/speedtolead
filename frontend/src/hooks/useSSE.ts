@@ -12,7 +12,7 @@ type Handler = (event: SSEEvent) => void;
 
 // Module-level: single shared EventSource + subscriber list
 let _source: EventSource | null = null;
-let _handlers: Set<Handler> = new Set();
+const _handlers: Set<Handler> = new Set();
 let _reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function _connect() {
@@ -54,7 +54,10 @@ function _disconnect() {
  */
 export function useSSE(onEvent: Handler) {
   const handlerRef = useRef(onEvent);
-  handlerRef.current = onEvent;
+  // Keep the latest callback without re-subscribing. Writing the ref in an
+  // effect rather than during render keeps render side-effect-free, which is
+  // what lets React re-render safely (react-hooks/refs).
+  useEffect(() => { handlerRef.current = onEvent; }, [onEvent]);
 
   const stableHandler = useCallback((e: SSEEvent) => handlerRef.current(e), []);
 

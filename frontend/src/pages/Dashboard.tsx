@@ -64,7 +64,7 @@ export default function Dashboard() {
     if (isAdmin) {
       api.getCrewSummary().then(setCrewSummary).catch(() => {});
     }
-  }, [filter]);
+  }, [filter, isAdmin]);
 
   useEffect(() => { refreshAll(); }, [refreshAll]);
 

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { timeAgo, formatDateTime } from "@/lib/utils";
+import { timeAgo, formatDateTime, errMessage, errName } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   Mic, PhoneCall,
@@ -54,6 +54,7 @@ export default function Calls() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     setLoading(true);
     Promise.all([
       api.getAllCalls({ limit: 100, archived: tab === "archived", favoritesOnly }).then((r) => setCalls(r.calls)),
@@ -110,8 +111,8 @@ export default function Calls() {
       toast.success("Recording archived");
       loadCalls();
       api.getCallStorage().then(setStorage).catch(() => {});
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't archive");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't archive"));
     }
   };
 
@@ -504,8 +505,8 @@ function CoachingProfilePanel({ isAdmin }: { isAdmin: boolean }) {
       const p = await api.regenerateCoachingProfile();
       setProfile(p);
       toast.success("Coaching profile regenerated");
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't regenerate");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't regenerate"));
     } finally {
       setRegenerating(false);
     }
@@ -751,8 +752,8 @@ function CallReviewModal({
       setAudioBlob(null);
       setRecState("recording");
       timerRef.current = window.setInterval(() => setElapsed((s) => s + 1), 1000);
-    } catch (err: any) {
-      toast.error(err?.name === "NotAllowedError" ? "Microphone permission denied" : "Could not start recording");
+    } catch (err) {
+      toast.error(errName(err) === "NotAllowedError" ? "Microphone permission denied" : "Could not start recording");
     }
   };
 
@@ -782,8 +783,8 @@ function CallReviewModal({
       setAudioBlob(null);
       setElapsed(0);
       toast.success("Review sent — Olga has been notified");
-    } catch (e: any) {
-      toast.error(e?.message || "Couldn't save review");
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't save review"));
     } finally {
       setSubmitting(false);
     }

@@ -16,14 +16,17 @@ export default function EstimatorDriveMap({ data, showSuggested = false, showAct
   showActual?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [loadStatus, setLoadStatus] = useState<"loading" | "ready" | "error">("loading");
+  // A missing key is knowable from props — derive it instead of writing it
+  // into state from an effect, which would cost an extra render pass.
+  const status = data.maps_api_key ? loadStatus : "error";
 
   const drewActual = showActual && data.pings.length > 1;
   const drewSuggested = showSuggested && data.visits.filter((v) => v.lat != null && v.lng != null).length > 1;
 
   useEffect(() => {
     let cancelled = false;
-    if (!data.maps_api_key) { setStatus("error"); return; }
+    if (!data.maps_api_key) return;
 
     loadGoogleMaps(data.maps_api_key)
       .then(() => {
@@ -64,9 +67,9 @@ export default function EstimatorDriveMap({ data, showSuggested = false, showAct
         });
 
         if (!bounds.isEmpty()) map.fitBounds(bounds);
-        setStatus("ready");
+        setLoadStatus("ready");
       })
-      .catch(() => { if (!cancelled) setStatus("error"); });
+      .catch(() => { if (!cancelled) setLoadStatus("error"); });
 
     return () => { cancelled = true; };
   }, [data, showSuggested, showActual]);

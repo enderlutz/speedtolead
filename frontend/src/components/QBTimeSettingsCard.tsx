@@ -22,6 +22,7 @@ export default function QBTimeSettingsCard() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     if (isAdmin) refresh();
   }, [refresh, isAdmin]);
 
@@ -35,6 +36,7 @@ export default function QBTimeSettingsCard() {
           : "Connected to QuickBooks Time",
       );
       window.history.replaceState({}, "", window.location.pathname);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
       refresh();
     } else if (params.get("qbtime_error")) {
       toast.error(`QuickBooks Time connect failed: ${params.get("qbtime_error")}`);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getCurrentUser } from "@/lib/api";
 import WrappedModal from "@/components/WrappedModal";
 
@@ -23,40 +23,40 @@ import WrappedModal from "@/components/WrappedModal";
 
 type AutoState = { cadence: "weekly" | "monthly"; period: string } | null;
 
+// Which wrap (if any) should pop right now. Reads the clock + localStorage,
+// so it runs once from the useState initializer below rather than from an
+// effect — the decision only ever needs making at mount, and doing it inline
+// avoids the render-then-immediately-re-render the effect version caused.
+function computeAutoPop(isAdmin: boolean): AutoState {
+  if (!isAdmin) return null;
+  const now = new Date();
+  const isSaturday = now.getDay() === 6;
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const isLastDayOfMonth = now.getDate() === lastDay;
+
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const saturday = new Date(now);
+  saturday.setDate(saturday.getDate() + (6 - saturday.getDay()));
+  const weekKey = saturday.toISOString().slice(0, 10);
+
+  const everSeen = localStorage.getItem("at_wrapped_ever_seen");
+
+  // Monthly takes precedence on its day (heavier reveal)
+  if (isLastDayOfMonth) {
+    const seenMonthly = localStorage.getItem(`at_wrapped_monthly_seen_${monthKey}`);
+    if (!seenMonthly) return { cadence: "monthly", period: monthKey };
+  }
+  if (isSaturday || !everSeen) {
+    const seenWeekly = localStorage.getItem(`at_wrapped_weekly_seen_${weekKey}`);
+    if (!seenWeekly) return { cadence: "weekly", period: weekKey };
+  }
+  return null;
+}
+
 export default function WrappedAutoPop() {
-  const [open, setOpen] = useState<AutoState>(null);
   const currentUser = getCurrentUser();
   const isAdmin = currentUser?.role === "admin";
-
-  useEffect(() => {
-    if (!isAdmin) return;
-    const now = new Date();
-    const isSaturday = now.getDay() === 6;
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const isLastDayOfMonth = now.getDate() === lastDay;
-
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const saturday = new Date(now);
-    saturday.setDate(saturday.getDate() + (6 - saturday.getDay()));
-    const weekKey = saturday.toISOString().slice(0, 10);
-
-    const everSeen = localStorage.getItem("at_wrapped_ever_seen");
-
-    // Monthly takes precedence on its day (heavier reveal)
-    if (isLastDayOfMonth) {
-      const seenMonthly = localStorage.getItem(`at_wrapped_monthly_seen_${monthKey}`);
-      if (!seenMonthly) {
-        setOpen({ cadence: "monthly", period: monthKey });
-        return;
-      }
-    }
-    if (isSaturday || !everSeen) {
-      const seenWeekly = localStorage.getItem(`at_wrapped_weekly_seen_${weekKey}`);
-      if (!seenWeekly) {
-        setOpen({ cadence: "weekly", period: weekKey });
-      }
-    }
-  }, [isAdmin]);
+  const [open, setOpen] = useState<AutoState>(() => computeAutoPop(isAdmin));
 
   const close = () => {
     if (open) {

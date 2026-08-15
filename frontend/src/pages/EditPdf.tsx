@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Stage, Layer, Image as KonvaImage, Text as KonvaText, Rect } from "react-konva";
 import { api, type LeadDetail, type EstimateDetail } from "@/lib/api";
@@ -48,7 +48,13 @@ export default function EditPdf() {
 
   const selected = fields.find((f) => f.id === selectedId) || null;
   const pageFields = fields.filter((f) => f.page === currentPage);
-  const currentPageSize = pageSizes[currentPage] || { width: 612, height: 792 };
+  // Memoised so the fallback literal doesn't produce a fresh object every
+  // render — updateStageSize depends on it, and an unstable identity there
+  // re-created the resize callback on every pass.
+  const currentPageSize = useMemo(
+    () => pageSizes[currentPage] || { width: 612, height: 792 },
+    [pageSizes, currentPage],
+  );
   const scaleX = stageSize.width / currentPageSize.width;
   const scaleY = stageSize.height / currentPageSize.height;
 
@@ -69,6 +75,7 @@ export default function EditPdf() {
   // Load lead, estimate, template, and page images
   useEffect(() => {
     if (!id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: raises the loading flag when this fetch's inputs change; the data itself lands asynchronously.
     setLoading(true);
 
     Promise.all([
