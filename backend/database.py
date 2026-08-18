@@ -2486,41 +2486,103 @@ class OverheadEntry(Base):
 
 
 class StainInventoryItem(Base):
-    """Stain stock on hand — one row per brand + finish + colour we carry.
-
-    Quantity is stored as containers × gallons-per-container rather than a
-    single number so the shop count ("four 5-gallon buckets") and the gallon
-    figure the rest of the app speaks in (gallons_estimate, stain_gallons_used,
-    color_gallons on ScheduledJob) both come out of the same row. The gallon
-    total is derived in to_dict, never stored, so the two can't drift."""
+    """One stain we carry — brand + finish + colour. The stock itself lives in
+    StainContainer rows hanging off this, because containers are never equally
+    full: a 5-gallon bucket might have 3 gallons left while another is
+    untouched. Gallon totals are summed from the containers, never stored."""
     __tablename__ = "stain_inventory"
 
     id = Column(Text, primary_key=True)
     brand = Column(Text, default="")               # "Behr", "Sherwin-Williams"…
     finish_type = Column(Text, default="")         # transparent | semi_transparent | semi_solid | solid
     color_name = Column(Text, default="")          # "Cedar Natural", "Dark Walnut"…
-    container_count = Column(Float, default=0)
-    gallons_per_container = Column(Float, default=0)
     notes = Column(Text, default="")
     active = Column(Boolean, default=True)         # toggle off without losing the row
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
-    def to_dict(self) -> dict:
-        containers = float(self.container_count or 0)
-        per = float(self.gallons_per_container or 0)
+    def to_dict(self, containers: list | None = None) -> dict:
+        rows = containers or []
         return {
             "id": self.id,
             "brand": self.brand or "",
             "finish_type": self.finish_type or "",
             "color_name": self.color_name or "",
-            "container_count": containers,
-            "gallons_per_container": per,
-            "total_gallons": round(containers * per, 2),
             "notes": self.notes or "",
             "active": bool(self.active),
+            "containers": [c.to_dict() for c in rows],
+            "container_count": len(rows),
+            "total_gallons": round(sum(float(c.gallons_remaining or 0) for c in rows), 2),
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
+        }
+
+
+class StainContainer(Base):
+    """A single physical container of stain sitting in the storage unit.
+
+    `size_gallons` is what the container holds when full (5 or 1);
+    `gallons_remaining` is what's actually in it right now. For a 1-gallon can
+    those two double as the "how full" fraction — half a 1-gallon IS 0.5
+    gallons — which is why one number covers both ways Alan counts."""
+    __tablename__ = "stain_containers"
+    __table_args__ = (Index("idx_stain_containers_stain", "stain_id"),)
+
+    id = Column(Text, primary_key=True)
+    stain_id = Column(Text, default="")
+    size_gallons = Column(Float, default=5)
+    gallons_remaining = Column(Float, default=0)
+    label = Column(Text, default="")               # optional — "shelf A", "truck 2"
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        size = float(self.size_gallons or 0)
+        remaining = float(self.gallons_remaining or 0)
+        return {
+            "id": self.id,
+            "stain_id": self.stain_id or "",
+            "size_gallons": size,
+            "gallons_remaining": remaining,
+            # Convenience for the UI's fullness bar; guard against size 0.
+            "percent_full": round((remaining / size) * 100, 1) if size > 0 else 0.0,
+            "label": self.label or "",
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+        }
+
+
+class StainMovement(Base):
+    """Audit row for every gallon that enters or leaves inventory.
+
+    Written on container add / level change / removal. `delta_gallons` is
+    signed (+ bought, − used), so a stain's movement history sums to its
+    current total. Exists because workers will eventually be entering usage
+    from the field and a wrong number has to be traceable to a person."""
+    __tablename__ = "stain_movements"
+    __table_args__ = (Index("idx_stain_movements_stain", "stain_id"),)
+
+    id = Column(Text, primary_key=True)
+    stain_id = Column(Text, default="")
+    container_id = Column(Text, default="")        # blank once the container is gone
+    action = Column(Text, default="")              # added | adjusted | removed
+    delta_gallons = Column(Float, default=0)       # signed
+    resulting_gallons = Column(Float, default=0)   # the stain's total after this move
+    actor = Column(Text, default="")               # display name of whoever did it
+    note = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "stain_id": self.stain_id or "",
+            "container_id": self.container_id or "",
+            "action": self.action or "",
+            "delta_gallons": float(self.delta_gallons or 0),
+            "resulting_gallons": float(self.resulting_gallons or 0),
+            "actor": self.actor or "",
+            "note": self.note or "",
+            "created_at": self.created_at or "",
         }
 
 
@@ -3597,6 +3659,20 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text(ddl))
             logger.info(f"Migration: added leads.{col_name}")
+
+    # Stain inventory reshape. The first cut modelled stock as
+    # container_count × gallons_per_container, which assumed every container of
+    # a stain was equally full — wrong, since a 5-gallon bucket with 3 gallons
+    # left sits next to an untouched one. Stock now lives in stain_containers,
+    # one row per physical container. Dropped rather than left vestigial
+    # because the table never held a single row.
+    if inspector.has_table("stain_inventory"):
+        si_cols = {c["name"] for c in inspector.get_columns("stain_inventory")}
+        for dead_col in ("container_count", "gallons_per_container"):
+            if dead_col in si_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE stain_inventory DROP COLUMN {dead_col}"))
+                logger.info(f"Migration: dropped stain_inventory.{dead_col} (superseded by stain_containers)")
 
 
 def get_db() -> Session:

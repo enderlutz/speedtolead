@@ -1954,20 +1954,41 @@ export const api = {
   deleteOverhead: (id: string) =>
     request<{ status: string }>(`/api/accounting/overhead/${id}`, { method: "DELETE" }),
 
-  // Stain Inventory
+  // Stain Inventory — stains, their containers, and the movement history
   listStainInventory: (params?: { q?: string; finish_type?: string }) => {
     const qs = new URLSearchParams();
     if (params?.q) qs.set("q", params.q);
     if (params?.finish_type) qs.set("finish_type", params.finish_type);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return request<{ items: StainInventoryItem[]; total_gallons: number }>(`/api/stain-inventory${suffix}`);
+    return request<{ items: StainInventoryItem[]; total_gallons: number; total_containers: number }>(
+      `/api/stain-inventory${suffix}`,
+    );
   },
-  createStainInventoryItem: (body: StainInventoryBody) =>
+  createStain: (body: StainBody) =>
     request<StainInventoryItem>("/api/stain-inventory", { method: "POST", body: JSON.stringify(body) }),
-  updateStainInventoryItem: (id: string, body: StainInventoryBody) =>
+  updateStain: (id: string, body: StainBody) =>
     request<StainInventoryItem>(`/api/stain-inventory/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-  deleteStainInventoryItem: (id: string) =>
+  deleteStain: (id: string) =>
     request<{ status: string }>(`/api/stain-inventory/${id}`, { method: "DELETE" }),
+
+  addStainContainers: (stainId: string, body: StainContainerBody) =>
+    request<StainInventoryItem>(`/api/stain-inventory/${stainId}/containers`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  updateStainContainer: (containerId: string, body: StainContainerUpdateBody) =>
+    request<StainInventoryItem>(`/api/stain-containers/${containerId}`, {
+      method: "PUT", body: JSON.stringify(body),
+    }),
+  deleteStainContainer: (containerId: string) =>
+    request<StainInventoryItem>(`/api/stain-containers/${containerId}`, { method: "DELETE" }),
+
+  listStainMovements: (params?: { stain_id?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.stain_id) qs.set("stain_id", params.stain_id);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{ movements: StainMovement[] }>(`/api/stain-movements${suffix}`);
+  },
 
   // Mark Paid (manual payment entry)
   markScheduledJobPaid: (jobId: string, body: MarkPaidBody) =>
@@ -4238,28 +4259,73 @@ export function stainFinishLabel(value: string): string {
   return STAIN_FINISH_TYPES.find((f) => f.value === value)?.label || value || "—";
 }
 
+/** Container sizes we stock. The UI offers these two; the API accepts any
+ * positive size. */
+export const STAIN_CONTAINER_SIZES = [5, 1];
+
+/** One physical container in the storage unit. `gallons_remaining` is the
+ * single number for both ways of counting — a half-full 1-gallon can IS
+ * 0.5 gallons. */
+export interface StainContainer {
+  id: string;
+  stain_id: string;
+  size_gallons: number;
+  gallons_remaining: number;
+  percent_full: number;
+  label: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StainInventoryItem {
   id: string;
   brand: string;
   finish_type: string;
   color_name: string;
-  container_count: number;
-  gallons_per_container: number;
-  total_gallons: number;
   notes: string;
   active: boolean;
+  containers: StainContainer[];
+  container_count: number;
+  total_gallons: number;
   created_at: string;
   updated_at: string;
 }
 
-export interface StainInventoryBody {
+export interface StainBody {
   brand: string;
   finish_type: string;
   color_name: string;
-  container_count: number;
-  gallons_per_container: number;
   notes: string;
   active: boolean;
+}
+
+export interface StainContainerBody {
+  size_gallons: number;
+  gallons_remaining: number;
+  label?: string;
+  count?: number;
+  note?: string;
+}
+
+export interface StainContainerUpdateBody {
+  gallons_remaining: number;
+  size_gallons?: number;
+  label?: string;
+  note?: string;
+}
+
+/** Audit row — every gallon in or out, with who did it. */
+export interface StainMovement {
+  id: string;
+  stain_id: string;
+  stain_label: string;
+  container_id: string;
+  action: string;              // added | adjusted | removed
+  delta_gallons: number;       // signed
+  resulting_gallons: number;
+  actor: string;
+  note: string;
+  created_at: string;
 }
 
 // --- Call Script ---
