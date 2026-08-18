@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, Video } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, Video, PaintBucket } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -89,6 +89,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/calls", icon: Mic, label: "Call Coach", perm: "calls", divisions: ["fence"] },
   { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
   { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
+  { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },
   { to: "/accounting", icon: Calculator, label: "Accounting", perm: "accounting", divisions: ["fence"] },
   // Division-aware (scoped) — visible in both fence and brick:
   { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },

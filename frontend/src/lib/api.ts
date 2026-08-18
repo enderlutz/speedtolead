@@ -128,13 +128,13 @@ export function isAuthenticated(): boolean {
 const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
   admin: [
     "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
-    "payroll", "accounting", "calendar", "my_schedule", "invoice_queue",
+    "payroll", "stain_inventory", "accounting", "calendar", "my_schedule", "invoice_queue",
     "pricing", "settings", "agents",
     "manage_users", "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   va: [
     "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
-    "calendar", "invoice_queue", "pricing", "settings",
+    "calendar", "invoice_queue", "pricing", "settings", "stain_inventory",
     "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   worker: ["calendar", "my_schedule"],
@@ -1953,6 +1953,21 @@ export const api = {
     request<OverheadEntry>(`/api/accounting/overhead/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteOverhead: (id: string) =>
     request<{ status: string }>(`/api/accounting/overhead/${id}`, { method: "DELETE" }),
+
+  // Stain Inventory
+  listStainInventory: (params?: { q?: string; finish_type?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set("q", params.q);
+    if (params?.finish_type) qs.set("finish_type", params.finish_type);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<{ items: StainInventoryItem[]; total_gallons: number }>(`/api/stain-inventory${suffix}`);
+  },
+  createStainInventoryItem: (body: StainInventoryBody) =>
+    request<StainInventoryItem>("/api/stain-inventory", { method: "POST", body: JSON.stringify(body) }),
+  updateStainInventoryItem: (id: string, body: StainInventoryBody) =>
+    request<StainInventoryItem>(`/api/stain-inventory/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteStainInventoryItem: (id: string) =>
+    request<{ status: string }>(`/api/stain-inventory/${id}`, { method: "DELETE" }),
 
   // Mark Paid (manual payment entry)
   markScheduledJobPaid: (jobId: string, body: MarkPaidBody) =>
@@ -4206,6 +4221,44 @@ export interface OverheadBody {
   category: string;
   description: string;
   monthly_amount: number;
+  active: boolean;
+}
+
+// --- Stain Inventory ---
+/** Finish types the backend accepts (api/stain_inventory.py FINISH_TYPES),
+ * paired with the label shown in the UI. */
+export const STAIN_FINISH_TYPES: { value: string; label: string }[] = [
+  { value: "transparent", label: "Transparent" },
+  { value: "semi_transparent", label: "Semi-Transparent" },
+  { value: "semi_solid", label: "Semi-Solid" },
+  { value: "solid", label: "Solid" },
+];
+
+export function stainFinishLabel(value: string): string {
+  return STAIN_FINISH_TYPES.find((f) => f.value === value)?.label || value || "—";
+}
+
+export interface StainInventoryItem {
+  id: string;
+  brand: string;
+  finish_type: string;
+  color_name: string;
+  container_count: number;
+  gallons_per_container: number;
+  total_gallons: number;
+  notes: string;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StainInventoryBody {
+  brand: string;
+  finish_type: string;
+  color_name: string;
+  container_count: number;
+  gallons_per_container: number;
+  notes: string;
   active: boolean;
 }
 

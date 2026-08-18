@@ -47,6 +47,7 @@ VIEW_PERMS: list[tuple[str, str]] = [
     ("calls", "Call Coach"),
     ("training", "Training"),
     ("payroll", "Payroll / Crew"),
+    ("stain_inventory", "Stain Inventory"),
     ("accounting", "Accounting"),
     ("calendar", "Job Calendar"),
     ("my_schedule", "My Schedule"),
@@ -78,6 +79,7 @@ ROLE_BASELINE: dict[str, set[str]] = {
     "va": {
         "dashboard", "leads", "painting_upsell", "analytics", "calls",
         "training", "calendar", "invoice_queue", "pricing", "settings",
+        "stain_inventory",
         "see_prices", "assign_crew", "mark_paid", "delete_jobs",
     },
     "worker": {"calendar", "my_schedule"},

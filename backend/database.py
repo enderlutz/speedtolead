@@ -2485,6 +2485,45 @@ class OverheadEntry(Base):
         }
 
 
+class StainInventoryItem(Base):
+    """Stain stock on hand — one row per brand + finish + colour we carry.
+
+    Quantity is stored as containers × gallons-per-container rather than a
+    single number so the shop count ("four 5-gallon buckets") and the gallon
+    figure the rest of the app speaks in (gallons_estimate, stain_gallons_used,
+    color_gallons on ScheduledJob) both come out of the same row. The gallon
+    total is derived in to_dict, never stored, so the two can't drift."""
+    __tablename__ = "stain_inventory"
+
+    id = Column(Text, primary_key=True)
+    brand = Column(Text, default="")               # "Behr", "Sherwin-Williams"…
+    finish_type = Column(Text, default="")         # transparent | semi_transparent | semi_solid | solid
+    color_name = Column(Text, default="")          # "Cedar Natural", "Dark Walnut"…
+    container_count = Column(Float, default=0)
+    gallons_per_container = Column(Float, default=0)
+    notes = Column(Text, default="")
+    active = Column(Boolean, default=True)         # toggle off without losing the row
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        containers = float(self.container_count or 0)
+        per = float(self.gallons_per_container or 0)
+        return {
+            "id": self.id,
+            "brand": self.brand or "",
+            "finish_type": self.finish_type or "",
+            "color_name": self.color_name or "",
+            "container_count": containers,
+            "gallons_per_container": per,
+            "total_gallons": round(containers * per, 2),
+            "notes": self.notes or "",
+            "active": bool(self.active),
+            "created_at": self.created_at or "",
+            "updated_at": self.updated_at or "",
+        }
+
+
 class SystemConfig(Base):
     """Singleton-style key/value config for things the admin tweaks at
     runtime but don't fit a settings UI of their own (master toggles,
