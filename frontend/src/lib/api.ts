@@ -1954,13 +1954,13 @@ export const api = {
   deleteOverhead: (id: string) =>
     request<{ status: string }>(`/api/accounting/overhead/${id}`, { method: "DELETE" }),
 
-  // Stain Inventory — stains, their containers, and the movement history
+  // Stain Inventory — one row per stain, one number on it
   listStainInventory: (params?: { q?: string; finish_type?: string }) => {
     const qs = new URLSearchParams();
     if (params?.q) qs.set("q", params.q);
     if (params?.finish_type) qs.set("finish_type", params.finish_type);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return request<{ items: StainInventoryItem[]; total_gallons: number; total_containers: number }>(
+    return request<{ items: StainInventoryItem[]; total_gallons: number }>(
       `/api/stain-inventory${suffix}`,
     );
   },
@@ -1970,17 +1970,6 @@ export const api = {
     request<StainInventoryItem>(`/api/stain-inventory/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteStain: (id: string) =>
     request<{ status: string }>(`/api/stain-inventory/${id}`, { method: "DELETE" }),
-
-  addStainContainers: (stainId: string, body: StainContainerBody) =>
-    request<StainInventoryItem>(`/api/stain-inventory/${stainId}/containers`, {
-      method: "POST", body: JSON.stringify(body),
-    }),
-  updateStainContainer: (containerId: string, body: StainContainerUpdateBody) =>
-    request<StainInventoryItem>(`/api/stain-containers/${containerId}`, {
-      method: "PUT", body: JSON.stringify(body),
-    }),
-  deleteStainContainer: (containerId: string) =>
-    request<StainInventoryItem>(`/api/stain-containers/${containerId}`, { method: "DELETE" }),
 
   listStainMovements: (params?: { stain_id?: string; limit?: number }) => {
     const qs = new URLSearchParams();
@@ -4247,46 +4236,30 @@ export interface OverheadBody {
 
 // --- Stain Inventory ---
 /** Finish types the backend accepts (api/stain_inventory.py FINISH_TYPES),
- * paired with the label shown in the UI. */
+ * in the same order — most opaque first, oil-based last. That order drives
+ * both the dropdown and the order the sections render in. */
 export const STAIN_FINISH_TYPES: { value: string; label: string }[] = [
-  { value: "transparent", label: "Transparent" },
-  { value: "semi_transparent", label: "Semi-Transparent" },
-  { value: "semi_solid", label: "Semi-Solid" },
   { value: "solid", label: "Solid" },
+  { value: "semi_solid", label: "Semi-Solid" },
+  { value: "semi_transparent", label: "Semi-Transparent" },
+  { value: "transparent", label: "Transparent" },
+  { value: "clear", label: "Clear" },
+  { value: "oil_based", label: "Oil-Based" },
 ];
 
 export function stainFinishLabel(value: string): string {
   return STAIN_FINISH_TYPES.find((f) => f.value === value)?.label || value || "—";
 }
 
-/** Container sizes we stock. The UI offers these two; the API accepts any
- * positive size. */
-export const STAIN_CONTAINER_SIZES = [5, 1];
-
-/** One physical container in the storage unit. `gallons_remaining` is the
- * single number for both ways of counting — a half-full 1-gallon can IS
- * 0.5 gallons. */
-export interface StainContainer {
-  id: string;
-  stain_id: string;
-  size_gallons: number;
-  gallons_remaining: number;
-  percent_full: number;
-  label: string;
-  created_at: string;
-  updated_at: string;
-}
-
+/** One stain on the shelf and how many gallons of it we have. */
 export interface StainInventoryItem {
   id: string;
   brand: string;
   finish_type: string;
   color_name: string;
+  gallons: number;
   notes: string;
   active: boolean;
-  containers: StainContainer[];
-  container_count: number;
-  total_gallons: number;
   created_at: string;
   updated_at: string;
 }
@@ -4295,22 +4268,10 @@ export interface StainBody {
   brand: string;
   finish_type: string;
   color_name: string;
-  notes: string;
-  active: boolean;
-}
-
-export interface StainContainerBody {
-  size_gallons: number;
-  gallons_remaining: number;
-  label?: string;
-  count?: number;
-  note?: string;
-}
-
-export interface StainContainerUpdateBody {
-  gallons_remaining: number;
-  size_gallons?: number;
-  label?: string;
+  gallons: number;
+  notes?: string;
+  active?: boolean;
+  /** Optional reason for the change — shows up in the history. */
   note?: string;
 }
 
@@ -4319,8 +4280,8 @@ export interface StainMovement {
   id: string;
   stain_id: string;
   stain_label: string;
-  container_id: string;
-  action: string;              // added | adjusted | removed
+  action: string;              // added | updated | removed
+  previous_gallons: number;
   delta_gallons: number;       // signed
   resulting_gallons: number;
   actor: string;
