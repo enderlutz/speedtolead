@@ -81,6 +81,8 @@ export default function StainInventory() {
   const [finishFilter, setFinishFilter] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // Which section (brand|||finish) has its inline "add stain" line open.
+  const [addingTo, setAddingTo] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -123,7 +125,7 @@ export default function StainInventory() {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <CardTitle className="text-sm">On hand</CardTitle>
             <Button size="sm" variant={showAdd ? "outline" : "default"} onClick={() => setShowAdd(!showAdd)}>
-              <Plus className="h-3.5 w-3.5 mr-1" /> {showAdd ? "Cancel" : "Add stain"}
+              <Plus className="h-3.5 w-3.5 mr-1" /> {showAdd ? "Cancel" : "New brand or finish"}
             </Button>
           </div>
           <div className="flex items-center gap-2 flex-wrap pt-1">
@@ -163,7 +165,7 @@ export default function StainInventory() {
             <p className="text-sm text-muted-foreground">
               {filtered
                 ? "No stains match that search."
-                : "Nothing logged yet. Hit “Add stain” to start the count."}
+                : "Nothing logged yet. Hit “New brand or finish” to start the count."}
             </p>
           )}
 
@@ -184,6 +186,22 @@ export default function StainInventory() {
                   onChanged={load}
                 />
               ))}
+              {addingTo === g.key ? (
+                <AddToSection
+                  brand={g.brand}
+                  finish={g.finish}
+                  onCancel={() => setAddingTo(null)}
+                  onSaved={load}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="flex items-center gap-1 pt-1 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setAddingTo(g.key)}
+                >
+                  <Plus className="h-3 w-3" /> Add stain
+                </button>
+              )}
             </div>
           ))}
 
@@ -295,6 +313,96 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
       >
         <Trash2 className="h-3.5 w-3.5" />
       </Button>
+    </div>
+  );
+}
+
+/** Add a stain to a section that already exists. Brand and finish come from
+ * the section heading — "Valspar — Solid" already says both — so all that's
+ * left to type is the name and the gallons. Stays open after saving, since a
+ * shelf gets entered a few colours at a time. */
+function AddToSection({
+  brand,
+  finish,
+  onCancel,
+  onSaved,
+}: {
+  brand: string;
+  finish: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [gallonsText, setGallonsText] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const parsed = Number(gallonsText);
+  const gallonsOk = gallonsText.trim() === "" || (Number.isFinite(parsed) && parsed >= 0);
+  const canSave = Boolean(name.trim()) && gallonsOk && !saving;
+
+  const submit = () => {
+    if (!canSave) return;
+    setSaving(true);
+    const added = name.trim();
+    api
+      .createStain({
+        brand,
+        finish_type: finish,
+        color_name: added,
+        gallons: gallonsText.trim() === "" ? 0 : parsed,
+      })
+      .then(() => {
+        toast.success(`${added} added to ${brand} — ${stainFinishLabel(finish)}`);
+        setName("");
+        setGallonsText("");
+        onSaved();
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't add it"))
+      .finally(() => setSaving(false));
+  };
+
+  // Esc backs out without leaving a half-typed row behind.
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") submit();
+    if (e.key === "Escape") onCancel();
+  };
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <Input
+        autoFocus
+        className="h-8 flex-1"
+        placeholder={`New ${stainFinishLabel(finish).toLowerCase()} stain name\u2026`}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={onKey}
+      />
+      <Input
+        type="number"
+        step="0.01"
+        min="0"
+        inputMode="decimal"
+        className="h-8 w-24 text-right tabular-nums"
+        placeholder="0"
+        value={gallonsText}
+        onChange={(e) => setGallonsText(e.target.value)}
+        onKeyDown={onKey}
+      />
+      <span className="w-7 text-xs text-muted-foreground">gal</span>
+      <Button size="sm" className="h-8" disabled={!canSave} onClick={submit}>
+        {saving ? "Saving\u2026" : "Save"}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 w-8 p-0 text-muted-foreground"
+        title="Done adding"
+        onClick={onCancel}
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
+      {/* Keeps the Save button in line with the rows above, which have two icons. */}
+      <span className="w-8" />
     </div>
   );
 }
