@@ -196,10 +196,13 @@ export default function StainInventory() {
               ) : (
                 <button
                   type="button"
-                  className="flex items-center gap-1 pt-1 text-xs text-muted-foreground hover:text-foreground"
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded-md
+                    border border-blue-500/60 bg-blue-500/10 py-1.5 text-xs font-medium
+                    text-blue-600 transition-colors hover:border-blue-500 hover:bg-blue-500/20
+                    dark:text-blue-400"
                   onClick={() => setAddingTo(g.key)}
                 >
-                  <Plus className="h-3 w-3" /> Add stain
+                  <Plus className="h-3.5 w-3.5" /> Add stain
                 </button>
               )}
             </div>
