@@ -275,7 +275,7 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
 
       <Input
         type="number"
-        step="0.01"
+        step="0.5"
         min="0"
         inputMode="decimal"
         className="h-8 w-24 text-right tabular-nums"
@@ -379,7 +379,7 @@ function AddToSection({
       />
       <Input
         type="number"
-        step="0.01"
+        step="0.5"
         min="0"
         inputMode="decimal"
         className="h-8 w-24 text-right tabular-nums"
@@ -486,7 +486,7 @@ function StainForm({
         />
         <Input
           type="number"
-          step="0.01"
+          step="0.5"
           min="0"
           inputMode="decimal"
           className="h-9 w-24 text-right tabular-nums"
