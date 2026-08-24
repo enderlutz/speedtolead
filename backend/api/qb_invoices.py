@@ -137,6 +137,27 @@ def _upsert(db, parsed: dict, now: str) -> tuple[bool, bool]:
     row.synced_at = now
     row.updated_at = now
 
+    # If this real QBO transaction duplicates a hand-seeded payment link (same
+    # day, same amount), drop the seeded one — QuickBooks is the source of
+    # truth and May must not count it twice. Pairs with the matching guard in
+    # backfill_may_2026_payment_links(), so neither ordering double-counts.
+    if not str(parsed["qb_invoice_id"]).startswith(_MANUAL_PREFIX):
+        dupes = (
+            db.query(QuickbooksInvoice)
+            .filter(
+                QuickbooksInvoice.qb_invoice_id.like(f"{_MANUAL_PREFIX}%"),
+                QuickbooksInvoice.txn_date == parsed["txn_date"],
+                QuickbooksInvoice.total_amount == parsed["total_amount"],
+            )
+            .all()
+        )
+        for d in dupes:
+            logger.info(
+                f"Dropping seeded payment link {d.qb_invoice_id} — QuickBooks now "
+                f"reports it as {parsed['txn_type']} {parsed['qb_invoice_id']}"
+            )
+            db.delete(d)
+
     # Auto-link only our own invoices (exact Lead ID in the private note), and
     # only when still unassigned — never override a manual assignment.
     auto_linked = False
@@ -177,6 +198,92 @@ def upsert_invoice_id(db, invoice_id: str, commit: bool = False) -> None:
             upsert_invoice_from_qbo(db, inv, commit=commit)
     except Exception:
         logger.exception(f"upsert_invoice_id({invoice_id}) failed (non-fatal)")
+
+
+# ─── One-time historical backfill: May 2026 payment links ────────────────
+#
+# Before Alan started invoicing, he collected through QuickBooks payment links.
+# Thirteen of them, all in May 2026, transcribed from the QuickBooks deposits
+# screen. They belong in revenue but may not be reachable through the API as
+# either an Invoice or a SalesReceipt, so they're seeded here.
+#
+# Safe to run against a company where the sync DOES find them: each row is only
+# inserted when no QBO row already matches its date and amount, and _upsert()
+# deletes a seeded row the moment a real one with the same date+amount arrives.
+# Between those two guards, May can't be counted twice in either order.
+_MAY_2026_PAYMENT_LINKS = [
+    ("2026-05-26", "John Dove", 495.00, "sprinkler repairs @14923 Stablewood Downs Ln"),
+    ("2026-05-26", "Scott Fisketjon", 1475.00, "Fence Staining Signature Finish @2906 Dunlin Terrace Dr"),
+    ("2026-05-25", "Jonathan Stevens", 1886.50, "Fence Staining Signature Finish & Fence post fix @21011 Preakness Stakes Trl"),
+    ("2026-05-22", "Fred Floyd", 1400.00, "Fence Staining Signature Finish @6406 Saint Jude Dr"),
+    ("2026-05-19", "Joshi", 2196.75, "Fence Staining Legacy Finish @2110 Bennet Ct."),
+    ("2026-05-16", "Sylvia Reyes", 1593.00, "Fence Staining Signature Finish @238 E Castle Harbour Dr"),
+    ("2026-05-15", "Monica Young", 455.00, "sprinkler repairs, adjusting 10 sprinklers and fixing 2 broken heads"),
+    ("2026-05-14", "Monica Young", 3634.50, "Fence Staining Legacy Finish, Metal Gate Painting, House Wash, Driveway Cleaning @8618 Graceful Oak Crossing"),
+    ("2026-05-13", "Rich Castellano", 1097.43, "Fence Staining @2214 Rolling Meadows Dr Kingwood, signature package, replacing rot board"),
+    ("2026-05-11", "Oscar Gutierrez", 300.00, "cleaning of fence @12306 Broken Bough Dr"),
+    ("2026-05-11", "Dale Pawlak", 500.00, "Fence cleaning @15222 Blue Thistle Drive"),
+    ("2026-05-08", "Jon Armour", 805.00, "Fence Staining 160ft of fence - Signature Finish"),
+    ("2026-05-07", "Mehrdad", 1487.50, "Fence Staining inside of fence - Signature Finish"),
+]
+
+_MANUAL_PREFIX = "paymentlink:"
+
+
+def _qbo_row_matching(db, txn_date: str, amount: float):
+    """A real (QBO-sourced) row for the same day and amount, if there is one."""
+    return (
+        db.query(QuickbooksInvoice)
+        .filter(
+            QuickbooksInvoice.txn_date == txn_date,
+            QuickbooksInvoice.total_amount == amount,
+            ~QuickbooksInvoice.qb_invoice_id.like(f"{_MANUAL_PREFIX}%"),
+        )
+        .first()
+    )
+
+
+def backfill_may_2026_payment_links() -> None:
+    """Seed the thirteen May 2026 payment links, skipping any the QuickBooks
+    sync already covers. Idempotent — safe on every boot."""
+    db = get_db()
+    try:
+        added = skipped = 0
+        now = _now()
+        for txn_date, name, amount, note in _MAY_2026_PAYMENT_LINKS:
+            key = f"{_MANUAL_PREFIX}{txn_date}:{name.lower().replace(' ', '-')}:{amount:.2f}"
+            if db.query(QuickbooksInvoice).filter(QuickbooksInvoice.qb_invoice_id == key).first():
+                continue                      # already seeded
+            if _qbo_row_matching(db, txn_date, amount):
+                skipped += 1                  # QuickBooks has it; don't duplicate
+                continue
+            db.add(QuickbooksInvoice(
+                id=str(uuid.uuid4()),
+                qb_invoice_id=key,
+                doc_number="",
+                customer_name=name,
+                total_amount=amount,
+                balance=0.0,
+                amount_paid=amount,
+                status="paid",
+                txn_type="payment_link",
+                txn_date=txn_date,
+                private_note=note,
+                created_at=now,
+                updated_at=now,
+                synced_at=now,
+            ))
+            added += 1
+        if added or skipped:
+            db.commit()
+            logger.info(
+                f"May 2026 payment-link backfill: {added} added, {skipped} already in QuickBooks"
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("May 2026 payment-link backfill failed (non-fatal)")
+    finally:
+        db.close()
 
 
 def _run_sync() -> None:

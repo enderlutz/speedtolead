@@ -972,7 +972,7 @@ export interface QuickbooksInvoice {
   amount_paid: number;
   status: "paid" | "partial" | "unpaid" | "void";
   /** "sales_receipt" = paid via a payment link, no invoice behind it. */
-  txn_type: "invoice" | "sales_receipt";
+  txn_type: "invoice" | "sales_receipt" | "payment_link";
   txn_date: string;
   due_date: string;
   lead_id: string | null;

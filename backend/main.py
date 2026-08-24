@@ -311,6 +311,10 @@ async def _async_db_init():
             await asyncio.to_thread(auth.seed_olga_estimator_access)
             await asyncio.to_thread(auth.seed_geoconda_user)
             await asyncio.to_thread(auth.seed_anna_moran_user)
+            # One-time historical revenue: the May 2026 payment links Alan
+            # collected before he started invoicing. Idempotent, and skips
+            # anything the QuickBooks sync already covers.
+            await asyncio.to_thread(qb_invoices.backfill_may_2026_payment_links)
             # Backfill dashboard-link notes for any A/B leads that entered past
             # the intake stage and never got one. Idempotent — cheap no-op once
             # all leads are covered. Off-thread so it never blocks boot.

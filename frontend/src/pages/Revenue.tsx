@@ -195,7 +195,7 @@ export default function Revenue() {
                 <tr key={inv.qb_invoice_id} className="border-b last:border-0 hover:bg-muted/20">
                   <td className="px-4 py-3 font-medium">
                     {inv.doc_number || inv.qb_invoice_id}
-                    {inv.txn_type === "sales_receipt" && (
+                    {inv.txn_type !== "invoice" && (
                       <span
                         className="ml-1.5 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 align-middle"
                         title="Paid through a payment link — QuickBooks recorded a sales receipt, not an invoice"
