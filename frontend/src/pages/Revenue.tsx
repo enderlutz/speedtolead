@@ -193,7 +193,17 @@ export default function Revenue() {
             <tbody>
               {invoices.map((inv) => (
                 <tr key={inv.qb_invoice_id} className="border-b last:border-0 hover:bg-muted/20">
-                  <td className="px-4 py-3 font-medium">{inv.doc_number || inv.qb_invoice_id}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {inv.doc_number || inv.qb_invoice_id}
+                    {inv.txn_type === "sales_receipt" && (
+                      <span
+                        className="ml-1.5 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 align-middle"
+                        title="Paid through a payment link — QuickBooks recorded a sales receipt, not an invoice"
+                      >
+                        Payment link
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="truncate max-w-[180px]">{inv.customer_name || "—"}</div>
                     {inv.customer_email && <div className="text-xs text-muted-foreground truncate max-w-[180px]">{inv.customer_email}</div>}

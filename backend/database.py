@@ -2391,7 +2391,11 @@ class QuickbooksInvoice(Base):
     )
 
     id = Column(Text, primary_key=True)                    # our uuid
-    qb_invoice_id = Column(Text, unique=True, nullable=False)  # QBO Invoice.Id
+    # QBO Invoice.Id for invoices; "salesreceipt:<Id>" for sales receipts.
+    # QBO numbers each entity type separately, so Invoice 42 and
+    # SalesReceipt 42 both exist — the prefix keeps this unique column
+    # honest. Bare ids stay bare so existing rows need no rewrite.
+    qb_invoice_id = Column(Text, unique=True, nullable=False)
     doc_number = Column(Text, default="")                  # DocNumber (invoice #)
     customer_ref_id = Column(Text, default="")            # QBO CustomerRef.value
     customer_name = Column(Text, default="")              # CustomerRef.name
@@ -2400,6 +2404,11 @@ class QuickbooksInvoice(Base):
     balance = Column(Numeric, default=0)                  # Balance (outstanding)
     amount_paid = Column(Numeric, default=0)             # TotalAmt - Balance
     status = Column(Text, default="unpaid")               # paid | partial | unpaid | void
+    # invoice | sales_receipt. A SalesReceipt is what QBO records when money
+    # arrives with no invoice behind it — a payment link. Same revenue, and it
+    # lives in this table so the Revenue page and the monthly breakdown pick it
+    # up without knowing the difference.
+    txn_type = Column(Text, default="invoice")
     txn_date = Column(Text, default="")                   # TxnDate
     due_date = Column(Text, default="")                   # DueDate
     private_note = Column(Text, default="")               # PrivateNote (carries Lead ID for our invoices)
@@ -2427,6 +2436,7 @@ class QuickbooksInvoice(Base):
             "balance": _num(self.balance),
             "amount_paid": _num(self.amount_paid),
             "status": self.status or "unpaid",
+            "txn_type": self.txn_type or "invoice",
             "txn_date": self.txn_date or "",
             "due_date": self.due_date or "",
             "lead_id": self.lead_id,
@@ -3713,6 +3723,20 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("DROP TABLE stain_containers"))
         logger.info("Migration: dropped stain_containers (gallons now live on stain_inventory)")
+
+    # Sales receipts (payment links) now land in the same mirror as invoices,
+    # so every existing row needs stamping as the invoice it is.
+    if inspector.has_table("quickbooks_invoices"):
+        qb_cols = {c["name"] for c in inspector.get_columns("quickbooks_invoices")}
+        if "txn_type" not in qb_cols:
+            with _engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE quickbooks_invoices ADD COLUMN txn_type TEXT DEFAULT 'invoice'"
+                ))
+                conn.execute(text(
+                    "UPDATE quickbooks_invoices SET txn_type = 'invoice' WHERE txn_type IS NULL"
+                ))
+            logger.info("Migration: added quickbooks_invoices.txn_type")
 
     # Fence photos gained a completion date and a share-the-phone flag after
     # the table shipped, so existing deploys need the columns added.

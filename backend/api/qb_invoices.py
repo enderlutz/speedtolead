@@ -1,10 +1,15 @@
 """
 QuickBooks Invoices → Leads.
 
-Pulls every invoice from the connected QBO company into a local mirror
-(`quickbooks_invoices`) so we can see who paid, how much, and what's
-outstanding, and manually attach each invoice to a lead (by name search, like
-the Google-Calendar lead picker).
+Pulls every invoice AND sales receipt from the connected QBO company into a
+local mirror (`quickbooks_invoices`) so we can see who paid, how much, and
+what's outstanding, and manually attach each one to a lead (by name search,
+like the Google-Calendar lead picker).
+
+Sales receipts matter because a payment link doesn't create an invoice — QBO
+books the money as a SalesReceipt instead. They're real revenue, so they live
+in the same table (flagged by `txn_type`) and flow into the rollups and the
+month-by-month breakdown without anything downstream caring which kind it is.
 
 This is the read/assign surface. It's separate from api/quickbooks.py's
 invoice *creation* + payment webhook, which stay the source of truth for the
@@ -72,9 +77,43 @@ def _parse_invoice(inv: dict) -> dict:
         "balance": balance,
         "amount_paid": round(total - balance, 2),
         "status": _derive_status(total, balance),
+        "txn_type": "invoice",
         "txn_date": str(inv.get("TxnDate") or ""),
         "due_date": str(inv.get("DueDate") or ""),
         "private_note": str(inv.get("PrivateNote") or ""),
+    }
+
+
+def _parse_sales_receipt(sr: dict) -> dict:
+    """A QBO SalesReceipt, flattened into the same shape as an invoice.
+
+    This is what a payment link produces: money in, with no invoice behind it.
+    A sales receipt is paid by definition — it only exists because the customer
+    already paid — so balance is 0 and the whole amount counts as collected.
+
+    The id is namespaced because QBO numbers each entity type from its own
+    sequence: Invoice 42 and SalesReceipt 42 are different documents that would
+    otherwise collide on the unique qb_invoice_id column."""
+    total = _num(sr.get("TotalAmt"))
+    cust = sr.get("CustomerRef") or {}
+    email = ((sr.get("BillEmail") or {}).get("Address")) or ""
+    raw_id = str(sr.get("Id") or "")
+    return {
+        "qb_invoice_id": f"salesreceipt:{raw_id}" if raw_id else "",
+        "doc_number": str(sr.get("DocNumber") or ""),
+        "customer_ref_id": str(cust.get("value") or ""),
+        "customer_name": str(cust.get("name") or ""),
+        "customer_email": email,
+        "total_amount": total,
+        "balance": 0.0,
+        "amount_paid": total,
+        # Not _derive_status: that reads a zero balance on a zero total as a
+        # void invoice. A sales receipt with a total is simply paid.
+        "status": "void" if total <= 0 else "paid",
+        "txn_type": "sales_receipt",
+        "txn_date": str(sr.get("TxnDate") or ""),
+        "due_date": "",
+        "private_note": str(sr.get("PrivateNote") or ""),
     }
 
 
@@ -148,26 +187,34 @@ def _run_sync() -> None:
     }
     db = get_db()
     try:
-        start = 1
-        while True:
-            invoices = qb.query_invoices(start_position=start, max_results=_PAGE_SIZE)
-            if not invoices:
-                break
-            now = _now()
-            for inv in invoices:
-                parsed = _parse_invoice(inv)
-                if not parsed["qb_invoice_id"]:
-                    continue
-                is_new, auto_linked = _upsert(db, parsed, now)
-                _SYNC_STATUS["synced"] += 1
-                if is_new:
-                    _SYNC_STATUS["new"] += 1
-                if auto_linked:
-                    _SYNC_STATUS["auto_linked"] += 1
-            db.commit()
-            if len(invoices) < _PAGE_SIZE:
-                break
-            start += _PAGE_SIZE
+        # Invoices and sales receipts are separate QBO entities with identical
+        # pagination, so one loop over both. Sales receipts are what payment
+        # links produce — without this pass they're invisible to the whole
+        # Revenue page.
+        for fetch_page, parse in (
+            (qb.query_invoices, _parse_invoice),
+            (qb.query_sales_receipts, _parse_sales_receipt),
+        ):
+            start = 1
+            while True:
+                batch = fetch_page(start_position=start, max_results=_PAGE_SIZE)
+                if not batch:
+                    break
+                now = _now()
+                for raw in batch:
+                    parsed = parse(raw)
+                    if not parsed["qb_invoice_id"]:
+                        continue
+                    is_new, auto_linked = _upsert(db, parsed, now)
+                    _SYNC_STATUS["synced"] += 1
+                    if is_new:
+                        _SYNC_STATUS["new"] += 1
+                    if auto_linked:
+                        _SYNC_STATUS["auto_linked"] += 1
+                db.commit()
+                if len(batch) < _PAGE_SIZE:
+                    break
+                start += _PAGE_SIZE
         _SYNC_STATUS["status"] = "completed"
         _SYNC_STATUS["completed_at"] = _now()
         logger.info(f"QB invoice sync done: {_SYNC_STATUS['synced']} synced, "

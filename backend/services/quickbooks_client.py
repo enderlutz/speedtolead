@@ -884,6 +884,25 @@ def query_invoices(start_position: int = 1, max_results: int = 1000,
     return ((res.get("QueryResponse") or {}).get("Invoice")) or []
 
 
+def query_sales_receipts(start_position: int = 1, max_results: int = 1000,
+                         order_by: str = "MetaData.LastUpdatedTime") -> list[dict]:
+    """One page of raw QBO SalesReceipt resources. Same pagination contract as
+    query_invoices.
+
+    A SalesReceipt is what QuickBooks records when money arrives WITHOUT an
+    invoice — which is exactly what a payment link produces. They're revenue
+    like any other, but they're a separate entity, so `SELECT * FROM Invoice`
+    never returns them."""
+    t = ensure_valid_access_token()
+    if not t:
+        raise PermissionError("Not connected to QuickBooks — reconnect required")
+    max_results = max(1, min(int(max_results), 1000))
+    q = (f"SELECT * FROM SalesReceipt ORDERBY {order_by} "
+         f"STARTPOSITION {int(start_position)} MAXRESULTS {max_results}")
+    res = qbo_request("GET", f"/v3/company/{t.realm_id}/query", params={"query": q})
+    return ((res.get("QueryResponse") or {}).get("SalesReceipt")) or []
+
+
 def fetch_payment(payment_id: str) -> dict | None:
     t = ensure_valid_access_token()
     if not t or not payment_id:
