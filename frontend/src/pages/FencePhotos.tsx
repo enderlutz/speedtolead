@@ -528,6 +528,15 @@ function PhotoViewer({
             photo={photo}
             onCancel={() => setEditing(false)}
             onSaved={() => { setEditing(false); onChanged(); }}
+            onDeleted={() => {
+              setEditing(false);
+              // Last one in this colour? Nothing left to look at. Otherwise
+              // stay open on the neighbouring photo so deleting a few in a
+              // row doesn't mean reopening the viewer each time.
+              if (stain.photos.length <= 1) onClose();
+              else onIndex(Math.max(0, index - 1));
+              onChanged();
+            }}
           />
         ) : (
           <div className="flex items-start justify-between gap-3">
@@ -555,16 +564,33 @@ function PhotoViewer({
 /** Note + which customer's fence this is. The customer link is what lets Alan
  * say "this is the Johnson place over on Oak" on a call. */
 function PhotoDetailsForm({
-  photo, onCancel, onSaved,
+  photo, onCancel, onSaved, onDeleted,
 }: {
   photo: FencePhoto;
   onCancel: () => void;
   onSaved: () => void;
+  onDeleted: () => void;
 }) {
   const [note, setNote] = useState(photo.note);
   const [leadId, setLeadId] = useState(photo.lead_id);
   const [leadText, setLeadText] = useState(photo.lead_name);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // The grid tile's trash icon only appears on hover, which never happens on
+  // a phone — so this is the only delete that works where Alan actually is.
+  const remove = async () => {
+    if (!confirm("Delete this photo? This can't be undone.")) return;
+    setDeleting(true);
+    try {
+      await api.deleteFencePhoto(photo.id);
+      toast.success("Photo deleted");
+      onDeleted();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't delete it");
+      setDeleting(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -601,21 +627,36 @@ function PhotoDetailsForm({
         onKeyDown={(e) => { if (e.key === "Enter") save(); }}
       />
       <div className="flex items-center gap-2">
-        <Button size="sm" className="h-8" disabled={saving} onClick={save}>
+        <Button size="sm" className="h-8" disabled={saving || deleting} onClick={save}>
           {saving ? "Saving…" : "Save"}
         </Button>
-        <Button size="sm" variant="ghost" className="h-8 text-white hover:bg-white/10" onClick={onCancel}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-white hover:bg-white/10"
+          disabled={deleting}
+          onClick={onCancel}
+        >
           Cancel
         </Button>
         {leadId && (
           <button
             type="button"
-            className="text-xs text-white/60 hover:text-white ml-auto"
+            className="text-xs text-white/60 hover:text-white"
             onClick={() => { setLeadId(""); setLeadText(""); }}
           >
             Unlink customer
           </button>
         )}
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-8 ml-auto"
+          disabled={saving || deleting}
+          onClick={remove}
+        >
+          <Trash2 className="h-3.5 w-3.5 mr-1" /> {deleting ? "Deleting…" : "Delete"}
+        </Button>
       </div>
     </div>
   );
