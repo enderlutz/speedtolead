@@ -103,13 +103,19 @@ function SearchInput<T>({
         disabled={disabled}
         autoComplete="off"
       />
+      {/* text-slate-900 is not optional: this panel hardcodes a white
+          background, so it must hardcode its foreground too. Left to
+          inheritance, an item's name (which sets no colour of its own) picks up
+          the surrounding text colour — inside a dark overlay like the
+          fence-photo viewer that's white-on-white and unreadable. Same reason
+          the sub-lines below are slate rather than muted-foreground. */}
       {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-80 overflow-y-auto">
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white text-slate-900 border border-slate-200 rounded-md shadow-lg max-h-80 overflow-y-auto">
           {loading && results.length === 0 && (
-            <div className="px-3 py-2 text-sm text-muted-foreground">Searching…</div>
+            <div className="px-3 py-2 text-sm text-slate-500">Searching…</div>
           )}
           {!loading && results.length === 0 && (
-            <div className="px-3 py-2 text-sm text-muted-foreground">
+            <div className="px-3 py-2 text-sm text-slate-500">
               {value.trim() ? "No matches" : "Nothing recent"}
             </div>
           )}
@@ -160,7 +166,7 @@ export function CustomerSearchInput({
       renderItem={(l) => (
         <div>
           <div className="font-medium">{l.contact_name || "(no name)"}</div>
-          <div className="text-xs text-muted-foreground truncate">
+          <div className="text-xs text-slate-500 truncate">
             {[l.address, l.contact_phone].filter(Boolean).join(" — ")}
           </div>
         </div>
@@ -197,7 +203,7 @@ export function EmployeeSearchInput({
       renderItem={(e) => (
         <div>
           <div className="font-medium">{e.full_name || "(no name)"}</div>
-          <div className="text-xs text-muted-foreground truncate">
+          <div className="text-xs text-slate-500 truncate">
             {[e.pay_type, e.phone].filter(Boolean).join(" — ")}
           </div>
         </div>
