@@ -92,6 +92,12 @@ function landingFor(): string {
   if (hasPerm("estimator")) return "/estimator";
   if (hasPerm("my_schedule")) return "/my-schedule";
   if (hasPerm("calendar")) return "/calendar";
+  // Crew accounts that only look after stain stock / colour photos. Without
+  // these two the chain falls through to /settings, which is itself gated on
+  // the `settings` perm — so RequireView would bounce them straight back here
+  // and the app would redirect forever.
+  if (hasPerm("stain_inventory")) return "/stain-inventory";
+  if (hasPerm("fence_photos")) return "/fence-photos";
   return "/settings";
 }
 
