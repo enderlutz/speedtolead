@@ -14,7 +14,7 @@ import { CustomerSearchInput } from "@/components/SearchInput";
 import { toast } from "sonner";
 import {
   Images, Search, Trash2, Loader2, Plus, ChevronRight, ChevronDown,
-  X, ChevronLeft, User as UserIcon, Pencil,
+  X, ChevronLeft, User as UserIcon, Pencil, HardDrive,
 } from "lucide-react";
 
 // Fence Photos — reference shots of finished fences, filed by stain colour.
@@ -118,6 +118,7 @@ export default function FencePhotos() {
             <CardTitle className="text-sm">
               {totalPhotos} photo{totalPhotos === 1 ? "" : "s"}
             </CardTitle>
+            <StorageCheck />
           </div>
           <div className="flex items-center gap-2 flex-wrap pt-1">
             <div className="relative flex-1 min-w-[180px]">
@@ -210,6 +211,42 @@ export default function FencePhotos() {
   );
 }
 
+/** Runs the Supabase Storage diagnostic and reports it in plain language.
+ * Exists because the endpoint needs a bearer token, so it can't just be opened
+ * in a browser tab — and the first thing that goes wrong with this feature is
+ * the bucket not existing yet. */
+function StorageCheck() {
+  const [checking, setChecking] = useState(false);
+
+  const run = async () => {
+    setChecking(true);
+    try {
+      const r = await api.fencePhotoStorageStatus();
+      const status = String(r.status || "unknown");
+      const detail = String(r.hint || r.detail || "");
+      if (status === "ok") {
+        toast.success("Photo storage is working", { description: detail });
+      } else {
+        toast.error(`Photo storage: ${status.replace(/_/g, " ")}`, {
+          description: detail,
+          duration: 20000,
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't run the check");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" disabled={checking} onClick={run}>
+      {checking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <HardDrive className="h-3 w-3 mr-1" />}
+      Check photo storage
+    </Button>
+  );
+}
+
 /** Add a colour to a section straight from this page. Brand and finish come
  * from the section heading, so only the name is typed.
  *
@@ -294,22 +331,30 @@ function StainGallery({
     if (!list.length) return;
     setProgress({ done: 0, total: list.length });
     let failed = 0;
+    let firstError = "";
     // Sequential rather than parallel: these are multi-megabyte phone photos
     // and a burst of them on cell data is worse than a steady queue.
     for (let i = 0; i < list.length; i++) {
       try {
         await api.uploadFencePhoto(stain.id, list[i]);
-      } catch {
+      } catch (e) {
         failed++;
+        // Keep the first real reason. "Photos failed to upload" on its own
+        // is useless — the server's message is what says how to fix it.
+        if (!firstError) firstError = e instanceof Error ? e.message : String(e);
       }
       setProgress({ done: i + 1, total: list.length });
     }
     setProgress(null);
     await onChanged();
     const ok = list.length - failed;
-    if (failed === 0) toast.success(`${ok} photo${ok === 1 ? "" : "s"} added to ${stain.color_name}`);
-    else if (ok === 0) toast.error("Photos failed to upload");
-    else toast.error(`${ok} uploaded · ${failed} failed`);
+    if (failed === 0) {
+      toast.success(`${ok} photo${ok === 1 ? "" : "s"} added to ${stain.color_name}`);
+    } else {
+      const prefix = ok === 0 ? "Upload failed" : `${ok} uploaded · ${failed} failed`;
+      toast.error(prefix, { description: firstError || undefined, duration: 12000 });
+      if (firstError) console.error("Fence photo upload failed:", firstError);
+    }
   };
 
   const remove = async (photo: FencePhoto) => {

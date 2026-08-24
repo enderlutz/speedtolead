@@ -2015,7 +2015,18 @@ export const api = {
       body: fd,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    if (!res.ok) {
+      // Surface FastAPI's `detail` rather than the raw JSON envelope — the
+      // 503 for a missing Storage bucket says exactly what to do, and it's
+      // useless if the UI only ever shows "failed".
+      const body = await res.text().catch(() => "");
+      let detail = body;
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed && typeof parsed.detail === "string") detail = parsed.detail;
+      } catch { /* not JSON — use the raw text */ }
+      throw new Error(detail || `Photo upload failed (${res.status})`);
+    }
     return res.json() as Promise<FencePhoto>;
   },
   updateFencePhoto: (photoId: string, body: { note: string; lead_id: string }) =>
