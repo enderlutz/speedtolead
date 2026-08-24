@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type QuickbooksInvoice, type QbInvoiceRollup, type LeanLead } from "@/lib/api";
+import {
+  api,
+  type QuickbooksInvoice,
+  type QbInvoiceRollup,
+  type QbMonthlyRevenue,
+  type LeanLead,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import { toast } from "sonner";
 import { RefreshCw, Search, X, Link2, DollarSign, Loader2 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
 
 type Filter = "all" | "unassigned" | "paid" | "outstanding";
 const PAGE = 100;
@@ -117,6 +126,8 @@ export default function Revenue() {
           {syncing ? "Syncing…" : "Sync from QuickBooks"}
         </Button>
       </div>
+
+      <MonthlyRevenue />
 
       {/* Rollup tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -231,6 +242,116 @@ export default function Revenue() {
         <AssignInvoiceModal invoice={assignFor} onClose={() => setAssignFor(null)} onAssigned={onAssigned} />
       )}
     </div>
+  );
+}
+
+/** Revenue by month for one calendar year — bar chart + a table with the year
+ * total. Months are keyed on the invoice date (txn_date), which is the only
+ * date quickbooks_invoices carries; there is no paid-at, so this is "invoiced
+ * in August", not "cash that landed in August".
+ *
+ * Fetches independently of the invoice list below — the year picker drives
+ * this section only, and nothing here touches the list's filters or totals. */
+function MonthlyRevenue() {
+  const [data, setData] = useState<QbMonthlyRevenue | null>(null);
+  const [year, setYear] = useState<number | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await api.getQbMonthlyRevenue(year);
+      setData(r);
+      // First load lands with no year chosen — adopt whichever the server
+      // picked so the dropdown shows the right one.
+      setYear((prev) => prev ?? r.year);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't load monthly revenue");
+    } finally {
+      setLoading(false);
+    }
+  }, [year]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const months = data?.months ?? [];
+  const hasAny = months.some((m) => m.count > 0);
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-sm font-semibold">Revenue by month</h2>
+            <p className="text-xs text-muted-foreground">
+              By invoice date. Collected is cash in; outstanding is still owed.
+            </p>
+          </div>
+          <select
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm
+              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            value={year ?? ""}
+            onChange={(e) => setYear(Number(e.target.value))}
+          >
+            {(data?.available_years ?? []).map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+
+        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+
+        {!loading && !hasAny && (
+          <p className="text-sm text-muted-foreground">No invoices dated in {data?.year ?? "this year"}.</p>
+        )}
+
+        {!loading && hasAny && (
+          <>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={months}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => money(v)} width={70} />
+                <Tooltip formatter={(v) => money(Number(v), true)} />
+                <Bar dataKey="collected" fill="#10b981" name="Collected" />
+              </BarChart>
+            </ResponsiveContainer>
+
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="px-1 py-1 font-medium">Month</th>
+                  <th className="px-1 py-1 font-medium text-right">Invoiced</th>
+                  <th className="px-1 py-1 font-medium text-right">Collected</th>
+                  <th className="px-1 py-1 font-medium text-right">Outstanding</th>
+                  <th className="px-1 py-1 font-medium text-right">Invoices</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map((m) => (
+                  <tr key={m.month} className={`border-b last:border-0 ${m.count === 0 ? "text-muted-foreground" : ""}`}>
+                    <td className="px-1 py-1">{m.label}</td>
+                    <td className="px-1 py-1 text-right tabular-nums">{money(m.invoiced)}</td>
+                    <td className="px-1 py-1 text-right tabular-nums text-emerald-600">{money(m.collected)}</td>
+                    <td className="px-1 py-1 text-right tabular-nums text-amber-600">{money(m.outstanding)}</td>
+                    <td className="px-1 py-1 text-right tabular-nums">{m.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 font-semibold">
+                  <td className="px-1 py-1.5">{data?.year} total</td>
+                  <td className="px-1 py-1.5 text-right tabular-nums">{money(data?.totals.invoiced ?? 0)}</td>
+                  <td className="px-1 py-1.5 text-right tabular-nums text-emerald-600">{money(data?.totals.collected ?? 0)}</td>
+                  <td className="px-1 py-1.5 text-right tabular-nums text-amber-600">{money(data?.totals.outstanding ?? 0)}</td>
+                  <td className="px-1 py-1.5 text-right tabular-nums">{data?.totals.count ?? 0}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

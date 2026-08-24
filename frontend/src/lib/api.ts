@@ -985,6 +985,22 @@ export interface QbInvoiceRollup {
   outstanding: number;
   unassigned: number;
 }
+/** One month of the year in the Revenue-by-month breakdown. Keyed on the
+ * invoice date (txn_date) — quickbooks_invoices carries no paid-at date. */
+export interface QbMonthRow {
+  month: number;            // 1-12
+  label: string;            // "Jan"
+  invoiced: number;
+  collected: number;
+  outstanding: number;
+  count: number;
+}
+export interface QbMonthlyRevenue {
+  year: number;
+  available_years: number[];
+  months: QbMonthRow[];     // always 12, Jan → Dec, zero-filled
+  totals: { invoiced: number; collected: number; outstanding: number; count: number };
+}
 export interface QbInvoiceSyncStatus {
   status: "never_run" | "running" | "completed" | "error";
   synced?: number;
@@ -2174,6 +2190,14 @@ export const api = {
     return request<{ invoices: QuickbooksInvoice[]; total: number; rollup: QbInvoiceRollup }>(
       `/api/quickbooks/invoices${qs ? `?${qs}` : ""}`,
     );
+  },
+  /** Revenue broken out by month for one calendar year. Omit `year` for the
+   * most recent year that has invoices. */
+  getQbMonthlyRevenue: (year?: number) => {
+    const sp = new URLSearchParams();
+    if (year != null) sp.set("year", String(year));
+    const qs = sp.toString();
+    return request<QbMonthlyRevenue>(`/api/quickbooks/invoices/monthly${qs ? `?${qs}` : ""}`);
   },
   assignQbInvoice: (qbInvoiceId: string, leadId: string) =>
     request<QuickbooksInvoice>(`/api/quickbooks/invoices/${encodeURIComponent(qbInvoiceId)}/assign`, {
