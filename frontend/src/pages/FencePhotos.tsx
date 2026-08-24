@@ -64,6 +64,8 @@ export default function FencePhotos() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // The full-screen viewer: which colour, and which photo within it.
   const [viewing, setViewing] = useState<{ stainId: string; index: number } | null>(null);
+  // Which section (brand|||finish) has its inline "add stain" line open.
+  const [addingTo, setAddingTo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,6 +173,25 @@ export default function FencePhotos() {
                   onView={(index) => setViewing({ stainId: stain.id, index })}
                 />
               ))}
+              {addingTo === g.key ? (
+                <AddColourToSection
+                  brand={g.brand}
+                  finish={g.finish}
+                  onCancel={() => setAddingTo(null)}
+                  onSaved={load}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="mt-1 flex w-full items-center justify-center gap-1 rounded-md
+                    border border-blue-500/60 bg-blue-500/10 py-1.5 text-xs font-medium
+                    text-blue-600 transition-colors hover:border-blue-500 hover:bg-blue-500/20
+                    dark:text-blue-400"
+                  onClick={() => setAddingTo(g.key)}
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add stain
+                </button>
+              )}
             </div>
           ))}
         </CardContent>
@@ -185,6 +206,72 @@ export default function FencePhotos() {
           onChanged={load}
         />
       )}
+    </div>
+  );
+}
+
+/** Add a colour to a section straight from this page. Brand and finish come
+ * from the section heading, so only the name is typed.
+ *
+ * This writes to the SAME stain_inventory list the Stain Inventory page uses —
+ * that's the whole point of sharing it — so a colour added here shows up there
+ * too, starting at 0 gallons. */
+function AddColourToSection({
+  brand,
+  finish,
+  onCancel,
+  onSaved,
+}: {
+  brand: string;
+  finish: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const canSave = Boolean(name.trim()) && !saving;
+
+  const submit = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    const added = name.trim();
+    try {
+      await api.createStain({ brand, finish_type: finish, color_name: added, gallons: 0 });
+      toast.success(`${added} added to ${brand} — ${stainFinishLabel(finish)}`);
+      setName("");            // stay open for the next colour down the shelf
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't add it");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      <Input
+        autoFocus
+        className="h-8 flex-1"
+        placeholder={`New ${stainFinishLabel(finish).toLowerCase()} colour name…`}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+          if (e.key === "Escape") onCancel();
+        }}
+      />
+      <Button size="sm" className="h-8" disabled={!canSave} onClick={submit}>
+        {saving ? "Saving…" : "Save"}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 w-8 p-0 text-muted-foreground"
+        title="Done adding"
+        onClick={onCancel}
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
     </div>
   );
 }
