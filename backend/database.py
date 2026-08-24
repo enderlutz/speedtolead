@@ -2519,6 +2519,53 @@ class StainInventoryItem(Base):
         }
 
 
+class FencePhoto(Base):
+    """A reference photo of a finished fence, filed under the stain colour it
+    was done in. Shown to customers on sales calls — "this is what Pine Bark
+    looks like" — which is why each one can carry a note and a link to the
+    lead whose fence it is ("this is the Johnson place over on Oak").
+
+    Storage-only, no BLOB column. Serving photos out of Postgres would pull
+    megabytes through the DB per view and burn metered egress; Supabase
+    Storage CDN egress is separate and cached. Two derivatives per photo —
+    `url` (≤1600px, what fills the screen) and `thumb_url` (≤400px, the grid)
+    — so opening a colour on a phone mid-call isn't a 20 MB download."""
+    __tablename__ = "fence_photos"
+    __table_args__ = (Index("idx_fence_photos_stain", "stain_id"),)
+
+    id = Column(Text, primary_key=True)
+    stain_id = Column(Text, nullable=False)        # -> stain_inventory.id
+    url = Column(Text, default="")                 # public CDN URL, full size
+    storage_path = Column(Text, default="")
+    thumb_url = Column(Text, default="")
+    thumb_storage_path = Column(Text, default="")
+    note = Column(Text, default="")                # optional — "2 coats, west-facing"
+    lead_id = Column(Text, nullable=True)          # optional customer this fence belongs to
+    width = Column(Integer, default=0)             # of the full-size derivative
+    height = Column(Integer, default=0)
+    bytes = Column(Integer, default=0)
+    mime = Column(Text, default="image/jpeg")
+    uploaded_by = Column(Text, default="")
+    uploaded_at = Column(Text, default="")
+
+    def to_dict(self, lead_name: str = "") -> dict:
+        return {
+            "id": self.id,
+            "stain_id": self.stain_id or "",
+            "url": self.url or "",
+            "thumb_url": self.thumb_url or self.url or "",
+            "note": self.note or "",
+            "lead_id": self.lead_id or "",
+            "lead_name": lead_name,
+            "width": int(self.width or 0),
+            "height": int(self.height or 0),
+            "bytes": int(self.bytes or 0),
+            "mime": self.mime or "image/jpeg",
+            "uploaded_by": self.uploaded_by or "",
+            "uploaded_at": self.uploaded_at or "",
+        }
+
+
 class StainMovement(Base):
     """Audit row for every change to a stain's gallon count.
 

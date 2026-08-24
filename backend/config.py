@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     # Must exist + be public. Videos are large (tens of MB) — Storage, not DB.
     # See fencescope.md. Raw video purged after 90 days; frames/measurements kept.
     supabase_estimate_video_bucket: str = "estimate-videos"
+    # Bucket for the Fence Photos gallery — reference shots of finished fences,
+    # filed under the stain colour, shown to customers on sales calls. Must
+    # exist + be public. Uploads are resized server-side (~250KB full,
+    # ~30KB thumb) so this stays small.
+    supabase_fence_photos_bucket: str = "fence-photos"
 
     # Server
     port: int = 8000

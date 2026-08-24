@@ -50,6 +50,7 @@ import Revenue from "@/pages/Revenue";
 import DailyTasks from "@/pages/DailyTasks";
 import Accounting from "@/pages/Accounting";
 import StainInventory from "@/pages/StainInventory";
+import FencePhotos from "@/pages/FencePhotos";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
 import Eula from "@/pages/Eula";
@@ -192,6 +193,7 @@ function AppLayout() {
               <Route path="/crew" element={<RequireView view="payroll"><Crew /></RequireView>} />
               <Route path="/crew/:id" element={<RequireView view="payroll"><CrewEmployee /></RequireView>} />
               <Route path="/stain-inventory" element={<RequireView view="stain_inventory"><StainInventory /></RequireView>} />
+          <Route path="/fence-photos" element={<RequireView view="fence_photos"><FencePhotos /></RequireView>} />
               <Route path="/accounting" element={<RequireView view="accounting"><Accounting /></RequireView>} />
               <Route path="/calendar" element={<RequireView view="calendar"><CalendarPage /></RequireView>} />
               <Route path="/my-schedule" element={<RequireView view="my_schedule"><MySchedule /></RequireView>} />

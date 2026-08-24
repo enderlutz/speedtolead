@@ -24,8 +24,10 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from database import get_db, StainInventoryItem, StainMovement
+from database import get_db, StainInventoryItem, StainMovement, FencePhoto
 from api.permissions import require_perm
+from config import get_settings
+import services.supabase_storage as storage
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -217,6 +219,25 @@ def delete_stain(stain_id: str, user: dict = Depends(require_perm("stain_invento
             raise HTTPException(status_code=404, detail="Stain not found")
         had = round(float(stain.gallons or 0), 2)
         label = " · ".join(x for x in (stain.brand, stain.color_name) if x)
+
+        # Fence Photos hang off this stain. Take them with it — rows and the
+        # Storage objects behind them — or they orphan with nothing pointing
+        # at them. Deleted inline rather than by importing api.fence_photos,
+        # which imports this module (circular).
+        photos = db.query(FencePhoto).filter(FencePhoto.stain_id == stain_id).all()
+        if photos:
+            bucket = get_settings().supabase_fence_photos_bucket or "fence-photos"
+            for p in photos:
+                for path in (p.storage_path, p.thumb_storage_path):
+                    if not path:
+                        continue
+                    try:
+                        storage.delete_object(bucket, path)
+                    except Exception as e:
+                        logger.warning(f"Fence photo storage delete failed for {path}: {e}")
+                db.delete(p)
+            logger.info(f"Deleted {len(photos)} fence photo(s) with stain {label}")
+
         db.delete(stain)
         _log(
             db, stain_id=stain_id, action="removed", before=had, after=0.0,

@@ -128,13 +128,13 @@ export function isAuthenticated(): boolean {
 const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
   admin: [
     "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
-    "payroll", "stain_inventory", "accounting", "calendar", "my_schedule", "invoice_queue",
+    "payroll", "stain_inventory", "fence_photos", "accounting", "calendar", "my_schedule", "invoice_queue",
     "pricing", "settings", "agents",
     "manage_users", "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   va: [
     "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
-    "calendar", "invoice_queue", "pricing", "settings", "stain_inventory",
+    "calendar", "invoice_queue", "pricing", "settings", "stain_inventory", "fence_photos",
     "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   worker: ["calendar", "my_schedule"],
@@ -1986,6 +1986,44 @@ export const api = {
     request<StainInventoryItem>(`/api/stain-inventory/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteStain: (id: string) =>
     request<{ status: string }>(`/api/stain-inventory/${id}`, { method: "DELETE" }),
+
+  // Fence Photos — galleries hanging off the stain colours above
+  listFencePhotos: (params?: { q?: string; finish_type?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set("q", params.q);
+    if (params?.finish_type) sp.set("finish_type", params.finish_type);
+    const qs = sp.toString();
+    return request<{ items: FencePhotoStain[]; total_photos: number; finish_types: string[] }>(
+      `/api/fence-photos${qs ? `?${qs}` : ""}`,
+    );
+  },
+  /** Multipart upload — deliberately NOT via request(), which forces
+   * Content-Type: application/json and would strip the boundary. Same shape
+   * as uploadJobPhoto. One photo per call; the caller loops for multi-select. */
+  uploadFencePhoto: async (
+    stainId: string,
+    file: File,
+    opts?: { note?: string; leadId?: string },
+  ): Promise<FencePhoto> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (opts?.note) fd.append("note", opts.note);
+    if (opts?.leadId) fd.append("lead_id", opts.leadId);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/fence-photos/${stainId}`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    return res.json() as Promise<FencePhoto>;
+  },
+  updateFencePhoto: (photoId: string, body: { note: string; lead_id: string }) =>
+    request<FencePhoto>(`/api/fence-photos/${photoId}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteFencePhoto: (photoId: string) =>
+    request<{ status: string }>(`/api/fence-photos/${photoId}`, { method: "DELETE" }),
+  fencePhotoStorageStatus: () =>
+    request<Record<string, unknown>>("/api/fence-photos/storage-status"),
 
   listStainMovements: (params?: { stain_id?: string; limit?: number }) => {
     const qs = new URLSearchParams();
@@ -4311,6 +4349,38 @@ export interface StainMovement {
   actor: string;
   note: string;
   created_at: string;
+}
+
+// --- Fence Photos ---
+/** One reference photo of a finished fence, filed under a stain colour.
+ * `url` is the full-size derivative (what fills the screen); `thumb_url` is
+ * the grid tile. Both are public Supabase CDN URLs, so a plain <img src>
+ * works — no auth blob fetch needed. */
+export interface FencePhoto {
+  id: string;
+  stain_id: string;
+  url: string;
+  thumb_url: string;
+  note: string;
+  lead_id: string;
+  lead_name: string;
+  width: number;
+  height: number;
+  bytes: number;
+  mime: string;
+  uploaded_by: string;
+  uploaded_at: string;
+}
+
+/** A stain colour with its gallery. Colours with no photos are included. */
+export interface FencePhotoStain {
+  id: string;
+  brand: string;
+  finish_type: string;
+  color_name: string;
+  photo_count: number;
+  cover: string;
+  photos: FencePhoto[];
 }
 
 // --- Call Script ---

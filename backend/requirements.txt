@@ -12,3 +12,6 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.2.0
 anthropic>=0.40.0
 Pillow>=10.0.0
+# Lets Pillow open iPhone HEIC photos in the Fence Photos uploader. Optional —
+# api/fence_photos.py guards the import and returns a clear message if absent.
+pillow-heif>=0.16.0
