@@ -21,6 +21,7 @@ thumb ≤400px) so a colour with twenty photos opens fast on a phone.
 """
 from __future__ import annotations
 import io
+import re
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -122,16 +123,71 @@ def _load_image(raw: bytes, content_type: str) -> Image.Image:
         raise HTTPException(status_code=400, detail="That file isn't a readable image")
 
 
-def _lead_names(db: Session, ids: set[str]) -> dict[str, str]:
+# Fallback only, and coarse on purpose — a 3-digit ZIP prefix can't tell Katy
+# from Cypress. The city out of the address is used first whenever there is
+# one. Mirrors services/training_persona_seeder.py's bands.
+_ZIP_BANDS = {
+    "770": "Houston",
+    "771": "Houston / Pasadena",
+    "772": "Pearland / Galveston",
+    "773": "Kingwood / Humble",
+    "774": "Spring / The Woodlands",
+    "775": "Cypress / Katy",
+    "776": "Sugar Land / Stafford",
+    "777": "Baytown",
+    "778": "Conroe / Magnolia",
+    "779": "Bryan / College Station",
+}
+
+_STATE_ZIP_RE = re.compile(r"^[A-Za-z]{2}\.?\s*\d{5}(-\d{4})?$")
+_ZIP_IN_TEXT_RE = re.compile(r"\b(\d{5})(?:-\d{4})?\b")
+
+
+def _area_for(address: str, zip_code: str) -> str:
+    """The rough part of town a job is in — "Katy", "Spring".
+
+    Prefers the city out of the address, which is exact and needs no list
+    maintained anywhere. Falls back to the ZIP band only when the address
+    isn't in a parseable "street, city, ST zip" shape."""
+    parts = [p.strip() for p in (address or "").split(",") if p.strip()]
+    if len(parts) >= 3:
+        city = parts[-2]
+        # Guard against a trailing "TX 77494" being mistaken for the city.
+        if city and not _STATE_ZIP_RE.match(city) and not city.isdigit():
+            return city
+
+    z = (zip_code or "").strip()
+    if not z:
+        found = _ZIP_IN_TEXT_RE.findall(address or "")
+        z = found[-1] if found else ""
+    return _ZIP_BANDS.get(z[:3], "")
+
+
+def _lead_info(db: Session, ids: set[str]) -> dict[str, dict]:
+    """Live name / address / phone / area for the linked customers."""
     if not ids:
         return {}
-    rows = db.query(Lead.id, Lead.contact_name).filter(Lead.id.in_(ids)).all()
-    return {lid: (name or "") for lid, name in rows}
+    rows = (
+        db.query(Lead.id, Lead.contact_name, Lead.address, Lead.contact_phone, Lead.zip_code)
+        .filter(Lead.id.in_(ids))
+        .all()
+    )
+    return {
+        lid: {
+            "name": name or "",
+            "address": address or "",
+            "phone": phone or "",
+            "area": _area_for(address or "", zip_code or ""),
+        }
+        for lid, name, address, phone, zip_code in rows
+    }
 
 
 class PhotoUpdate(BaseModel):
     note: str = ""
     lead_id: str = ""
+    completed_on: str = ""      # YYYY-MM-DD, blank = unknown
+    share_phone: bool = False
 
 
 @router.get("/fence-photos")
@@ -175,7 +231,7 @@ def list_fence_photos(
             for p in photos:
                 by_stain.setdefault(p.stain_id, []).append(p)
 
-        names = _lead_names(db, {p.lead_id for p in photos if p.lead_id})
+        leads = _lead_info(db, {p.lead_id for p in photos if p.lead_id})
 
         items = []
         for s in stains:
@@ -187,7 +243,7 @@ def list_fence_photos(
                 "color_name": s.color_name or "",
                 "photo_count": len(rows),
                 "cover": rows[0].thumb_url or rows[0].url if rows else "",
-                "photos": [p.to_dict(names.get(p.lead_id or "", "")) for p in rows],
+                "photos": [p.to_dict(leads.get(p.lead_id or "")) for p in rows],
             })
         return {
             "items": items,
@@ -266,8 +322,8 @@ async def upload_fence_photo(
         db.add(photo)
         db.commit()
 
-        names = _lead_names(db, {photo.lead_id} if photo.lead_id else set())
-        return photo.to_dict(names.get(photo.lead_id or "", ""))
+        leads = _lead_info(db, {photo.lead_id} if photo.lead_id else set())
+        return photo.to_dict(leads.get(photo.lead_id or ""))
     except HTTPException:
         db.rollback()
         raise
@@ -294,9 +350,13 @@ def update_fence_photo(
             raise HTTPException(status_code=404, detail="Photo not found")
         photo.note = (body.note or "").strip()
         photo.lead_id = (body.lead_id or "").strip() or None
+        photo.completed_on = (body.completed_on or "").strip()
+        # Unlinking the customer drops the share permission with them — it was
+        # that person's consent, not a property of the photo.
+        photo.share_phone = bool(body.share_phone) if photo.lead_id else False
         db.commit()
-        names = _lead_names(db, {photo.lead_id} if photo.lead_id else set())
-        return photo.to_dict(names.get(photo.lead_id or "", ""))
+        leads = _lead_info(db, {photo.lead_id} if photo.lead_id else set())
+        return photo.to_dict(leads.get(photo.lead_id or ""))
     except HTTPException:
         raise
     except Exception as e:

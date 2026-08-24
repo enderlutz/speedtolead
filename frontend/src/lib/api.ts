@@ -2029,7 +2029,10 @@ export const api = {
     }
     return res.json() as Promise<FencePhoto>;
   },
-  updateFencePhoto: (photoId: string, body: { note: string; lead_id: string }) =>
+  updateFencePhoto: (
+    photoId: string,
+    body: { note: string; lead_id: string; completed_on: string; share_phone: boolean },
+  ) =>
     request<FencePhoto>(`/api/fence-photos/${photoId}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteFencePhoto: (photoId: string) =>
     request<{ status: string }>(`/api/fence-photos/${photoId}`, { method: "DELETE" }),
@@ -4374,7 +4377,14 @@ export interface FencePhoto {
   thumb_url: string;
   note: string;
   lead_id: string;
+  /** Live from the linked lead — never stored on the photo, so fixing a
+   *  customer's address updates every photo of their fence. */
   lead_name: string;
+  lead_address: string;
+  lead_phone: string;
+  area: string;              // "Katy", "Spring" — derived from the address
+  completed_on: string;      // YYYY-MM-DD, blank = unknown
+  share_phone: boolean;      // may we give this number to a prospect?
   width: number;
   height: number;
   bytes: number;

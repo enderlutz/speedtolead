@@ -2541,6 +2541,13 @@ class FencePhoto(Base):
     thumb_storage_path = Column(Text, default="")
     note = Column(Text, default="")                # optional — "2 coats, west-facing"
     lead_id = Column(Text, nullable=True)          # optional customer this fence belongs to
+    # When the job was actually done (YYYY-MM-DD). Entered by hand — the photo
+    # might be uploaded long after. Drives "we did this three months ago",
+    # which decides whether it's worth sending a customer to go look at it.
+    completed_on = Column(Text, default="")
+    # Whether this customer is OK with us giving their number to a prospect.
+    # Defaults to False — never share until someone actively says yes.
+    share_phone = Column(Boolean, default=False)
     width = Column(Integer, default=0)             # of the full-size derivative
     height = Column(Integer, default=0)
     bytes = Column(Integer, default=0)
@@ -2548,7 +2555,11 @@ class FencePhoto(Base):
     uploaded_by = Column(Text, default="")
     uploaded_at = Column(Text, default="")
 
-    def to_dict(self, lead_name: str = "") -> dict:
+    def to_dict(self, lead: dict | None = None) -> dict:
+        """`lead` carries the linked customer's live name/address/phone/area.
+        Deliberately NOT stored on the row — if a customer's address is fixed
+        on the lead, every photo should follow, not keep a stale copy."""
+        info = lead or {}
         return {
             "id": self.id,
             "stain_id": self.stain_id or "",
@@ -2556,7 +2567,12 @@ class FencePhoto(Base):
             "thumb_url": self.thumb_url or self.url or "",
             "note": self.note or "",
             "lead_id": self.lead_id or "",
-            "lead_name": lead_name,
+            "lead_name": info.get("name", ""),
+            "lead_address": info.get("address", ""),
+            "lead_phone": info.get("phone", ""),
+            "area": info.get("area", ""),
+            "completed_on": self.completed_on or "",
+            "share_phone": bool(self.share_phone),
             "width": int(self.width or 0),
             "height": int(self.height or 0),
             "bytes": int(self.bytes or 0),
@@ -3697,6 +3713,22 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("DROP TABLE stain_containers"))
         logger.info("Migration: dropped stain_containers (gallons now live on stain_inventory)")
+
+    # Fence photos gained a completion date and a share-the-phone flag after
+    # the table shipped, so existing deploys need the columns added.
+    if inspector.has_table("fence_photos"):
+        fp_cols = {c["name"] for c in inspector.get_columns("fence_photos")}
+        if "completed_on" not in fp_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE fence_photos ADD COLUMN completed_on TEXT DEFAULT ''"))
+            logger.info("Migration: added fence_photos.completed_on")
+        if "share_phone" not in fp_cols:
+            bool_default = "FALSE" if _engine.dialect.name == "postgresql" else "0"
+            with _engine.begin() as conn:
+                conn.execute(text(
+                    f"ALTER TABLE fence_photos ADD COLUMN share_phone BOOLEAN DEFAULT {bool_default}"
+                ))
+            logger.info("Migration: added fence_photos.share_phone")
 
     if inspector.has_table("stain_movements"):
         sm_cols = {c["name"] for c in inspector.get_columns("stain_movements")}

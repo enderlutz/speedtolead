@@ -14,7 +14,7 @@ import { CustomerSearchInput } from "@/components/SearchInput";
 import { toast } from "sonner";
 import {
   Images, Search, Trash2, Loader2, Plus, ChevronRight, ChevronDown,
-  X, ChevronLeft, User as UserIcon, Pencil, HardDrive,
+  X, ChevronLeft, User as UserIcon, Pencil, HardDrive, Check,
 } from "lucide-react";
 
 // Fence Photos — reference shots of finished fences, filed by stain colour.
@@ -30,6 +30,16 @@ import {
 const SELECT_CLASS =
   "h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm " +
   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+/** "2026-03-14" -> "Mar 14, 2026". Parsed at noon so a date-only string
+ * can't slip to the previous day in a west-of-UTC timezone. */
+function fmtCompleted(d: string): string {
+  if (!d) return "";
+  const dt = new Date(`${d}T12:00:00`);
+  return isNaN(dt.getTime())
+    ? d
+    : dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
 
 type Group = { key: string; brand: string; finish: string; items: FencePhotoStain[]; photos: number };
 
@@ -540,15 +550,38 @@ function PhotoViewer({
           />
         ) : (
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 text-sm">
+            <div className="min-w-0 text-sm space-y-0.5">
               {photo.lead_name && (
                 <p className="flex items-center gap-1.5 text-white/90">
                   <UserIcon className="h-3.5 w-3.5 shrink-0" /> {photo.lead_name}
                 </p>
               )}
-              {photo.note && <p className="text-white/70 text-xs mt-0.5">{photo.note}</p>}
-              {!photo.lead_name && !photo.note && (
-                <p className="text-white/40 text-xs">No note or customer yet</p>
+              {photo.lead_address && (
+                <p className="text-white/70 text-xs">
+                  {photo.lead_address}
+                  {photo.area && <span className="text-white/50"> — {photo.area} area</span>}
+                </p>
+              )}
+              {photo.completed_on && (
+                <p className="text-white/70 text-xs">Completed {fmtCompleted(photo.completed_on)}</p>
+              )}
+              {photo.lead_phone && (
+                <p className="text-xs flex items-center gap-1.5">
+                  <span className="text-white/70">{photo.lead_phone}</span>
+                  {photo.share_phone ? (
+                    <span className="inline-flex items-center gap-0.5 text-emerald-400">
+                      <Check className="h-3 w-3" /> OK to share
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-0.5 text-rose-400">
+                      <X className="h-3 w-3" /> Don't share
+                    </span>
+                  )}
+                </p>
+              )}
+              {photo.note && <p className="text-white/70 text-xs pt-0.5">{photo.note}</p>}
+              {!photo.lead_name && !photo.note && !photo.completed_on && (
+                <p className="text-white/40 text-xs">No details yet</p>
               )}
             </div>
             <Button size="sm" variant="secondary" className="h-8 shrink-0" onClick={() => setEditing(true)}>
@@ -574,6 +607,13 @@ function PhotoDetailsForm({
   const [note, setNote] = useState(photo.note);
   const [leadId, setLeadId] = useState(photo.lead_id);
   const [leadText, setLeadText] = useState(photo.lead_name);
+  const [completedOn, setCompletedOn] = useState(photo.completed_on);
+  const [sharePhone, setSharePhone] = useState(photo.share_phone);
+  // Address + phone follow the linked lead, so they only appear once one is
+  // picked and they update themselves after saving.
+  const [linked, setLinked] = useState({
+    address: photo.lead_address, phone: photo.lead_phone, area: photo.area,
+  });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -595,7 +635,13 @@ function PhotoDetailsForm({
   const save = async () => {
     setSaving(true);
     try {
-      await api.updateFencePhoto(photo.id, { note: note.trim(), lead_id: leadId });
+      const saved = await api.updateFencePhoto(photo.id, {
+        note: note.trim(),
+        lead_id: leadId,
+        completed_on: completedOn,
+        share_phone: sharePhone,
+      });
+      setLinked({ address: saved.lead_address, phone: saved.lead_phone, area: saved.area });
       toast.success("Saved");
       onSaved();
     } catch (e) {
@@ -615,10 +661,51 @@ function PhotoDetailsForm({
           // stale id so a half-typed name can't stay linked to the old lead.
           if (leadId) setLeadId("");
         }}
-        onSelect={(lead: LeanLead) => { setLeadId(lead.id); setLeadText(lead.contact_name || ""); }}
+        onSelect={(lead: LeanLead) => {
+          setLeadId(lead.id);
+          setLeadText(lead.contact_name || "");
+          setLinked({ address: lead.address || "", phone: lead.contact_phone || "", area: "" });
+        }}
         placeholder="Whose fence is this? (optional)"
         className="h-9"
       />
+
+      {leadId && linked.address && (
+        <p className="text-xs text-white/70 px-0.5">
+          {linked.address}
+          {linked.area && <span className="text-white/50"> — {linked.area} area</span>}
+        </p>
+      )}
+
+      <label className="flex items-center gap-2 text-xs text-white/70">
+        <span className="w-24 shrink-0">Completed on</span>
+        <Input
+          type="date"
+          className="h-9 flex-1"
+          value={completedOn}
+          onChange={(e) => setCompletedOn(e.target.value)}
+        />
+      </label>
+
+      {leadId && linked.phone && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="w-24 shrink-0 text-white/70">Their phone</span>
+          <span className="flex-1 text-white/90">{linked.phone}</span>
+          <button
+            type="button"
+            onClick={() => setSharePhone((v) => !v)}
+            title={sharePhone ? "This customer is OK with us sharing their number" : "Do not share this number"}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-medium transition-colors ${
+              sharePhone
+                ? "border-emerald-400/60 bg-emerald-400/15 text-emerald-300"
+                : "border-rose-400/60 bg-rose-400/15 text-rose-300"
+            }`}
+          >
+            {sharePhone ? <><Check className="h-3 w-3" /> OK to share</> : <><X className="h-3 w-3" /> Don't share</>}
+          </button>
+        </div>
+      )}
+
       <Input
         className="h-9"
         placeholder="Note — e.g. 2 coats, west-facing (optional)"
@@ -643,7 +730,12 @@ function PhotoDetailsForm({
           <button
             type="button"
             className="text-xs text-white/60 hover:text-white"
-            onClick={() => { setLeadId(""); setLeadText(""); }}
+            onClick={() => {
+              setLeadId(""); setLeadText("");
+              setLinked({ address: "", phone: "", area: "" });
+              // The consent belonged to that person, not to the photo.
+              setSharePhone(false);
+            }}
           >
             Unlink customer
           </button>
