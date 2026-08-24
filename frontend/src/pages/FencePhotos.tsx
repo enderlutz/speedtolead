@@ -334,6 +334,7 @@ function StainGallery({
   onView: (index: number) => void;
 }) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [deletingColour, setDeletingColour] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const upload = async (files: FileList | null) => {
@@ -364,6 +365,28 @@ function StainGallery({
       const prefix = ok === 0 ? "Upload failed" : `${ok} uploaded · ${failed} failed`;
       toast.error(prefix, { description: firstError || undefined, duration: 12000 });
       if (firstError) console.error("Fence photo upload failed:", firstError);
+    }
+  };
+
+  /** Removing the colour itself. This is the shared stain_inventory row, so
+   * it disappears from Stain Inventory too and takes its photos with it
+   * (the backend cascades) — the confirm has to say all of that. */
+  const removeColour = async () => {
+    const photoPart = stain.photo_count
+      ? ` and its ${stain.photo_count} photo${stain.photo_count === 1 ? "" : "s"}`
+      : "";
+    if (!confirm(
+      `Delete "${stain.color_name}"${photoPart}?\n\n` +
+      `This also removes it from Stain Inventory. This can't be undone.`
+    )) return;
+    setDeletingColour(true);
+    try {
+      await api.deleteStain(stain.id);
+      toast.success(`${stain.color_name} deleted`);
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't delete it");
+      setDeletingColour(false);
     }
   };
 
@@ -463,6 +486,19 @@ function StainGallery({
               <><Plus className="h-3.5 w-3.5" /> Add photos</>
             )}
           </button>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={deletingColour || !!progress}
+              onClick={removeColour}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground
+                hover:text-destructive disabled:opacity-60 transition-colors"
+            >
+              <Trash2 className="h-3 w-3" />
+              {deletingColour ? "Deleting…" : `Delete "${stain.color_name}"`}
+            </button>
+          </div>
         </div>
       )}
     </div>
