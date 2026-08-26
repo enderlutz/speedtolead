@@ -772,6 +772,56 @@ def retry_transcription(recording_id: str, user: dict = Depends(get_current_user
         db.close()
 
 
+@router.post("/calls/transcribe-backlog")
+def start_transcribe_backlog(
+    background: BackgroundTasks,
+    limit: int = 200,
+    user: dict = Depends(require_admin),
+):
+    """Transcribe recordings stranded at status "pending", newest first.
+
+    These are the calls the old commit-ordering bug in _ingest_calls_for_lead
+    skipped: the row was written but the pipeline couldn't see it yet, so it
+    never reached Deepgram. Audio is all still there — this just runs it.
+
+    `limit` is capped and defaults to 200 on purpose. Deepgram bills per
+    minute, so this is meant to be run in batches you can eyeball, not fired
+    at the whole backlog blind. Safe to re-run: only "pending" rows with audio
+    are touched, so anything already done is skipped."""
+    del user
+    from services.call_poller import (
+        transcribe_backlog, get_transcribe_backlog_status,
+    )
+
+    status = get_transcribe_backlog_status()
+    if status.get("running"):
+        return {"status": "already_running", **status}
+
+    lim = max(1, min(int(limit), 2500))
+    background.add_task(transcribe_backlog, limit=lim)
+    return {"status": "started", "limit": lim}
+
+
+@router.get("/calls/transcribe-backlog/status")
+def transcribe_backlog_status(user: dict = Depends(require_admin)):
+    """Progress for the backlog run, plus how many are still waiting."""
+    del user
+    from services.call_poller import get_transcribe_backlog_status
+
+    out = get_transcribe_backlog_status()
+    db = get_db()
+    try:
+        out["pending_total"] = (
+            db.query(CallRecording)
+            .filter(CallRecording.status == "pending",
+                    CallRecording.has_recording_data.is_(True))
+            .count()
+        )
+    finally:
+        db.close()
+    return out
+
+
 @router.get("/calls/patterns")
 def get_call_patterns():
     """Aggregated pattern analysis — closed vs lost calls."""

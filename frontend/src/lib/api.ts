@@ -1136,6 +1136,19 @@ export const api = {
     password?: string; permissions?: Record<string, boolean>;
   }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),
+  /** Kick off transcription for recordings stranded at "pending" — the ones
+   * the old ingest bug never sent to Deepgram. Batched on purpose: Deepgram
+   * bills per minute, so run a few hundred and check before doing the rest. */
+  startTranscribeBacklog: (limit = 200) =>
+    request<{ status: string; limit?: number }>(
+      `/api/calls/transcribe-backlog?limit=${limit}`, { method: "POST" },
+    ),
+  transcribeBacklogStatus: () =>
+    request<{
+      running: boolean; total: number; done: number; transcribed: number;
+      failed: number; remaining: number; pending_total: number; error: string | null;
+    }>("/api/calls/transcribe-backlog/status"),
+
   /** Mint a token to switch into another account (admin only). */
   impersonateUser: (id: string) =>
     request<{ token: string; user: { username: string; name: string; role: string } }>(

@@ -242,6 +242,108 @@ _backfill_status: dict = {
 }
 
 
+# ─── Transcription backlog ───────────────────────────────────────────────
+# State for the one-time catch-up over recordings the commit-ordering bug
+# above left stranded at status "pending". Same shape/contract as the
+# Sterling backfill status so the UI can poll it the same way.
+_transcribe_status: dict = {
+    "running": False,
+    "started_at": None,
+    "completed_at": None,
+    "total": 0,          # how many we set out to do this run
+    "done": 0,           # attempted (transcribed + failed)
+    "transcribed": 0,
+    "failed": 0,
+    "remaining": 0,      # still pending after this run
+    "error": None,
+}
+
+
+def get_transcribe_backlog_status() -> dict:
+    return dict(_transcribe_status)
+
+
+def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5) -> dict:
+    """Run stranded `pending` recordings through transcribe → analyze.
+
+    Newest first, because the most recent calls are the ones worth mining.
+    Only touches status == "pending" and only rows that actually have audio,
+    so it's safe to re-run: anything already transcribed is skipped, and a
+    half-finished run just resumes where it stopped.
+
+    Deepgram bills per minute of audio, so `limit` is deliberately required
+    to be small by default — run 200, check the results, then decide."""
+    global _transcribe_status
+    if _transcribe_status.get("running"):
+        return get_transcribe_backlog_status()
+
+    _transcribe_status = {
+        "running": True, "started_at": _now(), "completed_at": None,
+        "total": 0, "done": 0, "transcribed": 0, "failed": 0,
+        "remaining": 0, "error": None,
+    }
+    import time
+
+    db = get_db()
+    try:
+        ids = [
+            r[0] for r in db.query(CallRecording.id)
+            .filter(
+                CallRecording.status == "pending",
+                CallRecording.has_recording_data.is_(True),
+            )
+            .order_by(CallRecording.created_at.desc())
+            .limit(max(1, int(limit)))
+            .all()
+        ]
+        _transcribe_status["total"] = len(ids)
+        logger.info(f"Transcription backlog: starting on {len(ids)} recording(s)")
+    finally:
+        db.close()
+
+    for rid in ids:
+        try:
+            # Opens and closes its own session per recording, and sets the
+            # row's own status — so a crash mid-run loses at most one.
+            process_recording_pipeline(rid)
+        except Exception as e:
+            logger.warning(f"Backlog pipeline failed for {rid}: {e}")
+        finally:
+            _transcribe_status["done"] += 1
+
+        d = get_db()
+        try:
+            row = d.query(CallRecording.status).filter(CallRecording.id == rid).first()
+            if row and row[0] in ("transcribed", "analyzed"):
+                _transcribe_status["transcribed"] += 1
+            else:
+                _transcribe_status["failed"] += 1
+        finally:
+            d.close()
+
+        if sleep_between:
+            time.sleep(sleep_between)      # be kind to Deepgram's rate limits
+
+    db = get_db()
+    try:
+        _transcribe_status["remaining"] = (
+            db.query(CallRecording)
+            .filter(CallRecording.status == "pending",
+                    CallRecording.has_recording_data.is_(True))
+            .count()
+        )
+    finally:
+        db.close()
+
+    _transcribe_status["running"] = False
+    _transcribe_status["completed_at"] = _now()
+    logger.info(
+        f"Transcription backlog done: {_transcribe_status['transcribed']} transcribed, "
+        f"{_transcribe_status['failed']} failed, {_transcribe_status['remaining']} still pending"
+    )
+    return get_transcribe_backlog_status()
+
+
 def get_backfill_status() -> dict:
     """Snapshot of the current Sterling-backfill state for the UI poll
     endpoint. Returns a shallow copy so the caller can't mutate the
@@ -546,7 +648,16 @@ def _ingest_calls_for_lead(db, lead) -> dict:
                 created_at=msg.get("dateAdded") or _now(),
             )
             db.add(recording)
-            db.flush()
+            # COMMIT, not flush. process_recording_pipeline() opens its own
+            # session and looks the recording up by id — on a flush the row is
+            # still inside this uncommitted transaction, so that lookup finds
+            # nothing, logs "Recording not found", and returns. The row then
+            # commits with status "pending" and nothing ever retries it.
+            #
+            # That is exactly how 2,121 GHL-ingested recordings ended up stuck:
+            # every hand-uploaded call transcribed fine (that path commits
+            # first) while not one auto-ingested call ever reached Deepgram.
+            db.commit()
             stats["new_recordings"] += 1
 
             # Kick the pipeline. Best-effort — failures here don't

@@ -11,7 +11,7 @@ import {
   Mic, PhoneCall,
   ChevronDown, ChevronUp, ExternalLink, RefreshCw, Star, Archive,
   ArchiveRestore, Trash2, Play, Pause, AlertTriangle, RotateCw, Search, User,
-  MessageSquare, Volume2, Loader2, Sparkles,
+  MessageSquare, Volume2, Loader2, Sparkles, FileText,
 } from "lucide-react";
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
@@ -249,9 +249,12 @@ export default function Calls() {
             <CardTitle className="text-sm flex items-center gap-2">
               <Mic className="h-4 w-4" /> {tab === "active" ? "Recent Calls" : "Archived Calls"}
             </CardTitle>
-            <Button variant="outline" size="sm" onClick={loadCalls}>
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <TranscribeBacklog onDone={loadCalls} />
+              <Button variant="outline" size="sm" onClick={loadCalls}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap mt-2">
             <div className="relative flex-1 min-w-[180px] max-w-xs">
@@ -947,5 +950,76 @@ function CallReviewModal({
         )}
       </div>
     </div>
+  );
+}
+
+/** Catch-up transcription for calls stranded at "pending".
+ *
+ * Recordings ingested from GHL were saved but never sent to Deepgram — the
+ * pipeline was kicked before the row was committed, so it looked the recording
+ * up, found nothing, and gave up. The audio is all still there. This runs it.
+ *
+ * Batched deliberately: Deepgram bills per minute of audio, so the button does
+ * 200 at a time rather than firing thousands of dollars of API calls on a
+ * mis-click. Only shows up when there's actually a backlog. */
+function TranscribeBacklog({ onDone }: { onDone: () => void }) {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof api.transcribeBacklogStatus>> | null>(null);
+  const [starting, setStarting] = useState(false);
+  const pollRef = useRef<number | null>(null);
+
+  // Fetched in a promise callback rather than synchronously, so this isn't a
+  // setState-directly-inside-an-effect (which the React compiler rejects).
+  useEffect(() => {
+    let cancelled = false;
+    api.transcribeBacklogStatus()
+      .then((s) => { if (!cancelled) setStatus(s); })
+      .catch(() => { /* non-fatal — button just stays hidden */ });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
+
+  const start = async () => {
+    const pending = status?.pending_total ?? 0;
+    if (!confirm(
+      `Transcribe the next 200 of ${pending.toLocaleString()} untranscribed calls?\n\n` +
+      `This sends audio to Deepgram, which bills per minute — roughly $1-2 for 200 calls. ` +
+      `Newest first. You can run it again for the rest.`
+    )) return;
+    setStarting(true);
+    try {
+      await api.startTranscribeBacklog(200);
+      toast.success("Transcribing… this runs in the background");
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      pollRef.current = window.setInterval(async () => {
+        const s = await api.transcribeBacklogStatus().catch(() => null);
+        if (!s) return;
+        setStatus(s);
+        if (!s.running) {
+          if (pollRef.current) window.clearInterval(pollRef.current);
+          pollRef.current = null;
+          setStarting(false);
+          toast.success(`${s.transcribed} transcribed · ${s.failed} failed · ${s.remaining.toLocaleString()} left`);
+          onDone();
+        }
+      }, 4000);
+    } catch (e) {
+      setStarting(false);
+      toast.error(e instanceof Error ? e.message : "Couldn't start");
+    }
+  };
+
+  const pending = status?.pending_total ?? 0;
+  if (!status || pending === 0) return null;
+  const busy = starting || status.running;
+
+  return (
+    <Button variant="outline" size="sm" onClick={start} disabled={busy} title={`${pending} calls have audio but no transcript`}>
+      {busy ? (
+        <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+          {status.running ? `${status.done}/${status.total}` : "Starting…"}</>
+      ) : (
+        <><FileText className="h-3.5 w-3.5 mr-1" /> Transcribe {pending.toLocaleString()} untranscribed</>
+      )}
+    </Button>
   );
 }
