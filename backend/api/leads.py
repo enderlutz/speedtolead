@@ -13,6 +13,7 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee, QuickbooksInvoice
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
+from api.permissions import require_perm
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
 
 
@@ -2049,3 +2050,36 @@ def update_estimate_label(estimate_id: str, body: EstimateLabelBody, user: dict 
         return est.to_dict()
     finally:
         db.close()
+
+
+@router.post("/leads/{lead_id}/call-prep")
+def generate_call_prep(lead_id: str, user: dict = Depends(require_perm("leads"))):
+    """Brief the rep before they dial this customer.
+
+    Reads the customer's whole history — texts, call transcripts, the prices we
+    sent — and returns what to talk about plus three ready-to-send texts for if
+    they don't pick up.
+
+    Regenerated on every call by design: the point is that it reflects the text
+    that came in ten minutes ago. Takes a few seconds.
+    """
+    del user
+    from services import call_prep
+
+    db = get_db()
+    try:
+        if not db.query(Lead.id).filter(Lead.id == lead_id).first():
+            raise HTTPException(status_code=404, detail="Lead not found")
+    finally:
+        db.close()
+
+    try:
+        return call_prep.generate(lead_id)
+    except RuntimeError as e:
+        # Readable failures (no API key, malformed response, upstream down)
+        # reach the rep as-is — they're the ones who have to decide whether to
+        # dial anyway.
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.exception("Call prep failed")
+        raise HTTPException(status_code=500, detail=str(e))

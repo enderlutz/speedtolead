@@ -29,6 +29,7 @@ import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
+import CallPrepCard from "@/components/CallPrepCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import CustomProposalCard from "@/components/CustomProposalCard";
 import VideoEstimateCard from "@/components/VideoEstimateCard";
@@ -1048,6 +1049,10 @@ export default function LeadDetail() {
               </CardContent>
             </Card>
           )}
+
+          {/* Pre-call brief. Sits above the measurement card because it's the
+              thing you reach for right before dialling, not while estimating. */}
+          <CallPrepCard leadId={lead.id} leadName={lead.contact_name} />
 
           {/* Measurement screenshot — VA's Google Maps screenshot. Sits between
               the satellite view and the estimator because it's the artifact

@@ -2002,6 +2002,11 @@ export const api = {
   deleteStain: (id: string) =>
     request<{ status: string }>(`/api/stain-inventory/${id}`, { method: "DELETE" }),
 
+  /** Generate the pre-call brief for a lead. Regenerated every call — takes a
+   * few seconds and reads the customer's full history. */
+  generateCallPrep: (leadId: string) =>
+    request<CallPrep>(`/api/leads/${leadId}/call-prep`, { method: "POST" }),
+
   // Fence Photos — galleries hanging off the stain colours above
   listFencePhotos: (params?: { q?: string; finish_type?: string }) => {
     const sp = new URLSearchParams();
@@ -4378,6 +4383,32 @@ export interface StainMovement {
   actor: string;
   note: string;
   created_at: string;
+}
+
+// --- Call Prep ---
+/** Pre-call brief generated from a customer's whole history. */
+export interface CallPrepMessage {
+  angle: string;        // short label for the approach
+  rationale: string;    // why this angle for this customer
+  text: string;         // the SMS, ready to copy
+}
+export interface CallPrep {
+  headline: string;
+  where_it_stands: string;
+  talking_points: { point: string; detail: string }[];
+  questions_to_ask: string[];
+  watch_out: string;
+  messages: CallPrepMessage[];
+  evidence: {
+    texts: number;
+    calls_recorded: number;
+    calls_transcribed: number;
+    estimates: number;
+    last_contact: string;
+    days_since_contact: number | null;
+    thin: boolean;
+  };
+  generated_at: string;
 }
 
 // --- Fence Photos ---
