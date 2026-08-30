@@ -166,6 +166,8 @@ export interface AdminUser {
   id: string;
   username: string;
   display_name: string;
+  /** Cosmetic label shown instead of the role name. Never affects access. */
+  job_title: string;
   role: string;                          // admin | va | worker
   see_all_jobs: boolean;
   overrides: Record<string, boolean>;    // per-account permission overrides
@@ -1132,7 +1134,7 @@ export const api = {
     role?: string; see_all_jobs?: boolean; permissions?: Record<string, boolean>;
   }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (id: string, body: {
-    display_name?: string; role?: string; see_all_jobs?: boolean;
+    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean;
     password?: string; permissions?: Record<string, boolean>;
   }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),

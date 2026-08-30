@@ -497,6 +497,10 @@ class User(Base):
     display_name = Column(Text, default="")
     password_hash = Column(Text, nullable=False)
     role = Column(Text, default="va")  # admin, va, worker
+    # Cosmetic job title shown instead of the role label ("Lead Tech",
+    # "Crew Chief"). Display only — `role` above is what actually governs
+    # access, so a title can never widen what someone can see.
+    job_title = Column(Text, default="")
     employee_id = Column(Text, nullable=True, default="")  # set when role == "worker", links to Employee row
     # Manager capability: a worker-role user who sees ALL jobs (not just ones
     # assigned to them) while keeping the price-free employee view. Used for a
@@ -3723,6 +3727,14 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("DROP TABLE stain_containers"))
         logger.info("Migration: dropped stain_containers (gallons now live on stain_inventory)")
+
+    # Per-account job title, shown in place of the role label.
+    if inspector.has_table("users"):
+        user_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "job_title" not in user_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN job_title TEXT DEFAULT ''"))
+            logger.info("Migration: added users.job_title")
 
     # Sales receipts (payment links) now land in the same mirror as invoices,
     # so every existing row needs stamping as the invoice it is.

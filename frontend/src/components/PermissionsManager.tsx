@@ -60,6 +60,7 @@ function UserRow({
   const [draft, setDraft] = useState<Record<string, boolean>>(u.effective);
   const [role, setRole] = useState(u.role);
   const [seeAll, setSeeAll] = useState(u.see_all_jobs);
+  const [jobTitle, setJobTitle] = useState(u.job_title || "");
   const [saving, setSaving] = useState(false);
 
   // Re-seed the draft from role defaults when the role changes, so the grid
@@ -78,7 +79,7 @@ function UserRow({
       for (const k of Object.keys(draft)) {
         if (!!draft[k] !== !!roleDefaults[k]) overrides[k] = !!draft[k];
       }
-      await api.updateUser(u.id, { role, see_all_jobs: seeAll, permissions: overrides });
+      await api.updateUser(u.id, { role, see_all_jobs: seeAll, job_title: jobTitle, permissions: overrides });
       toast.success(`Saved ${u.display_name || u.username}`);
       onChanged();
     } catch (e) {
@@ -123,7 +124,10 @@ function UserRow({
           </div>
           <div className="text-[11px] text-muted-foreground truncate">@{u.username}</div>
         </div>
-        <span className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded">{ROLE_LABEL[u.role] || u.role}</span>
+        <span
+          className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded"
+          title={u.job_title ? `Job title. Access is still ${ROLE_LABEL[u.role] || u.role}.` : undefined}
+        >{u.job_title || ROLE_LABEL[u.role] || u.role}</span>
         {u.username !== currentUsername && (
           <button onClick={switchTo} className="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-[11px]" title={`Switch to ${u.username}'s account`}>
             <LogIn className="h-3.5 w-3.5" /> Switch
@@ -149,11 +153,25 @@ function UserRow({
                 {catalog.roles.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}
               </select>
             </label>
+            <label className="text-xs flex items-center gap-1.5">
+              <span className="text-muted-foreground">Title</span>
+              <input
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                placeholder={ROLE_LABEL[role] || role}
+                maxLength={40}
+                className="text-xs rounded border bg-background px-1.5 py-1 w-32"
+              />
+            </label>
             <label className="text-xs flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={seeAll} onChange={(e) => setSeeAll(e.target.checked)} className="h-3.5 w-3.5" />
               See all jobs (manager)
             </label>
           </div>
+
+          <p className="text-[11px] text-muted-foreground">
+            Title is a label only — what they can actually see is set by Type and the toggles below.
+          </p>
 
           {isAdminAccount ? (
             <p className="text-xs text-muted-foreground flex items-center gap-1">

@@ -180,6 +180,7 @@ class CreateUserBody(BaseModel):
 
 class UpdateUserBody(BaseModel):
     display_name: str | None = None
+    job_title: str | None = None                # display label; does NOT affect access
     role: str | None = None
     see_all_jobs: bool | None = None
     password: str | None = None                 # optional reset
@@ -199,6 +200,7 @@ def _user_row(db, u: User) -> dict:
         "id": u.id,
         "username": u.username,
         "display_name": u.display_name or "",
+        "job_title": (getattr(u, "job_title", "") or ""),
         "role": u.role,
         "see_all_jobs": bool(getattr(u, "see_all_jobs", False)),
         "overrides": _load_overrides(u.permissions),
@@ -288,6 +290,8 @@ def update_user(user_id: str, body: UpdateUserBody, user: dict = Depends(require
 
         if body.display_name is not None:
             u.display_name = body.display_name.strip()
+        if body.job_title is not None:
+            u.job_title = body.job_title.strip()[:40]
         if body.role is not None:
             if body.role not in VALID_ROLES:
                 raise HTTPException(400, f"role must be one of {VALID_ROLES}")
