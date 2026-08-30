@@ -3,12 +3,31 @@ import { api, type JobPhotoMeta, type EstimatorPhotoMeta, type ScheduledJob } fr
 import { toast } from "sonner";
 import { Camera, Trash2, Image as ImageIcon, Loader2 } from "lucide-react";
 
-// The three fixed buckets every assigned job gets. Order = the natural
-// job flow: inspect → clean → stain. Keys match the backend category enum.
-const CATEGORIES: { key: string; label: string }[] = [
-  { key: "inspection", label: "Inspection Pictures" },
-  { key: "post_cleanup", label: "Post Cleanup" },
-  { key: "post_staining", label: "Post Staining" },
+// The three fixed buckets every assigned job gets, in job order:
+// before cleaning → after cleaning → after staining. Each says who shoots it
+// and what to capture, because the crew reads this on a phone in a backyard.
+//
+// The `key` values are the backend category enum and must not change — they're
+// what the existing photos are filed under.
+const CATEGORIES: { key: string; label: string; who: string; hint: string }[] = [
+  {
+    key: "inspection",
+    label: "Before cleaning",
+    who: "Cleaner, on arrival",
+    hint: "Shoot the fence before you touch it, then get a close-up of anything wrong — broken or rotted boards, missing pickets, loose posts — and anything in the way, like furniture, plants or a locked gate.",
+  },
+  {
+    key: "post_cleanup",
+    label: "After cleaning",
+    who: "Cleaner, before leaving",
+    hint: "Same angles as the before shots so the difference is obvious.",
+  },
+  {
+    key: "post_staining",
+    label: "After staining",
+    who: "Stainer, before leaving",
+    hint: "The finished fence, same angles again.",
+  },
 ];
 
 /**
@@ -176,12 +195,13 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
           const busy = uploadingCat === c.key;
           return (
             <div key={c.key} className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <span className="text-xs font-semibold">
                   {c.label}
                   {items.length > 0 && (
                     <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">({items.length})</span>
                   )}
+                  <span className="block text-[10px] font-normal text-muted-foreground">{c.who}</span>
                 </span>
                 <label className={`inline-flex items-center gap-1 text-[11px] cursor-pointer text-primary hover:underline ${busy ? "opacity-60 pointer-events-none" : ""}`}>
                   {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
@@ -200,6 +220,8 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
                   />
                 </label>
               </div>
+
+              <p className="text-[10px] leading-snug text-muted-foreground">{c.hint}</p>
 
               {items.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground italic">No photos yet.</p>
@@ -248,7 +270,7 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
               {c.key === "inspection" && (
                 <div>
                   <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1 mb-0.5">
-                    Pre-Inspection Notes
+                    Problems found
                     {savingField === "notes" && <Loader2 className="h-3 w-3 animate-spin" />}
                   </label>
                   <textarea
@@ -256,7 +278,7 @@ export default function JobPhotosPanel({ jobId }: { jobId: string }) {
                     onChange={(e) => setInspectionNotes(e.target.value)}
                     onBlur={() => saveField("notes", inspectionNotes)}
                     rows={2}
-                    placeholder="What did the crew find on inspection?"
+                    placeholder="Broken boards, rot, loose posts, anything blocking access…"
                     className="w-full text-xs rounded border bg-background p-1.5 resize-y focus:outline-none focus:ring-2 focus:ring-primary/40"
                   />
                 </div>
