@@ -9,6 +9,7 @@ The crew page is public (no auth) — same trust model as proposal pages: an
 unguessable per-worker token. PM/board endpoints are staff-gated.
 """
 from __future__ import annotations
+import re
 import logging
 import uuid
 import json
@@ -502,6 +503,68 @@ def update_task(task_id: str, body: TaskUpdateBody, user: dict = Depends(require
         db.commit()
         db.refresh(task)
         return task.to_dict()
+    finally:
+        db.close()
+
+
+class TaskWorkDateBody(BaseModel):
+    work_date: str          # YYYY-MM-DD, Central
+
+
+@router.put("/crew-app/tasks/{task_id}/work-date")
+def set_task_work_date(task_id: str, body: TaskWorkDateBody,
+                       user: dict = Depends(require_perm("assign_crew"))):
+    """Move every crew assignment on this task to a different day.
+
+    This is the crew's working day, not the customer's. Cleaning usually
+    happens early in the week and staining later, while the customer's
+    calendar invite keeps whatever date they agreed to — so this
+    deliberately does NOT touch Google, and the customer is never notified.
+
+    Moving a task whose crew is already booked on the target date collapses
+    the duplicates rather than failing the unique constraint.
+    """
+    del user
+    date = (body.work_date or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(400, "work_date must be YYYY-MM-DD")
+
+    db = get_db()
+    try:
+        task = db.query(JobTask).filter(JobTask.id == task_id).first()
+        if not task:
+            raise HTTPException(404, "Task not found")
+
+        rows = db.query(CrewAssignment).filter(CrewAssignment.job_task_id == task_id).all()
+        if not rows:
+            raise HTTPException(
+                400,
+                "Nobody is assigned to this step yet — assign the crew first, "
+                "then set the day they'll do it.",
+            )
+
+        # (job_task_id, employee_id, work_date) is unique, so anyone already
+        # booked on the target date has to be resolved BEFORE the movers are
+        # updated — otherwise the UPDATE collides with a row that's still
+        # there. Delete first, flush, then move.
+        already = {a.employee_id for a in rows if a.work_date == date}
+        movers = [a for a in rows if a.work_date != date]
+
+        keep: list[CrewAssignment] = []
+        for a in movers:
+            if a.employee_id in already:
+                db.delete(a)          # they're already on this day for this step
+            else:
+                already.add(a.employee_id)
+                keep.append(a)
+        db.flush()                    # land the deletes before the updates
+
+        for a in keep:
+            a.work_date = date
+        db.commit()
+        moved = len(keep)
+        logger.info(f"Task {task_id} crew day -> {date} ({moved} assignment(s) moved)")
+        return {"status": "ok", "work_date": date, "moved": moved}
     finally:
         db.close()
 

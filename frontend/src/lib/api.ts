@@ -2986,6 +2986,14 @@ export const api = {
   deleteCrewTask: (taskId: string) => request<{ status: string }>(`/api/crew-app/tasks/${taskId}`, { method: "DELETE" }),
   upsertCrewAssignment: (body: { job_task_id: string; employee_id: string; work_date: string; is_backup?: boolean; sort_order?: number; exclusive?: boolean }) =>
     request<CrewAssignmentRow>(`/api/crew-app/assignments`, { method: "PUT", body: JSON.stringify(body) }),
+  /** Move a step's whole crew to a different working day. Never touches the
+   * customer's calendar invite — cleaning and staining routinely happen on
+   * days the customer never sees. */
+  setTaskWorkDate: (taskId: string, workDate: string) =>
+    request<{ status: string; work_date: string; moved: number }>(
+      `/api/crew-app/tasks/${taskId}/work-date`,
+      { method: "PUT", body: JSON.stringify({ work_date: workDate }) },
+    ),
   deleteCrewAssignment: (id: string) => request<{ status: string }>(`/api/crew-app/assignments/${id}`, { method: "DELETE" }),
   crewShiftDay: (date: string) => request<{ status: string; moved_to: string; moved: number; promoted: number }>(`/api/crew-app/board/shift-day`, { method: "POST", body: JSON.stringify({ date }) }),
   getCrewStats: (start?: string, end?: string) => request<CrewStats>(`/api/crew-app/stats${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),

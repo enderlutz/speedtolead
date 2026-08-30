@@ -85,10 +85,22 @@ export default function PmHq() {
     try {
       for (const id of empIds) {
         // exclusive:false → add alongside the task's existing crew (multi-worker).
-        await api.upsertCrewAssignment({ job_task_id: task.id, employee_id: id, work_date: job.job_date, is_backup: false, exclusive: false });
+        // New crew join the day this step already works, falling back to
+        // the customer's date for a step nobody is on yet.
+        const day = task.assignees[0]?.work_date || job.job_date;
+        await api.upsertCrewAssignment({ job_task_id: task.id, employee_id: id, work_date: day, is_backup: false, exclusive: false });
       }
       load();
     } catch (e) { toast.error(errMessage(e, "Couldn't assign task")); }
+    finally { setBusy(false); }
+  };
+  const setTaskDay = async (taskId: string, workDate: string) => {
+    setBusy(true);
+    try {
+      await api.setTaskWorkDate(taskId, workDate);
+      toast.success("Crew day updated — the customer's invite is unchanged");
+      load();
+    } catch (e) { toast.error(errMessage(e, "Couldn't move the crew day")); }
     finally { setBusy(false); }
   };
   const removeTaskWorker = async (assignmentId: string) => {
@@ -175,6 +187,7 @@ export default function PmHq() {
                   onRemoveTask={(taskId) => removeTask(taskId)}
                   onAddTaskWorkers={(task, ids) => addTaskWorkers(job, task, ids)}
                   onRemoveTaskWorker={(assignmentId) => removeTaskWorker(assignmentId)}
+                  onSetTaskDay={setTaskDay}
                   onSaveDetails={(patch) => saveDetails(job.id, patch)}
                 />
               ))}
@@ -187,7 +200,7 @@ export default function PmHq() {
 }
 
 function JobRow({
-  job, roster, services, empName, onSetCrew, onAddTask, onRemoveTask, onAddTaskWorkers, onRemoveTaskWorker, onSaveDetails,
+  job, roster, services, empName, onSetCrew, onAddTask, onRemoveTask, onAddTaskWorkers, onRemoveTaskWorker, onSetTaskDay, onSaveDetails,
 }: {
   job: PmBoardJob;
   roster: { id: string; name: string }[];
@@ -198,6 +211,7 @@ function JobRow({
   onRemoveTask: (taskId: string) => void;
   onAddTaskWorkers: (task: PmBoardTask, employeeIds: string[]) => void;
   onRemoveTaskWorker: (assignmentId: string) => void;
+  onSetTaskDay: (taskId: string, workDate: string) => void;
   onSaveDetails: (patch: JobDetailsPatch) => void;
 }) {
   const [adding, setAdding] = useState(false);
@@ -357,6 +371,8 @@ function JobRow({
                 onToggle={() => (task ? onRemoveTask(task.id) : onAddTask(svc.key))}
                 onAdd={(ids) => task && onAddTaskWorkers(task, ids)}
                 onRemove={onRemoveTaskWorker}
+                customerDate={job.job_date}
+                onSetDay={(d) => task && onSetTaskDay(task.id, d)}
               />
             );
           })}
@@ -372,6 +388,8 @@ function JobRow({
                 onToggle={() => onRemoveTask(task.id)}
                 onAdd={(ids) => onAddTaskWorkers(task, ids)}
                 onRemove={onRemoveTaskWorker}
+                customerDate={job.job_date}
+                onSetDay={(d) => onSetTaskDay(task.id, d)}
               />
             ))}
         </div>
@@ -520,7 +538,7 @@ function JobRow({
 // One service on a job. A checkbox turns the service on/off (creates/deletes the
 // underlying task); when it's on, one or more workers can be assigned to it.
 // Chips remove per-person; "Add" opens a multi-select.
-function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove }: {
+function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove, customerDate, onSetDay }: {
   service: PmService;
   task: PmBoardTask | null;
   roster: { id: string; name: string }[];
@@ -528,10 +546,15 @@ function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove 
   onToggle: () => void;
   onAdd: (employeeIds: string[]) => void;
   onRemove: (assignmentId: string) => void;
+  customerDate: string;
+  onSetDay: (workDate: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const assignees = task?.assignees || [];
+  // The whole step moves together, so the first assignment's date is the step's
+  // day. Blank until someone is assigned — the date lives on the assignment.
+  const crewDay = assignees[0]?.work_date || customerDate;
   const assignedIds = new Set(assignees.map((a) => a.employee_id));
   const unassigned = roster.filter((e) => !assignedIds.has(e.id));
   const toggle = (id: string) => setPicked((prev) => {
@@ -576,6 +599,24 @@ function ServiceRow({ service, task, roster, empName, onToggle, onAdd, onRemove 
               <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 rounded-full border border-dashed text-xs px-2 py-0.5 text-muted-foreground hover:bg-muted">
                 <Plus className="h-3 w-3" /> Add
               </button>
+            )}
+            {assignees.length > 0 && (
+              <label
+                className="inline-flex items-center gap-1 text-[11px]"
+                title="The day the crew does this step. The customer's calendar invite never changes."
+              >
+                <span className={crewDay !== customerDate ? "font-medium text-amber-700" : "text-muted-foreground"}>
+                  {crewDay !== customerDate ? "Crew day" : "Day"}
+                </span>
+                <input
+                  type="date"
+                  value={crewDay}
+                  onChange={(e) => e.target.value && onSetDay(e.target.value)}
+                  className={`rounded border bg-background px-1 py-0.5 text-[11px] ${
+                    crewDay !== customerDate ? "border-amber-400 bg-amber-50" : ""
+                  }`}
+                />
+              </label>
             )}
           </div>
         )}
