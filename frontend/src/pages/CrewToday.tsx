@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, type CrewToday as CrewTodayData, type CrewCard } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, MapPin, Play, CheckCircle2, CloudRain, Flag, Clock } from "lucide-react";
+import { Loader2, Phone, MapPin, Play, CheckCircle2, CloudRain, Flag, Clock } from "lucide-react";
 
 /** Public, no-login crew phone page. Token in the URL identifies the worker
  * (same trust model as proposal pages). Shows today's jobs, tap-to-clock timing,
@@ -135,6 +135,14 @@ function JobCardView({ card, index, token, busy, running, anyRunning, dayStarted
           {card.address && (
             <a href={card.maps_url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 flex items-center gap-1 hover:underline">
               <MapPin className="h-3.5 w-3.5" /> {card.address}
+            </a>
+          )}
+          {card.customer_phone && (
+            <a
+              href={`tel:${card.customer_phone.replace(/[^\d+]/g, "")}`}
+              className="text-sm text-emerald-700 flex items-center gap-1 hover:underline font-medium"
+            >
+              <Phone className="h-3.5 w-3.5" /> {card.customer_phone}
             </a>
           )}
           {details && <p className="text-xs text-muted-foreground mt-0.5">{details}</p>}

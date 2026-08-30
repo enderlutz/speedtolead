@@ -1289,6 +1289,10 @@ def get_employee_view(
             "custom_description": (row.description if row else ""),
             "default_description": sanitize_for_worker(base_text),
             "has_backing_job": bool(job),
+            # Surfaced so the editor can show the crew's call-the-customer bar
+            # at the top — same number the crew sees on their own schedule.
+            "customer_name": (job.customer_name if job else "") or "",
+            "customer_phone": (job.customer_phone if job else "") or "",
             # The linked job id (when any) so the editor can show the crew's
             # uploaded photos — job photos are keyed by scheduled_job_id.
             "scheduled_job_id": (job.id if job else ""),

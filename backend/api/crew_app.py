@@ -124,6 +124,8 @@ def _job_card(task: JobTask, job: ScheduledJob | None, lead: Lead | None, is_bac
         "task_label": TASK_LABEL.get(task.task_type, task.task_type.title()),
         "status": task.status or "pending",
         "customer_name": name,
+        # So the crew can ring the customer when they're on the way or on site.
+        "customer_phone": (job.customer_phone if job else "") or (lead.contact_phone if lead else "") or "",
         "address": address,
         "maps_url": f"https://maps.google.com/?q={address.replace(' ', '+')}" if address else "",
         "package": (job.package_tier if job else "") or "",

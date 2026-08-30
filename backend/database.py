@@ -1157,6 +1157,12 @@ class ScheduledJob(Base):
             "lat": float(self.lat or 0.0),
             "lng": float(self.lng or 0.0),
             "customer_name": self.customer_name or "",
+            # Workers get this deliberately (2026-08-30): the crew calls the
+            # customer when they're heading over and while they're on site.
+            # Contact info, not commercial info, so it sits above the worker
+            # cut-off — unlike customer_email, which is the calendar-invite
+            # recipient and stays admin-side.
+            "customer_phone": self.customer_phone or "",
             "division": self.division or "fence",
             "package_tier": self.package_tier or "",
             "job_label": self.job_label or "",
@@ -1198,7 +1204,6 @@ class ScheduledJob(Base):
             "sides_custom_text": self.sides_custom_text or "",
             "google_event_html_link": self.google_event_html_link or "",
             "customer_email": self.customer_email or "",
-            "customer_phone": self.customer_phone or "",
             "customer_notes": self.customer_notes or "",
             "admin_notes": self.admin_notes or "",
             "pm_private_notes": self.pm_private_notes or "",   # admin ↔ PM only (never returned to workers)

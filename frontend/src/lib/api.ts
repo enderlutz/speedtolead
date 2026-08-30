@@ -1025,6 +1025,8 @@ export interface CrewCard {
   task_label: string;
   status: "pending" | "in_progress" | "interrupted" | "complete";
   customer_name: string;
+  /** So the crew can ring the customer on the way or on site. */
+  customer_phone: string;
   address: string;
   maps_url: string;
   package: string;
@@ -3547,6 +3549,8 @@ export interface EmployeeView {
   default_description: string;
   has_backing_job: boolean;
   scheduled_job_id: string;   // linked job (if any) — for showing crew photos
+  customer_name: string;
+  customer_phone: string;
   updated_at: string | null;
   updated_by: string;
 }

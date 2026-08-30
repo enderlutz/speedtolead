@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2, AlertTriangle, CalendarDays, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Cloud, Droplets, Eye, EyeOff, X, MapPin, Receipt, Calculator, DollarSign, CheckCircle2, FileText, LayoutGrid, List, Plus, HardHat, Users, Loader2, AlertTriangle, CalendarDays, Clock, Phone } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CustomerSearchInput } from "@/components/SearchInput";
 import type { LeanLead } from "@/lib/api";
@@ -1357,6 +1357,7 @@ function EmployeeViewModal({
   const [isCustom, setIsCustom] = useState(false);
   const [hasBackingJob, setHasBackingJob] = useState(true);
   const [linkedJobId, setLinkedJobId] = useState("");
+  const [customer, setCustomer] = useState({ name: "", phone: "" });
 
   useEffect(() => {
     let alive = true;
@@ -1367,6 +1368,7 @@ function EmployeeViewModal({
         setIsCustom(v.is_custom);
         setHasBackingJob(v.has_backing_job);
         setLinkedJobId(v.scheduled_job_id || "");
+        setCustomer({ name: v.customer_name || "", phone: v.customer_phone || "" });
         // Pre-fill with Alan's saved text when present, else the auto-stripped
         // default — so the editor opens reading like the real event, no price.
         setText(v.is_custom ? v.custom_description : (v.default_description || ""));
@@ -1416,6 +1418,21 @@ function EmployeeViewModal({
           </button>
         </div>
         <div className="p-4 space-y-3 overflow-y-auto flex-1 min-h-0">
+          {/* Call bar. First thing in the view because the crew's first action
+              is ringing the customer on the way over. */}
+          {customer.phone && (
+            <a
+              href={`tel:${customer.phone.replace(/[^\d+]/g, "")}`}
+              className="flex items-center gap-2 rounded-md border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm hover:bg-emerald-500/20 transition-colors"
+            >
+              <Phone className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span className="font-medium">{customer.phone}</span>
+              {customer.name && (
+                <span className="text-muted-foreground truncate">· {customer.name}</span>
+              )}
+              <span className="ml-auto text-xs text-emerald-700 shrink-0">Tap to call</span>
+            </a>
+          )}
           <p className="text-xs text-muted-foreground">
             This is exactly what the crew sees for this event on their dashboard.
             Edit it freely — the <span className="font-semibold">price is never shown to employees</span> no

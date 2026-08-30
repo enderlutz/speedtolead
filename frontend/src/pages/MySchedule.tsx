@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check, ChevronDown, Lock, CalendarClock } from "lucide-react";
+import { Phone, MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check, ChevronDown, Lock, CalendarClock } from "lucide-react";
 import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 import { errMessage } from "@/lib/utils";
@@ -583,6 +583,17 @@ function TodayJobCard({
         )}
 
         {job.weather_today && <WeatherBadge w={job.weather_today} />}
+
+        {job.customer_phone && (
+          <a
+            href={`tel:${job.customer_phone.replace(/[^\d+]/g, "")}`}
+            className="flex items-center gap-2 rounded-md border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm hover:bg-emerald-500/20"
+          >
+            <Phone className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span className="font-medium">{job.customer_phone}</span>
+            <span className="ml-auto text-xs text-emerald-700 shrink-0">Call customer</span>
+          </a>
+        )}
 
         {job.address && (
           <a
