@@ -15,6 +15,7 @@ import {
   PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable,
 } from "@dnd-kit/core";
 import { leadDetailCache } from "@/lib/leadDetailCache";
+import { readLeadCache, writeLeadCache } from "@/lib/leadBoardCache";
 import EstimatorScheduleModal from "@/components/EstimatorScheduleModal";
 import LeadMap from "@/components/LeadMap";
 
@@ -29,12 +30,7 @@ function prefetchLead(id: string) {
 }
 
 const LEADS_V2_CACHE_KEY = "at_leads_b_cache";
-function getCachedLeads(): Lead[] {
-  try {
-    const raw = localStorage.getItem(LEADS_V2_CACHE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
+const getCachedLeads = (): Lead[] => readLeadCache<Lead>(LEADS_V2_CACHE_KEY);
 
 // View-state persistence — so returning from a lead lands you exactly where you
 // were (which tab, search text, scroll position) instead of resetting to Kanban.
@@ -189,7 +185,7 @@ export default function LeadsB() {
     setLoading(true);
     api.getLeads({ pipeline_version: "v2b" }).then((data) => {
       setLeads(data);
-      localStorage.setItem(LEADS_V2_CACHE_KEY, JSON.stringify(data));
+      writeLeadCache(LEADS_V2_CACHE_KEY, data);
       if (data.length > prevCountRef.current && prevCountRef.current > 0) {
         const diff = data.length - prevCountRef.current;
         toast.info(`${diff} new lead${diff > 1 ? "s" : ""}`);
@@ -208,7 +204,7 @@ export default function LeadsB() {
       if (document.visibilityState === "visible") {
         api.getLeads({ pipeline_version: "v2b" }).then((data) => {
           setLeads(data);
-          localStorage.setItem(LEADS_V2_CACHE_KEY, JSON.stringify(data));
+          writeLeadCache(LEADS_V2_CACHE_KEY, data);
           prevCountRef.current = data.length;
         }).catch(() => {});
       }
@@ -225,7 +221,7 @@ export default function LeadsB() {
       refreshTimerRef.current = setTimeout(() => {
         api.getLeads({ pipeline_version: "v2b" }).then((data) => {
           setLeads(data);
-          localStorage.setItem(LEADS_V2_CACHE_KEY, JSON.stringify(data));
+          writeLeadCache(LEADS_V2_CACHE_KEY, data);
           prevCountRef.current = data.length;
         }).catch(() => {});
       }, 1500);

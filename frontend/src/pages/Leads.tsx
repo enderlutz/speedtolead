@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, type FC } from "react";
 import { Link } from "react-router-dom";
 import { leadDetailCache } from "@/lib/leadDetailCache";
+import { readLeadCache, writeLeadCache } from "@/lib/leadBoardCache";
 import { api, type Lead } from "@/lib/api";
 import { formatDateTime, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
@@ -27,12 +28,7 @@ function prefetchLead(id: string) {
 
 // --- localStorage cache for instant reload ---
 const LEADS_CACHE_KEY = "at_leads_cache";
-function getCachedLeads(): Lead[] {
-  try {
-    const raw = localStorage.getItem(LEADS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
+const getCachedLeads = (): Lead[] => readLeadCache<Lead>(LEADS_CACHE_KEY);
 
 type KanbanStatus = "new_lead" | "no_address" | "needs_info" | "hot_lead" | "yellow" | "needs_review" | "not_confident" | "estimate_sent";
 
@@ -105,7 +101,7 @@ export default function Leads() {
     setLoading(true);
     api.getLeads({ pipeline_version: "v1" }).then((data) => {
       setLeads(data);
-      localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
+      writeLeadCache(LEADS_CACHE_KEY, data);
       // Toast if new leads appeared
       if (data.length > prevCountRef.current && prevCountRef.current > 0) {
         const diff = data.length - prevCountRef.current;
@@ -124,7 +120,7 @@ export default function Leads() {
       if (document.visibilityState === "visible") {
         api.getLeads({ pipeline_version: "v1" }).then((data) => {
           setLeads(data);
-          localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
+          writeLeadCache(LEADS_CACHE_KEY, data);
           if (data.length > prevCountRef.current && prevCountRef.current > 0) {
             toast.info(`${data.length - prevCountRef.current} new lead(s)`);
           }
@@ -146,7 +142,7 @@ export default function Leads() {
       refreshTimerRef.current = setTimeout(() => {
         api.getLeads({ pipeline_version: "v1" }).then((data) => {
           setLeads(data);
-          localStorage.setItem(LEADS_CACHE_KEY, JSON.stringify(data));
+          writeLeadCache(LEADS_CACHE_KEY, data);
           prevCountRef.current = data.length;
         }).catch(() => {});
       }, 1500);

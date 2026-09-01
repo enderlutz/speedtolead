@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api, type Lead } from "@/lib/api";
+import { readLeadCache, writeLeadCache } from "@/lib/leadBoardCache";
 import { timeAgo, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -15,10 +16,7 @@ import { Search, RefreshCw, MapPin } from "lucide-react";
 // can build a proper kanban like Sterling A/B. Division scoping is automatic:
 // the X-Division header (brick) filters the /leads response to brick leads.
 const CACHE_KEY = "at_leads_brick_cache";
-function getCached(): Lead[] {
-  try { const raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : []; }
-  catch { return []; }
-}
+const getCached = (): Lead[] => readLeadCache<Lead>(CACHE_KEY);
 
 export default function LeadsBrick() {
   const [leads, setLeads] = useState<Lead[]>(getCached);
@@ -31,7 +29,7 @@ export default function LeadsBrick() {
     api.getLeads({ pipeline_version: "brick" })
       .then((data) => {
         setLeads(data);
-        localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+        writeLeadCache(CACHE_KEY, data);
         if (data.length > prevCountRef.current && prevCountRef.current > 0) {
           const diff = data.length - prevCountRef.current;
           toast.info(`${diff} new brick lead${diff > 1 ? "s" : ""}`);
