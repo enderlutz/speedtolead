@@ -2815,12 +2815,15 @@ function DepositRow({
     setSending(true);
     try {
       const r = await api.sendDepositInvoice(lead.id);
+      // The backend names the actual blocker (no GHL contact, no link, or a
+      // QuickBooks sign-in link). Show that instead of guessing at a reason.
+      const why = r.sms_skipped_reason ? ` — ${r.sms_skipped_reason}.` : ".";
       if (r.status === "sent") {
         if (r.sms_sent) toast.success("Deposit link texted to the customer.");
-        else toast.warning("Invoice created, but the text didn't send (no phone/GHL contact). Share the link manually.");
+        else toast.warning(`Invoice created, but the text didn't send${why} Share the link manually.`, { duration: 10000 });
       } else if (r.status === "already_sent") {
         if (r.sms_sent) toast.success("Deposit link re-texted to the customer.");
-        else toast.info("Deposit invoice exists — couldn't text (no phone/GHL contact). Share the link manually.");
+        else toast.info(`Deposit invoice exists — couldn't text it${why} Share the link manually.`, { duration: 10000 });
       } else if (r.status === "already_paid") {
         toast.success("Deposit already paid.");
       } else if (r.status === "waived") {

@@ -4221,6 +4221,9 @@ export interface DepositInvoiceResult {
   status: string;
   /** Whether the payment link was texted to the customer via GHL SMS. */
   sms_sent?: boolean;
+  /** Why the text was skipped, phrased for the person holding the phone.
+   *  Empty when it sent, or when this was a copy-only call. */
+  sms_skipped_reason?: string;
   deposit_qb_invoice_id?: string;
   deposit_payment_link?: string;
   deposit_invoice_sent_at?: string | null;

@@ -59,17 +59,35 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _deposit_sms_blocker(lead, link: str) -> str:
+    """Why the deposit link can't be texted, phrased for the person holding the
+    phone. Empty string means it can.
+
+    Split out from the send so the API can report the actual reason. The
+    dashboard used to blame "no phone/GHL contact" for every skipped text,
+    including the common case where the real problem was a link QuickBooks
+    never made customer-facing."""
+    if not (lead.ghl_contact_id or "").strip():
+        return "this lead has no GHL contact to text"
+    if not link:
+        return "no payment link was created"
+    if not qb.is_public_pay_link(link):
+        return (
+            "QuickBooks returned a sign-in link instead of a payment link "
+            "(it needs the customer's email address to make one)"
+        )
+    return ""
+
+
 def _text_deposit_link(lead, link: str, amount: float) -> bool:
     """Text the customer their deposit payment link via GHL SMS. Returns False
-    (no-op) when we can't reach them — no GHL contact or no link."""
-    contact_id = (lead.ghl_contact_id or "").strip()
-    if not contact_id or not link:
-        return False
-    # Never text the admin/login URL — it opens our QuickBooks and dead-ends
-    # the customer at an Intuit sign-in. Better to send nothing and let admin
-    # retry (the caller refreshes bad links before reaching here).
-    if not qb.is_public_pay_link(link):
-        logger.warning(f"Skipped deposit SMS for lead {lead.id}: link is not a public pay link ({link[:60]})")
+    (no-op) when we can't reach them — see _deposit_sms_blocker for why.
+
+    Never texts the admin/login URL: it opens our QuickBooks and dead-ends the
+    customer at an Intuit sign-in. Better to send nothing and let admin retry."""
+    blocker = _deposit_sms_blocker(lead, link)
+    if blocker:
+        logger.warning(f"Skipped deposit SMS for lead {lead.id}: {blocker} ({link[:60]})")
         return False
     first = (lead.contact_name or "").strip().split(" ")[0] or "there"
     msg = (
@@ -78,7 +96,7 @@ def _text_deposit_link(lead, link: str, amount: float) -> bool:
         f"appointment: {link}"
     )
     try:
-        return ghl.send_sms(contact_id, msg, lead.ghl_location_id or None)
+        return ghl.send_sms((lead.ghl_contact_id or "").strip(), msg, lead.ghl_location_id or None)
     except Exception as e:
         logger.error(f"Deposit link SMS failed for lead {lead.id}: {e}")
         return False
@@ -862,6 +880,28 @@ def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = 
                 "lead": lead.to_dict(),
             }
 
+        # No email → no payment link is possible. QuickBooks only mints the
+        # customer-facing link as a side effect of emailing the invoice
+        # (POST /invoice/{id}/send needs a recipient), so with no address the
+        # best we ever get is the admin URL that dead-ends the customer at an
+        # Intuit sign-in — which _text_deposit_link then rightly refuses to
+        # send. Creating the invoice anyway left unpayable $250 deposits in QB
+        # and told the dashboard "the text didn't send (no phone/GHL contact)",
+        # which named the wrong problem. Fail up front with the actual fix.
+        #
+        # Only when a link still has to be minted: an existing public link can
+        # be re-texted all day without an email.
+        needs_new_link = not lead.deposit_qb_invoice_id or not qb.is_public_pay_link(
+            lead.deposit_payment_link or ""
+        )
+        if qb.qb_mode() != "mock" and needs_new_link and not (lead.contact_email or "").strip():
+            raise HTTPException(
+                400,
+                f"{lead.contact_name or 'This customer'} has no email address on file. "
+                "QuickBooks only creates a payment link when it emails the invoice, so "
+                "add an email to this lead and send the deposit again.",
+            )
+
         # Idempotent: an invoice already exists for this lead's deposit.
         # Return the existing link rather than racing QB on duplicates.
         if lead.deposit_qb_invoice_id:
@@ -892,6 +932,10 @@ def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = 
             return {
                 "status": "already_sent",
                 "sms_sent": sms_sent,
+                "sms_skipped_reason": (
+                    "" if sms_sent or not text_customer
+                    else _deposit_sms_blocker(lead, lead.deposit_payment_link or "")
+                ),
                 "deposit_qb_invoice_id": lead.deposit_qb_invoice_id,
                 "deposit_payment_link": lead.deposit_payment_link or "",
                 "deposit_invoice_sent_at": lead.deposit_invoice_sent_at,
@@ -1011,6 +1055,10 @@ def send_deposit_invoice(lead_id: str, text_customer: bool = True, user: dict = 
             "mode": "live",
             "status": "sent",
             "sms_sent": sms_sent,
+            "sms_skipped_reason": (
+                "" if sms_sent or not text_customer
+                else _deposit_sms_blocker(lead, lead.deposit_payment_link or "")
+            ),
             "deposit_qb_invoice_id": inv["invoice_id"],
             "deposit_payment_link": inv.get("invoice_url", ""),
             "invoice_number": inv.get("invoice_number"),
