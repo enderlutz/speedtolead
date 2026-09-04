@@ -64,6 +64,11 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
       markupPercent > 0 && amount > 0
         ? `You save ${fmtDollar(amount * (markupPercent / 100))}`
         : "";
+    // Affirm "as low as" — price over FINANCING_MONTHS, mirroring
+    // _format_monthly_price in backend/api/estimates.py. Keep the two in step
+    // or the preview stops matching the PDF the customer receives.
+    const fmtMonthly = (amount: number) =>
+      amount > 0 ? `as low as ${fmtDollar(amount / 36)}/mo` : "";
     const fmtSlashed = (amount: number) =>
       markupPercent > 0 && amount > 0
         ? fmtDollar(amount * (1 + markupPercent / 100))
@@ -80,9 +85,9 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
       essential_save_price: fmtSave(tiers.essential),
       signature_save_price: fmtSave(tiers.signature),
       legacy_save_price: fmtSave(tiers.legacy),
-      essential_monthly: `$${Math.round(tiers.essential / 21)}/mo`,
-      signature_monthly: `$${Math.round(tiers.signature / 21)}/mo`,
-      legacy_monthly: `$${Math.round(tiers.legacy / 21)}/mo`,
+      essential_monthly: fmtMonthly(tiers.essential),
+      signature_monthly: fmtMonthly(tiers.signature),
+      legacy_monthly: fmtMonthly(tiers.legacy),
       pricing_includes: generatePricingIncludes(fenceSides),
       date: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
     };
