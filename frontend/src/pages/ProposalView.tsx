@@ -183,6 +183,24 @@ export default function ProposalView() {
               <Phone className="h-4 w-4" />
             </a>
           </div>
+
+          {/* Affirm financing badge. The logo IS the word "Affirm", which is how
+              Affirm's own brand guidance renders this line, so the alt text
+              carries the name for screen readers. Official white-on-transparent
+              wordmark from Affirm's asset CDN, unmodified — the padding around
+              it is the required clear space, done in CSS so the file stays
+              pristine. Shown on fence and brick alike; financing is offered on
+              both. */}
+          <div className="mt-3 pt-3 border-t border-white/10 flex items-center gap-2">
+            <span className="text-xs sm:text-sm font-medium text-white/70">
+              Pay over time with
+            </span>
+            <img
+              src="/affirm-white.png"
+              alt="Affirm"
+              className="h-5 sm:h-6 w-auto shrink-0 px-0.5"
+            />
+          </div>
         </div>
       </header>
 
