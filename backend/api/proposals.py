@@ -21,6 +21,7 @@ from config import get_settings
 from api.estimates import V2_REQUOTE_REQUESTED_STAGE_ID
 from api.auth import require_admin
 import uuid
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -413,7 +414,7 @@ def _regenerate_pdf(db, proposal) -> bytes | None:
             "essential_monthly": _format_monthly_label(fin),
             "signature_monthly": _format_monthly_label(fin),
             "legacy_monthly": _format_monthly_label(fin),
-            "date": datetime.now().strftime("%B %d, %Y"),
+            "date": clock.now_ct().strftime("%B %d, %Y"),
             **_slashed_price_values(tiers, markup),
             **_save_amount_values(tiers, markup),
         }

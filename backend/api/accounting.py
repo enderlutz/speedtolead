@@ -49,6 +49,7 @@ from database import (
     TaskAllocation, TimeEntry, Reimbursement, Employee,
 )
 from api.auth import require_admin
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -59,11 +60,9 @@ def _now() -> str:
 
 
 def _today_central() -> datetime:
-    """Best-effort Central Time 'today' so period bounds align with how
-    Alan thinks about the calendar (he's in Texas)."""
-    now = datetime.now(timezone.utc)
-    is_dst = 3 <= now.month <= 10  # rough — Texas observes DST Mar→Nov
-    return now + timedelta(hours=(-5 if is_dst else -6))
+    """Central Time 'now' so period bounds align with how Alan thinks about
+    the calendar (he's in Texas). Aware datetime — callers use .date()."""
+    return clock.now_ct()
 
 
 def _period_bounds(period: str) -> tuple[str, str, int]:
@@ -139,17 +138,21 @@ def _deposits_collected_in_period(db, start: str, end: str) -> float:
     period. Uses Lead.deposit_paid_at as the date so deposits land in the
     period they were COLLECTED, not the period the lead was created.
 
-    The timestamp is an ISO datetime ('2026-06-08T14:30:00Z'); start/end
-    are YYYY-MM-DD. We compare the first 10 chars of deposit_paid_at to
-    keep this a clean string range — same pattern the rest of the file
-    uses for date-typed-as-string columns."""
+    deposit_paid_at is an ISO datetime in UTC ('2026-06-08T14:30:00Z');
+    start/end are Central YYYY-MM-DD. Comparing the first 10 characters of a
+    UTC timestamp to a Central date pushed every deposit taken after ~6 PM
+    Houston into the next period. Match on the UTC window spanning the Central
+    range instead — ISO-8601 sorts as text, identically on SQLite and
+    Postgres, so this needs no dialect-specific date functions."""
+    window_start, _ = clock.day_bounds_utc(start)
+    _, window_end = clock.day_bounds_utc(end)
     rows = (
         db.query(Lead)
         .filter(
             Lead.deposit_status == "paid",
             Lead.deposit_paid_at.isnot(None),
-            func.substr(Lead.deposit_paid_at, 1, 10) >= start,
-            func.substr(Lead.deposit_paid_at, 1, 10) <= end,
+            Lead.deposit_paid_at >= window_start,
+            Lead.deposit_paid_at < window_end,
         )
         .all()
     )

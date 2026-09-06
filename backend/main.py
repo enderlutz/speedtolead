@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
+import clock
 from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
@@ -161,12 +162,9 @@ async def _qb_reconcile_loop():
     await asyncio.sleep(300)
     while True:
         try:
-            # Find the next 3am CST. Approximate (no DST transition
-            # logic — close enough; the pass is idempotent so a 1-hour
-            # drift twice a year doesn't matter).
-            now = datetime.now(timezone.utc)
-            is_dst = 3 <= now.month <= 10
-            cst_now = now + timedelta(hours=(-5 if is_dst else -6))
+            # Find the next 3am Central. Real DST handling via clock, so this
+            # doesn't drift an hour twice a year.
+            cst_now = clock.now_ct()
             next_3am_cst = cst_now.replace(hour=3, minute=0, second=0, microsecond=0)
             if cst_now >= next_3am_cst:
                 next_3am_cst = next_3am_cst + timedelta(days=1)
@@ -363,6 +361,12 @@ async def _async_db_init():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Before anything else. A backend that silently serves UTC dates as if
+    # they were Houston dates is worse than one that refuses to start, so this
+    # raises and fails the healthcheck rather than degrading quietly.
+    clock.assert_timezone_ok()
+    logger.info(clock.startup_line())
+
     init_task = asyncio.create_task(_async_db_init())
     poller = asyncio.create_task(_poller_loop())
     # T2.2: Message poller is now a fallback for the InboundMessage

@@ -15,6 +15,7 @@ from sqlalchemy import func
 import bcrypt
 from database import get_db, Employee, TimeEntry, Payment, User
 from api.auth import require_admin
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,15 +33,7 @@ def _today_central() -> str:
     """Return today's date in Central Time as YYYY-MM-DD. The dashboard runs
     out of Cypress, TX, so the team thinks in Central. UTC midnight cutover
     would lag by 5-6 hours and cause weird "today is yesterday" bugs."""
-    # Central is UTC-5 (CDT) or UTC-6 (CST). Approximate via offset.
-    # For more precision we'd use zoneinfo; this is good enough for a date.
-    from datetime import timedelta as _td
-    now_utc = datetime.now(timezone.utc)
-    # CDT runs ~mid-March to early November. Use a simple DST guess.
-    is_dst = 3 <= now_utc.month <= 10
-    offset = -5 if is_dst else -6
-    central = now_utc + _td(hours=offset)
-    return central.strftime("%Y-%m-%d")
+    return clock.today_ct_iso()
 
 
 def _current_year() -> int:

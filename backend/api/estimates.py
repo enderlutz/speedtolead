@@ -54,6 +54,7 @@ def _parse_dt(iso: str | None):
 from services.activity_log import log_event
 from services.event_bus import publish
 from config import get_settings
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -138,7 +139,7 @@ def _format_proposal_number(seq: int | None, created_at: str | None = None) -> s
         except (ValueError, TypeError):
             year = ""
     if not year:
-        year = str(datetime.now().year)
+        year = str(clock.today_ct().year)
     return f"SF-{year}-{int(seq):05d}"
 
 
@@ -529,7 +530,7 @@ def preview_estimate_pdf(estimate_id: str, body: PreviewBody | None = None):
             "signature_price": _format_price(tiers.get("signature", 0), _fin),
             "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
             **_monthly_values(tiers),
-            "date": datetime.now().strftime("%B %d, %Y"),
+            "date": clock.now_ct().strftime("%B %d, %Y"),
             **_slashed_price_values(tiers, markup),
             **_save_amount_values(tiers, markup),
         }
@@ -715,7 +716,7 @@ def _approve_estimate_background(
                     "signature_price": _format_price(tiers.get("signature", 0), _fin),
                     "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
                     **_monthly_values(tiers),
-                    "date": datetime.now().strftime("%B %d, %Y"),
+                    "date": clock.now_ct().strftime("%B %d, %Y"),
                     **_slashed_price_values(tiers, markup),
                     **_save_amount_values(tiers, markup),
                 }
@@ -1964,7 +1965,7 @@ def get_estimate_pdf(estimate_id: str):
             "signature_price": _format_price(tiers.get("signature", 0), _fin),
             "legacy_price": _format_price(tiers.get("legacy", 0), _fin),
             **_monthly_values(tiers),
-            "date": datetime.now().strftime("%B %d, %Y"),
+            "date": clock.now_ct().strftime("%B %d, %Y"),
             **_slashed_price_values(tiers, markup),
             **_save_amount_values(tiers, markup),
         }

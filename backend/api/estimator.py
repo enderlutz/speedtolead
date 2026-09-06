@@ -30,6 +30,7 @@ from config import get_settings
 from api.auth import get_current_user, require_staff, require_admin
 from services.geocoder import geocode_address
 from services.drive_time import drive_minutes
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -45,7 +46,14 @@ def _now() -> str:
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    """Today in Houston, not UTC.
+
+    This used to read the UTC clock, so between 6 PM and midnight Central it
+    returned TOMORROW — filing evening visits and time entries under the wrong
+    day, and mismatching the Central-derived dates it gets compared against in
+    api/leads.py.
+    """
+    return clock.today_ct_iso()
 
 
 def _default_estimator_id(db) -> str:

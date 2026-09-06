@@ -24,14 +24,14 @@ from datetime import datetime, timezone, timedelta, date as date_cls
 from config import get_settings
 from database import get_db, NotificationLog
 from services.ghl import send_sms
+import clock
 
 logger = logging.getLogger(__name__)
 
 
 def _today_central() -> datetime:
-    now = datetime.now(timezone.utc)
-    is_dst = 3 <= now.month <= 10
-    return now + timedelta(hours=(-5 if is_dst else -6))
+    """Aware Central datetime — callers use .date() and .hour."""
+    return clock.now_ct()
 
 
 def _last_day_of_month(d: date_cls) -> date_cls:

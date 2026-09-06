@@ -25,6 +25,7 @@ from database import (
     ScheduledJob, JobAssignment, Lead,
 )
 from api.auth import require_admin
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -35,11 +36,7 @@ def _now() -> str:
 
 
 def _today_central_iso() -> str:
-    now = datetime.now(timezone.utc)
-    month = now.month
-    is_dst = month >= 3 and month <= 10
-    offset = -5 if is_dst else -6
-    return (now + timedelta(hours=offset)).date().isoformat()
+    return clock.today_ct_iso()
 
 
 # ---------------------------------------------------------------------------

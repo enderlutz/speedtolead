@@ -38,6 +38,7 @@ from database import (
 from api.auth import require_admin
 from api.accounting import _allocation_cost, _job_revenue
 from services.wrapped_briefing import generate_briefing
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -50,9 +51,7 @@ def _now_iso() -> str:
 
 
 def _today_central() -> date_cls:
-    now = datetime.now(timezone.utc)
-    is_dst = 3 <= now.month <= 10
-    return (now + timedelta(hours=(-5 if is_dst else -6))).date()
+    return clock.today_ct()
 
 
 def _saturday_of(d: date_cls) -> date_cls:

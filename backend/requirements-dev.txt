@@ -1,0 +1,7 @@
+# Test-only dependencies. Kept out of requirements.txt so the production image
+# (Railway) stays exactly as it is — nothing here is imported by app code.
+#
+#   .venv/bin/python -m pip install -r requirements-dev.txt
+#   .venv/bin/python -m pytest
+-r requirements.txt
+pytest==8.3.3

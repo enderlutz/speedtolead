@@ -15,3 +15,9 @@ Pillow>=10.0.0
 # Lets Pillow open iPhone HEIC photos in the Fence Photos uploader. Optional —
 # api/fence_photos.py guards the import and returns a clear message if absent.
 pillow-heif>=0.16.0
+
+# Ships the IANA timezone database so ZoneInfo("America/Chicago") resolves
+# regardless of what the base image includes. clock.assert_timezone_ok()
+# fails the boot if it is missing rather than letting the app serve UTC
+# dates as if they were Houston dates.
+tzdata>=2024.1

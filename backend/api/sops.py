@@ -36,6 +36,7 @@ from database import (
 from api.auth import require_admin, require_staff, get_current_user
 from config import get_settings
 from services import ghl as ghl_service
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -270,11 +271,9 @@ def _can_access_run(user: dict, run: SopRun, db) -> bool:
 
 def _today_central_iso() -> str:
     """Return today's date in Central Time as YYYY-MM-DD. Matches the
-    format ScheduledJob.job_date is stored in (per scheduling.py)."""
-    # America/Chicago handles DST automatically. Workers in Houston should
-    # see "today" flip at midnight local, not UTC midnight.
-    from zoneinfo import ZoneInfo
-    return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d")
+    format ScheduledJob.job_date is stored in (per scheduling.py).
+    Workers in Houston see "today" flip at midnight local, not UTC midnight."""
+    return clock.today_ct_iso()
 
 
 def _assert_worker_can_write(user: dict, run: SopRun, db) -> None:
@@ -949,9 +948,7 @@ def log_hours(run_id: str, body: LogHoursBody, user: dict = Depends(get_current_
             raise HTTPException(404, "Employee not found")
 
         # Today's date in Central — matches the rest of the time-logs flow
-        today = (
-            datetime.now(timezone.utc) + timedelta(hours=-5 if 3 <= datetime.now(timezone.utc).month <= 10 else -6)
-        ).date().isoformat()
+        today = _today_central_iso()
 
         # Reuse or create today's TimeEntry for this employee
         te = (

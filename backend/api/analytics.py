@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, Depends
 from api.auth import require_staff
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Proposal, ScheduledJob
+import clock
 
 router = APIRouter()
 
@@ -852,9 +853,11 @@ def get_timing_analytics(
             created = _parse_dt(lead.created_at)
             if not created:
                 continue
-            # Convert to CST for display
-            cst = created - timedelta(hours=6)
-            day = cst.strftime("%A")
+            # Real Central Time, DST included — a fixed -6 put evening
+            # leads in the wrong hour (and sometimes the wrong weekday)
+            # for the eight months Houston is on CDT.
+            cst = clock.to_ct(created)
+            day = clock.weekday_label(cst)
             hour = cst.hour
             leads_by_day[day] += 1
             leads_by_hour[hour] += 1
@@ -896,9 +899,9 @@ def get_timing_analytics(
             if not viewed:
                 continue
 
-            # When do customers open proposals (CST)
-            cst_viewed = viewed - timedelta(hours=6)
-            views_by_day[cst_viewed.strftime("%A")] += 1
+            # When do customers open proposals (real Central, DST included)
+            cst_viewed = clock.to_ct(viewed)
+            views_by_day[clock.weekday_label(cst_viewed)] += 1
             views_by_hour[cst_viewed.hour] += 1
 
             # How soon after we text them

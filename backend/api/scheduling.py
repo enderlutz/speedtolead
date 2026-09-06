@@ -24,6 +24,7 @@ from api.divisions import get_division
 from services import google_calendar, weather, ghl, notifications, geocoder
 from services.event_bus import publish
 from config import get_settings
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1761,8 +1762,7 @@ def notify_almost_done(job_id: str, background_tasks: BackgroundTasks, user: dic
         customer = (j.customer_name or "the customer").strip()
         address = (j.address or "").strip()
         crew = _job_crew_names(db, job_id)
-        ct = datetime.now(timezone.utc) - timedelta(hours=5)  # CT (UTC-5)
-        now_ct = ct.strftime("%I:%M %p").lstrip("0")
+        now_ct = clock.now_ct().strftime("%I:%M %p").lstrip("0")
         msg = (
             f"⏱️ 30-min heads-up from {worker_name}\n"
             f"{customer}" + (f" — {address}" if address else "") + "\n"
@@ -2499,11 +2499,7 @@ def backfill_calendar_attendee(
 def _ct_today_iso() -> str:
     """Today's date in America/Chicago, YYYY-MM-DD — matches the format
     job_date uses across the dashboard."""
-    now = datetime.now(timezone.utc)
-    # Simple offset: CT is UTC-5 (CDT) for most of the year. Good enough
-    # for "today" boundaries on an admin one-shot endpoint.
-    ct = now - timedelta(hours=5)
-    return ct.strftime("%Y-%m-%d")
+    return clock.today_ct_iso()
 
 
 # ---------------------------------------------------------------------------

@@ -21,19 +21,15 @@ from sqlalchemy import desc, func
 
 from database import get_db, ScheduledJob, Lead
 from api.auth import require_staff
+import clock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 def _today_cst_iso_prefix() -> str:
-    """Returns YYYY-MM-DD for the current CST day so we can compare against
-    the first 10 chars of ISO timestamps (paid_at / deposit_paid_at)."""
-    now = datetime.now(timezone.utc)
-    # Approximate CST/CDT split — Texas observes DST roughly Mar→Nov.
-    is_dst = 3 <= now.month <= 10
-    cst = now + timedelta(hours=(-5 if is_dst else -6))
-    return cst.date().isoformat()
+    """Today's date in Houston, YYYY-MM-DD."""
+    return clock.today_ct_iso()
 
 
 @router.get("/payments/recent")
@@ -126,7 +122,14 @@ def list_recent_payments(
 
         # Today's running tally — sum across BOTH sides without the limit
         # so the badge doesn't lie when there are more than `limit` events.
+        #
+        # paid_at is stored in UTC, so comparing its first 10 characters to a
+        # Central date dropped every payment taken after ~6 PM Houston: an
+        # 8 PM payment is stored as tomorrow's UTC date. Match on the UTC
+        # window that covers the Central day instead. ISO-8601 sorts as text,
+        # identically on SQLite and Postgres, so this stays portable.
         today = _today_cst_iso_prefix()
+        day_start, day_end = clock.day_bounds_utc(today)
         today_jobs_total = (
             db.query(func.coalesce(func.sum(
                 # Use amount_collected when present; closed_price fallback.
@@ -134,7 +137,8 @@ def list_recent_payments(
             ), 0))
             .filter(
                 ScheduledJob.paid_at.isnot(None),
-                func.substr(ScheduledJob.paid_at, 1, 10) == today,
+                ScheduledJob.paid_at >= day_start,
+                ScheduledJob.paid_at < day_end,
                 ScheduledJob.status != "cancelled",
             )
             .scalar() or 0
@@ -144,7 +148,8 @@ def list_recent_payments(
             .filter(
                 Lead.deposit_status == "paid",
                 Lead.deposit_paid_at.isnot(None),
-                func.substr(Lead.deposit_paid_at, 1, 10) == today,
+                Lead.deposit_paid_at >= day_start,
+                Lead.deposit_paid_at < day_end,
             )
             .scalar() or 0
         )
