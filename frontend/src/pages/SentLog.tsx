@@ -11,6 +11,7 @@ import {
   Search, FileText, MapPin, Ruler, ChevronDown, ChevronUp, ExternalLink,
   CheckCircle2, DollarSign, Clock, Eye, Plus, X, PhoneCall,
 } from "lucide-react";
+import { todayCT } from "@/lib/date";
 
 const AGE_LABELS: Record<string, string> = {
   brand_new: "Brand new",
@@ -122,7 +123,7 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
   const [reopening, setReopening] = useState(false);
   const [editing, setEditing] = useState(false);
   const [selectedTier, setSelectedTier] = useState<string | null>(entry.closed_tier || null);
-  const [closedDate, setClosedDate] = useState(entry.closed_at ? entry.closed_at.slice(0, 10) : new Date().toISOString().slice(0, 10));
+  const [closedDate, setClosedDate] = useState(entry.closed_at ? entry.closed_at.slice(0, 10) : todayCT());
   const [closedPrice, setClosedPrice] = useState(entry.closed_price != null ? String(entry.closed_price) : "");
   const [actualSqft, setActualSqft] = useState(String(entry.closed_actual_sqft ?? (Number(entry.sqft) || 0)));
   const [upsellPerSqft, setUpsellPerSqft] = useState(entry.closed_upsell_per_sqft != null ? String(entry.closed_upsell_per_sqft) : "");

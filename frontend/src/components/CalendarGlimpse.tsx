@@ -3,6 +3,7 @@ import { api, type Lead, type NearbyJob, type ScheduledJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, X, Sparkles, MapPin, Loader2 } from "lucide-react";
+import { todayCT, ctISO } from "@/lib/date";
 
 // Phase 3 (2026-06-08) — Calendar Glimpse. Sits in front of the Schedule
 // Job Modal so the user sees the entire month at a glance with every
@@ -27,11 +28,11 @@ const NEARBY_TINT = "bg-cyan-50 border-cyan-200";
 const TODAY_TINT = "ring-2 ring-primary";
 const NEUTRAL = "bg-background border-border";
 
-/** YYYY-MM-DD in America/Chicago, today. The whole app schedules in CST. */
+/** YYYY-MM-DD in America/Chicago, today. The whole app schedules in Central.
+ *  Previously built a Date from Central wall-clock digits and then called
+ *  toISOString(), which shifted it a second time. */
 function todayCstIso(): string {
-  const now = new Date();
-  const cst = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-  return cst.toISOString().slice(0, 10);
+  return todayCT();
 }
 
 /** YYYY-MM-DD formatter that doesn't get bitten by UTC offset. */
@@ -312,9 +313,7 @@ export default function CalendarGlimpse({ lead, onPickDate, onClose }: Props) {
             onClick={() => {
               // "Skip calendar" — open the modal with the existing default date
               // (1 week out). User can still pick anything in the date picker.
-              const t = new Date();
-              t.setDate(t.getDate() + 7);
-              onPickDate(t.toISOString().slice(0, 10));
+              onPickDate(ctISO(7));
             }}
           >
             Skip — pick manually

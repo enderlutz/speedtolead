@@ -10,6 +10,7 @@ import { ArrowLeft, Camera, AlertCircle, RefreshCw, Lock, Clock, MapPin, Droplet
 import JobPhotosPanel from "@/components/JobPhotosPanel";
 import ToolsNeededChecklist from "@/components/ToolsNeededChecklist";
 import { errMessage } from "@/lib/utils";
+import { todayCT } from "@/lib/date";
 
 const PKG_LABEL: Record<string, string> = {
   essential: "Essential finish",
@@ -368,7 +369,7 @@ export default function JobSops() {
           <Lock className="h-4 w-4 mt-0.5 shrink-0" />
           <span>
             View only — this job is{" "}
-            {jobDate && jobDate > new Date().toISOString().slice(0, 10) ? "scheduled for a future date" : "from a past date"}.
+            {jobDate && jobDate > todayCT() ? "scheduled for a future date" : "from a past date"}.
             You can review the checklist, but you can only check steps and upload photos on the day of the job.
           </span>
         </div>

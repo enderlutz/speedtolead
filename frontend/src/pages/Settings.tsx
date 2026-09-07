@@ -21,6 +21,7 @@ import PaintingUpsellImportCard from "@/components/PaintingUpsellImportCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
 import QBTimeSettingsCard from "@/components/QBTimeSettingsCard";
 import SupportCard from "@/components/SupportCard";
+import { todayCT } from "@/lib/date";
 
 interface PdfTemplateInfo {
   id: string;
@@ -1240,7 +1241,7 @@ function GCalAttendeeBackfillCard() {
   // events in a date window and adds an email address as a guest. Used
   // to mirror past events onto a business calendar without re-creating
   // them. Idempotent — already-attendees are reported as skipped.
-  const todayISO = new Date().toISOString().slice(0, 10);
+  const todayISO = todayCT();
   const [email, setEmail] = useState("sterlingfencestaining@gmail.com");
   const [fromDate, setFromDate] = useState("2026-05-01");
   const [toDate, setToDate] = useState(todayISO);

@@ -3,9 +3,15 @@ import { api, type CrewBoard } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, CalendarDays, CloudRain, Link2, Copy, Loader2, AlertTriangle, Plus, X } from "lucide-react";
+import { todayCT } from "@/lib/date";
 
 function mondayOf(d: Date): Date { const x = new Date(d); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; }
-function toYMD(d: Date): string { return d.toISOString().slice(0, 10); }
+// Read the Date's own calendar fields. toISOString() converts to UTC first,
+// which moved the week grid to the next day during Houston evenings.
+function toYMD(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /** PM week grid: assign clean/stain/powerwash tasks to crew per day, mark backups,
@@ -13,7 +19,9 @@ const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
  * phone-page links. Click a task in the tray/interrupted queue to select it, then
  * click a worker×day cell to drop it there. */
 export default function CrewSchedule() {
-  const [weekStart, setWeekStart] = useState(() => toYMD(mondayOf(new Date())));
+  // Anchor on the Houston day, not the browser's, and at noon so no
+  // formatting step can cross a date boundary.
+  const [weekStart, setWeekStart] = useState(() => toYMD(mondayOf(new Date(`${todayCT()}T12:00:00`))));
   const [board, setBoard] = useState<CrewBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<{ id: string; label: string } | null>(null);

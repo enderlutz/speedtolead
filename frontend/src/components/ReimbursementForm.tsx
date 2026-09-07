@@ -7,17 +7,9 @@ import { toast } from "sonner";
 import {
   X, Plus, Trash2, Upload, Image as ImageIcon, FileText,
 } from "lucide-react";
+import { todayCT } from "@/lib/date";
 
 const labelCls = "text-xs font-semibold text-muted-foreground";
-
-const todayCentralISO = (): string => {
-  const now = new Date();
-  const month = now.getUTCMonth() + 1;
-  const isDst = month >= 3 && month <= 10;
-  const offsetH = isDst ? -5 : -6;
-  const central = new Date(now.getTime() + offsetH * 3600 * 1000);
-  return central.toISOString().slice(0, 10);
-};
 
 type LineItem = { id: string; description: string; amount: string };
 
@@ -46,7 +38,7 @@ export default function ReimbursementForm({
   const [leadId, setLeadId] = useState(defaultLeadId);
   const [leadLabel, setLeadLabel] = useState(defaultLeadName);
   const [customerQuery, setCustomerQuery] = useState("");
-  const [expenseDate, setExpenseDate] = useState(defaultDate || todayCentralISO());
+  const [expenseDate, setExpenseDate] = useState(defaultDate || todayCT());
 
   // Single-amount path (used when items list is empty)
   const [amount, setAmount] = useState("");

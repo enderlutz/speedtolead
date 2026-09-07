@@ -13,6 +13,7 @@ import ReimbursementForm from "@/components/ReimbursementForm";
 import MarkPaidModal from "@/components/MarkPaidModal";
 import SopChecklistPanel from "@/components/SopChecklistPanel";
 import JobPhotosPanel from "@/components/JobPhotosPanel";
+import { todayCT } from "@/lib/date";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -73,10 +74,9 @@ const SERVICE_BORDER: Record<string, string> = {
 };
 const DEFAULT_SERVICE_BORDER = "border-l-4 border-l-yellow-400 bg-yellow-50";
 
-const todayISO = (): string => {
-  const t = new Date();
-  return t.toISOString().slice(0, 10);
-};
+// Today in Houston. toISOString() on a live instant yields TOMORROW after
+// 7 PM Central, which shifted the "today" highlight and the day view.
+const todayISO = (): string => todayCT();
 
 // Local-timezone YYYY-MM-DD (avoids the UTC shift toISOString causes in the
 // evening for US timezones). Used by the Week/Day views whose anchor is a
@@ -175,8 +175,8 @@ export default function Calendar() {
   }, [view]);
 
   const weeks = useMemo(() => monthMatrix(year, monthIdx), [year, monthIdx]);
-  const monthStart = weeks[0][0].toISOString().slice(0, 10);
-  const monthEnd = weeks[weeks.length - 1][6].toISOString().slice(0, 10);
+  const monthStart = isoLocal(weeks[0][0]);
+  const monthEnd = isoLocal(weeks[weeks.length - 1][6]);
 
   // Week (Sun–Sat) containing `now`, for the Week view. Day view keys off `now`
   // directly. The month-matrix fetch range already covers both (the week/day
@@ -459,7 +459,7 @@ export default function Calendar() {
               {weeks.map((week, wi) => (
                 <div key={wi} className="grid grid-cols-7 border-b last:border-b-0">
                   {week.map((day) => {
-                    const iso = day.toISOString().slice(0, 10);
+                    const iso = isoLocal(day);
                     const inMonth = day.getMonth() === monthIdx;
                     const isToday = iso === todayISO();
                     const dayJobs = jobsByDate[iso] || [];

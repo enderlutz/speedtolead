@@ -13,17 +13,9 @@ import {
 } from "lucide-react";
 import ReimbursementForm from "@/components/ReimbursementForm";
 import HoursPie from "@/components/HoursPie";
+import { todayCT } from "@/lib/date";
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
-
-const todayCentralISO = (): string => {
-  const now = new Date();
-  const month = now.getUTCMonth() + 1;
-  const isDst = month >= 3 && month <= 10;
-  const offsetH = isDst ? -5 : -6;
-  const central = new Date(now.getTime() + offsetH * 3600 * 1000);
-  return central.toISOString().slice(0, 10);
-};
 
 interface Props {
   employees: Employee[];
@@ -35,7 +27,7 @@ interface Props {
 
 export default function DailyLogTab({ employees, initialEmployeeId, initialDate, initialLeadId }: Props) {
   const [employeeId, setEmployeeId] = useState(initialEmployeeId || (employees[0]?.id ?? ""));
-  const [date, setDate] = useState(initialDate || todayCentralISO());
+  const [date, setDate] = useState(initialDate || todayCT());
   const [day, setDay] = useState<DayLog | null>(null);
   const [unlogged, setUnlogged] = useState<UnloggedJob[]>([]);
   const [allCustomers, setAllCustomers] = useState<SearchableCustomer[]>([]);

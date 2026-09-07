@@ -36,6 +36,7 @@ import VideoEstimateCard from "@/components/VideoEstimateCard";
 import ExteriorTab from "@/components/ExteriorTab";
 import UpsellTab from "@/components/UpsellTab";
 import { V2_STAGES } from "@/lib/leadStages";
+import { ctHour, ctISO, dayHeader } from "@/lib/date";
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
 const FENCE_HEIGHT_OPTIONS = [
@@ -381,23 +382,18 @@ export default function LeadDetail() {
   // Pre-estimate call state removed — section was cut from the UI per spec.
   // Backend Estimate.precall_* fields are still preserved for historical data.
 
-  // Check if it's after 8 PM CST
+  // Check if it's after 8 PM Central
   const isAfterHours = () => {
-    const now = new Date();
-    const cst = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-    return cst.getHours() >= 20 || cst.getHours() < 6;
+    const h = ctHour();
+    return h >= 20 || h < 6;
   };
 
-  const getDefaultScheduleDate = () => {
-    const now = new Date();
-    const cst = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-    // If after 8 PM, default to tomorrow
-    if (cst.getHours() >= 20) {
-      cst.setDate(cst.getDate() + 1);
-    }
-    // If before 6 AM, default to today
-    return cst.toISOString().slice(0, 10);
-  };
+  // After 8 PM Central, default to tomorrow; otherwise today.
+  //
+  // This used to build a Date from Central wall-clock digits, add a day, then
+  // call toISOString() — which shifted it a second time. At 8 PM the two
+  // shifts compounded and the field defaulted TWO days out.
+  const getDefaultScheduleDate = () => (ctHour() >= 20 ? ctISO(1) : ctISO(0));
 
   const handleApprove = async (scheduledSendAt?: string, applyTag: boolean = true) => {
     if (!estimate) return;
@@ -1442,6 +1438,11 @@ export default function LeadDetail() {
                       <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className="h-8 text-sm" />
                     </div>
                   </div>
+                  {/* Weekday derived from the date — the check that catches an
+                      off-by-one before the message goes out. */}
+                  {scheduledDate && (
+                    <p className="text-xs text-blue-800">{dayHeader(scheduledDate)}</p>
+                  )}
                   <div className="flex gap-2">
                     <Button
                       onClick={() => {

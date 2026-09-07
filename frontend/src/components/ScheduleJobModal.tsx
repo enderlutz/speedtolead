@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { X, Calendar, Loader2, Users, Plus, AlertTriangle, MapPin, Pencil, Sparkles, Eye, Wrench, ExternalLink, Save, Send, BellOff } from "lucide-react";
 import ServiceDescriptionsModal from "@/components/ServiceDescriptionsModal";
+import { ctISO, dayHeader } from "@/lib/date";
 
 // Stain color list — placeholder. Final list comes from Alan tomorrow.
 const STAIN_COLORS = [
@@ -53,9 +54,7 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
   const defaultDate = useMemo(() => {
     if (existing) return existing.job_date;
     if (initialDate) return initialDate;
-    const t = new Date();
-    t.setDate(t.getDate() + 7);
-    return t.toISOString().slice(0, 10);
+    return ctISO(7);
   }, [existing, initialDate]);
 
   const [jobDate, setJobDate] = useState(existing?.job_date || defaultDate);
@@ -546,6 +545,12 @@ export default function ScheduleJobModal({ lead, existing, initialDate, onClose,
               <div>
                 <label className={labelCls}>Job Date</label>
                 <Input type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} className="mt-1" />
+                {/* The weekday, derived from the date. A schedule that said
+                    "Friday" over a Thursday date cost a full crew day; seeing
+                    the day name next to the date is what catches that. */}
+                {jobDate && (
+                  <p className="mt-1 text-xs text-muted-foreground">{dayHeader(jobDate)}</p>
+                )}
               </div>
               <div>
                 <label className={labelCls}>Arrival Time</label>

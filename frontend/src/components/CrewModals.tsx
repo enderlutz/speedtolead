@@ -6,20 +6,11 @@ import { toast } from "sonner";
 import { X, Loader2 } from "lucide-react";
 import CustomerSearchPicker from "@/components/CustomerSearchPicker";
 import { errMessage } from "@/lib/utils";
+import { todayCT } from "@/lib/date";
 
 const inputCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 const selectCls = inputCls;
 const labelCls = "text-xs font-semibold text-muted-foreground";
-
-const todayCentralISO = (): string => {
-  // Approximate Central Time today; close enough for UI defaulting.
-  const now = new Date();
-  const month = now.getUTCMonth() + 1;
-  const isDst = month >= 3 && month <= 10;
-  const offsetH = isDst ? -5 : -6;
-  const central = new Date(now.getTime() + offsetH * 3600 * 1000);
-  return central.toISOString().slice(0, 10);
-};
 
 function ModalShell({ title, onClose, children, footer }: {
   title: string;
@@ -62,7 +53,7 @@ export function AddEmployeeModal({
     phone: existing?.phone || "",
     email: existing?.email || "",
     address: existing?.address || "",
-    start_date: existing?.start_date || todayCentralISO(),
+    start_date: existing?.start_date || todayCT(),
     status: existing?.status || "active",
     notes: existing?.notes || "",
   });
@@ -205,7 +196,7 @@ export function LogHoursModal({
   }, [existing, defaultEmployeeId, employees]);
 
   const [employeeId, setEmployeeId] = useState(initialEmp);
-  const [workDate, setWorkDate] = useState(existing?.work_date || todayCentralISO());
+  const [workDate, setWorkDate] = useState(existing?.work_date || todayCT());
   const [hours, setHours] = useState(existing ? String(existing.hours) : "");
   const [jobRef, setJobRef] = useState(existing?.job_reference || "");
   const [notes, setNotes] = useState(existing?.notes || "");
@@ -339,7 +330,7 @@ export function RecordPaymentModal({
   }, [existing, defaultEmployeeId, employees]);
 
   const [employeeId, setEmployeeId] = useState(initialEmp);
-  const [paymentDate, setPaymentDate] = useState(existing?.payment_date || todayCentralISO());
+  const [paymentDate, setPaymentDate] = useState(existing?.payment_date || todayCT());
   const [wage, setWage] = useState(existing && existing.wage_amount > 0 ? String(existing.wage_amount) : "");
   const [reimb, setReimb] = useState(existing && existing.reimbursement_amount > 0 ? String(existing.reimbursement_amount) : "");
   const [reimbNote, setReimbNote] = useState(existing?.reimbursement_note || "");

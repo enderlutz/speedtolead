@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getCurrentUser } from "@/lib/api";
 import WrappedModal from "@/components/WrappedModal";
+import { isoFromYMD } from "@/lib/date";
 
 // AUTO-pop trigger for the Spotify-Wrapped-style CEO digest. Lives at
 // the AppLayout level so it can fire on ANY page the admin happens to
@@ -37,7 +38,9 @@ function computeAutoPop(isAdmin: boolean): AutoState {
   const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const saturday = new Date(now);
   saturday.setDate(saturday.getDate() + (6 - saturday.getDay()));
-  const weekKey = saturday.toISOString().slice(0, 10);
+  // Local calendar fields — toISOString() rolled the key to the next day
+  // during Houston evenings, re-showing a popup that had already been seen.
+  const weekKey = isoFromYMD(saturday.getFullYear(), saturday.getMonth(), saturday.getDate());
 
   const everSeen = localStorage.getItem("at_wrapped_ever_seen");
 
