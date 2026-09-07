@@ -30,6 +30,9 @@ class Lead(Base):
         Index("idx_leads_kanban_column", "kanban_column"),
         Index("idx_leads_created_at", "created_at"),
         Index("idx_leads_pipeline_version", "pipeline_version"),
+        Index("idx_leads_name_key", "name_key"),
+        Index("idx_leads_phone_key", "phone_key"),
+        Index("idx_leads_phonetic_key", "phonetic_key"),
     )
 
     id = Column(Text, primary_key=True)
@@ -41,6 +44,23 @@ class Lead(Base):
     contact_email = Column(Text, default="")
     address = Column(Text, default="")
     zip_code = Column(Text, default="")
+    # ── Identity lookup keys ──────────────────────────────────────────
+    # Precomputed by services/identity.stamp_lead_keys() so a spoken or typed
+    # customer name can be resolved without scanning every row through Python.
+    # Kept as columns rather than computed per query because ilike is
+    # case-insensitive on Postgres but ASCII-only on SQLite — matching has to
+    # behave the same in tests as in production.
+    name_key = Column(Text, default="")          # normalized contact_name
+    phonetic_key = Column(Text, default="")      # spelling-tolerant key
+    phone_key = Column(Text, default="")         # last 10 digits of the phone
+    # Spellings Alan has confirmed mean THIS customer ("Nalonso" on the
+    # Nolasco row). This — not the phonetic key — is what handles badly
+    # mangled voice transcription; see services/name_match.phonetic_key.
+    identity_aliases = Column(Text, default="[]")   # JSON list of strings
+    # Soft pointer to the canonical Lead when a human has confirmed two rows
+    # are the same person. NEVER set automatically. Nothing is moved or
+    # deleted; the resolver just follows it.
+    duplicate_of = Column(Text, default="")
     service_type = Column(Text, default="fence_staining")
     status = Column(Text, default="new")
     kanban_column = Column(Text, default="new_lead")
@@ -875,6 +895,24 @@ class Employee(Base):
     # (/crew/{token}, no login — same pattern as proposal pages). Empty until
     # the PM generates one.
     crew_token = Column(Text, default="")
+    # ── Identity ──────────────────────────────────────────────────────
+    # Spellings that mean THIS person. Christian's row carries
+    # ["Christian", "Chris T"]; Cris's carries ["Cris"]; Chris's carries
+    # ["Chris"]. Note what this does NOT do: it never merges them. It makes
+    # a spoken "Chris" match two or more rows, which is what forces the
+    # resolver to ask instead of picking. That refusal is the mechanism.
+    identity_aliases = Column(Text, default="[]")   # JSON list of strings
+    phonetic_key = Column(Text, default="")
+    # Which language this person's messages are written in. A property of the
+    # person, not a per-message decision — deciding it per message is how one
+    # crew member ended up with the wrong language for days.
+    preferred_language = Column(Text, default="en")   # en | es
+    # A temporary override, e.g. "put Luis in English". Scope is REQUIRED and
+    # must be "message" (consumed once, then cleared) or "until" (expires on
+    # until_date). There is deliberately no unbounded override: the one time
+    # this was done informally, nobody could say how long it applied.
+    # {language, scope, until_date, reason, set_by, set_at}
+    language_override = Column(Text, default="{}")
     # Existence flag set on upload. Crew listing endpoints serialized every
     # employee twice via bool(w9_file_data) — each access loaded the entire
     # W9 PDF blob from Postgres. This flag avoids that hit.
@@ -3146,6 +3184,11 @@ def init_db():
 
     _SessionLocal = sessionmaker(bind=_engine)
 
+    # Data backfills run after sessions exist — _run_migrations() is DDL only.
+    # Both are batched and capped so a cold boot can't outrun the healthcheck.
+    _backfill_lead_identity_keys()
+    _backfill_employee_identity_keys()
+
 
 def _run_migrations():
     """Idempotent ALTER TABLE migrations for columns added after initial schema."""
@@ -3781,6 +3824,138 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE stain_movements ADD COLUMN previous_gallons FLOAT DEFAULT 0"))
             logger.info("Migration: added stain_movements.previous_gallons")
+
+    # ── Identity spine ────────────────────────────────────────────────
+    # Lookup keys so a spoken or typed name resolves to a stable id instead of
+    # being matched on free text. See services/identity.py.
+    if inspector.has_table("leads"):
+        lead_cols = {c["name"] for c in inspector.get_columns("leads")}
+        for col, ddl in (
+            ("name_key", "ALTER TABLE leads ADD COLUMN name_key TEXT DEFAULT ''"),
+            ("phonetic_key", "ALTER TABLE leads ADD COLUMN phonetic_key TEXT DEFAULT ''"),
+            ("phone_key", "ALTER TABLE leads ADD COLUMN phone_key TEXT DEFAULT ''"),
+            ("identity_aliases", "ALTER TABLE leads ADD COLUMN identity_aliases TEXT DEFAULT '[]'"),
+            ("duplicate_of", "ALTER TABLE leads ADD COLUMN duplicate_of TEXT DEFAULT ''"),
+        ):
+            if col not in lead_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added leads.{col}")
+
+    if inspector.has_table("employees"):
+        emp_cols = {c["name"] for c in inspector.get_columns("employees")}
+        for col, ddl in (
+            ("identity_aliases", "ALTER TABLE employees ADD COLUMN identity_aliases TEXT DEFAULT '[]'"),
+            ("phonetic_key", "ALTER TABLE employees ADD COLUMN phonetic_key TEXT DEFAULT ''"),
+            ("preferred_language", "ALTER TABLE employees ADD COLUMN preferred_language TEXT DEFAULT 'en'"),
+            ("language_override", "ALTER TABLE employees ADD COLUMN language_override TEXT DEFAULT '{}'"),
+        ):
+            if col not in emp_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info(f"Migration: added employees.{col}")
+
+
+# Capped so a cold boot can't outrun Railway's 30s healthcheck. Whatever is
+# left is picked up on the next boot, and services/identity.py recomputes a
+# missing key on read — so a slow or interrupted backfill degrades to
+# "slightly slower", never to "customer can't be found".
+_IDENTITY_BACKFILL_BATCH = 500
+_IDENTITY_BACKFILL_MAX_PER_BOOT = 5000
+
+
+# ── Identity keys stay in step automatically ──────────────────────────
+# Lead and Employee names are written from many places — the GHL webhook, the
+# 5-minute poller, the lead editor, the crew admin. Stamping the lookup keys at
+# each call site means the next one added silently skips it, and a lead whose
+# key is stale is a customer the resolver cannot find. A mapper listener is the
+# one place that cannot be forgotten.
+#
+# Imports only services.name_match, which imports nothing from the app, so
+# there is no cycle back through database.py.
+from sqlalchemy import event as _sa_event  # noqa: E402
+
+
+def _stamp_lead(mapper, connection, target) -> None:
+    del mapper, connection
+    from services.name_match import name_key, phonetic_key, phone_key
+    name = target.contact_name or ""
+    # "-" rather than "" for a nameless lead: an empty key would make the
+    # backfill re-select the same row forever.
+    target.name_key = name_key(name) or "-"
+    target.phonetic_key = phonetic_key(name)
+    target.phone_key = phone_key(target.contact_phone or "")
+
+
+def _stamp_employee(mapper, connection, target) -> None:
+    del mapper, connection
+    from services.name_match import phonetic_key
+    display = (target.display_name
+               or f"{target.first_name or ''} {target.last_name or ''}").strip()
+    target.phonetic_key = phonetic_key(display) or "-"
+
+
+for _model, _fn in ((Lead, _stamp_lead), (Employee, _stamp_employee)):
+    _sa_event.listen(_model, "before_insert", _fn)
+    _sa_event.listen(_model, "before_update", _fn)
+
+
+def _backfill_lead_identity_keys() -> None:
+    from services.name_match import name_key, phonetic_key, phone_key
+    session = _SessionLocal()
+    try:
+        done = 0
+        while done < _IDENTITY_BACKFILL_MAX_PER_BOOT:
+            rows = (
+                session.query(Lead)
+                .filter((Lead.name_key == "") | (Lead.name_key.is_(None)))
+                .limit(_IDENTITY_BACKFILL_BATCH)
+                .all()
+            )
+            if not rows:
+                break
+            for lead in rows:
+                name = lead.contact_name or ""
+                # A nameless lead would re-select forever on `name_key == ""`.
+                # Park it on a sentinel so the loop terminates.
+                lead.name_key = name_key(name) or "-"
+                lead.phonetic_key = phonetic_key(name)
+                lead.phone_key = phone_key(lead.contact_phone or "")
+            session.commit()
+            done += len(rows)
+            if len(rows) < _IDENTITY_BACKFILL_BATCH:
+                break
+        if done:
+            logger.info(f"Migration: stamped identity keys on {done} leads")
+    except Exception as e:
+        session.rollback()
+        # Never block boot on this — the lazy recompute covers the gap.
+        logger.warning(f"Lead identity backfill deferred: {e}")
+    finally:
+        session.close()
+
+
+def _backfill_employee_identity_keys() -> None:
+    from services.name_match import phonetic_key
+    session = _SessionLocal()
+    try:
+        rows = (
+            session.query(Employee)
+            .filter((Employee.phonetic_key == "") | (Employee.phonetic_key.is_(None)))
+            .limit(_IDENTITY_BACKFILL_BATCH)
+            .all()
+        )
+        for emp in rows:
+            display = (emp.display_name or f"{emp.first_name or ''} {emp.last_name or ''}").strip()
+            emp.phonetic_key = phonetic_key(display) or "-"
+        if rows:
+            session.commit()
+            logger.info(f"Migration: stamped identity keys on {len(rows)} employees")
+    except Exception as e:
+        session.rollback()
+        logger.warning(f"Employee identity backfill deferred: {e}")
+    finally:
+        session.close()
 
 
 def get_db() -> Session:
