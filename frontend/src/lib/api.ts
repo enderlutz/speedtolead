@@ -2012,6 +2012,36 @@ export const api = {
     request<CallPrep>(`/api/leads/${leadId}/call-prep`, { method: "POST" }),
 
   // Fence Photos — galleries hanging off the stain colours above
+  // --- Identity ---
+  resolveName: (body: {
+    kind: "employee" | "customer";
+    text: string;
+    address_hint?: string;
+    phone_hint?: string;
+  }) => request<IdentityResolution>("/api/identity/resolve", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+  resolveDay: (phrase: string) =>
+    request<ResolvedDay>(`/api/time/resolve-day?phrase=${encodeURIComponent(phrase)}`),
+  listDuplicates: () =>
+    request<{ count: number; groups: DuplicateGroup[] }>("/api/identity/duplicates"),
+  markSamePerson: (canonical_id: string, duplicate_id: string) =>
+    request<{ canonical_id: string; duplicate_id: string }>(
+      "/api/identity/duplicates/same-person",
+      { method: "POST", body: JSON.stringify({ canonical_id, duplicate_id }) },
+    ),
+  markDifferentPeople: (lead_id_a: string, lead_id_b: string, note = "") =>
+    request<{ recorded: boolean }>(
+      "/api/identity/duplicates/different-people",
+      { method: "POST", body: JSON.stringify({ lead_id_a, lead_id_b, note }) },
+    ),
+  addLeadAlias: (leadId: string, alias: string) =>
+    request<{ lead_id: string; aliases: string[] }>(
+      `/api/identity/leads/${leadId}/aliases`,
+      { method: "POST", body: JSON.stringify({ alias }) },
+    ),
+
   listFencePhotos: (params?: { q?: string; finish_type?: string }) => {
     const sp = new URLSearchParams();
     if (params?.q) sp.set("q", params.q);
@@ -4345,6 +4375,60 @@ export interface OverheadBody {
   description: string;
   monthly_amount: number;
   active: boolean;
+}
+
+// --- Identity: resolving a name to a stable id, or refusing to ---
+//
+// The contract to respect: `person` is non-null ONLY when status is
+// "resolved". Never read a candidate as an answer — two plausible people is
+// how the wrong Chris gets the job.
+
+export interface IdentityCandidate {
+  kind: "employee" | "customer";
+  id: string;
+  display: string;
+  /** What tells two same-named people apart — a role, or an address. */
+  detail: string;
+  score: number;
+  matched_on: string;
+}
+
+export interface IdentityResolution {
+  status: "resolved" | "ambiguous" | "not_found";
+  person: IdentityCandidate | null;
+  candidates: IdentityCandidate[];
+  query: string;
+  /** Empty unless the caller has to ask. Phrased server-side so every
+   *  surface asks the same way. */
+  question: string;
+}
+
+export interface DuplicateGroupLead {
+  id: string;
+  contact_name: string;
+  address: string;
+  phone: string;
+  created_at: string;
+  status: string;
+}
+
+export interface DuplicateGroup {
+  reason: string;
+  leads: DuplicateGroupLead[];
+}
+
+export interface ResolvedDay {
+  confident: boolean;
+  date: string | null;
+  weekday?: string;
+  /** "Thursday, September 3, 2026" — show this back before acting on it. */
+  label?: string;
+  phrase: string;
+  basis_date: string;
+  /** True when the phrase named a weekday that disagrees with the date it
+   *  resolved to. The date wins; the weekday was only ever a checksum. */
+  conflict?: boolean;
+  question: string;
 }
 
 // --- Stain Inventory ---

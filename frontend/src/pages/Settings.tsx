@@ -21,6 +21,7 @@ import PaintingUpsellImportCard from "@/components/PaintingUpsellImportCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
 import QBTimeSettingsCard from "@/components/QBTimeSettingsCard";
 import SupportCard from "@/components/SupportCard";
+import DuplicateCustomersCard from "@/components/DuplicateCustomersCard";
 import { todayCT } from "@/lib/date";
 
 interface PdfTemplateInfo {
@@ -266,6 +267,10 @@ export default function Settings() {
 
       {/* QuickBooks Time — separate OAuth app for time tracking + payroll-adjacent sync */}
       <QBTimeSettingsCard />
+
+      {/* Possible duplicate customers — two records that might be one person.
+          Judged by hand, because no matcher can separate the two Micheals. */}
+      <DuplicateCustomersCard />
 
       {/* Support + legal — surfaces contact email + EULA / Privacy links */}
       <SupportCard />
