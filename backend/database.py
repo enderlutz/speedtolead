@@ -1146,6 +1146,13 @@ class ScheduledJob(Base):
     completed_at = Column(Text, nullable=True)
     started_by = Column(Text, default="")
     completed_by = Column(Text, default="")
+    # The stable id alongside the display text. started_by/completed_by mixed
+    # three kinds of value row to row — a username, a display name, or a
+    # literal like "System" — so neither could be trusted to identify a
+    # person. The legacy columns keep being written (to_dict ships them to the
+    # frontend); these are the ones to read.
+    started_by_user_id = Column(Text, default="")
+    completed_by_user_id = Column(Text, default="")
     # Materials (stain, sealer, brushes, etc.) consumed on the job. Single
     # number entered by admin after the crew finishes. Drops directly out of
     # gross profit so per-job margins reflect real material spend.
@@ -3841,6 +3848,14 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added leads.{col}")
+
+    if inspector.has_table("scheduled_jobs"):
+        sj_cols = {c["name"] for c in inspector.get_columns("scheduled_jobs")}
+        for col in ("started_by_user_id", "completed_by_user_id"):
+            if col not in sj_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE scheduled_jobs ADD COLUMN {col} TEXT DEFAULT ''"))
+                logger.info(f"Migration: added scheduled_jobs.{col}")
 
     if inspector.has_table("employees"):
         emp_cols = {c["name"] for c in inspector.get_columns("employees")}

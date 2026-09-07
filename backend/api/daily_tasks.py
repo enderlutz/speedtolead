@@ -169,9 +169,14 @@ def get_daily_tasks(user: dict = Depends(require_staff), division: str = Depends
             sub = (sub or "").strip()
             if not name and not sub:
                 return
-            # Key by display name first so the same person merges across sources
-            # (a follow-up stores only the name; a call also stores the sub).
-            key = (name or sub).lower()
+            # Key on the username, which is unique and stable, and fall back to
+            # the display name only when a source didn't record one.
+            #
+            # This used to key on the display name first, so the same person
+            # showed up twice the moment two sources spelled them differently
+            # ("Alan" from one write path, "alan bonner" from another). The
+            # stable id was already stored alongside; it just wasn't trusted.
+            key = (sub or name).lower()
             bucket = touched_by_lead.setdefault(lid, {})
             cur = bucket.get(key)
             if cur is None:
@@ -797,7 +802,10 @@ def get_call_tally(date: str = "", user: dict = Depends(require_staff),
                     revenue_last_week += amt
             sub = (c.disposed_by_sub or "").strip().lower()
             name = c.disposed_by or sub_to_name.get(sub, "") or (c.disposed_by_sub or "")
-            key = (name or sub).strip().lower()
+            # Key on the stable username; the display name is only a fallback
+            # for rows that predate it. Keying on the name split one person
+            # into two rows whenever two sources spelled them differently.
+            key = (sub or name).strip().lower()
             if not key:
                 continue
             if sub in excluded_subs or (name or "").strip().lower() in excluded_names:

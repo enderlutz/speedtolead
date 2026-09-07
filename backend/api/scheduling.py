@@ -2077,6 +2077,7 @@ def start_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
         j.status = "in_progress"
         j.started_at = _now()
         j.started_by = user.get("sub", "") or worker_name
+        j.started_by_user_id = user.get("sub", "")
         j.updated_at = _now()
         db.commit()
         db.refresh(j)
@@ -2134,6 +2135,7 @@ def complete_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
         j.status = "completed"
         j.completed_at = _now()
         j.completed_by = user.get("sub", "") or worker_name
+        j.completed_by_user_id = user.get("sub", "")
         j.updated_at = _now()
         db.commit()
         db.refresh(j)

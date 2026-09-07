@@ -1951,7 +1951,9 @@ async def upload_measurement(
         lead.measurement_filename = file.filename or "measurement"
         lead.measurement_mime = file.content_type or "image/png"
         lead.measurement_uploaded_at = _now()
-        lead.measurement_uploaded_by = (user or {}).get("username") or ""
+        # "username" is not a JWT claim — it is "sub" — so this recorded an
+        # empty string on every upload since it shipped.
+        lead.measurement_uploaded_by = (user or {}).get("sub") or ""
         lead.updated_at = _now()
         db.commit()
         log_event(lead.id, "measurement_uploaded", f"Measurement screenshot uploaded by {lead.measurement_uploaded_by or 'unknown'}", {})
