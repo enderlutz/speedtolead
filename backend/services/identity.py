@@ -121,10 +121,21 @@ def _score(spoken: str, display: str, aliases: list[str], stored_phonetic: str) 
     for alias in aliases:
         ratio = max(ratio, similarity(spoken, alias))
 
-    # A first name matching a fuller name is capped: "Chris" against
-    # "Christian Reyes" must never look certain.
-    if q_norm in normalize_name(display).split(" "):
-        return min(0.70, max(ratio, 0.66)), "first_name_only"
+    # People are called by their first name, so a bare "Chris" has to be
+    # compared against each name part, not just the whole string. Matching
+    # only the full name scored "Cris Delgado" at 0.47 — below the bar to be
+    # a candidate at all — so the collision with "Chris Boyd" was invisible
+    # and the query looked like a clean miss instead of a choice.
+    #
+    # These score high on purpose. The protection against picking the wrong
+    # Chris is _decide()'s rule that two plausible candidates means ask, not
+    # a low score — a low score just hides the second person.
+    tokens = normalize_name(display).split(" ")
+    if q_norm in tokens:
+        return max(ratio, 0.90), "first_name"
+    token_best = max((similarity(q_norm, t) for t in tokens if t), default=0.0)
+    if token_best >= 0.82:
+        return max(ratio, 0.88), "first_name_similar"
 
     return ratio, "similar"
 
@@ -154,11 +165,23 @@ def _decide(spoken: str, scored: list[Candidate], noun: str) -> Resolution:
         )
 
     near = [c for c in ranked if c.score >= CONSIDER][:3]
+
+    # Two or more people plausible enough to name IS ambiguity, even when
+    # none of them clears the accept bar. Calling that "not_found" would be a
+    # lie about the shape of the problem — the caller isn't missing a record,
+    # it's holding several. This is the plain "Chris" case: three first names
+    # in range, none of them certain.
+    if len(near) > 1:
+        return Resolution(
+            status="ambiguous", person=None, candidates=near, query=spoken,
+            question=_ask(spoken, near, noun),
+        )
+
     return Resolution(
         status="not_found", person=None, candidates=near, query=spoken,
         question=(
             f"I don't know a {noun} called \"{spoken}\". "
-            + (f"Did you mean {_join([c.display for c in near])}?" if near
+            + (f"Did you mean {near[0].display}?" if near
                else "Pick them from the list.")
         ),
     )
@@ -280,6 +303,7 @@ def resolve_customer(db, spoken: str, *, address_hint: str = "",
     # has confirmed are the same person must present as ONE candidate, or the
     # confirmation buys nothing and they read as an ambiguity forever.
     best: dict[str, Candidate] = {}
+    hit_the_hint: set[str] = set()
     for lead in rows:
         display = (lead.contact_name or "").strip()
         if not display:
@@ -288,17 +312,24 @@ def resolve_customer(db, spoken: str, *, address_hint: str = "",
                             lead.phonetic_key or "")
         if score <= 0:
             continue
-        # The address hint is a tie-breaker, never a match on its own.
+
+        target = _canonical(db, lead) or lead
+        if target.id != lead.id:
+            how = f"{how}+merged"
+
+        # An address hint is a FILTER, not just a bonus. "Micheal on Calwood"
+        # is a complete instruction: it doesn't merely favour the Calwood
+        # record, it excludes the one on Laguna Hills. Scoring it as a bonus
+        # left both above the bar and the query stayed ambiguous, which made
+        # the hint useless for the exact case it exists to settle.
         if hint_tokens or hint_number:
             addr = lead.address or ""
             if (hint_number and hint_number == street_number(addr)) or \
                (hint_tokens and hint_tokens & address_tokens(addr)):
                 score = min(1.0, score + 0.25)
                 how = f"{how}+address"
+                hit_the_hint.add(target.id)
 
-        target = _canonical(db, lead) or lead
-        if target.id != lead.id:
-            how = f"{how}+merged"
         prior = best.get(target.id)
         if prior is None or score > prior.score:
             best[target.id] = Candidate(
@@ -306,6 +337,11 @@ def resolve_customer(db, spoken: str, *, address_hint: str = "",
                 display=(target.contact_name or display).strip(),
                 detail=target.address or "", score=score, matched_on=how,
             )
+
+    # Only narrow when the hint actually matched something — a hint that
+    # matches nothing is a bad hint, not a reason to find no one.
+    if hit_the_hint:
+        best = {k: v for k, v in best.items() if k in hit_the_hint}
 
     scored = list(best.values())
     resolution = _decide(spoken, scored, "customer")
@@ -407,3 +443,74 @@ def language_for(emp: Employee, *, today: str) -> tuple[str, bool]:
         if until and today <= until:
             return str(ov["language"]), True
     return base, False
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Duplicate review — surface, never auto-merge
+# ──────────────────────────────────────────────────────────────────────
+
+def find_duplicate_groups(db, *, limit: int = 50) -> list[dict]:
+    """Leads that look like the same person, for a human to judge.
+
+    Nothing here changes any data. Two leads are raised when they share a
+    phone, or share a phonetic key AND a street number. Deliberately narrow:
+    a review list that cries wolf gets ignored, and an ignored review list is
+    how two Micheals nearly became one record.
+
+    Pairs already confirmed distinct are filtered out, so the two Micheals
+    stop appearing once someone says so.
+    """
+    from database import IdentityDistinct
+
+    leads = (
+        db.query(Lead)
+        .filter(Lead.duplicate_of == "")
+        .filter(Lead.status != "archived")
+        .all()
+    )
+
+    distinct: set[tuple[str, str]] = {
+        IdentityDistinct.pair(r.lead_id_a, r.lead_id_b)
+        for r in db.query(IdentityDistinct).all()
+    }
+
+    buckets: dict[tuple[str, str], list[Lead]] = {}
+    for lead in leads:
+        if lead.phone_key:
+            buckets.setdefault(("phone", lead.phone_key), []).append(lead)
+        pk = lead.phonetic_key or ""
+        num = street_number(lead.address or "")
+        if pk and pk != "-" and num:
+            buckets.setdefault(("name+street", f"{pk}|{num}"), []).append(lead)
+
+    groups: list[dict] = []
+    seen_sets: set[frozenset[str]] = set()
+    for (reason, _), members in buckets.items():
+        if len(members) < 2:
+            continue
+        ids = frozenset(m.id for m in members)
+        if ids in seen_sets:
+            continue
+        # Drop the group if EVERY pair in it has been judged distinct.
+        pairs = [
+            IdentityDistinct.pair(a.id, b.id)
+            for i, a in enumerate(members) for b in members[i + 1:]
+        ]
+        if pairs and all(p in distinct for p in pairs):
+            continue
+        seen_sets.add(ids)
+        groups.append({
+            "reason": ("same phone number" if reason == "phone"
+                       else "similar name at the same street number"),
+            "leads": [{
+                "id": m.id,
+                "contact_name": m.contact_name or "",
+                "address": m.address or "",
+                "phone": m.contact_phone or "",
+                "created_at": m.created_at or "",
+                "status": m.status or "",
+            } for m in sorted(members, key=lambda x: x.created_at or "")],
+        })
+        if len(groups) >= limit:
+            break
+    return groups

@@ -2583,6 +2583,46 @@ class StainInventoryItem(Base):
         }
 
 
+class IdentityDistinct(Base):
+    """Two leads a human has confirmed are DIFFERENT people.
+
+    Micheal at 9403 Calwood Cir and Micheal Jessop at 19802 Laguna Hills Ct
+    look like duplicates to any matcher and will keep looking like duplicates
+    forever. Recording the judgment once does double duty: the duplicate
+    review stops raising the pair, and the resolver reads it as proof they
+    must never collapse.
+
+    Stored with the two ids sorted, so a pair is recorded once regardless of
+    which order it was reviewed in.
+    """
+    __tablename__ = "identity_distinct"
+    __table_args__ = (
+        UniqueConstraint("lead_id_a", "lead_id_b", name="uq_identity_distinct"),
+        Index("idx_identity_distinct_a", "lead_id_a"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id_a = Column(Text, nullable=False)     # always the lexically smaller id
+    lead_id_b = Column(Text, nullable=False)
+    confirmed_by = Column(Text, default="")      # User.username
+    confirmed_at = Column(Text, default="")
+    note = Column(Text, default="")
+
+    @staticmethod
+    def pair(a: str, b: str) -> tuple[str, str]:
+        return (a, b) if a <= b else (b, a)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id_a": self.lead_id_a,
+            "lead_id_b": self.lead_id_b,
+            "confirmed_by": self.confirmed_by or "",
+            "confirmed_at": self.confirmed_at or "",
+            "note": self.note or "",
+        }
+
+
 class FencePhoto(Base):
     """A reference photo of a finished fence, filed under the stain colour it
     was done in. Shown to customers on sales calls — "this is what Pine Bark
