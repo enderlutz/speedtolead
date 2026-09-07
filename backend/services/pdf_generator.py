@@ -55,6 +55,7 @@ DEFAULT_COLOR = "#2B2B2B"
 BOLD_FIELDS = {
     "customer_name", "essential_price", "signature_price", "legacy_price",
     "property_address", "prepared_by", "date", "proposal_number",
+    "essential_monthly", "signature_monthly", "legacy_monthly",
 }
 
 # Price field split rendering — different colors for dollar amounts vs "or"
