@@ -1,9 +1,16 @@
 """
 GHL call recording poller.
-Checks for new call recordings and triggers transcription + analysis pipeline.
 
-NOTE: GHL call recording endpoint TBD — this is a ready-to-connect stub.
-Once we confirm the GHL API endpoint for call recordings, we plug it in here.
+Pulls call audio out of GoHighLevel and runs it through transcription (and
+optionally analysis). GHL does NOT expose transcripts — it exposes the WAV,
+via /conversations/messages/{id}/locations/{lid}/recording, confirmed by the
+2026-06-07 probe. The text is made here with Deepgram.
+
+Three entry points, deliberately separate:
+  poll_ghl_call_recordings — the background rotation. Talks to GHL.
+  transcribe_backlog       — catches up recordings whose audio we already
+                             hold. Talks to Deepgram only, never GHL.
+  process_recording_pipeline — one recording, transcribe → analyze.
 """
 from __future__ import annotations
 import uuid
@@ -263,7 +270,8 @@ def get_transcribe_backlog_status() -> dict:
     return dict(_transcribe_status)
 
 
-def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5) -> dict:
+def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5,
+                      transcribe_only: bool = True) -> dict:
     """Run stranded `pending` recordings through transcribe → analyze.
 
     Newest first, because the most recent calls are the ones worth mining.
@@ -272,7 +280,12 @@ def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5) -> dict:
     half-finished run just resumes where it stopped.
 
     Deepgram bills per minute of audio, so `limit` is deliberately required
-    to be small by default — run 200, check the results, then decide."""
+    to be small by default — run 200, check the results, then decide.
+
+    transcribe_only defaults to True: a catch-up over old recordings wants
+    the text, not a Claude analysis of every one. Deepgram is fractions of a
+    cent per call; the analysis is what exhausted the API credits last time.
+    Pass transcribe_only=False to run the full pipeline."""
     global _transcribe_status
     if _transcribe_status.get("running"):
         return get_transcribe_backlog_status()
@@ -305,7 +318,7 @@ def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5) -> dict:
         try:
             # Opens and closes its own session per recording, and sets the
             # row's own status — so a crash mid-run loses at most one.
-            process_recording_pipeline(rid)
+            process_recording_pipeline(rid, transcribe_only=transcribe_only)
         except Exception as e:
             logger.warning(f"Backlog pipeline failed for {rid}: {e}")
         finally:
@@ -486,7 +499,7 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
         db.close()
 
 
-def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 200) -> dict:
+def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 80) -> dict:
     """Sprint 4 T4.A (2026-06-08). Walk recent leads, fetch new
     TYPE_CALL messages from GHL, download the WAV audio via the
     /conversations/messages/{id}/locations/{lid}/recording endpoint
@@ -497,9 +510,16 @@ def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 200) -> d
     Scope (intentional cost control — every lead = a GHL API call):
       - Leads created OR updated in the last `lookback_days` days
       - Excludes is_test leads
-      - Caps at `max_leads` per run to avoid burning quota when a
-        large backlog appears
+      - Takes the `max_leads` LEAST-RECENTLY-CHECKED of those, so the
+        eligible set rotates and every lead comes up in turn
       - Idempotent: dedupes by ghl_call_id, skips calls already in our DB
+
+    The rotation is the point. This used to take an arbitrary `.limit(200)`
+    with no ordering, which meant the same 200 leads were re-scanned every
+    ten minutes forever while 731 eligible leads were NEVER checked — their
+    calls simply never entered the system. Ordering on calls_checked_at
+    covers all 931 for LESS traffic than the old design used on 200, because
+    the waste was re-asking about the same leads 144 times a day.
 
     Returns a per-run summary the caller (poller schedule / admin
     trigger endpoint) can log."""
@@ -528,6 +548,10 @@ def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 200) -> d
             .filter(
                 (Lead.updated_at >= cutoff_iso) | (Lead.created_at >= cutoff_iso)
             )
+            # Least-recently-checked first. calls_checked_at defaults to "",
+            # which sorts before any ISO timestamp, so leads never checked
+            # come up ahead of everything else.
+            .order_by(Lead.calls_checked_at.asc())
             .limit(max_leads)
             .all()
         )
@@ -544,6 +568,12 @@ def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 200) -> d
             except Exception as e:
                 logger.warning(f"poll_ghl_call_recordings: lead {lead.id} ingest failed: {e}")
                 summary["errors"].append({"lead_id": lead.id, "error": str(e)})
+            finally:
+                # Stamp even when the ingest raised. A lead that reliably
+                # fails would otherwise stay at the front of the queue and
+                # block the rotation forever — one bad lead starving all
+                # the others is a worse outcome than skipping it this pass.
+                lead.calls_checked_at = _now()
 
         db.commit()
         logger.info(
@@ -705,10 +735,16 @@ def _fetch_recording_audio(message_id: str, location_id: str | None) -> bytes | 
         return None
 
 
-def process_recording_pipeline(recording_id: str):
+def process_recording_pipeline(recording_id: str, transcribe_only: bool = False):
     """
     Run the full pipeline: transcribe → analyze → update status.
     Called after a recording is saved (from poller or manual upload).
+
+    transcribe_only=True stops after the transcript is written, leaving the
+    recording at status "transcribed". The two steps have very different
+    costs — Deepgram is fractions of a cent per call, the Claude analysis is
+    the part that exhausted the API credits on the last backlog run — so a
+    catch-up over thousands of old recordings wants the cheap half only.
     """
     from services.call_transcriber import transcribe_recording, build_speaker_map
     from services.call_analyzer import analyze_call
@@ -772,6 +808,11 @@ def process_recording_pipeline(recording_id: str):
         recording.transcribed_at = _now()
         db.commit()
         logger.info(f"Transcript saved for recording {recording_id}")
+
+        if transcribe_only:
+            # Stop here. The recording keeps status "transcribed", which is
+            # exactly what the intent extraction looks for later.
+            return
 
         # Step 2: Analyze with Claude
         logger.info(f"Analyzing recording {recording_id}...")

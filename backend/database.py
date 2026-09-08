@@ -33,6 +33,7 @@ class Lead(Base):
         Index("idx_leads_name_key", "name_key"),
         Index("idx_leads_phone_key", "phone_key"),
         Index("idx_leads_phonetic_key", "phonetic_key"),
+        Index("idx_leads_calls_checked_at", "calls_checked_at"),
     )
 
     id = Column(Text, primary_key=True)
@@ -61,6 +62,11 @@ class Lead(Base):
     # are the same person. NEVER set automatically. Nothing is moved or
     # deleted; the resolver just follows it.
     duplicate_of = Column(Text, default="")
+    # When the call poller last asked GHL whether this lead has new calls.
+    # Ordering on it turns the poller from "re-scan the same arbitrary 200
+    # leads every 10 minutes forever" into a rotation that covers everyone.
+    # Empty string sorts first, so a lead never checked goes to the front.
+    calls_checked_at = Column(Text, default="")
     service_type = Column(Text, default="fence_staining")
     status = Column(Text, default="new")
     kanban_column = Column(Text, default="new_lead")
@@ -3883,6 +3889,7 @@ def _run_migrations():
             ("phone_key", "ALTER TABLE leads ADD COLUMN phone_key TEXT DEFAULT ''"),
             ("identity_aliases", "ALTER TABLE leads ADD COLUMN identity_aliases TEXT DEFAULT '[]'"),
             ("duplicate_of", "ALTER TABLE leads ADD COLUMN duplicate_of TEXT DEFAULT ''"),
+            ("calls_checked_at", "ALTER TABLE leads ADD COLUMN calls_checked_at TEXT DEFAULT ''"),
         ):
             if col not in lead_cols:
                 with _engine.begin() as conn:
