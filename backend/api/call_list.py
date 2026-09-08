@@ -25,7 +25,10 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import desc
 
-from database import get_db, Lead, Estimate, CallTouch, CallDisposition, ScheduledJob
+from database import (
+    get_db, Lead, Estimate, CallTouch, CallDisposition, ScheduledJob, CallIntent,
+)
+import clock
 from api.auth import require_staff
 from services.pipeline_stages import CALL_LIST_STAGE_IDS, STAGE_NAME_BY_ID
 from services.follow_up_flags import compute_follow_up_flag
@@ -184,6 +187,22 @@ def get_call_list(
                 if e.lead_id not in latest_est_by_lead and e.sent_at:
                     latest_est_by_lead[e.lead_id] = e
 
+        # Latest customer-intent read per lead — what THEY said on the most
+        # recent call. Same newest-first, first-row-wins shape as the
+        # dispositions above, so it stays one query rather than N+1.
+        latest_intent_by_lead: dict[str, CallIntent] = {}
+        if lead_ids:
+            for ci in (
+                db.query(CallIntent)
+                .filter(CallIntent.lead_id.in_(lead_ids))
+                .order_by(desc(CallIntent.created_at))
+                .all()
+            ):
+                if ci.lead_id not in latest_intent_by_lead:
+                    latest_intent_by_lead[ci.lead_id] = ci
+
+        today_ct = clock.today_ct_iso()
+
         items = []
         for lead in leads:
             if lead.id in recently_touched_lead_ids:
@@ -250,7 +269,48 @@ def get_call_list(
                     if d != float("inf"):
                         distance_from_near = round(d, 1)
 
+            # What the customer said on their last call, and how much it
+            # should lift them. Boosts are on the same scale as the follow-up
+            # flag (hot 1000 / callback_due 800 / warm 400) and are ADDED to
+            # it rather than replacing it — the two read different evidence:
+            # the flag watches proposal views and dispositions, this is the
+            # customer's own words.
+            ci = latest_intent_by_lead.get(lead.id)
+            intent_block = None
+            intent_boost = 0
+            temp_rank = 0
+            if ci:
+                callback_due = bool(ci.callback_at) and ci.callback_at <= today_ct
+                if callback_due:
+                    # They asked to be called by now. Nothing else on this
+                    # list is a stronger reason to dial, so this is the only
+                    # part of the intent read that competes with the
+                    # follow-up flag for the top of the list.
+                    intent_boost += 900
+                # Temperature is softer evidence — an impression of the
+                # customer, not a request from them. It ranks WITHIN a
+                # priority bucket rather than above one: a merely "warm"
+                # read on a $400 job should not outrank a $9,000 job we
+                # know nothing about yet.
+                temp_rank = {
+                    "hot": 3, "warm": 2, "unknown": 1, "cold": 0,
+                }.get(ci.temperature or "unknown", 1)
+                intent_block = {
+                    "temperature": ci.temperature or "unknown",
+                    "blocker": ci.blocker or "unknown",
+                    "blocker_detail": ci.blocker_detail or "",
+                    "one_line": ci.one_line or "",
+                    "commitment": ci.commitment or "",
+                    "callback_at": ci.callback_at or "",
+                    "callback_phrase": ci.callback_phrase or "",
+                    "callback_due": callback_due,
+                    "read_at": ci.created_at or "",
+                }
+
             items.append({
+                "call_intent": intent_block,
+                "intent_boost": intent_boost,
+                "_temp_rank": temp_rank,
                 "lead_id": lead.id,
                 "contact_name": lead.contact_name or "",
                 "contact_phone": lead.contact_phone or "",
@@ -274,7 +334,13 @@ def get_call_list(
         #   are still obvious, but the order serves the geographic intent.
         #
         #   Default (no near_zip):
-        #     1. follow-up flag boost (HOT > callback due > warm > stale > cold)
+        #     1. follow-up flag boost + due-callback boost. The flag reads
+        #        proposal views and dispositions; the callback boost is the
+        #        customer asking, in their own words, to be rung by now.
+        #        Nothing on this list beats "call me Thursday", on Thursday.
+        #     ...then, within a bucket, how warm the customer sounded, which
+        #        is an impression rather than a request and so ranks below
+        #        deal size's priority tier rather than above it.
         #     2. proximity boost — same-ZIP-match-with-upcoming-job adds 200
         #     3. $1500+ priority bucket
         #     4. signature price desc
@@ -293,13 +359,19 @@ def get_call_list(
         else:
             items.sort(
                 key=lambda x: (
-                    -((x.get("follow_up_flag") or {}).get("priority_boost") or 0),
+                    -(((x.get("follow_up_flag") or {}).get("priority_boost") or 0)
+                      + (x.get("intent_boost") or 0)),
                     -(200 if x.get("nearby_match") else 0),
                     0 if x["is_priority"] else 1,
+                    -(x.get("_temp_rank") or 0),
                     -x["signature_price"],
                     x["contact_name"].lower(),
                 )
             )
+
+        # Internal ranking key — not part of the response contract.
+        for it in items:
+            it.pop("_temp_rank", None)
 
         return {
             "items": items,

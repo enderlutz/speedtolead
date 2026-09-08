@@ -802,6 +802,44 @@ def start_transcribe_backlog(
     return {"status": "started", "limit": lim}
 
 
+@router.post("/calls/extract-intent")
+def start_intent_extraction(
+    background: BackgroundTasks,
+    limit: int = 200,
+    user: dict = Depends(require_admin),
+):
+    """Read customer intent off transcripts, for leads still worth calling.
+
+    Distinct from the call analysis, which grades Olga's intake technique and
+    says so in its own prompt. This reads the other side of the conversation —
+    what the customer wanted, what is blocking them, and when they asked to be
+    called back — which is what the callback list ranks on.
+
+    Scoped to open leads (estimate sent, not closed or dead) on purpose: every
+    extraction is a Claude call, and a customer who bought in June does not
+    need a follow-up plan. That scoping is roughly 768 calls, not 1,728.
+
+    Safe to re-run — recordings that already have an intent row are skipped."""
+    del user
+    from services.call_poller import extract_intent_backlog, get_intent_backlog_status
+
+    status = get_intent_backlog_status()
+    if status.get("running"):
+        return {"status": "already_running", **status}
+
+    lim = max(1, min(int(limit), 2500))
+    background.add_task(extract_intent_backlog, limit=lim)
+    return {"status": "started", "limit": lim}
+
+
+@router.get("/calls/extract-intent/status")
+def intent_extraction_status(user: dict = Depends(require_admin)):
+    """Progress of the intent extraction, for the UI to poll."""
+    del user
+    from services.call_poller import get_intent_backlog_status
+    return get_intent_backlog_status()
+
+
 @router.get("/calls/transcribe-backlog/status")
 def transcribe_backlog_status(user: dict = Depends(require_admin)):
     """Progress for the backlog run, plus how many are still waiting."""

@@ -3791,6 +3791,26 @@ export interface GhlStageDiff {
   all_live_stages_in_order: GhlStageEntry[];
 }
 
+/** What the customer said on their most recent call, read off the transcript.
+ *  Distinct from the call analysis, which grades the rep's intake technique —
+ *  this is the customer's side, and it's what lifts a row in the queue. */
+export interface CallIntentRead {
+  temperature: "hot" | "warm" | "cold" | "unknown";
+  blocker: string;
+  blocker_detail: string;
+  /** One line to read before dialling. */
+  one_line: string;
+  /** Something the customer said THEY would do, close to verbatim. */
+  commitment: string;
+  /** Absolute Houston date, or "" when they never named one. Never guessed. */
+  callback_at: string;
+  /** Their own words, kept so a date can be traced back to what was said. */
+  callback_phrase: string;
+  /** They asked to be called by now — the strongest reason to dial today. */
+  callback_due: boolean;
+  read_at: string;
+}
+
 export interface CallListItem {
   lead_id: string;
   contact_name: string;
@@ -3813,6 +3833,10 @@ export interface CallListItem {
    *  the input ZIP's centroid in miles. null when the lead can't be
    *  geocoded (no coords + no zip). */
   distance_from_near_zip_miles?: number | null;
+  /** Null for most leads — only calls that have been transcribed AND had
+   *  intent extracted carry this. A row without it still appears. */
+  call_intent?: CallIntentRead | null;
+  intent_boost?: number;
 }
 
 export interface CallListNearbyMatch {

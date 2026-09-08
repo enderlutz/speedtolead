@@ -747,6 +747,63 @@ class CallTranscript(Base):
         }
 
 
+class CallIntent(Base):
+    """What the CUSTOMER said on a call — the signal a callback list ranks on.
+
+    Sits alongside CallAnalysis rather than inside it, because they answer
+    different questions from the same transcript. CallAnalysis grades Olga's
+    intake technique (its own prompt says "this is NOT a sales call"); this
+    reads the other side of the conversation: what the customer wanted, what
+    is stopping them, and when they asked to be called back.
+
+    One row per recording. See services/call_intent.py.
+    """
+    __tablename__ = "call_intents"
+    __table_args__ = (
+        Index("idx_call_intents_recording", "recording_id"),
+        Index("idx_call_intents_lead", "lead_id"),
+        # The callback list's hot path: due callbacks, soonest first.
+        Index("idx_call_intents_callback", "callback_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    recording_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=True)
+
+    wanted = Column(Text, default="")            # what they asked for
+    blocker = Column(Text, default="unknown")    # price | timing | spouse_or_partner | ...
+    blocker_detail = Column(Text, default="")
+    commitment = Column(Text, default="")        # what THEY said they'd do
+    # The customer's own words ("call me after Thursday"), kept so a wrong
+    # date can always be traced back to what was actually said.
+    callback_phrase = Column(Text, default="")
+    # Resolved against the day of the CALL, in Houston time. Empty when they
+    # named no day — an empty callback is correct, a guessed one sends Alan
+    # to ring someone who never asked.
+    callback_at = Column(Text, default="")       # YYYY-MM-DD or ""
+    temperature = Column(Text, default="unknown")  # hot | warm | cold | unknown
+    one_line = Column(Text, default="")          # what Alan reads before dialling
+    quoted_price_mentioned = Column(Boolean, default=False)
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "recording_id": self.recording_id,
+            "lead_id": self.lead_id or "",
+            "wanted": self.wanted or "",
+            "blocker": self.blocker or "unknown",
+            "blocker_detail": self.blocker_detail or "",
+            "commitment": self.commitment or "",
+            "callback_phrase": self.callback_phrase or "",
+            "callback_at": self.callback_at or "",
+            "temperature": self.temperature or "unknown",
+            "one_line": self.one_line or "",
+            "quoted_price_mentioned": bool(self.quoted_price_mentioned),
+            "created_at": self.created_at or "",
+        }
+
+
 class CallAnalysis(Base):
     __tablename__ = "call_analyses"
     __table_args__ = (

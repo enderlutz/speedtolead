@@ -20,6 +20,7 @@ import httpx
 from datetime import datetime, timezone
 from config import get_settings
 from database import get_db, CallRecording, Lead
+import clock
 from services.ghl import GHL_BASE, _headers
 
 logger = logging.getLogger(__name__)
@@ -883,3 +884,160 @@ def process_recording_pipeline(recording_id: str, transcribe_only: bool = False)
             pass
     finally:
         db.close()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Customer-intent extraction
+# ──────────────────────────────────────────────────────────────────────
+
+_intent_status: dict = {
+    "running": False,
+    "started_at": None,
+    "completed_at": None,
+    "total": 0,
+    "done": 0,
+    "extracted": 0,
+    "failed": 0,
+    "remaining": 0,
+    "error": None,
+}
+
+
+def get_intent_backlog_status() -> dict:
+    return dict(_intent_status)
+
+
+def _open_lead_ids(db) -> set[str]:
+    """Leads still worth calling — estimate sent, not yet closed or dead.
+
+    The same stage set the callback list already uses, so the two never
+    disagree about who is in play.
+    """
+    from services.pipeline_stages import CALL_LIST_STAGE_IDS
+    return {
+        lid for (lid,) in db.query(Lead.id)
+        .filter(Lead.ghl_pipeline_stage_id.in_(tuple(CALL_LIST_STAGE_IDS)))
+        .filter(Lead.is_test == False)  # noqa: E712
+        .all()
+    }
+
+
+def extract_intent_backlog(limit: int = 200, sleep_between: float = 0.3) -> dict:
+    """Read customer intent off transcripts, for OPEN leads only.
+
+    Scoped deliberately. Every extraction is a Claude call, and a customer who
+    bought in June or went dark in July does not need a follow-up plan — the
+    whole point is deciding who to ring today. That scoping is what takes this
+    from 1,728 calls to roughly 768.
+
+    Only touches recordings that already have a transcript and no intent row,
+    so it is safe to re-run and resumes where it stopped.
+    """
+    global _intent_status
+    if _intent_status.get("running"):
+        return get_intent_backlog_status()
+
+    from database import CallIntent, CallTranscript
+    from services.call_intent import extract_intent
+    import time
+
+    _intent_status = {
+        "running": True, "started_at": _now(), "completed_at": None,
+        "total": 0, "done": 0, "extracted": 0, "failed": 0,
+        "remaining": 0, "error": None,
+    }
+
+    db = get_db()
+    try:
+        open_ids = _open_lead_ids(db)
+        if not open_ids:
+            _intent_status.update(running=False, completed_at=_now())
+            return get_intent_backlog_status()
+
+        done_ids = {r[0] for r in db.query(CallIntent.recording_id).all()}
+        rows = (
+            db.query(CallRecording.id, CallRecording.lead_id, CallRecording.created_at)
+            .filter(CallRecording.lead_id.in_(tuple(open_ids)))
+            .filter(CallRecording.status.in_(("transcribed", "analyzed")))
+            .order_by(CallRecording.created_at.desc())
+            .all()
+        )
+        todo = [r for r in rows if r[0] not in done_ids][:max(1, int(limit))]
+        _intent_status["total"] = len(todo)
+        logger.info(f"Intent backlog: starting on {len(todo)} recording(s)")
+    finally:
+        db.close()
+
+    for rec_id, lead_id, created_at in todo:
+        d = get_db()
+        try:
+            transcript = (
+                d.query(CallTranscript)
+                .filter(CallTranscript.recording_id == rec_id)
+                .first()
+            )
+            if not transcript or not (transcript.full_text or "").strip():
+                _intent_status["failed"] += 1
+                continue
+
+            lead = d.query(Lead).filter(Lead.id == lead_id).first() if lead_id else None
+            result = extract_intent(
+                transcript.full_text,
+                # The Houston day the call happened — what makes a phrase like
+                # "next Tuesday" resolvable at all.
+                call_date=clock.ct_date_of(created_at),
+                lead_context={
+                    "contact_name": lead.contact_name if lead else "",
+                    "address": lead.address if lead else "",
+                },
+            )
+            d.add(CallIntent(
+                id=str(uuid.uuid4()),
+                recording_id=rec_id,
+                lead_id=lead_id,
+                wanted=result["wanted"],
+                blocker=result["blocker"],
+                blocker_detail=result["blocker_detail"],
+                commitment=result["commitment"],
+                callback_phrase=result["callback_phrase"],
+                callback_at=result["callback_at"],
+                temperature=result["temperature"],
+                one_line=result["one_line"],
+                quoted_price_mentioned=result["quoted_price_mentioned"],
+                created_at=_now(),
+            ))
+            d.commit()
+            _intent_status["extracted"] += 1
+        except Exception as e:
+            logger.warning(f"Intent extraction failed for {rec_id}: {e}")
+            _intent_status["failed"] += 1
+        finally:
+            d.close()
+            _intent_status["done"] += 1
+
+        if sleep_between:
+            time.sleep(sleep_between)
+
+    d = get_db()
+    try:
+        open_ids = _open_lead_ids(d)
+        done_ids = {r[0] for r in d.query(CallIntent.recording_id).all()}
+        remaining = (
+            d.query(CallRecording.id)
+            .filter(CallRecording.lead_id.in_(tuple(open_ids) or ("",)))
+            .filter(CallRecording.status.in_(("transcribed", "analyzed")))
+            .all()
+        )
+        _intent_status["remaining"] = len([r for r in remaining if r[0] not in done_ids])
+    except Exception:
+        pass
+    finally:
+        d.close()
+
+    _intent_status["running"] = False
+    _intent_status["completed_at"] = _now()
+    logger.info(
+        f"Intent backlog done: {_intent_status['extracted']} extracted, "
+        f"{_intent_status['failed']} failed, {_intent_status['remaining']} remaining"
+    )
+    return get_intent_backlog_status()

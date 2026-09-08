@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type CallListItem, type CallListResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { PhoneCall, X, RefreshCw, Check, MapPin, Star, Clock, Navigation, AlertCircle } from "lucide-react";
+import { PhoneCall, X, RefreshCw, Check, MapPin, Star, Clock, Navigation, AlertCircle, MessageSquare } from "lucide-react";
 
 
 // Render a "came in N days ago" label from an ISO timestamp. Older leads
@@ -367,6 +367,20 @@ function CallRow({
                 {item.follow_up_flag.label}
               </Badge>
             )}
+            {/* They asked to be rung by now, in their own words. This is the
+                strongest reason to dial, so it gets the loudest badge. */}
+            {item.call_intent?.callback_due && (
+              <Badge
+                className="text-[10px] py-0 h-auto bg-indigo-600 text-white"
+                title={
+                  item.call_intent.callback_phrase
+                    ? `They said: "${item.call_intent.callback_phrase}"`
+                    : "Customer asked to be called back by now"
+                }
+              >
+                Asked for a callback
+              </Badge>
+            )}
           </div>
           {/* Sprint 3 T3.E — Proximity hint. Renders when this lead's ZIP
               matches an upcoming scheduled job. Visual signal: 'why is
@@ -381,6 +395,24 @@ function CallRow({
                 {" "}on {item.nearby_match.job_date}
                 {item.nearby_match.distance_miles !== null && (
                   <> ({item.nearby_match.distance_miles} mi)</>
+                )}
+              </span>
+            </div>
+          )}
+          {/* What the customer said last time, so Alan knows the shape of the
+              call before it connects. Read off the transcript; absent for
+              leads whose calls haven't been transcribed yet. */}
+          {item.call_intent?.one_line && (
+            <div className="text-[11px] mt-1 flex items-baseline gap-1">
+              <MessageSquare className="h-3 w-3 shrink-0 self-center text-indigo-700" />
+              <span className="text-slate-700">
+                {item.call_intent.one_line}
+                {item.call_intent.blocker &&
+                 item.call_intent.blocker !== "none" &&
+                 item.call_intent.blocker !== "unknown" && (
+                  <span className="text-indigo-800 font-medium">
+                    {" "}· {item.call_intent.blocker.replace(/_/g, " ")}
+                  </span>
                 )}
               </span>
             </div>
