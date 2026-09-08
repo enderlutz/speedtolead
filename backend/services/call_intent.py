@@ -91,8 +91,14 @@ RULES:
 """
 
 
-def _empty(reason: str = "") -> dict:
+def _empty(reason: str = "", *, ok: bool = False) -> dict:
     return {
+        # False means the extraction did not actually run — no API key, no
+        # credit, a bad response. The caller MUST NOT record a result for
+        # these: writing an empty row would mark the call permanently done
+        # and it would never be retried, so one credit outage would silently
+        # blank out the whole backlog.
+        "ok": ok,
         "wanted": "",
         "blocker": "unknown",
         "blocker_detail": "",
@@ -123,7 +129,8 @@ def extract_intent(transcript_text: str, *, call_date: str = "",
     """
     text = (transcript_text or "").strip()
     if not text:
-        return _empty("No transcript.")
+        # Nothing to read is a real answer, not a failure — don't retry it.
+        return _empty("No transcript.", ok=True)
 
     settings = get_settings()
     api_key = (getattr(settings, "anthropic_api_key", "") or "").strip()
@@ -172,6 +179,7 @@ def extract_intent(transcript_text: str, *, call_date: str = "",
         return _empty("Not analysed — bad response.")
 
     out = {
+        "ok": True,
         "wanted": str(parsed.get("wanted") or "").strip(),
         "blocker": _coerce(parsed.get("blocker", ""), BLOCKERS, "unknown"),
         "blocker_detail": str(parsed.get("blocker_detail") or "").strip(),

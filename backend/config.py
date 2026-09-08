@@ -143,6 +143,29 @@ class Settings(BaseSettings):
     # manual fallback.
     enable_call_recording_poller: bool = True
 
+    # Auto-drain for the transcription backlog (2026-09-08).
+    #
+    # New calls have always transcribed automatically — the poller fires the
+    # pipeline as it ingests them. But recordings stranded by an earlier bug
+    # could only be caught up by an admin remembering to press a button, and
+    # 1,728 of them sat untranscribed for three months as a result. A backlog
+    # that needs a human to notice it is a backlog that grows.
+    #
+    # Deepgram bills per minute, so this is paced rather than unleashed:
+    # transcribe_backlog_batch recordings every transcribe_backlog_interval
+    # seconds. At the defaults that is ~150/hour, and the loop no-ops for
+    # free once the backlog is empty.
+    enable_transcribe_backlog_drain: bool = True
+    transcribe_backlog_batch: int = 25
+    transcribe_backlog_interval_seconds: int = 600
+
+    # Same idea for reading customer intent off those transcripts, but this
+    # one calls Claude, which is the half that exhausted the API credits on
+    # the last manual run. Scoped to open leads and paced smaller.
+    enable_intent_extraction_drain: bool = True
+    intent_extraction_batch: int = 15
+    intent_extraction_interval_seconds: int = 900
+
     # W3 (2026-06-08). QuickBooks payment reconciliation. The QB webhook
     # is the primary push path that marks jobs + deposits paid; this
     # nightly loop is the safety net for missed webhooks. Runs at 3am CST

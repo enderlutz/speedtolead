@@ -991,6 +991,13 @@ def extract_intent_backlog(limit: int = 200, sleep_between: float = 0.3) -> dict
                     "address": lead.address if lead else "",
                 },
             )
+            if not result.get("ok"):
+                # Extraction didn't run (no credit, bad response). Leave the
+                # recording untouched so the next pass retries it — recording
+                # an empty row here would mark it done forever.
+                _intent_status["failed"] += 1
+                continue
+
             d.add(CallIntent(
                 id=str(uuid.uuid4()),
                 recording_id=rec_id,

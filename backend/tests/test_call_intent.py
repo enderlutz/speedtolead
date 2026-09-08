@@ -206,3 +206,52 @@ def test_the_extractor_is_not_the_coach():
             f"the intent prompt mentions {coaching_word!r} — it is drifting "
             f"back into being a call coach"
         )
+
+
+# ── A failed extraction must be retryable ─────────────────────────────
+
+def test_a_missing_key_is_marked_not_ok_so_it_gets_retried(monkeypatch):
+    """The guard against a credit outage silently blanking the backlog.
+
+    If a failed extraction were recorded, the call would be marked done
+    forever and never re-read — one outage would leave 768 empty rows and a
+    callback list with nothing in it.
+    """
+    class _S:
+        anthropic_api_key = ""
+    monkeypatch.setattr(call_intent, "get_settings", lambda: _S())
+    out = call_intent.extract_intent("Customer: call me Thursday.")
+    assert out["ok"] is False
+
+
+def test_a_credit_failure_is_marked_not_ok(monkeypatch):
+    class _S:
+        anthropic_api_key = "sk-test"
+    monkeypatch.setattr(call_intent, "get_settings", lambda: _S())
+    import anthropic
+    def boom(*a, **k):
+        raise RuntimeError("credit balance is too low")
+    monkeypatch.setattr(anthropic, "Anthropic", boom)
+    assert call_intent.extract_intent("Customer: hello.")["ok"] is False
+
+
+def test_unparseable_output_is_marked_not_ok(monkeypatch):
+    _install_fake_claude(monkeypatch, "not json")
+    assert call_intent.extract_intent("Customer: hello.")["ok"] is False
+
+
+def test_a_successful_read_is_marked_ok(monkeypatch):
+    _install_fake_claude(monkeypatch, """{
+      "wanted": "", "blocker": "none", "blocker_detail": "",
+      "commitment": "", "callback_phrase": "", "temperature": "warm",
+      "one_line": "", "quoted_price_mentioned": false
+    }""")
+    assert call_intent.extract_intent("Customer: hi.")["ok"] is True
+
+
+def test_an_empty_transcript_is_ok_because_there_is_nothing_to_retry(db):
+    """A call with no transcript is a final answer, not a transient failure.
+
+    Marking it not-ok would make the drain retry it forever.
+    """
+    assert call_intent.extract_intent("")["ok"] is True

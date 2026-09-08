@@ -126,6 +126,75 @@ async def _call_recording_poller_loop():
         await asyncio.sleep(600)
 
 
+async def _transcribe_backlog_loop():
+    """Background task: work through untranscribed recordings, a batch at a time.
+
+    New calls already transcribe as they arrive. This is for the ones that
+    didn't — recordings stranded by an earlier ingest bug, which could only be
+    rescued by an admin remembering to press a button. 1,728 of them sat there
+    for three months because nobody did.
+
+    Transcript only, no Claude: Deepgram is fractions of a cent per call, and
+    the analysis half is what exhausted the API credits last time. Paced, and
+    a free no-op once the backlog is empty.
+    """
+    await asyncio.sleep(300)
+    while True:
+        settings = get_settings()
+        if settings.enable_transcribe_backlog_drain:
+            try:
+                from services.call_poller import (
+                    transcribe_backlog, get_transcribe_backlog_status,
+                )
+                if not get_transcribe_backlog_status().get("running"):
+                    result = await asyncio.to_thread(
+                        transcribe_backlog,
+                        limit=settings.transcribe_backlog_batch,
+                        transcribe_only=True,
+                    )
+                    if result.get("total"):
+                        logger.info(
+                            f"[transcribe drain] {result.get('transcribed', 0)} done, "
+                            f"{result.get('remaining', 0)} left"
+                        )
+            except Exception as e:
+                logger.error(f"Transcribe backlog drain error: {e}")
+        await asyncio.sleep(get_settings().transcribe_backlog_interval_seconds)
+
+
+async def _intent_extraction_loop():
+    """Background task: read customer intent off transcripts, for open leads.
+
+    What the customer wanted, what is blocking them, and when they asked to be
+    called back — the signal the callback list ranks on. Scoped to leads still
+    worth calling, because every extraction is a Claude call and a customer who
+    bought in June does not need a follow-up plan.
+
+    Offset behind the transcription drain so it reads transcripts that exist.
+    """
+    await asyncio.sleep(900)
+    while True:
+        settings = get_settings()
+        if settings.enable_intent_extraction_drain:
+            try:
+                from services.call_poller import (
+                    extract_intent_backlog, get_intent_backlog_status,
+                )
+                if not get_intent_backlog_status().get("running"):
+                    result = await asyncio.to_thread(
+                        extract_intent_backlog,
+                        limit=settings.intent_extraction_batch,
+                    )
+                    if result.get("total"):
+                        logger.info(
+                            f"[intent drain] {result.get('extracted', 0)} read, "
+                            f"{result.get('remaining', 0)} left"
+                        )
+            except Exception as e:
+                logger.error(f"Intent extraction drain error: {e}")
+        await asyncio.sleep(get_settings().intent_extraction_interval_seconds)
+
+
 async def _map_geocode_loop():
     """Background task: auto-pin new leads. Every 5 min, geocode any mappable
     lead still missing coords so the Lead Map fills in on its own — no manual
@@ -387,6 +456,15 @@ async def lifespan(app: FastAPI):
     call_poller = None
     if get_settings().enable_call_recording_poller:
         call_poller = asyncio.create_task(_call_recording_poller_loop())
+    # Backlog drains (2026-09-08). New calls have always transcribed on
+    # arrival; these two catch up the ones that didn't, so a stranded
+    # recording no longer needs a human to notice it and press a button.
+    transcribe_drain = None
+    if get_settings().enable_transcribe_backlog_drain:
+        transcribe_drain = asyncio.create_task(_transcribe_backlog_loop())
+    intent_drain = None
+    if get_settings().enable_intent_extraction_drain:
+        intent_drain = asyncio.create_task(_intent_extraction_loop())
     # W3 (2026-06-08). Nightly QB reconciliation safety net. Catches any
     # invoice payments that arrived but whose webhook delivery failed.
     # Mock mode no-ops at the service level. Default: ON.
@@ -412,6 +490,10 @@ async def lifespan(app: FastAPI):
     wrapped_loop.cancel()
     if call_poller is not None:
         call_poller.cancel()
+    if transcribe_drain is not None:
+        transcribe_drain.cancel()
+    if intent_drain is not None:
+        intent_drain.cancel()
     if qb_reconcile is not None:
         qb_reconcile.cancel()
     correction_escalator.cancel()
