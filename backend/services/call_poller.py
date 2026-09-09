@@ -918,6 +918,28 @@ _intent_status: dict = {
 }
 
 
+_INTENT_HEARTBEAT_KEY = "intent_drain_last_run"
+
+
+def _record_intent_heartbeat(note: str) -> None:
+    """Write what the intent drain just did into system_config.
+
+    The drain failed silently for a full day and the only trace was a log
+    line on a host nobody could read, so every diagnosis was a guess. A
+    heartbeat in the database costs one small write per run and turns "it
+    isn't working" into "here is the exact exception".
+    """
+    try:
+        d = get_db()
+        try:
+            from database import SystemConfig
+            SystemConfig.set(d, _INTENT_HEARTBEAT_KEY, f"{_now()} | {note}"[:900])
+        finally:
+            d.close()
+    except Exception:
+        pass    # diagnostics must never break the thing they diagnose
+
+
 def get_intent_backlog_status() -> dict:
     return dict(_intent_status)
 
@@ -972,6 +994,7 @@ def extract_intent_backlog(limit: int = 200, sleep_between: float = 0.3) -> dict
         # here also puts it on the status endpoint instead of only in a log.
         logger.error(f"Intent backlog aborted: {e}", exc_info=True)
         _intent_status["error"] = str(e)
+        _record_intent_heartbeat(f"ABORTED: {type(e).__name__}: {e}")
         return get_intent_backlog_status()
     finally:
         _intent_status["running"] = False
@@ -1030,7 +1053,12 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
                 # Extraction didn't run (no credit, bad response). Leave the
                 # recording untouched so the next pass retries it — recording
                 # an empty row here would mark it done forever.
+                #
+                # Keep the reason: "0 extracted" on its own says nothing about
+                # whether the key is missing, the credit is gone, or the model
+                # returned junk, and that ambiguity cost a day.
                 _intent_status["failed"] += 1
+                _intent_status["last_reason"] = result.get("one_line") or "unknown"
                 continue
 
             d.add(CallIntent(
@@ -1079,5 +1107,11 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
     logger.info(
         f"Intent backlog done: {_intent_status['extracted']} extracted, "
         f"{_intent_status['failed']} failed, {_intent_status['remaining']} remaining"
+    )
+    _record_intent_heartbeat(
+        f"ran: total={_intent_status['total']} "
+        f"extracted={_intent_status['extracted']} failed={_intent_status['failed']} "
+        f"remaining={_intent_status['remaining']} "
+        f"last_reason={_intent_status.get('last_reason') or '-'}"
     )
     return get_intent_backlog_status()
