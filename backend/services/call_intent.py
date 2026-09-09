@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 # signal is in what was said, not in every minute of it.
 _MAX_TRANSCRIPT_CHARS = 12_000
 
+# Anthropic won't cache a system block below ~1024 tokens, and rejects the
+# request rather than ignoring the hint. ~4 chars per token, with headroom.
+_CACHE_MIN_CHARS = 5_000
+
 TEMPERATURES = ("hot", "warm", "cold", "unknown")
 
 BLOCKERS = (
@@ -150,16 +154,24 @@ def extract_intent(transcript_text: str, *, call_date: str = "",
     if call_date:
         context += f"\nCALL DATE: {clock.echo_day(call_date)}"
 
+    # Prompt caching has a floor: a cache_control block must be at least
+    # ~1024 tokens on Sonnet, and a shorter one is REJECTED rather than
+    # silently passed through uncached. This prompt is around 580 tokens, so
+    # asking to cache it failed every single call — 762 extractions produced
+    # nothing at all, consistently, which is what a hard 400 looks like from
+    # the outside. Decide from the actual length so this can't come back if
+    # the prompt is later grown or trimmed.
+    system_block: dict = {"type": "text", "text": _PROMPT}
+    if len(_PROMPT) >= _CACHE_MIN_CHARS:
+        system_block["cache_control"] = {"type": "ephemeral"}
+
     try:
         from anthropic import Anthropic
         client = Anthropic(api_key=api_key)
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=800,
-            # The prompt is identical on every call, so cache it — this runs
-            # over hundreds of transcripts in a batch.
-            system=[{"type": "text", "text": _PROMPT,
-                     "cache_control": {"type": "ephemeral"}}],
+            system=[system_block],
             messages=[{"role": "user",
                        "content": f"CALL TRANSCRIPT:{context}\n\n{text}"}],
         )

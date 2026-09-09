@@ -255,3 +255,55 @@ def test_an_empty_transcript_is_ok_because_there_is_nothing_to_retry(db):
     Marking it not-ok would make the drain retry it forever.
     """
     assert call_intent.extract_intent("")["ok"] is True
+
+
+# ── Prompt caching floor ──────────────────────────────────────────────
+
+def test_a_short_prompt_does_not_ask_for_caching():
+    """Anthropic rejects a cache_control block under ~1024 tokens.
+
+    Not "ignores" — rejects. Asking to cache this ~580-token prompt failed
+    every single call, so 762 extractions produced exactly nothing for hours
+    and looked like a silent stall rather than an error.
+    """
+    from services.call_intent import _PROMPT, _CACHE_MIN_CHARS
+    if len(_PROMPT) < _CACHE_MIN_CHARS:
+        captured = {}
+
+        class _Block:
+            def __init__(self, text): self.text = text
+
+        class _Resp:
+            def __init__(self): self.content = [_Block('{"temperature":"warm"}')]
+
+        class _Messages:
+            def create(self, **kw):
+                captured.update(kw)
+                return _Resp()
+
+        class _Fake:
+            def __init__(self, *a, **k): self.messages = _Messages()
+
+        import anthropic
+        import pytest as _pytest
+        mp = _pytest.MonkeyPatch()
+        try:
+            class _S:
+                anthropic_api_key = "sk-test"
+            mp.setattr(call_intent, "get_settings", lambda: _S())
+            mp.setattr(anthropic, "Anthropic", _Fake)
+            call_intent.extract_intent("Customer: hello.")
+        finally:
+            mp.undo()
+
+        block = captured["system"][0]
+        assert "cache_control" not in block, (
+            "asked to cache a sub-threshold prompt — the API will reject "
+            "every request and the extractor will produce nothing"
+        )
+
+
+def test_the_cache_floor_is_above_anthropics_minimum():
+    """~4 chars per token, so the floor must clear 1024 tokens with room."""
+    from services.call_intent import _CACHE_MIN_CHARS
+    assert _CACHE_MIN_CHARS / 4 > 1024
