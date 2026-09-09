@@ -177,8 +177,11 @@ def extract_intent(transcript_text: str, *, call_date: str = "",
         )
         raw = response.content[0].text if response.content else ""
     except Exception as e:
-        logger.error(f"call_intent: Claude call failed: {e}")
-        return _empty("Not analysed — extraction failed.")
+        # Carry the actual exception, not a generic label. "extraction failed"
+        # told me nothing three separate times — the class and message are the
+        # whole diagnosis, and they reach the heartbeat from here.
+        logger.error(f"call_intent: Claude call failed: {type(e).__name__}: {e}")
+        return _empty(f"Claude error — {type(e).__name__}: {e}"[:400])
 
     clean = raw.strip()
     if clean.startswith("```"):
@@ -187,8 +190,8 @@ def extract_intent(transcript_text: str, *, call_date: str = "",
     try:
         parsed = json.loads(clean)
     except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"call_intent: unparseable JSON: {e}")
-        return _empty("Not analysed — bad response.")
+        logger.error(f"call_intent: unparseable JSON: {e} | raw={clean[:200]!r}")
+        return _empty(f"Bad JSON — {e} | raw starts: {clean[:120]!r}"[:400])
 
     out = {
         "ok": True,
