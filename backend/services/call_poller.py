@@ -296,6 +296,23 @@ def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5,
         "total": 0, "done": 0, "transcribed": 0, "failed": 0,
         "remaining": 0, "error": None,
     }
+    try:
+        return _transcribe_backlog_inner(limit, sleep_between, transcribe_only)
+    except Exception as e:
+        # Same guarantee as the intent drain: the flag must always come down.
+        # This path works today, but one unhandled exception would wedge it
+        # permanently and silently, and a backlog nobody can see stalling is
+        # exactly how 1,728 calls sat untranscribed for three months.
+        logger.error(f"Transcribe backlog aborted: {e}", exc_info=True)
+        _transcribe_status["error"] = str(e)
+        return get_transcribe_backlog_status()
+    finally:
+        _transcribe_status["running"] = False
+        _transcribe_status["completed_at"] = _now()
+
+
+def _transcribe_backlog_inner(limit: int, sleep_between: float,
+                              transcribe_only: bool) -> dict:
     import time
 
     db = get_db()
@@ -349,8 +366,6 @@ def transcribe_backlog(limit: int = 200, sleep_between: float = 0.5,
     finally:
         db.close()
 
-    _transcribe_status["running"] = False
-    _transcribe_status["completed_at"] = _now()
     logger.info(
         f"Transcription backlog done: {_transcribe_status['transcribed']} transcribed, "
         f"{_transcribe_status['failed']} failed, {_transcribe_status['remaining']} still pending"
@@ -947,11 +962,31 @@ def extract_intent_backlog(limit: int = 200, sleep_between: float = 0.3) -> dict
         "remaining": 0, "error": None,
     }
 
+    try:
+        return _extract_intent_backlog_inner(limit, sleep_between)
+    except Exception as e:
+        # Whatever went wrong, the flag MUST come down. Leaving it raised
+        # wedges the drain permanently: every later tick sees running=True,
+        # short-circuits, and nothing ever runs again — silently, because
+        # the caller only logs the one exception it saw. Recording the error
+        # here also puts it on the status endpoint instead of only in a log.
+        logger.error(f"Intent backlog aborted: {e}", exc_info=True)
+        _intent_status["error"] = str(e)
+        return get_intent_backlog_status()
+    finally:
+        _intent_status["running"] = False
+        _intent_status["completed_at"] = _now()
+
+
+def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
+    from database import CallIntent, CallTranscript
+    from services.call_intent import extract_intent
+    import time
+
     db = get_db()
     try:
         open_ids = _open_lead_ids(db)
         if not open_ids:
-            _intent_status.update(running=False, completed_at=_now())
             return get_intent_backlog_status()
 
         done_ids = {r[0] for r in db.query(CallIntent.recording_id).all()}
@@ -1041,8 +1076,6 @@ def extract_intent_backlog(limit: int = 200, sleep_between: float = 0.3) -> dict
     finally:
         d.close()
 
-    _intent_status["running"] = False
-    _intent_status["completed_at"] = _now()
     logger.info(
         f"Intent backlog done: {_intent_status['extracted']} extracted, "
         f"{_intent_status['failed']} failed, {_intent_status['remaining']} remaining"
