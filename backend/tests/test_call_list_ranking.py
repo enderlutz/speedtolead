@@ -181,6 +181,28 @@ def test_the_newest_call_wins_when_a_lead_has_several(db):
     assert row["call_intent"]["one_line"] == "Changed my mind."
 
 
+def test_a_voicemail_after_a_real_conversation_does_not_replace_it(db):
+    """Seen live: Alan's sixteen-minute call on Friday was hidden behind two
+    voicemails from this week, and the row said "never spoken to anyone"."""
+    lead = make_lead(db, "Remco", price=1841)
+    add_intent(db, lead, temperature="warm", one_line="Likes the price, wife picks the color.",
+               call_at=_ts(5))
+    add_intent(db, lead, temperature="unknown", one_line="Voicemail only.", call_at=_ts(1))
+    add_intent(db, lead, temperature="unknown", one_line="Voicemail only.", call_at=_ts(0))
+    row = call_list()["items"][0]
+    assert row["call_intent"]["one_line"].startswith("Likes the price")
+    assert row["call_intent"]["attempts_since"] == 2
+
+
+def test_with_only_voicemails_the_latest_one_still_shows(db):
+    lead = make_lead(db, "Never Answered", price=1000)
+    add_intent(db, lead, temperature="unknown", one_line="Voicemail, first try.", call_at=_ts(3))
+    add_intent(db, lead, temperature="unknown", one_line="Voicemail, second try.", call_at=_ts(1))
+    row = call_list()["items"][0]
+    assert row["call_intent"]["one_line"] == "Voicemail, second try."
+    assert row["call_intent"]["attempts_since"] == 0
+
+
 # ── Texts ─────────────────────────────────────────────────────────────
 
 def test_a_fresh_unanswered_text_outranks_a_much_bigger_deal(db):

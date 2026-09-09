@@ -153,10 +153,12 @@ def test_a_full_extraction_round_trips(monkeypatch):
       "callback_phrase": "call me tomorrow",
       "temperature": "hot",
       "one_line": "Ready to go, just needs the husband's yes.",
+      "brief": "Wants both sides of the back fence stained before a party. Liked the Signature price. Her husband has to sign off tonight and she said she'd call back tomorrow. Call tomorrow, ask for the yes, take the deposit.",
       "quoted_price_mentioned": true
     }""")
     out = call_intent.extract_intent("...", call_date="2026-09-02")
     assert out["temperature"] == "hot"
+    assert out["brief"].startswith("Wants both sides")
     assert out["blocker"] == "spouse_or_partner"
     assert out["commitment"].startswith("I'll talk to my husband")
     assert out["quoted_price_mentioned"] is True

@@ -72,6 +72,7 @@ Return ONLY a JSON object, no prose around it:
   "callback_phrase": "The customer's own words about WHEN to follow up, e.g. 'text me after the 15th'. Empty string if they never said.",
   "temperature": "hot | warm | cold | unknown",
   "one_line": "One line Alan reads in two seconds before he dials.",
+  "brief": "Three to five plain sentences for the person making the next call: what the customer wants (which sides, color, tier if they picked one), where it stands (what was sent and when, what they said last, whether they are waiting on us), what is in the way, and what to do or say on this call. Only what the thread supports.",
   "quoted_price_mentioned": true or false
 }
 

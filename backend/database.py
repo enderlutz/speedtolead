@@ -787,6 +787,10 @@ class CallIntent(Base):
     callback_at = Column(Text, default="")       # YYYY-MM-DD or ""
     temperature = Column(Text, default="unknown")  # hot | warm | cold | unknown
     one_line = Column(Text, default="")          # what Alan reads before dialling
+    # Three to five sentences for the person making the next call. Added
+    # 2026-09-09 after the one-liner proved too thin to dial from; rows
+    # without one are re-read.
+    brief = Column(Text, default="")
     quoted_price_mentioned = Column(Boolean, default=False)
     # When the CALL happened (the recording's timestamp), as opposed to
     # created_at, which is when it was read. The backlog reads newest calls
@@ -809,6 +813,7 @@ class CallIntent(Base):
             "callback_at": self.callback_at or "",
             "temperature": self.temperature or "unknown",
             "one_line": self.one_line or "",
+            "brief": self.brief or "",
             "quoted_price_mentioned": bool(self.quoted_price_mentioned),
             "created_at": self.created_at or "",
         }
@@ -855,6 +860,7 @@ class ThreadIntent(Base):
     callback_at = Column(Text, default="")       # YYYY-MM-DD or ""
     temperature = Column(Text, default="unknown")
     one_line = Column(Text, default="")
+    brief = Column(Text, default="")             # see CallIntent.brief
     quoted_price_mentioned = Column(Boolean, default=False)
     created_at = Column(Text, default="")
 
@@ -877,6 +883,7 @@ class ThreadIntent(Base):
             "callback_at": self.callback_at or "",
             "temperature": self.temperature or "unknown",
             "one_line": self.one_line or "",
+            "brief": self.brief or "",
             "quoted_price_mentioned": bool(self.quoted_price_mentioned),
             "created_at": self.created_at or "",
         }
@@ -4049,6 +4056,16 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE call_intents ADD COLUMN call_at TEXT DEFAULT ''"))
             logger.info("Migration: added call_intents.call_at")
+
+    # The written brief behind each read. Rows without one are re-read by
+    # the drains, so adding the column is what triggers the backfill.
+    for table in ("call_intents", "thread_intents"):
+        if inspector.has_table(table):
+            cols = {c["name"] for c in inspector.get_columns(table)}
+            if "brief" not in cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN brief TEXT DEFAULT ''"))
+                logger.info(f"Migration: added {table}.brief")
 
     if inspector.has_table("employees"):
         emp_cols = {c["name"] for c in inspector.get_columns("employees")}

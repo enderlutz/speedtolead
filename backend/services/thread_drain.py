@@ -103,14 +103,17 @@ def leads_needing_a_read(db, limit: int) -> list[tuple[str, str]]:
         return []
 
     covered: dict[str, str] = {}
-    for lid, through, _created in (
-        db.query(ThreadIntent.lead_id, ThreadIntent.through_message_at, ThreadIntent.created_at)
+    for lid, through, brief, _created in (
+        db.query(ThreadIntent.lead_id, ThreadIntent.through_message_at,
+                 ThreadIntent.brief, ThreadIntent.created_at)
         .filter(ThreadIntent.lead_id.in_(tuple(newest)))
         .order_by(desc(ThreadIntent.created_at))
         .all()
     ):
         if lid not in covered:
-            covered[lid] = through or ""
+            # A read without a brief predates the brief and counts as
+            # unread — the one-liner alone proved too thin to dial from.
+            covered[lid] = (through or "") if (brief or "").strip() else ""
 
     todo = [(lid, ts) for lid, ts in newest.items() if ts > covered.get(lid, "")]
     todo.sort(key=lambda p: p[1], reverse=True)
@@ -197,6 +200,10 @@ def _extract_thread_backlog_inner(limit: int, sleep_between: float) -> dict:
                 callback_at=result["callback_at"],
                 temperature=result["temperature"],
                 one_line=result["one_line"],
+                # "-" when the model wrote nothing: an EMPTY brief is what
+                # marks a pre-brief row for re-reading, so a read that
+                # genuinely had nothing to say must not look like one.
+                brief=(result.get("brief") or "").strip() or "-",
                 quoted_price_mentioned=bool(result["quoted_price_mentioned"]),
                 created_at=clock.now_iso(),
             ))

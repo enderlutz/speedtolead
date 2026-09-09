@@ -515,7 +515,7 @@ def backfill_v2_call_recordings(lookback_days: int = 90, sleep_between_leads: fl
         db.close()
 
 
-def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 80) -> dict:
+def poll_ghl_call_recordings(lookback_days: int = 60, max_leads: int = 160) -> dict:
     """Sprint 4 T4.A (2026-06-08). Walk recent leads, fetch new
     TYPE_CALL messages from GHL, download the WAV audio via the
     /conversations/messages/{id}/locations/{lid}/recording endpoint
@@ -1012,7 +1012,10 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
         if not open_ids:
             return get_intent_backlog_status()
 
-        done_ids = {r[0] for r in db.query(CallIntent.recording_id).all()}
+        # A read without a brief predates the brief, and is read again — the
+        # one-liner alone proved too thin to dial from.
+        done_ids = {r[0] for r in db.query(CallIntent.recording_id)
+                    .filter(CallIntent.brief.isnot(None), CallIntent.brief != "").all()}
         rows = (
             db.query(CallRecording.id, CallRecording.lead_id, CallRecording.created_at)
             .filter(CallRecording.lead_id.in_(tuple(open_ids)))
@@ -1061,6 +1064,8 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
                 _intent_status["last_reason"] = result.get("one_line") or "unknown"
                 continue
 
+            # One row per recording: a re-read replaces the old read.
+            d.query(CallIntent).filter(CallIntent.recording_id == rec_id).delete()
             d.add(CallIntent(
                 id=str(uuid.uuid4()),
                 recording_id=rec_id,
@@ -1073,6 +1078,9 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
                 callback_at=result["callback_at"],
                 temperature=result["temperature"],
                 one_line=result["one_line"],
+                # "-" when the model wrote nothing — an empty brief marks a
+                # pre-brief row for re-reading, so never store one.
+                brief=(result.get("brief") or "").strip() or "-",
                 quoted_price_mentioned=result["quoted_price_mentioned"],
                 # When the call happened, so the list can headline the
                 # latest CALL rather than the latest read.
@@ -1094,7 +1102,8 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
     d = get_db()
     try:
         open_ids = _open_lead_ids(d)
-        done_ids = {r[0] for r in d.query(CallIntent.recording_id).all()}
+        done_ids = {r[0] for r in d.query(CallIntent.recording_id)
+                    .filter(CallIntent.brief.isnot(None), CallIntent.brief != "").all()}
         remaining = (
             d.query(CallRecording.id)
             .filter(CallRecording.lead_id.in_(tuple(open_ids) or ("",)))

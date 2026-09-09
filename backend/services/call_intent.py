@@ -71,6 +71,7 @@ Return ONLY a JSON object, no prose around it:
   "callback_phrase": "The customer's own words about when to follow up, e.g. 'call me after Thursday'. Empty string if they never said.",
   "temperature": "hot | warm | cold | unknown",
   "one_line": "One line Alan reads in two seconds before he dials.",
+  "brief": "Three to five plain sentences for the person making the next call: what the customer wants (which sides, color, tier if they picked one), where it stands (what was quoted or sent and when, what they said last), what is in the way, and what to do or say on this call. Only what the transcript supports.",
   "quoted_price_mentioned": true or false
 }
 
@@ -111,6 +112,7 @@ def _empty(reason: str = "", *, ok: bool = False) -> dict:
         "callback_at": "",
         "temperature": "unknown",
         "one_line": reason,
+        "brief": "",
         "quoted_price_mentioned": False,
     }
 
@@ -236,6 +238,7 @@ def intent_fields(parsed: dict) -> dict:
         "callback_phrase": str(parsed.get("callback_phrase") or "").strip(),
         "temperature": _coerce(parsed.get("temperature", ""), TEMPERATURES, "unknown"),
         "one_line": str(parsed.get("one_line") or "").strip(),
+        "brief": str(parsed.get("brief") or "").strip()[:1500],
         "quoted_price_mentioned": bool(parsed.get("quoted_price_mentioned")),
     }
 

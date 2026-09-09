@@ -454,6 +454,11 @@ function CallRow({
                     {" "}· {item.call_intent.blocker.replace(/_/g, " ")}
                   </span>
                 )}
+                {(item.call_intent.attempts_since ?? 0) > 0 && (
+                  <span className="text-muted-foreground">
+                    {" "}· {item.call_intent.attempts_since} voicemail{item.call_intent.attempts_since === 1 ? "" : "s"} since
+                  </span>
+                )}
               </span>
             </div>
           )}
@@ -471,6 +476,13 @@ function CallRow({
                 )}
               </span>
             </div>
+          )}
+          {/* The written brief: three to five sentences from whichever
+              conversation was most recent. What the one-liners can't hold. */}
+          {item.follow_up?.brief && (
+            <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+              {item.follow_up.brief}
+            </p>
           )}
           {item.address && (
             <div className="flex items-start gap-1 text-[11px] text-muted-foreground mt-1">

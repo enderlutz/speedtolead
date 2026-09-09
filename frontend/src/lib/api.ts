@@ -3800,6 +3800,9 @@ export interface CallIntentRead {
   blocker_detail: string;
   /** One line to read before dialling. */
   one_line: string;
+  /** Three to five sentences for the person making the next call. Empty
+   *  on reads made before the brief existed; those are re-read. */
+  brief: string;
   /** Something the customer said THEY would do, close to verbatim. */
   commitment: string;
   /** Absolute Houston date, or "" when they never named one. Never guessed. */
@@ -3808,6 +3811,8 @@ export interface CallIntentRead {
   callback_phrase: string;
   /** They asked to be called by now — the strongest reason to dial today. */
   callback_due: boolean;
+  /** Voicemails and dropped rings since this conversation. */
+  attempts_since?: number;
   read_at: string;
 }
 
@@ -3819,6 +3824,7 @@ export interface TextIntentRead {
   blocker: string;
   blocker_detail: string;
   one_line: string;
+  brief: string;
   commitment: string;
   callback_at: string;
   callback_phrase: string;
@@ -3835,6 +3841,9 @@ export interface TextIntentRead {
 export interface FollowUpSummary {
   source: "call" | "text";
   about: string;
+  /** The written brief from the most recent conversation, or the other
+   *  one's when the newer read has none. */
+  brief: string;
   blocker: string;
   blocker_detail: string;
   commitment: string;

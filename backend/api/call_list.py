@@ -59,6 +59,18 @@ def _call_time(ci) -> str:
     return ci.call_at or ci.created_at or ""
 
 
+def _is_conversation(ci) -> bool:
+    """Did anyone actually talk? A voicemail or a dropped ring reads as
+    temperature "unknown" with nothing wanted, promised or asked. On the
+    first live run Amy's 24-second voicemail from this afternoon was the
+    "latest call" for a customer Alan had spent sixteen minutes with on
+    Friday — and the row said "never spoken to anyone"."""
+    if (ci.temperature or "unknown") != "unknown":
+        return True
+    return bool((ci.wanted or "").strip() or (ci.commitment or "").strip()
+                or (ci.callback_phrase or "").strip())
+
+
 def _days_since(iso_ts: str, today_ct: str) -> int:
     """Whole Houston days from a timestamp to today. Huge when unknown, so a
     missing date never reads as "just now"."""
@@ -239,12 +251,22 @@ def get_call_list(
         # recent CALL. Chosen by when the call happened, not when it was
         # read: the backlog reads newest calls first, so for a lead with
         # several calls the most recently WRITTEN row is their oldest call.
+        # ...and by whether anyone talked: the latest real conversation wins
+        # over any number of voicemails after it. Those are counted instead,
+        # as attempts since.
         latest_intent_by_lead: dict[str, CallIntent] = {}
+        attempts_since: dict[str, int] = {}
         if lead_ids:
+            by_lead: dict[str, list] = {}
             for ci in db.query(CallIntent).filter(CallIntent.lead_id.in_(lead_ids)).all():
-                cur = latest_intent_by_lead.get(ci.lead_id)
-                if cur is None or _call_time(ci) > _call_time(cur):
-                    latest_intent_by_lead[ci.lead_id] = ci
+                by_lead.setdefault(ci.lead_id, []).append(ci)
+            for lid, reads in by_lead.items():
+                best = max(reads, key=lambda c: (_is_conversation(c), _call_time(c)))
+                latest_intent_by_lead[lid] = best
+                attempts_since[lid] = sum(
+                    1 for c in reads
+                    if not _is_conversation(c) and _call_time(c) > _call_time(best)
+                )
 
         # And the latest read of their TEXT thread. One row per read of the
         # whole thread, so the newest read is the conversation's current
@@ -374,11 +396,14 @@ def get_call_list(
                     "blocker": ci.blocker or "unknown",
                     "blocker_detail": ci.blocker_detail or "",
                     "one_line": ci.one_line or "",
+                    "brief": "" if (ci.brief or "-") == "-" else ci.brief,
                     "commitment": ci.commitment or "",
                     "callback_at": ci.callback_at or "",
                     "callback_phrase": ci.callback_phrase or "",
                     "callback_due": callback_due,
                     "call_at": ci.call_at or "",
+                    # Voicemails and dropped rings after this conversation.
+                    "attempts_since": attempts_since.get(lead.id, 0),
                     "read_at": ci.created_at or "",
                 }
             if ti:
@@ -409,6 +434,7 @@ def get_call_list(
                     "blocker": ti.blocker or "unknown",
                     "blocker_detail": ti.blocker_detail or "",
                     "one_line": ti.one_line or "",
+                    "brief": "" if (ti.brief or "-") == "-" else ti.brief,
                     "commitment": ti.commitment or "",
                     "callback_at": ti.callback_at or "",
                     "callback_phrase": ti.callback_phrase or "",
@@ -442,6 +468,7 @@ def get_call_list(
                 follow_up = {
                     "source": "text" if text_is_newer else "call",
                     "about": _pick("one_line"),
+                    "brief": _pick("brief"),
                     "blocker": _pick("blocker") or "unknown",
                     "blocker_detail": _pick("blocker_detail"),
                     "commitment": _pick("commitment"),

@@ -125,6 +125,34 @@ def test_a_successful_read_writes_a_row_and_clears_the_candidate(db, monkeypatch
     assert candidates(db) == []
 
 
+def test_a_read_the_model_left_blank_still_counts_as_read(db, monkeypatch):
+    """An EMPTY brief is what marks a pre-brief row for re-reading. A read
+    that genuinely had nothing to say must not be mistaken for one, or the
+    lead is re-read every run forever."""
+    from database import ThreadIntent
+    fake_claude(monkeypatch, payload='{"temperature": "unknown", "brief": ""}')
+    lead = make_lead(db)
+    add_msg(db, lead, "inbound", "?", "2026-09-02T15:00:00Z")
+    thread_drain.extract_thread_backlog(limit=10, sleep_between=0)
+    assert db.query(ThreadIntent).count() == 1
+    assert candidates(db) == []
+
+
+def test_a_row_from_before_the_brief_existed_is_read_again(db, monkeypatch):
+    from database import ThreadIntent
+    lead = make_lead(db)
+    add_msg(db, lead, "inbound", "hi", "2026-09-02T15:00:00Z")
+    db.add(ThreadIntent(id=str(uuid.uuid4()), lead_id=lead.id, brief="",
+                        through_message_at="2026-09-02T15:00:00Z",
+                        temperature="warm", created_at=clock.now_iso()))
+    db.commit()
+    assert candidates(db) == [lead.id]
+
+    fake_claude(monkeypatch, payload='{"temperature": "warm", "brief": "Wants the back fence done."}')
+    thread_drain.extract_thread_backlog(limit=10, sleep_between=0)
+    assert candidates(db) == []
+
+
 def test_a_new_text_makes_the_lead_a_candidate_again(db, monkeypatch):
     fake_claude(monkeypatch)
     lead = make_lead(db)
