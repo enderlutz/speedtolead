@@ -7,6 +7,7 @@ import uuid
 import json
 import logging
 from datetime import datetime, timezone, timedelta
+import clock
 from config import get_settings
 from database import get_db, Lead, Estimate, Message
 from services.ghl import get_pipelines, get_opportunities, get_contact, get_conversations, get_conversation_messages
@@ -694,79 +695,139 @@ def poll_ghl_contacts():
     # _sync_location(settings.ghl_location_id_2, settings.ghl_location_2_label)
 
 
-def poll_ghl_messages():
-    """Sync recent inbound messages from GHL for active leads.
-    Rate-limited: processes 10 leads per cycle with delays between API calls.
+def poll_ghl_messages(max_leads: int = 60, sleep_between: float = 0.5) -> dict:
+    """Pull text threads for open leads, a rotating slice per run.
+
+    This is the ONLY way texts get in. The GHL message webhook this was
+    written as a "safety net" for went silent in April 2026 — the last text
+    it delivered is dated 9 July — and this poller shipped switched off,
+    picking 10 leads by updated_at when it did run. By September, 1 of 616
+    open leads had any stored SMS, and the callback list was ranking blind
+    to the channel most customers actually answer on.
+
+    Selection mirrors the call poller: open leads (the callback list's stage
+    set), least-recently-checked first, stamped in a `finally` so one lead
+    that always fails can't jam the rotation. Whole threads, paginated, so
+    the reader sees the front of a conversation and not just its last 20
+    lines.
+
+    Cost: ~2 GHL requests per lead. At 60 leads every 5 minutes that is
+    ~17,000/day against a 200,000 cap, and every open lead is refreshed
+    about hourly.
     """
     import time
+    from services.pipeline_stages import CALL_LIST_STAGE_IDS
 
     db = get_db()
     try:
         leads = (
             db.query(Lead)
             .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
-            .filter(Lead.status.in_(["new", "estimated", "sent"]))
-            .order_by(Lead.updated_at.desc())
-            .limit(10)
+            .filter(Lead.ghl_pipeline_stage_id.in_(tuple(CALL_LIST_STAGE_IDS)))
+            .filter(Lead.is_test == False)  # noqa: E712
+            .order_by(Lead.messages_checked_at.asc())
+            .limit(max(1, int(max_leads)))
             .all()
         )
 
         new_count = 0
         for lead in leads:
             try:
-                time.sleep(2)  # Pace API calls to avoid 429s
-                convos = get_conversations(lead.ghl_contact_id, lead.ghl_location_id or None)
-                for convo in convos:
-                    convo_id = convo.get("id", "")
-                    if not convo_id:
-                        continue
-
-                    time.sleep(1)
-                    msgs = get_conversation_messages(convo_id, lead.ghl_location_id or None)
-                    for m in msgs:
-                        ghl_id = m.get("id", "")
-                        if not ghl_id:
-                            continue
-
-                        existing = db.query(Message).filter(Message.ghl_message_id == ghl_id).first()
-                        if existing:
-                            continue
-
-                        direction = "inbound" if m.get("direction") == "inbound" else "outbound"
-                        body = m.get("body") or m.get("message") or ""
-
-                        db.add(Message(
-                            id=str(uuid.uuid4()),
-                            ghl_contact_id=lead.ghl_contact_id,
-                            lead_id=lead.id,
-                            direction=direction,
-                            body=body,
-                            message_type=m.get("messageType", "SMS"),
-                            ghl_message_id=ghl_id,
-                            created_at=m.get("dateAdded") or _now(),
-                        ))
-                        new_count += 1
-
-                        if direction == "inbound":
-                            lead.customer_responded = True
-                            lead.customer_response_text = body
-                            lead.updated_at = _now()
-                            publish("customer_reply", {
-                                "lead_id": lead.id,
-                                "contact_name": lead.contact_name,
-                                "body": body[:200],
-                            })
-
+                new_count += _sync_messages_for_lead(db, lead)
                 db.commit()
-
             except Exception as e:
                 db.rollback()
                 logger.error(f"Message sync failed for lead {lead.id}: {e}")
+            finally:
+                # Stamped whatever happened above. A lead that raises every
+                # time would otherwise keep sorting first and the rotation
+                # would re-try it forever, reaching nobody else.
+                lead.messages_checked_at = _now()
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+            if sleep_between:
+                time.sleep(sleep_between)
 
         if new_count > 0:
             logger.info(f"Message poller: synced {new_count} new messages")
+        return {"leads": len(leads), "new_messages": new_count}
 
     except Exception as e:
         logger.error(f"Message poller error: {e}")
+        return {"leads": 0, "new_messages": 0, "error": str(e)}
     finally:
         db.close()
+
+
+def _sync_messages_for_lead(db, lead) -> int:
+    """Fetch this lead's conversations and store every message we don't have.
+
+    Goes through the `ghl` module (not names imported into this one) so a
+    test can stub the network at a single seam.
+    """
+    from services import ghl as ghl_api
+
+    location_id = lead.ghl_location_id or None
+    added = 0
+    newest_inbound: tuple[str, str] | None = None     # (created_at, body)
+
+    for convo in ghl_api.get_conversations(lead.ghl_contact_id, location_id):
+        convo_id = convo.get("id", "")
+        if not convo_id:
+            continue
+        msgs = ghl_api.get_conversation_messages_all(convo_id, location_id)
+        ids = [m.get("id") for m in msgs if m.get("id")]
+        if not ids:
+            continue
+
+        # Dedupe against exactly the ids in hand. The webhook may have stored
+        # some of these already, and ghl_message_id is unique, so a blind
+        # insert would abort the whole lead on the first clash.
+        known: set[str] = set()
+        for i in range(0, len(ids), 200):
+            known.update(
+                r[0] for r in db.query(Message.ghl_message_id)
+                .filter(Message.ghl_message_id.in_(ids[i:i + 200]))
+                .all()
+            )
+
+        for m in msgs:
+            ghl_id = m.get("id", "")
+            if not ghl_id or ghl_id in known:
+                continue
+            direction = "inbound" if m.get("direction") == "inbound" else "outbound"
+            body = m.get("body") or m.get("message") or ""
+            created = m.get("dateAdded") or _now()
+            db.add(Message(
+                id=str(uuid.uuid4()),
+                ghl_contact_id=lead.ghl_contact_id,
+                lead_id=lead.id,
+                direction=direction,
+                body=body,
+                message_type=m.get("messageType") or m.get("type") or "SMS",
+                ghl_message_id=ghl_id,
+                created_at=created,
+            ))
+            known.add(ghl_id)
+            added += 1
+            if direction == "inbound" and body.strip():
+                if newest_inbound is None or created > newest_inbound[0]:
+                    newest_inbound = (created, body)
+
+    if newest_inbound:
+        created, body = newest_inbound
+        lead.customer_responded = True
+        lead.customer_response_text = body
+        lead.updated_at = _now()
+        # Only announce a reply that is actually new. The first pass over a
+        # lead backfills months of history, and a "customer replied" toast
+        # for a text from March helps nobody.
+        if created[:10] >= clock.add_days_iso(clock.today_ct_iso(), -2):
+            publish("customer_reply", {
+                "lead_id": lead.id,
+                "contact_name": lead.contact_name,
+                "body": body[:200],
+            })
+    return added

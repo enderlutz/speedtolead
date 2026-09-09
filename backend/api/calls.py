@@ -840,6 +840,37 @@ def intent_extraction_status(user: dict = Depends(require_admin)):
     return get_intent_backlog_status()
 
 
+@router.post("/calls/thread-intent")
+def start_thread_intent(
+    background: BackgroundTasks,
+    limit: int = 200,
+    user: dict = Depends(require_admin),
+):
+    """Read customer intent off TEXT threads, for leads still worth calling.
+
+    Runs on its own every couple of minutes (main.py); this is the manual
+    kick for a big backlog. Only threads with a message newer than their last
+    read are touched, so it is safe to call as often as you like."""
+    del user
+    from services.thread_drain import extract_thread_backlog, get_thread_backlog_status
+
+    status = get_thread_backlog_status()
+    if status.get("running"):
+        return {"status": "already_running", **status}
+
+    lim = max(1, min(int(limit), 2500))
+    background.add_task(extract_thread_backlog, limit=lim)
+    return {"status": "started", "limit": lim}
+
+
+@router.get("/calls/thread-intent/status")
+def thread_intent_status(user: dict = Depends(require_admin)):
+    """Progress of the text-thread reads, for the UI to poll."""
+    del user
+    from services.thread_drain import get_thread_backlog_status
+    return get_thread_backlog_status()
+
+
 @router.get("/calls/transcribe-backlog/status")
 def transcribe_backlog_status(user: dict = Depends(require_admin)):
     """Progress for the backlog run, plus how many are still waiting."""

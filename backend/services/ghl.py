@@ -666,6 +666,51 @@ def get_conversation_messages(conversation_id: str, location_id: str | None = No
         return []
 
 
+def get_conversation_messages_all(
+    conversation_id: str,
+    location_id: str | None = None,
+    api_key: str | None = None,
+    *,
+    page_size: int = 100,
+    max_pages: int = 5,
+) -> list[dict]:
+    """Every message in a conversation, walking GHL's cursor page by page.
+
+    `get_conversation_messages` stops at 20, which is fine for spotting a new
+    call but loses the front half of a real text thread — the longest stored
+    one runs to 52 messages, and the front is where the customer said what
+    they wanted. Pages chain on `lastMessageId`; `nextPage` says whether
+    there is another. Capped so one runaway thread can't spend the whole
+    rate budget. Returns newest-first, as GHL sends it.
+    """
+    out: list[dict] = []
+    last_id = ""
+    for _ in range(max(1, int(max_pages))):
+        params: dict = {"limit": page_size}
+        if last_id:
+            params["lastMessageId"] = last_id
+        try:
+            r = _client.get(
+                f"{GHL_BASE}/conversations/{conversation_id}/messages",
+                headers=_headers(location_id, api_key),
+                params=params,
+                timeout=15,
+            )
+            r.raise_for_status()
+            block = r.json().get("messages", {}) or {}
+        except Exception as e:
+            logger.error(f"GHL get_conversation_messages_all failed: {e}")
+            break
+        page = block.get("messages", []) or []
+        out.extend(page)
+        if not page or not block.get("nextPage"):
+            break
+        last_id = block.get("lastMessageId") or (page[-1].get("id") or "")
+        if not last_id:
+            break
+    return out
+
+
 # --- Pipelines ---
 
 def get_pipelines(location_id: str) -> list[dict]:

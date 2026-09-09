@@ -6,6 +6,19 @@ import { toast } from "sonner";
 import { PhoneCall, X, RefreshCw, Check, MapPin, Star, Clock, Navigation, AlertCircle, MessageSquare } from "lucide-react";
 
 
+// "Sep 3", in Houston time, for the text badges.
+function fmtDay(iso: string): string {
+  try {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return "";
+    return new Date(t).toLocaleDateString("en-US", {
+      month: "short", day: "numeric", timeZone: "America/Chicago",
+    });
+  } catch {
+    return "";
+  }
+}
+
 // Render a "came in N days ago" label from an ISO timestamp. Older leads
 // drift to grayer text. Returns empty string for missing/unparseable dates
 // so the caller can omit the line entirely.
@@ -367,18 +380,35 @@ function CallRow({
                 {item.follow_up_flag.label}
               </Badge>
             )}
-            {/* They asked to be rung by now, in their own words. This is the
-                strongest reason to dial, so it gets the loudest badge. */}
-            {item.call_intent?.callback_due && (
+            {/* They asked to be rung by now, in their own words — on a call
+                or by text. The strongest reason to dial, so the loudest badge. */}
+            {(item.call_intent?.callback_due || item.text_intent?.callback_due) && (
               <Badge
                 className="text-[10px] py-0 h-auto bg-indigo-600 text-white"
-                title={
-                  item.call_intent.callback_phrase
-                    ? `They said: "${item.call_intent.callback_phrase}"`
-                    : "Customer asked to be called back by now"
-                }
+                title={(() => {
+                  const phrase = item.text_intent?.callback_due
+                    ? item.text_intent.callback_phrase
+                    : item.call_intent?.callback_phrase;
+                  return phrase
+                    ? `They said: "${phrase}"`
+                    : "Customer asked to be called back by now";
+                })()}
               >
                 Asked for a callback
+              </Badge>
+            )}
+            {/* Their text is the last one in the thread and nobody answered
+                it. A fact from the messages, not a model's impression. */}
+            {item.text_intent?.awaiting_reply && (
+              <Badge
+                className="text-[10px] py-0 h-auto bg-rose-600 text-white"
+                title={`Their last text${
+                  item.text_intent.last_inbound_at
+                    ? ` on ${fmtDay(item.text_intent.last_inbound_at)}`
+                    : ""
+                } is still waiting on a reply`}
+              >
+                Unanswered text
               </Badge>
             )}
           </div>
@@ -400,11 +430,11 @@ function CallRow({
             </div>
           )}
           {/* What the customer said last time, so Alan knows the shape of the
-              call before it connects. Read off the transcript; absent for
-              leads whose calls haven't been transcribed yet. */}
+              call before it connects. One line from their last call, one from
+              their text thread; each absent until that side has been read. */}
           {item.call_intent?.one_line && (
             <div className="text-[11px] mt-1 flex items-baseline gap-1">
-              <MessageSquare className="h-3 w-3 shrink-0 self-center text-indigo-700" />
+              <PhoneCall className="h-3 w-3 shrink-0 self-center text-indigo-700" />
               <span className="text-slate-700">
                 {item.call_intent.one_line}
                 {item.call_intent.blocker &&
@@ -412,6 +442,21 @@ function CallRow({
                  item.call_intent.blocker !== "unknown" && (
                   <span className="text-indigo-800 font-medium">
                     {" "}· {item.call_intent.blocker.replace(/_/g, " ")}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+          {item.text_intent?.one_line && (
+            <div className="text-[11px] mt-1 flex items-baseline gap-1">
+              <MessageSquare className="h-3 w-3 shrink-0 self-center text-rose-700" />
+              <span className="text-slate-700">
+                {item.text_intent.one_line}
+                {item.text_intent.blocker &&
+                 item.text_intent.blocker !== "none" &&
+                 item.text_intent.blocker !== "unknown" && (
+                  <span className="text-rose-800 font-medium">
+                    {" "}· {item.text_intent.blocker.replace(/_/g, " ")}
                   </span>
                 )}
               </span>

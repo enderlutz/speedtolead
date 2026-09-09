@@ -1074,6 +1074,9 @@ def _extract_intent_backlog_inner(limit: int, sleep_between: float) -> dict:
                 temperature=result["temperature"],
                 one_line=result["one_line"],
                 quoted_price_mentioned=result["quoted_price_mentioned"],
+                # When the call happened, so the list can headline the
+                # latest CALL rather than the latest read.
+                call_at=created_at or "",
                 created_at=_now(),
             ))
             d.commit()

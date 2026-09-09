@@ -21,12 +21,13 @@ from __future__ import annotations
 import json
 import uuid
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import desc
 
 from database import (
     get_db, Lead, Estimate, CallTouch, CallDisposition, ScheduledJob, CallIntent,
+    ThreadIntent,
 )
 import clock
 from api.auth import require_staff
@@ -45,6 +46,36 @@ PRIORITY_VALUE_THRESHOLD = 1500.0
 # marked called. 24h gives the customer a day to call back before we
 # resurface them in the queue.
 SUPPRESSION_HOURS = 24
+
+# How warm the customer sounded, for ordering WITHIN a priority bucket. An
+# impression rather than a request, so it never jumps a bucket on its own.
+_TEMP_RANK = {"hot": 3, "warm": 2, "unknown": 1, "cold": 0}
+
+
+def _call_time(ci) -> str:
+    """When the call happened; falls back to read time for rows that predate
+    call_at. The backlog reads newest calls first, so read time alone would
+    headline a lead's OLDEST call."""
+    return ci.call_at or ci.created_at or ""
+
+
+def _days_since(iso_ts: str, today_ct: str) -> int:
+    """Whole Houston days from a timestamp to today. Huge when unknown, so a
+    missing date never reads as "just now"."""
+    try:
+        day = clock.ct_date_of(iso_ts) if iso_ts else ""
+        if not day:
+            return 10_000
+        return (date.fromisoformat(today_ct) - date.fromisoformat(day)).days
+    except (TypeError, ValueError):
+        return 10_000
+
+
+def _warmest(*temps: str) -> str:
+    known = [t for t in temps if t]
+    if not known:
+        return "unknown"
+    return max(known, key=lambda t: _TEMP_RANK.get(t, 1))
 
 
 def _now_utc() -> datetime:
@@ -187,19 +218,30 @@ def get_call_list(
                 if e.lead_id not in latest_est_by_lead and e.sent_at:
                     latest_est_by_lead[e.lead_id] = e
 
-        # Latest customer-intent read per lead — what THEY said on the most
-        # recent call. Same newest-first, first-row-wins shape as the
-        # dispositions above, so it stays one query rather than N+1.
+        # Latest customer-intent read per lead — what THEY said on their most
+        # recent CALL. Chosen by when the call happened, not when it was
+        # read: the backlog reads newest calls first, so for a lead with
+        # several calls the most recently WRITTEN row is their oldest call.
         latest_intent_by_lead: dict[str, CallIntent] = {}
         if lead_ids:
-            for ci in (
-                db.query(CallIntent)
-                .filter(CallIntent.lead_id.in_(lead_ids))
-                .order_by(desc(CallIntent.created_at))
+            for ci in db.query(CallIntent).filter(CallIntent.lead_id.in_(lead_ids)).all():
+                cur = latest_intent_by_lead.get(ci.lead_id)
+                if cur is None or _call_time(ci) > _call_time(cur):
+                    latest_intent_by_lead[ci.lead_id] = ci
+
+        # And the latest read of their TEXT thread. One row per read of the
+        # whole thread, so the newest read is the conversation's current
+        # state. Same first-row-wins shape as the dispositions above.
+        latest_thread_by_lead: dict[str, ThreadIntent] = {}
+        if lead_ids:
+            for ti in (
+                db.query(ThreadIntent)
+                .filter(ThreadIntent.lead_id.in_(lead_ids))
+                .order_by(desc(ThreadIntent.created_at))
                 .all()
             ):
-                if ci.lead_id not in latest_intent_by_lead:
-                    latest_intent_by_lead[ci.lead_id] = ci
+                if ti.lead_id not in latest_thread_by_lead:
+                    latest_thread_by_lead[ti.lead_id] = ti
 
         today_ct = clock.today_ct_iso()
 
@@ -269,32 +311,31 @@ def get_call_list(
                     if d != float("inf"):
                         distance_from_near = round(d, 1)
 
-            # What the customer said on their last call, and how much it
-            # should lift them. Boosts are on the same scale as the follow-up
-            # flag (hot 1000 / callback_due 800 / warm 400) and are ADDED to
-            # it rather than replacing it — the two read different evidence:
-            # the flag watches proposal views and dispositions, this is the
-            # customer's own words.
+            # What the customer said — on their last call and over text — and
+            # how much it should lift them. Boosts are on the same scale as
+            # the follow-up flag (hot 1000 / callback_due 800 / warm 400) and
+            # are ADDED to it rather than replacing it: the flag watches
+            # proposal views and dispositions, this is the customer's own
+            # words.
             ci = latest_intent_by_lead.get(lead.id)
+            ti = latest_thread_by_lead.get(lead.id)
             intent_block = None
+            text_block = None
             intent_boost = 0
             temp_rank = 0
             if ci:
                 callback_due = bool(ci.callback_at) and ci.callback_at <= today_ct
                 if callback_due:
-                    # They asked to be called by now. Nothing else on this
-                    # list is a stronger reason to dial, so this is the only
-                    # part of the intent read that competes with the
-                    # follow-up flag for the top of the list.
+                    # They asked to be called by now. Nothing on this list
+                    # is a stronger reason to dial, so this competes with
+                    # the follow-up flag for the top of the list.
                     intent_boost += 900
                 # Temperature is softer evidence — an impression of the
                 # customer, not a request from them. It ranks WITHIN a
                 # priority bucket rather than above one: a merely "warm"
                 # read on a $400 job should not outrank a $9,000 job we
                 # know nothing about yet.
-                temp_rank = {
-                    "hot": 3, "warm": 2, "unknown": 1, "cold": 0,
-                }.get(ci.temperature or "unknown", 1)
+                temp_rank = max(temp_rank, _TEMP_RANK.get(ci.temperature or "unknown", 1))
                 intent_block = {
                     "temperature": ci.temperature or "unknown",
                     "blocker": ci.blocker or "unknown",
@@ -304,11 +345,82 @@ def get_call_list(
                     "callback_at": ci.callback_at or "",
                     "callback_phrase": ci.callback_phrase or "",
                     "callback_due": callback_due,
+                    "call_at": ci.call_at or "",
                     "read_at": ci.created_at or "",
+                }
+            if ti:
+                text_due = bool(ti.callback_at) and ti.callback_at <= today_ct
+                if text_due:
+                    intent_boost += 900
+                # Their text is the last one in the thread and nobody has
+                # answered it. Fresh, that is the most actionable row on the
+                # whole list. Stale, it is a conversation that died, and it
+                # gets a nudge rather than the top — a three-month-old
+                # "thanks" must not sit above a customer who asked for a
+                # call today.
+                unanswered_boost = 0
+                if ti.awaiting_reply and ti.last_inbound_at:
+                    age = _days_since(ti.last_inbound_at, today_ct)
+                    unanswered_boost = 900 if age <= 7 else (400 if age <= 30 else 0)
+                intent_boost += unanswered_boost
+                temp_rank = max(temp_rank, _TEMP_RANK.get(ti.temperature or "unknown", 1))
+                text_block = {
+                    "temperature": ti.temperature or "unknown",
+                    "blocker": ti.blocker or "unknown",
+                    "blocker_detail": ti.blocker_detail or "",
+                    "one_line": ti.one_line or "",
+                    "commitment": ti.commitment or "",
+                    "callback_at": ti.callback_at or "",
+                    "callback_phrase": ti.callback_phrase or "",
+                    "callback_due": text_due,
+                    "awaiting_reply": bool(ti.awaiting_reply),
+                    "last_inbound_at": ti.last_inbound_at or "",
+                    "last_outbound_at": ti.last_outbound_at or "",
+                    "message_count": int(ti.message_count or 0),
+                    "read_at": ti.created_at or "",
+                }
+
+            # One headline per row. The more recent conversation wins; the
+            # other fills in whatever the newer one left blank, so a customer
+            # who explained everything on the phone and then texted "ok"
+            # still shows what they wanted.
+            follow_up = None
+            if intent_block or text_block:
+                ci_at = _call_time(ci) if ci else ""
+                ti_at = (ti.through_message_at or ti.created_at or "") if ti else ""
+                text_is_newer = bool(text_block) and (not intent_block or ti_at >= ci_at)
+                newer, older = (
+                    (text_block, intent_block) if text_is_newer
+                    else (intent_block, text_block)
+                )
+                older = older or {}
+
+                def _pick(key: str, blank=("", "unknown")):
+                    v = newer.get(key)
+                    return v if v not in blank else (older.get(key) or v or "")
+
+                follow_up = {
+                    "source": "text" if text_is_newer else "call",
+                    "about": _pick("one_line"),
+                    "blocker": _pick("blocker") or "unknown",
+                    "blocker_detail": _pick("blocker_detail"),
+                    "commitment": _pick("commitment"),
+                    "temperature": _warmest(
+                        (intent_block or {}).get("temperature", ""),
+                        (text_block or {}).get("temperature", ""),
+                    ),
+                    "callback_due": bool(
+                        (intent_block or {}).get("callback_due")
+                        or (text_block or {}).get("callback_due")
+                    ),
+                    "awaiting_reply": bool((text_block or {}).get("awaiting_reply")),
+                    "last_contact_at": max(ci_at, ti_at),
                 }
 
             items.append({
                 "call_intent": intent_block,
+                "text_intent": text_block,
+                "follow_up": follow_up,
                 "intent_boost": intent_boost,
                 "_temp_rank": temp_rank,
                 "lead_id": lead.id,

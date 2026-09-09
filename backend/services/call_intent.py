@@ -120,6 +120,92 @@ def _coerce(value: str, allowed: tuple[str, ...], fallback: str) -> str:
     return v if v in allowed else fallback
 
 
+def ask_claude_json(system_text: str, user_text: str, *, max_tokens: int = 800) -> dict:
+    """One call to Claude that must come back as a JSON object.
+
+    Returns {"ok": True, "parsed": {...}} or {"ok": False, "reason": "..."}.
+    Shared by the call reader and the text reader (services/thread_intent.py)
+    so the two can't drift apart on the parts that have already gone wrong
+    once each: the missing-key path, the cache_control floor, and carrying
+    the real exception text out to where someone can read it.
+    """
+    settings = get_settings()
+    api_key = (getattr(settings, "anthropic_api_key", "") or "").strip()
+    if not api_key:
+        logger.warning("call_intent: no Anthropic key configured")
+        return {"ok": False, "reason": "Not analysed — no API key."}
+
+    # Prompt caching has a floor: a cache_control block must be at least
+    # ~1024 tokens on Sonnet, and a shorter one is REJECTED rather than
+    # silently passed through uncached. The call prompt is around 580
+    # tokens, so asking to cache it failed every single call — 762
+    # extractions produced nothing at all, consistently, which is what a
+    # hard 400 looks like from the outside. Decide from the actual length so
+    # this can't come back if a prompt is later grown or trimmed.
+    system_block: dict = {"type": "text", "text": system_text}
+    if len(system_text) >= _CACHE_MIN_CHARS:
+        system_block["cache_control"] = {"type": "ephemeral"}
+
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            system=[system_block],
+            messages=[{"role": "user", "content": user_text}],
+        )
+        raw = response.content[0].text if response.content else ""
+    except Exception as e:
+        # Carry the actual exception, not a generic label. "extraction failed"
+        # told me nothing three separate times — the class and message are the
+        # whole diagnosis, and they reach the heartbeat from here.
+        logger.error(f"call_intent: Claude call failed: {type(e).__name__}: {e}")
+        return {"ok": False, "reason": f"Claude error — {type(e).__name__}: {e}"[:400]}
+
+    clean = raw.strip()
+    if clean.startswith("```"):
+        clean = clean.split("\n", 1)[1] if "\n" in clean else clean
+        clean = clean.rsplit("```", 1)[0]
+    try:
+        parsed = json.loads(clean)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"call_intent: unparseable JSON: {e} | raw={clean[:200]!r}")
+        return {"ok": False, "reason": f"Bad JSON — {e} | raw starts: {clean[:120]!r}"[:400]}
+    if not isinstance(parsed, dict):
+        return {"ok": False, "reason": f"Bad JSON — not an object: {clean[:120]!r}"}
+    return {"ok": True, "parsed": parsed}
+
+
+def intent_fields(parsed: dict) -> dict:
+    """The model's answer, coerced onto the known vocabularies.
+
+    Anything off-menu ("scorching") falls back to unknown rather than
+    reaching the ranking as a string nobody compares against.
+    """
+    return {
+        "wanted": str(parsed.get("wanted") or "").strip(),
+        "blocker": _coerce(parsed.get("blocker", ""), BLOCKERS, "unknown"),
+        "blocker_detail": str(parsed.get("blocker_detail") or "").strip(),
+        "commitment": str(parsed.get("commitment") or "").strip(),
+        "callback_phrase": str(parsed.get("callback_phrase") or "").strip(),
+        "temperature": _coerce(parsed.get("temperature", ""), TEMPERATURES, "unknown"),
+        "one_line": str(parsed.get("one_line") or "").strip(),
+        "quoted_price_mentioned": bool(parsed.get("quoted_price_mentioned")),
+    }
+
+
+def customer_context(lead_context: dict | None) -> str:
+    """The "CUSTOMER: name — address" line both readers put above the text."""
+    if not lead_context:
+        return ""
+    name = (lead_context.get("contact_name") or "").strip()
+    address = (lead_context.get("address") or "").strip()
+    if not (name or address):
+        return ""
+    return f"\n\nCUSTOMER: {name}{f' — {address}' if address else ''}"
+
+
 def extract_intent(transcript_text: str, *, call_date: str = "",
                    lead_context: dict | None = None) -> dict:
     """Pull the customer-side signal out of one transcript.
@@ -136,74 +222,18 @@ def extract_intent(transcript_text: str, *, call_date: str = "",
         # Nothing to read is a real answer, not a failure — don't retry it.
         return _empty("No transcript.", ok=True)
 
-    settings = get_settings()
-    api_key = (getattr(settings, "anthropic_api_key", "") or "").strip()
-    if not api_key:
-        logger.warning("call_intent: no Anthropic key configured")
-        return _empty("Not analysed — no API key.")
-
     if len(text) > _MAX_TRANSCRIPT_CHARS:
         text = text[:_MAX_TRANSCRIPT_CHARS] + "\n[transcript truncated]"
 
-    context = ""
-    if lead_context:
-        name = (lead_context.get("contact_name") or "").strip()
-        address = (lead_context.get("address") or "").strip()
-        if name or address:
-            context = f"\n\nCUSTOMER: {name}{f' — {address}' if address else ''}"
+    context = customer_context(lead_context)
     if call_date:
         context += f"\nCALL DATE: {clock.echo_day(call_date)}"
 
-    # Prompt caching has a floor: a cache_control block must be at least
-    # ~1024 tokens on Sonnet, and a shorter one is REJECTED rather than
-    # silently passed through uncached. This prompt is around 580 tokens, so
-    # asking to cache it failed every single call — 762 extractions produced
-    # nothing at all, consistently, which is what a hard 400 looks like from
-    # the outside. Decide from the actual length so this can't come back if
-    # the prompt is later grown or trimmed.
-    system_block: dict = {"type": "text", "text": _PROMPT}
-    if len(_PROMPT) >= _CACHE_MIN_CHARS:
-        system_block["cache_control"] = {"type": "ephemeral"}
+    answer = ask_claude_json(_PROMPT, f"CALL TRANSCRIPT:{context}\n\n{text}")
+    if not answer["ok"]:
+        return _empty(answer["reason"])
 
-    try:
-        from anthropic import Anthropic
-        client = Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=800,
-            system=[system_block],
-            messages=[{"role": "user",
-                       "content": f"CALL TRANSCRIPT:{context}\n\n{text}"}],
-        )
-        raw = response.content[0].text if response.content else ""
-    except Exception as e:
-        # Carry the actual exception, not a generic label. "extraction failed"
-        # told me nothing three separate times — the class and message are the
-        # whole diagnosis, and they reach the heartbeat from here.
-        logger.error(f"call_intent: Claude call failed: {type(e).__name__}: {e}")
-        return _empty(f"Claude error — {type(e).__name__}: {e}"[:400])
-
-    clean = raw.strip()
-    if clean.startswith("```"):
-        clean = clean.split("\n", 1)[1] if "\n" in clean else clean
-        clean = clean.rsplit("```", 1)[0]
-    try:
-        parsed = json.loads(clean)
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"call_intent: unparseable JSON: {e} | raw={clean[:200]!r}")
-        return _empty(f"Bad JSON — {e} | raw starts: {clean[:120]!r}"[:400])
-
-    out = {
-        "ok": True,
-        "wanted": str(parsed.get("wanted") or "").strip(),
-        "blocker": _coerce(parsed.get("blocker", ""), BLOCKERS, "unknown"),
-        "blocker_detail": str(parsed.get("blocker_detail") or "").strip(),
-        "commitment": str(parsed.get("commitment") or "").strip(),
-        "callback_phrase": str(parsed.get("callback_phrase") or "").strip(),
-        "temperature": _coerce(parsed.get("temperature", ""), TEMPERATURES, "unknown"),
-        "one_line": str(parsed.get("one_line") or "").strip(),
-        "quoted_price_mentioned": bool(parsed.get("quoted_price_mentioned")),
-    }
+    out = {"ok": True, **intent_fields(answer["parsed"])}
     out["callback_at"] = resolve_callback(out["callback_phrase"], call_date)
     return out
 

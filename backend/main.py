@@ -50,11 +50,20 @@ async def _poller_loop():
 
 
 async def _message_poller_loop():
-    """Background task: sync GHL messages every 5 minutes (safety net for missed webhooks)."""
+    """Background task: pull text threads for open leads, a slice every 5 min.
+
+    This is how texts get in. The GHL message webhook went silent in April
+    2026 and this loop, written as its safety net, shipped switched off. It
+    now rotates through every open lead the way the call poller does — see
+    services/poller.py:poll_ghl_messages.
+    """
     await asyncio.sleep(120)
     while True:
         try:
-            await asyncio.to_thread(poll_ghl_messages)
+            await asyncio.to_thread(
+                poll_ghl_messages,
+                max_leads=get_settings().message_poller_batch,
+            )
         except Exception as e:
             logger.error(f"Message poller error: {e}")
         await asyncio.sleep(300)
@@ -170,9 +179,11 @@ async def _intent_extraction_loop():
     worth calling, because every extraction is a Claude call and a customer who
     bought in June does not need a follow-up plan.
 
-    Offset behind the transcription drain so it reads transcripts that exist.
+    Short boot delay: Railway restarts the service on every variable change,
+    and a 15-minute wait after each one turned a key swap into a 15-minute
+    wait to find out whether the key worked.
     """
-    await asyncio.sleep(900)
+    await asyncio.sleep(120)
     while True:
         settings = get_settings()
         if settings.enable_intent_extraction_drain:
@@ -193,6 +204,38 @@ async def _intent_extraction_loop():
             except Exception as e:
                 logger.error(f"Intent extraction drain error: {e}")
         await asyncio.sleep(get_settings().intent_extraction_interval_seconds)
+
+
+async def _thread_intent_loop():
+    """Background task: read customer intent off TEXT threads, for open leads.
+
+    The same read as the call drain, off each lead's SMS thread. Only leads
+    with a message newer than their last read are touched, so once the
+    backlog is done a run is one cheap query, and a lead is re-read exactly
+    when a new text lands. Offset behind the message poller so it has
+    threads to read.
+    """
+    await asyncio.sleep(240)
+    while True:
+        settings = get_settings()
+        if settings.enable_thread_intent_drain:
+            try:
+                from services.thread_drain import (
+                    extract_thread_backlog, get_thread_backlog_status,
+                )
+                if not get_thread_backlog_status().get("running"):
+                    result = await asyncio.to_thread(
+                        extract_thread_backlog,
+                        limit=settings.thread_intent_batch,
+                    )
+                    if result.get("total"):
+                        logger.info(
+                            f"[thread drain] {result.get('extracted', 0)} read, "
+                            f"{result.get('remaining', 0)} left"
+                        )
+            except Exception as e:
+                logger.error(f"Thread intent drain error: {e}")
+        await asyncio.sleep(get_settings().thread_intent_interval_seconds)
 
 
 async def _map_geocode_loop():
@@ -439,14 +482,14 @@ async def lifespan(app: FastAPI):
     init_task = asyncio.create_task(_async_db_init())
     poller = asyncio.create_task(_poller_loop())
     # T2.2: Message poller is now a fallback for the InboundMessage
-    # webhook (api/webhooks.py POST /webhook/ghl/message), which handles
-    # storage + customer_responded + follow-up engine integration + SSE
-    # + opt-out detection in real time. Default off — set
-    # ENABLE_MESSAGE_POLLER=true in env if the webhook ever stops firing.
+    # webhook (api/webhooks.py POST /webhook/ghl/message) — which went silent
+    # in April 2026 while this stayed off "until the webhook ever stops
+    # firing". Default ON since 2026-09-09; the webhook still dedupes
+    # against it by ghl_message_id when it does deliver.
     msg_poller = None
     if get_settings().enable_message_poller:
         msg_poller = asyncio.create_task(_message_poller_loop())
-        logger.info("Message poller ENABLED via ENABLE_MESSAGE_POLLER env var")
+        logger.info("Message poller enabled")
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
@@ -465,6 +508,9 @@ async def lifespan(app: FastAPI):
     intent_drain = None
     if get_settings().enable_intent_extraction_drain:
         intent_drain = asyncio.create_task(_intent_extraction_loop())
+    thread_drain = None
+    if get_settings().enable_thread_intent_drain:
+        thread_drain = asyncio.create_task(_thread_intent_loop())
     # W3 (2026-06-08). Nightly QB reconciliation safety net. Catches any
     # invoice payments that arrived but whose webhook delivery failed.
     # Mock mode no-ops at the service level. Default: ON.
@@ -494,6 +540,8 @@ async def lifespan(app: FastAPI):
         transcribe_drain.cancel()
     if intent_drain is not None:
         intent_drain.cancel()
+    if thread_drain is not None:
+        thread_drain.cancel()
     if qb_reconcile is not None:
         qb_reconcile.cancel()
     correction_escalator.cancel()

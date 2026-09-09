@@ -34,6 +34,7 @@ class Lead(Base):
         Index("idx_leads_phone_key", "phone_key"),
         Index("idx_leads_phonetic_key", "phonetic_key"),
         Index("idx_leads_calls_checked_at", "calls_checked_at"),
+        Index("idx_leads_messages_checked_at", "messages_checked_at"),
     )
 
     id = Column(Text, primary_key=True)
@@ -67,6 +68,9 @@ class Lead(Base):
     # leads every 10 minutes forever" into a rotation that covers everyone.
     # Empty string sorts first, so a lead never checked goes to the front.
     calls_checked_at = Column(Text, default="")
+    # Same rotation cursor for the text-message poller: least recently
+    # checked first, stamped every visit. See services/poller.py.
+    messages_checked_at = Column(Text, default="")
     service_type = Column(Text, default="fence_staining")
     status = Column(Text, default="new")
     kanban_column = Column(Text, default="new_lead")
@@ -784,13 +788,87 @@ class CallIntent(Base):
     temperature = Column(Text, default="unknown")  # hot | warm | cold | unknown
     one_line = Column(Text, default="")          # what Alan reads before dialling
     quoted_price_mentioned = Column(Boolean, default=False)
+    # When the CALL happened (the recording's timestamp), as opposed to
+    # created_at, which is when it was read. The backlog reads newest calls
+    # first, so for a lead with several calls the most recently WRITTEN row
+    # is their OLDEST call — ranking on read time would headline a stale one.
+    call_at = Column(Text, default="")
     created_at = Column(Text, default="")
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "recording_id": self.recording_id,
+            "call_at": self.call_at or "",
             "lead_id": self.lead_id or "",
+            "wanted": self.wanted or "",
+            "blocker": self.blocker or "unknown",
+            "blocker_detail": self.blocker_detail or "",
+            "commitment": self.commitment or "",
+            "callback_phrase": self.callback_phrase or "",
+            "callback_at": self.callback_at or "",
+            "temperature": self.temperature or "unknown",
+            "one_line": self.one_line or "",
+            "quoted_price_mentioned": bool(self.quoted_price_mentioned),
+            "created_at": self.created_at or "",
+        }
+
+
+class ThreadIntent(Base):
+    """What the CUSTOMER said over text — the CallIntent read, off a thread.
+
+    Most of a customer conversation happens by SMS, and until this existed
+    none of it reached the callback list. One row per read of a lead's whole
+    thread; the thread is re-read whenever a message newer than
+    `through_message_at` lands, so the latest row is the current state.
+
+    `awaiting_reply` is a FACT computed from the messages — the customer's
+    text is the last one in the thread — never the model's impression. It is
+    the single most actionable thing on the list, so it must not depend on a
+    reading. See services/thread_intent.py.
+    """
+    __tablename__ = "thread_intents"
+    __table_args__ = (
+        Index("idx_thread_intents_lead", "lead_id"),
+        Index("idx_thread_intents_callback", "callback_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+
+    # The newest message this read covered. Anything newer means the thread
+    # has moved on and needs reading again.
+    through_message_id = Column(Text, default="")
+    through_message_at = Column(Text, default="")
+    message_count = Column(Integer, default=0)
+    inbound_count = Column(Integer, default=0)
+    last_inbound_at = Column(Text, default="")
+    last_outbound_at = Column(Text, default="")
+    awaiting_reply = Column(Boolean, default=False)
+
+    wanted = Column(Text, default="")
+    blocker = Column(Text, default="unknown")
+    blocker_detail = Column(Text, default="")
+    commitment = Column(Text, default="")
+    callback_phrase = Column(Text, default="")
+    # Resolved against the day of the customer's LAST message, Houston time.
+    callback_at = Column(Text, default="")       # YYYY-MM-DD or ""
+    temperature = Column(Text, default="unknown")
+    one_line = Column(Text, default="")
+    quoted_price_mentioned = Column(Boolean, default=False)
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id or "",
+            "through_message_id": self.through_message_id or "",
+            "through_message_at": self.through_message_at or "",
+            "message_count": int(self.message_count or 0),
+            "inbound_count": int(self.inbound_count or 0),
+            "last_inbound_at": self.last_inbound_at or "",
+            "last_outbound_at": self.last_outbound_at or "",
+            "awaiting_reply": bool(self.awaiting_reply),
             "wanted": self.wanted or "",
             "blocker": self.blocker or "unknown",
             "blocker_detail": self.blocker_detail or "",
@@ -3298,6 +3376,7 @@ def init_db():
     # Both are batched and capped so a cold boot can't outrun the healthcheck.
     _backfill_lead_identity_keys()
     _backfill_employee_identity_keys()
+    _backfill_call_intent_call_at()
 
 
 def _run_migrations():
@@ -3947,6 +4026,7 @@ def _run_migrations():
             ("identity_aliases", "ALTER TABLE leads ADD COLUMN identity_aliases TEXT DEFAULT '[]'"),
             ("duplicate_of", "ALTER TABLE leads ADD COLUMN duplicate_of TEXT DEFAULT ''"),
             ("calls_checked_at", "ALTER TABLE leads ADD COLUMN calls_checked_at TEXT DEFAULT ''"),
+            ("messages_checked_at", "ALTER TABLE leads ADD COLUMN messages_checked_at TEXT DEFAULT ''"),
         ):
             if col not in lead_cols:
                 with _engine.begin() as conn:
@@ -3960,6 +4040,15 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE scheduled_jobs ADD COLUMN {col} TEXT DEFAULT ''"))
                 logger.info(f"Migration: added scheduled_jobs.{col}")
+
+    # When the call happened, so the list headlines the latest CALL rather
+    # than the latest READ. Backfilled from call_recordings in init_db().
+    if inspector.has_table("call_intents"):
+        ci_cols = {c["name"] for c in inspector.get_columns("call_intents")}
+        if "call_at" not in ci_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE call_intents ADD COLUMN call_at TEXT DEFAULT ''"))
+            logger.info("Migration: added call_intents.call_at")
 
     if inspector.has_table("employees"):
         emp_cols = {c["name"] for c in inspector.get_columns("employees")}
@@ -4017,6 +4106,34 @@ def _stamp_employee(mapper, connection, target) -> None:
 for _model, _fn in ((Lead, _stamp_lead), (Employee, _stamp_employee)):
     _sa_event.listen(_model, "before_insert", _fn)
     _sa_event.listen(_model, "before_update", _fn)
+
+
+def _backfill_call_intent_call_at() -> None:
+    """Stamp call_at on intent rows written before the column existed.
+
+    The list wants the customer's LATEST call, and the backlog reads newest
+    calls first, so "latest row written" is the OLDEST call for anyone with
+    several. One portable UPDATE from the recording's own timestamp; a no-op
+    once every row carries it.
+    """
+    if _SessionLocal is None:
+        return
+    db = _SessionLocal()
+    try:
+        n = db.execute(text(
+            "UPDATE call_intents SET call_at = COALESCE("
+            "(SELECT created_at FROM call_recordings "
+            " WHERE call_recordings.id = call_intents.recording_id), '') "
+            "WHERE call_at IS NULL OR call_at = ''"
+        )).rowcount
+        db.commit()
+        if n:
+            logger.info(f"Backfill: stamped call_at on {n} call_intents row(s)")
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"call_intents.call_at backfill skipped: {e}")
+    finally:
+        db.close()
 
 
 def _backfill_lead_identity_keys() -> None:

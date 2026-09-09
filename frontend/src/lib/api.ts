@@ -3811,6 +3811,39 @@ export interface CallIntentRead {
   read_at: string;
 }
 
+/** The same read, off the lead's TEXT thread. `awaiting_reply` is a fact
+ *  computed from the messages — their text is the last one in the thread —
+ *  not the model's impression. */
+export interface TextIntentRead {
+  temperature: "hot" | "warm" | "cold" | "unknown";
+  blocker: string;
+  blocker_detail: string;
+  one_line: string;
+  commitment: string;
+  callback_at: string;
+  callback_phrase: string;
+  callback_due: boolean;
+  awaiting_reply: boolean;
+  last_inbound_at: string;
+  last_outbound_at: string;
+  message_count: number;
+  read_at: string;
+}
+
+/** One headline per row, from whichever conversation happened last, with
+ *  the other filling in anything the newer one left blank. */
+export interface FollowUpSummary {
+  source: "call" | "text";
+  about: string;
+  blocker: string;
+  blocker_detail: string;
+  commitment: string;
+  temperature: "hot" | "warm" | "cold" | "unknown";
+  callback_due: boolean;
+  awaiting_reply: boolean;
+  last_contact_at: string;
+}
+
 export interface CallListItem {
   lead_id: string;
   contact_name: string;
@@ -3836,6 +3869,10 @@ export interface CallListItem {
   /** Null for most leads — only calls that have been transcribed AND had
    *  intent extracted carry this. A row without it still appears. */
   call_intent?: CallIntentRead | null;
+  /** Null until the lead's text thread has been read. */
+  text_intent?: TextIntentRead | null;
+  /** Null when neither a call nor a thread has been read. */
+  follow_up?: FollowUpSummary | null;
   intent_boost?: number;
 }
 

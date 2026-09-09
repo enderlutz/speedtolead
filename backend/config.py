@@ -133,7 +133,12 @@ class Settings(BaseSettings):
     # disabled by default. Flip this to True only if the webhook ever
     # stops firing (deploy issue, GHL config drift, etc.). Saves ~20
     # GHL API calls per 5-min cycle when off.
-    enable_message_poller: bool = False
+    # ON by default since 2026-09-09. This shipped off, as a "safety net" for
+    # the GHL message webhook — which went silent in April 2026. Nobody
+    # noticed, because a safety net that has to be switched on by hand is
+    # not a safety net: by September, 1 of 616 open leads had any stored
+    # text. The poller is now the primary way texts get in.
+    enable_message_poller: bool = True
 
     # Sprint 4 T4.B (2026-06-08). Call recording poller (T4.A's fetcher
     # wrapped in a 10-min loop). Defaults ON now that the GHL endpoint
@@ -162,9 +167,27 @@ class Settings(BaseSettings):
     # Same idea for reading customer intent off those transcripts, but this
     # one calls Claude, which is the half that exhausted the API credits on
     # the last manual run. Scoped to open leads and paced smaller.
+    # Newest calls first (the query orders by recording date desc), so the
+    # reads that matter for today's list land in the first few minutes and
+    # the long tail fills in behind. One read is one Claude call of a few
+    # seconds, so a 100-call batch is ~10 minutes of work and ~10 requests a
+    # minute — well under any tier's rate limit. Once the backlog is empty a
+    # run is a single cheap query, so the short interval costs nothing.
     enable_intent_extraction_drain: bool = True
-    intent_extraction_batch: int = 15
-    intent_extraction_interval_seconds: int = 900
+    intent_extraction_batch: int = 100
+    intent_extraction_interval_seconds: int = 120
+
+    # The same read, off each open lead's TEXT thread. Only leads with a
+    # message newer than their last read are touched, so in steady state a
+    # run is one cheap query and a lead is re-read exactly when a text lands.
+    enable_thread_intent_drain: bool = True
+    thread_intent_batch: int = 100
+    thread_intent_interval_seconds: int = 120
+
+    # How many open leads the text-message poller refreshes per 5-minute
+    # run. ~2 GHL requests per lead; 60 covers all ~616 open leads hourly
+    # for ~17,000 requests/day against a 200,000 cap.
+    message_poller_batch: int = 60
 
     # W3 (2026-06-08). QuickBooks payment reconciliation. The QB webhook
     # is the primary push path that marks jobs + deposits paid; this

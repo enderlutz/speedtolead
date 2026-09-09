@@ -46,15 +46,36 @@ def make_lead(db, name, *, price=0.0, phone="+18325550000"):
 
 
 def add_intent(db, lead, *, temperature="unknown", callback_at="",
-               one_line="", blocker="unknown"):
+               one_line="", blocker="unknown", call_at=""):
     from database import CallIntent
     ci = CallIntent(
         id=str(uuid.uuid4()), recording_id=str(uuid.uuid4()), lead_id=lead.id,
         temperature=temperature, callback_at=callback_at, one_line=one_line,
-        blocker=blocker, created_at=clock.now_iso(),
+        blocker=blocker, call_at=call_at, created_at=clock.now_iso(),
     )
     db.add(ci); db.commit()
     return ci
+
+
+def add_thread(db, lead, *, temperature="unknown", callback_at="", one_line="",
+               blocker="unknown", awaiting_reply=False, last_inbound_at="",
+               through_message_at="", commitment=""):
+    from database import ThreadIntent
+    ti = ThreadIntent(
+        id=str(uuid.uuid4()), lead_id=lead.id, temperature=temperature,
+        callback_at=callback_at, one_line=one_line, blocker=blocker,
+        commitment=commitment, awaiting_reply=awaiting_reply,
+        last_inbound_at=last_inbound_at,
+        through_message_at=through_message_at or last_inbound_at,
+        message_count=3, inbound_count=1, created_at=clock.now_iso(),
+    )
+    db.add(ti); db.commit()
+    return ti
+
+
+def _ts(days_ago: int) -> str:
+    """An ISO timestamp that many Houston days back, at noon UTC."""
+    return f"{clock.add_days_iso(clock.today_ct_iso(), -days_ago)}T12:00:00+00:00"
 
 
 def call_list(**kw):
@@ -124,12 +145,88 @@ def test_the_intent_block_reaches_the_row(db):
     assert row["call_intent"]["callback_due"] is True
 
 
-def test_the_newest_read_wins_when_a_lead_has_several_calls(db):
+def test_the_newest_call_wins_when_a_lead_has_several(db):
+    """Newest CALL, not newest read.
+
+    The backlog reads newest calls first, so the row written LAST for a lead
+    with several calls is their oldest call. Ordering by read time would
+    headline "not interested" from June over "changed my mind" from today.
+    """
     lead = make_lead(db, "Many Calls", price=1000)
-    add_intent(db, lead, temperature="cold", one_line="Not interested.")
-    add_intent(db, lead, temperature="hot", one_line="Changed my mind.")
+    add_intent(db, lead, temperature="hot", one_line="Changed my mind.", call_at=_ts(1))
+    add_intent(db, lead, temperature="cold", one_line="Not interested.", call_at=_ts(60))
     row = call_list()["items"][0]
     assert row["call_intent"]["one_line"] == "Changed my mind."
+
+
+# ── Texts ─────────────────────────────────────────────────────────────
+
+def test_a_fresh_unanswered_text_outranks_a_much_bigger_deal(db):
+    """Their text is the last one in the thread and it's from this week.
+
+    Nothing on the list is a better use of the next five minutes.
+    """
+    make_lead(db, "Big Money", price=9000)
+    waiting = make_lead(db, "Waiting On Us", price=400)
+    add_thread(db, waiting, temperature="warm", awaiting_reply=True, last_inbound_at=_ts(2))
+    assert names(call_list())[0] == "Waiting On Us"
+
+
+def test_an_unanswered_text_from_months_ago_does_not_jump_the_queue(db):
+    """A "thanks" nobody answered in June is a dead thread, not an emergency."""
+    make_lead(db, "Big Money", price=9000)
+    stale = make_lead(db, "Went Quiet", price=400)
+    add_thread(db, stale, temperature="warm", awaiting_reply=True, last_inbound_at=_ts(90))
+    assert names(call_list())[0] == "Big Money"
+
+
+def test_a_callback_asked_for_by_text_counts_like_one_asked_for_on_a_call(db):
+    make_lead(db, "Big Money", price=9000)
+    asked = make_lead(db, "Texted A Day", price=400)
+    add_thread(db, asked, temperature="warm", callback_at=clock.today_ct_iso(),
+               last_inbound_at=_ts(3))
+    assert names(call_list())[0] == "Texted A Day"
+    assert call_list()["items"][0]["text_intent"]["callback_due"] is True
+
+
+def test_a_lead_with_only_a_text_read_carries_it(db):
+    lead = make_lead(db, "Text Only", price=1000)
+    add_thread(db, lead, temperature="hot", one_line="Ready when you are.",
+               awaiting_reply=True, last_inbound_at=_ts(1))
+    row = call_list()["items"][0]
+    assert row["call_intent"] is None
+    assert row["text_intent"]["one_line"] == "Ready when you are."
+    assert row["text_intent"]["awaiting_reply"] is True
+    assert row["follow_up"]["source"] == "text"
+    assert row["follow_up"]["about"] == "Ready when you are."
+
+
+def test_the_headline_comes_from_the_most_recent_conversation(db):
+    lead = make_lead(db, "Both Channels", price=1000)
+    add_intent(db, lead, temperature="warm", one_line="Wants a price on the gate too.", call_at=_ts(10))
+    add_thread(db, lead, temperature="hot", one_line="Says go ahead.", last_inbound_at=_ts(1))
+    fu = call_list()["items"][0]["follow_up"]
+    assert fu["source"] == "text"
+    assert fu["about"] == "Says go ahead."
+    assert fu["temperature"] == "hot"
+
+
+def test_the_older_conversation_fills_in_what_the_newer_one_left_blank(db):
+    lead = make_lead(db, "Terse Texter", price=1000)
+    add_intent(db, lead, temperature="warm", one_line="Wants both sides of the back fence.",
+               blocker="spouse_or_partner", call_at=_ts(10))
+    add_thread(db, lead, temperature="warm", one_line="", blocker="unknown", last_inbound_at=_ts(1))
+    fu = call_list()["items"][0]["follow_up"]
+    assert fu["source"] == "text"
+    assert fu["about"] == "Wants both sides of the back fence."
+    assert fu["blocker"] == "spouse_or_partner"
+
+
+def test_a_lead_with_no_reads_at_all_has_no_follow_up_block(db):
+    make_lead(db, "Unread", price=1500)
+    row = call_list()["items"][0]
+    assert row["text_intent"] is None
+    assert row["follow_up"] is None
 
 
 # ── What must not break ───────────────────────────────────────────────
