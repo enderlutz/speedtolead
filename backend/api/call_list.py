@@ -359,17 +359,17 @@ def get_call_list(
                 # "thanks" must not sit above a customer who asked for a
                 # call today.
                 #
-                # ...and only when their last word wasn't goodbye. On the
-                # first live run, three customers who had declined sat in
-                # the top ten because "thanks anyway" is also an unanswered
-                # text. A cold read gets nothing; an unknown one a nudge.
+                # ...and only when the reader saw interest. On the first
+                # live run, three customers who had declined sat in the top
+                # ten because "thanks anyway" is also an unanswered text. A
+                # cold read gets nothing, and so does an unknown one: if the
+                # reader couldn't tell whether they want the job, the silence
+                # isn't evidence that they do. The badge still shows.
                 unanswered_boost = 0
-                if ti.awaiting_reply and ti.last_inbound_at:
+                if ti.awaiting_reply and ti.last_inbound_at \
+                        and (ti.temperature or "") in ("hot", "warm"):
                     age = _days_since(ti.last_inbound_at, today_ct)
-                    full = 900 if age <= 7 else (400 if age <= 30 else 0)
-                    unanswered_boost = {
-                        "hot": full, "warm": full, "unknown": full // 3, "cold": 0,
-                    }.get(ti.temperature or "unknown", 0)
+                    unanswered_boost = 900 if age <= 7 else (400 if age <= 30 else 0)
                 intent_boost += unanswered_boost
                 temp_rank = max(temp_rank, _TEMP_RANK.get(ti.temperature or "unknown", 1))
                 text_block = {

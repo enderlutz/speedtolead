@@ -194,13 +194,16 @@ def test_a_cold_customers_unanswered_goodbye_does_not_jump_the_queue(db):
     assert names(call_list())[0] == "Big Money"
 
 
-def test_an_unanswered_text_the_reader_could_not_place_gets_only_a_nudge(db):
+def test_an_unanswered_text_the_reader_could_not_place_gets_no_boost(db):
+    """If the reader can't tell whether they want the job, their silence is
+    not evidence that they do. The badge still shows; the rank doesn't move."""
     make_lead(db, "Big Money", price=9000)
     unclear = make_lead(db, "Unclear", price=400)
     add_thread(db, unclear, temperature="unknown", awaiting_reply=True, last_inbound_at=_ts(1))
     assert names(call_list())[0] == "Big Money"
     row = [i for i in call_list()["items"] if i["contact_name"] == "Unclear"][0]
-    assert 0 < row["intent_boost"] < 900
+    assert row["intent_boost"] == 0
+    assert row["text_intent"]["awaiting_reply"] is True
 
 
 def test_a_callback_asked_for_by_text_counts_like_one_asked_for_on_a_call(db):
