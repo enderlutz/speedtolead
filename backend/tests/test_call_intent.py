@@ -297,6 +297,30 @@ def test_the_answer_budget_has_room_for_the_brief():
     assert call_intent._MAX_ANSWER_TOKENS >= 1500
 
 
+def test_an_escaped_apostrophe_inside_a_quote_is_tolerated(monkeypatch):
+    """Seen live: "Customer said \\'no thanks\\'" — the model escaping an
+    apostrophe, which JSON does not allow. It failed as "no object found"
+    on an answer that visibly started with one."""
+    _install_fake_claude(monkeypatch,
+                         '{"temperature": "cold", "blocker": "price", '
+                         '"blocker_detail": "Customer said \\\'too much\\\' twice"}')
+    out = call_intent.extract_intent("Customer: too much.")
+    assert out["ok"] is True
+    assert out["blocker_detail"] == "Customer said 'too much' twice"
+
+
+def test_a_real_escape_is_left_alone():
+    assert call_intent._repair_escapes(r'{"a": "line\nbreak \"quoted\" back\\slash"}') == \
+        r'{"a": "line\nbreak \"quoted\" back\\slash"}'
+
+
+def test_a_bad_json_reason_shows_both_ends(monkeypatch):
+    _install_fake_claude(monkeypatch, '{"wanted": "the START of it", "brief": "and this is the END of it')
+    out = call_intent.extract_intent("Customer: hi.")
+    assert out["ok"] is False
+    assert "START" in out["one_line"] and "END" in out["one_line"]
+
+
 def test_a_brace_inside_a_quoted_value_does_not_end_the_object():
     got = call_intent._first_json_object('x {"one_line": "wants a {gate} too", "temperature": "warm"} y')
     assert got == {"one_line": "wants a {gate} too", "temperature": "warm"}

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import clock
 from config import get_settings
@@ -177,6 +178,7 @@ def ask_claude_json(system_text: str, user_text: str, *,
     if clean.startswith("```"):
         clean = clean.split("\n", 1)[1] if "\n" in clean else clean
         clean = clean.rsplit("```", 1)[0]
+    clean = _repair_escapes(clean)
     try:
         parsed = json.loads(clean)
     except (json.JSONDecodeError, ValueError):
@@ -193,10 +195,32 @@ def ask_claude_json(system_text: str, user_text: str, *,
                 return {"ok": False,
                         "reason": f"Cut off — answer hit max_tokens={max_tokens} before the object closed"}
             logger.error(f"call_intent: unparseable JSON | raw={clean[:200]!r}")
-            return {"ok": False, "reason": f"Bad JSON — no object found | raw starts: {clean[:120]!r}"[:400]}
+            # Both ends: the start of a broken answer usually looks fine,
+            # and the end is where it went wrong.
+            return {"ok": False,
+                    "reason": f"Bad JSON — no object found | starts: {clean[:110]!r} | ends: {clean[-110:]!r}"[:400]}
     if not isinstance(parsed, dict):
         return {"ok": False, "reason": f"Bad JSON — not an object: {clean[:120]!r}"}
     return {"ok": True, "parsed": parsed}
+
+
+# Every backslash and the character after it, as a unit — so an escaped
+# backslash ("\\") is consumed as a pair and the character after the pair
+# is never mistaken for a bad escape.
+_ESCAPE = re.compile(r"\\(.)", re.S)
+
+
+def _repair_escapes(text: str) -> str:
+    """Drop the backslash from escapes JSON doesn't allow.
+
+    The common case is the model quoting a customer inside a string —
+    "Customer said \\'no\\'" — which json.loads rejects outright. A valid
+    answer has no such escape, so this is a no-op on the happy path.
+    """
+    def fix(m: re.Match) -> str:
+        ch = m.group(1)
+        return m.group(0) if ch in '"\\/bfnrtu' else ch
+    return _ESCAPE.sub(fix, text)
 
 
 def _first_json_object(text: str) -> dict | None:
