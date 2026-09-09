@@ -169,12 +169,57 @@ def ask_claude_json(system_text: str, user_text: str, *, max_tokens: int = 800) 
         clean = clean.rsplit("```", 1)[0]
     try:
         parsed = json.loads(clean)
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"call_intent: unparseable JSON: {e} | raw={clean[:200]!r}")
-        return {"ok": False, "reason": f"Bad JSON — {e} | raw starts: {clean[:120]!r}"[:400]}
+    except (json.JSONDecodeError, ValueError):
+        # The model was asked for ONLY a JSON object and mostly obliges, but
+        # on the first live run a few answers came wrapped in prose ("Looking
+        # at this thread, I can see...") or trailed by a note after the
+        # closing brace. The object is still in there; take it.
+        parsed = _first_json_object(clean)
+        if parsed is None:
+            logger.error(f"call_intent: unparseable JSON | raw={clean[:200]!r}")
+            return {"ok": False, "reason": f"Bad JSON — no object found | raw starts: {clean[:120]!r}"[:400]}
     if not isinstance(parsed, dict):
         return {"ok": False, "reason": f"Bad JSON — not an object: {clean[:120]!r}"}
     return {"ok": True, "parsed": parsed}
+
+
+def _first_json_object(text: str) -> dict | None:
+    """The first balanced {...} in `text` that parses, or None.
+
+    Walks braces while honouring strings, so a brace inside a quoted value
+    ("wants a {gate}") doesn't end the object early.
+    """
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start:i + 1])
+                    except (json.JSONDecodeError, ValueError):
+                        break
+                    if isinstance(obj, dict):
+                        return obj
+                    break
+        start = text.find("{", start + 1)
+    return None
 
 
 def intent_fields(parsed: dict) -> dict:

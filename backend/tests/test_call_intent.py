@@ -240,6 +240,37 @@ def test_unparseable_output_is_marked_not_ok(monkeypatch):
     assert call_intent.extract_intent("Customer: hello.")["ok"] is False
 
 
+# ── The object is in there somewhere ──────────────────────────────────
+
+def test_prose_around_the_object_is_ignored(monkeypatch):
+    """Seen live: "Looking at this thread, I can see that..." then the JSON."""
+    _install_fake_claude(monkeypatch, """Looking at this transcript, I can see the customer is keen.
+
+{"temperature": "hot", "one_line": "Ready to book.", "callback_phrase": ""}
+
+Let me know if you need anything else.""")
+    out = call_intent.extract_intent("Customer: book it.")
+    assert out["ok"] is True
+    assert out["temperature"] == "hot"
+    assert out["one_line"] == "Ready to book."
+
+
+def test_a_note_after_the_closing_brace_is_ignored(monkeypatch):
+    """Seen live: "Extra data: line 11 column 1" — a trailing remark."""
+    _install_fake_claude(monkeypatch, '{"temperature": "warm"}\nNote: the audio cut out near the end.')
+    assert call_intent.extract_intent("Customer: hi.")["temperature"] == "warm"
+
+
+def test_a_brace_inside_a_quoted_value_does_not_end_the_object():
+    got = call_intent._first_json_object('x {"one_line": "wants a {gate} too", "temperature": "warm"} y')
+    assert got == {"one_line": "wants a {gate} too", "temperature": "warm"}
+
+
+def test_no_object_at_all_is_still_a_failure():
+    assert call_intent._first_json_object("nothing here") is None
+    assert call_intent._first_json_object("{not: valid}") is None
+
+
 def test_a_successful_read_is_marked_ok(monkeypatch):
     _install_fake_claude(monkeypatch, """{
       "wanted": "", "blocker": "none", "blocker_detail": "",
