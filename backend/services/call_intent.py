@@ -122,7 +122,14 @@ def _coerce(value: str, allowed: tuple[str, ...], fallback: str) -> str:
     return v if v in allowed else fallback
 
 
-def ask_claude_json(system_text: str, user_text: str, *, max_tokens: int = 800) -> dict:
+# Room for the whole answer. 800 was enough for the one-liner era; with the
+# brief added, the long reads — exactly the ones worth having — ran out of
+# tokens mid-object and failed as "no object found", 4 to 9 per hundred.
+_MAX_ANSWER_TOKENS = 1600
+
+
+def ask_claude_json(system_text: str, user_text: str, *,
+                    max_tokens: int = _MAX_ANSWER_TOKENS) -> dict:
     """One call to Claude that must come back as a JSON object.
 
     Returns {"ok": True, "parsed": {...}} or {"ok": False, "reason": "..."}.
@@ -158,6 +165,7 @@ def ask_claude_json(system_text: str, user_text: str, *, max_tokens: int = 800) 
             messages=[{"role": "user", "content": user_text}],
         )
         raw = response.content[0].text if response.content else ""
+        stop_reason = getattr(response, "stop_reason", "") or ""
     except Exception as e:
         # Carry the actual exception, not a generic label. "extraction failed"
         # told me nothing three separate times — the class and message are the
@@ -178,6 +186,12 @@ def ask_claude_json(system_text: str, user_text: str, *, max_tokens: int = 800) 
         # closing brace. The object is still in there; take it.
         parsed = _first_json_object(clean)
         if parsed is None:
+            if stop_reason == "max_tokens":
+                # Say what actually happened. "No object found" on an answer
+                # that visibly starts with one is a riddle; "cut off" is a fix.
+                logger.error(f"call_intent: answer cut off at {max_tokens} tokens")
+                return {"ok": False,
+                        "reason": f"Cut off — answer hit max_tokens={max_tokens} before the object closed"}
             logger.error(f"call_intent: unparseable JSON | raw={clean[:200]!r}")
             return {"ok": False, "reason": f"Bad JSON — no object found | raw starts: {clean[:120]!r}"[:400]}
     if not isinstance(parsed, dict):

@@ -263,6 +263,40 @@ def test_a_note_after_the_closing_brace_is_ignored(monkeypatch):
     assert call_intent.extract_intent("Customer: hi.")["temperature"] == "warm"
 
 
+def test_an_answer_cut_off_by_the_token_limit_says_so(monkeypatch):
+    """Seen live once the brief was added: 4 to 9 reads per hundred came
+    back as "no object found" on an answer that visibly started with one.
+    They had hit max_tokens mid-object. The reason must say that."""
+    class _S:
+        anthropic_api_key = "sk-test"
+    monkeypatch.setattr(call_intent, "get_settings", lambda: _S())
+
+    class _Block:
+        def __init__(self, text): self.text = text
+
+    class _Resp:
+        stop_reason = "max_tokens"
+        content = [_Block('{"wanted": "the back fence", "brief": "She wants the back')]
+
+    class _Messages:
+        def create(self, **kw): return _Resp()
+
+    class _Fake:
+        def __init__(self, *a, **k): self.messages = _Messages()
+
+    import anthropic
+    monkeypatch.setattr(anthropic, "Anthropic", _Fake)
+
+    out = call_intent.extract_intent("Customer: hi.")
+    assert out["ok"] is False
+    assert "Cut off" in out["one_line"]
+
+
+def test_the_answer_budget_has_room_for_the_brief():
+    """A five-sentence brief on top of the other fields runs well past 800."""
+    assert call_intent._MAX_ANSWER_TOKENS >= 1500
+
+
 def test_a_brace_inside_a_quoted_value_does_not_end_the_object():
     got = call_intent._first_json_object('x {"one_line": "wants a {gate} too", "temperature": "warm"} y')
     assert got == {"one_line": "wants a {gate} too", "temperature": "warm"}
