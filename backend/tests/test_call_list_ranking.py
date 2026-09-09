@@ -116,6 +116,28 @@ def test_an_overdue_callback_still_surfaces(db):
     assert names(call_list())[0] == "Overdue"
 
 
+def test_a_callback_from_months_ago_is_a_dead_promise_not_todays_top_call(db):
+    """Seen live: "I will call you tomorrow", said June 11, ranked first in
+    September. Still flagged as due, so it shows — but it no longer outranks
+    a bigger deal with a live ask."""
+    make_lead(db, "Big Money", price=9000)
+    dead = make_lead(db, "June Promise", price=400)
+    add_intent(db, dead, temperature="warm",
+               callback_at=clock.add_days_iso(clock.today_ct_iso(), -90))
+    assert names(call_list())[0] == "Big Money"
+    row = [i for i in call_list()["items"] if i["contact_name"] == "June Promise"][0]
+    assert row["call_intent"]["callback_due"] is True
+    assert row["intent_boost"] == 0
+
+
+def test_a_callback_a_fortnight_late_still_beats_a_lead_with_no_ask(db):
+    make_lead(db, "Silent", price=400)
+    late = make_lead(db, "Two Weeks Late", price=400)
+    add_intent(db, late, temperature="warm",
+               callback_at=clock.add_days_iso(clock.today_ct_iso(), -14))
+    assert names(call_list())[0] == "Two Weeks Late"
+
+
 def test_a_future_callback_does_not_jump_the_queue(db):
     """Someone who said "next month" is not today's problem."""
     make_lead(db, "Big Money", price=9000)
@@ -246,6 +268,49 @@ def test_the_older_conversation_fills_in_what_the_newer_one_left_blank(db):
     assert fu["source"] == "text"
     assert fu["about"] == "Wants both sides of the back fence."
     assert fu["blocker"] == "spouse_or_partner"
+
+
+def test_a_paid_deposit_sinks_a_lead_below_every_open_one(db):
+    """"Paid the 250" is hot and unanswered — and not a sales call.
+
+    Seen live: five of the top twenty had already paid, because nobody moved
+    their stage in GHL after the deposit landed.
+    """
+    make_lead(db, "Still Deciding", price=400)
+    sold = make_lead(db, "Already Paid", price=9000)
+    sold.deposit_status = "paid"
+    sold.deposit_paid_at = _ts(3)
+    db.commit()
+    add_thread(db, sold, temperature="hot", one_line="Paid the 250.",
+               awaiting_reply=True, last_inbound_at=_ts(1))
+
+    assert names(call_list()) == ["Still Deciding", "Already Paid"]
+    row = call_list()["items"][1]
+    assert row["deal_state"] == "booked"
+    assert row["booked_note"].startswith("Deposit paid")
+    assert row["intent_boost"] == 0
+
+
+def test_a_scheduled_job_sinks_a_lead_too(db):
+    from database import ScheduledJob
+    make_lead(db, "Still Deciding", price=400)
+    booked = make_lead(db, "On The Calendar", price=9000)
+    db.add(ScheduledJob(id=str(uuid.uuid4()), lead_id=booked.id, customer_name="On The Calendar",
+                        job_date=clock.add_days_iso(clock.today_ct_iso(), 5),
+                        status="scheduled", created_at=clock.now_iso()))
+    db.commit()
+    assert names(call_list()) == ["Still Deciding", "On The Calendar"]
+    assert call_list()["items"][1]["booked_note"].startswith("Job scheduled")
+
+
+def test_a_cancelled_job_does_not_count_as_booked(db):
+    from database import ScheduledJob
+    lead = make_lead(db, "Cancelled Once", price=9000)
+    db.add(ScheduledJob(id=str(uuid.uuid4()), lead_id=lead.id, customer_name="Cancelled Once",
+                        job_date=clock.add_days_iso(clock.today_ct_iso(), 5),
+                        status="cancelled", created_at=clock.now_iso()))
+    db.commit()
+    assert call_list()["items"][0]["deal_state"] == "open"
 
 
 def test_a_lead_with_no_reads_at_all_has_no_follow_up_block(db):

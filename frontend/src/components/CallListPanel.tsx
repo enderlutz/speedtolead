@@ -397,9 +397,19 @@ function CallRow({
                 Asked for a callback
               </Badge>
             )}
+            {/* Already sold, never moved stage in GHL. Not a call to make —
+                a stage to fix. */}
+            {item.deal_state === "booked" && (
+              <Badge
+                className="text-[10px] py-0 h-auto bg-emerald-100 text-emerald-900 border-emerald-300"
+                title={`${item.booked_note || "Already booked"} — move this lead's stage in GHL`}
+              >
+                Already booked
+              </Badge>
+            )}
             {/* Their text is the last one in the thread and nobody answered
                 it. A fact from the messages, not a model's impression. */}
-            {item.text_intent?.awaiting_reply && (
+            {item.deal_state !== "booked" && item.text_intent?.awaiting_reply && (
               <Badge
                 className="text-[10px] py-0 h-auto bg-rose-600 text-white"
                 title={`Their last text${

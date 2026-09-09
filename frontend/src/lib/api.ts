@@ -3842,10 +3842,16 @@ export interface FollowUpSummary {
   callback_due: boolean;
   awaiting_reply: boolean;
   last_contact_at: string;
+  deal_state?: "open" | "booked";
 }
 
 export interface CallListItem {
   lead_id: string;
+  /** "booked" when a deposit is paid or a job is on the calendar but the
+   *  lead never moved stage in GHL. Sinks to the bottom; not a call to make. */
+  deal_state?: "open" | "booked";
+  /** "Deposit paid 2026-08-28" / "Job scheduled 2026-09-12" when booked. */
+  booked_note?: string;
   contact_name: string;
   contact_phone: string;
   address: string;

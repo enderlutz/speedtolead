@@ -71,6 +71,23 @@ def _days_since(iso_ts: str, today_ct: str) -> int:
         return 10_000
 
 
+def _callback_boost(callback_at: str, today_ct: str) -> int:
+    """How much "call me on <day>" lifts a lead, by how overdue it is.
+
+    Due today or within the last week: the strongest reason on the list.
+    Up to a month late: still worth chasing, but behind fresher asks. Older
+    than that it is a promise that died — on the first live run a "call me
+    tomorrow" from June 11 sat at the top in September.
+    """
+    if not callback_at or callback_at > today_ct:
+        return 0
+    try:
+        late = (date.fromisoformat(today_ct) - date.fromisoformat(callback_at[:10])).days
+    except (TypeError, ValueError):
+        return 0
+    return 900 if late <= 7 else (400 if late <= 30 else 0)
+
+
 def _warmest(*temps: str) -> str:
     known = [t for t in temps if t]
     if not known:
@@ -243,6 +260,22 @@ def get_call_list(
                 if ti.lead_id not in latest_thread_by_lead:
                     latest_thread_by_lead[ti.lead_id] = ti
 
+        # Leads that are already sold but never moved stage in GHL. On the
+        # first live run five of the top twenty had paid a deposit — their
+        # last text was "Paid the 250", which read as hot and unanswered.
+        # 18 of 616 open leads had a paid deposit and 4 a scheduled job. The
+        # system already knows; the list just has to look.
+        scheduled_by_lead: dict[str, str] = {}
+        if lead_ids:
+            for j_lead_id, j_date in (
+                db.query(ScheduledJob.lead_id, ScheduledJob.job_date)
+                .filter(ScheduledJob.lead_id.in_(lead_ids))
+                .filter(ScheduledJob.status != "cancelled")
+                .order_by(ScheduledJob.job_date.asc())
+                .all()
+            ):
+                scheduled_by_lead.setdefault(j_lead_id, j_date or "")
+
         today_ct = clock.today_ct_iso()
 
         items = []
@@ -325,11 +358,11 @@ def get_call_list(
             temp_rank = 0
             if ci:
                 callback_due = bool(ci.callback_at) and ci.callback_at <= today_ct
-                if callback_due:
-                    # They asked to be called by now. Nothing on this list
-                    # is a stronger reason to dial, so this competes with
-                    # the follow-up flag for the top of the list.
-                    intent_boost += 900
+                # They asked to be called by now. Nothing on this list is a
+                # stronger reason to dial, so this competes with the
+                # follow-up flag for the top of the list — while the ask is
+                # fresh. See _callback_boost for how it fades.
+                intent_boost += _callback_boost(ci.callback_at or "", today_ct)
                 # Temperature is softer evidence — an impression of the
                 # customer, not a request from them. It ranks WITHIN a
                 # priority bucket rather than above one: a merely "warm"
@@ -350,8 +383,7 @@ def get_call_list(
                 }
             if ti:
                 text_due = bool(ti.callback_at) and ti.callback_at <= today_ct
-                if text_due:
-                    intent_boost += 900
+                intent_boost += _callback_boost(ti.callback_at or "", today_ct)
                 # Their text is the last one in the thread and nobody has
                 # answered it. Fresh, that is the most actionable row on the
                 # whole list. Stale, it is a conversation that died, and it
@@ -425,7 +457,32 @@ def get_call_list(
                     "last_contact_at": max(ci_at, ti_at),
                 }
 
+            # Already sold? Then nothing above applies — this is a customer
+            # to look after, not one to close. Kept on the list, at the
+            # bottom, labelled, so someone moves the stage in GHL.
+            deal_state = "open"
+            booked_note = ""
+            if (lead.deposit_status or "") in ("paid", "waived"):
+                deal_state = "booked"
+                paid_day = clock.ct_date_of(lead.deposit_paid_at) if lead.deposit_paid_at else ""
+                booked_note = (
+                    f"Deposit paid {paid_day}" if paid_day
+                    else ("Deposit waived" if lead.deposit_status == "waived" else "Deposit paid")
+                )
+            if lead.id in scheduled_by_lead:
+                deal_state = "booked"
+                job_day = scheduled_by_lead[lead.id]
+                booked_note = f"Job scheduled {job_day}" if job_day else "Job scheduled"
+            if deal_state == "booked":
+                intent_boost = 0
+                if follow_up:
+                    follow_up["deal_state"] = deal_state
+            elif follow_up:
+                follow_up["deal_state"] = "open"
+
             items.append({
+                "deal_state": deal_state,
+                "booked_note": booked_note,
                 "call_intent": intent_block,
                 "text_intent": text_block,
                 "follow_up": follow_up,
@@ -465,9 +522,12 @@ def get_call_list(
         #     3. $1500+ priority bucket
         #     4. signature price desc
         #     5. name asc
+        #   Either way, a lead that is already sold sinks below every open
+        #   one — it is not a call to make, it is a stage to fix in GHL.
         if near_target:
             items.sort(
                 key=lambda x: (
+                    1 if x.get("deal_state") == "booked" else 0,
                     # Leads with no computable distance sink to the bottom
                     x["distance_from_near_zip_miles"]
                     if x["distance_from_near_zip_miles"] is not None
@@ -479,6 +539,7 @@ def get_call_list(
         else:
             items.sort(
                 key=lambda x: (
+                    1 if x.get("deal_state") == "booked" else 0,
                     -(((x.get("follow_up_flag") or {}).get("priority_boost") or 0)
                       + (x.get("intent_boost") or 0)),
                     -(200 if x.get("nearby_match") else 0),
