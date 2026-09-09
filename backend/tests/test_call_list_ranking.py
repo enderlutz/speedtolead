@@ -180,6 +180,29 @@ def test_an_unanswered_text_from_months_ago_does_not_jump_the_queue(db):
     assert names(call_list())[0] == "Big Money"
 
 
+def test_a_cold_customers_unanswered_goodbye_does_not_jump_the_queue(db):
+    """"But thanks anyways" is an unanswered text too. It is not a lead.
+
+    Seen on the first live run: three customers who had declined sat in the
+    top ten above people still deciding, because nobody had replied to their
+    goodbye.
+    """
+    make_lead(db, "Big Money", price=9000)
+    gone = make_lead(db, "Went Elsewhere", price=400)
+    add_thread(db, gone, temperature="cold", blocker="competitor",
+               awaiting_reply=True, last_inbound_at=_ts(1))
+    assert names(call_list())[0] == "Big Money"
+
+
+def test_an_unanswered_text_the_reader_could_not_place_gets_only_a_nudge(db):
+    make_lead(db, "Big Money", price=9000)
+    unclear = make_lead(db, "Unclear", price=400)
+    add_thread(db, unclear, temperature="unknown", awaiting_reply=True, last_inbound_at=_ts(1))
+    assert names(call_list())[0] == "Big Money"
+    row = [i for i in call_list()["items"] if i["contact_name"] == "Unclear"][0]
+    assert 0 < row["intent_boost"] < 900
+
+
 def test_a_callback_asked_for_by_text_counts_like_one_asked_for_on_a_call(db):
     make_lead(db, "Big Money", price=9000)
     asked = make_lead(db, "Texted A Day", price=400)
