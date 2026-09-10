@@ -116,6 +116,31 @@ def test_an_overdue_callback_still_surfaces(db):
     assert names(call_list())[0] == "Overdue"
 
 
+def test_a_later_decline_by_text_cancels_an_earlier_calls_callback(db):
+    """Seen live: "we're going to pass, thanks" by text, three days after a
+    call had him down for "call me Friday". The callback boost from the
+    call must not survive a later, colder word from the same customer."""
+    make_lead(db, "Big Money", price=9000)
+    declined = make_lead(db, "Changed Mind", price=400)
+    add_intent(db, declined, temperature="warm", callback_at=clock.today_ct_iso(), call_at=_ts(3))
+    add_thread(db, declined, temperature="cold", last_inbound_at=_ts(1),
+               through_message_at=_ts(1))
+    assert names(call_list())[0] == "Big Money"
+    row = [i for i in call_list()["items"] if i["contact_name"] == "Changed Mind"][0]
+    assert row["call_intent"]["callback_due"] is False
+    assert row["intent_boost"] == 0
+
+
+def test_a_later_warm_text_does_not_cancel_an_earlier_calls_callback(db):
+    """The guard is about a COLDER later read, not just a more recent one —
+    a customer following up warm should not lose their earlier callback."""
+    lonely = make_lead(db, "Still Warm", price=400)
+    add_intent(db, lonely, temperature="warm", callback_at=clock.today_ct_iso(), call_at=_ts(3))
+    add_thread(db, lonely, temperature="warm", last_inbound_at=_ts(1), through_message_at=_ts(1))
+    row = call_list()["items"][0]
+    assert row["call_intent"]["callback_due"] is True
+
+
 def test_a_callback_from_months_ago_is_a_dead_promise_not_todays_top_call(db):
     """Seen live: "I will call you tomorrow", said June 11, ranked first in
     September. Still flagged as due, so it shows — but it no longer outranks

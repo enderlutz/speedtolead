@@ -100,6 +100,23 @@ def _callback_boost(callback_at: str, today_ct: str) -> int:
     return 900 if late <= 7 else (400 if late <= 30 else 0)
 
 
+def _superseded(own_at: str, own_temp: str, other, other_at: str) -> bool:
+    """Does a later, colder conversation override this one's callback?
+
+    A promise made on a warm call doesn't survive the customer texting
+    "we're gonna pass" three days later. Seen live: a declined customer's
+    old "call me Friday" was still being counted as a due callback because
+    the two channels' boosts were simply added together, whichever read
+    made them was ignored.
+    """
+    if own_temp == "cold":
+        return True
+    if other is not None and other_at > own_at \
+            and (getattr(other, "temperature", "") or "") == "cold":
+        return True
+    return False
+
+
 def _warmest(*temps: str) -> str:
     known = [t for t in temps if t]
     if not known:
@@ -374,17 +391,22 @@ def get_call_list(
             # words.
             ci = latest_intent_by_lead.get(lead.id)
             ti = latest_thread_by_lead.get(lead.id)
+            ci_at = _call_time(ci) if ci else ""
+            ti_at = (ti.through_message_at or ti.created_at or "") if ti else ""
             intent_block = None
             text_block = None
             intent_boost = 0
             temp_rank = 0
             if ci:
-                callback_due = bool(ci.callback_at) and ci.callback_at <= today_ct
+                stale = _superseded(ci_at, ci.temperature or "unknown", ti, ti_at)
+                callback_due = bool(ci.callback_at) and ci.callback_at <= today_ct and not stale
                 # They asked to be called by now. Nothing on this list is a
                 # stronger reason to dial, so this competes with the
                 # follow-up flag for the top of the list — while the ask is
-                # fresh. See _callback_boost for how it fades.
-                intent_boost += _callback_boost(ci.callback_at or "", today_ct)
+                # fresh, and while nothing said since overrides it. See
+                # _callback_boost for how it fades.
+                if not stale:
+                    intent_boost += _callback_boost(ci.callback_at or "", today_ct)
                 # Temperature is softer evidence — an impression of the
                 # customer, not a request from them. It ranks WITHIN a
                 # priority bucket rather than above one: a merely "warm"
@@ -407,8 +429,10 @@ def get_call_list(
                     "read_at": ci.created_at or "",
                 }
             if ti:
-                text_due = bool(ti.callback_at) and ti.callback_at <= today_ct
-                intent_boost += _callback_boost(ti.callback_at or "", today_ct)
+                stale = _superseded(ti_at, ti.temperature or "unknown", ci, ci_at)
+                text_due = bool(ti.callback_at) and ti.callback_at <= today_ct and not stale
+                if not stale:
+                    intent_boost += _callback_boost(ti.callback_at or "", today_ct)
                 # Their text is the last one in the thread and nobody has
                 # answered it. Fresh, that is the most actionable row on the
                 # whole list. Stale, it is a conversation that died, and it
@@ -452,8 +476,6 @@ def get_call_list(
             # still shows what they wanted.
             follow_up = None
             if intent_block or text_block:
-                ci_at = _call_time(ci) if ci else ""
-                ti_at = (ti.through_message_at or ti.created_at or "") if ti else ""
                 text_is_newer = bool(text_block) and (not intent_block or ti_at >= ci_at)
                 newer, older = (
                     (text_block, intent_block) if text_is_newer
