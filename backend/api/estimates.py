@@ -249,19 +249,21 @@ def _save_amount_values(tiers: dict, markup_percent: float) -> dict:
 # page still says nothing about rate/APR — Affirm sets the customer's real
 # terms at approval, so this is a starting point, not a quote. One constant
 # so the term moves in a single edit and stays in sync with the
-# "for N months*" text.
+# "for N mo.*" text. The PDF renders the "$X/mo" and "for N mo.*" halves
+# in different sizes/colors — see MONTHLY_FIELD_KEYS in pdf_generator.py —
+# so this format is also the split point that renderer parses on " for ".
 FINANCING_MONTHS = 36
 
 
 def _format_monthly_price(amount: float) -> str:
-    """The "$X/mo for 36 months*" line under a tier price. Empty when the
-    tier has no price, so the renderer skips the slot instead of printing
+    """The "$X/mo for 36 mo.*" line under a tier price. Empty when the tier
+    has no price, so the renderer skips the slot instead of printing
     "$0/mo". Rounded UP to a whole dollar like every other price on the
     page."""
     if amount <= 0:
         return ""
     monthly = math.ceil(amount / FINANCING_MONTHS)
-    return f"${monthly:,}/mo for {FINANCING_MONTHS} months*"
+    return f"${monthly:,}/mo for {FINANCING_MONTHS} mo.*"
 
 
 def _monthly_values(tiers: dict) -> dict:

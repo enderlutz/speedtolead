@@ -70,7 +70,7 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
     const FINANCING_MONTHS = 36;
     const fmtMonthly = (amount: number) =>
       amount > 0
-        ? `${fmtDollar(amount / FINANCING_MONTHS)}/mo for ${FINANCING_MONTHS} months*`
+        ? `${fmtDollar(amount / FINANCING_MONTHS)}/mo for ${FINANCING_MONTHS} mo.*`
         : "";
     const fmtSlashed = (amount: number) =>
       markupPercent > 0 && amount > 0

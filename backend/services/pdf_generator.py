@@ -58,6 +58,21 @@ BOLD_FIELDS = {
     "essential_monthly", "signature_monthly", "legacy_monthly",
 }
 
+# Affirm monthly-financing line — "$X/mo" large in the tier's brand color,
+# "for N months*" small in black. Per Alan: 48pt for the amount (matches the
+# tier price's own size), 30pt for the term. Fixed absolute sizes, not tied
+# to whatever font_size sits in the field's placement — that value still
+# drives the draggable overlay in the admin editor, just not the PDF.
+MONTHLY_AMOUNT_FONT_SIZE = 48
+MONTHLY_TERM_FONT_SIZE = 30
+MONTHLY_TERM_COLOR = "#000000"
+MONTHLY_AMOUNT_COLOR = {
+    "essential_monthly": "#2b3a16",
+    "signature_monthly": "#5b2c10",
+    "legacy_monthly": "#c1891f",
+}
+MONTHLY_FIELD_KEYS = set(MONTHLY_AMOUNT_COLOR.keys())
+
 # Price field split rendering — different colors for dollar amounts vs "or"
 # Essential & Signature: brown prices, black "or"
 # Legacy: white prices, gold "or"
@@ -118,6 +133,48 @@ def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
     if len(h) != 6:
         return (0.17, 0.17, 0.17)
     return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
+
+
+def _render_monthly_price(page, x: float, y_baseline: float, text: str, amount_color_hex: str, box_width: float = 0):
+    """Render "$X/mo for N months*" with the dollar amount large
+    (MONTHLY_AMOUNT_FONT_SIZE) in the tier's brand color and "for N
+    months*" small (MONTHLY_TERM_FONT_SIZE) in black, both sharing one
+    baseline so the term reads as a natural continuation of the amount
+    rather than a separate line. Falls back to rendering the whole string
+    at the amount size/color if there's no " for " to split on."""
+    if " for " in text:
+        idx = text.index(" for ")
+        amount_part = text[:idx]
+        term_part = text[idx + 1:]  # keep the leading "for "
+    else:
+        amount_part, term_part = text, ""
+
+    amount_color = _hex_to_rgb(amount_color_hex)
+    term_color = _hex_to_rgb(MONTHLY_TERM_COLOR)
+    bold_font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
+
+    amount_w = bold_font.text_length(amount_part, fontsize=MONTHLY_AMOUNT_FONT_SIZE)
+    term_w = bold_font.text_length(term_part, fontsize=MONTHLY_TERM_FONT_SIZE) if term_part else 0
+    gap = MONTHLY_AMOUNT_FONT_SIZE * 0.12 if term_part else 0
+    total_w = amount_w + gap + term_w
+
+    cursor_x = x
+    if box_width > 0:
+        cursor_x = x + (box_width - total_w) / 2
+
+    amount_kwargs: dict = {"fontsize": MONTHLY_AMOUNT_FONT_SIZE, "color": amount_color}
+    if FONT_BOLD_PATH:
+        amount_kwargs["fontname"] = FONT_BOLD_NAME
+        amount_kwargs["fontfile"] = FONT_BOLD_PATH
+    page.insert_text(fitz.Point(cursor_x, y_baseline), amount_part, **amount_kwargs)
+    cursor_x += amount_w + gap
+
+    if term_part:
+        term_kwargs: dict = {"fontsize": MONTHLY_TERM_FONT_SIZE, "color": term_color}
+        if FONT_BOLD_PATH:
+            term_kwargs["fontname"] = FONT_BOLD_NAME
+            term_kwargs["fontfile"] = FONT_BOLD_PATH
+        page.insert_text(fitz.Point(cursor_x, y_baseline), term_part, **term_kwargs)
 
 
 def _render_split_price(page, x: float, y_baseline: float, font_size: float, text: str, style: dict, box_width: float = 0):
@@ -341,6 +398,18 @@ def generate_filled_pdf(
             _render_split_save_price(
                 page, x, y_baseline, font_size,
                 text_value, SAVE_PRICE_STYLES[field_key], box_width,
+            )
+            continue
+
+        # Affirm monthly financing — two-size, two-color render. Baseline
+        # is computed off MONTHLY_AMOUNT_FONT_SIZE (not the placement's own
+        # font_size) since the amount, not the placement value, is what
+        # actually gets drawn at that size.
+        if field_key in MONTHLY_FIELD_KEYS:
+            monthly_baseline = y + MONTHLY_AMOUNT_FONT_SIZE * 0.82
+            _render_monthly_price(
+                page, x, monthly_baseline,
+                text_value, MONTHLY_AMOUNT_COLOR[field_key], box_width,
             )
             continue
 
