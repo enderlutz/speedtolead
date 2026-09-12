@@ -110,6 +110,20 @@ SLASHED_PRICE_PAIRS = {
 }
 SLASHED_FIELD_KEYS = set(SLASHED_PRICE_PAIRS.values())
 
+# Auto-above slashed price size, relative to the price field's own font
+# size (currently 48pt) — this only affects the auto-render path, not an
+# admin's own explicit placement (that always uses font_scale=1.0, its own
+# configured size). Was the function default 0.60 (=28.8pt off a 48pt
+# price); Alan asked to drop 5pt off that, so 23.8/48.
+SLASHED_AUTO_FONT_SCALE = 23.8 / 48
+
+# How far above the price baseline the auto-above slash sits, as a
+# multiple of the price's own font_size. Was 0.95 (fixed regardless of
+# the slash's own size), which put it right on top of the "20% OFF"
+# ribbon once the newer, more compact template cards shrank the gap
+# between ribbon and price. Lowered so it drops into that gap instead.
+SLASHED_AUTO_OFFSET_RATIO = 0.55
+
 # "You save $X.XX" field — the prefix "You save " and the dollar
 # amount render in separate colors (split on the first "$"). Per-tier
 # prefix because the legacy card sits on a dark background and needs
@@ -309,10 +323,12 @@ def _render_slashed_price(
         return
     slashed_font_size = font_size * font_scale
     color = _hex_to_rgb(SLASHED_COLOR_HEX)
-    # Auto-above path: shift baseline up by the actual font_size so the
-    # slashed text sits above the tier price. Explicit-placement path
-    # (font_scale=1.0) renders right at the supplied baseline.
-    slashed_y = y_baseline if font_scale >= 1.0 else y_baseline - font_size * 0.95
+    # Auto-above path: shift baseline up by SLASHED_AUTO_OFFSET_RATIO *
+    # font_size so the slashed text clears the "20% OFF" ribbon graphic
+    # sitting above the price on the card, without drifting so far up it
+    # collides with the ribbon from the OTHER side. Explicit-placement
+    # path (font_scale=1.0) renders right at the supplied baseline.
+    slashed_y = y_baseline if font_scale >= 1.0 else y_baseline - font_size * SLASHED_AUTO_OFFSET_RATIO
 
     bold_font = fitz.Font(fontfile=FONT_BOLD_PATH) if FONT_BOLD_PATH else fitz.Font("helv")
     text_width = bold_font.text_length(text, fontsize=slashed_font_size)
@@ -424,6 +440,7 @@ def generate_filled_pdf(
                 page, x, y_baseline, font_size,
                 str(values[slashed_key]),
                 box_width,
+                font_scale=SLASHED_AUTO_FONT_SCALE,
             )
 
         # Split price rendering: "$X,XXX" bold color + "or" different color + "$XX.XX/mo" bold color
