@@ -167,9 +167,12 @@ def _format_price(amount: float, include_financing: bool) -> str:
     # Monthly/financing display retired — proposal + PDF show the upfront
     # price only. include_financing kept on the signature so existing call
     # sites don't break, but it no longer changes the output.
-    # Always round UP to the next whole dollar (per Alan): $1024.20 → $1025.
+    # Per Alan: show cents now ($1,024.20) instead of rounding up to the
+    # next whole dollar. Still rounds UP, just to the nearest cent, so we
+    # never quote a hair under what the price actually is.
     del include_financing
-    return f"${math.ceil(amount):,}"
+    cents = math.ceil(amount * 100) / 100
+    return f"${cents:,.2f}"
 
 
 def _original_price(amount: float, discount_percent: float) -> float | None:
@@ -256,14 +259,13 @@ FINANCING_MONTHS = 36
 
 
 def _format_monthly_price(amount: float) -> str:
-    """The "$X/mo for 36 mo.*" line under a tier price. Empty when the tier
-    has no price, so the renderer skips the slot instead of printing
-    "$0/mo". Rounded UP to a whole dollar like every other price on the
-    page."""
+    """The "$X.XX/mo for 36 mo.*" line under a tier price. Empty when the
+    tier has no price, so the renderer skips the slot instead of printing
+    "$0.00/mo". Rounded UP to the nearest cent, same as _format_price."""
     if amount <= 0:
         return ""
-    monthly = math.ceil(amount / FINANCING_MONTHS)
-    return f"${monthly:,}/mo for {FINANCING_MONTHS} mo.*"
+    monthly = math.ceil((amount / FINANCING_MONTHS) * 100) / 100
+    return f"${monthly:,.2f}/mo for {FINANCING_MONTHS} mo.*"
 
 
 def _monthly_values(tiers: dict) -> dict:

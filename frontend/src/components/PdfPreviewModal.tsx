@@ -57,9 +57,13 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
 
   const buildValues = useCallback((): Record<string, string> => {
     const tiers = estimate.tiers || { essential: 0, signature: 0, legacy: 0 };
-    // Round UP to the next whole dollar — matches the backend formatters
-    // so the preview matches the PDF the customer receives.
-    const fmtDollar = (amount: number) => `$${Math.ceil(amount).toLocaleString("en-US")}`;
+    // Round UP to the nearest cent and show it — matches the backend
+    // formatters (_format_price / _format_monthly_price) so the preview
+    // matches the PDF the customer receives.
+    const fmtDollar = (amount: number) => {
+      const cents = Math.ceil(amount * 100) / 100;
+      return `$${cents.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
     const fmtSave = (amount: number) =>
       markupPercent > 0 && amount > 0
         ? `You save ${fmtDollar(amount * (markupPercent / 100))}`
