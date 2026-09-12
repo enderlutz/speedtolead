@@ -243,30 +243,30 @@ def _save_amount_values(tiers: dict, markup_percent: float) -> dict:
     }
 
 
-# Affirm "as low as" financing, per Alan: divide the tier price by a flat 36
-# months and disclose that term on the page (the asterisk is meant to point
-# at an eligibility footnote — add one to the template if it isn't there).
-# The page still says nothing about rate/APR — Affirm sets the customer's
-# real terms at approval, so this is a starting point, not a quote. One
-# constant so the term moves in a single edit and stays in sync with the
+# Affirm financing, per Alan: divide the tier price by a flat 36 months and
+# disclose that term on the page (the asterisk is meant to point at an
+# eligibility footnote — add one to the template if it isn't there). The
+# page still says nothing about rate/APR — Affirm sets the customer's real
+# terms at approval, so this is a starting point, not a quote. One constant
+# so the term moves in a single edit and stays in sync with the
 # "for N months*" text.
 FINANCING_MONTHS = 36
 
 
 def _format_monthly_price(amount: float) -> str:
-    """The "as low as $X/mo for 36 months*" line under a tier price. Empty
-    when the tier has no price, so the renderer skips the slot instead of
-    printing "$0/mo". Rounded UP to a whole dollar like every other price
-    on the page."""
+    """The "$X/mo for 36 months*" line under a tier price. Empty when the
+    tier has no price, so the renderer skips the slot instead of printing
+    "$0/mo". Rounded UP to a whole dollar like every other price on the
+    page."""
     if amount <= 0:
         return ""
     monthly = math.ceil(amount / FINANCING_MONTHS)
-    return f"as low as ${monthly:,}/mo for {FINANCING_MONTHS} months*"
+    return f"${monthly:,}/mo for {FINANCING_MONTHS} months*"
 
 
 def _monthly_values(tiers: dict) -> dict:
-    """The three "as low as" values for the tier cards. Same shape as
-    _slashed_price_values so each fill site stays a one-liner."""
+    """The three Affirm monthly-financing values for the tier cards. Same
+    shape as _slashed_price_values so each fill site stays a one-liner."""
     return {
         "essential_monthly": _format_monthly_price(tiers.get("essential", 0)),
         "signature_monthly": _format_monthly_price(tiers.get("signature", 0)),

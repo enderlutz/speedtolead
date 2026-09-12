@@ -64,13 +64,13 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
       markupPercent > 0 && amount > 0
         ? `You save ${fmtDollar(amount * (markupPercent / 100))}`
         : "";
-    // Affirm "as low as" — price over FINANCING_MONTHS, mirroring
+    // Affirm monthly financing — price over FINANCING_MONTHS, mirroring
     // _format_monthly_price in backend/api/estimates.py. Keep the two in step
     // or the preview stops matching the PDF the customer receives.
     const FINANCING_MONTHS = 36;
     const fmtMonthly = (amount: number) =>
       amount > 0
-        ? `as low as ${fmtDollar(amount / FINANCING_MONTHS)}/mo for ${FINANCING_MONTHS} months*`
+        ? `${fmtDollar(amount / FINANCING_MONTHS)}/mo for ${FINANCING_MONTHS} months*`
         : "";
     const fmtSlashed = (amount: number) =>
       markupPercent > 0 && amount > 0
