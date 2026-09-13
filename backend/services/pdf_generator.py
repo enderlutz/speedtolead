@@ -59,11 +59,13 @@ BOLD_FIELDS = {
 }
 
 # Affirm monthly-financing line — "$X/mo" large in the tier's brand color,
-# "for N months*" small in black. Per Alan: 48pt for the amount (matches the
-# tier price's own size), 30pt for the term. Fixed absolute sizes, not tied
-# to whatever font_size sits in the field's placement — that value still
-# drives the draggable overlay in the admin editor, just not the PDF.
-MONTHLY_AMOUNT_FONT_SIZE = 43
+# "for N months*" small in black. Started at 48pt/30pt (matching the tier
+# price's own size at the time), dropped to 43/25, now 40 to match the
+# full price's own font_size (also 40 — see the live field_map). Fixed
+# absolute sizes, not tied to whatever font_size sits in the field's
+# placement — that value still drives the draggable overlay in the admin
+# editor, just not the PDF.
+MONTHLY_AMOUNT_FONT_SIZE = 40
 MONTHLY_TERM_FONT_SIZE = 25
 MONTHLY_TERM_COLOR = "#000000"
 MONTHLY_AMOUNT_COLOR = {
