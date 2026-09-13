@@ -118,11 +118,10 @@ SLASHED_FIELD_KEYS = set(SLASHED_PRICE_PAIRS.values())
 SLASHED_AUTO_FONT_SCALE = 23.8 / 48
 
 # How far above the price baseline the auto-above slash sits, as a
-# multiple of the price's own font_size. Was 0.95 (fixed regardless of
-# the slash's own size), which put it right on top of the "20% OFF"
-# ribbon once the newer, more compact template cards shrank the gap
-# between ribbon and price. Lowered so it drops into that gap instead.
-SLASHED_AUTO_OFFSET_RATIO = 0.55
+# multiple of the price's own font_size. Briefly lowered to 0.55 to clear
+# the "20% OFF" ribbon on the newer, more compact template cards; Alan
+# asked to revert that back to the original spacing.
+SLASHED_AUTO_OFFSET_RATIO = 0.95
 
 # "You save $X.XX" field — the prefix "You save " and the dollar
 # amount render in separate colors (split on the first "$"). Per-tier
