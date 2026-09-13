@@ -110,12 +110,14 @@ SLASHED_PRICE_PAIRS = {
 }
 SLASHED_FIELD_KEYS = set(SLASHED_PRICE_PAIRS.values())
 
-# Auto-above slashed price size, relative to the price field's own font
-# size (currently 48pt) — this only affects the auto-render path, not an
-# admin's own explicit placement (that always uses font_scale=1.0, its own
-# configured size). Was the function default 0.60 (=28.8pt off a 48pt
-# price); Alan asked to drop 5pt off that, so 23.8/48.
-SLASHED_AUTO_FONT_SCALE = 23.8 / 48
+# Auto-above slashed price size — this only affects the auto-render path,
+# not an admin's own explicit placement (that always uses font_scale=1.0,
+# its own configured size). Was the function default 0.60 (=28.8pt off a
+# 48pt price), then dropped 5pt to 23.8pt. Alan then changed the actual
+# price's own font from 48 to 44; the slash was to stay the same size, so
+# this is now a fixed absolute pt size rather than a scale of the price's
+# font — it no longer moves if the price's font_size changes again.
+SLASHED_AUTO_FONT_SIZE = 23.8
 
 # How far above the price baseline the auto-above slash sits, as a
 # multiple of the price's own font_size. Briefly lowered to 0.55 to clear
@@ -307,12 +309,17 @@ def _render_slashed_price(
     text: str,
     box_width: float = 0,
     font_scale: float = 0.60,
+    abs_font_size: float | None = None,
 ):
     """Render the slashed "summer special" pre-discount price.
 
     Two call patterns:
-    - Auto-above (legacy): font_scale=0.60, y is the actual price
-      baseline. The slashed text is shrunk and drawn above it.
+    - Auto-above (legacy): font_scale<1.0, y is the actual price
+      baseline. The slashed text is shrunk and drawn above it. Pass
+      abs_font_size to fix its glyph size in points regardless of the
+      price's own font_size — used so the slash doesn't resize if the
+      price's font_size changes (font_scale still selects this branch
+      and, absent abs_font_size, would size it relative to font_size).
     - Explicit placement: font_scale=1.0, y is the admin's chosen
       baseline. Text is drawn at full font_size right where the field
       was placed in the canvas editor.
@@ -320,7 +327,7 @@ def _render_slashed_price(
     """
     if not text:
         return
-    slashed_font_size = font_size * font_scale
+    slashed_font_size = abs_font_size if abs_font_size is not None else font_size * font_scale
     color = _hex_to_rgb(SLASHED_COLOR_HEX)
     # Auto-above path: shift baseline up by SLASHED_AUTO_OFFSET_RATIO *
     # font_size so the slashed text clears the "20% OFF" ribbon graphic
@@ -439,7 +446,7 @@ def generate_filled_pdf(
                 page, x, y_baseline, font_size,
                 str(values[slashed_key]),
                 box_width,
-                font_scale=SLASHED_AUTO_FONT_SCALE,
+                abs_font_size=SLASHED_AUTO_FONT_SIZE,
             )
 
         # Split price rendering: "$X,XXX" bold color + "or" different color + "$XX.XX/mo" bold color
