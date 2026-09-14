@@ -119,7 +119,7 @@ export default function ProposalView() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#1C2235] flex flex-col items-center justify-center px-6">
+      <div className="min-h-screen bg-[#0E111B] flex flex-col items-center justify-center px-6">
         <div className="relative mb-6">
           <div className="h-16 w-16 rounded-full border-4 border-white/10 border-t-amber-400 animate-spin" />
         </div>
@@ -131,15 +131,15 @@ export default function ProposalView() {
 
   if (error || !proposal) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
+      <div className="min-h-screen bg-[#0E111B] flex items-center justify-center">
         <div className="text-center px-6">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#1C2235]/10 flex items-center justify-center">
-            <span className="text-2xl text-[#1C2235]/60">?</span>
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 flex items-center justify-center">
+            <span className="text-2xl text-white/60">?</span>
           </div>
-          <h1 className="text-xl font-semibold text-[#1C2235] mb-2">
+          <h1 className="text-xl font-semibold text-white mb-2">
             Proposal Not Found
           </h1>
-          <p className="text-sm text-[#1C2235]/50">
+          <p className="text-sm text-white/50">
             This link may have expired or is no longer available.
           </p>
         </div>
@@ -153,7 +153,11 @@ export default function ProposalView() {
   const isBrick = proposal.header_variant === "brick";
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA]">
+    // Was #F8F9FA (near-white). Per Alan: the space around/between the PDF
+    // pages should read as a near-black navy instead of white — #0E111B is
+    // the header's brand navy (#1C2235) at roughly half its lightness, same
+    // hue. Used for this page's loading/error states too, further down.
+    <div className="min-h-screen bg-[#0E111B]">
       {/* Header — brand + price includes + call icon */}
       <header className="bg-[#1C2235] text-white sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4">
@@ -253,7 +257,7 @@ export default function ProposalView() {
         )}
 
         {/* Footer */}
-        <footer className="text-center text-xs text-[#1C2235]/30 pb-6 pt-4">
+        <footer className="text-center text-xs text-white/30 pb-6 pt-4">
           {"Sterling Fence Staining"} &middot; Cypress, TX
         </footer>
       </main>
