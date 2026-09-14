@@ -658,6 +658,41 @@ def _alert_team_sms_failure(*, customer_name: str, customer_phone: str, proposal
         pass
 
 
+def _alert_team_pipeline_failure(reason: str, *, customer_name: str, customer_phone: str, lead_id: str, proposal_url: str = "") -> None:
+    """Surface any other Approve & Send background-pipeline failure —
+    PDF generation, rasterization, or an unhandled exception anywhere in
+    _approve_estimate_background — to Alan + Fragne.
+
+    Without this, the VA gets a normal "sent" toast the moment the
+    request returns (status flips synchronously, before any of this
+    runs) and a background failure only ever exists in a server log
+    nobody watches day-to-day — the customer silently never receives
+    anything. Mirrors _alert_team_sms_failure's channel (SMS to
+    Alan + Fragne) but doesn't assume the failure was GHL-shaped."""
+    settings = get_settings()
+    msg = (
+        f"⚠️ Estimate send failed (server-side)\n"
+        f"Customer: {customer_name}\n"
+        f"Phone: {customer_phone}\n"
+        f"Reason: {reason[:150]}\n"
+        + (f"Link: {proposal_url}\n" if proposal_url else "")
+        + f"(Lead {lead_id[:8]}) — check the estimate and resend manually."
+    )
+    for label, contact_id in (("alan", settings.owner_ghl_contact_id), ("fragne", settings.fragne_ghl_contact_id)):
+        if not contact_id:
+            continue
+        try:
+            send_sms(contact_id, msg)
+        except Exception as e:
+            logger.warning(f"Could not alert {label} of pipeline failure for lead {lead_id}: {e}")
+    try:
+        log_event(lead_id, "estimate_send_pipeline_failed",
+                  f"Approve & Send background failure: {reason[:150]}",
+                  {"customer_phone": customer_phone, "proposal_url": proposal_url, "reason": reason})
+    except Exception:
+        pass
+
+
 def _approve_estimate_background(
     *,
     proposal_id: str,
@@ -694,6 +729,7 @@ def _approve_estimate_background(
     settings = get_settings()
     now = _now()
     db = get_db()
+    lead = None
     try:
         est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -750,6 +786,12 @@ def _approve_estimate_background(
                 pdf_bytes = generate_filled_pdf(template["pdf_data"], merged_map, values, extra)
             except Exception as e:
                 logger.error(f"BG approve_estimate: PDF generation failed: {e}")
+                _alert_team_pipeline_failure(
+                    f"PDF generation failed: {e}",
+                    customer_name=lead.contact_name or "(unnamed)",
+                    customer_phone=lead.contact_phone or "(no phone)",
+                    lead_id=lead.id,
+                )
 
         # ── Rasterize + upload pages ──────────────────────────────────
         page_count = 0
@@ -770,6 +812,12 @@ def _approve_estimate_background(
                     ))
             except Exception as e:
                 logger.error(f"BG approve_estimate: PDF rasterization/upload failed: {e}")
+                _alert_team_pipeline_failure(
+                    f"PDF rasterization/upload failed: {e}",
+                    customer_name=lead.contact_name or "(unnamed)",
+                    customer_phone=lead.contact_phone or "(no phone)",
+                    lead_id=lead.id,
+                )
 
         # Fill in the Proposal row so the customer endpoint can serve it.
         proposal.pdf_data = pdf_bytes
@@ -780,8 +828,20 @@ def _approve_estimate_background(
         tiers_dict = est.to_dict()["tiers"]
         sig_price = tiers_dict.get("signature", 0)
 
+        # A page-less proposal means PDF gen or rasterization failed above
+        # (already logged + alerted there) — never text a customer a link
+        # to a proposal page that has nothing on it.
+        if send_sms_flag and page_count == 0:
+            _alert_team_pipeline_failure(
+                "Proposal has 0 pages — customer SMS withheld to avoid sending a broken link",
+                customer_name=lead.contact_name or "(unnamed)",
+                customer_phone=lead.contact_phone or "(no phone)",
+                lead_id=lead.id,
+                proposal_url=proposal_url,
+            )
+
         # ── Customer SMS (immediate or queued) ────────────────────────
-        if send_sms_flag and lead.ghl_contact_id and lead.contact_phone:
+        if send_sms_flag and page_count > 0 and lead.ghl_contact_id and lead.contact_phone:
             customer_msg = (
                 f"Here it is!\n"
                 f"Sterling Fence Staining - Your Estimate\n\n"
@@ -902,6 +962,12 @@ def _approve_estimate_background(
             db.rollback()
         except Exception:
             pass
+        _alert_team_pipeline_failure(
+            f"Approve & Send background task crashed: {e}",
+            customer_name=(lead.contact_name if lead else "(unknown)") or "(unnamed)",
+            customer_phone=(lead.contact_phone if lead else "(unknown)") or "(no phone)",
+            lead_id=lead.id if lead else lead_id,
+        )
     finally:
         db.close()
 
