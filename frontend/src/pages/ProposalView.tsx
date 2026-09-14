@@ -18,7 +18,7 @@ const BASE = import.meta.env.VITE_API_URL || "";
 
 function PageSkeleton() {
   return (
-    <div className="w-full aspect-[8.5/11] bg-gray-200 rounded-lg animate-pulse" />
+    <div className="w-full aspect-[8.5/11] bg-gray-200 animate-pulse" />
   );
 }
 
@@ -59,7 +59,7 @@ function ProposalPage({
         alt={`Proposal page ${pageNum + 1} of ${totalPages}`}
         loading={eager ? "eager" : "lazy"}
         onLoad={() => setLoaded(true)}
-        className={`w-full rounded-lg shadow-sm ${loaded ? "block" : "absolute top-0 left-0 opacity-0"}`}
+        className={`w-full ${loaded ? "block" : "absolute top-0 left-0 opacity-0"}`}
       />
     </div>
   );
@@ -215,9 +215,13 @@ export default function ProposalView() {
           </div>
         )}
 
-        {/* PDF page images */}
+        {/* PDF page images — bleed out of <main>'s own px-4 with a matching
+            negative margin so the pages run edge-to-edge on a phone screen
+            (mirrors how the pages look stacked in Messages/Photos) instead
+            of sitting in a framed box. Gap between pages cut way down too,
+            per Alan's side-by-side comparison. */}
         {pageCount > 0 && token && (
-          <div className="space-y-4">
+          <div className="-mx-4 space-y-1">
             {Array.from({ length: pageCount }, (_, i) => (
               <ProposalPage
                 key={i}
