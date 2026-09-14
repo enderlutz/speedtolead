@@ -13,6 +13,7 @@ from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee, QuickbooksInvoice
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
+from services.service_area import service_area_for_zip
 from api.permissions import require_perm
 from services.ghl import get_conversations, get_conversation_messages, get_contact, update_opportunity_stage, upsert_contact, add_contact_note, delete_contact_note, get_opportunity, update_contact_custom_fields, update_contact_core_fields
 
@@ -704,6 +705,7 @@ def get_lead(lead_id: str):
 
         result = lead.to_dict()
         result["estimates"] = est_list
+        result["area"] = service_area_for_zip(lead.zip_code)
 
         # "Estimated in Person" — auto-detected from estimator activity (photos/
         # videos, recordings, or notes on this lead), with a manual override

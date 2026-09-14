@@ -371,6 +371,7 @@ export interface Lead {
   contact_email: string;
   address: string;
   zip_code: string;
+  area?: string | null;
   service_type: string;
   status: string;
   kanban_column: string;

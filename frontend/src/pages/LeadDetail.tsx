@@ -966,13 +966,18 @@ export default function LeadDetail() {
                     <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="truncate">{lead.contact_email || "—"}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="truncate">{lead.address || "—"}</span>
-                    {mapsUrl && (
-                      <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                        <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-primary" />
-                      </a>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="truncate">{lead.address || "—"}</span>
+                      {mapsUrl && (
+                        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                          <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                        </a>
+                      )}
+                    </div>
+                    {lead.area && (
+                      <span className="text-xs text-muted-foreground pl-6">{lead.area}</span>
                     )}
                   </div>
                   {/* Inline source picker — fires save on change so admin doesn't have to enter Edit mode for this one field */}
