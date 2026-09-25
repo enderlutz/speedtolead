@@ -53,6 +53,7 @@ import StainInventory from "@/pages/StainInventory";
 import FencePhotos from "@/pages/FencePhotos";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
+import MapTab from "@/map/MapTab";
 import Eula from "@/pages/Eula";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 
@@ -208,6 +209,7 @@ function AppLayout() {
               <Route path="/crew-schedule" element={<StaffOnly><CrewSchedule /></StaffOnly>} />
               <Route path="/pm-hq" element={<RequireView view="assign_crew"><PmHq /></RequireView>} />
               <Route path="/crew-stats" element={<StaffOnly><CrewStats /></StaffOnly>} />
+              <Route path="/job-map" element={<StaffOnly><MapTab /></StaffOnly>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}
               <Route path="/my-day" element={<Navigate to="/my-schedule" replace />} />
               <Route path="/sops/job/:jobId" element={<JobSops />} />

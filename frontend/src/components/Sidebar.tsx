@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, Video, PaintBucket, Images } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, Video, PaintBucket, Images, Map } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -97,6 +97,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" }, // archived 2026-07-18 — replaced by Project Manager (PM HQ). Route/page kept.
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
   { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
+  { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
   { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] },
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "storage",
+    "kind": "base",
+    "n": "STORAGE — UNIT B007",
+    "c": "#1d7a3f",
+    "addr": "CubeSmart, 23550 Northwest Fwy (US-290), Cypress, TX 77429",
+    "lat": 29.948465,
+    "lng": -95.665741,
+    "note": "TWO DIFFERENT CODES — do not mix them up.<br><b>FACILITY GATE CODE: *0076528#</b><br><b>UNIT B007 LOCK CODE: 3012</b><br>Everything starts here. The old unit at 7935 Wright Rd is CLOSED — do not send anyone there."
+  },
+  {
+    "id": "storage-old",
+    "kind": "closed",
+    "n": "OLD STORAGE (CLOSED)",
+    "c": "#9aa1af",
+    "addr": "7935 Wright Rd",
+    "lat": 29.892691,
+    "lng": -95.589369,
+    "note": "CLOSED. Do not send anyone here."
+  },
+  {
+    "id": "lowes-crh",
+    "kind": "supply",
+    "n": "LOWE'S — CYPRESS",
+    "c": "#004990",
+    "addr": "14128 Cypress Rosehill Rd, Cypress, TX 77429",
+    "lat": 29.982914,
+    "lng": -95.686417,
+    "note": "Valspar and Ready Seal. <b>The stain desk is not ready until 7:30 AM</b> — do not send a crew at 7."
+  },
+  {
+    "id": "lowes-tp",
+    "kind": "supply",
+    "n": "LOWE'S — TOMBALL PKWY",
+    "c": "#004990",
+    "addr": "19580 Tomball Pkwy, Houston, TX 77070",
+    "lat": 29.979397,
+    "lng": -95.554741,
+    "note": "Ask for <b>Joel — 346-916-2815</b>."
+  },
+  {
+    "id": "sherwin",
+    "kind": "supply",
+    "n": "SHERWIN-WILLIAMS — KATY",
+    "c": "#0b5cab",
+    "addr": "2611 FM 1463, Katy, TX 77494 · 281-665-4760",
+    "lat": 29.719604,
+    "lng": -95.786606,
+    "note": "<b>Charwood SW 3542</b> for Amit — 13 gal, $483.35 + tax. Order under <b>Sterling Fence Staining</b>. Saturday hours are shorter than weekdays — call first. 6 miles from Amit's house."
+  },
+  {
+    "id": "homedepot",
+    "kind": "supply",
+    "n": "HOME DEPOT — BEHR ONLY",
+    "c": "#f96302",
+    "addr": "NO BRANCH EVER RECORDED",
+    "lat": null,
+    "lng": null,
+    "note": "<b>BEHR IS HOME DEPOT ONLY</b> — Cedar Naturaltone, Gold Beach. Lowe's carries Valspar and Olympic. <b>No branch has ever been written down</b>, so nobody knows which store to send a crew to."
+  },
+  {
+    "id": "aos",
+    "kind": "supply",
+    "n": "AOS TREATMENT SOLUTIONS",
+    "c": "#6b4fa8",
+    "addr": "14600 Cypress North Houston Rd, Cypress, TX 77429 · 936-539-0040",
+    "lat": 29.917286,
+    "lng": -95.635582,
+    "note": "Bleach. Opens ~8 AM, <b>CLOSES AT 4 PM</b>. Order is under <b>\"Sterling Fence Staining, sister company of A&amp;T's\"</b>. Sign in the side room."
+  },
+  {
+    "id": "dump",
+    "kind": "supply",
+    "n": "GAINSBOROUGH WASTE",
+    "c": "#8a6d3b",
+    "addr": "5200 Egbert St, Houston, TX 77020",
+    "lat": 29.771389,
+    "lng": -95.309722,
+    "note": "$15 per cubic yard. <b>REQUIRES hard hat, steel-toe boots, hi-vis vest and safety glasses</b> — they turn people away without them."
+  }
+]
