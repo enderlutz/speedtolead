@@ -54,6 +54,7 @@ import FencePhotos from "@/pages/FencePhotos";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
 import MapTab from "@/map/MapTab";
+import FenceScopeEditorPage from "@/pages/FenceScopeEditor";
 import Eula from "@/pages/Eula";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 
@@ -192,6 +193,7 @@ function AppLayout() {
               <Route path="/old-leads" element={<StaffOnly><Leads /></StaffOnly>} />
               <Route path="/leads/:id" element={<RequireLeadDetail><LeadDetail /></RequireLeadDetail>} />
               <Route path="/leads/:id/edit-pdf" element={<RequireView view="leads"><EditPdf /></RequireView>} />
+              <Route path="/leads/:id/scope" element={<RequireLeadDetail><FenceScopeEditorPage /></RequireLeadDetail>} />
               <Route path="/sent-log" element={<StaffOnly><SentLog /></StaffOnly>} />
               <Route path="/video-estimates" element={<StaffOnly><VideoEstimates /></StaffOnly>} />
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />

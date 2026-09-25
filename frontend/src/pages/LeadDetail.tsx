@@ -34,6 +34,7 @@ import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import CustomProposalCard from "@/components/CustomProposalCard";
 import VideoEstimateCard from "@/components/VideoEstimateCard";
 import ExteriorTab from "@/components/ExteriorTab";
+import FenceScopeSummaryCard from "@/components/FenceScopeSummaryCard";
 import UpsellTab from "@/components/UpsellTab";
 import { V2_STAGES } from "@/lib/leadStages";
 import { ctHour, ctISO, dayHeader } from "@/lib/date";
@@ -827,6 +828,7 @@ export default function LeadDetail() {
       >
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="estimate">Estimate</TabsTrigger>
+          <TabsTrigger value="scope">Fence Scope</TabsTrigger>
           {/* Call / Exterior / Upsell tabs hidden 2026-07-14 to trim visual fat.
               Their tab panels + logic are untouched; uncomment to restore. */}
           {/*
@@ -1782,6 +1784,10 @@ export default function LeadDetail() {
             lead={lead}
             onLeadUpdated={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
           />
+        </TabsContent>
+
+        <TabsContent value="scope" className="space-y-4 sm:space-y-6 mt-4">
+          <FenceScopeSummaryCard leadId={lead.id} />
         </TabsContent>
 
         <TabsContent value="exterior" className="space-y-4 sm:space-y-6 mt-4">

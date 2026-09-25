@@ -128,6 +128,24 @@ class Lead(Base):
     measurement_uploaded_at = Column(Text, nullable=True)
     measurement_uploaded_by = Column(Text, default="")
 
+    # Fence Staining Scope tool — a VA-traced blue/red fence markup over an
+    # uploaded aerial screenshot, sent to the customer before the estimate to
+    # visually confirm scope. Same deferred-BLOB + existence-flag pattern as
+    # measurement_image_data above, doubled for the two images involved: the
+    # raw upload (source) and the branded export the customer actually sees.
+    fence_scope_source_image = deferred(Column(LargeBinary, nullable=True))
+    has_fence_scope_source = Column(Boolean, default=False, nullable=False)
+    fence_scope_source_mime = Column(Text, default="")
+    fence_scope_export_image = deferred(Column(LargeBinary, nullable=True))
+    has_fence_scope_export = Column(Boolean, default=False, nullable=False)
+    fence_scope_export_mime = Column(Text, default="")
+    # JSON array of traced segments: [{id, color, points:[{x,y}...], arrowDirection}, ...]
+    # Coordinates are normalized 0.0-1.0 against the source image so the scope
+    # survives re-export at any resolution.
+    fence_scope_segments_json = Column(Text, default="")
+    fence_scope_updated_at = Column(Text, nullable=True)
+    fence_scope_updated_by = Column(Text, default="")
+
     # Marketing attribution. Default to "ad" because virtually all leads come
     # from paid ads; admin can override on the lead detail page if it's a
     # referral / GMB / repeat customer.
@@ -243,6 +261,10 @@ class Lead(Base):
             "measurement_filename": self.measurement_filename or "",
             "measurement_uploaded_at": self.measurement_uploaded_at,
             "measurement_uploaded_by": self.measurement_uploaded_by or "",
+            "fence_scope_has_source": bool(self.has_fence_scope_source),
+            "fence_scope_has_export": bool(self.has_fence_scope_export),
+            "fence_scope_updated_at": self.fence_scope_updated_at,
+            "fence_scope_updated_by": self.fence_scope_updated_by or "",
             "lead_source": self.lead_source or "ad",
             "delivery_method": self.delivery_method or "unknown",
             "do_not_contact": bool(self.do_not_contact),
@@ -3483,6 +3505,22 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN measurement_uploaded_at TEXT"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN measurement_uploaded_by TEXT DEFAULT ''"))
         logger.info("Migration: added leads.measurement_* fields")
+
+    # Fence Staining Scope tool — VA-traced blue/red markup over an aerial
+    # screenshot, sent to the customer before the estimate.
+    if "fence_scope_source_image" not in existing:
+        blob_type = "BYTEA" if _engine.dialect.name == "postgresql" else "BLOB"
+        with _engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE leads ADD COLUMN fence_scope_source_image {blob_type}"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN has_fence_scope_source BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_source_mime TEXT DEFAULT ''"))
+            conn.execute(text(f"ALTER TABLE leads ADD COLUMN fence_scope_export_image {blob_type}"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN has_fence_scope_export BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_export_mime TEXT DEFAULT ''"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_segments_json TEXT DEFAULT ''"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_updated_at TEXT"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_updated_by TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.fence_scope_* fields")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

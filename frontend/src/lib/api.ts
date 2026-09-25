@@ -399,6 +399,10 @@ export interface Lead {
   measurement_filename?: string;
   measurement_uploaded_at?: string | null;
   measurement_uploaded_by?: string;
+  fence_scope_has_source?: boolean;
+  fence_scope_has_export?: boolean;
+  fence_scope_updated_at?: string | null;
+  fence_scope_updated_by?: string;
   lead_source?: LeadSource;
   /** Deposit flow ($250 down to schedule). Empty when not started.
    *  States: "" | "pending" | "paid" | "waived" */
@@ -418,6 +422,31 @@ export interface Lead {
   exterior_photos?: ExteriorPhoto[];
   exterior_estimate?: ExteriorEstimate;
   exterior_activity?: ExteriorActivity;
+}
+
+// Fence Staining Scope tool — normalized (0-1) coordinates so a traced path
+// survives re-export at any resolution. No field here is AI-derived; every
+// point is exactly where the VA clicked or dragged.
+export interface FenceScopePoint {
+  x: number;
+  y: number;
+}
+export interface FenceScopeSegment {
+  id: string;
+  color: "blue" | "red";
+  points: FenceScopePoint[];
+  /** Which perpendicular side blue arrows point to. Meaningless for red
+   * (red is always double-sided). Flipped by the editor's "Flip Arrows". */
+  arrowDirection: 1 | -1;
+}
+export interface FenceScopeState {
+  has_source: boolean;
+  has_export: boolean;
+  segments: FenceScopeSegment[];
+  updated_at: string | null;
+  updated_by: string;
+  address: string;
+  contact_name: string;
 }
 
 export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
@@ -1383,6 +1412,57 @@ export const api = {
     if (!res.ok) return null;
     return URL.createObjectURL(await res.blob());
   },
+
+  // Fence Staining Scope tool — VA-traced blue/red markup, no AI geometry.
+  getFenceScope: (leadId: string) =>
+    request<FenceScopeState>(`/api/leads/${leadId}/fence-scope`),
+  saveFenceScopeSegments: (leadId: string, segments: FenceScopeSegment[]) =>
+    request<{ saved: boolean; segment_count: number }>(`/api/leads/${leadId}/fence-scope`, {
+      method: "PUT",
+      body: JSON.stringify({ segments_json: JSON.stringify(segments) }),
+    }),
+  uploadFenceScopeSource: async (leadId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/source`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Upload failed");
+    return res.json() as Promise<{ uploaded: boolean }>;
+  },
+  fetchFenceScopeSourceBlobUrl: async (leadId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/source`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  /** `pngBlob` comes from the editor's own Konva Stage.toDataURL() export —
+   * this call just persists it, nothing server-side touches the pixels. */
+  uploadFenceScopeExport: async (leadId: string, pngBlob: Blob) => {
+    const fd = new FormData();
+    fd.append("file", pngBlob, "fence-scope.png");
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/export`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Export upload failed");
+    return res.json() as Promise<{ uploaded: boolean }>;
+  },
+  fetchFenceScopeExportBlobUrl: async (leadId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteFenceScope: (leadId: string) =>
+    request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope`, { method: "DELETE" }),
 
   previewEstimatePdf: (id: string, fieldOverrides?: Record<string, unknown>, extraFields?: Record<string, unknown>[]) =>
     request<{ pages: { page_num: number; image_data: string }[] }>(`/api/estimates/${id}/preview-pdf`, {
