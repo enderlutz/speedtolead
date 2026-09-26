@@ -41,6 +41,9 @@ export function useKeyboardShortcuts(scope: ScopeStateApi, onSave: () => void) {
         case "b":
           scope.startDrawing("blue");
           break;
+        case "g":
+          scope.startDrawing("green");
+          break;
         case "r":
           scope.startDrawing("red");
           break;

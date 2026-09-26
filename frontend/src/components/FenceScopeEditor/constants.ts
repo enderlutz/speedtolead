@@ -4,6 +4,10 @@
 // exposed as a user-facing control.
 
 export const BLUE = "#0091FF";
+// Outside face only. Chosen to stay legible against grass and shingle, which
+// is most of what these photos contain — a darker forest green would vanish
+// into a lawn.
+export const GREEN = "#12B84A";
 export const RED = "#E8291C";
 export const LINE_HALO = "#ffffff";
 export const NODE_FILL = "#ffffff";

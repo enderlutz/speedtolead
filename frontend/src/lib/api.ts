@@ -431,12 +431,18 @@ export interface FenceScopePoint {
   x: number;
   y: number;
 }
+/** What a marked run means. Blue and green are single-faced and carry arrows
+ * on the side being stained; red is both faces. */
+export type FenceColor = "blue" | "green" | "red";
+
 export interface FenceScopeSegment {
   id: string;
-  color: "blue" | "red";
+  /** blue = inside face only, green = outside face only, red = both faces. */
+  color: FenceColor;
   points: FenceScopePoint[];
-  /** Which perpendicular side blue arrows point to. Meaningless for red
-   * (red is always double-sided). Flipped by the editor's "Flip Arrows". */
+  /** Which perpendicular side the arrows point to, for the single-faced
+   * colours. Meaningless for red, which is always double-sided. Flipped by
+   * the editor's "Flip Arrows". */
   arrowDirection: 1 | -1;
 }
 export interface FenceScopeState {

@@ -5,7 +5,7 @@ import {
   RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles, Plane, Loader2, X, Check, Send,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
-import { BLUE, RED } from "./constants";
+import { BLUE, GREEN, RED } from "./constants";
 
 interface Props {
   scope: ScopeStateApi;
@@ -44,6 +44,14 @@ export default function Toolbar({
         style={{ color: scope.mode === "blue" ? "#fff" : BLUE, background: scope.mode === "blue" ? BLUE : undefined }}
       >
         <PenLine className="h-4 w-4" /> <span className="hidden sm:inline">Blue Fence</span>
+      </ToolButton>
+      <ToolButton
+        active={scope.mode === "green"}
+        onClick={() => scope.startDrawing("green")}
+        title="Green Fence — outside face only (G)"
+        style={{ color: scope.mode === "green" ? "#fff" : GREEN, background: scope.mode === "green" ? GREEN : undefined }}
+      >
+        <PenLine className="h-4 w-4" /> <span className="hidden sm:inline">Green Fence</span>
       </ToolButton>
       <ToolButton
         active={scope.mode === "red"}
@@ -169,14 +177,23 @@ export default function Toolbar({
       {/* Contextual segment toolbar — spec Section 19 */}
       {selected && (
         <div className="flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1">
-          {selected.color === "blue" && (
+          {selected.color !== "red" && (
             <Button size="sm" variant="outline" onClick={() => scope.flipArrows(selected.id)} title="Flip Arrows (F)">
               <FlipHorizontal2 className="h-3.5 w-3.5 mr-1" /> Flip Arrows
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => scope.toggleColor(selected.id)} title="Change Blue / Red">
-            <Palette className="h-3.5 w-3.5 mr-1" /> {selected.color === "blue" ? "Make Red" : "Make Blue"}
-          </Button>
+          {(["blue", "green", "red"] as const)
+            .filter((c) => c !== selected.color)
+            .map((c) => (
+              <Button
+                key={c} size="sm" variant="outline" className="px-2"
+                onClick={() => scope.setColor(selected.id, c)}
+                title={c === "blue" ? "Inside face only" : c === "green" ? "Outside face only" : "Both faces"}
+              >
+                <Palette className="h-3.5 w-3.5 mr-1" style={{ color: c === "blue" ? BLUE : c === "green" ? GREEN : RED }} />
+                {c === "blue" ? "Inside" : c === "green" ? "Outside" : "Both"}
+              </Button>
+            ))}
           <Button
             size="sm" variant="outline"
             onClick={() => scope.addPointToSegment(selected.id, activePointIndex ?? selected.points.length - 2)}

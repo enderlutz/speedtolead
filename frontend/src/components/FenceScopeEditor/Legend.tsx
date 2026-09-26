@@ -17,7 +17,7 @@ import { arrowheadPoints } from "./arrows";
 import type { Rect as RectBox } from "./layout";
 import type { HeaderTheme } from "./header-theme";
 import {
-  BLUE, RED, LINE_HALO, LINE_WIDTH_INNER, LINE_WIDTH_HALO, ARROW_LENGTH, ARROW_WIDTH,
+  BLUE, GREEN, RED, LINE_HALO, LINE_WIDTH_INNER, LINE_WIDTH_HALO, ARROW_LENGTH, ARROW_WIDTH,
   LEGEND_ROW_FRAC, LEGEND_TITLE_FRAC, LEGEND_PAD_FRAC, LEGEND_SWATCH_FRAC,
   PAGE_MARGIN_FRAC, TITLE_FONT, BODY_FONT,
 } from "./constants";
@@ -65,17 +65,24 @@ function Swatch({
 }
 
 export default function Legend({ pageWidth, band, segments, theme }: Props) {
-  const hasBlue = segments.some((s) => s.color === "blue");
-  const hasRed = segments.some((s) => s.color === "red");
+  // Only colours actually on the photo get a row. A customer having just the
+  // inside done should never see a line about staining both faces.
+  const used = (["blue", "green", "red"] as const).filter((c) => segments.some((s) => s.color === c));
 
   const margin = pageWidth * PAGE_MARGIN_FRAC;
   const pad = pageWidth * LEGEND_PAD_FRAC;
-  const rowH = pageWidth * LEGEND_ROW_FRAC;
-  const titleH = pageWidth * LEGEND_TITLE_FRAC;
-  const swatchW = pageWidth * LEGEND_SWATCH_FRAC;
-  // The band is a fixed height, so the rows are centred inside it rather than
-  // stacked from the top — one row or two, it stays balanced.
-  const rows = (hasBlue ? 1 : 0) + (hasRed ? 1 : 0);
+  // The band is a fixed height so the page never resizes mid-trace. All three
+  // colours at once would overrun it, so the key shrinks to fit rather than
+  // the page growing — and a one-colour scope keeps full-size type instead of
+  // carrying a three-row footer it doesn't need.
+  const rows = used.length;
+  const natural = pageWidth * LEGEND_TITLE_FRAC + rows * pageWidth * LEGEND_ROW_FRAC;
+  const room = band.height - pad * 2;
+  const fit = natural > room ? room / natural : 1;
+
+  const rowH = pageWidth * LEGEND_ROW_FRAC * fit;
+  const titleH = pageWidth * LEGEND_TITLE_FRAC * fit;
+  const swatchW = pageWidth * LEGEND_SWATCH_FRAC * fit;
   const contentH = titleH + rows * rowH;
   let rowTop = band.y + (band.height - contentH) / 2 + titleH;
 
@@ -90,7 +97,7 @@ export default function Legend({ pageWidth, band, segments, theme }: Props) {
       <Fragment key={label}>
         <Swatch
           x={margin} cy={top + rowH / 2} width={swatchW}
-          color={color} doubleSided={doubleSided} scale={1} halo={!light}
+          color={color} doubleSided={doubleSided} scale={fit} halo={!light}
         />
         <KonvaText
           x={margin + swatchW + pad} y={top + rowH / 2 - rowH * 0.26}
@@ -113,8 +120,13 @@ export default function Legend({ pageWidth, band, segments, theme }: Props) {
         fontSize={titleH * 0.56} fontFamily={TITLE_FONT} fontStyle="bold" fill={theme.accent}
         letterSpacing={titleH * 0.03}
       />
-      {hasBlue && row(BLUE, false, "Inside face only")}
-      {hasRed && row(RED, true, "Both faces — inside and outside")}
+      {used.map((c) =>
+        c === "blue"
+          ? row(BLUE, false, "Inside face only")
+          : c === "green"
+            ? row(GREEN, false, "Outside face only")
+            : row(RED, true, "Both faces — inside and outside")
+      )}
     </Layer>
   );
 }

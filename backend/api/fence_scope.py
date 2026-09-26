@@ -490,7 +490,27 @@ def greeting_for(now=None) -> str:
     return "Good evening"
 
 
-def default_scope_message(contact_name: str, address: str) -> str:
+# What each colour means, in the customer's words. The order is the order they
+# appear in the message: inside, outside, both.
+COLOR_ORDER = ("blue", "green", "red")
+COLOR_MEANINGS = {
+    "blue": "Blue = we stain the inside face only.",
+    "green": "Green = we stain the outside face only.",
+    "red": "Red = we stain both sides.",
+}
+
+
+def colors_used(lead) -> list[str]:
+    """The colours actually marked on this scope, in a fixed order."""
+    try:
+        segments = json.loads(lead.fence_scope_segments_json or "[]")
+    except (TypeError, ValueError):
+        return []
+    present = {s.get("color") for s in segments if isinstance(s, dict)}
+    return [c for c in COLOR_ORDER if c in present]
+
+
+def default_scope_message(contact_name: str, address: str, colors: list[str] | None = None) -> str:
     """What gets sent if nobody edits it.
 
     Deliberately does NOT ask the customer to reply before anything else
@@ -501,12 +521,19 @@ def default_scope_message(contact_name: str, address: str) -> str:
     first = (contact_name or "").strip().split(" ")[0]
     hello = f"{greeting_for()} {first}," if first else f"{greeting_for()},"
     where = f" at {address}" if address else ""
-    return (
+    intro = (
         f"{hello} here's the scope of work for you to look at while we're working "
-        f"on your personalized fence staining estimate{where}!\n\n"
-        "Blue = we stain the inside face only.\n"
-        "Red = we stain both sides."
+        f"on your personalized fence staining estimate{where}!"
     )
+    # Only the colours actually on the picture. A customer having just the
+    # inside done should never read a line about staining both faces — it
+    # invites a question about work that was never quoted.
+    # None means "caller didn't say", which falls back to the full key. An
+    # empty list means "nothing is marked", which must list nothing — `or`
+    # would have treated the two the same and named all three colours.
+    wanted = COLOR_ORDER if colors is None else colors
+    key = [COLOR_MEANINGS[c] for c in wanted if c in COLOR_MEANINGS]
+    return intro + ("\n\n" + "\n".join(key) if key else "")
 
 
 @router.get("/fence-scope/shared/{token}")
@@ -571,7 +598,7 @@ def preview_fence_scope_send(lead_id: str, request: Request, user: dict = Depend
             "blockers": blockers,
             "contact_name": lead.contact_name or "",
             "contact_phone": lead.contact_phone or "",
-            "message": default_scope_message(lead.contact_name or "", lead.address or ""),
+            "message": default_scope_message(lead.contact_name or "", lead.address or "", colors_used(lead)),
             "last_sent_at": lead.fence_scope_sent_at,
         }
     finally:
@@ -628,7 +655,7 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
         token = _share_token(lead, db)
         image_url = f"{base}/api/fence-scope/shared/{token}"
         message = (body.message or "").strip() or default_scope_message(
-            lead.contact_name or "", lead.address or ""
+            lead.contact_name or "", lead.address or "", colors_used(lead)
         )
 
         sent = send_sms(lead.ghl_contact_id, message, attachments=[image_url])

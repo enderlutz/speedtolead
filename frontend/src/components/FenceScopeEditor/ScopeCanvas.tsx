@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Rect, Image as KonvaImage, Line, Circle, Text as KonvaText } from "react-konva";
 import type Konva from "konva";
+import type { FenceColor } from "@/lib/api";
 import type { ScopeStateApi } from "./use-scope-state";
 import type { CanvasView, PinchStart } from "./use-canvas-view";
 import type { HeaderTheme } from "./header-theme";
@@ -9,7 +10,7 @@ import { fitFontSize, titleLetterSpacing, type PageLayout, type Rect as RectBox 
 import { snapToVertex, SNAP_RADIUS_SCREEN } from "./snap";
 import Legend from "./Legend";
 import {
-  BLUE, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
+  BLUE, GREEN, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
   NODE_RADIUS, ARROW_SPACING_PX, ARROW_LENGTH, ARROW_WIDTH,
   PAGE_MARGIN_FRAC, TEXT_RIGHT_MARGIN_FRAC, LOGO_MAX_WIDTH_FRAC, LOGO_HEIGHT_FRAC,
   TITLE_FONT, BODY_FONT, TITLE_SIZE_MAX, TITLE_SIZE_MIN, ADDRESS_SIZE_MAX, ADDRESS_SIZE_MIN,
@@ -57,8 +58,10 @@ function toNormalized(x: number, y: number, body: BodyRect) {
   const ny = Math.min(1, Math.max(0, (y - body.y) / body.height));
   return { x: nx, y: ny };
 }
-function colorHex(c: "blue" | "red") {
-  return c === "blue" ? BLUE : RED;
+function colorHex(c: FenceColor) {
+  if (c === "blue") return BLUE;
+  if (c === "green") return GREEN;
+  return RED;
 }
 function flatten(pts: Pt[]) {
   return pts.flatMap((p) => [p.x, p.y]);
@@ -81,7 +84,9 @@ export default function ScopeCanvas({
   const pannedRef = useRef(false);
   const pinchStart = useRef<PinchStart | null>(null);
 
-  const drawing = scope.mode === "blue" || scope.mode === "red";
+  // Any colour mode is a drawing mode. Listing the colours here is how green
+  // silently stopped accepting clicks the moment it was added.
+  const drawing = scope.mode !== "select";
   // A plain arrow while the whole page is visible: there is genuinely nowhere
   // to drag to, and an open hand that does nothing reads as a broken hand.
   const idleCursor = drawing ? "crosshair" : view.pannable ? "grab" : "default";
@@ -386,7 +391,9 @@ export default function ScopeCanvas({
               />
 
               {placements.map((pl, i) => {
-                if (seg.color === "blue") {
+                // Blue and green mark one face, so one arrowhead pointing at
+                // the side being stained. Red marks both.
+                if (seg.color !== "red") {
                   const dx = pl.px * seg.arrowDirection;
                   const dy = pl.py * seg.arrowDirection;
                   return (
@@ -447,7 +454,7 @@ export default function ScopeCanvas({
           <Fragment>
             <Line
               points={flatten(scope.drawingPoints.map((p) => toPixel(p, bodyRect)))}
-              stroke={colorHex(scope.mode === "red" ? "red" : "blue")}
+              stroke={colorHex(scope.mode === "select" ? "blue" : scope.mode)}
               strokeWidth={LINE_WIDTH_INNER}
               dash={[8, 6]}
               lineCap="round"

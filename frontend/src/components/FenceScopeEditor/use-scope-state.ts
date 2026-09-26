@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
-import type { FenceScopeSegment, FenceScopePoint } from "@/lib/api";
+import type { FenceScopeSegment, FenceScopePoint, FenceColor } from "@/lib/api";
 
-export type DrawMode = "select" | "blue" | "red";
+export type DrawMode = "select" | FenceColor;
 
 /** Everything undo/redo has to move as one unit. Rotation belongs in here
  * because rotating the photo also rotates the traced points — undoing one
@@ -174,7 +174,7 @@ export function useScopeState(initial: ScopeDoc) {
   );
 
   // ---- drawing a new path ----
-  const startDrawing = useCallback((color: "blue" | "red") => {
+  const startDrawing = useCallback((color: FenceColor) => {
     setMode(color);
     setDrawingPoints([]);
     setSelectedId(null);
@@ -274,9 +274,9 @@ export function useScopeState(initial: ScopeDoc) {
     [segments, commit]
   );
 
-  const toggleColor = useCallback(
-    (segId: string) => {
-      commit(segments.map((s) => (s.id === segId ? { ...s, color: s.color === "blue" ? "red" : "blue" } : s)));
+  const setColor = useCallback(
+    (segId: string, color: FenceColor) => {
+      commit(segments.map((s) => (s.id === segId ? { ...s, color } : s)));
     },
     [segments, commit]
   );
@@ -311,7 +311,7 @@ export function useScopeState(initial: ScopeDoc) {
     removePoint,
     deleteSegment,
     flipArrows,
-    toggleColor,
+    setColor,
     undo,
     redo,
     canUndo,
