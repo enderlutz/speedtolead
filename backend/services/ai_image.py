@@ -70,18 +70,26 @@ PROMPT = (
     "true-to-life colour, crisp detail, realistic grass, foliage, roofing shingle and "
     "wood fence texture. No haze, no blur, no vignette, no illustrated, painted, "
     "stylised or video-game look. "
-    # Composition. The source is usually a map screenshot taken at whatever
-    # angle the map happened to be facing, which leaves the property running
-    # corner to corner. Squaring it up is reframing, not invention — the
-    # features themselves still have to stay exactly as they are.
-    "Compose it as a straight-down, level overhead shot, square to the frame: the "
-    "house and its lot centred, the roofline and fence lines running parallel to "
-    "the edges of the image rather than diagonally across it, and the front of the "
-    "house with its driveway toward the bottom. Rotate and re-centre the view to "
-    "achieve this, and correct any tilt or perspective so the whole property is "
-    "seen flat from directly above. Reframing the view is allowed and wanted; "
-    "changing, adding or removing anything on the property is not."
+    # Framing. An earlier version asked for the property to be squared up and
+    # centred. The model obliged by re-cropping and straightening, and in
+    # rearranging the scene it moved details around — a customer opened his
+    # scope and said his house looked reversed. A picture someone doesn't
+    # recognise as their own is worse than a crooked one.
+    "Keep the framing exactly as it is. Do not rotate, mirror, flip, crop, zoom, "
+    "shift, straighten or re-centre the view, and do not change the aspect ratio. "
+    "The finished image must line up with the original: the same things in the "
+    "same places, at the same angle and the same size. If the property sits at an "
+    "angle in the original, it stays at that angle. Left stays left and right "
+    "stays right. The only thing that changes is how real it looks."
 )
+
+# How closely a render has to match the original before it's trusted as-is.
+# Compared small and in greyscale, so lighting and texture changes don't
+# register — only things actually moving do.
+ORIENTATION_PROBE = 128
+# A flip has to look this much better than the image as returned before it's
+# applied, so a near-symmetrical property doesn't get flipped on noise.
+ORIENTATION_MARGIN = 0.12
 
 
 @dataclass
@@ -93,6 +101,7 @@ class AiImageResult:
     quality: str
     requested_size: str
     usage: dict
+    orientation: dict
 
 
 class AiImageError(RuntimeError):
@@ -161,6 +170,78 @@ def target_size(width: int, height: int) -> tuple[int, int]:
     w = min(MAX_EDGE, max(SIZE_MULTIPLE, w))
     h = min(MAX_EDGE, max(SIZE_MULTIPLE, h))
     return w, h
+
+
+def _fingerprint(data: bytes, transform=None):
+    """A small, contrast-normalised greyscale thumbnail for comparison."""
+    from io import BytesIO
+
+    from PIL import Image, ImageOps
+
+    with Image.open(BytesIO(data)) as opened:
+        grey = opened.convert("L")
+    if transform is not None:
+        grey = grey.transpose(transform)
+    return ImageOps.autocontrast(grey.resize((ORIENTATION_PROBE, ORIENTATION_PROBE), Image.LANCZOS))
+
+
+def _distance(a, b) -> float:
+    from statistics import fmean
+
+    from PIL import ImageChops
+
+    return fmean(ImageChops.difference(a, b).getdata())
+
+
+def check_orientation(source: bytes, rendered: bytes) -> tuple[bytes, dict]:
+    """Puts a render back the right way round if the model flipped it.
+
+    The prompt forbids flipping, but a prompt is a request, not a guarantee,
+    and a customer shown their house backwards loses confidence in the whole
+    document. Each of the four flips that preserve the shape is scored against
+    the original, and one is only applied when it's clearly better.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    candidates = {
+        "as returned": None,
+        "mirrored": Image.FLIP_LEFT_RIGHT,
+        "upside down": Image.ROTATE_180,
+        "mirrored and turned": Image.FLIP_TOP_BOTTOM,
+    }
+    try:
+        original = _fingerprint(source)
+        scores = {name: _distance(original, _fingerprint(rendered, t)) for name, t in candidates.items()}
+    except Exception:
+        logger.warning("AI drone view: could not check orientation", exc_info=True)
+        return rendered, {"orientation": "unchecked"}
+
+    best = min(scores, key=scores.get)
+    baseline = scores["as returned"]
+    report = {
+        "orientation": best,
+        "orientation_scores": {k: round(v, 2) for k, v in scores.items()},
+    }
+    if best == "as returned" or not baseline:
+        return rendered, report
+
+    improvement = (baseline - scores[best]) / baseline
+    report["orientation_improvement"] = round(improvement, 3)
+    if improvement < ORIENTATION_MARGIN:
+        # Better, but not convincingly — leave the model's output alone rather
+        # than flipping a nearly symmetrical property on a coin toss.
+        report["orientation"] = "as returned (flip not convincing)"
+        return rendered, report
+
+    logger.info("AI drone view: render came back %s — putting it back", best)
+    with Image.open(BytesIO(rendered)) as opened:
+        fixed = opened.transpose(candidates[best])
+        buf = BytesIO()
+        fixed.save(buf, "PNG")
+    report["orientation_corrected"] = True
+    return buf.getvalue(), report
 
 
 def _extract_png(payload: dict) -> bytes:
@@ -246,9 +327,14 @@ def render_drone_view(source_png: bytes, width: int, height: int) -> AiImageResu
         raise AiImageError("The image service returned a response that wasn't JSON.")
 
     png = _extract_png(payload)
+    png, orientation = check_orientation(source_png, png)
     usage = payload.get("usage") or {}
-    logger.info("AI drone view: received %s bytes, usage=%s", len(png), usage)
+    logger.info(
+        "AI drone view: received %s bytes, orientation=%s, usage=%s",
+        len(png), orientation.get("orientation"), usage,
+    )
     return AiImageResult(
         png=png, width=tw, height=th, model=model, quality=quality,
         requested_size=size, usage=usage if isinstance(usage, dict) else {},
+        orientation=orientation,
     )

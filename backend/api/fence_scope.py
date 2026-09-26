@@ -316,6 +316,9 @@ def generate_fence_scope_ai(lead_id: str, user: dict = Depends(get_current_user)
             "source_size": f"{width}x{height}",
             "bytes": len(result.png),
             "usage": result.usage,
+            # Kept so a render that comes back wrong can be diagnosed later
+            # rather than guessed at.
+            **(result.orientation or {}),
         }
         lead.fence_scope_ai_image = result.png
         lead.has_fence_scope_ai = True
@@ -544,13 +547,13 @@ def returning_scope_message(contact_name: str, address: str, colors: list[str] |
     intro = (
         f"{hello} we put together a fence staining estimate for you{where} a while back. "
         "We've started sending a detailed scope of work so you can see exactly what we'd "
-        "be staining — here's yours."
+        "be staining. Here's yours."
     )
     wanted = COLOR_ORDER if colors is None else colors
     key = [COLOR_MEANINGS[c] for c in wanted if c in COLOR_MEANINGS]
     closing = (
-        "If it's still something you're thinking about, I'll re-price it for you across our "
-        "Essential, Signature and Legacy packages. Want me to send it over?"
+        "Is this still something you're thinking about? I'm going to attach our Essential, "
+        "Signature and Legacy packages at a discounted price for you!"
     )
     parts = [intro] + (["\n".join(key)] if key else []) + [closing]
     return "\n\n".join(parts)
