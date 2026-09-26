@@ -1464,6 +1464,33 @@ export const api = {
   deleteFenceScope: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope`, { method: "DELETE" }),
 
+  // Company branding — stored server-side so the logo can be swapped from
+  // the dashboard (or a phone) without a code change or a deploy.
+  getLogoStatus: () =>
+    request<{ has_logo: boolean; filename: string; updated_at: string | null; updated_by: string }>(
+      "/api/branding/logo/status"
+    ),
+  uploadLogo: async (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/branding/logo`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Logo upload failed");
+    return res.json() as Promise<{ uploaded: boolean; filename: string; updated_at: string }>;
+  },
+  fetchLogoBlobUrl: async (): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/branding/logo`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteLogo: () => request<{ deleted: boolean }>("/api/branding/logo", { method: "DELETE" }),
+
   previewEstimatePdf: (id: string, fieldOverrides?: Record<string, unknown>, extraFields?: Record<string, unknown>[]) =>
     request<{ pages: { page_num: number; image_data: string }[] }>(`/api/estimates/${id}/preview-pdf`, {
       method: "POST",

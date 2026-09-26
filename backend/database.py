@@ -2918,6 +2918,27 @@ class SystemConfig(Base):
         db.commit()
 
 
+class BrandingAsset(Base):
+    """Company branding files the admin uploads at runtime — currently just
+    the logo used on customer-facing scope images.
+
+    Lives in the database rather than as a file committed to the repo so
+    swapping a logo never needs a code change or a deploy, and so it can be
+    replaced from a phone. One row per asset kind; `kind` is the key.
+
+    Deliberately NOT in SystemConfig — that table is TEXT key/value and its
+    own docstring says to promote a key to its own table once it stops being
+    a simple string. A binary image is exactly that case."""
+    __tablename__ = "branding_assets"
+
+    kind = Column(Text, primary_key=True)  # "logo"
+    image_data = deferred(Column(LargeBinary, nullable=True))
+    mime = Column(Text, default="")
+    filename = Column(Text, default="")
+    updated_at = Column(Text, default="")
+    updated_by = Column(Text, default="")
+
+
 class FollowUpSequence(Base):
     """A named follow-up cadence (template) that runs against leads.
 

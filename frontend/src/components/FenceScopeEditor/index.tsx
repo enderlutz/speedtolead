@@ -31,7 +31,10 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [address, setAddress] = useState("");
   const [hasSource, setHasSource] = useState(false);
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
-  const [logoImage] = useState<HTMLImageElement | null>(null); // set once a logo asset exists — see FenceScopeTab
+  const [logoImage, setLogoImage] = useState<HTMLImageElement | null>(null);
+  const [logoMissing, setLogoMissing] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoDragOver, setLogoDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -39,6 +42,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [stageSize, setStageSize] = useState({ width: 720, height: 720 / ASPECT });
   const { zoom, panOffset, handleWheel, zoomIn, zoomOut, fitToPage } = useZoomPan();
@@ -62,6 +66,42 @@ export default function FenceScopeEditor({ leadId }: Props) {
     // excluding the rest of `scope` so this effect only runs on lead change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
+
+  // Company logo — the same asset on every scope image, loaded from the
+  // server so swapping it never needs a deploy.
+  const loadLogo = useCallback(async () => {
+    const url = await api.fetchLogoBlobUrl();
+    if (!url) {
+      setLogoMissing(true);
+      setLogoImage(null);
+      return;
+    }
+    const blob = await fetch(url).then((r) => r.blob());
+    setLogoImage(await loadImageFromBlob(blob));
+    setLogoMissing(false);
+  }, []);
+
+  useEffect(() => { void loadLogo(); }, [loadLogo]);
+
+  const handleLogoUpload = useCallback(
+    async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Only image files are allowed");
+        return;
+      }
+      setLogoUploading(true);
+      try {
+        await api.uploadLogo(file);
+        await loadLogo();
+        toast.success("Logo saved — it'll appear on every scope from now on");
+      } catch {
+        toast.error("Logo upload failed");
+      } finally {
+        setLogoUploading(false);
+      }
+    },
+    [loadLogo]
+  );
 
   // Load the source image once we know it exists.
   useEffect(() => {
@@ -200,6 +240,34 @@ export default function FenceScopeEditor({ leadId }: Props) {
   return (
     <div className="flex flex-col h-full">
       <Toolbar scope={scope} activePointIndex={activePointIndex} exporting={exporting} onExport={handleExport} zoomIn={zoomIn} zoomOut={zoomOut} fitToPage={fitToPage} />
+      {logoMissing && (
+        <div
+          className={`flex items-center gap-2 px-3 py-2 text-xs border-b transition-colors ${
+            logoDragOver ? "bg-primary/10" : "bg-amber-50 dark:bg-amber-950/30"
+          }`}
+          onDragOver={(e) => { e.preventDefault(); setLogoDragOver(true); }}
+          onDragLeave={() => setLogoDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setLogoDragOver(false);
+            const f = e.dataTransfer.files?.[0];
+            if (f) void handleLogoUpload(f);
+          }}
+        >
+          <Upload className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">
+            No company logo set — scopes show plain text until one is uploaded. Drag your logo here, or
+          </span>
+          <input
+            ref={logoInputRef}
+            type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleLogoUpload(f); e.target.value = ""; }}
+          />
+          <Button size="sm" variant="outline" disabled={logoUploading} onClick={() => logoInputRef.current?.click()}>
+            {logoUploading ? "Uploading…" : "Choose file"}
+          </Button>
+        </div>
+      )}
       <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground border-b">
         <span>{scope.isDirty ? "Unsaved changes" : "All changes saved"}</span>
         <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
