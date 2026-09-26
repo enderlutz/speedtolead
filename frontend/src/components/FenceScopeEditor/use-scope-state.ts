@@ -19,6 +19,18 @@ export interface ScopeDoc {
   useAi: boolean;
 }
 
+/** Two clicks this close together, as a fraction of the photo, are the same
+ * click — the tail a double-click-to-finish leaves behind. Stripping them
+ * keeps zero-length fence sections out of the saved scope. */
+const DUPLICATE_POINT_EPSILON = 0.004;
+
+function stripDuplicates(points: FenceScopePoint[]): FenceScopePoint[] {
+  return points.filter(
+    (p, i) =>
+      i === 0 || Math.hypot(p.x - points[i - 1].x, p.y - points[i - 1].y) > DUPLICATE_POINT_EPSILON
+  );
+}
+
 function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -158,7 +170,8 @@ export function useScopeState(initial: ScopeDoc) {
   }, []);
 
   const finishDrawing = useCallback(() => {
-    setDrawingPoints((pts) => {
+    setDrawingPoints((raw) => {
+      const pts = stripDuplicates(raw);
       // A gate can be one click-drag, but a bare single point isn't a
       // fence — the VA's traced line is the source of truth, and one point
       // draws nothing. Spec Section 10: never invent geometry.

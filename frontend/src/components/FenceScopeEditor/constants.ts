@@ -29,9 +29,17 @@ export const DEFAULT_PHOTO_ASPECT = 0.75;
 // photo, measured against page WIDTH (page height depends on the photo, so
 // measuring it against height would be circular).
 export const HEADER_HEIGHT_OF_WIDTH = 0.17;
-export const LEGEND_WIDTH_FRAC = 0.46;
-export const LEGEND_HEIGHT_FRAC = 0.1;
-export const LEGEND_MARGIN_FRAC = 0.02;
+// The legend, all as fractions of page WIDTH so it stays the same size
+// whatever shape the photo is. It carries real samples of the markings, so the
+// customer can match what they see on the photo to what it means.
+export const LEGEND_WIDTH_FRAC = 0.58;
+export const LEGEND_ROW_FRAC = 0.046;
+export const LEGEND_TITLE_FRAC = 0.038;
+export const LEGEND_PAD_FRAC = 0.014;
+export const LEGEND_SWATCH_FRAC = 0.15;
+export const LEGEND_MARGIN_FRAC = 0.022;
+/** A wide landscape photo has a short body; never eat more of it than this. */
+export const LEGEND_MAX_BODY_SHARE = 0.34;
 
 // Breathing room down both sides of the header, as a fraction of page width.
 // Without it the wordmark and the address sit flush against the paper edge,

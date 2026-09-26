@@ -75,6 +75,15 @@ export function textWidth(text: string, size: number, family: string, bold: bool
   return c.measureText(text).width + letterSpacing * text.length;
 }
 
+/** Headroom on the fitted width.
+ *
+ * Fitting exactly to the column leaves the line sitting on the boundary, and
+ * Konva's own measurement rounds slightly differently — enough that it dropped
+ * the last letter of "Fence Staining Scope" while every measurement said it
+ * fit by a fraction of a pixel. A little slack costs nothing and removes the
+ * whole class of silently-chopped glyphs. */
+const FIT_SAFETY = 0.985;
+
 /** Largest size in [min, max] at which `text` fits `maxWidth` on one line. */
 export function fitFontSize(
   text: string,
@@ -86,11 +95,12 @@ export function fitFontSize(
   letterSpacingRatio = 0
 ): number {
   if (!text || maxWidth <= 0) return max;
+  const room = maxWidth * FIT_SAFETY;
   // Width scales linearly with font size, so one measurement gives the answer
   // directly — no search loop needed.
   const at = textWidth(text, max, family, bold, max * letterSpacingRatio);
-  if (at <= maxWidth || at === 0) return max;
-  return Math.max(min, (max * maxWidth) / at);
+  if (at <= room || at === 0) return max;
+  return Math.max(min, (max * room) / at);
 }
 
 export const titleLetterSpacing = (size: number) => size * TITLE_LETTER_SPACING;

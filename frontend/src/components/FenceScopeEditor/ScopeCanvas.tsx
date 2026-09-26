@@ -1,19 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Rect, Image as KonvaImage, Line, Circle, Text as KonvaText } from "react-konva";
 import type Konva from "konva";
-import type { FenceScopeSegment } from "@/lib/api";
 import type { ScopeStateApi } from "./use-scope-state";
 import type { CanvasView } from "./use-canvas-view";
 import type { HeaderTheme } from "./header-theme";
 import { placeArrowsAlongPath, arrowheadPoints, type Pt } from "./arrows";
 import { fitFontSize, titleLetterSpacing, type PageLayout, type Rect as RectBox } from "./layout";
+import { snapToVertex, SNAP_RADIUS_SCREEN } from "./snap";
+import Legend from "./Legend";
 import {
   BLUE, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
   NODE_RADIUS, ARROW_SPACING_PX, ARROW_LENGTH, ARROW_WIDTH,
-  LEGEND_WIDTH_FRAC, LEGEND_HEIGHT_FRAC, LEGEND_MARGIN_FRAC,
   PAGE_MARGIN_FRAC, TEXT_RIGHT_MARGIN_FRAC, LOGO_MAX_WIDTH_FRAC, LOGO_HEIGHT_FRAC,
   TITLE_FONT, BODY_FONT, TITLE_SIZE_MAX, TITLE_SIZE_MIN, ADDRESS_SIZE_MAX, ADDRESS_SIZE_MIN,
-  GOLD, HEADER_TEXT,
 } from "./constants";
 
 const TITLE_TEXT = "Fence Staining Scope";
@@ -36,6 +35,8 @@ type BodyRect = RectBox;
 
 /** Pointer travel, in px, before a press counts as a pan rather than a click. */
 const PAN_THRESHOLD = 4;
+/** How close two clicks must land, in px, for a double-click to mean "done". */
+const DBLCLICK_SLOP = 8;
 
 function toPixel(p: { x: number; y: number }, body: BodyRect) {
   return { x: body.x + p.x * body.width, y: body.y + p.y * body.height };
@@ -51,10 +52,6 @@ function colorHex(c: "blue" | "red") {
 function flatten(pts: Pt[]) {
   return pts.flatMap((p) => [p.x, p.y]);
 }
-function presentColors(segments: FenceScopeSegment[]) {
-  return { blue: segments.some((s) => s.color === "blue"), red: segments.some((s) => s.color === "red") };
-}
-
 export default function ScopeCanvas({
   scope, page, view, sourceImage, logoImage,
   headerTheme, address, activePointIndex, onActivePointChange, stageRef,
@@ -137,7 +134,12 @@ export default function ScopeCanvas({
     if (pannedRef.current) return; // that was a pan, not a click
     if (drawing) {
       const pos = stage.getRelativePointerPosition();
-      if (pos) scope.addDrawingPoint(toNormalized(pos.x, pos.y, bodyRect));
+      if (pos) {
+        // Clicking near the end of an existing run welds to it exactly, so an
+        // L-shaped fence closes at the corner instead of nearly closing.
+        const corner = snapToVertex(pos.x, pos.y, scope.segments, bodyRect, SNAP_RADIUS_SCREEN / view.zoom);
+        scope.addDrawingPoint(corner ?? toNormalized(pos.x, pos.y, bodyRect));
+      }
       return;
     }
     if (e.target === e.currentTarget || e.target.getClassName() === "Image" || e.target.getClassName() === "Rect") {
@@ -147,7 +149,18 @@ export default function ScopeCanvas({
   };
 
   const handleStageDblClick = () => {
-    if (drawing) scope.finishDrawing();
+    if (!drawing) return;
+    const points = scope.drawingPoints;
+    if (points.length < 2) return;
+    // Konva calls any two clicks inside 400ms a double-click, wherever they
+    // landed. Tracing a fence quickly does exactly that, and finishing there
+    // cuts the run short — so only treat it as "done" when both clicks landed
+    // in the same spot, which is what a deliberate double-click looks like.
+    const last = toPixel(points[points.length - 1], bodyRect);
+    const previous = toPixel(points[points.length - 2], bodyRect);
+    if (Math.hypot(last.x - previous.x, last.y - previous.y) <= DBLCLICK_SLOP / view.zoom) {
+      scope.finishDrawing();
+    }
   };
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -237,7 +250,7 @@ export default function ScopeCanvas({
           text={TITLE_TEXT}
           fontSize={titleSize} lineHeight={1.2} letterSpacing={titleLetterSpacing(titleSize)}
           fontFamily={TITLE_FONT} fontStyle="bold" fill={headerTheme.ink}
-          wrap="none"
+          wrap="none" ellipsis
         />
         <KonvaText
           x={textX} y={addressY} width={textW} align="right"
@@ -247,39 +260,16 @@ export default function ScopeCanvas({
           wrap="none" ellipsis
         />
 
-        {/* Legend — auto-updates on which colors are present. Never mentions
-            unmarked sections (spec Section 6/32). Sits on the photo, so it
-            keeps its own dark plate regardless of the header colour. */}
-        {(() => {
-          const { blue, red } = presentColors(scope.segments);
-          if (!blue && !red) return null;
-          const lx = bodyRect.x + bodyRect.width * LEGEND_MARGIN_FRAC;
-          const ly = bodyRect.y + bodyRect.height - bodyRect.height * (LEGEND_HEIGHT_FRAC + LEGEND_MARGIN_FRAC);
-          const lw = bodyRect.width * LEGEND_WIDTH_FRAC;
-          const lh = bodyRect.height * LEGEND_HEIGHT_FRAC;
-          const rowH = lh / (blue && red ? 3 : 2);
-          let row = 0;
-          return (
-            <Fragment>
-              <Rect x={lx} y={ly} width={lw} height={lh} fill="#0d0d0dee" stroke={GOLD} strokeWidth={1.5} cornerRadius={4} />
-              <KonvaText x={lx + 10} y={ly + rowH * row++ + 6} text="FENCE STAINING LEGEND" fontSize={rowH * 0.32} fontStyle="bold" fill={GOLD} />
-              {blue && (
-                <KonvaText x={lx + 10} y={ly + rowH * row++ + 4} text="Blue sections: Inside face only" fontSize={rowH * 0.3} fill={HEADER_TEXT} />
-              )}
-              {red && (
-                <KonvaText
-                  x={lx + 10} y={ly + rowH * row++ + 4}
-                  text="Red sections: Both faces stained (inside and outside)"
-                  fontSize={rowH * 0.28} fill={HEADER_TEXT} width={lw - 20} wrap="word"
-                />
-              )}
-            </Fragment>
-          );
-        })()}
       </Layer>
 
-      {/* Segments — lines, arrows, endpoint nodes */}
-      <Layer>
+      <Legend pageWidth={pageWidth} body={bodyRect} segments={scope.segments} />
+
+      {/* Segments — lines, arrows, endpoint nodes.
+          While a new run is being traced this layer stops listening entirely:
+          otherwise clicking the corner of an existing line selects that line
+          instead of placing a point, which makes it impossible to join a red
+          run to the end of a blue one. */}
+      <Layer listening={!drawing}>
         {scope.segments.map((seg) => {
           const pxPoints = seg.points.map((p) => toPixel(p, bodyRect));
           const isSelected = seg.id === scope.selectedId;
