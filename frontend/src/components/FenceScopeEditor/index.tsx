@@ -28,6 +28,19 @@ interface Props {
  * mid-trace doesn't lose the work. */
 const AUTOSAVE_DELAY_MS = 1200;
 
+/** How long to keep checking whether a dropped render finished anyway. */
+const RENDER_RECOVERY_MS = 240_000;
+const RENDER_POLL_MS = 5_000;
+
+/** A dropped connection, as opposed to the server saying no. Safari words it
+ * "Load failed", Chrome "Failed to fetch", and neither means the work stopped —
+ * the render can easily outlive the request that started it. */
+function isConnectionDrop(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  const text = error instanceof Error ? error.message : String(error);
+  return /load failed|failed to fetch|network|aborted|timeout/i.test(text);
+}
+
 function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new window.Image();
@@ -167,23 +180,65 @@ export default function FenceScopeEditor({ leadId }: Props) {
     void loadAiImage();
   }, [hasAi, loadAiImage]);
 
+  const adoptRender = useCallback(async () => {
+    setHasAi(true);
+    await loadAiImage();
+    scope.setUseAi(true);
+  }, [loadAiImage, scope]);
+
+  /** Keeps asking whether the render landed. A render takes a minute or two,
+   * which is long enough for a deploy, a flaky signal or a backgrounded phone
+   * to kill the request that asked for it — while the server carries on and
+   * saves the result. Giving up at the first dropped connection would throw
+   * away work that's already been paid for. */
+  const waitForRender = useCallback(
+    async (deadline: number): Promise<boolean> => {
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, RENDER_POLL_MS));
+        try {
+          const d = await api.getFenceScope(leadId);
+          if (d.has_ai) {
+            seenVersion.current = d.updated_at;
+            return true;
+          }
+        } catch {
+          // Still unreachable — keep waiting rather than declare failure.
+        }
+      }
+      return false;
+    },
+    [leadId]
+  );
+
   const runDroneRender = useCallback(async () => {
     setRendering(true);
     try {
       const r = await api.generateFenceScopeAi(leadId);
       if (r.updated_at) seenVersion.current = r.updated_at;
-      setHasAi(true);
-      await loadAiImage();
-      scope.setUseAi(true);
+      await adoptRender();
       toast.success(`Drone view rendered at ${r.requested_size}`);
     } catch (e) {
-      // The backend's message says what to do about it — a missing key, no
-      // credit on the API account, a timeout — so show it rather than bury it.
-      toast.error(e instanceof Error ? e.message : "Drone view failed", { duration: 12000 });
+      if (!isConnectionDrop(e)) {
+        // The backend writes these for whoever pressed the button — a missing
+        // key, no credit on the API account, a rejected request.
+        toast.error(e instanceof Error ? e.message : "Drone view failed", { duration: 12000 });
+        return;
+      }
+      toast.info("Connection dropped — the render may still be running. Checking…", { duration: 8000 });
+      if (await waitForRender(Date.now() + RENDER_RECOVERY_MS)) {
+        await adoptRender();
+        toast.success("Drone view finished — it survived the dropped connection");
+        return;
+      }
+      toast.error(
+        "The render didn't finish. That usually means the server restarted mid-render, or the " +
+        "connection was lost for too long. Nothing was changed — try again.",
+        { duration: 15000 }
+      );
     } finally {
       setRendering(false);
     }
-  }, [leadId, loadAiImage, scope]);
+  }, [leadId, adoptRender, waitForRender]);
 
   // The render deliberately re-frames the property to square it up, which
   // moves everything under an existing trace. Worth asking first rather than
