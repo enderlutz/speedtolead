@@ -20,7 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 import clock
-from database import get_db, Lead
+from database import get_db, Lead, Estimate
 from api.auth import get_current_user
 from services.activity_log import log_event
 from services.event_bus import publish
@@ -384,6 +384,8 @@ def delete_fence_scope_ai(lead_id: str, user: dict = Depends(get_current_user)):
 
 class SendScopeBody(BaseModel):
     message: str = ""
+    """Which wording to fall back to when no message is supplied."""
+    template: str = "new"
 
 
 def _public_base(request: Request) -> str:
@@ -510,6 +512,50 @@ def colors_used(lead) -> list[str]:
     return [c for c in COLOR_ORDER if c in present]
 
 
+def previously_estimated(db, lead) -> bool:
+    """Whether this customer has already had an estimate sent.
+
+    Decides which message is offered first. Not a hard gate — the estimate
+    could have gone out by phone, or the record could predate the dashboard —
+    so it only sets the default and can be overridden.
+    """
+    if (lead.proposal_view_count or 0) > 0 or lead.proposal_viewed_at:
+        return True
+    return (
+        db.query(Estimate)
+        .filter(Estimate.lead_id == lead.id, Estimate.status == "sent")
+        .first()
+        is not None
+    )
+
+
+def returning_scope_message(contact_name: str, address: str, colors: list[str] | None = None) -> str:
+    """For a customer who was quoted before and never booked.
+
+    Leads with the scope rather than the discount. The picture is the genuinely
+    new thing — they've never seen it — whereas opening on a price cut trains
+    customers to wait for one, and gives them a reason to say no before
+    they've even looked. The offer to re-price is the reason to reply, and it
+    ends on a question a customer can answer with one word.
+    """
+    first = (contact_name or "").strip().split(" ")[0]
+    hello = f"{greeting_for()} {first}," if first else f"{greeting_for()},"
+    where = f" at {address}" if address else ""
+    intro = (
+        f"{hello} we put together a fence staining estimate for you{where} a while back. "
+        "We've started sending a detailed scope of work so you can see exactly what we'd "
+        "be staining — here's yours."
+    )
+    wanted = COLOR_ORDER if colors is None else colors
+    key = [COLOR_MEANINGS[c] for c in wanted if c in COLOR_MEANINGS]
+    closing = (
+        "If it's still something you're thinking about, I'll re-price it for you across our "
+        "Essential, Signature and Legacy packages. Want me to send it over?"
+    )
+    parts = [intro] + (["\n".join(key)] if key else []) + [closing]
+    return "\n\n".join(parts)
+
+
 def default_scope_message(contact_name: str, address: str, colors: list[str] | None = None) -> str:
     """What gets sent if nobody edits it.
 
@@ -598,7 +644,13 @@ def preview_fence_scope_send(lead_id: str, request: Request, user: dict = Depend
             "blockers": blockers,
             "contact_name": lead.contact_name or "",
             "contact_phone": lead.contact_phone or "",
-            "message": default_scope_message(lead.contact_name or "", lead.address or "", colors_used(lead)),
+            # Both wordings up front, so switching between them in the editor
+            # is instant and neither needs another round trip.
+            "messages": {
+                "new": default_scope_message(lead.contact_name or "", lead.address or "", colors_used(lead)),
+                "returning": returning_scope_message(lead.contact_name or "", lead.address or "", colors_used(lead)),
+            },
+            "suggested_template": "returning" if previously_estimated(db, lead) else "new",
             "last_sent_at": lead.fence_scope_sent_at,
         }
     finally:
@@ -654,7 +706,8 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
 
         token = _share_token(lead, db)
         image_url = f"{base}/api/fence-scope/shared/{token}"
-        message = (body.message or "").strip() or default_scope_message(
+        builder = returning_scope_message if body.template == "returning" else default_scope_message
+        message = (body.message or "").strip() or builder(
             lead.contact_name or "", lead.address or "", colors_used(lead)
         )
 

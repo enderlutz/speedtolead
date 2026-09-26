@@ -476,9 +476,15 @@ export interface FenceScopeSendPreview {
   blockers: string[];
   contact_name: string;
   contact_phone: string;
-  message: string;
+  /** Both wordings, so switching between them needs no round trip. */
+  messages: { new: string; returning: string };
+  /** Which one to offer first, based on whether they were quoted before. */
+  suggested_template: ScopeTemplate;
   last_sent_at: string | null;
 }
+
+/** "new" = never quoted. "returning" = quoted before and never booked. */
+export type ScopeTemplate = "new" | "returning";
 
 export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
 
@@ -1540,10 +1546,10 @@ export const api = {
   getFenceScopeSendPreview: (leadId: string) =>
     request<FenceScopeSendPreview>(`/api/leads/${leadId}/fence-scope/send-preview`),
   /** Texts the exported scope image to the customer as an MMS. */
-  sendFenceScope: (leadId: string, message: string) =>
+  sendFenceScope: (leadId: string, message: string, template: ScopeTemplate = "new") =>
     request<{ sent: boolean; to: string; updated_at: string }>(
       `/api/leads/${leadId}/fence-scope/send`,
-      { method: "POST", body: JSON.stringify({ message }) }
+      { method: "POST", body: JSON.stringify({ message, template }) }
     ),
   deleteFenceScopeAi: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope/ai`, { method: "DELETE" }),

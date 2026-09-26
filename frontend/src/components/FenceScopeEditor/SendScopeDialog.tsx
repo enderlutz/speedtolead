@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { api, type FenceScopeSendPreview } from "@/lib/api";
+import { api, type FenceScopeSendPreview, type ScopeTemplate } from "@/lib/api";
 
 interface Props {
   leadId: string;
@@ -26,17 +26,23 @@ interface Props {
 export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: Props) {
   const [preview, setPreview] = useState<FenceScopeSendPreview | null>(null);
   const [message, setMessage] = useState("");
+  const [template, setTemplate] = useState<ScopeTemplate>("new");
+  // Set once the message has been typed in, so switching template doesn't
+  // quietly throw away wording someone has written.
+  const [edited, setEdited] = useState(false);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setPreview(null);
+    setEdited(false);
     api.getFenceScopeSendPreview(leadId)
       .then((p) => {
         if (cancelled) return;
         setPreview(p);
-        setMessage(p.message);
+        setTemplate(p.suggested_template);
+        setMessage(p.messages[p.suggested_template]);
       })
       .catch(() => {
         if (!cancelled) toast.error("Couldn't work out who to send this to");
@@ -44,10 +50,18 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
     return () => { cancelled = true; };
   }, [open, leadId]);
 
+  const pickTemplate = (next: ScopeTemplate) => {
+    setTemplate(next);
+    if (!preview) return;
+    if (edited && !window.confirm("Replace your edited message with the standard wording?")) return;
+    setMessage(preview.messages[next]);
+    setEdited(false);
+  };
+
   const send = async () => {
     setSending(true);
     try {
-      const r = await api.sendFenceScope(leadId, message);
+      const r = await api.sendFenceScope(leadId, message, template);
       toast.success(`Scope sent to ${r.to}`);
       onOpenChange(false);
       onSent();
@@ -89,12 +103,31 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
               </div>
             )}
 
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium mr-1">Wording:</span>
+              {([
+                ["new", "New lead", "Never been quoted"],
+                ["returning", "Old lead", "Quoted before, never booked — offers to re-price"],
+              ] as const).map(([value, label, hint]) => (
+                <Button
+                  key={value} size="sm" variant={template === value ? "default" : "outline"}
+                  className="h-7 text-[11px]" onClick={() => pickTemplate(value)}
+                  disabled={blocked} title={hint}
+                >
+                  {label}
+                </Button>
+              ))}
+              {preview.suggested_template === "returning" && (
+                <span className="text-[11px] text-muted-foreground">already estimated</span>
+              )}
+            </div>
+
             <div>
               <label htmlFor="scope-message" className="text-xs font-medium">Message</label>
               <Textarea
                 id="scope-message"
                 value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                onChange={(e) => { setMessage(e.target.value); setEdited(true); }}
                 rows={8}
                 className="mt-1 text-sm"
                 disabled={blocked}
