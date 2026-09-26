@@ -351,7 +351,7 @@ export default function ScopeCanvas({
 
       </Layer>
 
-      <Legend pageWidth={pageWidth} body={bodyRect} segments={scope.segments} />
+      <Legend pageWidth={pageWidth} band={page.legend} segments={scope.segments} theme={headerTheme} />
 
       {/* Segments — lines, arrows, endpoint nodes.
           While a new run is being traced this layer stops listening entirely:

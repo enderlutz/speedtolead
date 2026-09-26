@@ -167,7 +167,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
     void loadAiImage();
   }, [hasAi, loadAiImage]);
 
-  const handleGenerateAi = useCallback(async () => {
+  const runDroneRender = useCallback(async () => {
     setRendering(true);
     try {
       const r = await api.generateFenceScopeAi(leadId);
@@ -184,6 +184,20 @@ export default function FenceScopeEditor({ leadId }: Props) {
       setRendering(false);
     }
   }, [leadId, loadAiImage, scope]);
+
+  // The render deliberately re-frames the property to square it up, which
+  // moves everything under an existing trace. Worth asking first rather than
+  // silently sliding a finished fence off the photo.
+  const handleGenerateAi = useCallback(async () => {
+    if (scope.segments.length === 0) {
+      await runDroneRender();
+      return;
+    }
+    toast.warning("Re-rendering re-frames the photo, so your traced fence may no longer line up.", {
+      duration: 15000,
+      action: { label: "Re-render anyway", onClick: () => void runDroneRender() },
+    });
+  }, [scope.segments.length, runDroneRender]);
 
   const handleDiscardAi = useCallback(async () => {
     try {

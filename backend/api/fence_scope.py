@@ -435,17 +435,21 @@ def _share_token(lead, db) -> str:
 
 
 def default_scope_message(contact_name: str, address: str) -> str:
-    """What gets sent if nobody edits it. Deliberately asks the customer to
-    confirm — the whole point of the scope is agreeing before the estimate."""
+    """What gets sent if nobody edits it.
+
+    Deliberately does NOT ask the customer to reply before anything else
+    happens: the estimate follows regardless. Waiting on a confirmation just
+    stalls the quote, and a customer who spots a wrong side will say so on
+    their own — at which point the estimate gets updated.
+    """
     first = (contact_name or "").strip().split(" ")[0]
     hello = f"Hi {first}," if first else "Hi,"
     where = f" at {address}" if address else ""
     return (
-        f"{hello} here's the scope of work for your fence staining{where}.\n\n"
+        f"{hello} here's the scope of work for you to look at while we're working "
+        f"on your personalized fence staining estimate{where}!\n\n"
         "Blue = we stain the inside face only.\n"
-        "Red = we stain both sides.\n\n"
-        "Can you confirm this looks right? Once you do, I'll send your estimate.\n"
-        "- Sterling Fence Staining"
+        "Red = we stain both sides."
     )
 
 

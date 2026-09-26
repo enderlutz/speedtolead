@@ -9,7 +9,7 @@
 // to it; guessing at a font size is how a line ends up hanging off the page.
 
 import {
-  HEADER_HEIGHT_OF_WIDTH, TITLE_LETTER_SPACING,
+  HEADER_HEIGHT_OF_WIDTH, LEGEND_BAND_OF_WIDTH, TITLE_LETTER_SPACING,
 } from "./constants";
 
 export interface Rect {
@@ -25,23 +25,27 @@ export interface PageLayout {
   headerHeight: number;
   /** Where the photo goes — and the frame traced points are normalized to. */
   body: Rect;
+  /** The band under the photo that carries the key. */
+  legend: Rect;
 }
 
 /** @param photoAspect width / height of the photo as displayed. */
 export function pageLayout(pageWidth: number, photoAspect: number): PageLayout {
   const headerHeight = pageWidth * HEADER_HEIGHT_OF_WIDTH;
   const bodyHeight = pageWidth / photoAspect;
+  const legendHeight = pageWidth * LEGEND_BAND_OF_WIDTH;
   return {
     width: pageWidth,
-    height: headerHeight + bodyHeight,
+    height: headerHeight + bodyHeight + legendHeight,
     headerHeight,
     body: { x: 0, y: headerHeight, width: pageWidth, height: bodyHeight },
+    legend: { x: 0, y: headerHeight + bodyHeight, width: pageWidth, height: legendHeight },
   };
 }
 
 /** Page width : page height, for fitting the page into the editor frame. */
 export function pageAspect(photoAspect: number): number {
-  return 1 / (HEADER_HEIGHT_OF_WIDTH + 1 / photoAspect);
+  return 1 / (HEADER_HEIGHT_OF_WIDTH + 1 / photoAspect + LEGEND_BAND_OF_WIDTH);
 }
 
 /** Natural width / height of whatever Konva is about to draw. */

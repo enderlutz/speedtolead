@@ -59,8 +59,9 @@ PROMPT = (
     "Preserve the exact layout and footprint of everything present: keep every "
     "structure, roofline, fence line, gate, driveway, walkway, patio, pool, tree and "
     "shrub in precisely the same position, shape and proportion as the original. Do "
-    "not add, remove, relocate, straighten or redesign anything, and do not change "
-    "the number of fence sections or gates. "
+    "not add, remove, relocate or redesign anything, and do not change the number "
+    "of fence sections or gates. Straightening applies to the camera, never to the "
+    "property: a crooked fence stays crooked. "
     "Remove all map overlays and replace them with the ground surface that belongs "
     "underneath: street name labels, place and business labels, location pins, "
     "markers, icons, watermarks, attribution text and any other interface elements. "
@@ -68,7 +69,18 @@ PROMPT = (
     "Improve only realism and clarity: natural daylight and soft accurate shadows, "
     "true-to-life colour, crisp detail, realistic grass, foliage, roofing shingle and "
     "wood fence texture. No haze, no blur, no vignette, no illustrated, painted, "
-    "stylised or video-game look."
+    "stylised or video-game look. "
+    # Composition. The source is usually a map screenshot taken at whatever
+    # angle the map happened to be facing, which leaves the property running
+    # corner to corner. Squaring it up is reframing, not invention — the
+    # features themselves still have to stay exactly as they are.
+    "Compose it as a straight-down, level overhead shot, square to the frame: the "
+    "house and its lot centred, the roofline and fence lines running parallel to "
+    "the edges of the image rather than diagonally across it, and the front of the "
+    "house with its driveway toward the bottom. Rotate and re-centre the view to "
+    "achieve this, and correct any tilt or perspective so the whole property is "
+    "seen flat from directly above. Reframing the view is allowed and wanted; "
+    "changing, adding or removing anything on the property is not."
 )
 
 
