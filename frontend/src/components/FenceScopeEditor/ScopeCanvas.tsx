@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Rect, Image as KonvaImage, Line, Circle, Text as KonvaText } from "react-konva";
 import type Konva from "konva";
 import type { FenceScopeSegment } from "@/lib/api";
 import type { ScopeStateApi } from "./use-scope-state";
+import type { CanvasView } from "./use-canvas-view";
 import { placeArrowsAlongPath, arrowheadPoints, type Pt } from "./arrows";
 import {
   BLUE, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
@@ -22,15 +23,13 @@ interface Props {
   scope: ScopeStateApi;
   stageWidth: number;
   stageHeight: number;
-  zoom: number;
-  panOffset: { x: number; y: number };
+  view: CanvasView;
   sourceImage: HTMLImageElement | null;
   logoImage: HTMLImageElement | null;
   address: string;
   bodyRect: BodyRect;
   activePointIndex: number | null;
   onActivePointChange: (i: number | null) => void;
-  onWheel: (e: { evt: WheelEvent }) => void;
   stageRef?: React.RefObject<Konva.Stage | null>;
 }
 
@@ -53,12 +52,28 @@ function presentColors(segments: FenceScopeSegment[]) {
 }
 
 export default function ScopeCanvas({
-  scope, stageWidth, stageHeight, zoom, panOffset, sourceImage, logoImage, address, bodyRect,
-  activePointIndex, onActivePointChange, onWheel, stageRef,
+  scope, stageWidth, stageHeight, view, sourceImage, logoImage, address, bodyRect,
+  activePointIndex, onActivePointChange, stageRef,
 }: Props) {
   const internalStageRef = useRef<Konva.Stage>(null);
   const ref = stageRef || internalStageRef;
   const [dragPreview, setDragPreview] = useState<{ segId: string; index: number; x: number; y: number } | null>(null);
+  // A pan drag ends with a click event on the stage. Without this the click
+  // would drop a fence point wherever the drag happened to finish.
+  const pannedRef = useRef(false);
+
+  const drawing = scope.mode === "blue" || scope.mode === "red";
+  const idleCursor = drawing ? "crosshair" : "grab";
+
+  const setCursor = useCallback(
+    (c: string) => {
+      const stage = ref.current;
+      if (stage) stage.container().style.cursor = c;
+    },
+    [ref]
+  );
+
+  useEffect(() => { setCursor(idleCursor); }, [idleCursor, setCursor]);
 
   const stageToBody = useCallback(
     (stage: Konva.Stage) => {
@@ -73,7 +88,11 @@ export default function ScopeCanvas({
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       const stage = ref.current;
       if (!stage) return;
-      if (scope.mode === "blue" || scope.mode === "red") {
+      if (pannedRef.current) {
+        pannedRef.current = false;
+        return;
+      }
+      if (drawing) {
         const p = stageToBody(stage);
         if (p) scope.addDrawingPoint(p);
         return;
@@ -83,30 +102,53 @@ export default function ScopeCanvas({
         onActivePointChange(null);
       }
     },
-    [scope, stageToBody, onActivePointChange, ref]
+    [scope, drawing, stageToBody, onActivePointChange, ref]
   );
 
   const handleStageDblClick = useCallback(() => {
-    if (scope.mode === "blue" || scope.mode === "red") scope.finishDrawing();
-  }, [scope]);
+    if (drawing) scope.finishDrawing();
+  }, [scope, drawing]);
+
+  const handleWheel = useCallback(
+    (e: Konva.KonvaEventObject<WheelEvent>) => {
+      view.wheel(e.evt, ref.current?.getPointerPosition() ?? null);
+    },
+    [view, ref]
+  );
+
+  // Drag events bubble up from the draggable endpoint nodes, so every stage
+  // drag handler has to confirm the stage itself is what's moving.
+  const isStage = (e: Konva.KonvaEventObject<DragEvent>) => e.target === ref.current;
 
   return (
     <Stage
       ref={ref}
       width={stageWidth}
       height={stageHeight}
-      scaleX={zoom}
-      scaleY={zoom}
-      x={panOffset.x}
-      y={panOffset.y}
-      onWheel={onWheel}
+      scaleX={view.zoom}
+      scaleY={view.zoom}
+      x={view.pan.x}
+      y={view.pan.y}
+      draggable
+      dragDistance={4}
+      dragBoundFunc={view.boundPan}
+      onWheel={handleWheel}
+      onMouseDown={() => { pannedRef.current = false; }}
+      onTouchStart={() => { pannedRef.current = false; }}
+      onDragStart={(e) => { if (isStage(e)) setCursor("grabbing"); }}
+      onDragMove={(e) => { if (isStage(e)) pannedRef.current = true; }}
+      onDragEnd={(e) => {
+        if (!isStage(e)) return;
+        setCursor(idleCursor);
+        view.commitPan({ x: e.target.x(), y: e.target.y() });
+      }}
       onClick={handleStageClick}
       onDblClick={handleStageDblClick}
       onTap={handleStageClick as unknown as (e: Konva.KonvaEventObject<TouchEvent>) => void}
     >
       {/* Background */}
       <Layer>
-        <Rect x={0} y={0} width={stageWidth / zoom} height={stageHeight / zoom} fill="#111" />
+        <Rect x={0} y={0} width={stageWidth} height={stageHeight} fill="#111" />
         {sourceImage && (
           <KonvaImage image={sourceImage} x={bodyRect.x} y={bodyRect.y} width={bodyRect.width} height={bodyRect.height} />
         )}
@@ -114,8 +156,8 @@ export default function ScopeCanvas({
 
       {/* Locked branding — header, logo, legend. Nothing here is VA-editable. */}
       <Layer listening={false}>
-        <Rect x={0} y={0} width={stageWidth / zoom} height={bodyRect.y} fill={HEADER_BG} />
-        <Rect x={0} y={0} width={stageWidth / zoom} height={2} fill={GOLD} />
+        <Rect x={0} y={0} width={stageWidth} height={bodyRect.y} fill={HEADER_BG} />
+        <Rect x={0} y={0} width={stageWidth} height={2} fill={GOLD} />
         {logoImage ? (
           <KonvaImage
             image={logoImage}
@@ -187,7 +229,12 @@ export default function ScopeCanvas({
 
           return (
             <Fragment key={seg.id}>
-              <Line points={flatten(pxPoints)} stroke={LINE_HALO} strokeWidth={LINE_WIDTH_HALO} lineCap="round" lineJoin="round" opacity={0.9} onClick={selectLine} />
+              <Line
+                points={flatten(pxPoints)} stroke={LINE_HALO} strokeWidth={LINE_WIDTH_HALO}
+                lineCap="round" lineJoin="round" opacity={0.9} onClick={selectLine}
+                onMouseEnter={() => { if (!drawing) setCursor("pointer"); }}
+                onMouseLeave={() => setCursor(idleCursor)}
+              />
               <Line
                 points={flatten(pxPoints)} stroke={color} strokeWidth={LINE_WIDTH_INNER} lineCap="round" lineJoin="round"
                 shadowColor={color} shadowBlur={isSelected ? 10 : 4} shadowOpacity={0.6} onClick={selectLine}
@@ -230,10 +277,13 @@ export default function ScopeCanvas({
                     strokeWidth={active ? 2.5 : 1.5}
                     shadowColor="#000" shadowBlur={3} shadowOpacity={0.4}
                     draggable
+                    onMouseEnter={() => setCursor("move")}
+                    onMouseLeave={() => setCursor(idleCursor)}
                     onClick={(e) => { e.cancelBubble = true; scope.setMode("select"); scope.selectSegment(seg.id); onActivePointChange(i); }}
                     onDragStart={(e) => { e.cancelBubble = true; scope.selectSegment(seg.id); onActivePointChange(i); }}
-                    onDragMove={(e) => setDragPreview({ segId: seg.id, index: i, x: e.target.x(), y: e.target.y() })}
+                    onDragMove={(e) => { e.cancelBubble = true; setDragPreview({ segId: seg.id, index: i, x: e.target.x(), y: e.target.y() }); }}
                     onDragEnd={(e) => {
+                      e.cancelBubble = true;
                       setDragPreview(null);
                       const n = toNormalized(e.target.x(), e.target.y(), bodyRect);
                       scope.updatePoint(seg.id, i, n);

@@ -11,12 +11,13 @@ interface Props {
   activePointIndex: number | null;
   exporting: boolean;
   onExport: () => void;
+  zoom: number;
   zoomIn: () => void;
   zoomOut: () => void;
   fitToPage: () => void;
 }
 
-export default function Toolbar({ scope, activePointIndex, exporting, onExport, zoomIn, zoomOut, fitToPage }: Props) {
+export default function Toolbar({ scope, activePointIndex, exporting, onExport, zoom, zoomIn, zoomOut, fitToPage }: Props) {
   const selected = scope.selectedSegment;
 
   return (
@@ -66,10 +67,11 @@ export default function Toolbar({ scope, activePointIndex, exporting, onExport, 
       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={zoomOut} title="Zoom out">
         <ZoomOut className="h-4 w-4" />
       </Button>
+      <span className="text-[11px] tabular-nums text-muted-foreground w-9 text-center">{Math.round(zoom * 100)}%</span>
       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={zoomIn} title="Zoom in">
         <ZoomIn className="h-4 w-4" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={fitToPage} title="Fit to view">
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={fitToPage} title="Fit to view — resets zoom and re-centers">
         <Maximize2 className="h-4 w-4" />
       </Button>
 

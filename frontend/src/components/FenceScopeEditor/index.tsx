@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Upload, Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { useZoomPan } from "@/components/PdfTemplateEditor/use-zoom-pan";
+import { useCanvasView } from "./use-canvas-view";
 import { useScopeState } from "./use-scope-state";
 import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
 import ScopeCanvas, { type BodyRect } from "./ScopeCanvas";
@@ -45,7 +45,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [stageSize, setStageSize] = useState({ width: 720, height: 720 / ASPECT });
-  const { zoom, panOffset, handleWheel, zoomIn, zoomOut, fitToPage } = useZoomPan();
+  const view = useCanvasView(stageSize);
 
   const scope = useScopeState([]);
 
@@ -190,10 +190,15 @@ export default function FenceScopeEditor({ leadId }: Props) {
     // showing up in the customer-facing export.
     scope.selectSegment(null);
     setActivePointIndex(null);
-    // Capture at export resolution regardless of the on-screen zoom/pan —
-    // stage/bodyRect already share the export aspect ratio, so a straight
-    // pixelRatio scale-up reproduces the full canvas edge-to-edge.
     await new Promise((r) => requestAnimationFrame(r));
+    // Capture must ignore the on-screen zoom/pan — the stage transform is
+    // baked into toDataURL, so exporting while zoomed in would ship the
+    // customer a cropped corner of their own property. Flatten it, grab the
+    // page edge-to-edge at export resolution, then put the view back.
+    const prevScale = { x: stage.scaleX(), y: stage.scaleY() };
+    const prevPos = stage.position();
+    stage.scale({ x: 1, y: 1 });
+    stage.position({ x: 0, y: 0 });
     try {
       const dataUrl = stage.toDataURL({
         x: 0, y: 0, width: stageSize.width, height: stageSize.height,
@@ -208,6 +213,9 @@ export default function FenceScopeEditor({ leadId }: Props) {
     } catch {
       toast.error("Export failed");
     } finally {
+      stage.scale(prevScale);
+      stage.position(prevPos);
+      stage.batchDraw();
       setExporting(false);
     }
   }, [leadId, scope, stageSize]);
@@ -239,7 +247,10 @@ export default function FenceScopeEditor({ leadId }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <Toolbar scope={scope} activePointIndex={activePointIndex} exporting={exporting} onExport={handleExport} zoomIn={zoomIn} zoomOut={zoomOut} fitToPage={fitToPage} />
+      <Toolbar
+        scope={scope} activePointIndex={activePointIndex} exporting={exporting} onExport={handleExport}
+        zoom={view.zoom} zoomIn={view.zoomIn} zoomOut={view.zoomOut} fitToPage={view.fit}
+      />
       {logoMissing && (
         <div
           className={`flex items-center gap-2 px-3 py-2 text-xs border-b transition-colors ${
@@ -269,26 +280,30 @@ export default function FenceScopeEditor({ leadId }: Props) {
         </div>
       )}
       <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground border-b">
-        <span>{scope.isDirty ? "Unsaved changes" : "All changes saved"}</span>
+        <span>
+          {scope.isDirty ? "Unsaved changes" : "All changes saved"}
+          <span className="ml-3 opacity-70">Drag to move the image · scroll to zoom</span>
+        </span>
         <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
           <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save"}
         </Button>
       </div>
       <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center bg-muted/20 p-2 overflow-hidden">
-        <div className="shadow-lg" style={{ width: stageSize.width, height: stageSize.height }}>
+        <div
+          className="shadow-lg rounded-sm overflow-hidden bg-neutral-700"
+          style={{ width: stageSize.width, height: stageSize.height }}
+        >
           <ScopeCanvas
             scope={scope}
             stageWidth={stageSize.width}
             stageHeight={stageSize.height}
-            zoom={zoom}
-            panOffset={panOffset}
+            view={view}
             sourceImage={sourceImage}
             logoImage={logoImage}
             address={address}
             bodyRect={bodyRect}
             activePointIndex={activePointIndex}
             onActivePointChange={setActivePointIndex}
-            onWheel={handleWheel}
             stageRef={stageRef}
           />
         </div>
