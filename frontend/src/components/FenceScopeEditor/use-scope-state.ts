@@ -99,10 +99,25 @@ export function useScopeState(initial: ScopeDoc) {
     setSavedAtIndex(0);
   }, []);
 
-  const undo = useCallback(() => setHistoryIndex((i) => Math.max(0, i - 1)), []);
-  const redo = useCallback(() => setHistoryIndex((i) => Math.min(history.length - 1, i + 1)), [history.length]);
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
+  // Mid-trace, undo means "take back the point I just placed". The points of
+  // a run in progress aren't in the document history, so stepping the history
+  // instead would skip straight past them and delete a finished fence — which
+  // looks like undo removing the wrong line entirely.
+  const undo = useCallback(() => {
+    if (drawingPoints.length > 0) {
+      setDrawingPoints((pts) => pts.slice(0, -1));
+      return;
+    }
+    setHistoryIndex((i) => Math.max(0, i - 1));
+  }, [drawingPoints.length]);
+
+  const redo = useCallback(() => {
+    if (drawingPoints.length > 0) return;
+    setHistoryIndex((i) => Math.min(history.length - 1, i + 1));
+  }, [history.length, drawingPoints.length]);
+
+  const canUndo = drawingPoints.length > 0 || historyIndex > 0;
+  const canRedo = drawingPoints.length === 0 && historyIndex < history.length - 1;
 
   const markSaved = useCallback(() => setSavedAtIndex(historyIndex), [historyIndex]);
   const isDirty = savedAtIndex !== historyIndex;

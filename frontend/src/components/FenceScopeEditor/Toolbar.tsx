@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, PenLine, Undo2, Redo2, Trash2, Download,
   FlipHorizontal2, Palette, Plus, Minus, ZoomIn, ZoomOut, Maximize2,
-  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles, Plane, Loader2, X,
+  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles, Plane, Loader2, X, Check,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
 import { BLUE, RED } from "./constants";
@@ -53,13 +53,18 @@ export default function Toolbar({
 
       {scope.drawingPoints.length > 0 && (
         <>
-          <Button size="sm" variant="secondary" onClick={scope.finishDrawing} disabled={scope.drawingPoints.length < 2}>
-            Finish<span className="hidden sm:inline">&nbsp;(Enter)</span>
+          {/* The one button that ends a run. Prominent on purpose: it's the
+              step between drawing a line and being able to adjust it. */}
+          <Button size="sm" onClick={scope.finishDrawing} disabled={scope.drawingPoints.length < 2} title="Confirm this fence line (Enter)">
+            <Check className="h-4 w-4 mr-1" /> Confirm
           </Button>
           <Button size="sm" variant="ghost" onClick={scope.cancelDrawing}>
             Cancel<span className="hidden sm:inline">&nbsp;(Esc)</span>
           </Button>
-          <span className="hidden sm:inline text-[11px] text-muted-foreground">{scope.drawingPoints.length} point{scope.drawingPoints.length === 1 ? "" : "s"} placed — double-tap or Enter to finish</span>
+          <span className="text-[11px] text-muted-foreground">
+            {scope.drawingPoints.length} point{scope.drawingPoints.length === 1 ? "" : "s"}
+            <span className="hidden sm:inline"> — press Confirm, or click the last point again</span>
+          </span>
         </>
       )}
 
@@ -163,7 +168,7 @@ export default function Toolbar({
         <div className="flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1">
           {selected.color === "blue" && (
             <Button size="sm" variant="outline" onClick={() => scope.flipArrows(selected.id)} title="Flip Arrows (F)">
-              <FlipHorizontal2 className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Flip Arrows</span>
+              <FlipHorizontal2 className="h-3.5 w-3.5 mr-1" /> Flip Arrows
             </Button>
           )}
           <Button size="sm" variant="outline" onClick={() => scope.toggleColor(selected.id)} title="Change Blue / Red">
