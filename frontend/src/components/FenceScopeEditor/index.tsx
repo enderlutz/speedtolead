@@ -14,6 +14,7 @@ import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
 import SendScopeDialog from "./SendScopeDialog";
+import ScopeChecklist, { sendBlockedReason } from "./ScopeChecklist";
 import Toolbar from "./Toolbar";
 import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./constants";
 
@@ -46,6 +47,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [aiConfigured, setAiConfigured] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
   // Set when another device changed this scope while there was unsaved work
   // here — adopting it automatically would throw that work away.
   const [remoteChange, setRemoteChange] = useState(false);
@@ -251,6 +253,19 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const pageSize = useMemo(() => ({ width: page.width, height: page.height }), [page.width, page.height]);
   const view = useCanvasView(pageSize, pageSize);
 
+  // A scope can only be sent once the photo has been made presentable, the
+  // fence has been marked, and somebody has actually looked at the result.
+  const steps = {
+    enhanced: scope.enhanced || (scope.useAi && hasAi),
+    drawn: scope.segments.length > 0,
+    confirmed,
+  };
+  const blockedReason = sendBlockedReason(steps);
+
+  // Any change after confirming un-confirms it, so what was approved is always
+  // what gets sent.
+  useEffect(() => { setConfirmed(false); }, [scope.revision]);
+
   const handleUpload = useCallback(
     async (file: File) => {
       if (file.size > MAX_SOURCE_IMAGE_MB * 1024 * 1024) {
@@ -455,6 +470,15 @@ export default function FenceScopeEditor({ leadId }: Props) {
         hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
         onGenerateAi={handleGenerateAi} onDiscardAi={handleDiscardAi}
         onSend={() => void handleSend()}
+        sendBlockedReason={blockedReason}
+      />
+      <ScopeChecklist
+        steps={steps}
+        aiConfigured={aiConfigured}
+        rendering={rendering}
+        onEnhance={scope.toggleEnhance}
+        onGenerateAi={() => void handleGenerateAi()}
+        onConfirm={() => setConfirmed(true)}
       />
       <SendScopeDialog
         leadId={leadId}

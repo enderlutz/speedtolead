@@ -404,6 +404,29 @@ def _public_base(request: Request) -> str:
     return f"https://{host}"
 
 
+def _segment_count(lead) -> int:
+    try:
+        parsed = json.loads(lead.fence_scope_segments_json or "[]")
+        return len(parsed) if isinstance(parsed, list) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _unfinished_steps(lead) -> list[str]:
+    """The scope's own three steps, checked server-side.
+
+    The editor disables Send until these pass, but a disabled button isn't a
+    control — the point of the steps is that a half-finished picture never
+    reaches a customer, so the last word belongs here.
+    """
+    missing = []
+    if not (lead.fence_scope_enhanced or lead.fence_scope_use_ai):
+        missing.append("Step 1: the photo hasn't been enhanced yet.")
+    if _segment_count(lead) == 0:
+        missing.append("Step 2: no fence has been marked on the photo yet.")
+    return missing
+
+
 def _share_token(lead, db) -> str:
     if not lead.fence_scope_share_token:
         lead.fence_scope_share_token = secrets.token_urlsafe(20)
@@ -463,7 +486,7 @@ def preview_fence_scope_send(lead_id: str, request: Request, user: dict = Depend
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
-        blockers = []
+        blockers = _unfinished_steps(lead)
         if not lead.has_fence_scope_export:
             blockers.append("The scope hasn't been exported yet.")
         if not lead.ghl_contact_id:
@@ -509,6 +532,9 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
             )
         if not lead.ghl_contact_id or not lead.contact_phone:
             raise HTTPException(status_code=400, detail="This lead has no phone number to text")
+        unfinished = _unfinished_steps(lead)
+        if unfinished:
+            raise HTTPException(status_code=400, detail=" ".join(unfinished))
         base = _public_base(request)
         if not base:
             raise HTTPException(

@@ -22,11 +22,13 @@ interface Props {
   onGenerateAi: () => void;
   onDiscardAi: () => void;
   onSend: () => void;
+  /** Non-null when a step is outstanding; doubles as the tooltip. */
+  sendBlockedReason: string | null;
 }
 
 export default function Toolbar({
   scope, activePointIndex, exporting, onExport, zoom, zoomIn, zoomOut, fitToPage,
-  hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi, onSend,
+  hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi, onSend, sendBlockedReason,
 }: Props) {
   const selected = scope.selectedSegment;
 
@@ -202,8 +204,8 @@ export default function Toolbar({
       </Button>
       {/* Saves the current canvas first, then asks who it's going to — so the
           customer always gets what's on screen, not an older export. */}
-      <Button size="sm" onClick={onSend} disabled={exporting || scope.segments.length === 0}
-              title="Text this scope to the customer">
+      <Button size="sm" onClick={onSend} disabled={exporting || !!sendBlockedReason}
+              title={sendBlockedReason || "Text this scope to the customer"}>
         <Send className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Send</span>
       </Button>
     </div>
