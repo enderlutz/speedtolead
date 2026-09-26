@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, PenLine, Undo2, Redo2, Trash2, Download,
   FlipHorizontal2, Palette, Plus, Minus, ZoomIn, ZoomOut, Maximize2,
+  RotateCcw, RotateCw,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
 import { BLUE, RED } from "./constants";
@@ -73,6 +74,16 @@ export default function Toolbar({ scope, activePointIndex, exporting, onExport, 
       </Button>
       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={fitToPage} title="Fit to view — resets zoom and re-centers">
         <Maximize2 className="h-4 w-4" />
+      </Button>
+
+      <div className="w-px h-5 bg-border mx-1" />
+      {/* Turns the photo only — the header, logo and address stay upright.
+          Any traced fence turns with it. */}
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(-1)} title="Turn the photo left (90°)">
+        <RotateCcw className="h-4 w-4" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(1)} title="Turn the photo right (90°)">
+        <RotateCw className="h-4 w-4" />
       </Button>
 
       <div className="flex-1" />

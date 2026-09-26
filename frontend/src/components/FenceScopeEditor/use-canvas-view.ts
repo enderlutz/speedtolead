@@ -1,15 +1,12 @@
 // Zoom + pan for the scope canvas.
 //
 // Deliberately separate from the PDF template editor's use-zoom-pan: this one
-// knows how big the viewport is, which is the only way to keep the page
-// centred when it's smaller than the view and pinned to the edges when it's
-// larger. Without that, zooming out parks the page in the top-left corner and
-// there's no way to get back to it.
-//
-// The page is exactly viewport-sized at zoom 1, so "content is smaller than
-// the view" is simply zoom < 1.
+// knows the size of both the frame and the page inside it, which is the only
+// way to keep the page centred when it's smaller than the frame and
+// edge-locked when it's bigger. Without that, zooming out parks the page in
+// the top-left corner with no way to get back to it.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 export const MIN_ZOOM = 0.4;
 export const MAX_ZOOM = 8;
@@ -20,13 +17,34 @@ export interface Pan {
   x: number;
   y: number;
 }
-export interface Viewport {
+export interface Size {
   width: number;
   height: number;
 }
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, v));
+}
+
+/** Where the page is allowed to sit: centred in the axes where it's smaller
+ * than the frame, edge-locked in the axes where it's bigger. This is the whole
+ * fix for "zoom out and the page disappears into the corner". */
+export function clampToFrame(p: Pan, zoom: number, frame: Size, page: Size): Pan {
+  const cw = page.width * zoom;
+  const ch = page.height * zoom;
+  return {
+    x: cw <= frame.width ? (frame.width - cw) / 2 : clamp(p.x, frame.width - cw, 0),
+    y: ch <= frame.height ? (frame.height - ch) / 2 : clamp(p.y, frame.height - ch, 0),
+  };
+}
+
+/** Pan that holds `anchor` (a point in frame coordinates) over the same spot
+ * on the page as the zoom changes from `zoom` to `nextZoom`. */
+export function panForZoomAt(anchor: Pan, pan: Pan, zoom: number, nextZoom: number): Pan {
+  return {
+    x: anchor.x - ((anchor.x - pan.x) / zoom) * nextZoom,
+    y: anchor.y - ((anchor.y - pan.y) / zoom) * nextZoom,
+  };
 }
 
 export interface CanvasView {
@@ -37,86 +55,62 @@ export interface CanvasView {
   fit: () => void;
   /** Wheel handler — zooms toward the cursor, map style. */
   wheel: (evt: WheelEvent, pointer: Pan | null) => void;
-  /** Konva dragBoundFunc: keeps a drag inside the legal pan range. */
+  /** Clamps a position mid-drag, while the stage is being moved directly. */
   boundPan: (p: Pan) => Pan;
-  /** Commits the stage position React-side once a drag finishes. */
+  /** Commits the stage position back to React once a drag finishes. */
   commitPan: (p: Pan) => void;
 }
 
-export function useCanvasView(viewport: Viewport): CanvasView {
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
+/** Zoom and pan move together (zooming about a point changes both), so they
+ * live in one piece of state and every update is a pure function of the
+ * previous one — no refs, nothing to go stale mid-gesture. */
+export function useCanvasView(frame: Size, page: Size): CanvasView {
+  const [state, setState] = useState<{ zoom: number; pan: Pan }>({ zoom: 1, pan: { x: 0, y: 0 } });
 
-  // Mirrors of the state, so the callbacks below can read current values
-  // without being re-created (and without side effects inside a setState
-  // updater, which React is free to run twice).
-  const zoomRef = useRef(zoom);
-  const panRef = useRef(pan);
-  const viewRef = useRef(viewport);
-  viewRef.current = viewport;
-
-  const apply = useCallback((z: number, p: Pan) => {
-    zoomRef.current = z;
-    panRef.current = p;
-    setZoom(z);
-    setPan(p);
-  }, []);
-
-  const clampPan = useCallback((p: Pan, z: number): Pan => {
-    const { width: vw, height: vh } = viewRef.current;
-    const cw = vw * z;
-    const ch = vh * z;
-    return {
-      x: cw <= vw ? (vw - cw) / 2 : clamp(p.x, vw - cw, 0),
-      y: ch <= vh ? (vh - ch) / 2 : clamp(p.y, vh - ch, 0),
-    };
-  }, []);
-
-  // Zoom about a fixed screen point so whatever is under the cursor (or the
-  // middle of the view, for the toolbar buttons) stays where it is.
   const zoomAbout = useCallback(
-    (nextZoom: number, anchor?: Pan) => {
-      const z = zoomRef.current;
-      const nz = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
-      if (nz === z) return;
-      const a = anchor ?? { x: viewRef.current.width / 2, y: viewRef.current.height / 2 };
-      const p = panRef.current;
-      apply(
-        nz,
-        clampPan({ x: a.x - ((a.x - p.x) / z) * nz, y: a.y - ((a.y - p.y) / z) * nz }, nz)
-      );
+    (nextZoom: (z: number) => number, anchor?: Pan) => {
+      setState((cur) => {
+        const nz = clamp(nextZoom(cur.zoom), MIN_ZOOM, MAX_ZOOM);
+        if (nz === cur.zoom) return cur;
+        const a = anchor ?? { x: frame.width / 2, y: frame.height / 2 };
+        return { zoom: nz, pan: clampToFrame(panForZoomAt(a, cur.pan, cur.zoom, nz), nz, frame, page) };
+      });
     },
-    [apply, clampPan]
+    [frame, page]
   );
 
-  const zoomIn = useCallback(() => zoomAbout(zoomRef.current * BUTTON_STEP), [zoomAbout]);
-  const zoomOut = useCallback(() => zoomAbout(zoomRef.current / BUTTON_STEP), [zoomAbout]);
-  const fit = useCallback(() => apply(1, clampPan({ x: 0, y: 0 }, 1)), [apply, clampPan]);
+  const zoomIn = useCallback(() => zoomAbout((z) => z * BUTTON_STEP), [zoomAbout]);
+  const zoomOut = useCallback(() => zoomAbout((z) => z / BUTTON_STEP), [zoomAbout]);
+  const fit = useCallback(
+    () => setState({ zoom: 1, pan: clampToFrame({ x: 0, y: 0 }, 1, frame, page) }),
+    [frame, page]
+  );
 
   const wheel = useCallback(
     (evt: WheelEvent, pointer: Pan | null) => {
       evt.preventDefault();
-      // Scroll = zoom, drag = pan. Same as every map he's tracing from, and
-      // it means a trackpad pinch (which arrives as ctrl+wheel) works too.
-      zoomAbout(zoomRef.current * Math.pow(WHEEL_STEP, -evt.deltaY), pointer ?? undefined);
+      // Scroll = zoom, drag = pan. Same as every map he's tracing from, and it
+      // means a trackpad pinch (which arrives as ctrl+wheel) works too.
+      zoomAbout((z) => z * Math.pow(WHEEL_STEP, -evt.deltaY), pointer ?? undefined);
     },
     [zoomAbout]
   );
 
-  const boundPan = useCallback((p: Pan) => clampPan(p, zoomRef.current), [clampPan]);
-  const commitPan = useCallback(
-    (p: Pan) => apply(zoomRef.current, clampPan(p, zoomRef.current)),
-    [apply, clampPan]
+  // Safe to close over the current zoom: a drag gesture can't change it.
+  const boundPan = useCallback(
+    (p: Pan) => clampToFrame(p, state.zoom, frame, page),
+    [state.zoom, frame, page]
   );
 
-  // A window resize changes what counts as a legal pan — re-centre rather
-  // than leave the page stranded off-screen.
-  useEffect(() => {
-    const next = clampPan(panRef.current, zoomRef.current);
-    if (next.x !== panRef.current.x || next.y !== panRef.current.y) {
-      apply(zoomRef.current, next);
-    }
-  }, [viewport.width, viewport.height, apply, clampPan]);
+  const commitPan = useCallback(
+    (p: Pan) => setState((cur) => ({ ...cur, pan: clampToFrame(p, cur.zoom, frame, page) })),
+    [frame, page]
+  );
 
-  return { zoom, pan, zoomIn, zoomOut, fit, wheel, boundPan, commitPan };
+  // Clamped on the way out rather than corrected in an effect: a resize
+  // changes what counts as a legal pan, and deriving it here means the page
+  // re-centres on the very same render instead of a frame later.
+  const pan = clampToFrame(state.pan, state.zoom, frame, page);
+
+  return { zoom: state.zoom, pan, zoomIn, zoomOut, fit, wheel, boundPan, commitPan };
 }

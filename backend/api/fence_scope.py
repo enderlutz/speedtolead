@@ -29,8 +29,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+VALID_ROTATIONS = (0, 90, 180, 270)
+
+
 class SaveSegmentsBody(BaseModel):
     segments_json: str  # pre-serialized by the frontend; stored verbatim
+    # Display rotation of the aerial screenshot. Saved alongside the segments
+    # because the traced points are rotated with the photo — the two are only
+    # meaningful together.
+    rotation: int = 0
 
 
 @router.get("/leads/{lead_id}/fence-scope")
@@ -51,6 +58,7 @@ def get_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
             "has_source": bool(lead.has_fence_scope_source),
             "has_export": bool(lead.has_fence_scope_export),
             "segments": segments,
+            "rotation": int(lead.fence_scope_rotation or 0),
             "updated_at": lead.fence_scope_updated_at,
             "updated_by": lead.fence_scope_updated_by or "",
             "address": lead.address or "",
@@ -72,12 +80,16 @@ def save_fence_scope(lead_id: str, body: SaveSegmentsBody, user: dict = Depends(
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid segments payload: {e}")
 
+    if body.rotation not in VALID_ROTATIONS:
+        raise HTTPException(status_code=400, detail=f"rotation must be one of {VALID_ROTATIONS}")
+
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
         lead.fence_scope_segments_json = body.segments_json
+        lead.fence_scope_rotation = body.rotation
         lead.fence_scope_updated_at = _now()
         lead.fence_scope_updated_by = (user or {}).get("sub") or ""
         db.commit()
@@ -191,6 +203,7 @@ def delete_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
         lead.has_fence_scope_export = False
         lead.fence_scope_export_mime = ""
         lead.fence_scope_segments_json = ""
+        lead.fence_scope_rotation = 0
         lead.fence_scope_updated_at = _now()
         lead.fence_scope_updated_by = (user or {}).get("sub") or ""
         db.commit()

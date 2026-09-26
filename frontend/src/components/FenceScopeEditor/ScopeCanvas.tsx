@@ -1,15 +1,17 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Rect, Image as KonvaImage, Line, Circle, Text as KonvaText } from "react-konva";
 import type Konva from "konva";
 import type { FenceScopeSegment } from "@/lib/api";
 import type { ScopeStateApi } from "./use-scope-state";
 import type { CanvasView } from "./use-canvas-view";
+import type { HeaderTheme } from "./header-theme";
 import { placeArrowsAlongPath, arrowheadPoints, type Pt } from "./arrows";
 import {
   BLUE, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
   NODE_RADIUS, ARROW_SPACING_PX, ARROW_LENGTH, ARROW_WIDTH,
   LEGEND_WIDTH_FRAC, LEGEND_HEIGHT_FRAC, LEGEND_MARGIN_FRAC,
-  HEADER_BG, GOLD, HEADER_TEXT,
+  PAGE_MARGIN_FRAC, LOGO_MAX_WIDTH_FRAC, LOGO_HEIGHT_FRAC,
+  GOLD, HEADER_TEXT,
 } from "./constants";
 
 export interface BodyRect {
@@ -21,17 +23,25 @@ export interface BodyRect {
 
 interface Props {
   scope: ScopeStateApi;
+  /** Visible area — the whole frame, which is larger than the page. */
   stageWidth: number;
   stageHeight: number;
+  /** The document itself, drawn at (0,0) and moved around by the view. */
+  pageWidth: number;
+  pageHeight: number;
   view: CanvasView;
-  sourceImage: HTMLImageElement | null;
+  sourceImage: HTMLImageElement | HTMLCanvasElement | null;
   logoImage: HTMLImageElement | null;
+  headerTheme: HeaderTheme;
   address: string;
   bodyRect: BodyRect;
   activePointIndex: number | null;
   onActivePointChange: (i: number | null) => void;
   stageRef?: React.RefObject<Konva.Stage | null>;
 }
+
+/** Pointer travel, in px, before a press counts as a pan rather than a click. */
+const PAN_THRESHOLD = 4;
 
 function toPixel(p: { x: number; y: number }, body: BodyRect) {
   return { x: body.x + p.x * body.width, y: body.y + p.y * body.height };
@@ -52,73 +62,121 @@ function presentColors(segments: FenceScopeSegment[]) {
 }
 
 export default function ScopeCanvas({
-  scope, stageWidth, stageHeight, view, sourceImage, logoImage, address, bodyRect,
-  activePointIndex, onActivePointChange, stageRef,
+  scope, stageWidth, stageHeight, pageWidth, pageHeight, view, sourceImage, logoImage,
+  headerTheme, address, bodyRect, activePointIndex, onActivePointChange, stageRef,
 }: Props) {
   const internalStageRef = useRef<Konva.Stage>(null);
   const ref = stageRef || internalStageRef;
   const [dragPreview, setDragPreview] = useState<{ segId: string; index: number; x: number; y: number } | null>(null);
-  // A pan drag ends with a click event on the stage. Without this the click
-  // would drop a fence point wherever the drag happened to finish.
+
+  // Panning is driven straight off the pointer rather than through Konva's
+  // own stage dragging: the stage is moved imperatively during the gesture
+  // (no React render per frame) and the result is handed back to the view on
+  // release. A press that turns into a pan must not also register as a click,
+  // or it drops a stray fence point wherever the drag ended.
+  const panStart = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   const pannedRef = useRef(false);
 
   const drawing = scope.mode === "blue" || scope.mode === "red";
   const idleCursor = drawing ? "crosshair" : "grab";
 
-  const setCursor = useCallback(
-    (c: string) => {
-      const stage = ref.current;
-      if (stage) stage.container().style.cursor = c;
-    },
-    [ref]
-  );
+  // Plain functions, not useCallback: they all read a ref, which defeats
+  // memoization anyway, and Konva re-binds its handlers each render regardless.
+  const setCursor = (c: string) => {
+    const stage = ref.current;
+    if (stage) stage.container().style.cursor = c;
+  };
 
-  useEffect(() => { setCursor(idleCursor); }, [idleCursor, setCursor]);
+  useEffect(() => {
+    const stage = ref.current;
+    if (stage) stage.container().style.cursor = idleCursor;
+  }, [idleCursor, ref]);
 
-  const stageToBody = useCallback(
-    (stage: Konva.Stage) => {
+  const endPan = () => {
+    const start = panStart.current;
+    const stage = ref.current;
+    panStart.current = null;
+    if (!start || !stage || !pannedRef.current) return;
+    setCursor(idleCursor);
+    view.commitPan(stage.position());
+  };
+
+  const beginPan = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    pannedRef.current = false;
+    const stage = ref.current;
+    if (!stage) return;
+    // An endpoint node owns its own drag — don't pan out from under it.
+    const target = e.target;
+    if (target !== stage && typeof target.draggable === "function" && target.draggable()) return;
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    panStart.current = { px: pos.x, py: pos.y, x: stage.x(), y: stage.y() };
+    // Releasing outside the canvas still has to finish the gesture, or the
+    // next React render snaps the page back to where the drag started.
+    window.addEventListener("mouseup", endPan, { once: true });
+    window.addEventListener("touchend", endPan, { once: true });
+  };
+
+  const movePan = () => {
+    const start = panStart.current;
+    const stage = ref.current;
+    if (!start || !stage) return;
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    const dx = pos.x - start.px;
+    const dy = pos.y - start.py;
+    if (!pannedRef.current) {
+      if (Math.abs(dx) < PAN_THRESHOLD && Math.abs(dy) < PAN_THRESHOLD) return;
+      pannedRef.current = true;
+      setCursor("grabbing");
+    }
+    stage.position(view.boundPan({ x: start.x + dx, y: start.y + dy }));
+    stage.batchDraw();
+  };
+
+  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    const stage = ref.current;
+    if (!stage) return;
+    if (pannedRef.current) return; // that was a pan, not a click
+    if (drawing) {
       const pos = stage.getRelativePointerPosition();
-      if (!pos) return null;
-      return toNormalized(pos.x, pos.y, bodyRect);
-    },
-    [bodyRect]
-  );
+      if (pos) scope.addDrawingPoint(toNormalized(pos.x, pos.y, bodyRect));
+      return;
+    }
+    if (e.target === e.currentTarget || e.target.getClassName() === "Image" || e.target.getClassName() === "Rect") {
+      scope.selectSegment(null);
+      onActivePointChange(null);
+    }
+  };
 
-  const handleStageClick = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      const stage = ref.current;
-      if (!stage) return;
-      if (pannedRef.current) {
-        pannedRef.current = false;
-        return;
-      }
-      if (drawing) {
-        const p = stageToBody(stage);
-        if (p) scope.addDrawingPoint(p);
-        return;
-      }
-      if (e.target === e.currentTarget || e.target.getClassName() === "Image" || e.target.getClassName() === "Rect") {
-        scope.selectSegment(null);
-        onActivePointChange(null);
-      }
-    },
-    [scope, drawing, stageToBody, onActivePointChange, ref]
-  );
-
-  const handleStageDblClick = useCallback(() => {
+  const handleStageDblClick = () => {
     if (drawing) scope.finishDrawing();
-  }, [scope, drawing]);
+  };
 
-  const handleWheel = useCallback(
-    (e: Konva.KonvaEventObject<WheelEvent>) => {
-      view.wheel(e.evt, ref.current?.getPointerPosition() ?? null);
-    },
-    [view, ref]
-  );
+  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
+    view.wheel(e.evt, ref.current?.getPointerPosition() ?? null);
+  };
 
-  // Drag events bubble up from the draggable endpoint nodes, so every stage
-  // drag handler has to confirm the stage itself is what's moving.
-  const isStage = (e: Konva.KonvaEventObject<DragEvent>) => e.target === ref.current;
+  // ---- header geometry ----
+  // Everything below is laid out off the page, not the frame, so the export
+  // is identical to what's on screen at any zoom.
+  const margin = pageWidth * PAGE_MARGIN_FRAC;
+  const headerH = bodyRect.y;
+  let logoW = 0;
+  let logoH = 0;
+  if (logoImage && logoImage.naturalWidth && logoImage.naturalHeight) {
+    logoH = headerH * LOGO_HEIGHT_FRAC;
+    logoW = (logoH * logoImage.naturalWidth) / logoImage.naturalHeight;
+    const maxW = pageWidth * LOGO_MAX_WIDTH_FRAC;
+    if (logoW > maxW) {
+      logoW = maxW;
+      logoH = (logoW * logoImage.naturalHeight) / logoImage.naturalWidth;
+    }
+  }
+  // The wordmark fallback needs the same reservation as a real logo would.
+  const brandW = logoImage ? logoW : pageWidth * 0.34;
+  const textX = margin + brandW + pageWidth * 0.02;
+  const textW = Math.max(pageWidth * 0.2, pageWidth - margin - textX);
 
   return (
     <Stage
@@ -129,26 +187,20 @@ export default function ScopeCanvas({
       scaleY={view.zoom}
       x={view.pan.x}
       y={view.pan.y}
-      draggable
-      dragDistance={4}
-      dragBoundFunc={view.boundPan}
       onWheel={handleWheel}
-      onMouseDown={() => { pannedRef.current = false; }}
-      onTouchStart={() => { pannedRef.current = false; }}
-      onDragStart={(e) => { if (isStage(e)) setCursor("grabbing"); }}
-      onDragMove={(e) => { if (isStage(e)) pannedRef.current = true; }}
-      onDragEnd={(e) => {
-        if (!isStage(e)) return;
-        setCursor(idleCursor);
-        view.commitPan({ x: e.target.x(), y: e.target.y() });
-      }}
+      onMouseDown={beginPan}
+      onMouseMove={movePan}
+      onMouseUp={endPan}
+      onTouchStart={beginPan}
+      onTouchMove={movePan}
+      onTouchEnd={endPan}
       onClick={handleStageClick}
       onDblClick={handleStageDblClick}
       onTap={handleStageClick as unknown as (e: Konva.KonvaEventObject<TouchEvent>) => void}
     >
-      {/* Background */}
+      {/* The page */}
       <Layer>
-        <Rect x={0} y={0} width={stageWidth} height={stageHeight} fill="#111" />
+        <Rect x={0} y={0} width={pageWidth} height={pageHeight} fill="#111" />
         {sourceImage && (
           <KonvaImage image={sourceImage} x={bodyRect.x} y={bodyRect.y} width={bodyRect.width} height={bodyRect.height} />
         )}
@@ -156,36 +208,34 @@ export default function ScopeCanvas({
 
       {/* Locked branding — header, logo, legend. Nothing here is VA-editable. */}
       <Layer listening={false}>
-        <Rect x={0} y={0} width={stageWidth} height={bodyRect.y} fill={HEADER_BG} />
-        <Rect x={0} y={0} width={stageWidth} height={2} fill={GOLD} />
+        <Rect x={0} y={0} width={pageWidth} height={headerH} fill={headerTheme.bg} />
+        <Rect x={0} y={0} width={pageWidth} height={2} fill={headerTheme.accent} />
         {logoImage ? (
-          <KonvaImage
-            image={logoImage}
-            x={bodyRect.x} y={bodyRect.y * 0.18}
-            height={bodyRect.y * 0.64}
-            width={(bodyRect.y * 0.64 * logoImage.width) / logoImage.height}
-          />
+          <KonvaImage image={logoImage} x={margin} y={(headerH - logoH) / 2} width={logoW} height={logoH} />
         ) : (
           <KonvaText
-            x={bodyRect.x} y={bodyRect.y * 0.35}
+            x={margin} y={headerH * 0.36}
+            width={brandW}
             text="STERLING FENCE STAINING"
-            fontSize={bodyRect.y * 0.16}
-            fontFamily="Georgia, serif" fontStyle="bold" fill={GOLD}
+            fontSize={headerH * 0.15}
+            fontFamily="Georgia, serif" fontStyle="bold" fill={headerTheme.accent}
           />
         )}
         <KonvaText
-          x={bodyRect.x} y={bodyRect.y * 0.16} width={bodyRect.width} align="right"
+          x={textX} y={headerH * 0.2} width={textW} align="right"
           text="Fence Staining Scope"
-          fontSize={bodyRect.y * 0.24} fontFamily="Georgia, serif" fontStyle="bold" fill={HEADER_TEXT}
+          fontSize={headerH * 0.24} fontFamily="Georgia, serif" fontStyle="bold" fill={headerTheme.ink}
         />
         <KonvaText
-          x={bodyRect.x} y={bodyRect.y * 0.52} width={bodyRect.width} align="right"
+          x={textX} y={headerH * 0.56} width={textW} align="right"
           text={`Prepared for: ${address || "—"}`}
-          fontSize={bodyRect.y * 0.14} fontFamily="Arial, sans-serif" fill={HEADER_TEXT}
+          fontSize={headerH * 0.13} fontFamily="Arial, sans-serif" fill={headerTheme.ink}
+          wrap="word" lineHeight={1.15}
         />
 
         {/* Legend — auto-updates on which colors are present. Never mentions
-            unmarked sections (spec Section 6/32). */}
+            unmarked sections (spec Section 6/32). Sits on the photo, so it
+            keeps its own dark plate regardless of the header colour. */}
         {(() => {
           const { blue, red } = presentColors(scope.segments);
           if (!blue && !red) return null;
@@ -222,6 +272,7 @@ export default function ScopeCanvas({
           const color = colorHex(seg.color);
           const placements = placeArrowsAlongPath(pxPoints, ARROW_SPACING_PX);
           const selectLine = (e: Konva.KonvaEventObject<Event>) => {
+            if (pannedRef.current) return;
             e.cancelBubble = true;
             scope.setMode("select");
             scope.selectSegment(seg.id);

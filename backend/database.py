@@ -143,6 +143,11 @@ class Lead(Base):
     # Coordinates are normalized 0.0-1.0 against the source image so the scope
     # survives re-export at any resolution.
     fence_scope_segments_json = Column(Text, default="")
+    # How far the aerial screenshot is turned for display: 0/90/180/270. A
+    # phone screenshot of a map rarely arrives with the street on the right
+    # side, and the traced points are rotated with it, so this has to be
+    # stored or a reload would put the trace back on an unrotated photo.
+    fence_scope_rotation = Column(Integer, default=0, nullable=False)
     fence_scope_updated_at = Column(Text, nullable=True)
     fence_scope_updated_by = Column(Text, default="")
 
@@ -3542,6 +3547,11 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_updated_at TEXT"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_updated_by TEXT DEFAULT ''"))
         logger.info("Migration: added leads.fence_scope_* fields")
+
+    if "fence_scope_rotation" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_rotation INTEGER NOT NULL DEFAULT 0"))
+        logger.info("Migration: added leads.fence_scope_rotation")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

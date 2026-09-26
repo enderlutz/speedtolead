@@ -17,12 +17,16 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Preview the finished export when there is one, and otherwise the raw
+  // screenshot — a card that says "drag a photo here" next to an upload that
+  // already exists reads as a lost file.
   const refresh = useCallback(async () => {
     const d = await api.getFenceScope(leadId);
     setState(d);
     if (d.has_export) {
-      const url = await api.fetchFenceScopeExportBlobUrl(leadId);
-      setThumbUrl(url);
+      setThumbUrl(await api.fetchFenceScopeExportBlobUrl(leadId));
+    } else if (d.has_source) {
+      setThumbUrl(await api.fetchFenceScopeSourceBlobUrl(leadId));
     } else {
       setThumbUrl(null);
     }
@@ -68,17 +72,17 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
   }
 
   const started = state?.has_source;
+  const traced = (state?.segments?.length ?? 0) > 0;
   // Drag-and-drop replaces the SOURCE screenshot, so it's only offered while
-  // there's no finished export yet to accidentally invalidate — once a scope
-  // is exported, swapping the photo underneath a traced path belongs in the
-  // editor, not a silent drop here.
-  const acceptsDrop = !thumbUrl;
+  // there's nothing to invalidate. Once a fence is traced or a scope exported,
+  // swapping the photo underneath it belongs in the editor, not a silent drop.
+  const acceptsDrop = !state?.has_export && !traced;
 
   return (
     <Card>
       <CardContent className="p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
         <div
-          className={`h-24 w-32 shrink-0 rounded border overflow-hidden flex items-center justify-center transition-colors ${
+          className={`relative h-24 w-32 shrink-0 rounded border overflow-hidden flex items-center justify-center transition-colors ${
             acceptsDrop
               ? `cursor-pointer border-dashed ${dragOver ? "border-primary bg-primary/10" : "bg-muted/40 hover:bg-muted/60"}`
               : "bg-muted/40"
@@ -100,11 +104,22 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
           {uploading ? (
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           ) : thumbUrl ? (
-            <img src={thumbUrl} alt="Fence scope" className="h-full w-full object-cover" />
+            <>
+              <img
+                src={thumbUrl}
+                alt={state?.has_export ? "Exported fence scope" : "Aerial screenshot for the fence scope"}
+                className="h-full w-full object-cover"
+              />
+              {!state?.has_export && (
+                <span className="absolute inset-x-0 bottom-0 bg-background/85 py-0.5 text-center text-[9px] font-medium">
+                  {dragOver ? "Drop to replace" : traced ? "Traced — not exported" : "Not traced yet"}
+                </span>
+              )}
+            </>
           ) : (
             <span className="text-[10px] text-muted-foreground px-2 text-center flex flex-col items-center gap-1">
               <Upload className="h-3.5 w-3.5" />
-              {started ? "Not exported yet" : "No scope yet"}
+              No scope yet
               <span className="opacity-70">Drag a photo here</span>
             </span>
           )}
@@ -121,8 +136,17 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
           <p className="text-xs text-muted-foreground mt-0.5">
             A branded blue/red fence markup sent to the customer to confirm exactly what's being stained — before they get the estimate.
           </p>
+          <p className="text-[11px] mt-1 font-medium">
+            {state?.has_export
+              ? "Exported and ready to send"
+              : traced
+                ? `${state?.segments.length} section${state?.segments.length === 1 ? "" : "s"} traced — export to send`
+                : started
+                  ? "Screenshot uploaded — nothing traced yet"
+                  : "No screenshot yet"}
+          </p>
           {state?.updated_at && (
-            <p className="text-[11px] text-muted-foreground mt-1">
+            <p className="text-[11px] text-muted-foreground">
               Last updated {new Date(state.updated_at).toLocaleDateString()}
               {state.updated_by ? ` by ${state.updated_by}` : ""}
             </p>

@@ -30,6 +30,15 @@ export const LEGEND_WIDTH_FRAC = 0.46;
 export const LEGEND_HEIGHT_FRAC = 0.1;
 export const LEGEND_MARGIN_FRAC = 0.02;
 
+// Breathing room down both sides of the header, as a fraction of page width.
+// Without it the wordmark and the address sit flush against the paper edge,
+// which is the single fastest way to make a document look unfinished.
+export const PAGE_MARGIN_FRAC = 0.032;
+// The logo never gets more than this share of the width, so a wide logo can't
+// crowd out the address next to it.
+export const LOGO_MAX_WIDTH_FRAC = 0.4;
+export const LOGO_HEIGHT_FRAC = 0.62; // of header height
+
 export const HEADER_BG = "#0d0d0d";
 export const GOLD = "#C9A24B";
 export const HEADER_TEXT = "#F5F0E6";

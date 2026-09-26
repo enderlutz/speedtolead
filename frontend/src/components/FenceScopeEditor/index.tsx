@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
 import { toast } from "sonner";
 import { Upload, Save, Loader2 } from "lucide-react";
@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import { useCanvasView } from "./use-canvas-view";
 import { useScopeState } from "./use-scope-state";
 import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
+import { headerThemeForLogo } from "./header-theme";
+import { orientImage } from "./orient";
 import ScopeCanvas, { type BodyRect } from "./ScopeCanvas";
 import Toolbar from "./Toolbar";
 import { EXPORT_WIDTH, EXPORT_HEIGHT, HEADER_HEIGHT_FRAC, MAX_SOURCE_IMAGE_MB } from "./constants";
@@ -44,10 +46,14 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
-  const [stageSize, setStageSize] = useState({ width: 720, height: 720 / ASPECT });
-  const view = useCanvasView(stageSize);
+  // Two sizes, deliberately: the stage is the whole visible frame, and the
+  // page is the document sitting inside it. Making them the same thing is
+  // what left no room to move a zoomed-in page around.
+  const [stageSize, setStageSize] = useState({ width: 720, height: 720 });
+  const [pageSize, setPageSize] = useState({ width: 540, height: 540 / ASPECT });
+  const view = useCanvasView(stageSize, pageSize);
 
-  const scope = useScopeState([]);
+  const scope = useScopeState({ segments: [], rotation: 0 });
 
   // Initial load — seeds the editor's history once the real segments arrive
   // (the fetch is async; the hook above is constructed synchronously with
@@ -58,7 +64,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       if (cancelled) return;
       setAddress(d.address);
       setHasSource(d.has_source);
-      scope.load(d.segments || []);
+      scope.load({ segments: d.segments || [], rotation: d.rotation || 0 });
       setLoading(false);
     }).catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -116,34 +122,48 @@ export default function FenceScopeEditor({ leadId }: Props) {
     return () => { cancelled = true; };
   }, [leadId, hasSource]);
 
-  // Responsive stage sizing — locked to the export aspect ratio so on-screen
-  // editing and the final export always agree on where things sit.
+  // The stage fills the frame; the page is the largest rect of the export's
+  // aspect ratio that fits inside it, so on-screen editing and the final
+  // export always agree on where everything sits.
   useEffect(() => {
     const resize = () => {
       const el = containerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const maxW = rect.width - 16;
-      const maxH = rect.height - 16;
-      let w = maxW;
+      const frameW = Math.max(1, rect.width - 16);
+      const frameH = Math.max(1, rect.height - 16);
+      let w = frameW;
       let h = w / ASPECT;
-      if (h > maxH) {
-        h = maxH;
+      if (h > frameH) {
+        h = frameH;
         w = h * ASPECT;
       }
-      if (w > 0 && h > 0) setStageSize({ width: w, height: h });
+      // Same-value guard: a ResizeObserver that re-set state on every callback
+      // could ping-pong with its own layout.
+      setStageSize((p) => (p.width === frameW && p.height === frameH ? p : { width: frameW, height: frameH }));
+      setPageSize((p) => (p.width === w && p.height === h ? p : { width: w, height: h }));
     };
     resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    // Watch the element, not the window — the frame also changes height when
+    // banners above it come and go.
+    const ro = new ResizeObserver(resize);
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
   }, []);
 
   const bodyRect: BodyRect = {
     x: 0,
-    y: stageSize.height * HEADER_HEIGHT_FRAC,
-    width: stageSize.width,
-    height: stageSize.height * (1 - HEADER_HEIGHT_FRAC),
+    y: pageSize.height * HEADER_HEIGHT_FRAC,
+    width: pageSize.width,
+    height: pageSize.height * (1 - HEADER_HEIGHT_FRAC),
   };
+
+  // The photo is turned once per orientation change rather than every frame.
+  const orientedSource = useMemo(
+    () => (sourceImage ? orientImage(sourceImage, scope.rotation) : null),
+    [sourceImage, scope.rotation]
+  );
+  const headerTheme = useMemo(() => headerThemeForLogo(logoImage), [logoImage]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -170,7 +190,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await api.saveFenceScopeSegments(leadId, scope.segments);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation);
       scope.markSaved();
       toast.success("Scope saved");
     } catch {
@@ -201,12 +221,12 @@ export default function FenceScopeEditor({ leadId }: Props) {
     stage.position({ x: 0, y: 0 });
     try {
       const dataUrl = stage.toDataURL({
-        x: 0, y: 0, width: stageSize.width, height: stageSize.height,
-        pixelRatio: EXPORT_WIDTH / stageSize.width,
+        x: 0, y: 0, width: pageSize.width, height: pageSize.height,
+        pixelRatio: EXPORT_WIDTH / pageSize.width,
         mimeType: "image/png",
       });
       const blob = await (await fetch(dataUrl)).blob();
-      await api.saveFenceScopeSegments(leadId, scope.segments);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation);
       await api.uploadFenceScopeExport(leadId, blob);
       scope.markSaved();
       toast.success("Scope exported — ready to send");
@@ -218,7 +238,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       stage.batchDraw();
       setExporting(false);
     }
-  }, [leadId, scope, stageSize]);
+  }, [leadId, scope, pageSize]);
 
   if (loading) {
     return (
@@ -282,24 +302,24 @@ export default function FenceScopeEditor({ leadId }: Props) {
       <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground border-b">
         <span>
           {scope.isDirty ? "Unsaved changes" : "All changes saved"}
-          <span className="ml-3 opacity-70">Drag to move the image · scroll to zoom</span>
+          <span className="ml-3 opacity-70">Drag to move · scroll to zoom · [ ] to turn the photo</span>
         </span>
         <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
           <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save"}
         </Button>
       </div>
-      <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center bg-muted/20 p-2 overflow-hidden">
-        <div
-          className="shadow-lg rounded-sm overflow-hidden bg-neutral-700"
-          style={{ width: stageSize.width, height: stageSize.height }}
-        >
+      <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center bg-neutral-800 p-2 overflow-hidden">
+        <div style={{ width: stageSize.width, height: stageSize.height }}>
           <ScopeCanvas
             scope={scope}
             stageWidth={stageSize.width}
             stageHeight={stageSize.height}
+            pageWidth={pageSize.width}
+            pageHeight={pageSize.height}
             view={view}
-            sourceImage={sourceImage}
+            sourceImage={orientedSource}
             logoImage={logoImage}
+            headerTheme={headerTheme}
             address={address}
             bodyRect={bodyRect}
             activePointIndex={activePointIndex}
