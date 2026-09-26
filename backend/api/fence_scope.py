@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+import clock
 from database import get_db, Lead
 from api.auth import get_current_user
 from services.activity_log import log_event
@@ -266,6 +267,8 @@ def delete_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
         lead.fence_scope_ai_generated_at = None
         lead.fence_scope_use_ai = False
         lead.fence_scope_sent_at = None
+        lead.fence_scope_mms_image = None
+        lead.fence_scope_mms_mime = ""
         stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_cleared", "Fence scope reset (start over)", {})
@@ -434,6 +437,59 @@ def _share_token(lead, db) -> str:
     return lead.fence_scope_share_token
 
 
+# What a carrier will actually carry. The provider rejects anything over 5MB
+# outright (error 11751), and phones on a weak signal fare better well below
+# that, so the texted copy is built to a budget rather than hoping.
+MMS_MAX_BYTES = 1_500_000
+MMS_HARD_LIMIT = 5_000_000
+JPEG_QUALITY_LADDER = (88, 82, 75, 68, 60)
+
+
+def build_mms_image(png_bytes: bytes) -> tuple[bytes, str]:
+    """A version of the scope small enough for a carrier to deliver.
+
+    Quality is given up before resolution: a slightly softer JPEG at full size
+    reads better on a phone than a crisp one that's been shrunk. Only if the
+    whole quality ladder fails does it start scaling down.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(png_bytes)) as opened:
+        full = opened.convert("RGB")
+
+    work = full
+    for _ in range(4):
+        for quality in JPEG_QUALITY_LADDER:
+            buf = BytesIO()
+            work.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+            if buf.tell() <= MMS_MAX_BYTES:
+                return buf.getvalue(), "image/jpeg"
+        work = work.resize(
+            (max(1, int(work.width * 0.8)), max(1, int(work.height * 0.8))),
+            Image.LANCZOS,
+        )
+
+    buf = BytesIO()
+    work.save(buf, "JPEG", quality=50, optimize=True, progressive=True)
+    return buf.getvalue(), "image/jpeg"
+
+
+def greeting_for(now=None) -> str:
+    """Time-of-day greeting in the customer's time, not the server's.
+
+    The server runs in UTC; a Houston customer texted at 8pm Central would
+    otherwise be wished good morning.
+    """
+    hour = (now or datetime.now(clock.CENTRAL)).hour
+    if 3 <= hour < 12:
+        return "Good morning"
+    if 12 <= hour < 18:
+        return "Good afternoon"
+    return "Good evening"
+
+
 def default_scope_message(contact_name: str, address: str) -> str:
     """What gets sent if nobody edits it.
 
@@ -443,7 +499,7 @@ def default_scope_message(contact_name: str, address: str) -> str:
     their own — at which point the estimate gets updated.
     """
     first = (contact_name or "").strip().split(" ")[0]
-    hello = f"Hi {first}," if first else "Hi,"
+    hello = f"{greeting_for()} {first}," if first else f"{greeting_for()},"
     where = f" at {address}" if address else ""
     return (
         f"{hello} here's the scope of work for you to look at while we're working "
@@ -468,11 +524,17 @@ def get_shared_fence_scope(token: str):
         lead = db.query(Lead).filter(Lead.fence_scope_share_token == token).first()
         if not lead or not lead.fence_scope_export_image:
             raise HTTPException(status_code=404, detail="Not found")
+        payload = lead.fence_scope_mms_image
+        mime = lead.fence_scope_mms_mime or "image/jpeg"
+        if not payload:
+            # A scope shared before the carrier-sized copy existed.
+            payload, mime = build_mms_image(bytes(lead.fence_scope_export_image))
+        suffix = "jpg" if "jpeg" in mime else "png"
         return Response(
-            content=lead.fence_scope_export_image,
-            media_type=lead.fence_scope_export_mime or "image/png",
+            content=payload,
+            media_type=mime,
             headers={
-                "Content-Disposition": 'inline; filename="fence-scope.png"',
+                "Content-Disposition": f'inline; filename="fence-scope.{suffix}"',
                 "Cache-Control": "public, max-age=300",
             },
         )
@@ -547,6 +609,22 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
                        "customer's phone could open.",
             )
 
+        try:
+            mms_bytes, mms_mime = build_mms_image(bytes(lead.fence_scope_export_image))
+        except Exception as exc:
+            logger.warning("fence scope: could not build the MMS copy for %s", lead_id, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Could not prepare the image to send: {exc}")
+        if len(mms_bytes) > MMS_HARD_LIMIT:
+            # Better to say so than to hand the carrier something it will
+            # reject with a code nobody can read.
+            raise HTTPException(
+                status_code=400,
+                detail=f"The scope image is {len(mms_bytes) / 1_000_000:.1f}MB, over the "
+                       f"{MMS_HARD_LIMIT / 1_000_000:.0f}MB a text can carry. Try a smaller screenshot.",
+            )
+        lead.fence_scope_mms_image = mms_bytes
+        lead.fence_scope_mms_mime = mms_mime
+
         token = _share_token(lead, db)
         image_url = f"{base}/api/fence-scope/shared/{token}"
         message = (body.message or "").strip() or default_scope_message(
@@ -570,7 +648,7 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
         lead.fence_scope_sent_at = stamp
         db.commit()
         log_event(lead.id, "fence_scope_sent", f"Fence scope texted to {lead.contact_phone}",
-                  {"image_url": image_url, "chars": len(message)})
+                  {"image_url": image_url, "chars": len(message), "image_bytes": len(mms_bytes)})
         _announce(lead_id, stamp)
         return {"sent": True, "to": lead.contact_phone, "updated_at": stamp}
     finally:

@@ -169,6 +169,11 @@ class Lead(Base):
     # phone fetches the picture itself, so it cannot sit behind a login.
     fence_scope_share_token = Column(Text, nullable=True)
     fence_scope_sent_at = Column(Text, nullable=True)
+    # A carrier-sized copy of the export. The full-quality PNG runs to 8MB and
+    # MMS tops out at 5MB, so what gets texted is a compressed JPEG — kept
+    # beside the original rather than replacing it.
+    fence_scope_mms_image = deferred(Column(LargeBinary, nullable=True))
+    fence_scope_mms_mime = Column(Text, default="")
     fence_scope_updated_at = Column(Text, nullable=True)
     fence_scope_updated_by = Column(Text, default="")
 
@@ -3600,6 +3605,13 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_share_token TEXT"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_sent_at TEXT"))
         logger.info("Migration: added leads.fence_scope_share_token")
+
+    if "fence_scope_mms_image" not in existing:
+        blob_type = "BYTEA" if _engine.dialect.name == "postgresql" else "BLOB"
+        with _engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE leads ADD COLUMN fence_scope_mms_image {blob_type}"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_mms_mime TEXT DEFAULT ''"))
+        logger.info("Migration: added leads.fence_scope_mms_*")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:
