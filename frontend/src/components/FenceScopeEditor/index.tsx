@@ -14,7 +14,8 @@ import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
 import SendScopeDialog from "./SendScopeDialog";
-import ScopeChecklist, { sendBlockedReason } from "./ScopeChecklist";
+import ScopeChecklist from "./ScopeChecklist";
+import { sendBlockedReason } from "./steps";
 import Toolbar from "./Toolbar";
 import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./constants";
 

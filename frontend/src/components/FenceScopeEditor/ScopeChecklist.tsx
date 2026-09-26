@@ -8,12 +8,7 @@
 
 import { Check, Sparkles, Plane, PenLine, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-export interface ScopeSteps {
-  enhanced: boolean;
-  drawn: boolean;
-  confirmed: boolean;
-}
+import { firstIncompleteStep, type ScopeSteps } from "./steps";
 
 interface Props {
   steps: ScopeSteps;
@@ -22,24 +17,6 @@ interface Props {
   onEnhance: () => void;
   onGenerateAi: () => void;
   onConfirm: () => void;
-}
-
-/** The first step not yet done, or null when the scope is ready to send. */
-export function firstIncompleteStep(steps: ScopeSteps): 1 | 2 | 3 | null {
-  if (!steps.enhanced) return 1;
-  if (!steps.drawn) return 2;
-  if (!steps.confirmed) return 3;
-  return null;
-}
-
-/** Why Send is locked, phrased for whoever is looking at it. */
-export function sendBlockedReason(steps: ScopeSteps): string | null {
-  switch (firstIncompleteStep(steps)) {
-    case 1: return "Step 1: make the photo presentable first — Drone View or Enhance.";
-    case 2: return "Step 2: mark the fence before sending.";
-    case 3: return "Step 3: check it over and confirm it's right.";
-    default: return null;
-  }
 }
 
 function Pip({ done, active, n }: { done: boolean; active: boolean; n: number }) {
