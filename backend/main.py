@@ -633,7 +633,25 @@ async def training_ws(websocket: WebSocket, session_id: str):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Liveness, plus which integrations are actually wired up.
+
+    Booleans only — never a key or any part of one. This is the only way to
+    confirm from outside that an env var landed, without logging in or reading
+    the host's variables, and "is the key actually set?" is a question that
+    comes up every single time one is added.
+    """
+    import os as _os
+
+    from services import ai_image
+
+    return {
+        "status": "ok",
+        "integrations": {
+            "openai_images": ai_image.is_configured(),
+            "ghl": bool((_os.getenv("GHL_API_KEY") or "").strip()),
+            "google_maps": bool((_os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()),
+        },
+    }
 
 
 @app.get("/events")

@@ -30,9 +30,9 @@ export default function Toolbar({
   const selected = scope.selectedSegment;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b bg-background px-2 py-1.5">
+    <div className="flex flex-wrap items-center gap-1.5 border-b bg-background px-2 py-1.5 min-w-0">
       <ToolButton active={scope.mode === "select" && !scope.drawingPoints.length} onClick={() => scope.setMode("select")} title="Select (V)">
-        <MousePointer2 className="h-4 w-4" /> Select
+        <MousePointer2 className="h-4 w-4" /> <span className="hidden sm:inline">Select</span>
       </ToolButton>
       <ToolButton
         active={scope.mode === "blue"}
@@ -40,7 +40,7 @@ export default function Toolbar({
         title="Blue Fence — inside face only (B)"
         style={{ color: scope.mode === "blue" ? "#fff" : BLUE, background: scope.mode === "blue" ? BLUE : undefined }}
       >
-        <PenLine className="h-4 w-4" /> Blue Fence
+        <PenLine className="h-4 w-4" /> <span className="hidden sm:inline">Blue Fence</span>
       </ToolButton>
       <ToolButton
         active={scope.mode === "red"}
@@ -48,18 +48,18 @@ export default function Toolbar({
         title="Red Fence — both sides (R)"
         style={{ color: scope.mode === "red" ? "#fff" : RED, background: scope.mode === "red" ? RED : undefined }}
       >
-        <PenLine className="h-4 w-4" /> Red Fence
+        <PenLine className="h-4 w-4" /> <span className="hidden sm:inline">Red Fence</span>
       </ToolButton>
 
       {scope.drawingPoints.length > 0 && (
         <>
           <Button size="sm" variant="secondary" onClick={scope.finishDrawing} disabled={scope.drawingPoints.length < 2}>
-            Finish (Enter)
+            Finish<span className="hidden sm:inline">&nbsp;(Enter)</span>
           </Button>
           <Button size="sm" variant="ghost" onClick={scope.cancelDrawing}>
-            Cancel (Esc)
+            Cancel<span className="hidden sm:inline">&nbsp;(Esc)</span>
           </Button>
-          <span className="text-[11px] text-muted-foreground">{scope.drawingPoints.length} point{scope.drawingPoints.length === 1 ? "" : "s"} placed — double-click or Enter to finish</span>
+          <span className="hidden sm:inline text-[11px] text-muted-foreground">{scope.drawingPoints.length} point{scope.drawingPoints.length === 1 ? "" : "s"} placed — double-tap or Enter to finish</span>
         </>
       )}
 
@@ -87,7 +87,7 @@ export default function Toolbar({
       <div className="w-px h-5 bg-border mx-1" />
       {/* Re-orients the photo only — the header, logo and address stay
           upright. Any traced fence moves with it. */}
-      <span className="text-[11px] text-muted-foreground mr-0.5">Photo</span>
+      <span className="hidden sm:inline text-[11px] text-muted-foreground mr-0.5">Photo</span>
       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(-1)} title="Turn the photo left 90° ( [ )">
         <RotateCcw className="h-4 w-4" />
       </Button>
@@ -107,7 +107,7 @@ export default function Toolbar({
         title="Sharpen the photo and lift its contrast and colour. Click again to go back to the original."
         className="gap-1.5"
       >
-        <Sparkles className="h-3.5 w-3.5" /> {scope.enhanced ? "Enhanced" : "Enhance"}
+        <Sparkles className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{scope.enhanced ? "Enhanced" : "Enhance"}</span>
       </Button>
 
       {/* Drone view — a paid OpenAI re-render. The original screenshot is kept
@@ -152,7 +152,7 @@ export default function Toolbar({
           }
         >
           {rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plane className="h-3.5 w-3.5" />}
-          {rendering ? "Rendering…" : "Drone View"}
+          <span className="hidden sm:inline">{rendering ? "Rendering…" : "Drone View"}</span>
         </Button>
       )}
 
@@ -163,7 +163,7 @@ export default function Toolbar({
         <div className="flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1">
           {selected.color === "blue" && (
             <Button size="sm" variant="outline" onClick={() => scope.flipArrows(selected.id)} title="Flip Arrows (F)">
-              <FlipHorizontal2 className="h-3.5 w-3.5 mr-1" /> Flip Arrows
+              <FlipHorizontal2 className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Flip Arrows</span>
             </Button>
           )}
           <Button size="sm" variant="outline" onClick={() => scope.toggleColor(selected.id)} title="Change Blue / Red">
@@ -174,7 +174,7 @@ export default function Toolbar({
             onClick={() => scope.addPointToSegment(selected.id, activePointIndex ?? selected.points.length - 2)}
             title="Add Point"
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> Add Point
+            <Plus className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Add Point</span>
           </Button>
           <Button
             size="sm" variant="outline"
@@ -182,16 +182,16 @@ export default function Toolbar({
             onClick={() => { if (activePointIndex != null) scope.removePoint(selected.id, activePointIndex); }}
             title="Remove Point"
           >
-            <Minus className="h-3.5 w-3.5 mr-1" /> Remove Point
+            <Minus className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Remove Point</span>
           </Button>
           <Button size="sm" variant="destructive" onClick={() => scope.deleteSegment(selected.id)} title="Delete this fence path (Delete)">
-            <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+            <Trash2 className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Delete</span>
           </Button>
         </div>
       )}
 
       <Button size="sm" onClick={onExport} disabled={exporting || scope.segments.length === 0} title="Export high-resolution PNG">
-        <Download className="h-4 w-4 mr-1" /> {exporting ? "Exporting…" : "Export"}
+        <Download className="h-4 w-4 mr-1" /> <span className="hidden sm:inline">{exporting ? "Exporting…" : "Export"}</span>
       </Button>
     </div>
   );

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Stage, Layer, Rect, Image as KonvaImage, Line, Circle, Text as KonvaText } from "react-konva";
 import type Konva from "konva";
 import type { ScopeStateApi } from "./use-scope-state";
-import type { CanvasView } from "./use-canvas-view";
+import type { CanvasView, PinchStart } from "./use-canvas-view";
 import type { HeaderTheme } from "./header-theme";
 import { placeArrowsAlongPath, arrowheadPoints, type Pt } from "./arrows";
 import { fitFontSize, titleLetterSpacing, type PageLayout, type Rect as RectBox } from "./layout";
@@ -37,6 +37,17 @@ type BodyRect = RectBox;
 const PAN_THRESHOLD = 4;
 /** How close two clicks must land, in px, for a double-click to mean "done". */
 const DBLCLICK_SLOP = 8;
+/** Tapping this close to the run's last point closes the run. */
+const CLOSE_RUN_SLOP = 14;
+
+// A fingertip is far less precise than a cursor, so hit targets grow on touch
+// devices. The drawn size is unchanged — only what counts as "on" it.
+const COARSE_POINTER =
+  typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false;
+const NODE_HIT_PAD = COARSE_POINTER ? 30 : 10;
+const LINE_HIT_PAD = COARSE_POINTER ? 28 : 8;
 
 function toPixel(p: { x: number; y: number }, body: BodyRect) {
   return { x: body.x + p.x * body.width, y: body.y + p.y * body.height };
@@ -68,6 +79,7 @@ export default function ScopeCanvas({
   // or it drops a stray fence point wherever the drag ended.
   const panStart = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   const pannedRef = useRef(false);
+  const pinchStart = useRef<PinchStart | null>(null);
 
   const drawing = scope.mode === "blue" || scope.mode === "red";
   // A plain arrow while the whole page is visible: there is genuinely nowhere
@@ -85,6 +97,18 @@ export default function ScopeCanvas({
     const stage = ref.current;
     if (stage) stage.container().style.cursor = idleCursor;
   }, [idleCursor, ref]);
+
+  // Hand every touch to the canvas. Without this, Safari scrolls and zooms the
+  // whole page instead, which is why the editor was unusable on a phone.
+  useEffect(() => {
+    const stage = ref.current;
+    if (!stage) return;
+    const el = stage.container();
+    el.style.touchAction = "none";
+    el.style.userSelect = "none";
+    (el.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect = "none";
+    (el.style as CSSStyleDeclaration & { webkitTouchCallout?: string }).webkitTouchCallout = "none";
+  }, [ref]);
 
   const endPan = () => {
     const start = panStart.current;
@@ -128,18 +152,82 @@ export default function ScopeCanvas({
     stage.batchDraw();
   };
 
+  /** Midpoint and spread of a two-finger touch, in stage coordinates. */
+  const twoFinger = (evt: TouchEvent) => {
+    const stage = ref.current;
+    if (!stage || evt.touches.length < 2) return null;
+    const box = stage.container().getBoundingClientRect();
+    const a = { x: evt.touches[0].clientX - box.left, y: evt.touches[0].clientY - box.top };
+    const b = { x: evt.touches[1].clientX - box.left, y: evt.touches[1].clientY - box.top };
+    return {
+      distance: Math.hypot(b.x - a.x, b.y - a.y),
+      center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    };
+  };
+
+  const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    const gesture = twoFinger(e.evt);
+    if (!gesture) {
+      pinchStart.current = null;
+      beginPan(e);
+      return;
+    }
+    e.evt.preventDefault();
+    panStart.current = null;
+    // A pinch must never also register as a tap that drops a fence point.
+    pannedRef.current = true;
+    pinchStart.current = {
+      zoom: view.zoom, pan: { ...view.pan },
+      center: gesture.center, distance: gesture.distance,
+    };
+  };
+
+  const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    const start = pinchStart.current;
+    const gesture = twoFinger(e.evt);
+    if (start && gesture && start.distance > 0) {
+      e.evt.preventDefault();
+      view.pinch(start, gesture.distance / start.distance, gesture.center);
+      return;
+    }
+    // Mid-pinch with a finger lifted: wait for a clean restart rather than
+    // lurching into a one-finger pan from wherever the remaining finger is.
+    if (start) return;
+    movePan();
+  };
+
+  const handleTouchEnd = () => {
+    if (pinchStart.current) {
+      pinchStart.current = null;
+      panStart.current = null;
+      pannedRef.current = true;
+      return;
+    }
+    endPan();
+  };
+
   const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     const stage = ref.current;
     if (!stage) return;
     if (pannedRef.current) return; // that was a pan, not a click
     if (drawing) {
       const pos = stage.getRelativePointerPosition();
-      if (pos) {
-        // Clicking near the end of an existing run welds to it exactly, so an
-        // L-shaped fence closes at the corner instead of nearly closing.
-        const corner = snapToVertex(pos.x, pos.y, scope.segments, bodyRect, SNAP_RADIUS_SCREEN / view.zoom);
-        scope.addDrawingPoint(corner ?? toNormalized(pos.x, pos.y, bodyRect));
+      if (!pos) return;
+      // Tapping the last point again ends the run. Double-click works too, but
+      // a phone has no Enter key and no reliable double-tap, and "tap the end
+      // again" is the one gesture that works everywhere.
+      const points = scope.drawingPoints;
+      if (points.length >= 2) {
+        const last = toPixel(points[points.length - 1], bodyRect);
+        if (Math.hypot(last.x - pos.x, last.y - pos.y) <= CLOSE_RUN_SLOP / view.zoom) {
+          scope.finishDrawing();
+          return;
+        }
       }
+      // Clicking near the end of an existing run welds to it exactly, so an
+      // L-shaped fence closes at the corner instead of nearly closing.
+      const corner = snapToVertex(pos.x, pos.y, scope.segments, bodyRect, SNAP_RADIUS_SCREEN / view.zoom);
+      scope.addDrawingPoint(corner ?? toNormalized(pos.x, pos.y, bodyRect));
       return;
     }
     if (e.target === e.currentTarget || e.target.getClassName() === "Image" || e.target.getClassName() === "Rect") {
@@ -216,11 +304,12 @@ export default function ScopeCanvas({
       onMouseDown={beginPan}
       onMouseMove={movePan}
       onMouseUp={endPan}
-      onTouchStart={beginPan}
-      onTouchMove={movePan}
-      onTouchEnd={endPan}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       onClick={handleStageClick}
       onDblClick={handleStageDblClick}
+      onDblTap={handleStageDblClick}
       onTap={handleStageClick as unknown as (e: Konva.KonvaEventObject<TouchEvent>) => void}
     >
       {/* The page */}
@@ -286,7 +375,8 @@ export default function ScopeCanvas({
             <Fragment key={seg.id}>
               <Line
                 points={flatten(pxPoints)} stroke={LINE_HALO} strokeWidth={LINE_WIDTH_HALO}
-                lineCap="round" lineJoin="round" opacity={0.9} onClick={selectLine}
+                hitStrokeWidth={LINE_WIDTH_HALO + LINE_HIT_PAD}
+                lineCap="round" lineJoin="round" opacity={0.9} onClick={selectLine} onTap={selectLine}
                 onMouseEnter={() => { if (!drawing) setCursor("pointer"); }}
                 onMouseLeave={() => setCursor(idleCursor)}
               />
@@ -331,10 +421,12 @@ export default function ScopeCanvas({
                     stroke={active ? color : NODE_STROKE}
                     strokeWidth={active ? 2.5 : 1.5}
                     shadowColor="#000" shadowBlur={3} shadowOpacity={0.4}
+                    hitStrokeWidth={NODE_HIT_PAD}
                     draggable
                     onMouseEnter={() => setCursor("move")}
                     onMouseLeave={() => setCursor(idleCursor)}
                     onClick={(e) => { e.cancelBubble = true; scope.setMode("select"); scope.selectSegment(seg.id); onActivePointChange(i); }}
+                    onTap={(e) => { e.cancelBubble = true; scope.setMode("select"); scope.selectSegment(seg.id); onActivePointChange(i); }}
                     onDragStart={(e) => { e.cancelBubble = true; scope.selectSegment(seg.id); onActivePointChange(i); }}
                     onDragMove={(e) => { e.cancelBubble = true; setDragPreview({ segId: seg.id, index: i, x: e.target.x(), y: e.target.y() }); }}
                     onDragEnd={(e) => {

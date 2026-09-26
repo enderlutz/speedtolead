@@ -1438,7 +1438,7 @@ export const api = {
     enhanced = false,
     useAi = false
   ) =>
-    request<{ saved: boolean; segment_count: number }>(`/api/leads/${leadId}/fence-scope`, {
+    request<{ saved: boolean; segment_count: number; updated_at: string }>(`/api/leads/${leadId}/fence-scope`, {
       method: "PUT",
       body: JSON.stringify({
         segments_json: JSON.stringify(segments),
@@ -1454,7 +1454,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error((await res.text()) || "Upload failed");
-    return res.json() as Promise<{ uploaded: boolean }>;
+    return res.json() as Promise<{ uploaded: boolean; updated_at?: string }>;
   },
   fetchFenceScopeSourceBlobUrl: async (leadId: string): Promise<string | null> => {
     const token = getToken();
@@ -1475,7 +1475,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new Error((await res.text()) || "Export upload failed");
-    return res.json() as Promise<{ uploaded: boolean }>;
+    return res.json() as Promise<{ uploaded: boolean; updated_at?: string }>;
   },
   fetchFenceScopeExportBlobUrl: async (leadId: string): Promise<string | null> => {
     const token = getToken();
@@ -1509,7 +1509,7 @@ export const api = {
     return res.json() as Promise<{
       generated: boolean; model: string; quality: string;
       requested_size: string; source_size: string; bytes: number;
-      usage?: Record<string, unknown>;
+      updated_at?: string; usage?: Record<string, unknown>;
     }>;
   },
   fetchFenceScopeAiBlobUrl: async (leadId: string): Promise<string | null> => {

@@ -47,6 +47,15 @@ export function panForZoomAt(anchor: Pan, pan: Pan, zoom: number, nextZoom: numb
   };
 }
 
+/** Where a two-finger gesture began. Both fingers' midpoint and spread are
+ * remembered, so the gesture can zoom and pan at once the way a map does. */
+export interface PinchStart {
+  zoom: number;
+  pan: Pan;
+  center: Pan;
+  distance: number;
+}
+
 export interface CanvasView {
   zoom: number;
   pan: Pan;
@@ -57,6 +66,8 @@ export interface CanvasView {
   fit: () => void;
   /** Wheel handler — scroll pans, pinch or ctrl/cmd+scroll zooms. */
   wheel: (evt: WheelEvent, pointer: Pan | null) => void;
+  /** Applies a two-finger gesture, relative to where it started. */
+  pinch: (start: PinchStart, scale: number, center: Pan) => void;
   /** Clamps a position mid-drag, while the stage is being moved directly. */
   boundPan: (p: Pan) => Pan;
   /** Commits the stage position back to React once a drag finishes. */
@@ -109,6 +120,27 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
     [zoomAbout, frame, page]
   );
 
+  const pinch = useCallback(
+    (start: PinchStart, scale: number, center: Pan) => {
+      const nextZoom = clamp(start.zoom * scale, MIN_ZOOM, MAX_ZOOM);
+      // The point of the page that was under the pinch's midpoint stays under
+      // the midpoint as it moves, so spreading zooms and sliding pans — both
+      // out of the same gesture, which is what a phone user expects.
+      const held = {
+        x: (start.center.x - start.pan.x) / start.zoom,
+        y: (start.center.y - start.pan.y) / start.zoom,
+      };
+      setState({
+        zoom: nextZoom,
+        pan: clampToFrame(
+          { x: center.x - held.x * nextZoom, y: center.y - held.y * nextZoom },
+          nextZoom, frame, page
+        ),
+      });
+    },
+    [frame, page]
+  );
+
   // Safe to close over the current zoom: a drag gesture can't change it.
   const boundPan = useCallback(
     (p: Pan) => clampToFrame(p, state.zoom, frame, page),
@@ -128,5 +160,5 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
   // dead-feeling drag looks identical to a broken one.
   const pannable = page.width * state.zoom > frame.width + 0.5 || page.height * state.zoom > frame.height + 0.5;
 
-  return { zoom: state.zoom, pan, pannable, zoomIn, zoomOut, fit, wheel, boundPan, commitPan };
+  return { zoom: state.zoom, pan, pannable, zoomIn, zoomOut, fit, wheel, pinch, boundPan, commitPan };
 }

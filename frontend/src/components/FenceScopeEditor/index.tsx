@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Upload, Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { useSSE } from "@/hooks/useSSE";
 import { useCanvasView } from "./use-canvas-view";
 import { useScopeState } from "./use-scope-state";
 import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
@@ -18,6 +19,11 @@ import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./const
 interface Props {
   leadId: string;
 }
+
+/** Quiet period after an edit before it's written. Long enough that dragging a
+ * node doesn't fire a save per pixel, short enough that closing a phone
+ * mid-trace doesn't lose the work. */
+const AUTOSAVE_DELAY_MS = 1200;
 
 function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -38,6 +44,12 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [hasAi, setHasAi] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [rendering, setRendering] = useState(false);
+  // Set when another device changed this scope while there was unsaved work
+  // here — adopting it automatically would throw that work away.
+  const [remoteChange, setRemoteChange] = useState(false);
+  // Bumped to force the photo to be re-fetched when its bytes change on the
+  // server but the has_source flag doesn't.
+  const [photoRevision, setPhotoRevision] = useState(0);
   const [logoImage, setLogoImage] = useState<HTMLImageElement | null>(null);
   const [logoMissing, setLogoMissing] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -47,12 +59,14 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [exporting, setExporting] = useState(false);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  const resizeObserver = useRef<ResizeObserver | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [frame, setFrame] = useState({ width: 720, height: 720 });
   const scope = useScopeState({ segments: [], rotation: 0, mirrored: false, enhanced: false, useAi: false });
+  /** The server version this editor is in sync with. */
+  const seenVersion = useRef<string | null>(null);
 
   // Initial load — seeds the editor's history once the real segments arrive
   // (the fetch is async; the hook above is constructed synchronously with
@@ -63,6 +77,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       if (cancelled) return;
       setAddress(d.address);
       setHasSource(d.has_source);
+      seenVersion.current = d.updated_at;
       scope.load({
         segments: d.segments || [],
         rotation: d.rotation || 0,
@@ -127,7 +142,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       if (!cancelled) setSourceImage(img);
     });
     return () => { cancelled = true; };
-  }, [leadId, hasSource]);
+  }, [leadId, hasSource, photoRevision]);
 
   const loadAiImage = useCallback(async () => {
     const url = await api.fetchFenceScopeAiBlobUrl(leadId);
@@ -151,6 +166,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
     setRendering(true);
     try {
       const r = await api.generateFenceScopeAi(leadId);
+      if (r.updated_at) seenVersion.current = r.updated_at;
       setHasAi(true);
       await loadAiImage();
       scope.setUseAi(true);
@@ -176,25 +192,34 @@ export default function FenceScopeEditor({ leadId }: Props) {
     }
   }, [leadId, scope]);
 
-  // Available room for the page. Measured off the element rather than the
-  // window, since the frame also changes height when banners above it come
-  // and go.
-  useEffect(() => {
-    const resize = () => {
-      const el = containerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
+  // Available room for the page, measured off the element rather than the
+  // window, since the frame also changes height when banners above it come and
+  // go.
+  //
+  // A callback ref rather than an effect: the editor renders a spinner and an
+  // upload prompt before this element exists, so an effect with an empty
+  // dependency list runs while the ref is still null, never attaches, and
+  // leaves the frame stuck on its initial guess — which is how the page ended
+  // up 501px wide on a 393px phone, and clipped at the bottom on a laptop.
+  const attachContainer = useCallback((node: HTMLDivElement | null) => {
+    resizeObserver.current?.disconnect();
+    resizeObserver.current = null;
+    if (!node) return;
+    const measure = () => {
+      const rect = node.getBoundingClientRect();
       const width = Math.max(1, rect.width - 16);
       const height = Math.max(1, rect.height - 16);
-      // Same-value guard: a ResizeObserver that re-set state on every callback
-      // could ping-pong with its own layout.
+      // Same-value guard: re-setting state on every callback could ping-pong
+      // with its own layout.
       setFrame((p) => (p.width === width && p.height === height ? p : { width, height }));
     };
-    resize();
-    const ro = new ResizeObserver(resize);
-    if (containerRef.current) ro.observe(containerRef.current);
-    return () => ro.disconnect();
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(node);
+    resizeObserver.current = ro;
   }, []);
+
+  useEffect(() => () => resizeObserver.current?.disconnect(), []);
 
   // Enhancement is the expensive pass (a full-resolution pixel walk), so it is
   // kept separate from the cheap orientation pass — turning the photo doesn't
@@ -246,18 +271,106 @@ export default function FenceScopeEditor({ leadId }: Props) {
     [leadId]
   );
 
+  // The latest document, readable from callbacks that must stay stable.
+  const docRef = useRef({
+    segments: scope.segments, rotation: scope.rotation, mirrored: scope.mirrored,
+    enhanced: scope.enhanced, useAi: scope.useAi,
+  });
+  const dirtyRef = useRef(scope.isDirty);
+  const tracingRef = useRef(false);
+  const busyRef = useRef(false);
+  useEffect(() => {
+    docRef.current = {
+      segments: scope.segments, rotation: scope.rotation, mirrored: scope.mirrored,
+      enhanced: scope.enhanced, useAi: scope.useAi,
+    };
+    dirtyRef.current = scope.isDirty;
+    // Points placed but not yet committed are unsaved work too — reloading
+    // over a half-traced fence would throw them away.
+    tracingRef.current = scope.drawingPoints.length > 0;
+  });
+
+  const markSavedRef = useRef(scope.markSaved);
+  useEffect(() => { markSavedRef.current = scope.markSaved; });
+
+  const persist = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try {
+      const d = docRef.current;
+      const r = await api.saveFenceScopeSegments(leadId, d.segments, d.rotation, d.mirrored, d.enhanced, d.useAi);
+      // Record the version we just created, so the broadcast it triggers is
+      // recognised as our own and doesn't reload the editor underneath us.
+      if (r.updated_at) seenVersion.current = r.updated_at;
+      markSavedRef.current();
+      return true;
+    } finally {
+      busyRef.current = false;
+    }
+  }, [leadId]);
+
+  // Autosave. Every edit is written on its own, so nothing depends on
+  // remembering to press Save — closing a phone mid-trace keeps the work.
+  useEffect(() => {
+    if (loading || !dirtyRef.current) return;
+    const timer = window.setTimeout(() => {
+      void persist().catch(() => {
+        // Left dirty on purpose: the next edit retries, and the status line
+        // still says there are unsaved changes.
+      });
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [loading, scope.revision, persist]);
+
+  const adoptServerVersion = useCallback(async () => {
+    const d = await api.getFenceScope(leadId);
+    seenVersion.current = d.updated_at;
+    setAddress(d.address);
+    setHasSource(d.has_source);
+    setHasAi(d.has_ai);
+    setAiConfigured(!!d.ai_configured);
+    setPhotoRevision((n) => n + 1);
+    scope.load({
+      segments: d.segments || [],
+      rotation: d.rotation || 0,
+      mirrored: !!d.mirrored,
+      enhanced: !!d.enhanced,
+      useAi: !!d.use_ai,
+    });
+    setRemoteChange(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadId]);
+
+  // Another device saved. Adopt it when there's nothing here to lose;
+  // otherwise say so and let the choice be deliberate.
+  useSSE(
+    useCallback(
+      (event) => {
+        if (event.type !== "fence_scope_updated") return;
+        const data = event.data as { lead_id?: string; updated_at?: string };
+        if (data.lead_id !== leadId || !data.updated_at) return;
+        if (data.updated_at === seenVersion.current) return; // our own write
+        if (dirtyRef.current || tracingRef.current || busyRef.current) {
+          setRemoteChange(true);
+          return;
+        }
+        void adoptServerVersion().then(() => toast.info("Updated from another device"));
+      },
+      [leadId, adoptServerVersion]
+    )
+  );
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced, scope.useAi);
-      scope.markSaved();
+      await persist();
       toast.success("Scope saved");
     } catch {
       toast.error("Save failed");
     } finally {
       setSaving(false);
     }
-  }, [leadId, scope]);
+  }, [persist]);
 
   useKeyboardShortcuts(scope, handleSave);
 
@@ -285,9 +398,9 @@ export default function FenceScopeEditor({ leadId }: Props) {
         mimeType: "image/png",
       });
       const blob = await (await fetch(dataUrl)).blob();
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced, scope.useAi);
-      await api.uploadFenceScopeExport(leadId, blob);
-      scope.markSaved();
+      await persist();
+      const uploaded = await api.uploadFenceScopeExport(leadId, blob);
+      if (uploaded.updated_at) seenVersion.current = uploaded.updated_at;
       toast.success("Scope exported — ready to send");
     } catch {
       toast.error("Export failed");
@@ -297,7 +410,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       stage.batchDraw();
       setExporting(false);
     }
-  }, [leadId, scope, page.width, page.height]);
+  }, [leadId, scope, persist, page.width, page.height]);
 
   if (loading) {
     return (
@@ -325,7 +438,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-w-0 overflow-hidden">
       <Toolbar
         scope={scope} activePointIndex={activePointIndex} exporting={exporting} onExport={handleExport}
         zoom={view.zoom} zoomIn={view.zoomIn} zoomOut={view.zoomOut} fitToPage={view.fit}
@@ -334,7 +447,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       />
       {logoMissing && (
         <div
-          className={`flex items-center gap-2 px-3 py-2 text-xs border-b transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2 text-xs border-b min-w-0 transition-colors ${
             logoDragOver ? "bg-primary/10" : "bg-amber-50 dark:bg-amber-950/30"
           }`}
           onDragOver={(e) => { e.preventDefault(); setLogoDragOver(true); }}
@@ -347,7 +460,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
           }}
         >
           <Upload className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1">
+          <span className="flex-1 min-w-0">
             No company logo set — scopes show plain text until one is uploaded. Drag your logo here, or
           </span>
           <input
@@ -360,21 +473,31 @@ export default function FenceScopeEditor({ leadId }: Props) {
           </Button>
         </div>
       )}
-      <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground border-b">
-        <span>
-          {scope.isDirty ? "Unsaved changes" : "All changes saved"}
-          <span className="ml-3 opacity-70">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-muted-foreground border-b min-w-0">
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="shrink-0">
+            {saving ? "Saving…" : scope.isDirty ? "Saving shortly…" : "Saved"}
+          </span>
+          {remoteChange && (
+            <span className="flex items-center gap-1.5 shrink-0 text-amber-600 dark:text-amber-500">
+              Changed on another device
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => void adoptServerVersion()}>
+                Load it
+              </Button>
+            </span>
+          )}
+          <span className="ml-3 opacity-70 hidden sm:inline truncate">
             {view.pannable
               ? "Drag or two-finger scroll to move · pinch to zoom"
               : "Zoom in to move around · pinch or +/− to zoom"}
             {" · [ ] turn · H / J flip"}
           </span>
         </span>
-        <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
-          <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save"}
+        <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving} className="shrink-0">
+          <Save className="h-3.5 w-3.5 mr-1" /> Save
         </Button>
       </div>
-      <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center bg-neutral-800 p-2 overflow-hidden">
+      <div ref={attachContainer} className="flex-1 min-h-0 min-w-0 flex items-center justify-center bg-neutral-800 p-2 overflow-hidden">
         <div className="shadow-lg" style={{ width: page.width, height: page.height }}>
           <ScopeCanvas
             scope={scope}

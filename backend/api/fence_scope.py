@@ -11,6 +11,7 @@ for the actual tracing/rendering logic.
 """
 from __future__ import annotations
 import json
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import Response
@@ -19,7 +20,10 @@ from pydantic import BaseModel
 from database import get_db, Lead
 from api.auth import get_current_user
 from services.activity_log import log_event
+from services.event_bus import publish
 from services import ai_image
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -28,6 +32,27 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MB — covers a high-res phone screensh
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _touch(lead, user: dict | None) -> str:
+    """Stamps the edit and returns the timestamp, which is also the version
+    every open editor compares against."""
+    stamp = _now()
+    lead.fence_scope_updated_at = stamp
+    lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+    return stamp
+
+
+def _announce(lead_id: str, updated_at: str) -> None:
+    """Tells every other open editor that this scope moved on.
+
+    Never allowed to fail the write it follows — a scope that saved but didn't
+    broadcast is a stale tab; a scope that failed to save is lost work.
+    """
+    try:
+        publish("fence_scope_updated", {"lead_id": lead_id, "updated_at": updated_at})
+    except Exception:
+        logger.warning("fence scope: could not broadcast update for %s", lead_id, exc_info=True)
 
 
 def _png_dimensions(data: bytes) -> tuple[int, int]:
@@ -115,10 +140,10 @@ def save_fence_scope(lead_id: str, body: SaveSegmentsBody, user: dict = Depends(
         lead.fence_scope_mirrored = body.mirrored
         lead.fence_scope_enhanced = body.enhanced
         lead.fence_scope_use_ai = body.use_ai and bool(lead.has_fence_scope_ai)
-        lead.fence_scope_updated_at = _now()
-        lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+        stamp = _touch(lead, user)
         db.commit()
-        return {"saved": True, "segment_count": len(parsed)}
+        _announce(lead_id, stamp)
+        return {"saved": True, "segment_count": len(parsed), "updated_at": stamp}
     finally:
         db.close()
 
@@ -143,11 +168,11 @@ async def upload_fence_scope_source(
         lead.fence_scope_source_image = data
         lead.has_fence_scope_source = True
         lead.fence_scope_source_mime = file.content_type or "image/png"
-        lead.fence_scope_updated_at = _now()
-        lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+        stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_source_uploaded", "Aerial screenshot uploaded for fence scope", {})
-        return {"uploaded": True}
+        _announce(lead_id, stamp)
+        return {"uploaded": True, "updated_at": stamp}
     finally:
         db.close()
 
@@ -188,11 +213,11 @@ async def upload_fence_scope_export(
         lead.fence_scope_export_image = data
         lead.has_fence_scope_export = True
         lead.fence_scope_export_mime = file.content_type or "image/png"
-        lead.fence_scope_updated_at = _now()
-        lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+        stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_exported", "Fence scope image exported", {})
-        return {"uploaded": True}
+        _announce(lead_id, stamp)
+        return {"uploaded": True, "updated_at": stamp}
     finally:
         db.close()
 
@@ -237,11 +262,11 @@ def delete_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
         lead.fence_scope_ai_meta = ""
         lead.fence_scope_ai_generated_at = None
         lead.fence_scope_use_ai = False
-        lead.fence_scope_updated_at = _now()
-        lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+        stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_cleared", "Fence scope reset (start over)", {})
-        return {"deleted": True}
+        _announce(lead_id, stamp)
+        return {"deleted": True, "updated_at": stamp}
     finally:
         db.close()
 
@@ -292,15 +317,15 @@ def generate_fence_scope_ai(lead_id: str, user: dict = Depends(get_current_user)
         lead.fence_scope_ai_generated_at = _now()
         # Show it straight away — the editor puts the original one click away.
         lead.fence_scope_use_ai = True
-        lead.fence_scope_updated_at = _now()
-        lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+        stamp = _touch(lead, user)
         db.commit()
         log_event(
             lead.id, "fence_scope_ai_rendered",
             f"Drone-view re-render generated ({result.requested_size}, {result.quality})",
             meta,
         )
-        return {"generated": True, **meta}
+        _announce(lead_id, stamp)
+        return {"generated": True, "updated_at": stamp, **meta}
     finally:
         db.close()
 
@@ -332,10 +357,10 @@ def delete_fence_scope_ai(lead_id: str, user: dict = Depends(get_current_user)):
         lead.fence_scope_ai_meta = ""
         lead.fence_scope_ai_generated_at = None
         lead.fence_scope_use_ai = False
-        lead.fence_scope_updated_at = _now()
-        lead.fence_scope_updated_by = (user or {}).get("sub") or ""
+        stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_ai_discarded", "Drone-view re-render discarded", {})
-        return {"deleted": True}
+        _announce(lead_id, stamp)
+        return {"deleted": True, "updated_at": stamp}
     finally:
         db.close()

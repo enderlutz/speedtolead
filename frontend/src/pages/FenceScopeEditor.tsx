@@ -18,7 +18,7 @@ export default function FenceScopeEditorPage() {
   if (!id) return null;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100dvh-4rem)]">
       <div className="flex items-center gap-3 border-b px-4 py-2.5">
         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/leads/${id}`)}>
           <ArrowLeft className="h-4 w-4" />

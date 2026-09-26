@@ -270,6 +270,8 @@ export function useScopeState(initial: ScopeDoc) {
 
   return {
     segments,
+    /** Bumps only on a real change — what autosave debounces against. */
+    revision: historyIndex,
     rotation,
     mirrored,
     enhanced,
