@@ -73,7 +73,9 @@ export default function ScopeCanvas({
   const pannedRef = useRef(false);
 
   const drawing = scope.mode === "blue" || scope.mode === "red";
-  const idleCursor = drawing ? "crosshair" : "grab";
+  // A plain arrow while the whole page is visible: there is genuinely nowhere
+  // to drag to, and an open hand that does nothing reads as a broken hand.
+  const idleCursor = drawing ? "crosshair" : view.pannable ? "grab" : "default";
 
   // Plain functions, not useCallback: they all read a ref, which defeats
   // memoization anyway, and Konva re-binds its handlers each render regardless.

@@ -448,6 +448,8 @@ export interface FenceScopeState {
    * and segments always travel together. */
   rotation: number;
   mirrored: boolean;
+  /** Sharpen + contrast + colour lift on the photo. */
+  enhanced: boolean;
   updated_at: string | null;
   updated_by: string;
   address: string;
@@ -1425,11 +1427,12 @@ export const api = {
     leadId: string,
     segments: FenceScopeSegment[],
     rotation = 0,
-    mirrored = false
+    mirrored = false,
+    enhanced = false
   ) =>
     request<{ saved: boolean; segment_count: number }>(`/api/leads/${leadId}/fence-scope`, {
       method: "PUT",
-      body: JSON.stringify({ segments_json: JSON.stringify(segments), rotation, mirrored }),
+      body: JSON.stringify({ segments_json: JSON.stringify(segments), rotation, mirrored, enhanced }),
     }),
   uploadFenceScopeSource: async (leadId: string, file: File) => {
     const fd = new FormData();

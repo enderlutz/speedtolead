@@ -9,6 +9,7 @@ import { useScopeState } from "./use-scope-state";
 import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
 import { headerThemeForLogo } from "./header-theme";
 import { orientImage } from "./orient";
+import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
 import Toolbar from "./Toolbar";
@@ -46,7 +47,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [frame, setFrame] = useState({ width: 720, height: 720 });
-  const scope = useScopeState({ segments: [], rotation: 0, mirrored: false });
+  const scope = useScopeState({ segments: [], rotation: 0, mirrored: false, enhanced: false });
 
   // Initial load — seeds the editor's history once the real segments arrive
   // (the fetch is async; the hook above is constructed synchronously with
@@ -57,7 +58,12 @@ export default function FenceScopeEditor({ leadId }: Props) {
       if (cancelled) return;
       setAddress(d.address);
       setHasSource(d.has_source);
-      scope.load({ segments: d.segments || [], rotation: d.rotation || 0, mirrored: !!d.mirrored });
+      scope.load({
+        segments: d.segments || [],
+        rotation: d.rotation || 0,
+        mirrored: !!d.mirrored,
+        enhanced: !!d.enhanced,
+      });
       setLoading(false);
     }).catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -135,10 +141,16 @@ export default function FenceScopeEditor({ leadId }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // The photo is turned once per orientation change rather than every frame.
+  // Enhancement is the expensive pass (a full-resolution pixel walk), so it is
+  // kept separate from the cheap orientation pass — turning the photo doesn't
+  // re-enhance it.
+  const enhancedSource = useMemo(
+    () => (sourceImage && scope.enhanced ? enhanceImage(sourceImage) : sourceImage),
+    [sourceImage, scope.enhanced]
+  );
   const orientedSource = useMemo(
-    () => (sourceImage ? orientImage(sourceImage, scope.rotation, scope.mirrored) : null),
-    [sourceImage, scope.rotation, scope.mirrored]
+    () => (enhancedSource ? orientImage(enhancedSource, scope.rotation, scope.mirrored) : null),
+    [enhancedSource, scope.rotation, scope.mirrored]
   );
   const headerTheme = useMemo(() => headerThemeForLogo(logoImage), [logoImage]);
 
@@ -179,7 +191,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced);
       scope.markSaved();
       toast.success("Scope saved");
     } catch {
@@ -215,7 +227,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
         mimeType: "image/png",
       });
       const blob = await (await fetch(dataUrl)).blob();
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced);
       await api.uploadFenceScopeExport(leadId, blob);
       scope.markSaved();
       toast.success("Scope exported — ready to send");
@@ -291,7 +303,12 @@ export default function FenceScopeEditor({ leadId }: Props) {
       <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground border-b">
         <span>
           {scope.isDirty ? "Unsaved changes" : "All changes saved"}
-          <span className="ml-3 opacity-70">Drag to move · scroll to zoom · [ ] turn photo · H / J flip photo</span>
+          <span className="ml-3 opacity-70">
+            {view.pannable
+              ? "Drag or two-finger scroll to move · pinch to zoom"
+              : "Zoom in to move around · pinch or +/− to zoom"}
+            {" · [ ] turn · H / J flip"}
+          </span>
         </span>
         <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
           <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save"}

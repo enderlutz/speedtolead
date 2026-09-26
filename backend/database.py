@@ -151,6 +151,8 @@ class Lead(Base):
     # Mirrored left-to-right, applied before the rotation. Needed because an
     # aerial screenshot's street can end up on the wrong side of the house.
     fence_scope_mirrored = Column(Boolean, default=False, nullable=False)
+    # Sharpen + contrast + colour lift, applied client-side when rendering.
+    fence_scope_enhanced = Column(Boolean, default=False, nullable=False)
     fence_scope_updated_at = Column(Text, nullable=True)
     fence_scope_updated_by = Column(Text, default="")
 
@@ -3560,6 +3562,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_mirrored BOOLEAN NOT NULL DEFAULT FALSE"))
         logger.info("Migration: added leads.fence_scope_mirrored")
+
+    if "fence_scope_enhanced" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_enhanced BOOLEAN NOT NULL DEFAULT FALSE"))
+        logger.info("Migration: added leads.fence_scope_enhanced")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

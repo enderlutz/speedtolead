@@ -12,6 +12,9 @@ export interface ScopeDoc {
   rotation: number;
   /** Mirrored left-to-right in the photo's own frame, before the rotation. */
   mirrored: boolean;
+  /** Sharpen + contrast + colour lift on the photo. Not geometric, but it
+   * lives here so undo covers it like every other change. */
+  enhanced: boolean;
 }
 
 function newId(): string {
@@ -49,6 +52,7 @@ export function useScopeState(initial: ScopeDoc) {
   const segments = doc.segments;
   const rotation = doc.rotation;
   const mirrored = doc.mirrored;
+  const enhanced = doc.enhanced;
 
   const [mode, setMode] = useState<DrawMode>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -68,8 +72,8 @@ export function useScopeState(initial: ScopeDoc) {
   );
 
   const commit = useCallback(
-    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation, mirrored }),
-    [commitDoc, rotation, mirrored]
+    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation, mirrored, enhanced }),
+    [commitDoc, rotation, mirrored, enhanced]
   );
 
   // Re-seeds the whole history — for loading data that arrived after this
@@ -97,11 +101,12 @@ export function useScopeState(initial: ScopeDoc) {
       commitDoc({
         rotation: (((rotation + dir * 90) % 360) + 360) % 360,
         mirrored,
+        enhanced,
         segments: segments.map((s) => ({ ...s, points: s.points.map(turn) })),
       });
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, mirrored, segments]
+    [commitDoc, rotation, mirrored, enhanced, segments]
   );
 
   const flip = useCallback(
@@ -109,6 +114,7 @@ export function useScopeState(initial: ScopeDoc) {
       const move = axis === "x" ? mirrorX : mirrorY;
       commitDoc({
         ...flippedOrientation(rotation, mirrored, axis),
+        enhanced,
         // A mirror reverses which side of a line is which, so blue arrows have
         // to be negated to keep pointing at the same physical face of a fence.
         segments: segments.map((s) => ({
@@ -119,7 +125,12 @@ export function useScopeState(initial: ScopeDoc) {
       });
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, mirrored, segments]
+    [commitDoc, rotation, mirrored, enhanced, segments]
+  );
+
+  const toggleEnhance = useCallback(
+    () => commitDoc({ segments, rotation, mirrored, enhanced: !enhanced }),
+    [commitDoc, segments, rotation, mirrored, enhanced]
   );
 
   // ---- drawing a new path ----
@@ -235,8 +246,10 @@ export function useScopeState(initial: ScopeDoc) {
     segments,
     rotation,
     mirrored,
+    enhanced,
     rotateBy,
     flip,
+    toggleEnhance,
     mode,
     setMode,
     selectedId,

@@ -7,15 +7,15 @@
  * x/y/width/height fill, on screen and in the export alike.
  */
 export function orientImage(
-  img: HTMLImageElement,
+  img: HTMLImageElement | HTMLCanvasElement,
   rotation: number,
   mirrored: boolean
 ): HTMLImageElement | HTMLCanvasElement {
   const deg = (((rotation | 0) % 360) + 360) % 360;
   if (deg === 0 && !mirrored) return img;
 
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
+  const iw = img instanceof HTMLCanvasElement ? img.width : img.naturalWidth || img.width;
+  const ih = img instanceof HTMLCanvasElement ? img.height : img.naturalHeight || img.height;
   if (!iw || !ih) return img;
 
   const quarterTurn = deg === 90 || deg === 270;

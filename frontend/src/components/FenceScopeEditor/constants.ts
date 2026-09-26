@@ -28,7 +28,7 @@ export const DEFAULT_PHOTO_ASPECT = 0.75;
 // Locked template layout — spec Section 23. The header is a band above the
 // photo, measured against page WIDTH (page height depends on the photo, so
 // measuring it against height would be circular).
-export const HEADER_HEIGHT_OF_WIDTH = 0.15;
+export const HEADER_HEIGHT_OF_WIDTH = 0.17;
 export const LEGEND_WIDTH_FRAC = 0.46;
 export const LEGEND_HEIGHT_FRAC = 0.1;
 export const LEGEND_MARGIN_FRAC = 0.02;
@@ -38,12 +38,13 @@ export const LEGEND_MARGIN_FRAC = 0.02;
 // which is the single fastest way to make a document look unfinished. The
 // right side gets more, so the title and address read as pulled in from the
 // edge rather than pushed against it.
-export const PAGE_MARGIN_FRAC = 0.032;
+export const PAGE_MARGIN_FRAC = 0.022;
 export const TEXT_RIGHT_MARGIN_FRAC = 0.055;
 // The logo never gets more than this share of the width, so a wide logo can't
-// crowd out the title and address next to it.
-export const LOGO_MAX_WIDTH_FRAC = 0.34;
-export const LOGO_HEIGHT_FRAC = 0.66; // of header height
+// crowd out the title and address next to it. It should still read as the
+// biggest thing in the band — it's the brand, the title is a caption.
+export const LOGO_MAX_WIDTH_FRAC = 0.44;
+export const LOGO_HEIGHT_FRAC = 0.84; // of header height
 
 // Header type. Sizes are ceilings — both lines are measured and stepped down
 // if they'd run past the text column, so nothing ever overruns the page.

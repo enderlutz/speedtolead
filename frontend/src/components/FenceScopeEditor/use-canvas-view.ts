@@ -50,10 +50,12 @@ export function panForZoomAt(anchor: Pan, pan: Pan, zoom: number, nextZoom: numb
 export interface CanvasView {
   zoom: number;
   pan: Pan;
+  /** False when the whole page is visible, so there is nothing to pan to. */
+  pannable: boolean;
   zoomIn: () => void;
   zoomOut: () => void;
   fit: () => void;
-  /** Wheel handler — zooms toward the cursor, map style. */
+  /** Wheel handler — scroll pans, pinch or ctrl/cmd+scroll zooms. */
   wheel: (evt: WheelEvent, pointer: Pan | null) => void;
   /** Clamps a position mid-drag, while the stage is being moved directly. */
   boundPan: (p: Pan) => Pan;
@@ -89,11 +91,22 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
   const wheel = useCallback(
     (evt: WheelEvent, pointer: Pan | null) => {
       evt.preventDefault();
-      // Scroll = zoom, drag = pan. Same as every map he's tracing from, and it
-      // means a trackpad pinch (which arrives as ctrl+wheel) works too.
-      zoomAbout((z) => z * Math.pow(WHEEL_STEP, -evt.deltaY), pointer ?? undefined);
+      // Trackpad rules, because that's what he's on: a two-finger scroll moves
+      // the photo, and a pinch — which the browser reports as ctrl+wheel —
+      // zooms at the cursor. A mouse wheel scrolls, and ctrl/cmd+wheel zooms.
+      if (evt.ctrlKey || evt.metaKey) {
+        zoomAbout((z) => z * Math.pow(WHEEL_STEP, -evt.deltaY), pointer ?? undefined);
+        return;
+      }
+      // Shift turns a one-axis wheel sideways, the usual convention.
+      const dx = evt.shiftKey && evt.deltaX === 0 ? evt.deltaY : evt.deltaX;
+      const dy = evt.shiftKey && evt.deltaX === 0 ? 0 : evt.deltaY;
+      setState((cur) => ({
+        ...cur,
+        pan: clampToFrame({ x: cur.pan.x - dx, y: cur.pan.y - dy }, cur.zoom, frame, page),
+      }));
     },
-    [zoomAbout]
+    [zoomAbout, frame, page]
   );
 
   // Safe to close over the current zoom: a drag gesture can't change it.
@@ -111,6 +124,9 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
   // changes what counts as a legal pan, and deriving it here means the page
   // re-centres on the very same render instead of a frame later.
   const pan = clampToFrame(state.pan, state.zoom, frame, page);
+  // Nothing to pan to while the page fits — worth telling the user, because a
+  // dead-feeling drag looks identical to a broken one.
+  const pannable = page.width * state.zoom > frame.width + 0.5 || page.height * state.zoom > frame.height + 0.5;
 
-  return { zoom: state.zoom, pan, zoomIn, zoomOut, fit, wheel, boundPan, commitPan };
+  return { zoom: state.zoom, pan, pannable, zoomIn, zoomOut, fit, wheel, boundPan, commitPan };
 }

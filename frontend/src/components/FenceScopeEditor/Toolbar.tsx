@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, PenLine, Undo2, Redo2, Trash2, Download,
   FlipHorizontal2, Palette, Plus, Minus, ZoomIn, ZoomOut, Maximize2,
-  RotateCcw, RotateCw, FlipHorizontal, FlipVertical,
+  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
 import { BLUE, RED } from "./constants";
@@ -91,6 +91,15 @@ export default function Toolbar({ scope, activePointIndex, exporting, onExport, 
       </Button>
       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.flip("y")} title="Flip the photo top-to-bottom (J)">
         <FlipVertical className="h-4 w-4" />
+      </Button>
+      <Button
+        size="sm"
+        variant={scope.enhanced ? "default" : "outline"}
+        onClick={scope.toggleEnhance}
+        title="Sharpen the photo and lift its contrast and colour. Click again to go back to the original."
+        className="gap-1.5"
+      >
+        <Sparkles className="h-3.5 w-3.5" /> {scope.enhanced ? "Enhanced" : "Enhance"}
       </Button>
 
       <div className="flex-1" />
