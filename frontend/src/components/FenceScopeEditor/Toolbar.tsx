@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, PenLine, Undo2, Redo2, Trash2, Download,
   FlipHorizontal2, Palette, Plus, Minus, ZoomIn, ZoomOut, Maximize2,
-  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles, Plane, Loader2, X, Check,
+  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles, Plane, Loader2, X, Check, Send,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
 import { BLUE, RED } from "./constants";
@@ -21,11 +21,12 @@ interface Props {
   rendering: boolean;
   onGenerateAi: () => void;
   onDiscardAi: () => void;
+  onSend: () => void;
 }
 
 export default function Toolbar({
   scope, activePointIndex, exporting, onExport, zoom, zoomIn, zoomOut, fitToPage,
-  hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi,
+  hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi, onSend,
 }: Props) {
   const selected = scope.selectedSegment;
 
@@ -195,8 +196,15 @@ export default function Toolbar({
         </div>
       )}
 
-      <Button size="sm" onClick={onExport} disabled={exporting || scope.segments.length === 0} title="Export high-resolution PNG">
-        <Download className="h-4 w-4 mr-1" /> <span className="hidden sm:inline">{exporting ? "Exporting…" : "Export"}</span>
+      <Button size="sm" variant="outline" onClick={onExport} disabled={exporting || scope.segments.length === 0}
+              title="Save a high-resolution PNG of the scope without sending it">
+        <Download className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">{exporting ? "Exporting…" : "Export"}</span>
+      </Button>
+      {/* Saves the current canvas first, then asks who it's going to — so the
+          customer always gets what's on screen, not an older export. */}
+      <Button size="sm" onClick={onSend} disabled={exporting || scope.segments.length === 0}
+              title="Text this scope to the customer">
+        <Send className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Send</span>
       </Button>
     </div>
   );

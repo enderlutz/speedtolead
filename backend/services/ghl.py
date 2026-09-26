@@ -255,7 +255,14 @@ def last_send_error() -> dict | None:
     return _last_send_error
 
 
-def _send_message(msg_type: str, contact_id: str, message: str, location_id: str | None = None, max_retries: int = 6) -> bool:
+def _send_message(
+    msg_type: str,
+    contact_id: str,
+    message: str,
+    location_id: str | None = None,
+    max_retries: int = 6,
+    attachments: list[str] | None = None,
+) -> bool:
     """Send a message via GHL with retry logic. msg_type: 'SMS' or 'WhatsApp'.
 
     max_retries=6 (up from 3) because 429 Too Many Requests is the dominant
@@ -273,6 +280,11 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
         "message": message,
         "locationId": location_id or settings.ghl_location_id,
     }
+    # Public URLs only — GHL fetches each one itself and sends it as MMS.
+    # Anything behind auth arrives at the customer as a broken attachment.
+    atts = [u for u in (attachments or []) if u]
+    if atts:
+        payload["attachments"] = atts
 
     # T2.3: Generate one idempotency key per logical send (NOT per retry
     # attempt). If GHL ever sees the same key twice — e.g. our retry
@@ -386,11 +398,18 @@ def _send_message(msg_type: str, contact_id: str, message: str, location_id: str
     return False
 
 
-def send_sms(contact_id: str, message: str, location_id: str | None = None) -> bool:
+def send_sms(
+    contact_id: str,
+    message: str,
+    location_id: str | None = None,
+    attachments: list[str] | None = None,
+) -> bool:
     """Send an SMS to a contact via GHL. Retries up to 3 times on failure.
     On failure, callers can call ghl.last_send_error() to retrieve the
-    actual HTTP status + response body for forensics + alerting."""
-    return _send_message("SMS", contact_id, message, location_id)
+    actual HTTP status + response body for forensics + alerting.
+
+    Pass `attachments` (public image URLs) to send it as an MMS instead."""
+    return _send_message("SMS", contact_id, message, location_id, attachments=attachments)
 
 
 def send_via_provider(

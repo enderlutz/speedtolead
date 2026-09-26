@@ -165,6 +165,10 @@ class Lead(Base):
     fence_scope_ai_generated_at = Column(Text, nullable=True)
     # Which photo the scope actually uses: the original, or the re-render.
     fence_scope_use_ai = Column(Boolean, default=False, nullable=False)
+    # Unguessable token for the public image URL texted to the customer. Their
+    # phone fetches the picture itself, so it cannot sit behind a login.
+    fence_scope_share_token = Column(Text, nullable=True)
+    fence_scope_sent_at = Column(Text, nullable=True)
     fence_scope_updated_at = Column(Text, nullable=True)
     fence_scope_updated_by = Column(Text, default="")
 
@@ -3590,6 +3594,12 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_ai_generated_at TEXT"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_use_ai BOOLEAN NOT NULL DEFAULT FALSE"))
         logger.info("Migration: added leads.fence_scope_ai_* fields")
+
+    if "fence_scope_share_token" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_share_token TEXT"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_sent_at TEXT"))
+        logger.info("Migration: added leads.fence_scope_share_token")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

@@ -463,6 +463,17 @@ export interface FenceScopeState {
   contact_name: string;
 }
 
+/** Everything the send dialog needs before anything leaves the building. */
+export interface FenceScopeSendPreview {
+  can_send: boolean;
+  /** Plain-English reasons it can't go — an opt-out, no phone, no export. */
+  blockers: string[];
+  contact_name: string;
+  contact_phone: string;
+  message: string;
+  last_sent_at: string | null;
+}
+
 export type LeadSource = "ad" | "referral" | "google_my_business" | "repeat_customer" | "yard_sign" | "other";
 
 export const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
@@ -1520,6 +1531,14 @@ export const api = {
     if (!res.ok) return null;
     return URL.createObjectURL(await res.blob());
   },
+  getFenceScopeSendPreview: (leadId: string) =>
+    request<FenceScopeSendPreview>(`/api/leads/${leadId}/fence-scope/send-preview`),
+  /** Texts the exported scope image to the customer as an MMS. */
+  sendFenceScope: (leadId: string, message: string) =>
+    request<{ sent: boolean; to: string; updated_at: string }>(
+      `/api/leads/${leadId}/fence-scope/send`,
+      { method: "POST", body: JSON.stringify({ message }) }
+    ),
   deleteFenceScopeAi: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope/ai`, { method: "DELETE" }),
 

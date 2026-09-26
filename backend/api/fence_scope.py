@@ -12,8 +12,10 @@ for the actual tracing/rendering logic.
 from __future__ import annotations
 import json
 import logging
+import os
+import secrets
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -21,6 +23,7 @@ from database import get_db, Lead
 from api.auth import get_current_user
 from services.activity_log import log_event
 from services.event_bus import publish
+from services.ghl import send_sms, last_send_error
 from services import ai_image
 
 logger = logging.getLogger(__name__)
@@ -262,6 +265,7 @@ def delete_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
         lead.fence_scope_ai_meta = ""
         lead.fence_scope_ai_generated_at = None
         lead.fence_scope_use_ai = False
+        lead.fence_scope_sent_at = None
         stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_cleared", "Fence scope reset (start over)", {})
@@ -362,5 +366,182 @@ def delete_fence_scope_ai(lead_id: str, user: dict = Depends(get_current_user)):
         log_event(lead.id, "fence_scope_ai_discarded", "Drone-view re-render discarded", {})
         _announce(lead_id, stamp)
         return {"deleted": True, "updated_at": stamp}
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Sending the scope to the customer.
+#
+# The customer's phone fetches the image itself, so the picture has to live at
+# a URL with no login on it. That's one unguessable token per lead, stable so
+# the same link keeps working if the scope is re-sent after an edit.
+# ---------------------------------------------------------------------------
+
+
+class SendScopeBody(BaseModel):
+    message: str = ""
+
+
+def _public_base(request: Request) -> str:
+    """Where the customer's phone should come to fetch the image.
+
+    Derived from the request rather than configured, so this works the moment
+    it deploys with nothing to set up. PUBLIC_API_URL overrides it if the API
+    ever sits behind a different public name. Returns "" when there is no
+    address a phone on a carrier network could actually reach — running
+    locally, mainly — so the caller can say so instead of texting a dead link.
+    """
+    explicit = (os.getenv("PUBLIC_API_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+    host = host.split(",")[0].strip()
+    if not host or host.startswith(("localhost", "127.", "0.0.0.0", "[::1]")):
+        return ""
+    # Always https: carriers fetching an MMS attachment over plain http is a
+    # redirect at best and a dropped image at worst.
+    return f"https://{host}"
+
+
+def _share_token(lead, db) -> str:
+    if not lead.fence_scope_share_token:
+        lead.fence_scope_share_token = secrets.token_urlsafe(20)
+        db.commit()
+    return lead.fence_scope_share_token
+
+
+def default_scope_message(contact_name: str, address: str) -> str:
+    """What gets sent if nobody edits it. Deliberately asks the customer to
+    confirm — the whole point of the scope is agreeing before the estimate."""
+    first = (contact_name or "").strip().split(" ")[0]
+    hello = f"Hi {first}," if first else "Hi,"
+    where = f" at {address}" if address else ""
+    return (
+        f"{hello} here's the scope of work for your fence staining{where}.\n\n"
+        "Blue = we stain the inside face only.\n"
+        "Red = we stain both sides.\n\n"
+        "Can you confirm this looks right? Once you do, I'll send your estimate.\n"
+        "- Sterling Fence Staining"
+    )
+
+
+@router.get("/fence-scope/shared/{token}")
+def get_shared_fence_scope(token: str):
+    """Public. The customer's phone fetches the texted image from here.
+
+    No auth by necessity — a carrier fetching an MMS attachment cannot log in.
+    The token is the only credential, it grants nothing but this one picture,
+    and it's per-lead so it can be rotated without touching anything else.
+    """
+    if not token or len(token) < 16:
+        raise HTTPException(status_code=404, detail="Not found")
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.fence_scope_share_token == token).first()
+        if not lead or not lead.fence_scope_export_image:
+            raise HTTPException(status_code=404, detail="Not found")
+        return Response(
+            content=lead.fence_scope_export_image,
+            media_type=lead.fence_scope_export_mime or "image/png",
+            headers={
+                "Content-Disposition": 'inline; filename="fence-scope.png"',
+                "Cache-Control": "public, max-age=300",
+            },
+        )
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/fence-scope/send-preview")
+def preview_fence_scope_send(lead_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """Everything the editor needs to show before anything is sent: who it
+    goes to, what it will say, and any reason it can't go."""
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        blockers = []
+        if not lead.has_fence_scope_export:
+            blockers.append("The scope hasn't been exported yet.")
+        if not lead.ghl_contact_id:
+            blockers.append("This lead has no CRM contact, so there's nobody to text.")
+        if not lead.contact_phone:
+            blockers.append("This lead has no phone number.")
+        if lead.do_not_contact:
+            blockers.append("This customer asked not to be contacted. Texting them anyway isn't allowed.")
+        if not _public_base(request):
+            blockers.append(
+                "The server has no public address right now, so the image would have no link "
+                "the customer's phone could open. This works on the deployed site."
+            )
+        return {
+            "can_send": not blockers,
+            "blockers": blockers,
+            "contact_name": lead.contact_name or "",
+            "contact_phone": lead.contact_phone or "",
+            "message": default_scope_message(lead.contact_name or "", lead.address or ""),
+            "last_sent_at": lead.fence_scope_sent_at,
+        }
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/fence-scope/send")
+def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: dict = Depends(get_current_user)):
+    """Texts the exported scope image to the customer as an MMS."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.has_fence_scope_export or not lead.fence_scope_export_image:
+            raise HTTPException(status_code=400, detail="Export the scope before sending it")
+        # A customer who has opted out must not be texted, whatever the UI says.
+        # This is the last gate before a message leaves, so it is checked here
+        # rather than trusted to the button being disabled.
+        if lead.do_not_contact:
+            raise HTTPException(
+                status_code=400,
+                detail="This customer asked not to be contacted, so nothing was sent.",
+            )
+        if not lead.ghl_contact_id or not lead.contact_phone:
+            raise HTTPException(status_code=400, detail="This lead has no phone number to text")
+        base = _public_base(request)
+        if not base:
+            raise HTTPException(
+                status_code=400,
+                detail="The server has no public address, so the image has no link the "
+                       "customer's phone could open.",
+            )
+
+        token = _share_token(lead, db)
+        image_url = f"{base}/api/fence-scope/shared/{token}"
+        message = (body.message or "").strip() or default_scope_message(
+            lead.contact_name or "", lead.address or ""
+        )
+
+        sent = send_sms(lead.ghl_contact_id, message, attachments=[image_url])
+        if not sent:
+            err = last_send_error() or {}
+            reason = (
+                err.get("response_excerpt")
+                or err.get("exception")
+                or (f"HTTP {err.get('status_code')}" if err.get("status_code") else "")
+                or "unknown error"
+            )
+            log_event(lead.id, "fence_scope_send_failed", f"Scope text failed: {reason}",
+                      {"image_url": image_url})
+            raise HTTPException(status_code=502, detail=f"The text didn't go through: {reason}")
+
+        stamp = _touch(lead, user)
+        lead.fence_scope_sent_at = stamp
+        db.commit()
+        log_event(lead.id, "fence_scope_sent", f"Fence scope texted to {lead.contact_phone}",
+                  {"image_url": image_url, "chars": len(message)})
+        _announce(lead_id, stamp)
+        return {"sent": True, "to": lead.contact_phone, "updated_at": stamp}
     finally:
         db.close()

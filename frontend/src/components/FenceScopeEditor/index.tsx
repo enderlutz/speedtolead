@@ -13,6 +13,7 @@ import { orientImage } from "./orient";
 import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
+import SendScopeDialog from "./SendScopeDialog";
 import Toolbar from "./Toolbar";
 import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./constants";
 
@@ -44,6 +45,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [hasAi, setHasAi] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [rendering, setRendering] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   // Set when another device changed this scope while there was unsaved work
   // here — adopting it automatically would throw that work away.
   const [remoteChange, setRemoteChange] = useState(false);
@@ -374,9 +376,9 @@ export default function FenceScopeEditor({ leadId }: Props) {
 
   useKeyboardShortcuts(scope, handleSave);
 
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(async (): Promise<boolean> => {
     const stage = stageRef.current;
-    if (!stage) return;
+    if (!stage) return false;
     setExporting(true);
     // Deselect first — a highlighted node or selected line has no business
     // showing up in the customer-facing export.
@@ -401,9 +403,10 @@ export default function FenceScopeEditor({ leadId }: Props) {
       await persist();
       const uploaded = await api.uploadFenceScopeExport(leadId, blob);
       if (uploaded.updated_at) seenVersion.current = uploaded.updated_at;
-      toast.success("Scope exported — ready to send");
+      return true;
     } catch {
       toast.error("Export failed");
+      return false;
     } finally {
       stage.scale(prevScale);
       stage.position(prevPos);
@@ -411,6 +414,13 @@ export default function FenceScopeEditor({ leadId }: Props) {
       setExporting(false);
     }
   }, [leadId, scope, persist, page.width, page.height]);
+
+  // Send always exports first, so what lands on the customer's phone is what
+  // is on screen right now — not whatever was exported an hour ago.
+  const handleSend = async () => {
+    const exported = await handleExport();
+    if (exported) setSendOpen(true);
+  };
 
   if (loading) {
     return (
@@ -444,6 +454,13 @@ export default function FenceScopeEditor({ leadId }: Props) {
         zoom={view.zoom} zoomIn={view.zoomIn} zoomOut={view.zoomOut} fitToPage={view.fit}
         hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
         onGenerateAi={handleGenerateAi} onDiscardAi={handleDiscardAi}
+        onSend={() => void handleSend()}
+      />
+      <SendScopeDialog
+        leadId={leadId}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={() => { void adoptServerVersion(); }}
       />
       {logoMissing && (
         <div
