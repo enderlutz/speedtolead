@@ -153,6 +153,18 @@ class Lead(Base):
     fence_scope_mirrored = Column(Boolean, default=False, nullable=False)
     # Sharpen + contrast + colour lift, applied client-side when rendering.
     fence_scope_enhanced = Column(Boolean, default=False, nullable=False)
+    # A photorealistic re-render of the screenshot from OpenAI's image model —
+    # stored ALONGSIDE the original, never over it, because the model redraws
+    # the property rather than enhancing it and the original is the only
+    # trustworthy record of what's actually there.
+    fence_scope_ai_image = deferred(Column(LargeBinary, nullable=True))
+    has_fence_scope_ai = Column(Boolean, default=False, nullable=False)
+    fence_scope_ai_mime = Column(Text, default="")
+    # Model, quality, requested size and token usage, for tracking spend.
+    fence_scope_ai_meta = Column(Text, default="")
+    fence_scope_ai_generated_at = Column(Text, nullable=True)
+    # Which photo the scope actually uses: the original, or the re-render.
+    fence_scope_use_ai = Column(Boolean, default=False, nullable=False)
     fence_scope_updated_at = Column(Text, nullable=True)
     fence_scope_updated_by = Column(Text, default="")
 
@@ -3567,6 +3579,17 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_enhanced BOOLEAN NOT NULL DEFAULT FALSE"))
         logger.info("Migration: added leads.fence_scope_enhanced")
+
+    if "fence_scope_ai_image" not in existing:
+        blob_type = "BYTEA" if _engine.dialect.name == "postgresql" else "BLOB"
+        with _engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE leads ADD COLUMN fence_scope_ai_image {blob_type}"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN has_fence_scope_ai BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_ai_mime TEXT DEFAULT ''"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_ai_meta TEXT DEFAULT ''"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_ai_generated_at TEXT"))
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_use_ai BOOLEAN NOT NULL DEFAULT FALSE"))
+        logger.info("Migration: added leads.fence_scope_ai_* fields")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

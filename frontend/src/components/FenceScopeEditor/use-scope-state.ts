@@ -15,6 +15,8 @@ export interface ScopeDoc {
   /** Sharpen + contrast + colour lift on the photo. Not geometric, but it
    * lives here so undo covers it like every other change. */
   enhanced: boolean;
+  /** Use the photorealistic re-render rather than the original screenshot. */
+  useAi: boolean;
 }
 
 function newId(): string {
@@ -53,6 +55,7 @@ export function useScopeState(initial: ScopeDoc) {
   const rotation = doc.rotation;
   const mirrored = doc.mirrored;
   const enhanced = doc.enhanced;
+  const useAi = doc.useAi;
 
   const [mode, setMode] = useState<DrawMode>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -72,8 +75,8 @@ export function useScopeState(initial: ScopeDoc) {
   );
 
   const commit = useCallback(
-    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation, mirrored, enhanced }),
-    [commitDoc, rotation, mirrored, enhanced]
+    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation, mirrored, enhanced, useAi }),
+    [commitDoc, rotation, mirrored, enhanced, useAi]
   );
 
   // Re-seeds the whole history — for loading data that arrived after this
@@ -102,11 +105,12 @@ export function useScopeState(initial: ScopeDoc) {
         rotation: (((rotation + dir * 90) % 360) + 360) % 360,
         mirrored,
         enhanced,
+        useAi,
         segments: segments.map((s) => ({ ...s, points: s.points.map(turn) })),
       });
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, mirrored, enhanced, segments]
+    [commitDoc, rotation, mirrored, enhanced, useAi, segments]
   );
 
   const flip = useCallback(
@@ -115,6 +119,7 @@ export function useScopeState(initial: ScopeDoc) {
       commitDoc({
         ...flippedOrientation(rotation, mirrored, axis),
         enhanced,
+        useAi,
         // A mirror reverses which side of a line is which, so blue arrows have
         // to be negated to keep pointing at the same physical face of a fence.
         segments: segments.map((s) => ({
@@ -125,12 +130,20 @@ export function useScopeState(initial: ScopeDoc) {
       });
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, mirrored, enhanced, segments]
+    [commitDoc, rotation, mirrored, enhanced, useAi, segments]
   );
 
   const toggleEnhance = useCallback(
-    () => commitDoc({ segments, rotation, mirrored, enhanced: !enhanced }),
-    [commitDoc, segments, rotation, mirrored, enhanced]
+    () => commitDoc({ segments, rotation, mirrored, enhanced: !enhanced, useAi }),
+    [commitDoc, segments, rotation, mirrored, enhanced, useAi]
+  );
+
+  const setUseAi = useCallback(
+    (next: boolean) => {
+      if (next === useAi) return;
+      commitDoc({ segments, rotation, mirrored, enhanced, useAi: next });
+    },
+    [commitDoc, segments, rotation, mirrored, enhanced, useAi]
   );
 
   // ---- drawing a new path ----
@@ -247,9 +260,11 @@ export function useScopeState(initial: ScopeDoc) {
     rotation,
     mirrored,
     enhanced,
+    useAi,
     rotateBy,
     flip,
     toggleEnhance,
+    setUseAi,
     mode,
     setMode,
     selectedId,

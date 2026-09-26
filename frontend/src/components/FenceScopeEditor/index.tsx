@@ -33,6 +33,11 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [address, setAddress] = useState("");
   const [hasSource, setHasSource] = useState(false);
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
+  // The drone re-render lives beside the original, never on top of it.
+  const [aiImage, setAiImage] = useState<HTMLImageElement | null>(null);
+  const [hasAi, setHasAi] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState(false);
+  const [rendering, setRendering] = useState(false);
   const [logoImage, setLogoImage] = useState<HTMLImageElement | null>(null);
   const [logoMissing, setLogoMissing] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -47,7 +52,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const [frame, setFrame] = useState({ width: 720, height: 720 });
-  const scope = useScopeState({ segments: [], rotation: 0, mirrored: false, enhanced: false });
+  const scope = useScopeState({ segments: [], rotation: 0, mirrored: false, enhanced: false, useAi: false });
 
   // Initial load — seeds the editor's history once the real segments arrive
   // (the fetch is async; the hook above is constructed synchronously with
@@ -63,7 +68,10 @@ export default function FenceScopeEditor({ leadId }: Props) {
         rotation: d.rotation || 0,
         mirrored: !!d.mirrored,
         enhanced: !!d.enhanced,
+        useAi: !!d.use_ai,
       });
+      setHasAi(!!d.has_ai);
+      setAiConfigured(!!d.ai_configured);
       setLoading(false);
     }).catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -121,6 +129,53 @@ export default function FenceScopeEditor({ leadId }: Props) {
     return () => { cancelled = true; };
   }, [leadId, hasSource]);
 
+  const loadAiImage = useCallback(async () => {
+    const url = await api.fetchFenceScopeAiBlobUrl(leadId);
+    if (!url) {
+      setAiImage(null);
+      return;
+    }
+    const blob = await fetch(url).then((r) => r.blob());
+    setAiImage(await loadImageFromBlob(blob));
+  }, [leadId]);
+
+  useEffect(() => {
+    if (!hasAi) {
+      setAiImage(null);
+      return;
+    }
+    void loadAiImage();
+  }, [hasAi, loadAiImage]);
+
+  const handleGenerateAi = useCallback(async () => {
+    setRendering(true);
+    try {
+      const r = await api.generateFenceScopeAi(leadId);
+      setHasAi(true);
+      await loadAiImage();
+      scope.setUseAi(true);
+      toast.success(`Drone view rendered at ${r.requested_size}`);
+    } catch (e) {
+      // The backend's message says what to do about it — a missing key, no
+      // credit on the API account, a timeout — so show it rather than bury it.
+      toast.error(e instanceof Error ? e.message : "Drone view failed", { duration: 12000 });
+    } finally {
+      setRendering(false);
+    }
+  }, [leadId, loadAiImage, scope]);
+
+  const handleDiscardAi = useCallback(async () => {
+    try {
+      await api.deleteFenceScopeAi(leadId);
+      scope.setUseAi(false);
+      setHasAi(false);
+      setAiImage(null);
+      toast.success("Drone view discarded — back to the original screenshot");
+    } catch {
+      toast.error("Could not discard the drone view");
+    }
+  }, [leadId, scope]);
+
   // Available room for the page. Measured off the element rather than the
   // window, since the frame also changes height when banners above it come
   // and go.
@@ -144,9 +199,12 @@ export default function FenceScopeEditor({ leadId }: Props) {
   // Enhancement is the expensive pass (a full-resolution pixel walk), so it is
   // kept separate from the cheap orientation pass — turning the photo doesn't
   // re-enhance it.
+  // Which photo the scope is built on. The re-render is only used once it has
+  // actually loaded, so a slow fetch shows the original rather than nothing.
+  const basePhoto = scope.useAi && aiImage ? aiImage : sourceImage;
   const enhancedSource = useMemo(
-    () => (sourceImage && scope.enhanced ? enhanceImage(sourceImage) : sourceImage),
-    [sourceImage, scope.enhanced]
+    () => (basePhoto && scope.enhanced ? enhanceImage(basePhoto) : basePhoto),
+    [basePhoto, scope.enhanced]
   );
   const orientedSource = useMemo(
     () => (enhancedSource ? orientImage(enhancedSource, scope.rotation, scope.mirrored) : null),
@@ -191,7 +249,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced, scope.useAi);
       scope.markSaved();
       toast.success("Scope saved");
     } catch {
@@ -227,7 +285,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
         mimeType: "image/png",
       });
       const blob = await (await fetch(dataUrl)).blob();
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored, scope.enhanced, scope.useAi);
       await api.uploadFenceScopeExport(leadId, blob);
       scope.markSaved();
       toast.success("Scope exported — ready to send");
@@ -271,6 +329,8 @@ export default function FenceScopeEditor({ leadId }: Props) {
       <Toolbar
         scope={scope} activePointIndex={activePointIndex} exporting={exporting} onExport={handleExport}
         zoom={view.zoom} zoomIn={view.zoomIn} zoomOut={view.zoomOut} fitToPage={view.fit}
+        hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
+        onGenerateAi={handleGenerateAi} onDiscardAi={handleDiscardAi}
       />
       {logoMissing && (
         <div

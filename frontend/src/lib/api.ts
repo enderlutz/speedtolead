@@ -450,6 +450,13 @@ export interface FenceScopeState {
   mirrored: boolean;
   /** Sharpen + contrast + colour lift on the photo. */
   enhanced: boolean;
+  /** A photorealistic re-render of the screenshot exists on the server. */
+  has_ai: boolean;
+  /** The scope is currently using that re-render rather than the original. */
+  use_ai: boolean;
+  ai_generated_at: string | null;
+  /** Whether the server has an OpenAI key, so the editor can say so up front. */
+  ai_configured: boolean;
   updated_at: string | null;
   updated_by: string;
   address: string;
@@ -1428,11 +1435,15 @@ export const api = {
     segments: FenceScopeSegment[],
     rotation = 0,
     mirrored = false,
-    enhanced = false
+    enhanced = false,
+    useAi = false
   ) =>
     request<{ saved: boolean; segment_count: number }>(`/api/leads/${leadId}/fence-scope`, {
       method: "PUT",
-      body: JSON.stringify({ segments_json: JSON.stringify(segments), rotation, mirrored, enhanced }),
+      body: JSON.stringify({
+        segments_json: JSON.stringify(segments),
+        rotation, mirrored, enhanced, use_ai: useAi,
+      }),
     }),
   uploadFenceScopeSource: async (leadId: string, file: File) => {
     const fd = new FormData();
@@ -1476,6 +1487,41 @@ export const api = {
   },
   deleteFenceScope: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope`, { method: "DELETE" }),
+
+  /** Re-renders the screenshot as a photorealistic aerial via OpenAI. Slow
+   * (tens of seconds) and billed per call, so it only ever runs on a click. */
+  generateFenceScopeAi: async (leadId: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/ai`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      // The backend writes these messages for whoever pressed the button.
+      let detail = "";
+      try {
+        detail = ((await res.json()) as { detail?: string }).detail || "";
+      } catch {
+        detail = await res.text();
+      }
+      throw new Error(detail || "Drone view failed");
+    }
+    return res.json() as Promise<{
+      generated: boolean; model: string; quality: string;
+      requested_size: string; source_size: string; bytes: number;
+      usage?: Record<string, unknown>;
+    }>;
+  },
+  fetchFenceScopeAiBlobUrl: async (leadId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/ai`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  deleteFenceScopeAi: (leadId: string) =>
+    request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope/ai`, { method: "DELETE" }),
 
   // Company branding — stored server-side so the logo can be swapped from
   // the dashboard (or a phone) without a code change or a deploy.

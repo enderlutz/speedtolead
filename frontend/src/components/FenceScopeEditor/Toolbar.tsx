@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, PenLine, Undo2, Redo2, Trash2, Download,
   FlipHorizontal2, Palette, Plus, Minus, ZoomIn, ZoomOut, Maximize2,
-  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles,
+  RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Sparkles, Plane, Loader2, X,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
 import { BLUE, RED } from "./constants";
@@ -16,9 +16,17 @@ interface Props {
   zoomIn: () => void;
   zoomOut: () => void;
   fitToPage: () => void;
+  hasAi: boolean;
+  aiConfigured: boolean;
+  rendering: boolean;
+  onGenerateAi: () => void;
+  onDiscardAi: () => void;
 }
 
-export default function Toolbar({ scope, activePointIndex, exporting, onExport, zoom, zoomIn, zoomOut, fitToPage }: Props) {
+export default function Toolbar({
+  scope, activePointIndex, exporting, onExport, zoom, zoomIn, zoomOut, fitToPage,
+  hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi,
+}: Props) {
   const selected = scope.selectedSegment;
 
   return (
@@ -101,6 +109,52 @@ export default function Toolbar({ scope, activePointIndex, exporting, onExport, 
       >
         <Sparkles className="h-3.5 w-3.5" /> {scope.enhanced ? "Enhanced" : "Enhance"}
       </Button>
+
+      {/* Drone view — a paid OpenAI re-render. The original screenshot is kept
+          and stays one click away, because the re-render is the model's
+          interpretation of the property, not a photograph of it. */}
+      {hasAi ? (
+        <div className="flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5">
+          <span className="text-[11px] text-muted-foreground">Photo:</span>
+          <Button
+            size="sm" variant={scope.useAi ? "ghost" : "default"} className="h-6 px-2 text-[11px]"
+            onClick={() => scope.setUseAi(false)} title="Show the screenshot you uploaded"
+          >
+            Original
+          </Button>
+          <Button
+            size="sm" variant={scope.useAi ? "default" : "ghost"} className="h-6 px-2 text-[11px]"
+            onClick={() => scope.setUseAi(true)} title="Show the photorealistic drone re-render"
+          >
+            Drone
+          </Button>
+          <Button
+            size="sm" variant="ghost" className="h-6 px-1.5" disabled={rendering}
+            onClick={onGenerateAi} title="Render it again — costs another API call"
+          >
+            {rendering ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plane className="h-3 w-3" />}
+          </Button>
+          <Button
+            size="sm" variant="ghost" className="h-6 px-1.5 text-destructive"
+            onClick={onDiscardAi} title="Delete the drone re-render and keep only the original"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="sm" variant="outline" className="gap-1.5" disabled={rendering || !aiConfigured}
+          onClick={onGenerateAi}
+          title={
+            aiConfigured
+              ? "Re-render the screenshot as a photorealistic overhead drone photo. Takes up to a minute and costs a few cents per render. Your original screenshot is kept."
+              : "Needs an OpenAI API key (OPENAI_API_KEY) on the server. A ChatGPT subscription does not cover this — the API bills separately."
+          }
+        >
+          {rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plane className="h-3.5 w-3.5" />}
+          {rendering ? "Rendering…" : "Drone View"}
+        </Button>
+      )}
 
       <div className="flex-1" />
 
