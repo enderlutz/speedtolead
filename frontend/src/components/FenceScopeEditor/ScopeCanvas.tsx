@@ -6,39 +6,33 @@ import type { ScopeStateApi } from "./use-scope-state";
 import type { CanvasView } from "./use-canvas-view";
 import type { HeaderTheme } from "./header-theme";
 import { placeArrowsAlongPath, arrowheadPoints, type Pt } from "./arrows";
+import { fitFontSize, titleLetterSpacing, type PageLayout, type Rect as RectBox } from "./layout";
 import {
   BLUE, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
   NODE_RADIUS, ARROW_SPACING_PX, ARROW_LENGTH, ARROW_WIDTH,
   LEGEND_WIDTH_FRAC, LEGEND_HEIGHT_FRAC, LEGEND_MARGIN_FRAC,
-  PAGE_MARGIN_FRAC, LOGO_MAX_WIDTH_FRAC, LOGO_HEIGHT_FRAC,
+  PAGE_MARGIN_FRAC, TEXT_RIGHT_MARGIN_FRAC, LOGO_MAX_WIDTH_FRAC, LOGO_HEIGHT_FRAC,
+  TITLE_FONT, BODY_FONT, TITLE_SIZE_MAX, TITLE_SIZE_MIN, ADDRESS_SIZE_MAX, ADDRESS_SIZE_MIN,
   GOLD, HEADER_TEXT,
 } from "./constants";
 
-export interface BodyRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+const TITLE_TEXT = "Fence Staining Scope";
 
 interface Props {
   scope: ScopeStateApi;
-  /** Visible area — the whole frame, which is larger than the page. */
-  stageWidth: number;
-  stageHeight: number;
-  /** The document itself, drawn at (0,0) and moved around by the view. */
-  pageWidth: number;
-  pageHeight: number;
+  /** The document, drawn at (0,0) and moved around by the view. */
+  page: PageLayout;
   view: CanvasView;
   sourceImage: HTMLImageElement | HTMLCanvasElement | null;
   logoImage: HTMLImageElement | null;
   headerTheme: HeaderTheme;
   address: string;
-  bodyRect: BodyRect;
   activePointIndex: number | null;
   onActivePointChange: (i: number | null) => void;
   stageRef?: React.RefObject<Konva.Stage | null>;
 }
+
+type BodyRect = RectBox;
 
 /** Pointer travel, in px, before a press counts as a pan rather than a click. */
 const PAN_THRESHOLD = 4;
@@ -62,9 +56,10 @@ function presentColors(segments: FenceScopeSegment[]) {
 }
 
 export default function ScopeCanvas({
-  scope, stageWidth, stageHeight, pageWidth, pageHeight, view, sourceImage, logoImage,
-  headerTheme, address, bodyRect, activePointIndex, onActivePointChange, stageRef,
+  scope, page, view, sourceImage, logoImage,
+  headerTheme, address, activePointIndex, onActivePointChange, stageRef,
 }: Props) {
+  const { width: pageWidth, height: pageHeight, body: bodyRect } = page;
   const internalStageRef = useRef<Konva.Stage>(null);
   const ref = stageRef || internalStageRef;
   const [dragPreview, setDragPreview] = useState<{ segId: string; index: number; x: number; y: number } | null>(null);
@@ -158,8 +153,8 @@ export default function ScopeCanvas({
   };
 
   // ---- header geometry ----
-  // Everything below is laid out off the page, not the frame, so the export
-  // is identical to what's on screen at any zoom.
+  // Everything below is laid out off the page, not the frame, so the export is
+  // identical to what's on screen at any zoom.
   const margin = pageWidth * PAGE_MARGIN_FRAC;
   const headerH = bodyRect.y;
   let logoW = 0;
@@ -174,15 +169,30 @@ export default function ScopeCanvas({
     }
   }
   // The wordmark fallback needs the same reservation as a real logo would.
-  const brandW = logoImage ? logoW : pageWidth * 0.34;
+  const brandW = logoImage ? logoW : pageWidth * LOGO_MAX_WIDTH_FRAC;
   const textX = margin + brandW + pageWidth * 0.02;
-  const textW = Math.max(pageWidth * 0.2, pageWidth - margin - textX);
+  const textRight = pageWidth * TEXT_RIGHT_MARGIN_FRAC;
+  const textW = Math.max(pageWidth * 0.2, pageWidth - textRight - textX);
+
+  // Measured, not guessed: the address is a customer's, so it can be any
+  // length, and the logo beside it can be any width.
+  const addressText = `Prepared for: ${address || "—"}`;
+  const titleSize = fitFontSize(
+    TITLE_TEXT, textW, headerH * TITLE_SIZE_MAX, headerH * TITLE_SIZE_MIN, TITLE_FONT, true, 0.02
+  );
+  const addressSize = fitFontSize(
+    addressText, textW, headerH * ADDRESS_SIZE_MAX, headerH * ADDRESS_SIZE_MIN, BODY_FONT, false
+  );
+  // Centre the two lines as a block in the band.
+  const textBlockH = titleSize * 1.2 + headerH * 0.04 + addressSize * 1.2;
+  const titleY = (headerH - textBlockH) / 2;
+  const addressY = titleY + titleSize * 1.2 + headerH * 0.04;
 
   return (
     <Stage
       ref={ref}
-      width={stageWidth}
-      height={stageHeight}
+      width={pageWidth}
+      height={pageHeight}
       scaleX={view.zoom}
       scaleY={view.zoom}
       x={view.pan.x}
@@ -214,23 +224,25 @@ export default function ScopeCanvas({
           <KonvaImage image={logoImage} x={margin} y={(headerH - logoH) / 2} width={logoW} height={logoH} />
         ) : (
           <KonvaText
-            x={margin} y={headerH * 0.36}
-            width={brandW}
+            x={margin} y={headerH * 0.4} width={brandW}
             text="STERLING FENCE STAINING"
             fontSize={headerH * 0.15}
-            fontFamily="Georgia, serif" fontStyle="bold" fill={headerTheme.accent}
+            fontFamily={TITLE_FONT} fontStyle="bold" fill={headerTheme.accent}
           />
         )}
         <KonvaText
-          x={textX} y={headerH * 0.2} width={textW} align="right"
-          text="Fence Staining Scope"
-          fontSize={headerH * 0.24} fontFamily="Georgia, serif" fontStyle="bold" fill={headerTheme.ink}
+          x={textX} y={titleY} width={textW} align="right"
+          text={TITLE_TEXT}
+          fontSize={titleSize} lineHeight={1.2} letterSpacing={titleLetterSpacing(titleSize)}
+          fontFamily={TITLE_FONT} fontStyle="bold" fill={headerTheme.ink}
+          wrap="none"
         />
         <KonvaText
-          x={textX} y={headerH * 0.56} width={textW} align="right"
-          text={`Prepared for: ${address || "—"}`}
-          fontSize={headerH * 0.13} fontFamily="Arial, sans-serif" fill={headerTheme.ink}
-          wrap="word" lineHeight={1.15}
+          x={textX} y={addressY} width={textW} align="right"
+          text={addressText}
+          fontSize={addressSize} lineHeight={1.2}
+          fontFamily={BODY_FONT} fill={headerTheme.ink}
+          wrap="none" ellipsis
         />
 
         {/* Legend — auto-updates on which colors are present. Never mentions

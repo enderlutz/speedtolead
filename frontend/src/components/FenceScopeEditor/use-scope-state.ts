@@ -8,8 +8,10 @@ export type DrawMode = "select" | "blue" | "red";
  * without the other would leave the trace floating off the fence. */
 export interface ScopeDoc {
   segments: FenceScopeSegment[];
-  /** 0 | 90 | 180 | 270 */
+  /** 0 | 90 | 180 | 270, applied after the mirror. */
   rotation: number;
+  /** Mirrored left-to-right in the photo's own frame, before the rotation. */
+  mirrored: boolean;
 }
 
 function newId(): string {
@@ -18,11 +20,24 @@ function newId(): string {
     : `seg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Traced points live in the unit square of the body frame, and the photo is
-// stretched to fill that same frame — so a quarter turn maps the square onto
-// itself and the trace stays glued to the fence.
+// Traced points live in the unit square of the photo, so re-orienting the
+// photo is the same map applied to the points — the trace stays glued to the
+// fence no matter how the photo is turned or flipped.
 export const turnCW = (p: FenceScopePoint): FenceScopePoint => ({ x: 1 - p.y, y: p.x });
 export const turnCCW = (p: FenceScopePoint): FenceScopePoint => ({ x: p.y, y: 1 - p.x });
+export const mirrorX = (p: FenceScopePoint): FenceScopePoint => ({ x: 1 - p.x, y: p.y });
+export const mirrorY = (p: FenceScopePoint): FenceScopePoint => ({ x: p.x, y: 1 - p.y });
+
+/** State that renders the photo flipped the way the viewer just asked for.
+ *
+ * The photo is drawn as "mirror, then rotate", so a flip of what's on screen
+ * isn't simply `mirrored = !mirrored`: mirroring reverses the direction a
+ * rotation turns, which has to be undone in the stored angle. A vertical flip
+ * is a horizontal flip plus a half turn. */
+export function flippedOrientation(rotation: number, mirrored: boolean, axis: "x" | "y") {
+  const half = axis === "y" ? 180 : 0;
+  return { rotation: (((360 - rotation + half) % 360) + 360) % 360, mirrored: !mirrored };
+}
 
 export function useScopeState(initial: ScopeDoc) {
   // Undo/redo as a plain history stack of full document snapshots. Simple,
@@ -33,6 +48,7 @@ export function useScopeState(initial: ScopeDoc) {
   const doc = history[historyIndex];
   const segments = doc.segments;
   const rotation = doc.rotation;
+  const mirrored = doc.mirrored;
 
   const [mode, setMode] = useState<DrawMode>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -52,8 +68,8 @@ export function useScopeState(initial: ScopeDoc) {
   );
 
   const commit = useCallback(
-    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation }),
-    [commitDoc, rotation]
+    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation, mirrored }),
+    [commitDoc, rotation, mirrored]
   );
 
   // Re-seeds the whole history — for loading data that arrived after this
@@ -73,18 +89,37 @@ export function useScopeState(initial: ScopeDoc) {
   const isDirty = savedAtIndex !== historyIndex;
 
   // ---- orientation ----
+  // Anything mid-trace is in the old orientation and would land in the wrong
+  // place, so a re-orientation drops it rather than silently bending it.
   const rotateBy = useCallback(
     (dir: 1 | -1) => {
       const turn = dir === 1 ? turnCW : turnCCW;
       commitDoc({
         rotation: (((rotation + dir * 90) % 360) + 360) % 360,
+        mirrored,
         segments: segments.map((s) => ({ ...s, points: s.points.map(turn) })),
       });
-      // Anything mid-trace is in the old orientation and would land in the
-      // wrong place — drop it rather than silently bend it.
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, segments]
+    [commitDoc, rotation, mirrored, segments]
+  );
+
+  const flip = useCallback(
+    (axis: "x" | "y") => {
+      const move = axis === "x" ? mirrorX : mirrorY;
+      commitDoc({
+        ...flippedOrientation(rotation, mirrored, axis),
+        // A mirror reverses which side of a line is which, so blue arrows have
+        // to be negated to keep pointing at the same physical face of a fence.
+        segments: segments.map((s) => ({
+          ...s,
+          points: s.points.map(move),
+          arrowDirection: s.arrowDirection === 1 ? -1 : 1,
+        })),
+      });
+      setDrawingPoints([]);
+    },
+    [commitDoc, rotation, mirrored, segments]
   );
 
   // ---- drawing a new path ----
@@ -199,7 +234,9 @@ export function useScopeState(initial: ScopeDoc) {
   return {
     segments,
     rotation,
+    mirrored,
     rotateBy,
+    flip,
     mode,
     setMode,
     selectedId,

@@ -56,6 +56,12 @@ export function useKeyboardShortcuts(scope: ScopeStateApi, onSave: () => void) {
         case "]":
           scope.rotateBy(1);
           break;
+        case "h":
+          scope.flip("x");
+          break;
+        case "j":
+          scope.flip("y");
+          break;
         case "delete":
         case "backspace":
           if (scope.selectedId) scope.deleteSegment(scope.selectedId);

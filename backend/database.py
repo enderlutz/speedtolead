@@ -148,6 +148,9 @@ class Lead(Base):
     # side, and the traced points are rotated with it, so this has to be
     # stored or a reload would put the trace back on an unrotated photo.
     fence_scope_rotation = Column(Integer, default=0, nullable=False)
+    # Mirrored left-to-right, applied before the rotation. Needed because an
+    # aerial screenshot's street can end up on the wrong side of the house.
+    fence_scope_mirrored = Column(Boolean, default=False, nullable=False)
     fence_scope_updated_at = Column(Text, nullable=True)
     fence_scope_updated_by = Column(Text, default="")
 
@@ -3552,6 +3555,11 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_rotation INTEGER NOT NULL DEFAULT 0"))
         logger.info("Migration: added leads.fence_scope_rotation")
+
+    if "fence_scope_mirrored" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_mirrored BOOLEAN NOT NULL DEFAULT FALSE"))
+        logger.info("Migration: added leads.fence_scope_mirrored")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

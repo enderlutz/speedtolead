@@ -6,9 +6,13 @@
  * Pre-turning the pixels means every angle draws with the same plain
  * x/y/width/height fill, on screen and in the export alike.
  */
-export function orientImage(img: HTMLImageElement, rotation: number): HTMLImageElement | HTMLCanvasElement {
+export function orientImage(
+  img: HTMLImageElement,
+  rotation: number,
+  mirrored: boolean
+): HTMLImageElement | HTMLCanvasElement {
   const deg = (((rotation | 0) % 360) + 360) % 360;
-  if (deg === 0) return img;
+  if (deg === 0 && !mirrored) return img;
 
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
@@ -23,6 +27,9 @@ export function orientImage(img: HTMLImageElement, rotation: number): HTMLImageE
 
   ctx.translate(canvas.width / 2, canvas.height / 2);
   ctx.rotate((deg * Math.PI) / 180);
+  // After the rotate, so it mirrors the photo's own left-right — which is what
+  // the stored orientation means, and what the point maps assume.
+  if (mirrored) ctx.scale(-1, 1);
   ctx.drawImage(img, -iw / 2, -ih / 2);
   return canvas;
 }

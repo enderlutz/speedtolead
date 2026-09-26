@@ -17,27 +17,43 @@ export const ARROW_SPACING_PX = 85; // spec Section 17: "every 70-100 px"
 export const ARROW_LENGTH = 16;
 export const ARROW_WIDTH = 9;
 
-// Export resolution — spec Section 22. Portrait, since an aerial property
-// shot is almost always wider-than-tall cropped to a phone-readable frame.
+// Export width — spec Section 22. Height is NOT fixed: the page is the photo
+// plus a header band, so it takes the photo's own shape. Forcing a portrait
+// page meant every landscape screenshot got squashed to fit, and turning a
+// photo 90 degrees squashed it by a third.
 export const EXPORT_WIDTH = 1536;
-export const EXPORT_HEIGHT = 2048;
+/** Only used before a photo has loaded, to size the empty frame. */
+export const DEFAULT_PHOTO_ASPECT = 0.75;
 
-// Locked template layout, as fractions of the full exported canvas — spec
-// Section 23. The aerial image occupies the body between the header and
-// the legend; header/legend are drawn OVER a black bar, not over the photo.
-export const HEADER_HEIGHT_FRAC = 0.115;
+// Locked template layout — spec Section 23. The header is a band above the
+// photo, measured against page WIDTH (page height depends on the photo, so
+// measuring it against height would be circular).
+export const HEADER_HEIGHT_OF_WIDTH = 0.15;
 export const LEGEND_WIDTH_FRAC = 0.46;
 export const LEGEND_HEIGHT_FRAC = 0.1;
 export const LEGEND_MARGIN_FRAC = 0.02;
 
 // Breathing room down both sides of the header, as a fraction of page width.
 // Without it the wordmark and the address sit flush against the paper edge,
-// which is the single fastest way to make a document look unfinished.
+// which is the single fastest way to make a document look unfinished. The
+// right side gets more, so the title and address read as pulled in from the
+// edge rather than pushed against it.
 export const PAGE_MARGIN_FRAC = 0.032;
+export const TEXT_RIGHT_MARGIN_FRAC = 0.055;
 // The logo never gets more than this share of the width, so a wide logo can't
-// crowd out the address next to it.
-export const LOGO_MAX_WIDTH_FRAC = 0.4;
-export const LOGO_HEIGHT_FRAC = 0.62; // of header height
+// crowd out the title and address next to it.
+export const LOGO_MAX_WIDTH_FRAC = 0.34;
+export const LOGO_HEIGHT_FRAC = 0.66; // of header height
+
+// Header type. Sizes are ceilings — both lines are measured and stepped down
+// if they'd run past the text column, so nothing ever overruns the page.
+export const TITLE_FONT = "Georgia, 'Times New Roman', serif";
+export const BODY_FONT = "'Helvetica Neue', Helvetica, Arial, sans-serif";
+export const TITLE_SIZE_MAX = 0.3; // of header height
+export const TITLE_SIZE_MIN = 0.2;
+export const TITLE_LETTER_SPACING = 0.02; // of font size
+export const ADDRESS_SIZE_MAX = 0.165;
+export const ADDRESS_SIZE_MIN = 0.1;
 
 export const HEADER_BG = "#0d0d0d";
 export const GOLD = "#C9A24B";

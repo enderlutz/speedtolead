@@ -443,9 +443,11 @@ export interface FenceScopeState {
   has_source: boolean;
   has_export: boolean;
   segments: FenceScopeSegment[];
-  /** Display rotation of the aerial screenshot: 0 | 90 | 180 | 270. The
-   * traced points are rotated with it, so the two travel together. */
+  /** Display orientation of the aerial screenshot — rotation is 0/90/180/270,
+   * applied after the mirror. The traced points move with it, so orientation
+   * and segments always travel together. */
   rotation: number;
+  mirrored: boolean;
   updated_at: string | null;
   updated_by: string;
   address: string;
@@ -1419,10 +1421,15 @@ export const api = {
   // Fence Staining Scope tool — VA-traced blue/red markup, no AI geometry.
   getFenceScope: (leadId: string) =>
     request<FenceScopeState>(`/api/leads/${leadId}/fence-scope`),
-  saveFenceScopeSegments: (leadId: string, segments: FenceScopeSegment[], rotation = 0) =>
+  saveFenceScopeSegments: (
+    leadId: string,
+    segments: FenceScopeSegment[],
+    rotation = 0,
+    mirrored = false
+  ) =>
     request<{ saved: boolean; segment_count: number }>(`/api/leads/${leadId}/fence-scope`, {
       method: "PUT",
-      body: JSON.stringify({ segments_json: JSON.stringify(segments), rotation }),
+      body: JSON.stringify({ segments_json: JSON.stringify(segments), rotation, mirrored }),
     }),
   uploadFenceScopeSource: async (leadId: string, file: File) => {
     const fd = new FormData();

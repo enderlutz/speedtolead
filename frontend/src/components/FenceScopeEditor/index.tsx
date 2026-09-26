@@ -9,11 +9,10 @@ import { useScopeState } from "./use-scope-state";
 import { useKeyboardShortcuts } from "./use-keyboard-shortcuts";
 import { headerThemeForLogo } from "./header-theme";
 import { orientImage } from "./orient";
-import ScopeCanvas, { type BodyRect } from "./ScopeCanvas";
+import { pageLayout, pageAspect, sourceAspect } from "./layout";
+import ScopeCanvas from "./ScopeCanvas";
 import Toolbar from "./Toolbar";
-import { EXPORT_WIDTH, EXPORT_HEIGHT, HEADER_HEIGHT_FRAC, MAX_SOURCE_IMAGE_MB } from "./constants";
-
-const ASPECT = EXPORT_WIDTH / EXPORT_HEIGHT;
+import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./constants";
 
 interface Props {
   leadId: string;
@@ -46,14 +45,8 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
-  // Two sizes, deliberately: the stage is the whole visible frame, and the
-  // page is the document sitting inside it. Making them the same thing is
-  // what left no room to move a zoomed-in page around.
-  const [stageSize, setStageSize] = useState({ width: 720, height: 720 });
-  const [pageSize, setPageSize] = useState({ width: 540, height: 540 / ASPECT });
-  const view = useCanvasView(stageSize, pageSize);
-
-  const scope = useScopeState({ segments: [], rotation: 0 });
+  const [frame, setFrame] = useState({ width: 720, height: 720 });
+  const scope = useScopeState({ segments: [], rotation: 0, mirrored: false });
 
   // Initial load — seeds the editor's history once the real segments arrive
   // (the fetch is async; the hook above is constructed synchronously with
@@ -64,7 +57,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       if (cancelled) return;
       setAddress(d.address);
       setHasSource(d.has_source);
-      scope.load({ segments: d.segments || [], rotation: d.rotation || 0 });
+      scope.load({ segments: d.segments || [], rotation: d.rotation || 0, mirrored: !!d.mirrored });
       setLoading(false);
     }).catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -122,48 +115,44 @@ export default function FenceScopeEditor({ leadId }: Props) {
     return () => { cancelled = true; };
   }, [leadId, hasSource]);
 
-  // The stage fills the frame; the page is the largest rect of the export's
-  // aspect ratio that fits inside it, so on-screen editing and the final
-  // export always agree on where everything sits.
+  // Available room for the page. Measured off the element rather than the
+  // window, since the frame also changes height when banners above it come
+  // and go.
   useEffect(() => {
     const resize = () => {
       const el = containerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const frameW = Math.max(1, rect.width - 16);
-      const frameH = Math.max(1, rect.height - 16);
-      let w = frameW;
-      let h = w / ASPECT;
-      if (h > frameH) {
-        h = frameH;
-        w = h * ASPECT;
-      }
+      const width = Math.max(1, rect.width - 16);
+      const height = Math.max(1, rect.height - 16);
       // Same-value guard: a ResizeObserver that re-set state on every callback
       // could ping-pong with its own layout.
-      setStageSize((p) => (p.width === frameW && p.height === frameH ? p : { width: frameW, height: frameH }));
-      setPageSize((p) => (p.width === w && p.height === h ? p : { width: w, height: h }));
+      setFrame((p) => (p.width === width && p.height === height ? p : { width, height }));
     };
     resize();
-    // Watch the element, not the window — the frame also changes height when
-    // banners above it come and go.
     const ro = new ResizeObserver(resize);
     if (containerRef.current) ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, []);
 
-  const bodyRect: BodyRect = {
-    x: 0,
-    y: pageSize.height * HEADER_HEIGHT_FRAC,
-    width: pageSize.width,
-    height: pageSize.height * (1 - HEADER_HEIGHT_FRAC),
-  };
-
   // The photo is turned once per orientation change rather than every frame.
   const orientedSource = useMemo(
-    () => (sourceImage ? orientImage(sourceImage, scope.rotation) : null),
-    [sourceImage, scope.rotation]
+    () => (sourceImage ? orientImage(sourceImage, scope.rotation, scope.mirrored) : null),
+    [sourceImage, scope.rotation, scope.mirrored]
   );
   const headerTheme = useMemo(() => headerThemeForLogo(logoImage), [logoImage]);
+
+  // The page is the photo plus a header band, so it takes the photo's shape —
+  // no stretching, and turning the photo reshapes the page instead of
+  // squashing the house. The largest such page that fits the frame:
+  const photoAspect = sourceAspect(orientedSource, DEFAULT_PHOTO_ASPECT);
+  const aspect = pageAspect(photoAspect);
+  const pageWidth = Math.min(frame.width, frame.height * aspect);
+  const page = pageLayout(pageWidth, photoAspect);
+  // The frame the view pans within is the page itself: any slack and the axis
+  // with the most room would refuse to pan until you'd zoomed much further in.
+  const pageSize = useMemo(() => ({ width: page.width, height: page.height }), [page.width, page.height]);
+  const view = useCanvasView(pageSize, pageSize);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -190,7 +179,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored);
       scope.markSaved();
       toast.success("Scope saved");
     } catch {
@@ -221,12 +210,12 @@ export default function FenceScopeEditor({ leadId }: Props) {
     stage.position({ x: 0, y: 0 });
     try {
       const dataUrl = stage.toDataURL({
-        x: 0, y: 0, width: pageSize.width, height: pageSize.height,
-        pixelRatio: EXPORT_WIDTH / pageSize.width,
+        x: 0, y: 0, width: page.width, height: page.height,
+        pixelRatio: EXPORT_WIDTH / page.width,
         mimeType: "image/png",
       });
       const blob = await (await fetch(dataUrl)).blob();
-      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation);
+      await api.saveFenceScopeSegments(leadId, scope.segments, scope.rotation, scope.mirrored);
       await api.uploadFenceScopeExport(leadId, blob);
       scope.markSaved();
       toast.success("Scope exported — ready to send");
@@ -238,7 +227,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
       stage.batchDraw();
       setExporting(false);
     }
-  }, [leadId, scope, pageSize]);
+  }, [leadId, scope, page.width, page.height]);
 
   if (loading) {
     return (
@@ -302,26 +291,22 @@ export default function FenceScopeEditor({ leadId }: Props) {
       <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground border-b">
         <span>
           {scope.isDirty ? "Unsaved changes" : "All changes saved"}
-          <span className="ml-3 opacity-70">Drag to move · scroll to zoom · [ ] to turn the photo</span>
+          <span className="ml-3 opacity-70">Drag to move · scroll to zoom · [ ] turn photo · H / J flip photo</span>
         </span>
         <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving}>
           <Save className="h-3.5 w-3.5 mr-1" /> {saving ? "Saving…" : "Save"}
         </Button>
       </div>
       <div ref={containerRef} className="flex-1 min-h-0 flex items-center justify-center bg-neutral-800 p-2 overflow-hidden">
-        <div style={{ width: stageSize.width, height: stageSize.height }}>
+        <div className="shadow-lg" style={{ width: page.width, height: page.height }}>
           <ScopeCanvas
             scope={scope}
-            stageWidth={stageSize.width}
-            stageHeight={stageSize.height}
-            pageWidth={pageSize.width}
-            pageHeight={pageSize.height}
+            page={page}
             view={view}
             sourceImage={orientedSource}
             logoImage={logoImage}
             headerTheme={headerTheme}
             address={address}
-            bodyRect={bodyRect}
             activePointIndex={activePointIndex}
             onActivePointChange={setActivePointIndex}
             stageRef={stageRef}

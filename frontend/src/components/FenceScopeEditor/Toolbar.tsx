@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import {
   MousePointer2, PenLine, Undo2, Redo2, Trash2, Download,
   FlipHorizontal2, Palette, Plus, Minus, ZoomIn, ZoomOut, Maximize2,
-  RotateCcw, RotateCw,
+  RotateCcw, RotateCw, FlipHorizontal, FlipVertical,
 } from "lucide-react";
 import type { ScopeStateApi } from "./use-scope-state";
 import { BLUE, RED } from "./constants";
@@ -77,13 +77,20 @@ export default function Toolbar({ scope, activePointIndex, exporting, onExport, 
       </Button>
 
       <div className="w-px h-5 bg-border mx-1" />
-      {/* Turns the photo only — the header, logo and address stay upright.
-          Any traced fence turns with it. */}
-      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(-1)} title="Turn the photo left (90°)">
+      {/* Re-orients the photo only — the header, logo and address stay
+          upright. Any traced fence moves with it. */}
+      <span className="text-[11px] text-muted-foreground mr-0.5">Photo</span>
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(-1)} title="Turn the photo left 90° ( [ )">
         <RotateCcw className="h-4 w-4" />
       </Button>
-      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(1)} title="Turn the photo right (90°)">
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.rotateBy(1)} title="Turn the photo right 90° ( ] )">
         <RotateCw className="h-4 w-4" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.flip("x")} title="Mirror the photo left-to-right (H)">
+        <FlipHorizontal className="h-4 w-4" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scope.flip("y")} title="Flip the photo top-to-bottom (J)">
+        <FlipVertical className="h-4 w-4" />
       </Button>
 
       <div className="flex-1" />
