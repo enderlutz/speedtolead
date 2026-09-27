@@ -37,7 +37,7 @@ import ExteriorTab from "@/components/ExteriorTab";
 import FenceScopeSummaryCard from "@/components/FenceScopeSummaryCard";
 import UpsellTab from "@/components/UpsellTab";
 import { V2_STAGES } from "@/lib/leadStages";
-import { ctHour, ctISO, dayHeader } from "@/lib/date";
+import { centralToUTC, ctHour, ctISO, dayHeader } from "@/lib/date";
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
 const FENCE_HEIGHT_OPTIONS = [
@@ -1454,10 +1454,11 @@ export default function LeadDetail() {
                     <Button
                       onClick={() => {
                         if (!scheduledDate) { toast.error("Pick a date"); return; }
-                        // Convert CST date+time to UTC ISO string
-                        const cstDateTime = `${scheduledDate}T${scheduledTime}:00`;
-                        const cstDate = new Date(cstDateTime + "-06:00"); // CST is UTC-6
-                        handleApprove(cstDate.toISOString());
+                        // Houston wall clock to a real instant. Never hardcode
+                        // the offset here — it's -5 in summer, -6 in winter.
+                        const when = centralToUTC(scheduledDate, scheduledTime);
+                        if (isNaN(when.getTime())) { toast.error("Pick a valid time"); return; }
+                        handleApprove(when.toISOString());
                       }}
                       disabled={approving}
                       className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-8"

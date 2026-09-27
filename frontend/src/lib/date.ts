@@ -164,6 +164,47 @@ export function isTodayCT(iso: string): boolean {
   return !!iso && iso.slice(0, 10) === todayCT();
 }
 
+const CENTRAL_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: CENTRAL,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** What Houston's clock reads at `instant`, expressed as a UTC timestamp. */
+function centralClockAsUTC(instant: number): number {
+  const p: Record<string, string> = {};
+  for (const { type, value } of CENTRAL_CLOCK.formatToParts(instant)) p[type] = value;
+  return Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}Z`);
+}
+
+/**
+ * A Houston wall-clock time ("2026-09-27" + "17:05") as a real UTC instant.
+ *
+ * Houston is UTC-5 from March to November and UTC-6 the rest of the year.
+ * Pinning either one puts every scheduled message an hour off for half the
+ * year, and it did: the estimate scheduler hardcoded "-06:00", so a send set
+ * for 5:05 PM in September was stored as 6:05 PM and went out an hour late.
+ * Nothing looked broken — the confirmation showed the wrong time correctly.
+ *
+ * Instead of picking an offset, ask the browser what Houston's clock reads at
+ * a candidate instant and correct by the gap. Two passes: the first lands
+ * within an hour, the second covers the case where that hour itself stepped
+ * over a DST boundary.
+ */
+export function centralToUTC(day: string, time: string): Date {
+  const hhmm = (time || "00:00").slice(0, 5);
+  const target = Date.parse(`${day.slice(0, 10)}T${hhmm}:00Z`);
+  if (Number.isNaN(target)) return new Date(NaN);
+  let instant = target;
+  for (let i = 0; i < 2; i++) instant += target - centralClockAsUTC(instant);
+  return new Date(instant);
+}
+
 /** The Houston calendar day an instant falls on. */
 export function ctDateOf(iso: string): string {
   if (!iso) return "";
