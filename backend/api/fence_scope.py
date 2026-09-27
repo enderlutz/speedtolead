@@ -499,9 +499,9 @@ def greeting_for(now=None) -> str:
 # appear in the message: inside, outside, both.
 COLOR_ORDER = ("blue", "green", "red")
 COLOR_MEANINGS = {
-    "blue": "Blue = we stain the inside face only.",
-    "green": "Green = we stain the outside face only.",
-    "red": "Red = we stain both sides.",
+    "blue": "Blue = fence area to be stained on the inside only",
+    "green": "Green = fence to be stained on the outside only",
+    "red": "Red = fence to be stained on both sides",
 }
 
 
