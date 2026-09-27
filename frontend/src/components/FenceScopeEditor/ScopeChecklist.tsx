@@ -1,10 +1,10 @@
-// The three steps a scope has to clear before it can go to a customer.
+// The four steps a scope has to clear before it can go to a customer.
 //
 // This exists to stop a half-finished picture reaching someone's phone. Each
-// step is a real piece of work — the photo made presentable, the fence marked,
-// and somebody actually looking at the result — and Send stays locked until
-// all three are done. The confirmation resets on any further edit, so what was
-// approved is always what gets sent.
+// step is a real piece of work — the photo brightened, re-rendered as a drone
+// shot, the fence marked, and somebody actually looking at the result — and
+// Send stays locked until all four are done. The confirmation resets on any
+// further edit, so what was approved is always what gets sent.
 
 import { Check, Sparkles, Plane, PenLine, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,9 +43,9 @@ export default function ScopeChecklist({
   if (step === null) {
     return (
       <div className="flex items-center gap-2 border-b bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-xs">
-        <Pip done active={false} n={3} />
+        <Pip done active={false} n={4} />
         <span className="font-medium text-emerald-700 dark:text-emerald-400">
-          Ready to send — all three steps done.
+          Ready to send — all four steps done.
         </span>
       </div>
     );
@@ -53,47 +53,42 @@ export default function ScopeChecklist({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-muted/40 px-3 py-2 text-xs min-w-0">
-      <span className="flex items-center gap-1.5 shrink-0">
-        <Pip done={steps.enhanced} active={step === 1} n={1} />
-        <span className={steps.enhanced ? "text-muted-foreground line-through" : "font-medium"}>
-          Enhance the photo
+      {([
+        [1, steps.brightened, "Brighten"],
+        [2, steps.droned, "Drone view"],
+        [3, steps.drawn, "Mark the fence"],
+        [4, steps.confirmed, "Confirm and send"],
+      ] as const).map(([n, done, label]) => (
+        <span key={n} className="flex items-center gap-1.5 shrink-0">
+          <Pip done={done} active={step === n} n={n} />
+          <span className={done ? "text-muted-foreground line-through" : "font-medium"}>{label}</span>
         </span>
-      </span>
-      <span className="flex items-center gap-1.5 shrink-0">
-        <Pip done={steps.drawn} active={step === 2} n={2} />
-        <span className={steps.drawn ? "text-muted-foreground line-through" : "font-medium"}>
-          Mark the fence
-        </span>
-      </span>
-      <span className="flex items-center gap-1.5 shrink-0">
-        <Pip done={steps.confirmed} active={step === 3} n={3} />
-        <span className="font-medium">Confirm</span>
-      </span>
+      ))}
 
       <span className="flex-1 min-w-0" />
 
       {step === 1 && (
-        <span className="flex items-center gap-1.5 shrink-0">
-          <Button size="sm" className="h-7" disabled={rendering || !aiConfigured} onClick={onGenerateAi}
-                  title={aiConfigured
-                    ? "Re-render the photo as a realistic overhead drone shot"
-                    : "Needs an OpenAI key on the server"}>
-            {rendering ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plane className="h-3.5 w-3.5 mr-1" />}
-            {rendering ? "Rendering…" : "Drone View"}
-          </Button>
-          <Button size="sm" variant="outline" className="h-7" onClick={onEnhance}
-                  title="Sharpen and lift the contrast of the original photo — free and instant">
-            <Sparkles className="h-3.5 w-3.5 mr-1" /> Quick Enhance
-          </Button>
-        </span>
+        <Button size="sm" className="h-7 shrink-0" onClick={onEnhance}
+                title="Sharpen and brighten the original photo — instant and free">
+          <Sparkles className="h-3.5 w-3.5 mr-1" /> Brighten the photo
+        </Button>
       )}
       {step === 2 && (
-        <span className="flex items-center gap-1.5 shrink-0 text-muted-foreground">
-          <PenLine className="h-3.5 w-3.5" />
-          Pick Blue or Red, trace the fence, then Confirm the line.
-        </span>
+        <Button size="sm" className="h-7 shrink-0" disabled={rendering || !aiConfigured} onClick={onGenerateAi}
+                title={aiConfigured
+                  ? "Re-render the photo as a realistic overhead drone shot. Takes up to a minute."
+                  : "Needs an OpenAI key on the server"}>
+          {rendering ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Plane className="h-3.5 w-3.5 mr-1" />}
+          {rendering ? "Rendering… up to a minute" : "Run Drone View"}
+        </Button>
       )}
       {step === 3 && (
+        <span className="flex items-center gap-1.5 shrink-0 text-muted-foreground">
+          <PenLine className="h-3.5 w-3.5" />
+          Pick a colour, trace the fence, then Confirm the line.
+        </span>
+      )}
+      {step === 4 && (
         <Button size="sm" className="h-7 shrink-0" onClick={onConfirm}
                 title="Confirm this scope is finished and correct">
           <Check className="h-3.5 w-3.5 mr-1" /> This looks right

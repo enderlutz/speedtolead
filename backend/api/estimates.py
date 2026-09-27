@@ -859,6 +859,10 @@ def _approve_estimate_background(
                     send_at=scheduled_send_at,
                     status="pending",
                     created_at=now,
+                    # Carried so the worker can fire them WITH the estimate.
+                    apply_tag=bool(apply_tag),
+                    also_email=bool(also_email_flag),
+                    estimate_id=estimate_id,
                 ))
                 db.commit()
                 log_event(lead.id, "estimate_sms_scheduled",
@@ -911,7 +915,11 @@ def _approve_estimate_background(
                 sides_list = list(sides_raw or [])
             sides_text = _build_pricing_includes(sides_list, fd_note)
 
-            header = f"Estimate #{estimate_number} sent" if estimate_number > 1 else "Estimate sent"
+            if scheduled_send_at:
+                header = f"Estimate #{estimate_number} scheduled for {scheduled_send_at}" if estimate_number > 1 \
+                    else f"Estimate scheduled for {scheduled_send_at}"
+            else:
+                header = f"Estimate #{estimate_number} sent" if estimate_number > 1 else "Estimate sent"
             _sqft = _sqft_from_estimate(est)
             note_body = (
                 f"{header} — Essential: ${tiers_dict.get('essential', 0):,.0f} | "
@@ -926,7 +934,15 @@ def _approve_estimate_background(
             # When VA picks "Send Without Tag", we still send the proposal +
             # update stage + log everything, but suppress this tag so the
             # GHL workflows don't kick in.
-            if apply_tag:
+            if apply_tag and scheduled_send_at:
+                # Deferred to the moment the estimate actually goes out. The
+                # tag is what starts the GHL follow-up automations, and firing
+                # it now would chase a customer about an estimate they have
+                # not received yet.
+                log_event(lead.id, "estimate_sent_tag_deferred",
+                          f"'Estimate sent' tag held until the scheduled send at {scheduled_send_at}",
+                          {"estimate_id": estimate_id, "scheduled_send_at": scheduled_send_at})
+            elif apply_tag:
                 add_contact_tag(lead.ghl_contact_id, _estimate_sent_tag(lead), lead.ghl_location_id or None)
             else:
                 log_event(lead.id, "estimate_sent_tag_skipped",

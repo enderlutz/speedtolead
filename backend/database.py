@@ -649,6 +649,14 @@ class SmsQueue(Base):
     error_message = Column(Text, default="")
     attempts = Column(Integer, default=0)
     created_at = Column(Text, default="")
+    # Everything that must happen WITH the estimate, not before it. The GHL
+    # tag fires the follow-up automations, so applying it at schedule time
+    # meant the customer got chased about an estimate they hadn't been sent.
+    # Default False so a row written by older code can't double-apply a tag
+    # that was already applied.
+    apply_tag = Column(Boolean, default=False, nullable=False)
+    also_email = Column(Boolean, default=False, nullable=False)
+    estimate_id = Column(Text, default="")
 
 
 class PdfTemplate(Base):
@@ -3612,6 +3620,14 @@ def _run_migrations():
             conn.execute(text(f"ALTER TABLE leads ADD COLUMN fence_scope_mms_image {blob_type}"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_mms_mime TEXT DEFAULT ''"))
         logger.info("Migration: added leads.fence_scope_mms_*")
+
+    sms_queue_cols = {c["name"] for c in inspector.get_columns("sms_queue")}
+    if "apply_tag" not in sms_queue_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE sms_queue ADD COLUMN apply_tag BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE sms_queue ADD COLUMN also_email BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.execute(text("ALTER TABLE sms_queue ADD COLUMN estimate_id TEXT DEFAULT ''"))
+        logger.info("Migration: added sms_queue.apply_tag / also_email / estimate_id")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

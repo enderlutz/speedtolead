@@ -326,7 +326,8 @@ export default function FenceScopeEditor({ leadId }: Props) {
   // A scope can only be sent once the photo has been made presentable, the
   // fence has been marked, and somebody has actually looked at the result.
   const steps = {
-    enhanced: scope.enhanced || (scope.useAi && hasAi),
+    brightened: scope.enhanced,
+    droned: scope.useAi && hasAi,
     drawn: scope.segments.length > 0,
     confirmed,
   };

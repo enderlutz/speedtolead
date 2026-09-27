@@ -20,6 +20,58 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _run_deferred_followups(db, msg, lead) -> None:
+    """Applies the GHL tag and sends the email copy, once the estimate is out.
+
+    Held back at schedule time on purpose: the tag starts the follow-up
+    automations, so firing it early chased customers about an estimate they
+    had not been sent. Failures here are logged, never raised — the estimate
+    itself has already gone, and that is the part that matters.
+    """
+    if not lead or not lead.ghl_contact_id:
+        return
+    from database import Estimate
+    from services.ghl import add_contact_tag
+
+    if getattr(msg, "apply_tag", False):
+        try:
+            from api.estimates import _estimate_sent_tag
+
+            add_contact_tag(lead.ghl_contact_id, _estimate_sent_tag(lead), lead.ghl_location_id or None)
+            log_event(msg.lead_id, "estimate_sent_tag_applied",
+                      "'Estimate sent' tag applied now the scheduled estimate has gone out")
+        except Exception as e:
+            logger.error(f"SMS worker: could not apply tag for lead {msg.lead_id}: {e}")
+
+    if getattr(msg, "also_email", False):
+        try:
+            from api.estimates import _send_estimate_email_copy
+
+            est = db.query(Estimate).filter(Estimate.id == (msg.estimate_id or "")).first()
+            tiers = est.to_dict().get("tiers", {}) if est else {}
+            ok, info = _send_estimate_email_copy(lead, msg.proposal_url, tiers)
+            log_event(msg.lead_id,
+                      "estimate_emailed_to_customer" if ok else "estimate_email_skipped",
+                      f"Scheduled email copy: {info} ({lead.contact_email or 'no email'})")
+        except Exception as e:
+            logger.error(f"SMS worker: could not email lead {msg.lead_id}: {e}")
+
+
+def _alert_scheduled_failure(msg, lead) -> None:
+    """Tells the team a scheduled estimate never reached the customer."""
+    try:
+        from api.estimates import _alert_team_sms_failure
+
+        _alert_team_sms_failure(
+            customer_name=(lead.contact_name if lead else "") or "(unnamed)",
+            customer_phone=(lead.contact_phone if lead else "") or "(no phone)",
+            proposal_url=msg.proposal_url or "",
+            lead_id=msg.lead_id,
+        )
+    except Exception as e:
+        logger.error(f"SMS worker: could not alert on failed scheduled send {msg.id}: {e}")
+
+
 def process_pending_messages():
     """Find and send all due messages."""
     db = get_db()
@@ -68,6 +120,9 @@ def process_pending_messages():
                     logger.info(f"SMS worker: sent scheduled message for lead {msg.lead_id}")
                     log_event(msg.lead_id, "scheduled_sms_sent",
                               f"Scheduled SMS sent to customer. Proposal: {msg.proposal_url}")
+                    # Everything that was held back so it wouldn't reach the
+                    # customer before the estimate did.
+                    _run_deferred_followups(db, msg, lead)
                     publish("estimate_sent", {
                         "lead_id": msg.lead_id,
                         "proposal_url": msg.proposal_url,
@@ -81,6 +136,11 @@ def process_pending_messages():
                         logger.error(f"SMS worker: message {msg.id} failed after {MAX_ATTEMPTS} attempts")
                         log_event(msg.lead_id, "scheduled_sms_failed",
                                   f"Scheduled SMS failed after {MAX_ATTEMPTS} attempts")
+                        # Nobody was being told. The lead still reads "estimate
+                        # sent" on the board, so a silent failure here looks
+                        # exactly like a success until the customer never
+                        # replies — three customers were lost this way.
+                        _alert_scheduled_failure(msg, lead)
                     else:
                         # Leave as pending, will retry next cycle
                         msg.error_message = f"attempt:{msg.attempts}|send_sms returned false"
