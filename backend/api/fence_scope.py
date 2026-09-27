@@ -564,15 +564,17 @@ def default_scope_message(contact_name: str, address: str, colors: list[str] | N
 
     Deliberately does NOT ask the customer to reply before anything else
     happens: the estimate follows regardless. Waiting on a confirmation just
-    stalls the quote, and a customer who spots a wrong side will say so on
-    their own — at which point the estimate gets updated.
+    stalls the quote. The invitation to change something is there so a customer
+    who spots a wrong side speaks up — but it's an open door, not a gate, and
+    the estimate goes out either way.
     """
     first = (contact_name or "").strip().split(" ")[0]
     hello = f"{greeting_for()} {first}," if first else f"{greeting_for()},"
     where = f" at {address}" if address else ""
     intro = (
         f"{hello} here's the scope of work for you to look at while we're working "
-        f"on your personalized fence staining estimate{where}!"
+        f"on your personalized fence staining estimate{where}! "
+        "Let me know if there's anything you'd like to change!"
     )
     # Only the colours actually on the picture. A customer having just the
     # inside done should never read a line about staining both faces — it
