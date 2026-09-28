@@ -32,7 +32,6 @@ import MeasurementCard from "@/components/MeasurementCard";
 import CallPrepCard from "@/components/CallPrepCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import CustomProposalCard from "@/components/CustomProposalCard";
-import VideoEstimateCard from "@/components/VideoEstimateCard";
 import ExteriorTab from "@/components/ExteriorTab";
 import FenceScopeSummaryCard from "@/components/FenceScopeSummaryCard";
 import UpsellTab from "@/components/UpsellTab";
@@ -1663,8 +1662,10 @@ export default function LeadDetail() {
               add, edit, and reschedule each; shows invite vs internal. */}
           <ScheduledVisitsCard lead={lead} />
 
-          {/* FenceScope — text the customer a guided-video link + track status */}
-          <VideoEstimateCard leadId={lead.id} />
+          {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
+              data all kept: 3 submissions ever, none from a real customer, and
+              nothing sent since 25 Aug. Uncomment to bring it back. */}
+          {/* <VideoEstimateCard leadId={lead.id} /> */}
 
           {/* Phone only: The Hit List sits right under "Send a custom PDF".
               Desktop keeps it full-width below the grid (rendered there when
