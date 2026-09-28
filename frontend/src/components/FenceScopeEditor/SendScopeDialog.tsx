@@ -31,12 +31,15 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
   // quietly throw away wording someone has written.
   const [edited, setEdited] = useState(false);
   const [sending, setSending] = useState(false);
+  // Ticked only when someone has read that the photo is turned and meant it.
+  const [orientationOk, setOrientationOk] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setPreview(null);
     setEdited(false);
+    setOrientationOk(false);
     api.getFenceScopeSendPreview(leadId)
       .then((p) => {
         if (cancelled) return;
@@ -61,7 +64,7 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
   const send = async () => {
     setSending(true);
     try {
-      const r = await api.sendFenceScope(leadId, message, template);
+      const r = await api.sendFenceScope(leadId, message, template, orientationOk);
       toast.success(`Scope sent to ${r.to}`);
       onOpenChange(false);
       onSent();
@@ -75,6 +78,10 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
   };
 
   const blocked = !!preview && !preview.can_send;
+  // A turned photo isn't forbidden — some properties genuinely need it — but
+  // it can't go out unnoticed. Carl Hiller got his house upside down because
+  // nothing anywhere said the picture had been flipped.
+  const needsOrientationOk = !!preview?.reoriented && !orientationOk;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,6 +107,28 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
                 <ul className="space-y-1">
                   {preview.blockers.map((b) => <li key={b}>{b}</li>)}
                 </ul>
+              </div>
+            )}
+
+            {preview.reoriented && (
+              <div className="flex gap-2 rounded border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-2.5 text-xs">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                <div className="space-y-1.5">
+                  <p>
+                    This photo is <strong>{preview.reoriented}</strong>, so{" "}
+                    {preview.contact_name?.split(" ")[0] || "the customer"} would see their
+                    property the wrong way round. Close this and use “Put it back”.
+                  </p>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={orientationOk}
+                      onChange={(e) => setOrientationOk(e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    Send it this way on purpose
+                  </label>
+                </div>
               </div>
             )}
 
@@ -150,7 +179,7 @@ export default function SendScopeDialog({ leadId, open, onOpenChange, onSent }: 
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={sending}>
             Cancel
           </Button>
-          <Button onClick={send} disabled={!preview || blocked || sending || !message.trim()}>
+          <Button onClick={send} disabled={!preview || blocked || needsOrientationOk || sending || !message.trim()}>
             {sending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
             {sending ? "Sending…" : "Send now"}
           </Button>

@@ -389,6 +389,9 @@ class SendScopeBody(BaseModel):
     message: str = ""
     """Which wording to fall back to when no message is supplied."""
     template: str = "new"
+    # Set only when someone has been shown that the photo is turned or flipped
+    # and has said they meant it. Absent, a reoriented scope will not send.
+    orientation_ok: bool = False
 
 
 def _public_base(request: Request) -> str:
@@ -433,6 +436,28 @@ def _unfinished_steps(lead) -> list[str]:
     if _segment_count(lead) == 0:
         missing.append("Step 2: no fence has been marked on the photo yet.")
     return missing
+
+
+def _reorientation(lead) -> str:
+    """How the photo has been turned from how the property actually sits.
+
+    Carl Hiller was texted his house upside down: one flip had been saved, the
+    editor showed nothing about it, and it went out a minute later. Nobody
+    reads a picture of their own roof and thinks "that's mirrored" — they think
+    the company got their house wrong. So a turned photo now has to be
+    acknowledged before it can be sent. Returns "" when nothing was changed.
+    """
+    rotation = ((int(lead.fence_scope_rotation or 0) % 360) + 360) % 360
+    mirrored = bool(lead.fence_scope_mirrored)
+    if not rotation and not mirrored:
+        return ""
+    if mirrored and rotation == 180:
+        return "flipped upside down"
+    if mirrored and rotation == 0:
+        return "mirrored left-to-right"
+    if mirrored:
+        return f"mirrored and turned {rotation}°"
+    return f"turned {rotation}°"
 
 
 def _share_token(lead, db) -> str:
@@ -647,6 +672,9 @@ def preview_fence_scope_send(lead_id: str, request: Request, user: dict = Depend
         return {
             "can_send": not blockers,
             "blockers": blockers,
+            # Not a blocker — sometimes a turn is deliberate. It has to be
+            # acknowledged rather than silently allowed.
+            "reoriented": _reorientation(lead),
             "contact_name": lead.contact_name or "",
             "contact_phone": lead.contact_phone or "",
             # Both wordings up front, so switching between them in the editor
@@ -685,6 +713,16 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
         unfinished = _unfinished_steps(lead)
         if unfinished:
             raise HTTPException(status_code=400, detail=" ".join(unfinished))
+        turned = _reorientation(lead)
+        if turned and not body.orientation_ok:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"This photo is {turned}, so the customer would see their property the "
+                    "wrong way round. Use \"Put it back\" in the editor, or tick the box to "
+                    "send it this way on purpose."
+                ),
+            )
         base = _public_base(request)
         if not base:
             raise HTTPException(

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
 import { toast } from "sonner";
-import { Upload, Save, Loader2 } from "lucide-react";
+import { Upload, Save, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useSSE } from "@/hooks/useSSE";
@@ -582,6 +582,25 @@ export default function FenceScopeEditor({ leadId }: Props) {
           />
           <Button size="sm" variant="outline" disabled={logoUploading} onClick={() => logoInputRef.current?.click()}>
             {logoUploading ? "Uploading…" : "Choose file"}
+          </Button>
+        </div>
+      )}
+      {/* Carl Hiller's scope went out upside down: a single flip was saved,
+          nothing on screen said so, and it was texted a minute later. The
+          orientation controls stay — a tilted property sometimes needs them —
+          but they can no longer be invisible. */}
+      {scope.reoriented && (
+        <div className="flex items-center gap-2 px-3 py-2 text-xs border-b min-w-0 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+          <span className="flex-1 min-w-0">
+            This photo is turned or flipped — the customer will see their property
+            the wrong way round{scope.mirrored && scope.rotation === 180 ? " (upside down)" : ""}.
+          </span>
+          <Button
+            size="sm" variant="outline" className="h-6 px-2 text-[11px] shrink-0"
+            onClick={() => scope.resetOrientation()}
+          >
+            Put it back
           </Button>
         </div>
       )}

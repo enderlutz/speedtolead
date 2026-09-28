@@ -481,6 +481,8 @@ export interface FenceScopeSendPreview {
   /** Which one to offer first, based on whether they were quoted before. */
   suggested_template: ScopeTemplate;
   last_sent_at: string | null;
+  /** "flipped upside down", "turned 90°" … "" when the photo matches reality. */
+  reoriented: string;
 }
 
 /** "new" = never quoted. "returning" = quoted before and never booked. */
@@ -1546,10 +1548,17 @@ export const api = {
   getFenceScopeSendPreview: (leadId: string) =>
     request<FenceScopeSendPreview>(`/api/leads/${leadId}/fence-scope/send-preview`),
   /** Texts the exported scope image to the customer as an MMS. */
-  sendFenceScope: (leadId: string, message: string, template: ScopeTemplate = "new") =>
+  sendFenceScope: (
+    leadId: string,
+    message: string,
+    template: ScopeTemplate = "new",
+    // Only true when someone has been shown the photo is turned and said they
+    // meant it. The server refuses a reoriented scope without it.
+    orientationOk = false,
+  ) =>
     request<{ sent: boolean; to: string; updated_at: string }>(
       `/api/leads/${leadId}/fence-scope/send`,
-      { method: "POST", body: JSON.stringify({ message, template }) }
+      { method: "POST", body: JSON.stringify({ message, template, orientation_ok: orientationOk }) }
     ),
   deleteFenceScopeAi: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope/ai`, { method: "DELETE" }),

@@ -160,6 +160,37 @@ export function useScopeState(initial: ScopeDoc) {
     [commitDoc, rotation, mirrored, enhanced, useAi, segments]
   );
 
+  // Puts the photo back the way the property actually is, marks and all.
+  //
+  // A stored orientation means "mirror the photo's own left-right first, then
+  // turn it" (see orientImage) — so undoing it is the reverse: turn back, then
+  // un-mirror. Doing it in one step rather than asking someone to guess how
+  // many presses of [ ] H J will get them home, because a scope that went out
+  // upside down is a scope the customer can't check.
+  const resetOrientation = useCallback(() => {
+    if (rotation === 0 && !mirrored) return;
+    const quarterTurns = (((rotation % 360) + 360) % 360) / 90;
+    const undo = (p: FenceScopePoint): FenceScopePoint => {
+      let q = p;
+      for (let i = 0; i < quarterTurns; i++) q = turnCCW(q);
+      return mirrored ? mirrorX(q) : q;
+    };
+    commitDoc({
+      rotation: 0,
+      mirrored: false,
+      enhanced,
+      useAi,
+      segments: segments.map((s) => ({
+        ...s,
+        points: s.points.map(undo),
+        // Same reason flip() negates these: un-mirroring swaps which face of
+        // the fence a blue arrow is pointing at.
+        arrowDirection: mirrored ? (s.arrowDirection === 1 ? -1 : 1) : s.arrowDirection,
+      })),
+    });
+    setDrawingPoints([]);
+  }, [commitDoc, rotation, mirrored, enhanced, useAi, segments]);
+
   const toggleEnhance = useCallback(
     () => commitDoc({ segments, rotation, mirrored, enhanced: !enhanced, useAi }),
     [commitDoc, segments, rotation, mirrored, enhanced, useAi]
@@ -293,6 +324,9 @@ export function useScopeState(initial: ScopeDoc) {
     useAi,
     rotateBy,
     flip,
+    resetOrientation,
+    /** True when the photo no longer matches how the property actually sits. */
+    reoriented: rotation !== 0 || mirrored,
     toggleEnhance,
     setUseAi,
     mode,
