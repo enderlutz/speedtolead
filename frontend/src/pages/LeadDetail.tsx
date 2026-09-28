@@ -37,7 +37,12 @@ import ExteriorTab from "@/components/ExteriorTab";
 import FenceScopeSummaryCard from "@/components/FenceScopeSummaryCard";
 import UpsellTab from "@/components/UpsellTab";
 import { V2_STAGES } from "@/lib/leadStages";
-import { centralToUTC, ctHour, ctISO, dayHeader } from "@/lib/date";
+import { bothClocks, centralToUTC, ctHour, ctISO, dayHeader } from "@/lib/date";
+
+// How far out the one-click buffered send goes. Long enough that the estimate
+// doesn't look auto-generated the moment the size is confirmed, short enough
+// that the customer is still by their phone thinking about the call.
+const SEND_BUFFER_MINUTES = 10;
 import SyncedTranscriptPlayer from "@/components/SyncedTranscriptPlayer";
 
 const FENCE_HEIGHT_OPTIONS = [
@@ -1441,14 +1446,19 @@ export default function LeadDetail() {
                       <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="h-8 text-sm" />
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (CST)</label>
+                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (Houston)</label>
                       <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className="h-8 text-sm" />
                     </div>
                   </div>
                   {/* Weekday derived from the date — the check that catches an
-                      off-by-one before the message goes out. */}
+                      off-by-one before the message goes out. The clock line
+                      spells out both times for anyone working outside Houston,
+                      because the field means Houston time wherever you are. */}
                   {scheduledDate && (
-                    <p className="text-xs text-blue-800">{dayHeader(scheduledDate)}</p>
+                    <p className="text-xs text-blue-800">
+                      {dayHeader(scheduledDate)}
+                      {scheduledTime && <> · {bothClocks(centralToUTC(scheduledDate, scheduledTime))}</>}
+                    </p>
                   )}
                   <div className="flex gap-2">
                     <Button
@@ -1529,6 +1539,33 @@ export default function LeadDetail() {
                 >
                   <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
                   {approving ? "Sending..." : "Send Now"}
+                </Button>
+                {/* A deliberate buffer, not a delay for its own sake: an
+                    estimate landing the second a call ends reads as a machine
+                    spitting out a number. Ten minutes reads as someone working
+                    on it. No timezone involved — it's ten minutes from now
+                    wherever the VA is sitting, so there is nothing to get
+                    wrong from Honduras. */}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const when = new Date(Date.now() + SEND_BUFFER_MINUTES * 60_000);
+                    const who = lead.contact_name || "this customer";
+                    const ok = window.confirm(
+                      `Send the estimate to ${who} at ${bothClocks(when)}?\n\n` +
+                      `That's ${SEND_BUFFER_MINUTES} minutes from now. The 'estimate sent' tag ` +
+                      `and the follow-up automations fire once it goes out.`,
+                    );
+                    if (!ok) return;
+                    handleApprove(when.toISOString());
+                  }}
+                  disabled={approving || lead.pipeline_version === "v1"}
+                  title={lead.pipeline_version === "v1"
+                    ? "Export to new pipeline before scheduling"
+                    : `Schedules the estimate ${SEND_BUFFER_MINUTES} minutes out, so it doesn't land the instant the call ends`}
+                  className="shrink-0"
+                >
+                  <Clock className="h-4 w-4 mr-1" /> In {SEND_BUFFER_MINUTES} min
                 </Button>
                 <Button
                   variant="outline"

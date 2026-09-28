@@ -205,6 +205,36 @@ export function centralToUTC(day: string, time: string): Date {
   return new Date(instant);
 }
 
+/** "5:05 PM" for an instant, on the named zone's clock. */
+function timeIn(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(instant);
+}
+
+/**
+ * An instant on Houston's clock, and on the viewer's too when they differ.
+ *
+ * Olga works from Honduras, which sits on UTC-6 all year: she is an hour
+ * behind Houston from March to November and level with it in winter. Every
+ * time field in the app means Houston time, so showing her only that number
+ * is a standing invitation to set a send an hour off and never notice. When
+ * the two clocks agree — anyone actually in Houston — only one is shown.
+ */
+export function bothClocks(instant: Date): string {
+  if (isNaN(instant.getTime())) return "";
+  const houston = timeIn(instant, CENTRAL);
+  let here: string;
+  try {
+    here = timeIn(instant, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return `${houston} Houston`;
+  }
+  return houston === here ? `${houston} Houston` : `${houston} Houston · ${here} your time`;
+}
+
 /** The Houston calendar day an instant falls on. */
 export function ctDateOf(iso: string): string {
   if (!iso) return "";
