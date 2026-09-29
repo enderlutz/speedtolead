@@ -14,6 +14,7 @@ import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
 import SendScopeDialog from "./SendScopeDialog";
+import ScopeVersions from "./ScopeVersions";
 import ScopeChecklist from "./ScopeChecklist";
 import { sendBlockedReason } from "./steps";
 import Toolbar from "./Toolbar";
@@ -604,6 +605,14 @@ export default function FenceScopeEditor({ leadId }: Props) {
           </Button>
         </div>
       )}
+      {/* What this customer has already been sent, and the one-click way to
+          correct it. Revising reuses the drone render, so a fix that used to
+          cost a minute of regeneration now takes seconds. */}
+      <ScopeVersions
+        leadId={leadId}
+        revision={scope.revision}
+        onRevised={() => { void adoptServerVersion(); setConfirmed(false); }}
+      />
       <div className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-muted-foreground border-b min-w-0">
         <span className="flex items-center gap-2 min-w-0">
           <span className="shrink-0">

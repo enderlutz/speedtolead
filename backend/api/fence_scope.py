@@ -20,7 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 import clock
-from database import get_db, Lead, Estimate
+from database import get_db, Lead, Estimate, FenceScopeVersion
 from api.auth import get_current_user
 from services.activity_log import log_event
 from services.event_bus import publish
@@ -612,6 +612,121 @@ def default_scope_message(contact_name: str, address: str, colors: list[str] | N
     return intro + ("\n\n" + "\n".join(key) if key else "")
 
 
+@router.get("/leads/{lead_id}/fence-scope/versions")
+def list_fence_scope_versions(lead_id: str, user: dict = Depends(get_current_user)):
+    """Every scope already sent to this customer, newest first."""
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(FenceScopeVersion)
+            .filter(FenceScopeVersion.lead_id == lead_id)
+            .order_by(FenceScopeVersion.version_no.desc())
+            .all()
+        )
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        return {
+            "versions": [r.to_dict() for r in rows],
+            # The scope currently open in the editor, which has not been
+            # archived and may or may not have been sent yet.
+            "active_version_no": (rows[0].version_no + 1) if rows else 1,
+            "active_sent_at": lead.fence_scope_sent_at if lead else None,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/fence-scope/versions/{version_id}/image")
+def get_fence_scope_version_image(lead_id: str, version_id: str, user: dict = Depends(get_current_user)):
+    """The image a superseded scope was sent as, for staff to look back at."""
+    del user
+    db = get_db()
+    try:
+        row = (
+            db.query(FenceScopeVersion)
+            .filter(FenceScopeVersion.id == version_id, FenceScopeVersion.lead_id == lead_id)
+            .first()
+        )
+        if not row or not row.mms_image:
+            raise HTTPException(status_code=404, detail="Not found")
+        mime = row.mms_mime or "image/jpeg"
+        return Response(
+            content=bytes(row.mms_image),
+            media_type=mime,
+            headers={"Content-Disposition": 'inline; filename="fence-scope.jpg"'},
+        )
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/fence-scope/revise")
+def revise_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
+    """Files the sent scope away and opens a fresh one to correct.
+
+    The point of this endpoint is what it does NOT do: it never clears
+    `fence_scope_ai_image`. The ChatGPT drone render costs about a minute and
+    is a property of the house, not of the markings, so every revision reuses
+    it and a correction takes seconds.
+
+    The markings are deliberately carried over rather than cleared — a customer
+    saying "the left side is wrong" means the other three sides were right.
+    """
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.fence_scope_sent_at:
+            raise HTTPException(
+                status_code=400,
+                detail="This scope hasn't been sent yet — just edit it and send when it's right.",
+            )
+
+        last = (
+            db.query(FenceScopeVersion)
+            .filter(FenceScopeVersion.lead_id == lead_id)
+            .order_by(FenceScopeVersion.version_no.desc())
+            .first()
+        )
+        next_no = (last.version_no + 1) if last else 1
+
+        stamp = _now()
+        db.add(FenceScopeVersion(
+            id=secrets.token_hex(16),
+            lead_id=lead_id,
+            version_no=next_no,
+            segments_json=lead.fence_scope_segments_json or "",
+            rotation=lead.fence_scope_rotation or 0,
+            mirrored=bool(lead.fence_scope_mirrored),
+            enhanced=bool(lead.fence_scope_enhanced),
+            use_ai=bool(lead.fence_scope_use_ai),
+            # Only the carrier-sized copy: it is what the old link serves and
+            # what staff need to see. The 6MB export is not worth keeping for
+            # a superseded version.
+            mms_image=lead.fence_scope_mms_image,
+            mms_mime=lead.fence_scope_mms_mime or "",
+            share_token=lead.fence_scope_share_token,
+            sent_at=lead.fence_scope_sent_at,
+            archived_at=stamp,
+            archived_by=(user or {}).get("sub") or "",
+        ))
+
+        # A brand new token, so the link already in the customer's texts goes
+        # on serving the archived image instead of quietly changing.
+        lead.fence_scope_share_token = secrets.token_urlsafe(20)
+        lead.fence_scope_sent_at = None
+        lead.fence_scope_mms_image = None
+        lead.fence_scope_mms_mime = ""
+        stamp = _touch(lead, user)
+        db.commit()
+        log_event(lead_id, "fence_scope_revised",
+                  f"Scope v{next_no} filed; now editing v{next_no + 1}", {"version_no": next_no})
+        _announce(lead_id, stamp)
+        return {"archived_version_no": next_no, "editing_version_no": next_no + 1, "updated_at": stamp}
+    finally:
+        db.close()
+
+
 @router.get("/fence-scope/shared/{token}")
 def get_shared_fence_scope(token: str):
     """Public. The customer's phone fetches the texted image from here.
@@ -624,6 +739,24 @@ def get_shared_fence_scope(token: str):
         raise HTTPException(status_code=404, detail="Not found")
     db = get_db()
     try:
+        # A superseded scope keeps its own token so a link already sitting in
+        # a customer's texts shows what they were actually sent. Checked first:
+        # these tokens are retired and can never collide with a live one.
+        old = db.query(FenceScopeVersion).filter(FenceScopeVersion.share_token == token).first()
+        if old is not None:
+            if not old.mms_image:
+                raise HTTPException(status_code=404, detail="Not found")
+            mime = old.mms_mime or "image/jpeg"
+            suffix = "jpg" if "jpeg" in mime else "png"
+            return Response(
+                content=bytes(old.mms_image),
+                media_type=mime,
+                headers={
+                    "Content-Disposition": f'inline; filename="fence-scope.{suffix}"',
+                    "Cache-Control": "public, max-age=300",
+                },
+            )
+
         lead = db.query(Lead).filter(Lead.fence_scope_share_token == token).first()
         if not lead or not lead.fence_scope_export_image:
             raise HTTPException(status_code=404, detail="Not found")

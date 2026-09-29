@@ -2483,6 +2483,80 @@ class EstimatorRecording(Base):
         }
 
 
+class FenceScopeVersion(Base):
+    """A scope of work that was already texted to a customer, kept as a record.
+
+    A customer who says "that's wrong, the image is flipped" needs a corrected
+    scope back within seconds. Before this, the only way to change a sent scope
+    was to delete it and start over — which wiped the ChatGPT drone render and
+    cost a minute of regeneration for what is usually a thirty-second fix to
+    the lines.
+
+    So the expensive things stay on the lead and are NEVER duplicated: the
+    aerial photo and the drone render are generated once per property and every
+    revision reuses them. A version stores only the cheap part — the markings,
+    the orientation, and the carrier-sized JPEG the customer actually received.
+
+    The full 6MB export is deliberately not kept. The ~1MB texted copy is what
+    the share link serves and it is big enough to look at, so carrying the
+    export for every superseded version would multiply storage for nothing.
+
+    Each version keeps its OWN share token, so a link already sitting in a
+    customer's texts goes on showing the image they were sent rather than
+    silently changing under them. Alan's call, and it makes the record honest.
+    """
+    __tablename__ = "fence_scope_versions"
+    __table_args__ = (
+        Index("idx_fence_scope_versions_lead", "lead_id"),
+        Index("idx_fence_scope_versions_token", "share_token"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, index=True, nullable=False)
+    # 1-based, in the order they were sent. Shown to staff as "Scope v2".
+    version_no = Column(Integer, default=1, nullable=False)
+
+    # The markings exactly as they were when this went out.
+    segments_json = Column(Text, default="")
+    rotation = Column(Integer, default=0, nullable=False)
+    mirrored = Column(Boolean, default=False, nullable=False)
+    enhanced = Column(Boolean, default=False, nullable=False)
+    use_ai = Column(Boolean, default=False, nullable=False)
+
+    # What the customer received, and the link that still serves it.
+    mms_image = deferred(Column(LargeBinary, nullable=True))
+    mms_mime = Column(Text, default="")
+    share_token = Column(Text, nullable=True)
+
+    sent_at = Column(Text, nullable=True)
+    archived_at = Column(Text, nullable=True)
+    archived_by = Column(Text, default="")
+
+    def to_dict(self):
+        """Metadata only — never the image bytes, which are deferred on purpose."""
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "version_no": self.version_no,
+            "segment_count": _segment_count_of(self.segments_json),
+            "rotation": self.rotation or 0,
+            "mirrored": bool(self.mirrored),
+            "used_ai": bool(self.use_ai),
+            "sent_at": self.sent_at,
+            "archived_at": self.archived_at,
+            "archived_by": self.archived_by or "",
+            "has_image": bool(self.share_token),
+        }
+
+
+def _segment_count_of(raw: str) -> int:
+    try:
+        parsed = json.loads(raw or "[]")
+        return len(parsed) if isinstance(parsed, list) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 class VideoEstimateSubmission(Base):
     """One FenceScope guided video-estimate submission for a lead (see
     fencescope.md). The customer walks their fence filming a guided video and

@@ -485,6 +485,21 @@ export interface FenceScopeSendPreview {
   reoriented: string;
 }
 
+/** One scope of work already texted to the customer, kept as a record. */
+export interface FenceScopeVersion {
+  id: string;
+  lead_id: string;
+  version_no: number;
+  segment_count: number;
+  rotation: number;
+  mirrored: boolean;
+  used_ai: boolean;
+  sent_at: string | null;
+  archived_at: string | null;
+  archived_by: string;
+  has_image: boolean;
+}
+
 /** "new" = never quoted. "returning" = quoted before and never booked. */
 export type ScopeTemplate = "new" | "returning";
 
@@ -1560,6 +1575,16 @@ export const api = {
       `/api/leads/${leadId}/fence-scope/send`,
       { method: "POST", body: JSON.stringify({ message, template, orientation_ok: orientationOk }) }
     ),
+  /** Every scope already sent to this customer, newest first. */
+  getFenceScopeVersions: (leadId: string) =>
+    request<{ versions: FenceScopeVersion[]; active_version_no: number; active_sent_at: string | null }>(
+      `/api/leads/${leadId}/fence-scope/versions`),
+  /** Files the sent scope away and opens a fresh one, reusing the drone render. */
+  reviseFenceScope: (leadId: string) =>
+    request<{ archived_version_no: number; editing_version_no: number; updated_at: string }>(
+      `/api/leads/${leadId}/fence-scope/revise`, { method: "POST" }),
+  fenceScopeVersionImageUrl: (leadId: string, versionId: string) =>
+    `${BASE}/api/leads/${leadId}/fence-scope/versions/${versionId}/image`,
   deleteFenceScopeAi: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope/ai`, { method: "DELETE" }),
 
