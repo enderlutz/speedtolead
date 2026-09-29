@@ -29,7 +29,6 @@ import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
-import CallPrepCard from "@/components/CallPrepCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import CustomProposalCard from "@/components/CustomProposalCard";
 import ExteriorTab from "@/components/ExteriorTab";
@@ -1057,9 +1056,13 @@ export default function LeadDetail() {
             </Card>
           )}
 
-          {/* Pre-call brief. Sits above the measurement card because it's the
-              thing you reach for right before dialling, not while estimating. */}
-          <CallPrepCard leadId={lead.id} leadName={lead.contact_name} />
+          {/* "Before you call" pre-call brief — hidden 2026-09-29, Alan's call:
+              not useful in practice and it was taking up room above the
+              measurement card. Component, API and the Claude dossier builder
+              (services/call_prep.py) are all kept. It only ever ran on a
+              button press, so hiding it costs nothing and saves the API call.
+              Uncomment to bring it back. */}
+          {/* <CallPrepCard leadId={lead.id} leadName={lead.contact_name} /> */}
 
           {/* Measurement screenshot — VA's Google Maps screenshot. Sits between
               the satellite view and the estimator because it's the artifact
