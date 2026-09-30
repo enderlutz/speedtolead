@@ -93,8 +93,20 @@ def list_contacts(
         msg_counts: dict[str, int] = {}
         inbound_counts: dict[str, int] = {}
         call_counts: dict[str, int] = {}
+        stage_by_lead: dict[str, tuple[str, str]] = {}
 
         if lead_ids:
+            # The pipeline still matters — it just no longer decides whether
+            # somebody exists. Shown as an attribute of the contact.
+            from services.pipeline_stages import STAGE_NAME_BY_ID
+            from services.pipeline_stages_b import STAGE_NAME_BY_ID_B
+            names = {**STAGE_NAME_BY_ID, **STAGE_NAME_BY_ID_B}
+            for lid, ver, stage_id in (
+                db.query(Lead.id, Lead.pipeline_version, Lead.ghl_pipeline_stage_id)
+                .filter(Lead.id.in_(lead_ids)).all()
+            ):
+                stage_by_lead[lid] = (ver or "", names.get(stage_id or "", ""))
+
             sent = {
                 r[0] for r in db.query(AutomationLog.lead_id)
                 .filter(AutomationLog.lead_id.in_(lead_ids))
@@ -135,6 +147,11 @@ def list_contacts(
             d["message_count"] = int(msg_counts.get(lid, 0)) if lid else 0
             d["inbound_count"] = int(inbound_counts.get(lid, 0)) if lid else 0
             d["call_count"] = int(call_counts.get(lid, 0)) if lid else 0
+            ver, stage = stage_by_lead.get(lid or "", ("", ""))
+            # "contact" means this row exists only because the contact does —
+            # nobody ever made an opportunity card for them.
+            d["pipeline"] = "" if ver == "contact" else ver
+            d["stage"] = stage
             out.append(d)
 
         # Filtering on estimate status is applied after the page is built,

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # — which is what we keep blowing through. Spread them every 60s across
 # the 300s window so no two co-fire:
 #   t+0    lead poller
+#   t+30   contact mirror (small — ~20 requests a sweep)
 #   t+60   followup engine
 #   t+120  message poller
 #   t+180  nudge
@@ -70,14 +71,20 @@ async def _message_poller_loop():
 
 
 async def _contact_mirror_loop():
-    """Background task: re-mirror the GHL contact list every 30 minutes.
+    """Background task: re-mirror the GHL contact list every 5 minutes.
 
-    Hourly-ish is plenty — this only tracks contacts appearing, being renamed
-    or being deleted in GHL, and the lead poller already picks up new
-    opportunity leads within 5 minutes. ~20 GHL requests per sweep (100
-    contacts a page), so roughly 1,000/day against a 200,000 cap.
+    The contact list is the intake now, not the pipeline. A contact with no
+    opportunity card used to exist nowhere in the dashboard, so this runs on
+    the same 5-minute cadence as the lead poller — a new contact appears here
+    as fast as a new opportunity appears on a board, whether anyone made a
+    card for them or not.
 
-    Offset 30s so it never co-fires with the lead poller at t+0.
+    Cheap enough to do that: ~20 GHL requests a sweep at 100 contacts a page,
+    so ~5,800/day against a 200,000 cap.
+
+    Offset t+30 — between the lead poller (t+0) and the message poller
+    (t+120), so a contact that lands this cycle has its row before the
+    message poller goes looking for conversations to pull.
     """
     await asyncio.sleep(30)
     while True:
@@ -86,7 +93,7 @@ async def _contact_mirror_loop():
             await asyncio.to_thread(sync_all_locations)
         except Exception as e:
             logger.error(f"Contact mirror error: {e}")
-        await asyncio.sleep(1800)
+        await asyncio.sleep(300)
 
 
 async def _nudge_loop():

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { RefreshCw, Search, Phone, Mail, MessageSquare, PhoneCall, Ban } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { RefreshCw, Search, Phone, Mail, MessageSquare, PhoneCall, Ban, ChevronRight } from "lucide-react";
 import { api, type ContactRow, type ContactStats } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,7 @@ function Stat({ label, value, hint }: { label: string; value: number | string; h
 }
 
 export default function Contacts() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<ContactRow[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -187,7 +188,7 @@ export default function Contacts() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm min-w-[820px]">
+        <table className="w-full text-sm min-w-[980px]">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="text-left font-medium px-3 py-2 w-10">#</th>
@@ -196,22 +197,22 @@ export default function Contacts() {
               <th className="text-left font-medium px-3 py-2">Came in</th>
               <th className="text-left font-medium px-3 py-2">Estimate</th>
               <th className="text-left font-medium px-3 py-2">History</th>
+              <th className="text-left font-medium px-3 py-2">Stage</th>
               <th className="text-left font-medium px-3 py-2">Where from</th>
+              <th className="w-8" />
             </tr>
           </thead>
           <tbody>
             {rows.map((c, i) => (
-              <tr key={c.id} className="border-t hover:bg-muted/30">
+              <tr
+                key={c.id}
+                onClick={() => c.lead_id && navigate(`/leads/${c.lead_id}`)}
+                className={`border-t hover:bg-muted/30 ${c.lead_id ? "cursor-pointer" : ""}`}
+              >
                 <td className="px-3 py-2 text-muted-foreground tabular-nums">{offset + i + 1}</td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {c.lead_id ? (
-                      <Link to={`/leads/${c.lead_id}`} className="font-medium hover:underline">
-                        {c.name || "(no name)"}
-                      </Link>
-                    ) : (
-                      <span className="font-medium">{c.name || "(no name)"}</span>
-                    )}
+                    <span className="font-medium">{c.name || "(no name)"}</span>
                     {c.dnd ? (
                       <Badge variant="destructive" className="gap-1">
                         <Ban className="h-3 w-3" /> opted out
@@ -222,7 +223,9 @@ export default function Contacts() {
                     <div className="text-xs text-muted-foreground">{c.address}</div>
                   ) : null}
                 </td>
-                <td className="px-3 py-2 whitespace-nowrap">
+                {/* stopPropagation so tapping a number dials instead of
+                    navigating away from the list. */}
+                <td className="px-3 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                   {c.phone ? (
                     <a href={`tel:${c.phone}`} className="inline-flex items-center gap-1 hover:underline">
                       <Phone className="h-3 w-3" />{fmtPhone(c.phone)}
@@ -259,11 +262,23 @@ export default function Contacts() {
                     <PhoneCall className="h-3 w-3" />{c.call_count}
                   </span>
                 </td>
+                {/* The pipeline is an attribute of the contact now, not the
+                    reason they exist. Blank = nobody made a card for them. */}
+                <td className="px-3 py-2 text-xs text-muted-foreground">
+                  {c.stage ? (
+                    <span>{c.stage}</span>
+                  ) : (
+                    <span className="italic text-muted-foreground/70">not on a board</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">
                   {c.source || "—"}
                   {c.tags.length ? (
                     <div className="mt-0.5">{c.tags.slice(0, 2).join(", ")}</div>
                   ) : null}
+                </td>
+                <td className="px-2 py-2 text-muted-foreground">
+                  {c.lead_id ? <ChevronRight className="h-4 w-4" /> : null}
                 </td>
               </tr>
             ))}

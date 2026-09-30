@@ -3297,6 +3297,9 @@ export interface ContactRow {
   message_count: number;
   inbound_count: number;
   call_count: number;
+  /** "" when nobody ever made an opportunity card for them. */
+  pipeline: string;
+  stage: string;
 }
 
 export interface ContactPage {
