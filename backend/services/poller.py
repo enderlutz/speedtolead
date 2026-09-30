@@ -705,25 +705,32 @@ def poll_ghl_messages(max_leads: int = 60, sleep_between: float = 0.5) -> dict:
     open leads had any stored SMS, and the callback list was ranking blind
     to the channel most customers actually answer on.
 
-    Selection mirrors the call poller: open leads (the callback list's stage
-    set), least-recently-checked first, stamped in a `finally` so one lead
-    that always fails can't jam the rotation. Whole threads, paginated, so
-    the reader sees the front of a conversation and not just its last 20
-    lines.
+    Selection: EVERY lead with a GHL contact id, least-recently-checked
+    first, stamped in a `finally` so one lead that always fails can't jam the
+    rotation. Whole threads, paginated, so the reader sees the front of a
+    conversation and not just its last 20 lines.
+
+    Why every lead (changed 2026-09-29): this used to filter on
+    CALL_LIST_STAGE_IDS, whose five stages are all *post*-estimate — ESTIMATE
+    SENT and later. So conversations were fetched only for people who already
+    had a price, and the group that most needs reading (no estimate yet, still
+    deciding whether to reply) was the one group never fetched. The effect
+    measured on the day this changed: of 1,972 contacts, 766 had any text
+    stored and 668 had a real inbound message. Two thirds of the customer base
+    had no readable history, which is also why the AI thread reader had so
+    little to work with.
 
     Cost: ~2 GHL requests per lead. At 60 leads every 5 minutes that is
-    ~17,000/day against a 200,000 cap, and every open lead is refreshed
-    about hourly.
+    ~17,000/day against a 200,000 cap. A full pass over ~2,400 leads takes
+    about 3.5 hours, so every lead is refreshed several times a day.
     """
     import time
-    from services.pipeline_stages import CALL_LIST_STAGE_IDS
 
     db = get_db()
     try:
         leads = (
             db.query(Lead)
             .filter(Lead.ghl_contact_id.isnot(None), Lead.ghl_contact_id != "")
-            .filter(Lead.ghl_pipeline_stage_id.in_(tuple(CALL_LIST_STAGE_IDS)))
             .filter(Lead.is_test == False)  # noqa: E712
             .order_by(Lead.messages_checked_at.asc())
             .limit(max(1, int(max_leads)))
@@ -800,6 +807,7 @@ def _sync_messages_for_lead(db, lead) -> int:
             direction = "inbound" if m.get("direction") == "inbound" else "outbound"
             body = m.get("body") or m.get("message") or ""
             created = m.get("dateAdded") or _now()
+            attachments = m.get("attachments") or []
             db.add(Message(
                 id=str(uuid.uuid4()),
                 ghl_contact_id=lead.ghl_contact_id,
@@ -809,12 +817,17 @@ def _sync_messages_for_lead(db, lead) -> int:
                 message_type=m.get("messageType") or m.get("type") or "SMS",
                 ghl_message_id=ghl_id,
                 created_at=created,
+                attachments_json=json.dumps(attachments),
             ))
             known.add(ghl_id)
             added += 1
-            if direction == "inbound" and body.strip():
+            # A photo with no caption is still the customer answering us.
+            # Requiring a non-empty body here is what made every MMS look
+            # like silence.
+            if direction == "inbound" and (body.strip() or attachments):
                 if newest_inbound is None or created > newest_inbound[0]:
-                    newest_inbound = (created, body)
+                    label = body.strip() or f"[sent {len(attachments)} attachment(s)]"
+                    newest_inbound = (created, label)
 
     if newest_inbound:
         created, body = newest_inbound

@@ -512,6 +512,96 @@ class Message(Base):
     message_type = Column(Text, default="SMS")
     ghl_message_id = Column(Text, nullable=True, unique=True)
     created_at = Column(Text, default="")
+    # GHL returns an `attachments` array on every message; the poller stored
+    # only `body` until 2026-09-29, so a customer's photo or video arrived as
+    # an empty message and the AI readers saw nothing where a picture was.
+    # Customers send fence photos, damage close-ups and colours they like.
+    # JSON array of URLs, "[]" when there are none.
+    attachments_json = Column(Text, default="[]")
+
+
+class Contact(Base):
+    """A 1:1 mirror of the GHL contact list.
+
+    Why this exists: the lead pipeline only ever created rows for contacts
+    that had an *opportunity card* in one of two pipelines, so a contact with
+    no card was invisible to the whole dashboard — 469 of 1,972 on the day
+    this was written. `leads` is therefore a subset of the customer base, not
+    the customer base, and no audit run against it can be complete.
+
+    This table is the complete set. GHL is the system of record: every field
+    here is overwritten from GHL on each sync, names included. One row per GHL
+    contact (`ghl_contact_id` unique), ordered by `date_added` so the page
+    reads in the same order as the GHL contact list.
+
+    `lead_id` links to the pipeline row when one exists — matched on GHL id
+    first, then on `phone_key` so a contact re-created in a newer GHL account
+    attaches to the lead it already had instead of duplicating it.
+    """
+    __tablename__ = "contacts"
+    __table_args__ = (
+        Index("idx_contacts_phone_key", "phone_key"),
+        Index("idx_contacts_date_added", "date_added"),
+        Index("idx_contacts_lead_id", "lead_id"),
+        Index("idx_contacts_location", "ghl_location_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    ghl_contact_id = Column(Text, unique=True, nullable=False)
+    ghl_location_id = Column(Text, default="")
+    name = Column(Text, default="")
+    first_name = Column(Text, default="")
+    last_name = Column(Text, default="")
+    phone = Column(Text, default="")
+    # Last 10 digits — services.name_match.phone_key. The dedupe key, since
+    # the same person is written "+1281…", "(281) …" and "281-…" across
+    # accounts, forms and imports.
+    phone_key = Column(Text, default="")
+    email = Column(Text, default="")
+    address = Column(Text, default="")
+    city = Column(Text, default="")
+    state = Column(Text, default="")
+    postal_code = Column(Text, default="")
+    country = Column(Text, default="")
+    source = Column(Text, default="")
+    contact_type = Column(Text, default="")      # GHL "type": lead | customer
+    tags_json = Column(Text, default="[]")
+    # GHL's own do-not-disturb flag. Mirrored so the contact list can show it;
+    # the send path still enforces Lead.do_not_contact separately.
+    dnd = Column(Boolean, default=False)
+    date_added = Column(Text, default="")        # GHL dateAdded — the sort order
+    date_updated = Column(Text, default="")
+    lead_id = Column(Text, nullable=True)        # NULL = in GHL, never a lead
+    # How lead_id was resolved: "ghl_id" | "phone" | "" (no lead).
+    link_method = Column(Text, default="")
+    first_synced_at = Column(Text, default="")
+    synced_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "ghl_contact_id": self.ghl_contact_id,
+            "ghl_location_id": self.ghl_location_id or "",
+            "name": self.name or "",
+            "first_name": self.first_name or "",
+            "last_name": self.last_name or "",
+            "phone": self.phone or "",
+            "phone_key": self.phone_key or "",
+            "email": self.email or "",
+            "address": self.address or "",
+            "city": self.city or "",
+            "state": self.state or "",
+            "postal_code": self.postal_code or "",
+            "source": self.source or "",
+            "contact_type": self.contact_type or "",
+            "tags": _j(self.tags_json) or [],
+            "dnd": bool(self.dnd),
+            "date_added": self.date_added or "",
+            "date_updated": self.date_updated or "",
+            "lead_id": self.lead_id,
+            "link_method": self.link_method or "",
+            "synced_at": self.synced_at or "",
+        }
 
 
 class PricingConfig(Base):
@@ -3702,6 +3792,12 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE sms_queue ADD COLUMN also_email BOOLEAN NOT NULL DEFAULT FALSE"))
             conn.execute(text("ALTER TABLE sms_queue ADD COLUMN estimate_id TEXT DEFAULT ''"))
         logger.info("Migration: added sms_queue.apply_tag / also_email / estimate_id")
+
+    message_cols = {c["name"] for c in inspector.get_columns("messages")}
+    if "attachments_json" not in message_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE messages ADD COLUMN attachments_json TEXT DEFAULT '[]'"))
+        logger.info("Migration: added messages.attachments_json")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

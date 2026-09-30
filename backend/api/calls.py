@@ -9,7 +9,7 @@ import logging
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Form, Depends, Response, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Form, Depends, Response, Request, Query
 from sqlalchemy import func
 from sqlalchemy.orm import defer
 from pydantic import BaseModel
@@ -61,15 +61,26 @@ def ingest_calls_for_lead_endpoint(lead_id: str, user: dict = Depends(require_ad
 
 
 @router.post("/calls/ingest-all")
-def ingest_all_recent_calls_endpoint(user: dict = Depends(require_admin)):
+def ingest_all_recent_calls_endpoint(
+    lookback_days: int = Query(60, ge=1, le=3650),
+    max_leads: int = Query(160, ge=1, le=5000),
+    user: dict = Depends(require_admin),
+):
     """Sprint 4 T4.A (2026-06-08). Fire the full poll cycle manually —
-    walks every lead updated/created in the last 60 days and ingests
-    new TYPE_CALL recordings. Synchronous; returns the aggregate
-    summary. T4.B will wire this to a scheduled job; until then it's
-    admin-triggered."""
+    walks every lead updated/created within `lookback_days` and ingests
+    new TYPE_CALL recordings. Synchronous; returns the aggregate summary.
+
+    Both bounds are now arguments (2026-09-29). The defaults are the steady
+    -state window, but a lead untouched for longer than that had its calls
+    fetched once and never again, so the back catalogue was unreachable
+    through this endpoint. For a full sweep pass a large lookback and a
+    max_leads above the lead count — e.g. `?lookback_days=3650&max_leads=3000`.
+    Cost is a couple of GHL requests per lead, so a ~2,400-lead sweep is
+    ~5,000 requests against a 200,000/day cap.
+    """
     del user
     from services.call_poller import poll_ghl_call_recordings
-    return poll_ghl_call_recordings()
+    return poll_ghl_call_recordings(lookback_days=lookback_days, max_leads=max_leads)
 
 
 @router.post("/calls/backfill-sterling")

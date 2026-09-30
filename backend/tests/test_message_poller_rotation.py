@@ -94,13 +94,33 @@ def test_every_open_lead_is_reached_within_a_cycle(db, fake_ghl):
     assert set(visited) == {l.ghl_contact_id for l in leads}
 
 
-def test_closed_leads_and_leads_without_a_contact_are_skipped(db, fake_ghl):
+def test_leads_without_a_contact_are_skipped(db, fake_ghl):
+    """No GHL contact id means there is nothing to ask GHL about."""
     visited, _ = fake_ghl
-    open_ = make_leads(db, 3)
-    make_leads(db, 3, stage="some-closed-stage")
+    reachable = make_leads(db, 3)
     make_leads(db, 2, contact=False)
     poller.poll_ghl_messages(max_leads=50, sleep_between=0)
-    assert set(visited) == {l.ghl_contact_id for l in open_}
+    assert set(visited) == {l.ghl_contact_id for l in reachable}
+
+
+def test_every_stage_is_polled_not_just_post_estimate_ones(db, fake_ghl):
+    """Changed 2026-09-29: stage no longer gates whose texts get pulled.
+
+    This used to filter on CALL_LIST_STAGE_IDS, whose five stages are all
+    ESTIMATE SENT or later. Conversations were therefore fetched only for
+    people who already had a price, and the group that most needs reading —
+    no estimate yet, still deciding — was the one group never fetched. On the
+    day this changed, 766 of 1,972 contacts had any stored text at all.
+    """
+    visited, _ = fake_ghl
+    post_estimate = make_leads(db, 2)
+    pre_estimate = make_leads(db, 3, stage="e77fa568-8dd1-4f66-83c3-fa70dbd4d570")  # New Lead
+    no_stage = make_leads(db, 2, stage="")
+
+    poller.poll_ghl_messages(max_leads=50, sleep_between=0)
+
+    expected = {l.ghl_contact_id for l in post_estimate + pre_estimate + no_stage}
+    assert set(visited) == expected
 
 
 def test_a_never_checked_lead_jumps_the_queue(db, fake_ghl):
@@ -191,3 +211,55 @@ def test_an_inbound_text_marks_the_lead_as_responded(db, fake_ghl):
     got = db.query(Lead).filter(Lead.id == lead.id).first()
     assert got.customer_responded is True
     assert got.customer_response_text == "Thursday works for me"
+
+
+# ── Attachments ───────────────────────────────────────────────────────
+# GHL returns an `attachments` array on every message. Until 2026-09-29 the
+# poller stored `body` and dropped it, so every photo and video a customer
+# ever sent arrived as an empty message — and the AI readers saw silence
+# where a picture of a fence was.
+
+def test_attachments_are_stored(db, fake_ghl):
+    _, threads = fake_ghl
+    lead = make_leads(db, 1)[0]
+    urls = ["https://ghl.example/img/fence1.jpg", "https://ghl.example/img/fence2.jpg"]
+    msg = sms(1, "inbound", "here you go", "2026-09-02T15:00:00.000Z")
+    msg["attachments"] = urls
+    threads[lead.ghl_contact_id] = [msg]
+
+    poller.poll_ghl_messages(max_leads=1, sleep_between=0)
+
+    from database import Message
+    import json
+    stored = db.query(Message).filter(Message.lead_id == lead.id).one()
+    assert json.loads(stored.attachments_json) == urls
+
+
+def test_a_photo_with_no_caption_still_counts_as_a_reply(db, fake_ghl):
+    """A customer texting only a photo is answering us, not staying silent."""
+    _, threads = fake_ghl
+    lead = make_leads(db, 1)[0]
+    msg = sms(1, "inbound", "", "2026-09-02T15:00:00.000Z")
+    msg["attachments"] = ["https://ghl.example/img/fence1.jpg"]
+    threads[lead.ghl_contact_id] = [msg]
+
+    poller.poll_ghl_messages(max_leads=1, sleep_between=0)
+
+    from database import Lead
+    db.expire_all()
+    got = db.query(Lead).filter(Lead.id == lead.id).first()
+    assert got.customer_responded is True
+    assert "attachment" in (got.customer_response_text or "")
+
+
+def test_a_message_with_no_attachments_stores_an_empty_list(db, fake_ghl):
+    _, threads = fake_ghl
+    lead = make_leads(db, 1)[0]
+    threads[lead.ghl_contact_id] = [sms(1, "inbound", "just text")]
+
+    poller.poll_ghl_messages(max_leads=1, sleep_between=0)
+
+    from database import Message
+    import json
+    stored = db.query(Message).filter(Message.lead_id == lead.id).one()
+    assert json.loads(stored.attachments_json) == []

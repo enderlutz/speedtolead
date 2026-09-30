@@ -48,6 +48,7 @@ import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Revenue from "@/pages/Revenue";
 import DailyTasks from "@/pages/DailyTasks";
+import Contacts from "@/pages/Contacts";
 import Accounting from "@/pages/Accounting";
 import StainInventory from "@/pages/StainInventory";
 import FencePhotos from "@/pages/FencePhotos";
@@ -186,6 +187,7 @@ function AppLayout() {
             <Routes>
               <Route path="/" element={<RequireView view="dashboard"><Dashboard /></RequireView>} />
               <Route path="/daily-tasks" element={<RequireView view="dashboard"><DailyTasks /></RequireView>} />
+              <Route path="/contacts" element={<RequireView view="leads"><Contacts /></RequireView>} />
               <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
               <Route path="/leads-b" element={<RequireView view="leads"><LeadsB /></RequireView>} />
               <Route path="/leads-brick" element={<RequireView view="leads"><LeadsBrick /></RequireView>} />

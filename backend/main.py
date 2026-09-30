@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
 import clock
-from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding
+from api import webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
@@ -67,6 +67,26 @@ async def _message_poller_loop():
         except Exception as e:
             logger.error(f"Message poller error: {e}")
         await asyncio.sleep(300)
+
+
+async def _contact_mirror_loop():
+    """Background task: re-mirror the GHL contact list every 30 minutes.
+
+    Hourly-ish is plenty — this only tracks contacts appearing, being renamed
+    or being deleted in GHL, and the lead poller already picks up new
+    opportunity leads within 5 minutes. ~20 GHL requests per sweep (100
+    contacts a page), so roughly 1,000/day against a 200,000 cap.
+
+    Offset 30s so it never co-fires with the lead poller at t+0.
+    """
+    await asyncio.sleep(30)
+    while True:
+        try:
+            from services.contact_mirror import sync_all_locations
+            await asyncio.to_thread(sync_all_locations)
+        except Exception as e:
+            logger.error(f"Contact mirror error: {e}")
+        await asyncio.sleep(1800)
 
 
 async def _nudge_loop():
@@ -490,6 +510,10 @@ async def lifespan(app: FastAPI):
     if get_settings().enable_message_poller:
         msg_poller = asyncio.create_task(_message_poller_loop())
         logger.info("Message poller enabled")
+    # Mirrors the whole GHL contact list into `contacts` (and gives every
+    # contact an inert lead row) so the message and call pollers can reach
+    # people who never had an opportunity card — 469 of 1,972 on 2026-09-29.
+    contact_mirror = asyncio.create_task(_contact_mirror_loop())
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
@@ -531,6 +555,7 @@ async def lifespan(app: FastAPI):
     poller.cancel()
     if msg_poller is not None:
         msg_poller.cancel()
+    contact_mirror.cancel()
     sms_worker.cancel()
     weekly.cancel()
     wrapped_loop.cancel()
@@ -618,6 +643,7 @@ app.include_router(exterior.router, prefix="/api")
 app.include_router(video_estimate.router, prefix="/api")
 app.include_router(customer_upsell.router, prefix="/api")
 app.include_router(painting_upsell.router, prefix="/api")
+app.include_router(contacts.router, prefix="/api")
 app.include_router(internal.router, prefix="/api")
 app.include_router(fence_scope.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")

@@ -3259,7 +3259,76 @@ export const api = {
   deleteCrewAssignment: (id: string) => request<{ status: string }>(`/api/crew-app/assignments/${id}`, { method: "DELETE" }),
   crewShiftDay: (date: string) => request<{ status: string; moved_to: string; moved: number; promoted: number }>(`/api/crew-app/board/shift-day`, { method: "POST", body: JSON.stringify({ date }) }),
   getCrewStats: (start?: string, end?: string) => request<CrewStats>(`/api/crew-app/stats${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
+
+  // --- Contacts (mirror of the GHL contact list) ---
+  listContacts: (params: {
+    q?: string; estimate?: "sent" | "not_sent"; has_lead?: boolean;
+    limit?: number; offset?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set("q", params.q);
+    if (params.estimate) qs.set("estimate", params.estimate);
+    if (params.has_lead !== undefined) qs.set("has_lead", String(params.has_lead));
+    qs.set("limit", String(params.limit ?? 100));
+    qs.set("offset", String(params.offset ?? 0));
+    return request<ContactPage>(`/api/contacts?${qs.toString()}`);
+  },
+  getContactStats: () => request<ContactStats>("/api/contacts/stats"),
+  syncContacts: () => request<Record<string, ContactSyncResult>>("/api/contacts/sync", { method: "POST" }),
 };
+
+// --- Contacts ---
+
+export interface ContactRow {
+  id: string;
+  ghl_contact_id: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  source: string;
+  tags: string[];
+  dnd: boolean;
+  date_added: string;
+  /** null = in GHL but never a lead, so nothing has ever been sent. */
+  lead_id: string | null;
+  link_method: string;
+  estimate_sent: boolean;
+  message_count: number;
+  inbound_count: number;
+  call_count: number;
+}
+
+export interface ContactPage {
+  total: number;
+  limit: number;
+  offset: number;
+  contacts: ContactRow[];
+}
+
+export interface ContactStats {
+  total: number;
+  with_lead: number;
+  without_lead: number;
+  estimate_sent: number;
+  no_estimate: number;
+  no_phone: number;
+  dnd: number;
+  newest: string;
+  oldest: string;
+  last_sync: string;
+}
+
+export interface ContactSyncResult {
+  fetched?: number;
+  created?: number;
+  updated?: number;
+  leads_created?: number;
+  names_corrected?: number;
+  linked_by_phone?: number;
+  not_seen_this_sweep?: number;
+  error?: string;
+}
 
 // --- Training simulator types ---
 

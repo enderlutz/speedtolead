@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map, Contact } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -78,6 +78,10 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // avoid showing fence data. Reveal each as it gets scoped for brick.
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard", divisions: ["fence"] },
   { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard" },  // division-scoped → both
+  // Mirror of the whole GHL contact list — above the boards on purpose, since
+  // the boards are a subset of it (they only show people with an opportunity
+  // card; 469 of 1,972 contacts had none on 2026-09-29).
+  { to: "/contacts", icon: Contact, label: "Contacts", perm: "leads", divisions: ["fence"] },
   { to: "/leads", icon: Users, label: "Sterling Leads A", perm: "leads", divisions: ["fence"] },
   { to: "/leads-b", icon: Users, label: "Sterling Leads B", perm: "leads", divisions: ["fence"] },
   { to: "/leads-brick", icon: Users, label: "Brick Leads", perm: "leads", divisions: ["brick"] },

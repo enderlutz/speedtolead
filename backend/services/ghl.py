@@ -143,31 +143,45 @@ def _headers(location_id: str | None = None, api_key: str | None = None) -> dict
 
 # --- Contact fetching ---
 
-def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
+def get_contacts(location_id: str, max_contacts: int = 10000) -> list[dict]:
+    """Every contact in a location, newest-added first (GHL's own order).
+
+    100 per page (the API maximum) so a full sweep of ~2,000 contacts is ~20
+    requests, not ~99. A partial page ends the walk; `meta.total` is logged so
+    a short read is visible in the logs instead of silently looking complete.
+
+    Raises on the first HTTP failure. Returning a partial list quietly is what
+    makes a mirror drop people — the caller needs to know the read was short,
+    since "not in this list" is about to mean "deleted in GHL".
+    """
     all_contacts: list[dict] = []
-    limit = 20
+    limit = 100
     params: dict = {"locationId": location_id, "limit": limit}
+    reported_total: int | None = None
 
     while len(all_contacts) < max_contacts:
-        try:
-            r = _client.get(f"{GHL_BASE}/contacts/", headers=_headers(location_id), params=params, timeout=30)
-            r.raise_for_status()
-            data = r.json()
-            contacts = data.get("contacts", [])
-            all_contacts.extend(contacts)
+        r = _client.get(f"{GHL_BASE}/contacts/", headers=_headers(location_id), params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        contacts = data.get("contacts", [])
+        all_contacts.extend(contacts)
 
-            meta = data.get("meta", {})
-            start_after = meta.get("startAfter")
-            start_after_id = meta.get("startAfterId")
+        meta = data.get("meta", {})
+        if reported_total is None:
+            reported_total = meta.get("total")
+        start_after = meta.get("startAfter")
+        start_after_id = meta.get("startAfterId")
 
-            if not start_after or not start_after_id or len(contacts) < limit:
-                break
-
-            params = {"locationId": location_id, "limit": limit, "startAfter": start_after, "startAfterId": start_after_id}
-        except Exception as e:
-            logger.error(f"GHL get_contacts failed: {e}")
+        if not start_after or not start_after_id or len(contacts) < limit:
             break
 
+        params = {"locationId": location_id, "limit": limit, "startAfter": start_after, "startAfterId": start_after_id}
+
+    if reported_total is not None and len(all_contacts) < reported_total:
+        logger.warning(
+            f"GHL get_contacts({location_id}): read {len(all_contacts)} of "
+            f"{reported_total} reported contacts"
+        )
     return all_contacts
 
 
