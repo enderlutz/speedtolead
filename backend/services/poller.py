@@ -290,6 +290,29 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                     # is unchanged.)
                     if existing and existing.pipeline_version in ("v2", "v2b") and existing.pipeline_version != cfg.version:
                         continue
+
+                    # A placeholder row the contact mirror made, which this
+                    # opportunity now claims. ADOPT it — fall through to the
+                    # creation path below, which fills it in properly.
+                    #
+                    # This has to exist because the mirror reads the contact
+                    # LIST and runs every 5 minutes, while this poller reads
+                    # opportunity CARDS. A new lead appears as a contact
+                    # slightly before GHL's automation creates its card, so
+                    # the mirror usually gets there first and the row already
+                    # exists by the time the opportunity shows up. Without
+                    # this, that row stayed pipeline_version="contact"
+                    # forever: off every board, no Estimate, no dashboard-link
+                    # note, and no new-lead alert to Alan or Olga. Every lead
+                    # that came in on 2026-09-30 landed that way.
+                    #
+                    # Adopted in place rather than deleted and re-created, so
+                    # the texts and calls already pulled against this lead id
+                    # (and contacts.lead_id) stay attached.
+                    shadow = None
+                    if existing is not None and existing.pipeline_version == "contact":
+                        shadow = existing
+                        existing = None
                     if existing:
                         changed = False
                         stage_changed = bool(stage_id and existing.ghl_pipeline_stage_id != stage_id)
@@ -564,7 +587,10 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                     else:
                         ghl_created = _now()
 
-                    lead_id = str(uuid.uuid4())
+                    # Keep the placeholder's id when adopting one, so every
+                    # Message / CallRecording / contacts.lead_id already
+                    # pointing at it stays pointed at it.
+                    lead_id = shadow.id if shadow is not None else str(uuid.uuid4())
                     now = _now()
 
                     if cfg.division == "brick":
@@ -586,8 +612,7 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                             {**form_data, "address": full_address}, approval_status, postal, approval_reason
                         )
 
-                    lead = Lead(
-                        id=lead_id,
+                    fields = dict(
                         ghl_contact_id=contact_id,
                         ghl_location_id=location_id,
                         location_label=label,
@@ -607,10 +632,19 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                         ghl_pipeline_stage_id=stage_id or "",
                         ghl_created_at=ghl_created,
                         dashboard_synced_at=now,
-                        created_at=ghl_created,
                         updated_at=now,
                     )
-                    db.add(lead)
+                    if shadow is not None:
+                        # Adopting the mirror's placeholder: same row, now a
+                        # real pipeline lead. created_at is left alone so the
+                        # board keeps showing when the customer actually came
+                        # in, not when the opportunity card caught up.
+                        for k, v in fields.items():
+                            setattr(shadow, k, v)
+                        lead = shadow
+                    else:
+                        lead = Lead(id=lead_id, created_at=ghl_created, **fields)
+                        db.add(lead)
 
                     estimate = Estimate(
                         id=str(uuid.uuid4()),
