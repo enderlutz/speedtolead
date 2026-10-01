@@ -12,6 +12,8 @@ declare global {
     fitBounds(bounds: GLatLngBounds): void;
     setCenter(p: GLatLngLiteral): void;
     setZoom(z: number): void;
+    getCenter(): GLatLng | undefined;
+    getZoom(): number | undefined;
   }
   interface GLatLngBounds {
     extend(p: GLatLngLiteral): void;
@@ -55,6 +57,10 @@ declare global {
     LatLngBounds: new () => GLatLngBounds;
     Geocoder: new () => GGeocoder;
     SymbolPath: { CIRCLE: number; BACKWARD_CLOSED_ARROW: number; FORWARD_CLOSED_ARROW: number };
+    /** Needed to tell a map its container changed size. Without it Google
+     *  keeps hit-testing clicks against the old dimensions, so taps land
+     *  nowhere near the finger. */
+    event: { trigger(instance: unknown, eventName: string): void };
   }
   interface Window {
     google?: { maps: GoogleMapsNS };

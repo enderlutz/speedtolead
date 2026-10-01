@@ -58,6 +58,18 @@ const DEFAULT_ZOOM = 20;
 // One colour per run so overlapping measurements stay tellable apart.
 const RUN_COLORS = ["#f59e0b", "#38bdf8", "#a3e635", "#f472b6", "#fb923c", "#c084fc"];
 
+// Coarse pointer means fingers: bigger vertices and bigger tap targets.
+// Checked once at module load — this does not change mid-session, and a
+// media-query listener would be noise for what it buys.
+const IS_TOUCH =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches;
+
+// A 24px icon button is well under the ~44px a fingertip needs, and these
+// sit in a row next to each other where a miss undoes the wrong thing.
+const TAP_BTN = IS_TOUCH ? "h-9 w-9 p-0" : "h-6 w-6 p-0";
+
 type Pt = { lat: number; lng: number };
 type Run = { id: number; points: Pt[]; closed: boolean };
 
@@ -163,6 +175,14 @@ export default function SatelliteMeasureCard({
           fullscreenControl: true,
           mapTypeControl: false,
           clickableIcons: false,
+          // "greedy" so one finger pans the map. The mobile default is
+          // "cooperative", which needs two fingers and makes a one-finger
+          // drag scroll the page instead — which reads as the map ignoring
+          // you. Measuring is a tapping job, so the map wins the gesture.
+          gestureHandling: "greedy",
+          // Chunkier controls for thumbs.
+          controlSize: 32,
+          zoomControl: true,
         });
         mapRef.current.addListener(
           "click",
@@ -203,6 +223,41 @@ export default function SatelliteMeasureCard({
   const activeRunRef = useRef(activeRun);
   useEffect(() => { activeRunRef.current = activeRun; }, [activeRun]);
 
+  // Keep Google's idea of the container size in step with reality.
+  //
+  // Google caches the map div's dimensions and hit-tests clicks against that
+  // cache. If the div resizes afterwards, a tap is translated using the old
+  // size and the point lands away from the finger — proportionally to how
+  // wrong the cache is, so on a phone it can be most of the screen. This div
+  // resizes for several ordinary reasons: it is `aspect-square`, so its
+  // height follows its width; the warning box above it appears and
+  // disappears; and the saved-photo strip below it arrives after a fetch.
+  //
+  // A ResizeObserver covers all of those plus rotating the phone, without
+  // guessing which one happened. Centre is saved and restored because a
+  // resize re-anchors on the top-left corner, not the middle.
+  useEffect(() => {
+    const el = mapDivRef.current;
+    if (status !== "ready" || !el) return;
+    if (typeof ResizeObserver === "undefined") return;
+
+    let frame = 0;
+    const ro = new ResizeObserver(() => {
+      // Coalesce the burst a layout change produces into one correction.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const g = mapsNS();
+        const map = mapRef.current;
+        if (!g || !map) return;
+        const c = map.getCenter?.();
+        g.event.trigger(map, "resize");
+        if (c) map.setCenter({ lat: c.lat(), lng: c.lng() });
+      });
+    });
+    ro.observe(el);
+    return () => { cancelAnimationFrame(frame); ro.disconnect(); };
+  }, [status]);
+
   // Redraw paths, vertices and per-leg labels. Google overlays aren't
   // React-managed, so everything is torn down first or they leak onto the map.
   useEffect(() => {
@@ -233,7 +288,9 @@ export default function SatelliteMeasureCard({
           map: mapRef.current,
           icon: {
             path: g.SymbolPath.CIRCLE,
-            scale: 5,
+            // Bigger on touch: a 5px dot under a fingertip is invisible at
+            // the moment you most need to see where the last point landed.
+            scale: IS_TOUCH ? 7 : 5,
             fillColor: color,
             fillOpacity: 1,
             strokeColor: "#fff",
@@ -469,7 +526,7 @@ export default function SatelliteMeasureCard({
                 </span>
                 {run.points.length >= 3 ? (
                   <Button
-                    size="sm" variant="ghost" className="h-6 px-1.5 text-xs"
+                    size="sm" variant="ghost" className={IS_TOUCH ? "h-9 px-3 text-xs" : "h-6 px-1.5 text-xs"}
                     onClick={(e) => {
                       e.stopPropagation();
                       setRuns((p) => p.map((r) =>
@@ -482,7 +539,7 @@ export default function SatelliteMeasureCard({
                 ) : null}
                 {run.points.length > 0 ? (
                   <Button
-                    size="sm" variant="ghost" className="h-6 w-6 p-0"
+                    size="sm" variant="ghost" className={TAP_BTN}
                     onClick={(e) => {
                       e.stopPropagation();
                       setRuns((p) => p.map((r) =>
@@ -495,7 +552,7 @@ export default function SatelliteMeasureCard({
                 ) : null}
                 {runs.length > 1 ? (
                   <Button
-                    size="sm" variant="ghost" className="h-6 w-6 p-0"
+                    size="sm" variant="ghost" className={TAP_BTN}
                     onClick={(e) => { e.stopPropagation(); removeRun(run.id); }}
                     title="Remove this measurement"
                   >
