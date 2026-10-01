@@ -342,6 +342,82 @@ def maps_browser_key(user: dict = Depends(require_staff)):
     }
 
 
+@router.get("/maps-key/selftest")
+def maps_key_selftest(user: dict = Depends(require_staff)):
+    """Ask Google which Maps APIs this key is actually allowed to use.
+
+    The three APIs here are enabled and billed separately, so the map
+    rendering fine says nothing about whether a capture will work. Rather
+    than guessing from a failed capture, this calls each one with a throwaway
+    request and hands back Google's own words.
+
+    Reports status and message per API, never the key.
+    """
+    del user
+    settings = get_settings()
+    server = (settings.google_maps_api_key or "").strip()
+    browser = (settings.google_maps_browser_key or "").strip()
+
+    checks: dict[str, dict] = {}
+
+    def _probe(label: str, url: str, key: str, expect_image: bool) -> None:
+        if not key:
+            checks[label] = {"ok": False, "detail": "no key configured"}
+            return
+        try:
+            import httpx
+            with httpx.Client(timeout=15.0) as client:
+                r = client.get(url)
+            if expect_image:
+                ctype = r.headers.get("content-type", "")
+                ok = r.status_code == 200 and "image" in ctype and bool(r.content)
+                checks[label] = {
+                    "ok": ok,
+                    "http": r.status_code,
+                    # Google explains the refusal in the body on a 4xx.
+                    "detail": "" if ok else (r.text or f"HTTP {r.status_code}")[:300],
+                }
+            else:
+                body = r.json() if r.content else {}
+                gstatus = str(body.get("status") or "")
+                ok = r.status_code == 200 and gstatus == "OK"
+                checks[label] = {
+                    "ok": ok,
+                    "http": r.status_code,
+                    "google_status": gstatus,
+                    "detail": "" if ok else str(body.get("error_message") or gstatus)[:300],
+                }
+        except Exception as e:
+            checks[label] = {"ok": False, "detail": f"could not reach Google: {e}"[:300]}
+
+    # Static Maps — what the Capture button needs, called from the server.
+    _probe(
+        "maps_static",
+        "https://maps.googleapis.com/maps/api/staticmap"
+        "?center=29.7604,-95.3698&zoom=18&size=100x100&maptype=satellite"
+        f"&key={server or browser}",
+        server or browser,
+        expect_image=True,
+    )
+    # Geocoding — the auto-locate and the address search box.
+    _probe(
+        "geocoding",
+        "https://maps.googleapis.com/maps/api/geocode/json"
+        f"?address=1600+Amphitheatre+Parkway+Mountain+View+CA&key={browser or server}",
+        browser or server,
+        expect_image=False,
+    )
+
+    return {
+        "key_source": "browser_key" if browser else ("server_key" if server else "none"),
+        "has_separate_browser_key": bool(browser),
+        "checks": checks,
+        # Maps JavaScript API can only be verified in a browser — Google
+        # rejects it via window.gm_authFailure, which the frontend hooks.
+        "note": "Maps JavaScript API is checked in the browser, not here.",
+    }
+
+
 @router.get("/leads-map")
 def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = Depends(require_staff)):
     """Data for the Company/Lead Map.
