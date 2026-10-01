@@ -1073,6 +1073,13 @@ FIELD_ALIASES: dict[str, str] = {
     "has_the_fence_been_stained_before": "previously_stained",
     "service_timeline": "service_timeline",
     "timeline": "service_timeline",
+    # GHL carries two fields with the same answer in them: the "Service
+    # Timeline" picklist and a free-text "timeframe". Only the first was
+    # mapped, so a lead whose form filled in just `timeframe` lost the
+    # answer entirely. Both land on service_timeline — they are the same
+    # question asked twice.
+    "timeframe": "service_timeline",
+    "time_frame": "service_timeline",
     "when_would_you_like_the_work_done": "service_timeline",
     "additional_services": "additional_services",
     "additionalservices": "additional_services",

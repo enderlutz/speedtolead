@@ -92,7 +92,10 @@ def _is_backward_across_send(current_stage_id: str, incoming_stage_id: str, cfg:
 
 _HEIGHT_VALUES = {"6ft", "6.5ft", "7ft", "8ft", "standard", "rot board", "not sure"}
 _AGE_VALUES = {"brand new", "less than 6", "1-6 year", "6-12 year", "6-15 year", "older than 15", "not sure"}
-_TIMELINE_VALUES = {"as soon as possible", "within 2 weeks", "sometime this month", "just planning ahead", "getting a quote"}
+# "this month" rather than "sometime this month": GHL's live picklist option
+# is literally "This month", so the longer phrase never matched it and the
+# value fell through to be stored under its raw GHL field id instead.
+_TIMELINE_VALUES = {"as soon as possible", "asap", "within 2 weeks", "this month", "just planning ahead", "getting a quote", "planning ahead"}
 _BOOL_VALUES = {"yes", "no"}
 
 

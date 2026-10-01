@@ -8,7 +8,7 @@ import logging
 import math
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, Depends
-from api.auth import get_current_user_optional
+from api.auth import get_current_user_optional, require_staff
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
@@ -693,6 +693,51 @@ def _alert_team_pipeline_failure(reason: str, *, customer_name: str, customer_ph
         pass
 
 
+def _record_estimate_sent(
+    *,
+    lead_id: str,
+    estimate_id: str,
+    tiers: dict | None,
+    sig_price,
+    actor_sub: str = "",
+    actor_name: str = "",
+    occurred_at: str | None = None,
+    channel: str = "sms",
+) -> None:
+    """Record the funnel event for an estimate reaching the customer.
+
+    There are three send paths in this file (approve & send, custom PDF
+    proposal, regenerate/resend) and they each logged a different subset of
+    the facts — one carries no price at all and one passes no metadata
+    whatsoever. This is the single shape they all go through, so "estimates
+    sent today, by rep, worth how much" has one answer.
+
+    `value` is the Signature tier, which is the headline number the customer
+    is quoted; all three tiers ride along in `detail` because the tier they
+    eventually buy isn't known yet at send time.
+
+    Deduped on the estimate id: re-sending the same estimate is a re-send,
+    not a second estimate. Never raises — the customer already has the link.
+    """
+    try:
+        from services import sales_events
+        sales_events.record(
+            sales_events.ESTIMATE_SENT,
+            lead_id,
+            {"sub": actor_sub, "name": actor_name},
+            value=sig_price,
+            detail={
+                "estimate_id": estimate_id,
+                "tiers": tiers or {},
+                "channel": channel,
+            },
+            occurred_at=occurred_at,
+            dedupe_key=f"estimate_sent:{estimate_id}",
+        )
+    except Exception:
+        logger.exception("Could not record estimate_sent funnel event (non-fatal)")
+
+
 def _approve_estimate_background(
     *,
     proposal_id: str,
@@ -706,6 +751,7 @@ def _approve_estimate_background(
     scheduled_send_at: str | None,
     apply_tag: bool = True,
     sender_name: str = "",
+    sender_sub: str = "",
 ):
     """Heavy work for /estimates/{id}/approve, run after the response is
     sent so VA gets a sub-second reply instead of waiting 3-7s for PDF gen.
@@ -873,6 +919,18 @@ def _approve_estimate_background(
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent_ok else 'SMS FAILED'} with proposal link: {proposal_url}",
                           {"token": token, "signature_price": sig_price, "sms_sent": sms_sent_ok})
+                # The funnel event. Fired here rather than in the request
+                # handler because this is the moment the customer actually
+                # got a price — a failed send is not an estimate sent.
+                # Deduped on the estimate id so a re-send of the same
+                # estimate doesn't inflate anyone's count.
+                if sms_sent_ok:
+                    _record_estimate_sent(
+                        lead_id=lead.id, estimate_id=estimate_id,
+                        tiers=tiers_dict, sig_price=sig_price,
+                        actor_sub=sender_sub, actor_name=sender_name,
+                        occurred_at=now, channel="sms",
+                    )
                 # CRITICAL — send_sms already retries 3x internally. If it
                 # still returned False, that's a PERMANENT failure (GHL
                 # auth/contact-validation/A2P 10DLC/etc). VA already got
@@ -1085,6 +1143,9 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
             scheduled_send_at=scheduled_send_at,
             apply_tag=(bool(body.apply_tag) if body else True),
             sender_name=((user or {}).get("name") or "").strip(),
+            # The stable identity too, not just the display name — the
+            # scoreboard groups on `sub`, and a display name can drift.
+            sender_sub=((user or {}).get("sub") or "").strip(),
         )
 
         result = est.to_dict()
@@ -1200,6 +1261,18 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick
             log_event(lead.id, "estimate_sent_to_customer",
                       f"{'SMS sent' if sms_sent else 'SMS FAILED'} with CUSTOM proposal link: {proposal_url}",
                       {"token": token, "sms_sent": sms_sent, "custom_pdf": True})
+            if sms_sent:
+                # A hand-built PDF has no computed tiers, so this event
+                # carries no amount. Left genuinely empty rather than
+                # guessed — the data-quality panel counts these as
+                # "estimates with no amount", which is the truth.
+                sub, name = ((user or {}).get("sub") or ""), ((user or {}).get("name") or "")
+                _record_estimate_sent(
+                    lead_id=lead.id, estimate_id=estimate_id,
+                    tiers=None, sig_price=None,
+                    actor_sub=sub.strip(), actor_name=name.strip(),
+                    occurred_at=now, channel="custom_pdf",
+                )
             if not sms_sent:
                 _alert_team_sms_failure(
                     customer_name=lead.contact_name or "(unnamed)",
@@ -1679,6 +1752,14 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = D
                 sms_sent = send_sms(lead.ghl_contact_id, customer_msg, lead.ghl_location_id or None)
                 log_event(lead.id, "estimate_sent_to_customer",
                           f"{'SMS sent' if sms_sent else 'SMS FAILED'}: {proposal_url}")
+                if sms_sent:
+                    _record_estimate_sent(
+                        lead_id=lead.id, estimate_id=est.id,
+                        tiers=tiers_dict, sig_price=sig_price,
+                        actor_sub=((user or {}).get("sub") or "").strip(),
+                        actor_name=((user or {}).get("name") or "").strip(),
+                        occurred_at=now, channel="sms",
+                    )
                 if not sms_sent:
                     _alert_team_sms_failure(
                         customer_name=lead.contact_name or "(unnamed)",
@@ -1861,8 +1942,15 @@ class CloseBody(BaseModel):
 
 
 @router.post("/estimates/{estimate_id}/close")
-def close_estimate(estimate_id: str, body: CloseBody):
-    """Mark an estimate as closed/won with the selected tier."""
+def close_estimate(estimate_id: str, body: CloseBody, user: dict = Depends(require_staff)):
+    """Mark an estimate as closed/won with the selected tier.
+
+    Authenticated as of 2026-10-01. This had no auth dependency and took no
+    user at all, so the single most valuable transition in the funnel — a deal
+    becoming real — was both open to the internet and credited to nobody.
+    Every caller already sends a JWT (`api.closeEstimate` goes through
+    `request()`), so requiring one changes no working flow.
+    """
     db = get_db()
     try:
         est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
@@ -1904,6 +1992,24 @@ def close_estimate(estimate_id: str, body: CloseBody):
         log_event(est.lead_id, "estimate_closed",
                   f"Closed: {body.tier.title()} — ${final_price:,.2f}",
                   {"tier": body.tier, "revenue": final_price})
+
+        # The win, with a price and a name on it. `source="app"` marks this
+        # as the BOOKED record — the deal agreed, by this rep, at this price.
+        # QuickBooks writes a separate COLLECTED record when the invoice is
+        # paid. See WON_BOOKED_SOURCES / WON_COLLECTED_SOURCES: rollups read
+        # one or the other, never both, or every deal counts twice.
+        try:
+            from services import sales_events
+            sales_events.record(
+                sales_events.WON, est.lead_id, user,
+                value=final_price,
+                detail={"estimate_id": est.id, "tier": body.tier},
+                occurred_at=est.closed_at,
+                source=sales_events.SOURCE_APP,
+                dedupe_key=f"won:estimate:{est.id}",
+            )
+        except Exception:
+            logger.exception("Could not record won funnel event (non-fatal)")
 
         return est.to_dict()
     except HTTPException:

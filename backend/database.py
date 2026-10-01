@@ -1694,6 +1694,82 @@ class LeadActivity(Base):
     created_at = Column(Text, default="")     # ISO datetime UTC
 
 
+class SalesEvent(Base):
+    """Append-only log of the sales funnel: every step, when it happened, and
+    who did it.
+
+    Why a new table rather than reusing one of the four that already exist:
+
+    - `AutomationLog` is the closest in spirit but has **no actor column and
+      no indexes**, and its 49 legacy event types are a notification feed, not
+      a funnel. `estimate_sent_to_customer` has fired 1,711 times without once
+      recording who sent it.
+    - `LeadActivity` has the right actor shape but is lead-scoped with a thin
+      vocabulary and no numeric column, and it is load-bearing for the Daily
+      Task List owner-avatars — widening it would churn that feed.
+    - `CallDisposition` / `CallTouch` are call-specific and stay that way.
+
+    Both of those keep doing their current jobs. This table is the one place
+    that answers "how fast, how many, who, and from which ad".
+
+    Conventions that matter:
+
+    - `occurred_at` is when the thing happened in the real world, UTC ISO
+      text — the same storage shape as every other timestamp in this schema,
+      so `clock.day_bounds_utc()` ranges work as plain >=/< comparisons.
+      `created_at` is when we wrote the row; for a backfill the two differ.
+    - `actor_sub` is the stable identity (`User.username`, the JWT `sub`) and
+      is what you GROUP BY. `actor_name` is a display copy that may drift.
+      Both empty means genuinely unattributable — an automated GHL workflow
+      step or a pre-attribution backfill — never "we forgot".
+    - `value_cents` is an integer on purpose. The rest of this schema stores
+      money as Float (`closed_price`, `sale_amount`); summing dollars as
+      floats across thousands of rows drifts, and these sums are reported as
+      revenue. Convert at the edges, never compare this to a Float column.
+    - `dedupe_key` is how a backfill stays idempotent. Build it from immutable
+      facts (e.g. `"estimate_sent:<estimate_id>"`), not from a timestamp.
+      NULL for live app events, which are already one-per-action. Postgres
+      and SQLite both permit repeated NULLs under UNIQUE.
+    """
+    __tablename__ = "sales_events"
+    __table_args__ = (
+        # (event_type, occurred_at) serves "estimates sent this week";
+        # (actor_sub, occurred_at) serves the per-rep scoreboard;
+        # (lead_id, occurred_at) serves one lead's timeline.
+        Index("idx_sales_events_type_at", "event_type", "occurred_at"),
+        Index("idx_sales_events_actor_at", "actor_sub", "occurred_at"),
+        Index("idx_sales_events_lead_at", "lead_id", "occurred_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    # Nullable: a lead_created event can precede the lead row during a sweep,
+    # and ad-level events are not always lead-scoped.
+    lead_id = Column(Text, nullable=True)
+    event_type = Column(Text, nullable=False)
+    actor_sub = Column(Text, default="")       # User.username / JWT "sub" — GROUP BY this
+    actor_name = Column(Text, default="")      # display copy, may drift
+    value_cents = Column(Integer, nullable=True)
+    detail_json = Column(Text, default="{}")   # reason codes, outcomes, tier, ad ids
+    occurred_at = Column(Text, nullable=False)  # ISO UTC — when it happened
+    source = Column(Text, default="app")       # app | ghl | backfill
+    dedupe_key = Column(Text, unique=True, nullable=True)
+    created_at = Column(Text, default="")      # ISO UTC — when we wrote it
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "event_type": self.event_type,
+            "actor_sub": self.actor_sub or "",
+            "actor_name": self.actor_name or "",
+            "value_cents": self.value_cents,
+            "detail": _j(self.detail_json),
+            "occurred_at": self.occurred_at or "",
+            "source": self.source or "app",
+            "created_at": self.created_at or "",
+        }
+
+
 class CallDisposition(Base):
     """One row per call Alan (or any staff) logs after talking to a lead.
     Append-only history — every call gets a new row so we can track

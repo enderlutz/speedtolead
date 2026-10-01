@@ -905,6 +905,18 @@ def send_fence_scope(lead_id: str, body: SendScopeBody, request: Request, user: 
         db.commit()
         log_event(lead.id, "fence_scope_sent", f"Fence scope texted to {lead.contact_phone}",
                   {"image_url": image_url, "chars": len(message), "image_bytes": len(mms_bytes)})
+        # Funnel event. No dedupe_key: a re-send after the customer asks for
+        # a side change is a genuine second scope send, and the gap between
+        # them is a number worth having.
+        try:
+            from services import sales_events
+            sales_events.record(
+                sales_events.SCOPE_SENT, lead.id, user,
+                detail={"image_url": image_url},
+                occurred_at=stamp,
+            )
+        except Exception:
+            logger.exception("Could not record scope_sent funnel event (non-fatal)")
         _announce(lead_id, stamp)
         return {"sent": True, "to": lead.contact_phone, "updated_at": stamp}
     finally:

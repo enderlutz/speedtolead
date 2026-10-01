@@ -317,6 +317,22 @@ def _in_home_region(lat, lng) -> bool:
     )
 
 
+@router.get("/maps-key")
+def maps_browser_key(user: dict = Depends(require_staff)):
+    """Just the browser Maps key, for any page that embeds a map.
+
+    `/leads-map` also returns it, but that endpoint loads every v2 lead,
+    lazily geocodes a capped batch and computes ZIP stats — far too much
+    work (and geocoding quota) to spend on reading one string every time a
+    lead page opens.
+    """
+    del user
+    settings = get_settings()
+    return {
+        "maps_api_key": settings.google_maps_browser_key or settings.google_maps_api_key or "",
+    }
+
+
 @router.get("/leads-map")
 def lead_map(date: str | None = None, skip_geocode: bool = False, user: dict = Depends(require_staff)):
     """Data for the Company/Lead Map.
@@ -1487,6 +1503,27 @@ def set_decline_reasons(lead_id: str, body: DeclineReasonsBody, user: dict = Dep
         lead.updated_at = _now()
         db.commit()
 
+        # The lost event. Until now this capture wrote nothing but a mutable
+        # JSON blob and a GHL note, so the lost-reason report had to load
+        # every lead and json.loads it — and only 4 leads in history had one
+        # recorded at all. Reasons stay rank-ordered: index 0 is primary.
+        try:
+            from services import sales_events
+            sales_events.record(
+                sales_events.LOST, lead.id, user,
+                detail={
+                    "reasons": body.reasons,
+                    "primary_reason": (body.reasons[0] if body.reasons else ""),
+                    "other_text": existing_fd.get("decline_other_text", ""),
+                },
+                occurred_at=existing_fd.get("declined_at"),
+                # One lost record per lead. Re-ranking the reasons corrects
+                # the same loss rather than creating a second one.
+                dedupe_key=f"lost:{lead.id}",
+            )
+        except Exception:
+            logger.exception("Could not record lost funnel event (non-fatal)")
+
         try:
             from services.event_bus import publish
             publish("lead_updated", {"lead_id": lead.id})
@@ -1964,6 +2001,133 @@ async def upload_measurement(
             "measurement_filename": lead.measurement_filename,
             "measurement_uploaded_at": lead.measurement_uploaded_at,
             "measurement_uploaded_by": lead.measurement_uploaded_by,
+        }
+    finally:
+        db.close()
+
+
+class SatelliteCaptureBody(BaseModel):
+    """What the embedded satellite map is looking at when Capture is pressed."""
+    lat: float
+    lng: float
+    zoom: int = 20
+    # 640x640 at scale=2 is the largest the standard Static Maps tier serves,
+    # giving a 1280px image — enough to trace a fence on.
+    size: str = "640x640"
+    scale: int = 2
+    # Fill the fence-scope source as well, which is the whole point: one
+    # press should leave the VA ready to draw the scope.
+    also_scope: bool = True
+    linear_feet: float | None = None
+
+
+@router.post("/leads/{lead_id}/measurement/capture")
+def capture_satellite_measurement(
+    lead_id: str,
+    body: SatelliteCaptureBody,
+    user: dict = Depends(get_current_user),
+):
+    """Grab the satellite view the VA is looking at, server-side.
+
+    Replaces: open maps.google.com in a new tab, find the house, screenshot,
+    save to disk, come back, pick the file, upload — then do it again for the
+    fence scope. One press now does all of it.
+
+    Why the image is fetched here instead of screenshotting the map in the
+    browser: Google serves its map tiles cross-origin, so drawing that map
+    into a <canvas> taints it and `toDataURL()` throws. The interactive map
+    is therefore only for *finding and framing* the property; the pixels come
+    from the Static Maps API at the exact centre and zoom the VA framed,
+    which is what makes "what I see is what I get" hold.
+
+    Uses the server key (`google_maps_api_key`), not the browser key — this
+    is a server-to-server call and the browser key is referer-restricted.
+    """
+    settings = get_settings()
+    key = (settings.google_maps_api_key or settings.google_maps_browser_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=503, detail="No Google Maps API key configured")
+
+    # Clamp to what Static Maps accepts, so a bad client value fails here
+    # with a clear message instead of as an opaque 400 from Google.
+    zoom = max(1, min(21, int(body.zoom)))
+    scale = 2 if int(body.scale) >= 2 else 1
+    w, _, h = (body.size or "").partition("x")
+    if not (w.isdigit() and h.isdigit() and 2 <= len(w) <= 4 and 2 <= len(h) <= 4):
+        raise HTTPException(status_code=400, detail="size must look like 640x640")
+
+    url = (
+        "https://maps.googleapis.com/maps/api/staticmap"
+        f"?center={body.lat},{body.lng}&zoom={zoom}&size={body.size}"
+        f"&scale={scale}&maptype=satellite&format=png&key={key}"
+    )
+    try:
+        import httpx
+        with httpx.Client(timeout=20.0) as client:
+            resp = client.get(url)
+        if resp.status_code != 200 or not resp.content:
+            # Google puts the real reason in the body on a 4xx; surface it,
+            # because "capture failed" with no cause is unactionable.
+            detail = (resp.text or "")[:200] or f"HTTP {resp.status_code}"
+            raise HTTPException(status_code=502, detail=f"Google Maps refused the capture: {detail}")
+        data = resp.content
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Satellite capture failed for lead {lead_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not reach Google Maps: {e}")
+
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        actor = (user or {}).get("sub") or ""
+        stamp = _now()
+
+        lead.measurement_image_data = data
+        lead.has_measurement_image = True
+        lead.measurement_filename = f"satellite-z{zoom}.png"
+        lead.measurement_mime = "image/png"
+        lead.measurement_uploaded_at = stamp
+        lead.measurement_uploaded_by = actor
+
+        if body.also_scope:
+            lead.fence_scope_source_image = data
+            lead.has_fence_scope_source = True
+            lead.fence_scope_source_mime = "image/png"
+            lead.fence_scope_updated_at = stamp
+            lead.fence_scope_updated_by = actor
+
+        # Measured footage, when the VA traced the fence before capturing.
+        # Written into form_data so it lands in the same place the estimator
+        # input reads from, and the VA doesn't retype it.
+        feet = None
+        if body.linear_feet is not None and body.linear_feet > 0:
+            feet = round(float(body.linear_feet))
+            fd = lead.to_dict()["form_data"]
+            fd["linear_feet"] = str(feet)
+            fd["linear_feet_source"] = "satellite_measure"
+            lead.form_data = json.dumps(fd)
+
+        lead.updated_at = stamp
+        db.commit()
+
+        log_event(
+            lead.id, "measurement_uploaded",
+            f"Satellite view captured in-app by {actor or 'unknown'}"
+            + (f" — measured {feet} ft" if feet else ""),
+            {"lat": body.lat, "lng": body.lng, "zoom": zoom,
+             "also_scope": bool(body.also_scope), "linear_feet": feet},
+        )
+        return {
+            "measurement_uploaded": True,
+            "measurement_filename": lead.measurement_filename,
+            "measurement_uploaded_at": lead.measurement_uploaded_at,
+            "measurement_uploaded_by": lead.measurement_uploaded_by,
+            "scope_source_set": bool(body.also_scope),
+            "linear_feet": feet,
         }
     finally:
         db.close()

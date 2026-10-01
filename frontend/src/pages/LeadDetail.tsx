@@ -29,6 +29,7 @@ import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
+import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 import CustomProposalCard from "@/components/CustomProposalCard";
 import ExteriorTab from "@/components/ExteriorTab";
@@ -51,6 +52,44 @@ const FENCE_AGE_OPTIONS = [
 ];
 const PREVIOUSLY_STAINED_OPTIONS = ["Didn't answer", "No", "Yes"];
 const TIMELINE_OPTIONS = ["As soon as possible", "Within 2 weeks", "Sometime this month", "Just planning ahead"];
+
+/**
+ * Map what GHL actually stores onto the four options above.
+ *
+ * The Meta lead form has been reworded several times and its picklist labels
+ * never matched this list exactly. Measured 2026-10-01 across every non-test
+ * lead: 1,418 of the 1,691 that HAD a timeline answer did not match any
+ * option, so the <select> rendered blank — and because Save & Recalculate
+ * writes whatever the control holds, saving a lead then overwrote the
+ * customer's answer with "". The three families of mismatch were
+ * "Just planning ahead/ getting a quote" (920), "sometime this month"
+ * lowercased (274), and "As soon as possible?" with a trailing question
+ * mark (224).
+ *
+ * Matching is done on intent, not on exact strings, so the next time the ad
+ * form is reworded this keeps working. An unrecognised value is returned
+ * unchanged rather than blanked — losing the answer is worse than showing an
+ * odd label, and `timelineOptionsFor` keeps it selectable so a save
+ * round-trips it intact.
+ */
+function normalizeTimeline(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const v = s.toLowerCase().replace(/[?!.]/g, " ").replace(/\s+/g, " ").trim();
+  if (v.includes("as soon as possible") || v.includes("asap")) return "As soon as possible";
+  if (v.includes("2 weeks") || v.includes("two weeks")) return "Within 2 weeks";
+  if (v.includes("this month")) return "Sometime this month";
+  if (v.includes("planning ahead") || v.includes("getting a quote")) return "Just planning ahead";
+  return s;
+}
+
+/** Options plus the current value when it isn't one of them, so an
+ *  unrecognised answer still displays and still survives a save. */
+function timelineOptionsFor(current: string): string[] {
+  return !current || TIMELINE_OPTIONS.includes(current)
+    ? TIMELINE_OPTIONS
+    : [current, ...TIMELINE_OPTIONS];
+}
 const CONFIDENCE_OPTIONS = [
   { label: "I'm confident", value: "100" },
   { label: "Somewhat confident", value: "80" },
@@ -179,7 +218,7 @@ export default function LeadDetail() {
       setFenceHeight(fd.fence_height || "Didn't answer");
       setFenceAge(fd.fence_age || "Didn't answer");
       setPreviouslyStained(fd.previously_stained || "Didn't answer");
-      setTimeline(fd.service_timeline || "");
+      setTimeline(normalizeTimeline(fd.service_timeline));
       setConfidencePct(fd.confident_pct || "100");
       setZipCode(fd.zip_code || data.zip_code || "");
       const rawSides = fd.fence_sides;
@@ -293,7 +332,7 @@ export default function LeadDetail() {
     setFenceHeight(String(inputs.fence_height ?? "Didn't answer"));
     setFenceAge(String(inputs.fence_age ?? "Didn't answer"));
     setPreviouslyStained(String(inputs.previously_stained ?? "Didn't answer"));
-    setTimeline(String(inputs.service_timeline ?? ""));
+    setTimeline(normalizeTimeline(inputs.service_timeline));
     setConfidencePct(String(inputs.confident_pct ?? "100"));
     setZipCode(String(inputs.zip_code ?? ""));
     const rawSides = inputs.fence_sides;
@@ -1064,6 +1103,23 @@ export default function LeadDetail() {
               Uncomment to bring it back. */}
           {/* <CallPrepCard leadId={lead.id} leadName={lead.contact_name} /> */}
 
+          {/* Measure the property in place. Sits directly above the
+              estimator because its output IS the estimator's first input:
+              trace the fence, capture, and Linear Feet fills itself. The
+              upload card below stays for the cases this can't serve — new
+              construction Google Earth hasn't photographed yet, or a
+              surveyor's PDF. */}
+          <SatelliteMeasureCard
+            leadId={lead.id}
+            lat={lead.lat || 0}
+            lng={lead.lng || 0}
+            address={lead.address || ""}
+            onLinearFeet={(feet) => setLinearFeet(String(feet))}
+            onChange={() => {
+              api.getLead(lead.id).then(setLead).catch(() => {});
+            }}
+          />
+
           {/* Measurement screenshot — VA's Google Maps screenshot. Sits between
               the satellite view and the estimator because it's the artifact
               that translates "the property" into "the number" Alan inputs. */}
@@ -1118,7 +1174,7 @@ export default function LeadDetail() {
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">Timeline</label>
                   <select className={selectCls} value={timeline} onChange={(e) => setTimeline(e.target.value)}>
                     <option value="">Select...</option>
-                    {TIMELINE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                    {timelineOptionsFor(timeline).map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
                 <div>

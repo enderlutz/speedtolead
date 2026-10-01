@@ -371,6 +371,11 @@ export interface Lead {
   contact_email: string;
   address: string;
   zip_code: string;
+  /** Geocoded by the background map loop; 0 when it hasn't run or the
+   *  address couldn't be resolved. The backend has always returned these
+   *  (Lead.to_dict) — they were just never declared here. */
+  lat: number;
+  lng: number;
   area?: string | null;
   service_type: string;
   status: string;
@@ -1431,6 +1436,35 @@ export const api = {
   },
   deleteMeasurement: (leadId: string) =>
     request<{ status: string }>(`/api/leads/${leadId}/measurement`, { method: "DELETE" }),
+  /** The browser Maps key on its own. `getLeadMap` also returns it, but that
+   *  endpoint loads every lead and lazily geocodes a batch — too much work
+   *  to spend on reading one string per page view. */
+  getMapsKey: () => request<{ maps_api_key: string }>(`/api/maps-key`),
+  /** Capture the embedded satellite view server-side, into both the
+   *  measurement slot and the fence-scope source. The browser cannot
+   *  screenshot a Google map (cross-origin tiles taint the canvas), so the
+   *  backend re-fetches the same centre/zoom from the Static Maps API. */
+  captureSatelliteMeasurement: (
+    leadId: string,
+    body: {
+      lat: number; lng: number; zoom: number;
+      /** "520x520" — match the on-screen map so the capture frames the same
+       *  ground area the VA just measured. Max 640 per side. */
+      size?: string;
+      also_scope?: boolean; linear_feet?: number | null;
+    },
+  ) =>
+    request<{
+      measurement_uploaded: boolean;
+      measurement_filename: string;
+      measurement_uploaded_at: string;
+      measurement_uploaded_by: string;
+      scope_source_set: boolean;
+      linear_feet: number | null;
+    }>(`/api/leads/${leadId}/measurement/capture`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   /** Upload a pre-made PDF and send it to the customer as a proposal — same
    * /proposal link + viewer + SMS as a generated estimate. */
   sendCustomProposal: async (leadId: string, file: File, brick: boolean = false) => {

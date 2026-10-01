@@ -1432,6 +1432,36 @@ def _fire_payment_received_pipeline(db, job: ScheduledJob) -> None:
             })
         except Exception as e:
             logger.warning(f"payment_received event publish failed: {e}")
+        # The COLLECTED half of a win — money that actually arrived. Covers
+        # card, ACH and manually-marked cash/Zelle/check, because all three
+        # routes come through this one function.
+        #
+        # No actor: a webhook recorded this, not a person. The rep who closed
+        # the deal is credited on the separate source="app" WON event from
+        # /estimates/{id}/close. Deduped on the job so the webhook and the
+        # 3 AM reconcile loop — which both call this — record it once.
+        try:
+            from services import sales_events
+            sales_events.record(
+                sales_events.WON, job.lead_id, None,
+                value=revenue,
+                detail={
+                    "job_id": job.id,
+                    "qb_invoice_id": job.qb_invoice_id or "",
+                    "labor_cost": labor,
+                    "materials_cost": materials,
+                    "payment_method": job.payment_method or "",
+                    # Who keyed in a cash/Zelle/check payment, where one did.
+                    # Audit only — it's a bookkeeping action, not the close,
+                    # so it must not become the actor on this event.
+                    "paid_marked_by": job.paid_marked_by or "",
+                },
+                occurred_at=job.paid_at or None,
+                source=sales_events.SOURCE_QUICKBOOKS,
+                dedupe_key=f"won:job:{job.id}",
+            )
+        except Exception as e:
+            logger.warning(f"won funnel event failed for job {job.id}: {e}")
     except Exception as e:
         logger.error(f"_fire_payment_received_pipeline failed for job {job.id}: {e}")
 
