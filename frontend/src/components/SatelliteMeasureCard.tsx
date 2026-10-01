@@ -92,6 +92,97 @@ function haversineFeet(a: Pt, b: Pt): number {
   return 2 * EARTH_FT * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/**
+ * Where a tap actually landed, computed from first principles.
+ *
+ * Google's click event hands back a latLng, but it derives that from a cached
+ * copy of the container's dimensions. When that cache is stale the point
+ * lands nowhere near the finger — badly on a phone, where the error scales
+ * with how wrong the cache is. Telling the map to resize helps, but it is a
+ * race: any layout change between the resize and the tap reopens the gap.
+ *
+ * So this does the projection itself, from three things we can trust: the
+ * map's centre, its zoom, and the div's size measured at the moment of the
+ * tap. Standard Web Mercator with 256px tiles, which is exactly what Google
+ * renders, so the result agrees with the imagery to the pixel.
+ *
+ * `getBounds()` would be the easier route and is NOT used — it comes from the
+ * same stale size cache, so it would inherit the bug.
+ */
+function latLngFromPixel(
+  center: Pt, zoom: number, width: number, height: number, px: number, py: number,
+): Pt {
+  const scale = 256 * Math.pow(2, zoom);          // world size in pixels
+  const sinLat = Math.sin((center.lat * Math.PI) / 180);
+
+  // Project the centre into world pixel space.
+  const cx = ((center.lng + 180) / 360) * scale;
+  const cy = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
+
+  // The tap, as an offset from the centre of the viewport.
+  const tx = cx + (px - width / 2);
+  const ty = cy + (py - height / 2);
+
+  // Unproject back to degrees.
+  const lng = (tx / scale) * 360 - 180;
+  const n = Math.PI * (1 - (2 * ty) / scale);
+  const lat = (180 / Math.PI) * Math.atan(Math.sinh(n));
+  return { lat, lng };
+}
+
+/** Google's click payload: a latLng it computed, plus the raw DOM event. */
+type GMapMouseEvent = {
+  latLng?: { lat(): number; lng(): number };
+  domEvent?: MouseEvent | TouchEvent;
+};
+
+/**
+ * The tapped point, preferring our own projection over Google's.
+ *
+ * Falls back to Google's latLng only when the raw DOM event or the map state
+ * isn't available, so the worst case is the old behaviour rather than no
+ * point at all.
+ */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function pointFromMapClick(
+  e: GMapMouseEvent, map: any, div: HTMLDivElement | null,
+): Pt | null {
+  const fallback = e.latLng
+    ? { lat: e.latLng.lat(), lng: e.latLng.lng() }
+    : null;
+
+  const dom = e.domEvent;
+  if (!dom || !div || !map?.getCenter || !map?.getZoom) return fallback;
+
+  // A touch tap reports its coordinates on changedTouches, not on the event.
+  let clientX: number | undefined;
+  let clientY: number | undefined;
+  if ("clientX" in dom && typeof dom.clientX === "number") {
+    clientX = dom.clientX;
+    clientY = (dom as MouseEvent).clientY;
+  } else {
+    const t = (dom as TouchEvent).changedTouches?.[0]
+      || (dom as TouchEvent).touches?.[0];
+    if (t) { clientX = t.clientX; clientY = t.clientY; }
+  }
+  if (clientX === undefined || clientY === undefined) return fallback;
+
+  // Measured now, not cached — that is the whole point.
+  const rect = div.getBoundingClientRect();
+  if (!rect.width || !rect.height) return fallback;
+
+  const c = map.getCenter();
+  const z = map.getZoom();
+  if (!c || typeof z !== "number") return fallback;
+
+  return latLngFromPixel(
+    { lat: c.lat(), lng: c.lng() },
+    z, rect.width, rect.height,
+    clientX - rect.left, clientY - rect.top,
+  );
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 function runFeet(run: Run): number {
   const path = run.closed && run.points.length > 2
     ? [...run.points, run.points[0]]
@@ -184,18 +275,15 @@ export default function SatelliteMeasureCard({
           controlSize: 32,
           zoomControl: true,
         });
-        mapRef.current.addListener(
-          "click",
-          (e: { latLng: { lat(): number; lng(): number } }) => {
-            if (!e.latLng) return;
-            const p = { lat: e.latLng.lat(), lng: e.latLng.lng() };
-            setRuns((prev) => prev.map((r) =>
-              r.id === activeRunRef.current
-                ? { ...r, points: [...r.points, p] }
-                : r,
-            ));
-          },
-        );
+        mapRef.current.addListener("click", (e: GMapMouseEvent) => {
+          const p = pointFromMapClick(e, mapRef.current, mapDivRef.current);
+          if (!p) return;
+          setRuns((prev) => prev.map((r) =>
+            r.id === activeRunRef.current
+              ? { ...r, points: [...r.points, p] }
+              : r,
+          ));
+        });
         setStatus("ready");
 
         // Most leads aren't geocoded — the background map loop only covers
