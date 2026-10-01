@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends, UploadFile, File, 
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
-from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee, QuickbooksInvoice
+from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee, QuickbooksInvoice, LeadMeasurement
+from sqlalchemy import func
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
 from services.service_area import service_area_for_zip
@@ -2103,7 +2104,12 @@ class SatelliteCaptureBody(BaseModel):
     # Fill the fence-scope source as well, which is the whole point: one
     # press should leave the VA ready to draw the scope.
     also_scope: bool = True
+    # Footage traced in THIS view, not the job total — the backend sums the
+    # views to get the total.
     linear_feet: float | None = None
+    # Re-shoot an existing photo instead of adding one, so re-framing a run
+    # you already measured doesn't count its footage twice.
+    replace_id: str | None = None
 
 
 @router.post("/leads/{lead_id}/measurement/capture")
@@ -2170,10 +2176,59 @@ def capture_satellite_measurement(
 
         actor = (user or {}).get("sub") or ""
         stamp = _now()
+        feet = (
+            round(float(body.linear_feet))
+            if body.linear_feet is not None and body.linear_feet > 0
+            else None
+        )
 
+        # Append a numbered photo, or replace one when re-capturing the same
+        # view. Re-measuring a run you already shot must not add its footage
+        # to the total a second time.
+        existing = None
+        if body.replace_id:
+            existing = (
+                db.query(LeadMeasurement)
+                .filter(LeadMeasurement.id == body.replace_id,
+                        LeadMeasurement.lead_id == lead_id)
+                .first()
+            )
+            if existing is None:
+                raise HTTPException(status_code=404, detail="That photo no longer exists")
+
+        if existing is not None:
+            shot = existing
+        else:
+            # Highest seq so far + 1. Not a row count — deletes leave gaps on
+            # purpose, so "Photo 3" keeps meaning the same photo.
+            top = (
+                db.query(func.max(LeadMeasurement.seq))
+                .filter(LeadMeasurement.lead_id == lead_id)
+                .scalar()
+            ) or 0
+            shot = LeadMeasurement(
+                id=str(uuid.uuid4()),
+                lead_id=lead_id,
+                seq=int(top) + 1,
+                created_at=stamp,
+                created_by=actor,
+            )
+            db.add(shot)
+
+        shot.image_data = data
+        shot.has_image = True
+        shot.mime = "image/png"
+        shot.linear_feet = feet
+        shot.center_lat = body.lat
+        shot.center_lng = body.lng
+        shot.zoom = zoom
+        shot.source = "satellite_capture"
+
+        # The legacy single-image columns keep mirroring the newest capture,
+        # so the Measurement card and anything else reading them is unaffected.
         lead.measurement_image_data = data
         lead.has_measurement_image = True
-        lead.measurement_filename = f"satellite-z{zoom}.png"
+        lead.measurement_filename = f"satellite-{shot.seq}-z{zoom}.png"
         lead.measurement_mime = "image/png"
         lead.measurement_uploaded_at = stamp
         lead.measurement_uploaded_by = actor
@@ -2185,14 +2240,20 @@ def capture_satellite_measurement(
             lead.fence_scope_updated_at = stamp
             lead.fence_scope_updated_by = actor
 
-        # Measured footage, when the VA traced the fence before capturing.
-        # Written into form_data so it lands in the same place the estimator
-        # input reads from, and the VA doesn't retype it.
-        feet = None
-        if body.linear_feet is not None and body.linear_feet > 0:
-            feet = round(float(body.linear_feet))
+        db.flush()   # so this photo's footage counts toward the sum below
+
+        # Linear Feet is the sum across every retained photo — measure the
+        # insides in one view, the back run in another, and the estimator
+        # input gets the total without anyone adding it up by hand.
+        total = (
+            db.query(func.sum(LeadMeasurement.linear_feet))
+            .filter(LeadMeasurement.lead_id == lead_id)
+            .scalar()
+        )
+        total_feet = round(float(total)) if total else None
+        if total_feet:
             fd = lead.to_dict()["form_data"]
-            fd["linear_feet"] = str(feet)
+            fd["linear_feet"] = str(total_feet)
             fd["linear_feet_source"] = "satellite_measure"
             lead.form_data = json.dumps(fd)
 
@@ -2201,19 +2262,124 @@ def capture_satellite_measurement(
 
         log_event(
             lead.id, "measurement_uploaded",
-            f"Satellite view captured in-app by {actor or 'unknown'}"
-            + (f" — measured {feet} ft" if feet else ""),
+            f"Satellite view captured in-app by {actor or 'unknown'} "
+            f"(photo {shot.seq})"
+            + (f" — measured {feet} ft, lead total {total_feet} ft" if feet else ""),
             {"lat": body.lat, "lng": body.lng, "zoom": zoom,
-             "also_scope": bool(body.also_scope), "linear_feet": feet},
+             "also_scope": bool(body.also_scope), "linear_feet": feet,
+             "seq": shot.seq, "total_linear_feet": total_feet},
         )
         return {
             "measurement_uploaded": True,
+            "measurement_id": shot.id,
+            "seq": shot.seq,
+            "label": f"Photo {shot.seq}",
             "measurement_filename": lead.measurement_filename,
             "measurement_uploaded_at": lead.measurement_uploaded_at,
             "measurement_uploaded_by": lead.measurement_uploaded_by,
             "scope_source_set": bool(body.also_scope),
+            # This photo's footage, and the lead's running total.
             "linear_feet": feet,
+            "total_linear_feet": total_feet,
         }
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/measurements")
+def list_measurements(lead_id: str, user: dict = Depends(get_current_user)):
+    """Every measurement photo for the lead, oldest first, without the bytes.
+
+    `total_linear_feet` is the number that belongs in Linear Feet — the sum
+    of what was traced across all the views.
+    """
+    del user
+    db = get_db()
+    try:
+        rows = (
+            db.query(LeadMeasurement)
+            .filter(LeadMeasurement.lead_id == lead_id)
+            .order_by(LeadMeasurement.seq.asc())
+            .all()
+        )
+        total = sum(float(r.linear_feet or 0) for r in rows)
+        return {
+            "measurements": [r.to_dict() for r in rows],
+            "total_linear_feet": round(total) if total else None,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/measurements/{measurement_id}/image")
+def get_measurement_image(
+    lead_id: str, measurement_id: str, user: dict = Depends(get_current_user),
+):
+    del user
+    db = get_db()
+    try:
+        row = (
+            db.query(LeadMeasurement)
+            .filter(LeadMeasurement.id == measurement_id,
+                    LeadMeasurement.lead_id == lead_id)
+            .first()
+        )
+        if not row or not row.image_data:
+            raise HTTPException(status_code=404, detail="No image on file")
+        return Response(content=row.image_data, media_type=row.mime or "image/png")
+    finally:
+        db.close()
+
+
+@router.delete("/leads/{lead_id}/measurements/{measurement_id}")
+def delete_measurement_photo(
+    lead_id: str, measurement_id: str, user: dict = Depends(get_current_user),
+):
+    """Drop one photo and re-total the lead.
+
+    Sequence numbers are deliberately not reshuffled — "Photo 3" has to keep
+    meaning the same photo after Photo 2 is deleted.
+    """
+    db = get_db()
+    try:
+        row = (
+            db.query(LeadMeasurement)
+            .filter(LeadMeasurement.id == measurement_id,
+                    LeadMeasurement.lead_id == lead_id)
+            .first()
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="No such photo")
+        seq = row.seq
+        db.delete(row)
+        db.flush()
+
+        total = (
+            db.query(func.sum(LeadMeasurement.linear_feet))
+            .filter(LeadMeasurement.lead_id == lead_id)
+            .scalar()
+        )
+        total_feet = round(float(total)) if total else None
+
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if lead:
+            fd = lead.to_dict()["form_data"]
+            # Only ever correct a figure this flow put there. A hand-typed
+            # linear_feet is the VA's number and is not ours to overwrite.
+            if fd.get("linear_feet_source") == "satellite_measure":
+                if total_feet:
+                    fd["linear_feet"] = str(total_feet)
+                else:
+                    fd.pop("linear_feet", None)
+                    fd.pop("linear_feet_source", None)
+                lead.form_data = json.dumps(fd)
+            lead.updated_at = _now()
+        db.commit()
+
+        log_event(lead_id, "measurement_deleted",
+                  f"Measurement photo {seq} deleted by {(user or {}).get('sub') or 'unknown'}",
+                  {"seq": seq, "total_linear_feet": total_feet})
+        return {"deleted": True, "total_linear_feet": total_feet}
     finally:
         db.close()
 

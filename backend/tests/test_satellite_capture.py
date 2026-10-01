@@ -245,6 +245,163 @@ def test_a_missing_lead_404s_and_spends_nothing_further(db, api_client):
     assert r.status_code == 404
 
 
+# --- several views per job -------------------------------------------------
+#
+# A job often needs more than one view: all the insides in one, the back run
+# in another. Each is measured separately and the footage is the sum. The old
+# single-image column replaced itself, which lost the earlier shot and meant
+# re-measuring from scratch to check anything.
+
+def test_each_capture_is_kept_and_numbered(db, api_client):
+    from database import LeadMeasurement
+    lead = _lead(db)
+
+    first = _capture(api_client, lead.id, linear_feet=300).json()
+    second = _capture(api_client, lead.id, linear_feet=120).json()
+
+    assert (first["seq"], first["label"]) == (1, "Photo 1")
+    assert (second["seq"], second["label"]) == (2, "Photo 2")
+
+    db.expire_all()
+    rows = (
+        db.query(LeadMeasurement)
+        .filter(LeadMeasurement.lead_id == lead.id)
+        .order_by(LeadMeasurement.seq).all()
+    )
+    assert [r.seq for r in rows] == [1, 2]
+    assert [r.linear_feet for r in rows] == [300.0, 120.0]
+    # The earlier photo's bytes survive — that is the whole point.
+    assert all(r.image_data == PNG for r in rows)
+
+
+def test_linear_feet_is_the_sum_of_the_views(db, api_client):
+    """Measure the insides, then the back run; the estimator input gets the
+    total without anyone adding it up."""
+    lead = _lead(db)
+
+    assert _capture(api_client, lead.id, linear_feet=300).json()["total_linear_feet"] == 300
+    r = _capture(api_client, lead.id, linear_feet=120.4)
+    assert r.json()["linear_feet"] == 120      # this view
+    assert r.json()["total_linear_feet"] == 420  # the job
+
+    db.expire_all()
+    fd = json.loads(db.query(Lead).filter(Lead.id == lead.id).one().form_data or "{}")
+    assert fd["linear_feet"] == "420"
+
+
+def test_re_shooting_a_view_replaces_it_rather_than_double_counting(db, api_client):
+    """Re-framing a run already measured must correct it, not add to it."""
+    from database import LeadMeasurement
+    lead = _lead(db)
+    first = _capture(api_client, lead.id, linear_feet=300).json()
+
+    again = _capture(api_client, lead.id, linear_feet=340,
+                     replace_id=first["measurement_id"])
+    assert again.json()["seq"] == 1, "a re-shoot keeps the photo's number"
+    assert again.json()["total_linear_feet"] == 340, "340, not 640"
+
+    db.expire_all()
+    assert db.query(LeadMeasurement).filter(
+        LeadMeasurement.lead_id == lead.id).count() == 1
+
+
+def test_replacing_a_photo_that_is_gone_is_refused(db, api_client):
+    lead = _lead(db)
+    r = _capture(api_client, lead.id, linear_feet=100, replace_id="not-a-real-id")
+    assert r.status_code == 404
+
+
+def test_the_list_comes_back_in_order_with_the_total(db, api_client):
+    lead = _lead(db)
+    _capture(api_client, lead.id, linear_feet=300)
+    _capture(api_client, lead.id, linear_feet=120)
+
+    body = api_client.get(f"/api/leads/{lead.id}/measurements").json()
+    assert body["total_linear_feet"] == 420
+    assert [m["label"] for m in body["measurements"]] == ["Photo 1", "Photo 2"]
+    # Listing must not drag the image bytes along with it.
+    assert all("image_data" not in m for m in body["measurements"])
+    assert all(m["has_image"] for m in body["measurements"])
+
+
+def test_each_photo_is_fetchable_on_its_own(db, api_client):
+    lead = _lead(db)
+    mid = _capture(api_client, lead.id, linear_feet=300).json()["measurement_id"]
+
+    r = api_client.get(f"/api/leads/{lead.id}/measurements/{mid}/image")
+    assert r.status_code == 200
+    assert r.content == PNG
+    assert r.headers["content-type"] == "image/png"
+
+
+def test_deleting_a_photo_re_totals_the_lead(db, api_client):
+    lead = _lead(db)
+    _capture(api_client, lead.id, linear_feet=300)
+    second = _capture(api_client, lead.id, linear_feet=120).json()
+
+    r = api_client.delete(f"/api/leads/{lead.id}/measurements/{second['measurement_id']}")
+    assert r.json()["total_linear_feet"] == 300
+
+    db.expire_all()
+    fd = json.loads(db.query(Lead).filter(Lead.id == lead.id).one().form_data or "{}")
+    assert fd["linear_feet"] == "300"
+
+
+def test_deleting_the_last_photo_clears_the_derived_footage(db, api_client):
+    lead = _lead(db)
+    only = _capture(api_client, lead.id, linear_feet=300).json()
+
+    api_client.delete(f"/api/leads/{lead.id}/measurements/{only['measurement_id']}")
+
+    db.expire_all()
+    fd = json.loads(db.query(Lead).filter(Lead.id == lead.id).one().form_data or "{}")
+    assert "linear_feet" not in fd, "a stale 300 would quietly price the job"
+
+
+def test_deleting_a_photo_never_overwrites_a_hand_typed_figure(db, api_client):
+    """If the VA typed Linear Feet themselves, it is their number. This flow
+    only ever corrects a figure it put there itself."""
+    lead = _lead(db, form_data=json.dumps({"linear_feet": "777"}))
+    api_client.set_google()
+    shot = _capture(api_client, lead.id).json()   # no footage traced
+
+    api_client.delete(f"/api/leads/{lead.id}/measurements/{shot['measurement_id']}")
+
+    db.expire_all()
+    fd = json.loads(db.query(Lead).filter(Lead.id == lead.id).one().form_data or "{}")
+    assert fd["linear_feet"] == "777"
+
+
+def test_numbers_are_not_reshuffled_after_a_delete(db, api_client):
+    """"Photo 3" has to keep meaning the same photo once Photo 2 is gone,
+    otherwise a note referring to it silently points at something else."""
+    lead = _lead(db)
+    _capture(api_client, lead.id, linear_feet=100)
+    second = _capture(api_client, lead.id, linear_feet=100).json()
+    _capture(api_client, lead.id, linear_feet=100)
+
+    api_client.delete(f"/api/leads/{lead.id}/measurements/{second['measurement_id']}")
+    body = api_client.get(f"/api/leads/{lead.id}/measurements").json()
+    assert [m["seq"] for m in body["measurements"]] == [1, 3]
+
+    # And the next capture continues past the gap rather than reusing 2.
+    assert _capture(api_client, lead.id, linear_feet=50).json()["seq"] == 4
+
+
+def test_the_newest_capture_still_feeds_the_scope_and_the_old_card(db, api_client):
+    """The legacy single-image columns mirror the most recent photo, so the
+    Measurement card and the fence-scope source keep working untouched."""
+    lead = _lead(db)
+    _capture(api_client, lead.id, linear_feet=300)
+    _capture(api_client, lead.id, linear_feet=120)
+
+    db.expire_all()
+    row = db.query(Lead).filter(Lead.id == lead.id).one()
+    assert row.has_measurement_image is True
+    assert "satellite-2" in row.measurement_filename
+    assert row.fence_scope_source_image == PNG
+
+
 def test_scope_source_can_be_left_alone(db, api_client):
     """Re-capturing a measurement shouldn't have to clobber a scope source
     the VA has already drawn against."""

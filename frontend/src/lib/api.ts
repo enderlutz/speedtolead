@@ -519,6 +519,24 @@ export const LEAD_SOURCE_OPTIONS: { value: LeadSource; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
+/** One retained measurement view. `linear_feet` is what was traced in this
+ *  photo; the job's figure is the sum across all of them. */
+export interface MeasurementPhoto {
+  id: string;
+  lead_id: string;
+  seq: number;
+  label: string;
+  has_image: boolean;
+  mime: string;
+  linear_feet: number | null;
+  center_lat: number | null;
+  center_lng: number | null;
+  zoom: number | null;
+  source: string;
+  created_at: string;
+  created_by: string;
+}
+
 export interface LeadDetail extends Lead {
   estimates: EstimateDetail[];
   estimate?: EstimateDetail;
@@ -1457,20 +1475,50 @@ export const api = {
       /** "520x520" — match the on-screen map so the capture frames the same
        *  ground area the VA just measured. Max 640 per side. */
       size?: string;
-      also_scope?: boolean; linear_feet?: number | null;
+      also_scope?: boolean;
+      /** Footage traced in THIS view; the backend sums the views. */
+      linear_feet?: number | null;
+      /** Re-shoot an existing photo instead of adding one. */
+      replace_id?: string | null;
     },
   ) =>
     request<{
       measurement_uploaded: boolean;
+      measurement_id: string;
+      seq: number;
+      label: string;
       measurement_filename: string;
       measurement_uploaded_at: string;
       measurement_uploaded_by: string;
       scope_source_set: boolean;
       linear_feet: number | null;
+      total_linear_feet: number | null;
     }>(`/api/leads/${leadId}/measurement/capture`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** Every retained measurement photo, oldest first, without the bytes. */
+  listMeasurements: (leadId: string) =>
+    request<{
+      measurements: MeasurementPhoto[];
+      total_linear_feet: number | null;
+    }>(`/api/leads/${leadId}/measurements`),
+  deleteMeasurementPhoto: (leadId: string, measurementId: string) =>
+    request<{ deleted: boolean; total_linear_feet: number | null }>(
+      `/api/leads/${leadId}/measurements/${measurementId}`,
+      { method: "DELETE" },
+    ),
+  /** One photo's bytes as an object URL. Needs the auth header, so it can't
+   *  be an <img src> straight to the endpoint. Caller revokes. */
+  fetchMeasurementPhotoUrl: async (leadId: string, measurementId: string) => {
+    const token = getToken();
+    const res = await fetch(
+      `${BASE}/api/leads/${leadId}/measurements/${measurementId}/image`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
   /** Upload a pre-made PDF and send it to the customer as a proposal — same
    * /proposal link + viewer + SMS as a generated estimate. */
   sendCustomProposal: async (leadId: string, file: File, brick: boolean = false) => {

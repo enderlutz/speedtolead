@@ -1694,6 +1694,67 @@ class LeadActivity(Base):
     created_at = Column(Text, default="")     # ISO datetime UTC
 
 
+class LeadMeasurement(Base):
+    """Every measurement photo taken for a lead, kept — not just the latest.
+
+    `leads.measurement_image_data` holds a single image and a re-upload
+    replaces it, which is wrong for how the work is actually done: a job
+    often needs several views (all the insides in one, the back run in
+    another), each measured separately, and the footage is the sum. Losing
+    the earlier shot means re-measuring from scratch to check anything.
+
+    So each capture appends a row here and is numbered for display —
+    "Photo 1", "Photo 2" — while the legacy columns on `leads` keep
+    mirroring the most recent one so existing readers (the Measurement card,
+    the fence-scope source) carry on working untouched.
+
+    `linear_feet` is what was traced in THIS view. The lead's total is the
+    sum across its rows, which is why re-capturing a view must replace its
+    row rather than add a second one for the same ground.
+    """
+    __tablename__ = "lead_measurements"
+    __table_args__ = (
+        Index("idx_lead_measurements_lead", "lead_id", "seq"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    # 1-based display order. Gaps are fine after a delete — the number is a
+    # stable label for a photo, not a count, so renumbering on delete would
+    # silently rename the photo someone wrote a note about.
+    seq = Column(Integer, default=1)
+    label = Column(Text, default="")              # optional override of "Photo N"
+    # Deferred: listing endpoints must not drag the bytes along.
+    image_data = deferred(Column(LargeBinary, nullable=True))
+    has_image = Column(Boolean, default=False, nullable=False)
+    mime = Column(Text, default="image/png")
+    linear_feet = Column(Float, nullable=True)    # traced in this view, not the job total
+    # Enough to re-open the same view later, or re-capture it at a new zoom.
+    center_lat = Column(Float, nullable=True)
+    center_lng = Column(Float, nullable=True)
+    zoom = Column(Integer, nullable=True)
+    source = Column(Text, default="satellite_capture")   # satellite_capture | upload
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "lead_id": self.lead_id,
+            "seq": int(self.seq or 1),
+            "label": self.label or f"Photo {int(self.seq or 1)}",
+            "has_image": bool(self.has_image),
+            "mime": self.mime or "image/png",
+            "linear_feet": self.linear_feet,
+            "center_lat": self.center_lat,
+            "center_lng": self.center_lng,
+            "zoom": self.zoom,
+            "source": self.source or "",
+            "created_at": self.created_at or "",
+            "created_by": self.created_by or "",
+        }
+
+
 class SalesEvent(Base):
     """Append-only log of the sales funnel: every step, when it happened, and
     who did it.
