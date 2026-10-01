@@ -58,5 +58,9 @@ declare global {
   }
   interface Window {
     google?: { maps: GoogleMapsNS };
+    /** Called by Google when it rejects the Maps key (wrong referrer, API
+     *  not enabled, billing off). The only programmatic signal — everything
+     *  else goes to the console. Assigned in lib/googleMaps.ts. */
+    gm_authFailure?: () => void;
   }
 }

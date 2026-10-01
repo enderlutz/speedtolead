@@ -1439,7 +1439,13 @@ export const api = {
   /** The browser Maps key on its own. `getLeadMap` also returns it, but that
    *  endpoint loads every lead and lazily geocodes a batch — too much work
    *  to spend on reading one string per page view. */
-  getMapsKey: () => request<{ maps_api_key: string }>(`/api/maps-key`),
+  getMapsKey: () =>
+    request<{
+      maps_api_key: string;
+      /** Which key the backend fell back to. "server_key" is the usual
+       *  cause of a grey map — that key is server-side only. */
+      key_source: "browser_key" | "server_key" | "none";
+    }>(`/api/maps-key`),
   /** Capture the embedded satellite view server-side, into both the
    *  measurement slot and the fence-scope source. The browser cannot
    *  screenshot a Google map (cross-origin tiles taint the canvas), so the

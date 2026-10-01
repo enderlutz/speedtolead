@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { loadGoogleMaps } from "@/lib/googleMaps";
+import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,12 +85,13 @@ export default function SatelliteMeasureCard({
   const labelsRef = useRef<any[]>([]);
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  const [status, setStatus] = useState<"loading" | "ready" | "nokey" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "nokey" | "error" | "authfail">("loading");
   const [points, setPoints] = useState<Pt[]>([]);
   const [closed, setClosed] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [search, setSearch] = useState("");
   const [mapsKey, setMapsKey] = useState("");
+  const [keySource, setKeySource] = useState("");
 
   // Total of the traced path. When the loop is closed the final leg back to
   // the first point counts too — a fence usually goes all the way round.
@@ -101,10 +102,20 @@ export default function SatelliteMeasureCard({
     return sum;
   })();
 
+  // Google's key rejection beats everything else: the script loads, the
+  // promise resolves, and the div just stays grey. Without this the card
+  // would sit on "loading" forever with the reason only in the console.
+  useEffect(() => onMapsAuthFailure(() => setStatus("authfail")), []);
+
   useEffect(() => {
     let cancelled = false;
     api.getMapsKey()
-      .then((d) => { if (!cancelled) setMapsKey(d.maps_api_key || ""); })
+      .then((d) => {
+        if (cancelled) return;
+        setMapsKey(d.maps_api_key || "");
+        setKeySource(d.key_source || "");
+        if (!d.maps_api_key) setStatus("nokey");
+      })
       .catch(() => { if (!cancelled) setStatus("error"); });
     return () => { cancelled = true; };
   }, []);
@@ -289,11 +300,39 @@ export default function SatelliteMeasureCard({
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
-        {status === "nokey" || status === "error" ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {status === "nokey"
-              ? "No Google Maps key is configured, so the satellite view can't load."
-              : "The satellite view failed to load. Check the Maps key's allowed referrers."}
+        {status === "nokey" || status === "error" || status === "authfail" ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-1">
+            {status === "nokey" ? (
+              <p>No Google Maps key is configured, so the satellite view can't load.</p>
+            ) : status === "authfail" ? (
+              <>
+                <p className="font-medium">Google rejected the Maps key.</p>
+                {keySource === "server_key" ? (
+                  <p className="text-xs">
+                    The backend is serving <code>GOOGLE_MAPS_API_KEY</code>,
+                    which is the <b>server-side</b> key — it has no browser
+                    referrer allowance, so Google refuses it here. Set a
+                    separate <code>GOOGLE_MAPS_BROWSER_KEY</code> on Railway
+                    with <b>Maps JavaScript API</b> + <b>Geocoding API</b>
+                    {" "}enabled and <code>admin.atpressurewash.com/*</code> in
+                    its allowed referrers.
+                  </p>
+                ) : (
+                  <p className="text-xs">
+                    Usually one of three things: <b>Maps JavaScript API</b> isn't
+                    enabled, billing is off, or the key's{" "}
+                    <b>HTTP referrer restrictions</b> don't include this domain.
+                    Add <code>admin.atpressurewash.com/*</code> to the key's
+                    allowed referrers in Google Cloud Console → Credentials.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p>
+                The satellite view failed to load — the Maps script or the key
+                lookup didn't come back.
+              </p>
+            )}
           </div>
         ) : null}
 

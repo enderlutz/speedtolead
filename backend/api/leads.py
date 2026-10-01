@@ -328,8 +328,17 @@ def maps_browser_key(user: dict = Depends(require_staff)):
     """
     del user
     settings = get_settings()
+    browser = (settings.google_maps_browser_key or "").strip()
+    server = (settings.google_maps_api_key or "").strip()
+    # Which key we fell back to, so a blank map can be diagnosed without
+    # anyone reading the key itself. GOOGLE_MAPS_API_KEY is documented as
+    # server-side only (config.py) — geocoding from our IP. Handing that to
+    # a browser is the usual reason Google rejects it and the map stays grey,
+    # and the fix is a separate GOOGLE_MAPS_BROWSER_KEY with HTTP-referrer
+    # restrictions rather than loosening the server key.
     return {
-        "maps_api_key": settings.google_maps_browser_key or settings.google_maps_api_key or "",
+        "maps_api_key": browser or server,
+        "key_source": "browser_key" if browser else ("server_key" if server else "none"),
     }
 
 
