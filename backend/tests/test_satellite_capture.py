@@ -174,15 +174,31 @@ def test_the_requested_view_is_what_gets_asked_of_google(db, api_client):
 
 
 def test_zoom_is_clamped_to_what_static_maps_accepts(db, api_client):
-    """A bad client value should fail here with a clear message rather than
-    as an opaque 400 from Google."""
+    """A bad client value is clamped here rather than becoming an opaque 400
+    from Google. 22, not 21: Google's satellite basemap only allows zooming
+    as far as imagery exists, so the interactive map's ceiling is the real
+    one and ours must not be the binding constraint."""
     lead = _lead(db)
 
     _capture(api_client, lead.id, zoom=99)
-    assert "zoom=21" in api_client.google_calls[-1]
+    assert "zoom=22" in api_client.google_calls[-1]
 
     _capture(api_client, lead.id, zoom=-5)
     assert "zoom=1" in api_client.google_calls[-1]
+
+
+def test_a_clamped_zoom_is_reported_not_hidden(db, api_client):
+    """Capturing below the framed zoom means a wider, coarser image than was
+    measured. The response has to make that visible — detail is the only
+    part of imagery quality we actually control, since Google exposes no
+    imagery-date parameter at all."""
+    lead = _lead(db)
+
+    r = _capture(api_client, lead.id, zoom=30).json()
+    assert (r["requested_zoom"], r["zoom"]) == (30, 22)
+
+    ok = _capture(api_client, lead.id, zoom=20).json()
+    assert (ok["requested_zoom"], ok["zoom"]) == (20, 20)
 
 
 def test_a_nonsense_size_is_refused_before_calling_google(db, api_client):

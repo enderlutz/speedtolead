@@ -322,6 +322,16 @@ export default function SatelliteMeasureCard({
           ? `${res.label} saved — job total ${res.total_linear_feet} ft, ready for scope of work`
           : `${res.label} saved — ready for scope of work`,
       );
+      // Google has no imagery-date parameter, so the one thing we control is
+      // detail: capturing below the framed zoom means a wider, coarser image
+      // than was measured. Said out loud rather than silently accepted.
+      if (res.zoom < res.requested_zoom) {
+        toast.warning(
+          `Saved at zoom ${res.zoom} — Google wouldn't serve the image at ${res.requested_zoom}, `
+          + "so it covers more ground than you framed.",
+          { duration: 8000 },
+        );
+      }
       if (res.total_linear_feet && onLinearFeet) onLinearFeet(res.total_linear_feet);
       resetRuns();
       await loadPhotos();

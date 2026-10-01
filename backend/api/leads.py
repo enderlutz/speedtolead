@@ -2141,7 +2141,15 @@ def capture_satellite_measurement(
 
     # Clamp to what Static Maps accepts, so a bad client value fails here
     # with a clear message instead of as an opaque 400 from Google.
-    zoom = max(1, min(21, int(body.zoom)))
+    # Google's docs give "21+" for Static Maps, and its satellite basemap only
+    # allows zooming as far as imagery actually exists for that spot — so the
+    # interactive map's own ceiling is the real ceiling, and ours must not be
+    # the binding one. Clamping at 21 silently captured a wider, less detailed
+    # view than the VA framed whenever they zoomed past it. 22 is the
+    # practical limit for aerial coverage; the value used is returned so a
+    # clamp is visible instead of silent.
+    requested_zoom = int(body.zoom)
+    zoom = max(1, min(22, requested_zoom))
     scale = 2 if int(body.scale) >= 2 else 1
     w, _, h = (body.size or "").partition("x")
     if not (w.isdigit() and h.isdigit() and 2 <= len(w) <= 4 and 2 <= len(h) <= 4):
@@ -2281,6 +2289,11 @@ def capture_satellite_measurement(
             # This photo's footage, and the lead's running total.
             "linear_feet": feet,
             "total_linear_feet": total_feet,
+            # What Google was actually asked for. If `zoom` came back lower
+            # than `requested_zoom`, the saved image is wider than what was
+            # on screen and the UI says so rather than hiding it.
+            "zoom": zoom,
+            "requested_zoom": requested_zoom,
         }
     finally:
         db.close()

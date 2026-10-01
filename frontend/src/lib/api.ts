@@ -1493,6 +1493,10 @@ export const api = {
       scope_source_set: boolean;
       linear_feet: number | null;
       total_linear_feet: number | null;
+      /** What Google was asked for. A `zoom` below `requested_zoom` means
+       *  the saved image is wider than what was on screen. */
+      zoom: number;
+      requested_zoom: number;
     }>(`/api/leads/${leadId}/measurement/capture`, {
       method: "POST",
       body: JSON.stringify(body),
