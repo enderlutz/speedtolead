@@ -1114,6 +1114,7 @@ export default function LeadDetail() {
             lat={lead.lat || 0}
             lng={lead.lng || 0}
             address={lead.address || ""}
+            zipCode={zipCode || lead.zip_code || ""}
             onLinearFeet={(feet) => setLinearFeet(String(feet))}
             onChange={() => {
               api.getLead(lead.id).then(setLead).catch(() => {});

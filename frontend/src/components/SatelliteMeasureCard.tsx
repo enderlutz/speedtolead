@@ -46,6 +46,10 @@ interface Props {
   lat: number;
   lng: number;
   address?: string;
+  /** The ZIP the customer gave us. Used to pin the street down — a street
+   *  line alone resolves ambiguously — but never trusted, because customers
+   *  do fill it in wrong. See locateProperty. */
+  zipCode?: string;
   /** Push the job total into the estimator's Linear Feet input. */
   onLinearFeet?: (feet: number) => void;
   /** Re-fetch the lead so the measurement and scope previews refresh. */
@@ -130,6 +134,72 @@ function latLngFromPixel(
   return { lat, lng };
 }
 
+// Sterling works the Houston metro. A geocode landing outside this box is
+// wrong, whatever Google says — the usual cause is a mistyped ZIP matching a
+// real street somewhere else. Generous on purpose: it only has to catch
+// "different state", not "different suburb". Mirrors the backend's
+// _in_home_region check in api/leads.py.
+const TX_BOX = { minLat: 25.5, maxLat: 36.6, minLng: -106.7, maxLng: -93.4 };
+
+function inHomeRegion(p: Pt): boolean {
+  return (
+    p.lat >= TX_BOX.minLat && p.lat <= TX_BOX.maxLat &&
+    p.lng >= TX_BOX.minLng && p.lng <= TX_BOX.maxLng
+  );
+}
+
+/**
+ * Find the property, using the ZIP but not trusting it.
+ *
+ * A street line on its own is ambiguous — "225 Mesquite Falls Ln" exists in
+ * more than one state — so the ZIP is what pins it down and is always
+ * included. But customers do type the wrong ZIP, and a wrong-but-valid ZIP
+ * geocodes confidently to the wrong place, which is worse than failing.
+ *
+ * So: try with the ZIP, sanity-check the answer is in Texas, and if it isn't
+ * (or the ZIP produced nothing) fall back to the street line restricted to
+ * TX. `onResult` reports which route won so the VA can see when a ZIP was
+ * overridden rather than silently measuring the wrong house.
+ */
+function locateProperty(
+  g: GoogleMapsNS,
+  address: string,
+  zip: string,
+  onResult: (p: Pt, note: string) => void,
+) {
+  const street = address.trim();
+  const z = (zip || "").trim();
+  if (!street) return;
+
+  const tryTxOnly = () => {
+    new g.Geocoder().geocode(
+      { address: street, componentRestrictions: { country: "US", administrativeArea: "TX" } },
+      (res, ok) => {
+        if (ok !== "OK" || !res?.length) return;
+        const loc = res[0].geometry.location;
+        const p = { lat: loc.lat(), lng: loc.lng() };
+        if (!inHomeRegion(p)) return;   // give up rather than guess
+        onResult(p, z
+          ? `ZIP ${z} didn't resolve near Houston — located from the street address instead. Worth checking.`
+          : "No ZIP on file — located from the street address.");
+      },
+    );
+  };
+
+  if (!z) { tryTxOnly(); return; }
+
+  new g.Geocoder().geocode(
+    { address: `${street} ${z}`, componentRestrictions: { country: "US" } },
+    (res, ok) => {
+      if (ok !== "OK" || !res?.length) { tryTxOnly(); return; }
+      const loc = res[0].geometry.location;
+      const p = { lat: loc.lat(), lng: loc.lng() };
+      if (!inHomeRegion(p)) { tryTxOnly(); return; }
+      onResult(p, "");
+    },
+  );
+}
+
 /** Google's click payload: a latLng it computed, plus the raw DOM event. */
 type GMapMouseEvent = {
   latLng?: { lat(): number; lng(): number };
@@ -193,7 +263,7 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, onLinearFeet, onChange,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange,
 }: Props) {
   const mapDivRef = useRef<HTMLDivElement>(null);
   // Typed loosely on purpose: src/types/google-maps.d.ts is a hand-written
@@ -214,6 +284,10 @@ export default function SatelliteMeasureCard({
   const [keySource, setKeySource] = useState("");
   const [photos, setPhotos] = useState<MeasurementPhoto[]>([]);
   const [jobTotal, setJobTotal] = useState<number | null>(null);
+  // Set when the property had to be located the hard way — e.g. the ZIP the
+  // customer gave didn't resolve near Houston. Shown rather than swallowed,
+  // because measuring the wrong house produces a confidently wrong quote.
+  const [locateNote, setLocateNote] = useState("");
 
   const viewTotal = runs.reduce((s, r) => s + runFeet(r), 0);
   const anyPoints = runs.some((r) => r.points.length > 0);
@@ -248,17 +322,29 @@ export default function SatelliteMeasureCard({
     return () => { cancelled = true; };
   }, []);
 
+  // Build the map exactly once.
+  //
+  // This deliberately depends on `mapsKey` alone. It used to also depend on
+  // the lead's lat/lng/address, which looked harmless but wasn't: the lead
+  // page does not unmount when you switch customers — React Router keeps
+  // this component mounted and only changes the lead — so the effect re-ran
+  // and constructed a SECOND google.maps.Map over the same div while the
+  // first was still alive and still listening for clicks. Two maps with
+  // different centres both handling taps is why measuring worked on the
+  // first customer and then went wrong on the next one.
+  //
+  // Re-aiming at a new property is a separate effect below, which moves this
+  // map rather than replacing it.
   useEffect(() => {
-    if (!mapsKey) return;
+    if (!mapsKey || mapRef.current) return;
     let cancelled = false;
     loadGoogleMaps(mapsKey)
       .then(() => {
         const g = mapsNS();
-        if (cancelled || !mapDivRef.current || !g) return;
-        const center = lat && lng ? { lat, lng } : { lat: 29.7604, lng: -95.3698 }; // Houston
+        if (cancelled || !mapDivRef.current || !g || mapRef.current) return;
         mapRef.current = new g.Map(mapDivRef.current, {
-          center,
-          zoom: lat && lng ? DEFAULT_ZOOM : 11,
+          center: { lat: 29.7604, lng: -95.3698 },   // Houston, until aimed
+          zoom: 11,
           mapTypeId: "satellite",
           tilt: 0,             // Static Maps has no tilt; keep them matched.
           rotateControl: false,
@@ -285,26 +371,50 @@ export default function SatelliteMeasureCard({
           ));
         });
         setStatus("ready");
-
-        // Most leads aren't geocoded — the background map loop only covers
-        // leads in mappable stages — so without this the map would open on
-        // central Houston. Resolve the address so it lands on the house.
-        if ((!lat || !lng) && address && address.trim()) {
-          try {
-            new g.Geocoder().geocode({ address: address.trim() }, (res, ok) => {
-              if (cancelled || ok !== "OK" || !res || res.length === 0) return;
-              const loc = res[0].geometry.location;
-              mapRef.current?.setCenter({ lat: loc.lat(), lng: loc.lng() });
-              mapRef.current?.setZoom(DEFAULT_ZOOM);
-            });
-          } catch {
-            /* leave the default view; the search box still works */
-          }
-        }
       })
       .catch(() => { if (!cancelled) setStatus("error"); });
     return () => { cancelled = true; };
-  }, [mapsKey, lat, lng, address]);
+  }, [mapsKey]);
+
+  // Aim the existing map at whichever customer is open, and start their
+  // measurements from scratch.
+  //
+  // Keyed on leadId as well as the coordinates: two customers can share a
+  // lat/lng of 0 (most leads are never geocoded), so without leadId in the
+  // deps, switching between two un-geocoded leads would silently carry the
+  // previous property's traced points — and their footage — into the next
+  // one's capture.
+  useEffect(() => {
+    if (status !== "ready" || !mapRef.current) return;
+    const g = mapsNS();
+    if (!g) return;
+    let cancelled = false;
+
+    setRuns([{ id: 1, points: [], closed: false }]);
+    setActiveRun(1);
+
+    setLocateNote("");
+
+    if (lat && lng) {
+      mapRef.current.setCenter({ lat, lng });
+      mapRef.current.setZoom(DEFAULT_ZOOM);
+    } else if (address && address.trim()) {
+      // Most leads aren't geocoded — the background map loop only covers
+      // leads in mappable stages — so without this the map would sit on
+      // central Houston. Resolve the address so it lands on the house.
+      try {
+        locateProperty(g, address, zipCode || "", (p, note) => {
+          if (cancelled) return;
+          mapRef.current?.setCenter(p);
+          mapRef.current?.setZoom(DEFAULT_ZOOM);
+          if (note) setLocateNote(note);
+        });
+      } catch {
+        /* leave the view where it is; the search box still works */
+      }
+    }
+    return () => { cancelled = true; };
+  }, [leadId, lat, lng, address, zipCode, status]);
 
   // The click handler is registered once, so it closes over the first
   // activeRun. A ref keeps it reading the current one.
@@ -572,12 +682,22 @@ export default function SatelliteMeasureCard({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } }}
-              placeholder={address || "Search an address…"}
+              placeholder={
+                address
+                  ? `${address}${zipCode ? ` ${zipCode}` : ""}`
+                  : "Search an address…"
+              }
               className="pl-8"
             />
           </div>
           <Button variant="outline" size="sm" onClick={doSearch}>Find</Button>
         </div>
+
+        {locateNote ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {locateNote}
+          </div>
+        ) : null}
 
         {/* Square, to match the square Static Maps capture. */}
         <div

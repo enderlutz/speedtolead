@@ -43,9 +43,20 @@ declare global {
     geometry: { location: GLatLng };
     formatted_address?: string;
   }
+  interface GGeocodeRequest {
+    address: string;
+    /** Narrows the search — country/state keep a wrong ZIP from resolving
+     *  to an identically-named street in another state. */
+    componentRestrictions?: {
+      country?: string;
+      administrativeArea?: string;
+      postalCode?: string;
+      locality?: string;
+    };
+  }
   interface GGeocoder {
     geocode(
-      req: { address: string },
+      req: GGeocodeRequest,
       cb: (results: GGeocoderResult[] | null, status: string) => void,
     ): void;
   }
