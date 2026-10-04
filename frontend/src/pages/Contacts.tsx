@@ -31,10 +31,10 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function Stat({ label, value, hint }: { label: string; value: number | string; hint?: string }) {
+function Stat({ label, value, hint, tone }: { label: string; value: number | string; hint?: string; tone?: "alert" }) {
   return (
-    <div className="rounded-lg border bg-card px-3 py-2">
-      <div className="text-lg font-semibold leading-tight">{value}</div>
+    <div className={`rounded-lg border px-3 py-2 ${tone === "alert" ? "border-red-400 bg-red-50" : "bg-card"}`}>
+      <div className={`text-lg font-semibold leading-tight ${tone === "alert" ? "text-red-700" : ""}`}>{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
       {hint ? <div className="text-[11px] text-muted-foreground/80 mt-0.5">{hint}</div> : null}
     </div>
@@ -135,6 +135,11 @@ export default function Contacts() {
           <Stat label="Estimate sent" value={stats.estimate_sent} />
           <Stat label="No phone number" value={stats.no_phone} hint="can't be called" />
           <Stat label="Opted out in GHL" value={stats.dnd} hint="do not contact" />
+          {/* Only appears when something is actually wrong — a queued estimate
+              that sailed past its send time without going out. */}
+          {stats.send_overdue > 0 ? (
+            <Stat label="Send overdue" value={stats.send_overdue} hint="queued but never went out" tone="alert" />
+          ) : null}
         </div>
       ) : null}
 
@@ -243,7 +248,27 @@ export default function Contacts() {
                   {fmtDate(c.date_added)}
                 </td>
                 <td className="px-3 py-2">
-                  {c.estimate_sent ? (
+                  {/* A scheduled estimate reads as sent straight away — the
+                      point of the 10-minute button is not having to come back
+                      in 10 minutes. "overdue" is the self-correction: queued,
+                      past its time, still sitting there. */}
+                  {c.estimate_send_overdue ? (
+                    <Badge
+                      variant="outline"
+                      className="border-red-500 text-red-700"
+                      title="Queued but still not sent well past its send time — the SMS worker may be stalled. This customer has no price yet."
+                    >
+                      send overdue
+                    </Badge>
+                  ) : c.estimate_scheduled ? (
+                    <Badge
+                      variant="outline"
+                      className="border-blue-400 text-blue-700"
+                      title="Estimate approved and queued — the text goes out shortly"
+                    >
+                      sending
+                    </Badge>
+                  ) : c.estimate_sent ? (
                     <Badge variant="secondary">sent</Badge>
                   ) : (
                     <Badge variant="outline" className="border-amber-400 text-amber-700">

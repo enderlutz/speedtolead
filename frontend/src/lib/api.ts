@@ -3386,6 +3386,12 @@ export interface ContactRow {
   lead_id: string | null;
   link_method: string;
   estimate_sent: boolean;
+  /** A scheduled send still in flight — counts as sent, but worth showing
+   *  differently so "sent" and "going out in ten minutes" stay distinct. */
+  estimate_scheduled: boolean;
+  /** Queued but still unsent well past its send time: the worker is stalled
+   *  and this customer is NOT getting a price until someone looks. */
+  estimate_send_overdue: boolean;
   message_count: number;
   inbound_count: number;
   call_count: number;
@@ -3407,6 +3413,7 @@ export interface ContactStats {
   without_lead: number;
   estimate_sent: number;
   no_estimate: number;
+  send_overdue: number;
   no_phone: number;
   dnd: number;
   newest: string;

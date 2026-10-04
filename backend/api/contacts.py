@@ -10,12 +10,12 @@ See services/contact_mirror.py for how the mirror is filled and deduped.
 """
 from __future__ import annotations
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_
 
-from database import get_db, Contact, Lead, Message, AutomationLog, CallRecording
+from database import get_db, Contact, Lead, Message, AutomationLog, CallRecording, SmsQueue
 from api.auth import get_current_user, require_admin
 
 router = APIRouter()
@@ -35,9 +35,69 @@ SENT_EVENTS = (
     "scheduled_sms_sent",
 )
 
+# How long past its send_at a queued estimate may sit before we stop calling
+# it sent. The worker is punctual — across all 22 scheduled sends in
+# production the median was 0 minutes late and the worst ever was 1 — but it
+# polls on a 30s cycle, sleeps 2s between sends and takes up to 20 a batch,
+# so a legitimately busy run can land a couple of minutes behind. Five
+# minutes clears that comfortably without letting a genuinely stalled worker
+# masquerade as a success for long.
+QUEUE_GRACE_MINUTES = 5
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _iso_z(dt: datetime) -> str:
+    """Render a UTC datetime the way `sms_queue.send_at` is stored.
+
+    send_at comes straight from the browser's `Date.toISOString()`, so it is
+    always `...sss` + `Z`. These columns are Text and compared as text, so a
+    cutoff built with `.isoformat()` (`+00:00`, six decimals) would only sort
+    correctly by accident. Matching the stored shape keeps it exact.
+    """
+    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _scheduled_send_state(db, lead_ids: list[str] | None) -> tuple[set[str], set[str]]:
+    """Split leads with a queued estimate into (in-flight, overdue).
+
+    A scheduled estimate counts as sent the moment it is queued — the whole
+    point of the ten-minute button is not having to come back in ten minutes
+    to find out whether a customer has a price.
+
+    Reading the live queue rather than the schedule-time log event is what
+    makes the double-check automatic and continuous instead of a one-off
+    sweep: the instant the worker marks a row cancelled, failed or blocked it
+    stops qualifying here, and the contact reverts to "never sent" on the
+    next load. There is no reconciliation job to write, schedule or trust.
+
+    The one row that must *not* count is one still pending well past its
+    send_at. That means the worker is stalled and nothing is going out, so
+    calling it sent would be precisely the silent failure that reads as a
+    success until the customer never replies — the trap that cost three
+    customers in September (services/sms_worker.py:138).
+    """
+    q = db.query(SmsQueue.lead_id, SmsQueue.send_at).filter(SmsQueue.status == "pending")
+    if lead_ids is not None:
+        if not lead_ids:
+            return set(), set()
+        q = q.filter(SmsQueue.lead_id.in_(lead_ids))
+
+    latest: dict[str, str] = {}
+    for lid, send_at in q.all():
+        if not lid:
+            continue
+        # Newest wins if a lead somehow has two queued, so a fresh re-send
+        # isn't judged overdue because of a stale row behind it.
+        if lid not in latest or (send_at or "") > latest[lid]:
+            latest[lid] = send_at or ""
+
+    cutoff = _iso_z(datetime.now(timezone.utc) - timedelta(minutes=QUEUE_GRACE_MINUTES))
+    in_flight = {lid for lid, sa in latest.items() if sa >= cutoff}
+    overdue = {lid for lid, sa in latest.items() if sa < cutoff}
+    return in_flight, overdue
 
 
 @router.get("/contacts")
@@ -94,6 +154,10 @@ def list_contacts(
         inbound_counts: dict[str, int] = {}
         call_counts: dict[str, int] = {}
         stage_by_lead: dict[str, tuple[str, str]] = {}
+        # Queued estimates: in flight (counts as sent) vs stalled past its
+        # send_at (does not). See _scheduled_send_state.
+        scheduled: set[str] = set()
+        overdue: set[str] = set()
 
         if lead_ids:
             # The pipeline still matters — it just no longer decides whether
@@ -138,12 +202,19 @@ def list_contacts(
                 .filter(CallRecording.lead_id.in_(lead_ids))
                 .group_by(CallRecording.lead_id).all()
             )
+            scheduled, overdue = _scheduled_send_state(db, lead_ids)
+            sent |= scheduled
 
         out = []
         for r in rows:
             d = r.to_dict()
             lid = r.lead_id
             d["estimate_sent"] = bool(lid and lid in sent)
+            # Lets the badge say "sending in 10 min" rather than a bare "sent",
+            # and flag a stalled send instead of hiding it among the people we
+            # genuinely never priced.
+            d["estimate_scheduled"] = bool(lid and lid in scheduled)
+            d["estimate_send_overdue"] = bool(lid and lid in overdue)
             d["message_count"] = int(msg_counts.get(lid, 0)) if lid else 0
             d["inbound_count"] = int(inbound_counts.get(lid, 0)) if lid else 0
             d["call_count"] = int(call_counts.get(lid, 0)) if lid else 0
@@ -199,9 +270,14 @@ def contact_stats(user: dict = Depends(get_current_user)):
             .filter(Message.lead_id.isnot(None))
             .distinct().all()
         }
+        # Same rule as the rows, so the headline number can't disagree with
+        # the badges underneath it.
+        scheduled_ids, overdue_ids = _scheduled_send_state(db, None)
+        sent_ids |= scheduled_ids
 
         linked = [r[0] for r in db.query(Contact.lead_id).filter(Contact.lead_id.isnot(None)).all()]
         estimate_sent = sum(1 for lid in linked if lid in sent_ids)
+        send_overdue = sum(1 for lid in linked if lid in overdue_ids)
 
         newest = db.query(Contact).order_by(Contact.date_added.desc().nullslast()).first()
         oldest = db.query(Contact).order_by(Contact.date_added.asc().nullsfirst()).first()
@@ -213,6 +289,7 @@ def contact_stats(user: dict = Depends(get_current_user)):
             "without_lead": total - with_lead,
             "estimate_sent": estimate_sent,
             "no_estimate": total - estimate_sent,
+            "send_overdue": send_overdue,
             "no_phone": no_phone,
             "dnd": dnd,
             "newest": (newest.name if newest else ""),
