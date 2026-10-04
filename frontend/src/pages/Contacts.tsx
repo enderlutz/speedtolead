@@ -65,8 +65,9 @@ function CallTally({
 }) {
   const [pulling, setPulling] = useState(false);
   const talked = row.conversation_count;
+  const voicemails = row.voicemail_count;
   const dials = row.attempt_count;
-  const noAnswer = Math.max(0, dials - talked);
+  const noAnswer = Math.max(0, dials - talked - voicemails);
 
   const pull = async () => {
     if (!row.lead_id || pulling) return;
@@ -75,6 +76,7 @@ function CallTally({
       const r = await api.refreshContactHistory(row.lead_id);
       onRefreshed(row.lead_id, {
         conversation_count: r.conversation_count,
+        voicemail_count: r.voicemail_count,
         attempt_count: r.attempt_count,
       });
       if (r.errors.length) toast.error(`GHL wouldn't give everything up: ${r.errors.join("; ")}`);
@@ -96,10 +98,15 @@ function CallTally({
         <span className="tabular-nums font-medium text-foreground">{talked}</span>
         <span className="text-muted-foreground"> talked</span>
       </span>
-      <span
-        className="text-muted-foreground"
-        title="Dialled but never connected — a voicemail, a no answer or an instant hangup. We can't tell those apart yet."
-      >
+      {voicemails > 0 ? (
+        <span
+          className="text-muted-foreground"
+          title="Rang out to voicemail and we left a message. Audio exists, which is why this used to be counted as a conversation."
+        >
+          <span className="tabular-nums">{voicemails}</span> voicemail
+        </span>
+      ) : null}
+      <span className="text-muted-foreground" title="Dialled and nobody picked up — no answer, busy, or an instant hangup">
         <span className="tabular-nums">{noAnswer}</span> no answer
       </span>
       <span className="text-muted-foreground/80" title="Every dial, answered or not">

@@ -13,9 +13,13 @@ What these pin:
   * a dial that never connected still counts as an attempt
   * the two are reported separately, so "0 conversations, 1 attempt" is
     sayable — it was not before
-  * attempts can never read lower than conversations. The 22 recordings
-    uploaded in-browser have no GHL message behind them, which would
-    otherwise produce the nonsense "0 attempts, 1 conversation"
+  * total dials is the UNION of call ids across both tables, not the larger
+    of two counts. Michele Horton had one dial in `messages` and a different
+    one in `call_recordings` — the two pollers run separate rotations, so
+    either table can be ahead — and a max() said 1 when the truth was 2
+  * a voicemail is not a conversation, even though it leaves audio
+  * the 22 recordings uploaded in-browser have no GHL id to dedupe on and
+    still have to count once
   * call_count stays as an alias so a cached bundle keeps working mid-deploy
 """
 import sys
@@ -50,10 +54,8 @@ def _person(db, name, *, added="2026-10-01T00:00:00Z"):
     return lead
 
 
-def _dial(db, lead, *, connected: bool, msg_id=None):
-    """A TYPE_CALL message is the dial. A recording alongside it means it
-    connected and we captured audio."""
-    mid = msg_id or ("m-" + str(uuid.uuid4())[:8])
+def _dial_message(db, lead, mid):
+    """The TYPE_CALL message: proof a dial happened, nothing more."""
     db.add(Message(
         id=str(uuid.uuid4()),
         lead_id=lead.id,
@@ -63,16 +65,30 @@ def _dial(db, lead, *, connected: bool, msg_id=None):
         body="",
         created_at="2026-10-02T12:00:00Z",
     ))
-    if connected:
-        db.add(CallRecording(
-            id=str(uuid.uuid4()),
-            lead_id=lead.id,
-            ghl_call_id=mid,
-            duration_seconds=95,
-            status="analyzed",
-            created_at="2026-10-02T12:00:00Z",
-        ))
     db.commit()
+
+
+def _recording(db, lead, mid, *, voicemail=False):
+    """The audio. Present only when the call "completed" and ran over 5s —
+    which includes a voicemail the rep talked into."""
+    db.add(CallRecording(
+        id=str(uuid.uuid4()),
+        lead_id=lead.id,
+        ghl_call_id=mid,
+        duration_seconds=32 if voicemail else 95,
+        is_voicemail=voicemail,
+        status="analyzed",
+        created_at="2026-10-02T12:00:00Z",
+    ))
+    db.commit()
+
+
+def _dial(db, lead, *, connected: bool, voicemail: bool = False, msg_id=None):
+    """A dial recorded in both tables, the way a settled call looks."""
+    mid = msg_id or ("m-" + str(uuid.uuid4())[:8])
+    _dial_message(db, lead, mid)
+    if connected:
+        _recording(db, lead, mid, voicemail=voicemail)
 
 
 def _row_for(name):
@@ -91,31 +107,58 @@ def test_a_voicemail_is_an_attempt_not_a_conversation(db):
     assert row["attempt_count"] == 1
 
 
-def test_a_connected_call_counts_as_both(db):
-    """One dial that connected is one attempt and one conversation — not two
-    attempts."""
+def test_a_connected_call_counts_once_not_twice(db):
+    """The same call is in both tables. The union must not double it."""
     lead = _person(db, "Talked Once")
     _dial(db, lead, connected=True)
     row = _row_for("Talked Once")
     assert row["conversation_count"] == 1
+    assert row["voicemail_count"] == 0
     assert row["attempt_count"] == 1
 
 
-def test_mixed_history_separates_cleanly(db):
+def test_michele_horton_two_dials_split_across_the_two_tables(db):
+    """The regression. Olga rang and it went unanswered, leaving only a
+    TYPE_CALL message. Alan then rang and left a voicemail, which arrived as
+    a recording before the message poller caught up — so the dial ids did not
+    overlap at all. max(1, 1) said one call; the union says two."""
+    lead = _person(db, "Michele Horton")
+    _dial_message(db, lead, "olga-ring-out")          # message only
+    _recording(db, lead, "alan-voicemail", voicemail=True)  # recording only
+    row = _row_for("Michele Horton")
+    assert row["attempt_count"] == 2
+    assert row["conversation_count"] == 0
+    assert row["voicemail_count"] == 1
+    # What the row renders.
+    noanswer = row["attempt_count"] - row["conversation_count"] - row["voicemail_count"]
+    assert noanswer == 1
+
+
+def test_a_voicemail_is_not_a_conversation(db):
+    """Audio exists, so this used to read as "talked". 39% of all recordings
+    are voicemails, so that overstated real contact by more than a third."""
+    lead = _person(db, "Left A Message")
+    _dial(db, lead, connected=True, voicemail=True)
+    row = _row_for("Left A Message")
+    assert row["conversation_count"] == 0
+    assert row["voicemail_count"] == 1
+    assert row["attempt_count"] == 1
+
+
+def test_mixed_history_separates_into_three(db):
     lead = _person(db, "Chased Hard")
-    _dial(db, lead, connected=False)
-    _dial(db, lead, connected=False)
-    _dial(db, lead, connected=True)
+    _dial(db, lead, connected=False)                      # no answer
+    _dial(db, lead, connected=True, voicemail=True)       # voicemail
+    _dial(db, lead, connected=True)                       # talked
     row = _row_for("Chased Hard")
     assert row["conversation_count"] == 1
+    assert row["voicemail_count"] == 1
     assert row["attempt_count"] == 3
-    # What the page renders beside the missed-call icon.
-    assert row["attempt_count"] - row["conversation_count"] == 2
 
 
-def test_in_browser_upload_never_reads_as_zero_attempts(db):
-    """A recording made in the dashboard has no GHL message behind it. Without
-    the floor this row would claim 1 conversation out of 0 attempts."""
+def test_in_browser_upload_still_counts_as_a_dial(db):
+    """A recording made in the dashboard has no GHL id at all, so it cannot
+    join the union by id and has to be counted on its own."""
     lead = _person(db, "Hand Uploaded")
     db.add(CallRecording(
         id=str(uuid.uuid4()),
@@ -132,10 +175,11 @@ def test_in_browser_upload_never_reads_as_zero_attempts(db):
     assert row["attempt_count"] == 1
 
 
-def test_never_called_reads_zero_on_both(db):
+def test_never_called_reads_zero_everywhere(db):
     _person(db, "Never Rung")
     row = _row_for("Never Rung")
     assert row["conversation_count"] == 0
+    assert row["voicemail_count"] == 0
     assert row["attempt_count"] == 0
 
 
@@ -191,12 +235,13 @@ def test_pull_now_tally_matches_the_list_row(db):
     row = _row_for("Agreement Check")
     tally = _call_tally(db, lead.id)
     assert tally["conversation_count"] == row["conversation_count"] == 1
+    assert tally["voicemail_count"] == row["voicemail_count"] == 0
     assert tally["attempt_count"] == row["attempt_count"] == 3
 
 
-def test_pull_now_tally_floors_at_conversations_too(db):
-    """Same in-browser-upload guard as the list, or a refresh would make the
-    row jump to a number the list then contradicts."""
+def test_pull_now_counts_an_orphan_upload_like_the_list_does(db):
+    """Same in-browser-upload handling as the list, or a refresh would show a
+    number the next page load contradicts."""
     from api.contacts import _call_tally
     import uuid as _uuid
 
@@ -211,7 +256,11 @@ def test_pull_now_tally_floors_at_conversations_too(db):
         created_at="2026-10-02T12:00:00Z",
     ))
     db.commit()
-    assert _call_tally(db, lead.id) == {"conversation_count": 1, "attempt_count": 1}
+    assert _call_tally(db, lead.id) == {
+        "conversation_count": 1,
+        "voicemail_count": 0,
+        "attempt_count": 1,
+    }
 
 
 def test_pull_now_refuses_a_contact_with_no_ghl_id(db):

@@ -845,6 +845,12 @@ class CallRecording(Base):
     caller_name = Column(Text, default="")
     recorded_by = Column(Text, default="")  # logged-in user who hit Record (in-browser uploads only)
     status = Column(Text, default="pending")  # pending, transcribed, analyzed, failed
+    # A recording is not proof anybody spoke to us: a call that rings out to
+    # voicemail still "completes" and still yields audio, of the greeting plus
+    # the rep talking to a machine. 1,200 of 3,098 transcripts (39%) are
+    # these. Set from the transcript — duration cannot separate them.
+    # See services/voicemail.py.
+    is_voicemail = Column(Boolean, default=False, nullable=False)
     is_archived = Column(Boolean, default=False)  # soft-delete: hidden from default views, admins can still see
     archived_at = Column(Text, nullable=True)
     is_favorite = Column(Boolean, default=False)  # starred for training/reference
@@ -3998,6 +4004,39 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE call_recordings ADD COLUMN notes TEXT DEFAULT ''"))
             logger.info("Migration: added call_recordings.notes")
+        if "is_voicemail" not in call_rec_cols:
+            with _engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE call_recordings ADD COLUMN is_voicemail BOOLEAN DEFAULT FALSE"
+                ))
+            logger.info("Migration: added call_recordings.is_voicemail")
+            # Classify the back catalogue in the same breath. New recordings
+            # are flagged as they transcribe, but 3,098 transcripts already
+            # existed and 39% of them are voicemails — leaving those as FALSE
+            # would keep overstating conversations indefinitely, and only on
+            # historical data, which is the hardest kind of wrong to notice.
+            #
+            # Postgres only: SQLite has no regex operator, and the dev/test
+            # databases have no back catalogue to repair.
+            if _engine.dialect.name == "postgresql":
+                try:
+                    from services.voicemail import OPENING_CHARS, SQL_VOICEMAIL_PATTERN
+
+                    with _engine.begin() as conn:
+                        res = conn.execute(
+                            text(
+                                "UPDATE call_recordings r SET is_voicemail = TRUE "
+                                "WHERE EXISTS (SELECT 1 FROM call_transcripts t "
+                                "  WHERE t.recording_id = r.id "
+                                f"   AND LEFT(COALESCE(t.full_text, ''), {int(OPENING_CHARS)}) ~* :pat)"
+                            ),
+                            {"pat": SQL_VOICEMAIL_PATTERN},
+                        )
+                    logger.info(f"Migration: flagged {res.rowcount} historical voicemails")
+                except Exception as e:
+                    # A failed backfill must not block boot. The column is
+                    # there and new calls classify correctly either way.
+                    logger.error(f"Migration: voicemail backfill failed: {e}")
 
     if inspector.has_table("estimator_recordings"):
         er_cols = {c["name"] for c in inspector.get_columns("estimator_recordings")}

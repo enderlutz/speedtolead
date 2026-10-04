@@ -152,7 +152,8 @@ def list_contacts(
         sent: set[str] = set()
         msg_counts: dict[str, int] = {}
         inbound_counts: dict[str, int] = {}
-        call_counts: dict[str, int] = {}
+        talked_counts: dict[str, int] = {}
+        voicemail_counts: dict[str, int] = {}
         attempt_counts: dict[str, int] = {}
         stage_by_lead: dict[str, tuple[str, str]] = {}
         # Queued estimates: in flight (counts as sent) vs stalled past its
@@ -211,17 +212,7 @@ def list_contacts(
             # of those exist against 3,117 recordings, and only 4 recordings
             # (0.1%) have no matching message, so this is effectively the
             # complete dial history and needs no new table or backfill.
-            call_counts = dict(
-                db.query(CallRecording.lead_id, func.count(CallRecording.id))
-                .filter(CallRecording.lead_id.in_(lead_ids))
-                .group_by(CallRecording.lead_id).all()
-            )
-            attempt_counts = dict(
-                db.query(Message.lead_id, func.count(Message.id))
-                .filter(Message.lead_id.in_(lead_ids))
-                .filter(Message.message_type == "TYPE_CALL")
-                .group_by(Message.lead_id).all()
-            )
+            talked_counts, voicemail_counts, attempt_counts = _call_tallies(db, lead_ids)
             scheduled, overdue = _scheduled_send_state(db, lead_ids)
             sent |= scheduled
 
@@ -237,15 +228,13 @@ def list_contacts(
             d["estimate_send_overdue"] = bool(lid and lid in overdue)
             d["message_count"] = int(msg_counts.get(lid, 0)) if lid else 0
             d["inbound_count"] = int(inbound_counts.get(lid, 0)) if lid else 0
-            conversations = int(call_counts.get(lid, 0)) if lid else 0
-            # Floored at conversations so the 22 hand-uploaded recordings —
-            # recorded in-browser, so they have no GHL message behind them —
-            # can never read as "0 attempts, 1 conversation".
-            attempts = max(int(attempt_counts.get(lid, 0)) if lid else 0, conversations)
-            d["conversation_count"] = conversations
-            d["attempt_count"] = attempts
+            talked = int(talked_counts.get(lid, 0)) if lid else 0
+            voicemails = int(voicemail_counts.get(lid, 0)) if lid else 0
+            d["conversation_count"] = talked
+            d["voicemail_count"] = voicemails
+            d["attempt_count"] = int(attempt_counts.get(lid, 0)) if lid else 0
             # Kept so an older cached bundle doesn't lose the column mid-deploy.
-            d["call_count"] = conversations
+            d["call_count"] = talked
             ver, stage = stage_by_lead.get(lid or "", ("", ""))
             # "contact" means this row exists only because the contact does —
             # nobody ever made an opportunity card for them.
@@ -344,20 +333,79 @@ def sync_contacts_endpoint(
     return sync_all_locations(create_leads=create_leads)
 
 
+def _call_tallies(
+    db, lead_ids: list[str]
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    """Per lead: (talked, voicemails, total dials).
+
+    Three questions, and they need three different sources.
+
+    A recording means audio was captured, which is NOT the same as having
+    spoken to someone: a call that rings out to voicemail still "completes"
+    and still yields audio. 1,200 of 3,098 transcripts are exactly that, so
+    recordings are split on `is_voicemail` (services/voicemail.py).
+
+    A dial with no recording never connected at all — the call poller drops
+    anything under five seconds or not "completed" so Deepgram is never
+    charged for silence. That is half of all dialling.
+
+    Total dials is the **union of call ids**, not the larger of the two
+    counts. The two tables are each independently incomplete at any given
+    moment, because the message poller and the call poller run on separate
+    rotations: Michele Horton had one dial in `messages` and a different
+    one in `call_recordings`, so taking a max said 1 when the truth was 2.
+    A union is right whichever table is ahead.
+    """
+    if not lead_ids:
+        return {}, {}, {}
+
+    talked: dict[str, int] = {}
+    voicemails: dict[str, int] = {}
+    # lead_id -> set of distinct call ids, so the same call seen in both
+    # tables is counted once.
+    dial_ids: dict[str, set[str]] = {}
+    # Recordings with no GHL id are in-browser uploads. They have no message
+    # behind them and no id to dedupe on, so they are counted separately
+    # rather than being dropped or double-counted.
+    orphan_recordings: dict[str, int] = {}
+
+    for lid, ghl_call_id, is_vm in (
+        db.query(CallRecording.lead_id, CallRecording.ghl_call_id, CallRecording.is_voicemail)
+        .filter(CallRecording.lead_id.in_(lead_ids)).all()
+    ):
+        if not lid:
+            continue
+        if is_vm:
+            voicemails[lid] = voicemails.get(lid, 0) + 1
+        else:
+            talked[lid] = talked.get(lid, 0) + 1
+        if (ghl_call_id or "").strip():
+            dial_ids.setdefault(lid, set()).add(ghl_call_id)
+        else:
+            orphan_recordings[lid] = orphan_recordings.get(lid, 0) + 1
+
+    for lid, ghl_message_id in (
+        db.query(Message.lead_id, Message.ghl_message_id)
+        .filter(Message.lead_id.in_(lead_ids))
+        .filter(Message.message_type == "TYPE_CALL").all()
+    ):
+        if lid and (ghl_message_id or "").strip():
+            dial_ids.setdefault(lid, set()).add(ghl_message_id)
+
+    attempts = {
+        lid: len(dial_ids.get(lid, ())) + orphan_recordings.get(lid, 0)
+        for lid in set(dial_ids) | set(orphan_recordings)
+    }
+    return talked, voicemails, attempts
+
+
 def _call_tally(db, lead_id: str) -> dict[str, int]:
-    """One lead's dial tallies, by the same rule the list endpoint uses."""
-    conversations = int(
-        db.query(func.count(CallRecording.id))
-        .filter(CallRecording.lead_id == lead_id).scalar() or 0
-    )
-    dials = int(
-        db.query(func.count(Message.id))
-        .filter(Message.lead_id == lead_id)
-        .filter(Message.message_type == "TYPE_CALL").scalar() or 0
-    )
+    """One lead's tallies, by exactly the rule the list endpoint uses."""
+    talked, voicemails, attempts = _call_tallies(db, [lead_id])
     return {
-        "conversation_count": conversations,
-        "attempt_count": max(dials, conversations),
+        "conversation_count": int(talked.get(lead_id, 0)),
+        "voicemail_count": int(voicemails.get(lead_id, 0)),
+        "attempt_count": int(attempts.get(lead_id, 0)),
     }
 
 

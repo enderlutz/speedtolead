@@ -3374,6 +3374,7 @@ export const api = {
       new_recordings: number;
       errors: string[];
       conversation_count: number;
+      voicemail_count: number;
       attempt_count: number;
     }>(`/api/contacts/${leadId}/refresh`, { method: "POST" }),
   getContactStats: () => request<ContactStats>("/api/contacts/stats"),
@@ -3405,10 +3406,15 @@ export interface ContactRow {
   estimate_send_overdue: boolean;
   message_count: number;
   inbound_count: number;
-  /** Calls that actually connected and left us audio — real conversations. */
+  /** Calls where we actually spoke to someone — a recording whose transcript
+   *  is not a voicemail greeting. */
   conversation_count: number;
-  /** Every dial, connected or not. attempt_count - conversation_count is
-   *  the voicemails, no-answers and instant hangups. */
+  /** Rang out to voicemail and the rep left a message. Audio exists, so this
+   *  used to be counted as a conversation; 39% of all recordings are these. */
+  voicemail_count: number;
+  /** Every dial — the union of call ids across messages and recordings, so
+   *  it is right whichever poller is further ahead. Subtract talked and
+   *  voicemails to get the dials nobody picked up. */
   attempt_count: number;
   /** @deprecated same as conversation_count; kept for deploy skew. */
   call_count: number;

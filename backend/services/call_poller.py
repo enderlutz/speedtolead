@@ -820,6 +820,13 @@ def process_recording_pipeline(recording_id: str, transcribe_only: bool = False)
             created_at=_now(),
         )
         db.add(transcript)
+        # Decided here, while the text is in hand, so every reader downstream
+        # gets a cheap boolean instead of re-running a regex over the audio
+        # text. A rep's voicemail is worth keeping and worth transcribing —
+        # it just is not a conversation. See services/voicemail.py.
+        from services.voicemail import looks_like_voicemail
+
+        recording.is_voicemail = looks_like_voicemail(result["full_text"])
         recording.status = "transcribed"
         recording.transcribed_at = _now()
         db.commit()
