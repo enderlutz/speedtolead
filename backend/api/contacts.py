@@ -153,6 +153,7 @@ def list_contacts(
         msg_counts: dict[str, int] = {}
         inbound_counts: dict[str, int] = {}
         call_counts: dict[str, int] = {}
+        attempt_counts: dict[str, int] = {}
         stage_by_lead: dict[str, tuple[str, str]] = {}
         # Queued estimates: in flight (counts as sent) vs stalled past its
         # send_at (does not). See _scheduled_send_state.
@@ -197,10 +198,29 @@ def list_contacts(
                 .filter(Message.direction == "inbound")
                 .group_by(Message.lead_id).all()
             )
+            # Two different questions, two different sources.
+            #
+            # A recording means we connected and got audio: a conversation.
+            # The call poller deliberately skips anything that did not
+            # connect, and anything under 5 seconds, so Deepgram is never
+            # charged for silence (services/call_poller.py:659-672). Correct
+            # for audio, useless for counting effort — no-answers are the
+            # bulk of dialling, and they were being thrown away entirely.
+            #
+            # Every TYPE_CALL message is an attempt, connected or not. 6,190
+            # of those exist against 3,117 recordings, and only 4 recordings
+            # (0.1%) have no matching message, so this is effectively the
+            # complete dial history and needs no new table or backfill.
             call_counts = dict(
                 db.query(CallRecording.lead_id, func.count(CallRecording.id))
                 .filter(CallRecording.lead_id.in_(lead_ids))
                 .group_by(CallRecording.lead_id).all()
+            )
+            attempt_counts = dict(
+                db.query(Message.lead_id, func.count(Message.id))
+                .filter(Message.lead_id.in_(lead_ids))
+                .filter(Message.message_type == "TYPE_CALL")
+                .group_by(Message.lead_id).all()
             )
             scheduled, overdue = _scheduled_send_state(db, lead_ids)
             sent |= scheduled
@@ -217,7 +237,15 @@ def list_contacts(
             d["estimate_send_overdue"] = bool(lid and lid in overdue)
             d["message_count"] = int(msg_counts.get(lid, 0)) if lid else 0
             d["inbound_count"] = int(inbound_counts.get(lid, 0)) if lid else 0
-            d["call_count"] = int(call_counts.get(lid, 0)) if lid else 0
+            conversations = int(call_counts.get(lid, 0)) if lid else 0
+            # Floored at conversations so the 22 hand-uploaded recordings —
+            # recorded in-browser, so they have no GHL message behind them —
+            # can never read as "0 attempts, 1 conversation".
+            attempts = max(int(attempt_counts.get(lid, 0)) if lid else 0, conversations)
+            d["conversation_count"] = conversations
+            d["attempt_count"] = attempts
+            # Kept so an older cached bundle doesn't lose the column mid-deploy.
+            d["call_count"] = conversations
             ver, stage = stage_by_lead.get(lid or "", ("", ""))
             # "contact" means this row exists only because the contact does —
             # nobody ever made an opportunity card for them.

@@ -3394,6 +3394,12 @@ export interface ContactRow {
   estimate_send_overdue: boolean;
   message_count: number;
   inbound_count: number;
+  /** Calls that actually connected and left us audio — real conversations. */
+  conversation_count: number;
+  /** Every dial, connected or not. attempt_count - conversation_count is
+   *  the voicemails, no-answers and instant hangups. */
+  attempt_count: number;
+  /** @deprecated same as conversation_count; kept for deploy skew. */
   call_count: number;
   /** "" when nobody ever made an opportunity card for them. */
   pipeline: string;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Search, Phone, Mail, MessageSquare, PhoneCall, Ban, ChevronRight } from "lucide-react";
+import { RefreshCw, Search, Phone, Mail, MessageSquare, PhoneCall, PhoneMissed, Ban, ChevronRight } from "lucide-react";
 import { api, type ContactRow, type ContactStats } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -283,9 +283,24 @@ export default function Contacts() {
                       <span className="text-foreground font-medium">({c.inbound_count} in)</span>
                     ) : null}
                   </span>
-                  <span className="inline-flex items-center gap-1">
-                    <PhoneCall className="h-3 w-3" />{c.call_count}
+                  {/* Two numbers, because they answer different questions.
+                      A recording means we actually talked. An attempt with no
+                      recording is a voicemail, a no-answer or an instant
+                      hangup — which is most dialling, and used to vanish. */}
+                  <span
+                    className="inline-flex items-center gap-1"
+                    title={`${c.conversation_count} call${c.conversation_count === 1 ? "" : "s"} that connected`}
+                  >
+                    <PhoneCall className="h-3 w-3" />{c.conversation_count}
                   </span>
+                  {c.attempt_count > c.conversation_count ? (
+                    <span
+                      className="inline-flex items-center gap-1 ml-3 text-muted-foreground"
+                      title={`${c.attempt_count - c.conversation_count} dialled but never connected — voicemail, no answer or an instant hangup. We can't tell which apart yet.`}
+                    >
+                      <PhoneMissed className="h-3 w-3" />{c.attempt_count - c.conversation_count}
+                    </span>
+                  ) : null}
                 </td>
                 {/* The pipeline is an attribute of the contact now, not the
                     reason they exist. Blank = nobody made a card for them. */}
