@@ -175,3 +175,67 @@ def test_counts_do_not_leak_between_people(db):
     ra, rb = _row_for("Person A"), _row_for("Person B")
     assert (ra["conversation_count"], ra["attempt_count"]) == (1, 1)
     assert (rb["conversation_count"], rb["attempt_count"]) == (0, 2)
+
+
+# --- the pull-now endpoint's tally, which has to agree with the list ---
+
+def test_pull_now_tally_matches_the_list_row(db):
+    """Two code paths compute these numbers; they must not drift."""
+    from api.contacts import _call_tally
+
+    lead = _person(db, "Agreement Check")
+    _dial(db, lead, connected=True)
+    _dial(db, lead, connected=False)
+    _dial(db, lead, connected=False)
+
+    row = _row_for("Agreement Check")
+    tally = _call_tally(db, lead.id)
+    assert tally["conversation_count"] == row["conversation_count"] == 1
+    assert tally["attempt_count"] == row["attempt_count"] == 3
+
+
+def test_pull_now_tally_floors_at_conversations_too(db):
+    """Same in-browser-upload guard as the list, or a refresh would make the
+    row jump to a number the list then contradicts."""
+    from api.contacts import _call_tally
+    import uuid as _uuid
+
+    lead = _person(db, "Floor Check")
+    db.add(CallRecording(
+        id=str(_uuid.uuid4()),
+        lead_id=lead.id,
+        ghl_call_id=None,
+        recorded_by="alanbonner",
+        duration_seconds=120,
+        status="analyzed",
+        created_at="2026-10-02T12:00:00Z",
+    ))
+    db.commit()
+    assert _call_tally(db, lead.id) == {"conversation_count": 1, "attempt_count": 1}
+
+
+def test_pull_now_refuses_a_contact_with_no_ghl_id(db):
+    """Nothing to ask GHL about — a clear 400 beats a confusing empty pull."""
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    from api.contacts import refresh_contact_history
+
+    lead = _person(db, "No Ghl Id")
+    lead.ghl_contact_id = ""
+    db.commit()
+
+    with _pytest.raises(HTTPException) as exc:
+        refresh_contact_history(lead.id, user={})
+    assert exc.value.status_code == 400
+
+
+def test_pull_now_404s_on_an_unknown_lead(db):
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    from api.contacts import refresh_contact_history
+
+    with _pytest.raises(HTTPException) as exc:
+        refresh_contact_history("no-such-lead", user={})
+    assert exc.value.status_code == 404

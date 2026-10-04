@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Search, Phone, Mail, MessageSquare, PhoneCall, PhoneMissed, Ban, ChevronRight } from "lucide-react";
+import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import { api, type ContactRow, type ContactStats } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,84 @@ function Stat({ label, value, hint, tone }: { label: string; value: number | str
   );
 }
 
+/**
+ * Talked / No answer / Total dials, plus a pull-now button.
+ *
+ * "Talked" comes from call recordings: the call poller skips anything that
+ * did not connect or ran under five seconds so Deepgram is never charged for
+ * silence, which makes recordings a good proxy for a real conversation and a
+ * useless one for counting effort. "Total dials" comes from TYPE_CALL
+ * messages, which exist whether or not anyone picked up. Across the whole
+ * customer base 49% of dials never connected and so used to be invisible.
+ *
+ * The refresh button exists because both pollers work through every lead in
+ * rotation — a lead waits a median two hours for its turn. Having just rung
+ * somebody, that is exactly when the page is wrong and you are looking at it.
+ */
+function CallTally({
+  row,
+  onRefreshed,
+}: {
+  row: ContactRow;
+  onRefreshed: (leadId: string, patch: Partial<ContactRow>) => void;
+}) {
+  const [pulling, setPulling] = useState(false);
+  const talked = row.conversation_count;
+  const dials = row.attempt_count;
+  const noAnswer = Math.max(0, dials - talked);
+
+  const pull = async () => {
+    if (!row.lead_id || pulling) return;
+    setPulling(true);
+    try {
+      const r = await api.refreshContactHistory(row.lead_id);
+      onRefreshed(row.lead_id, {
+        conversation_count: r.conversation_count,
+        attempt_count: r.attempt_count,
+      });
+      if (r.errors.length) toast.error(`GHL wouldn't give everything up: ${r.errors.join("; ")}`);
+      else if (r.new_messages || r.new_recordings) {
+        toast.success(`Found ${r.new_messages} new message(s), ${r.new_recordings} new recording(s)`);
+      } else {
+        toast.info("Nothing new in GHL for this customer");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't pull from GHL");
+    } finally {
+      setPulling(false);
+    }
+  };
+
+  return (
+    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+      <span title="Calls that connected and left us a recording">
+        <span className="tabular-nums font-medium text-foreground">{talked}</span>
+        <span className="text-muted-foreground"> talked</span>
+      </span>
+      <span
+        className="text-muted-foreground"
+        title="Dialled but never connected — a voicemail, a no answer or an instant hangup. We can't tell those apart yet."
+      >
+        <span className="tabular-nums">{noAnswer}</span> no answer
+      </span>
+      <span className="text-muted-foreground/80" title="Every dial, answered or not">
+        <span className="tabular-nums">{dials}</span> total
+      </span>
+      {row.lead_id ? (
+        <button
+          type="button"
+          onClick={pull}
+          disabled={pulling}
+          title="Pull this customer's texts and calls from GHL now, rather than waiting for the poller (median ~2 hours)"
+          className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${pulling ? "animate-spin" : ""}`} />
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 export default function Contacts() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<ContactRow[]>([]);
@@ -73,6 +152,10 @@ export default function Contacts() {
       setLoading(false);
     }
   }, [search, estimate, offset]);
+
+  const patchRow = useCallback((leadId: string, patch: Partial<ContactRow>) => {
+    setRows((prev) => prev.map((r) => (r.lead_id === leadId ? { ...r, ...patch } : r)));
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -283,24 +366,11 @@ export default function Contacts() {
                       <span className="text-foreground font-medium">({c.inbound_count} in)</span>
                     ) : null}
                   </span>
-                  {/* Two numbers, because they answer different questions.
-                      A recording means we actually talked. An attempt with no
-                      recording is a voicemail, a no-answer or an instant
-                      hangup — which is most dialling, and used to vanish. */}
-                  <span
-                    className="inline-flex items-center gap-1"
-                    title={`${c.conversation_count} call${c.conversation_count === 1 ? "" : "s"} that connected`}
-                  >
-                    <PhoneCall className="h-3 w-3" />{c.conversation_count}
-                  </span>
-                  {c.attempt_count > c.conversation_count ? (
-                    <span
-                      className="inline-flex items-center gap-1 ml-3 text-muted-foreground"
-                      title={`${c.attempt_count - c.conversation_count} dialled but never connected — voicemail, no answer or an instant hangup. We can't tell which apart yet.`}
-                    >
-                      <PhoneMissed className="h-3 w-3" />{c.attempt_count - c.conversation_count}
-                    </span>
-                  ) : null}
+                  {/* Talked / No answer / Total dials. Three numbers because
+                      they answer different questions: a recording means we
+                      actually spoke, a dial with no recording is a voicemail
+                      or a ring-out, and that is half of all dialling. */}
+                  <CallTally row={c} onRefreshed={patchRow} />
                 </td>
                 {/* The pipeline is an attribute of the contact now, not the
                     reason they exist. Blank = nobody made a card for them. */}

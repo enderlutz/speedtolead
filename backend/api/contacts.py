@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_
 
 from database import get_db, Contact, Lead, Message, AutomationLog, CallRecording, SmsQueue
@@ -342,3 +342,82 @@ def sync_contacts_endpoint(
     del user
     from services.contact_mirror import sync_all_locations
     return sync_all_locations(create_leads=create_leads)
+
+
+def _call_tally(db, lead_id: str) -> dict[str, int]:
+    """One lead's dial tallies, by the same rule the list endpoint uses."""
+    conversations = int(
+        db.query(func.count(CallRecording.id))
+        .filter(CallRecording.lead_id == lead_id).scalar() or 0
+    )
+    dials = int(
+        db.query(func.count(Message.id))
+        .filter(Message.lead_id == lead_id)
+        .filter(Message.message_type == "TYPE_CALL").scalar() or 0
+    )
+    return {
+        "conversation_count": conversations,
+        "attempt_count": max(dials, conversations),
+    }
+
+
+@router.post("/contacts/{lead_id}/refresh")
+def refresh_contact_history(lead_id: str, user: dict = Depends(get_current_user)):
+    """Pull one customer's texts and calls from GHL right now.
+
+    Both pollers walk every lead in rotation — messages 60 leads every five
+    minutes, calls 160 every ten — so a lead waits its turn. Measured across
+    1,984 active leads on 2026-10-04: median 114 minutes for messages and 76
+    for calls, worst case over four hours. Fine for analytics, useless the
+    moment you have just rung somebody and want to see that you rang them.
+
+    This is the override for the one customer in front of you: about four GHL
+    requests. The pollers spend roughly 17,000 requests a day against a
+    200,000 cap (services/poller.py:760), so there is ample room to press it.
+
+    Messages are synced *before* calls, and that order matters. A voicemail
+    leaves a TYPE_CALL message but no recording, so the message sync is the
+    only thing that can make an unanswered call visible at all.
+    """
+    del user
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "No lead for this contact yet — nothing to pull")
+        if not (lead.ghl_contact_id or "").strip():
+            raise HTTPException(400, "This contact has no GHL id, so there is nothing to pull")
+
+        synced_messages = 0
+        errors: list[str] = []
+        try:
+            from services.poller import _sync_messages_for_lead
+            synced_messages = _sync_messages_for_lead(db, lead)
+            lead.messages_checked_at = _now()
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Refresh: message sync failed for {lead_id}: {e}")
+            errors.append(f"texts: {e}")
+
+        new_recordings = 0
+        try:
+            from services.call_poller import _ingest_calls_for_lead
+            stats = _ingest_calls_for_lead(db, lead)
+            new_recordings = int(stats.get("new_recordings", 0))
+            lead.calls_checked_at = _now()
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Refresh: call ingest failed for {lead_id}: {e}")
+            errors.append(f"calls: {e}")
+
+        return {
+            "lead_id": lead_id,
+            "new_messages": synced_messages,
+            "new_recordings": new_recordings,
+            "errors": errors,
+            **_call_tally(db, lead_id),
+        }
+    finally:
+        db.close()

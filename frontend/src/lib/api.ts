@@ -3365,6 +3365,17 @@ export const api = {
     qs.set("offset", String(params.offset ?? 0));
     return request<ContactPage>(`/api/contacts?${qs.toString()}`);
   },
+  /** Pull one customer's texts and calls from GHL right now, instead of
+   *  waiting out the poller rotation (median ~2h). Returns fresh tallies. */
+  refreshContactHistory: (leadId: string) =>
+    request<{
+      lead_id: string;
+      new_messages: number;
+      new_recordings: number;
+      errors: string[];
+      conversation_count: number;
+      attempt_count: number;
+    }>(`/api/contacts/${leadId}/refresh`, { method: "POST" }),
   getContactStats: () => request<ContactStats>("/api/contacts/stats"),
   syncContacts: () => request<Record<string, ContactSyncResult>>("/api/contacts/sync", { method: "POST" }),
 };
