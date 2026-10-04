@@ -6,12 +6,13 @@ import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { formatCurrency, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
+import { ghlContactUrl } from "@/lib/ghlLink";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
 import { playSuccessSound, playWarningSound, playReplySound, playProposalViewedSound } from "@/hooks/useNotificationSound";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EstimatorLeadPanel from "@/components/EstimatorLeadPanel";
@@ -743,6 +744,23 @@ export default function LeadDetail() {
               )}
               Practice call
             </Button>
+          )}
+          {/* Straight back into the customer's GHL conversation. The contact
+              detail page is the chat thread, so the two ids already on every
+              lead are all this needs — see lib/ghlLink.ts for why the domain
+              is not interchangeable. */}
+          {ghlContactUrl(lead.ghl_location_id, lead.ghl_contact_id) && (
+            <a
+              href={ghlContactUrl(lead.ghl_location_id, lead.ghl_contact_id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open this customer's conversation in GHL"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              Open in GHL
+              <ExternalLink className="h-3 w-3 ml-1 opacity-60" />
+            </a>
           )}
           {lead.pipeline_version !== "v1" && lead.ghl_opportunity_id && (
             <Button
