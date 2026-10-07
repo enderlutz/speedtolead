@@ -3377,6 +3377,51 @@ export const api = {
       voicemail_count: number;
       attempt_count: number;
     }>(`/api/contacts/${leadId}/refresh`, { method: "POST" }),
+  /** Multipart, so it bypasses request() and its JSON content-type. */
+  uploadCompanyCamPhoto: async (
+    leadId: string,
+    file: File,
+    opts: { section: string; side?: string; note?: string; isDamage?: boolean },
+  ) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("section", opts.section);
+    fd.append("side", opts.side || "");
+    fd.append("note", opts.note || "");
+    fd.append("is_damage", opts.isDamage ? "true" : "false");
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/company-cam/${leadId}/photos`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
+    return res.json() as Promise<CompanyCamPhoto>;
+  },
+  getCompanyCam: (leadId: string) =>
+    request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
+  updateCompanyCam: (
+    leadId: string,
+    patch: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean },
+  ) =>
+    request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  markCompanyCamColorShown: (leadId: string) =>
+    request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/color-shown`, { method: "POST" }),
+  sendCompanyCamAlmostDone: (leadId: string) =>
+    request<{ ok: boolean; message: string; job: CompanyCamJob }>(
+      `/api/company-cam/${leadId}/almost-done`, { method: "POST" }),
+  resetCompanyCamAlmostDone: (leadId: string) =>
+    request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/almost-done/reset`, { method: "POST" }),
+  updateCompanyCamPhoto: (leadId: string, photoId: string,
+                          patch: { side?: string; note?: string; is_damage?: boolean }) =>
+    request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/${photoId}`, {
+      method: "PATCH", body: JSON.stringify(patch),
+    }),
+  deleteCompanyCamPhoto: (leadId: string, photoId: string) =>
+    request<{ ok: boolean }>(`/api/company-cam/${leadId}/photos/${photoId}`, { method: "DELETE" }),
   getContactStats: () => request<ContactStats>("/api/contacts/stats"),
   syncContacts: () => request<Record<string, ContactSyncResult>>("/api/contacts/sync", { method: "POST" }),
 };
@@ -3421,6 +3466,66 @@ export interface ContactRow {
   /** "" when nobody ever made an opportunity card for them. */
   pipeline: string;
   stage: string;
+}
+
+
+// --- Company Cam: the job-site record for one customer ---
+
+export interface CompanyCamPhoto {
+  id: string;
+  section: string;
+  seq: number;
+  side: string;
+  note: string;
+  is_damage: boolean;
+  /** CDN url when Storage is configured, otherwise our own image endpoint. */
+  url: string;
+  from_storage: boolean;
+  uploaded_at: string;
+  uploaded_by: string;
+}
+
+export interface CompanyCamJob {
+  lead_id: string;
+  sqft: number;
+  sqft_edited: boolean;
+  gallons_needed: number;
+  gallons_edited: boolean;
+  /** Square feet one gallon covers — shown so the maths is never a mystery. */
+  sqft_per_gallon: number;
+  package: string;
+  color: string;
+  color_confirmed: boolean;
+  color_shown_at: string;
+  color_shown_by: string;
+  scope_explanation: string;
+  cleaning_notes: string;
+  staining_notes: string;
+  upsells: string[];
+  upsell_notes: string;
+  neighbor_interested: boolean;
+  neighbor_notes: string;
+  almost_done_sent_at: string;
+  almost_done_sent_by: string;
+  updated_at: string;
+}
+
+export interface CompanyCamSection {
+  key: string;
+  label: string;
+  who: string;
+  hint: string;
+  wants_damage: boolean;
+}
+
+export interface CompanyCamPayload {
+  job: CompanyCamJob;
+  sections: CompanyCamSection[];
+  photos: Record<string, CompanyCamPhoto[]>;
+  upsell_options: { key: string; label: string }[];
+  /** What still has to happen before the job is properly documented. */
+  blockers: string[];
+  customer: { name: string; phone: string; address: string; do_not_contact: boolean };
 }
 
 export interface ContactPage {

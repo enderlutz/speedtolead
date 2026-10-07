@@ -1700,6 +1700,88 @@ class LeadActivity(Base):
     created_at = Column(Text, default="")     # ISO datetime UTC
 
 
+class CompanyCamJob(Base):
+    """The job-site record for one customer — one row per lead.
+
+    Keyed on the lead, not on a scheduled job. The crew fields already
+    existed on ScheduledJob and were never adopted: 58 jobs, 0 completed, 3
+    with gallons, and job_photos holds 0 rows against 2,420 leads. See
+    services/company_cam.py for the full reasoning.
+    """
+    __tablename__ = "company_cam_jobs"
+    __table_args__ = (Index("idx_company_cam_jobs_lead", "lead_id"),)
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, unique=True, nullable=False)
+
+    # Seeded from the latest sent estimate, then editable. The crew's number
+    # wins — they are the ones standing at the fence.
+    sqft = Column(Float, default=0.0)
+    sqft_edited = Column(Boolean, default=False, nullable=False)
+    gallons_needed = Column(Float, default=0.0)
+    gallons_edited = Column(Boolean, default=False, nullable=False)
+
+    package = Column(Text, default="")            # essential | signature | legacy
+    color = Column(Text, default="")
+    color_confirmed = Column(Boolean, default=False, nullable=False)
+    # Alan's rule: show the customer the colour even when it is already
+    # confirmed, because we do not do things without confirming.
+    color_shown_at = Column(Text, default="")
+    color_shown_by = Column(Text, default="")
+
+    # Required when no scope photo exists, so nobody arrives without knowing
+    # what is and is not included.
+    scope_explanation = Column(Text, default="")
+
+    cleaning_notes = Column(Text, default="")
+    staining_notes = Column(Text, default="")
+
+    upsells_json = Column(Text, default="[]")     # service keys the crew ticked
+    upsell_notes = Column(Text, default="")
+
+    neighbor_interested = Column(Boolean, default=False, nullable=False)
+    neighbor_notes = Column(Text, default="")
+
+    almost_done_sent_at = Column(Text, default="")
+    almost_done_sent_by = Column(Text, default="")
+
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
+class CompanyCamPhoto(Base):
+    """One job-site photo.
+
+    Bytes go to Supabase Storage and we keep the CDN url, because a crew
+    uploads a dozen photos per side and Alan then views them repeatedly —
+    exactly the metered-DB-egress problem that moved proposal images out of
+    Postgres (see services/supabase_storage.py). image_data is the fallback
+    for deployments with no Storage configured, which is how local dev runs.
+    """
+    __tablename__ = "company_cam_photos"
+    __table_args__ = (
+        Index("idx_company_cam_photos_lead_section", "lead_id", "section", "seq"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    # fence_scope | clean_before | clean_after | stain_after
+    section = Column(Text, nullable=False)
+    seq = Column(Integer, default=1)
+    # Which side of the fence this is, in the crew's own words.
+    side = Column(Text, default="")
+    note = Column(Text, default="")
+    is_damage = Column(Boolean, default=False, nullable=False)
+
+    storage_url = Column(Text, default="")
+    image_data = deferred(Column(LargeBinary, nullable=True))
+    has_image_data = Column(Boolean, default=False, nullable=False)
+    mime = Column(Text, default="image/jpeg")
+
+    uploaded_at = Column(Text, default="")
+    uploaded_by = Column(Text, default="")
+
+
 class LeadMeasurement(Base):
     """Every measurement photo taken for a lead, kept — not just the latest.
 

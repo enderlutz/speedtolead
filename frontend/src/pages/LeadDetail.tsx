@@ -36,6 +36,7 @@ import CustomProposalCard from "@/components/CustomProposalCard";
 import ExteriorTab from "@/components/ExteriorTab";
 import FenceScopeSummaryCard from "@/components/FenceScopeSummaryCard";
 import UpsellTab from "@/components/UpsellTab";
+import CompanyCamTab from "@/components/CompanyCamTab";
 import { V2_STAGES } from "@/lib/leadStages";
 import { bothClocks, centralToUTC, ctHour, ctISO, dayHeader } from "@/lib/date";
 
@@ -189,7 +190,7 @@ export default function LeadDetail() {
   // localStorage so the badge resets correctly when you actually look at the
   // messages, not just when you load the page.
   // Estimators live in the Estimator tab — open straight to it for them.
-  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator">(
+  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator" | "companycam">(
     () => (getCurrentUser()?.role === "estimator" ? "estimator" : "estimate"),
   );
   const callTabSeenKey = id ? `at_lead_${id}_call_seen_at` : "";
@@ -877,7 +878,7 @@ export default function LeadDetail() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => {
-          const next = v as "estimate" | "call" | "exterior" | "upsell" | "estimator";
+          const next = v as "estimate" | "call" | "exterior" | "upsell" | "estimator" | "companycam";
           setActiveTab(next);
           if (next === "call" && callTabSeenKey) {
             const now = new Date().toISOString();
@@ -889,6 +890,7 @@ export default function LeadDetail() {
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="estimate">Estimate</TabsTrigger>
           <TabsTrigger value="scope">Fence Scope</TabsTrigger>
+          <TabsTrigger value="companycam">Company Cam</TabsTrigger>
           {/* Call / Exterior / Upsell tabs hidden 2026-07-14 to trim visual fat.
               Their tab panels + logic are untouched; uncomment to restore. */}
           {/*
@@ -1913,6 +1915,13 @@ export default function LeadDetail() {
 
         <TabsContent value="upsell" className="space-y-4 sm:space-y-6 mt-4">
           <UpsellTab lead={lead} />
+        </TabsContent>
+
+        {/* Company Cam — the job-site record. Mounted lazily: it creates its
+            own row and imports the fence scope drawing on first open, so it
+            must not fire for every lead page view. */}
+        <TabsContent value="companycam" className="space-y-4 sm:space-y-6 mt-4">
+          {activeTab === "companycam" ? <CompanyCamTab leadId={lead.id} /> : null}
         </TabsContent>
 
         <TabsContent value="estimator" className="space-y-4 sm:space-y-6 mt-4">
