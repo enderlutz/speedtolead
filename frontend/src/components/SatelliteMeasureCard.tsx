@@ -279,6 +279,12 @@ export default function SatelliteMeasureCard({
   const [runs, setRuns] = useState<Run[]>([{ id: 1, points: [], closed: false }]);
   const [activeRun, setActiveRun] = useState(1);
   const [capturing, setCapturing] = useState(false);
+  // Set when Google refuses the capture for a key/billing reason. The map
+  // and the capture use DIFFERENT keys (browser vs server), so "the map
+  // works but Capture won't" is normal and needs its own diagnosis.
+  const [keyProblem, setKeyProblem] = useState("");
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [mapsKey, setMapsKey] = useState("");
   const [keySource, setKeySource] = useState("");
@@ -587,6 +593,8 @@ export default function SatelliteMeasureCard({
           { duration: 8000 },
         );
       }
+      setKeyProblem("");
+      setDiagnosis([]);
       if (res.total_linear_feet && onLinearFeet) onLinearFeet(res.total_linear_feet);
       resetRuns();
       await loadPhotos();
@@ -597,14 +605,14 @@ export default function SatelliteMeasureCard({
       // sentence that actually says what to do.
       const billing = /enable Billing/i.test(msg);
       const notEnabled = /has not been used in project|is disabled/i.test(msg);
-      toast.error(
-        billing
-          ? "Google needs Billing enabled on the Cloud project before it will serve map images."
-          : notEnabled
-            ? "Enable the Maps Static API on your Google Maps key, then try again."
-            : msg,
-        { duration: 10000 },
-      );
+      const friendly = billing
+        ? "Google needs Billing enabled on the Cloud project behind the SERVER key. "
+          + "The map you just drew on uses a different key, which is why it still works."
+        : notEnabled
+          ? "Enable the Maps Static API on the server Google Maps key, then try again."
+          : msg;
+      if (billing || notEnabled) setKeyProblem(friendly);
+      toast.error(friendly, { duration: 10000 });
     } finally {
       setCapturing(false);
     }
@@ -795,6 +803,48 @@ export default function SatelliteMeasureCard({
             ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Capturing…</>
             : <><Camera className="h-4 w-4 mr-2" /> Capture → Scope of Work</>}
         </Button>
+
+        {/* Google refused the image. Shown here rather than only as a toast,
+            because the fix lives in the Cloud Console and the toast is gone
+            by the time anybody gets there. */}
+        {keyProblem ? (
+          <div className="rounded-lg border border-amber-400 bg-amber-50 p-3 space-y-2">
+            <p className="text-xs text-amber-900 font-medium">{keyProblem}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={diagnosing}
+              onClick={async () => {
+                setDiagnosing(true);
+                try {
+                  const r = await api.getMapsKeySelftest();
+                  const lines = Object.entries(r.checks).map(([name, c]) =>
+                    `${c.ok ? "OK" : "FAILING"} — ${name}${c.detail ? `: ${c.detail}` : ""}`);
+                  lines.push(
+                    `Map key in use: ${r.key_source}`,
+                    r.has_separate_browser_key
+                      ? "A separate browser key is configured, so the map and the capture use different Google projects."
+                      : "One key does both jobs, so this is project-wide.",
+                  );
+                  setDiagnosis(lines);
+                } catch (e) {
+                  setDiagnosis([e instanceof Error ? e.message : "Could not reach the diagnostic"]);
+                } finally {
+                  setDiagnosing(false);
+                }
+              }}
+            >
+              {diagnosing
+                ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Asking Google…</>
+                : "Ask Google what's wrong"}
+            </Button>
+            {diagnosis.length > 0 ? (
+              <ul className="text-[11px] text-amber-900 space-y-1 font-mono break-words">
+                {diagnosis.map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Retained photos. Nothing is replaced, so an earlier view can
             always be re-opened rather than re-measured. */}

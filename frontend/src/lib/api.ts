@@ -1457,6 +1457,17 @@ export const api = {
   /** The browser Maps key on its own. `getLeadMap` also returns it, but that
    *  endpoint loads every lead and lazily geocodes a batch — too much work
    *  to spend on reading one string per page view. */
+  /** Asks Google, per API, what this project is actually allowed to do, and
+   *  returns Google's own wording. The capture and the map use different
+   *  keys, so "map works but capture refuses" is diagnosable here and
+   *  nowhere else. Never returns a key. */
+  getMapsKeySelftest: () =>
+    request<{
+      key_source: "browser_key" | "server_key" | "none";
+      has_separate_browser_key: boolean;
+      checks: Record<string, { ok: boolean; http?: number; google_status?: string; detail?: string }>;
+      note: string;
+    }>(`/api/leads/maps-key/selftest`),
   getMapsKey: () =>
     request<{
       maps_api_key: string;
