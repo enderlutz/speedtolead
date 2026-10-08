@@ -35,10 +35,11 @@ _DOLLAR_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# proposal.atpressurewash.com URLs (any scheme, any path). These point
-# to the customer-facing proposal page which exposes the price.
+# Proposal page URLs, on any domain (the link moves off
+# proposal.atpressurewash.com to a Sterling domain). These point to the
+# customer-facing proposal page which exposes the price.
 _PROPOSAL_URL_PATTERN = re.compile(
-    r"https?://(?:www\.)?proposal\.atpressurewash\.com\S*",
+    r"https?://(?:www\.)?proposal\.atpressurewash\.com\S*|https?://\S+/proposal/\S*",
     re.IGNORECASE,
 )
 
@@ -53,7 +54,7 @@ _KEYWORDS_PATTERN = re.compile(
 def sanitize_for_worker(text: str) -> str:
     """Return a copy of `text` with worker-unsafe info stripped:
       - dollar amounts (and a trailing "+ tax" if present)
-      - proposal.atpressurewash.com URLs
+      - proposal page URLs, any domain
       - sales vocabulary ("estimate" / "proposal" / "quote")
     Then collapse the whitespace + empty lines that the strips leave
     behind so the result reads cleanly. Empty input passes through."""

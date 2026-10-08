@@ -22,8 +22,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # The estimate text carries a proposal link; an outbound message containing
-# one is proof it went out. Kept in sync with api/estimates.py:845.
-PROPOSAL_LINK = "proposal.atpressurewash.com/proposal/"
+# one is proof it went out. Matched on the path, not the domain: the link
+# moves from proposal.atpressurewash.com to a Sterling domain (Alan,
+# 2026-10-08 — the mismatch got texts flagged as spam) and both must count.
+PROPOSAL_LINK = "/proposal/"
 
 # Events the send path writes. `estimate_sent_to_customer` is logged at the
 # moment the customer SMS is dispatched (api/estimates.py:873) and is the
