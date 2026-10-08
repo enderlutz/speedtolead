@@ -1491,6 +1491,10 @@ export const api = {
       linear_feet?: number | null;
       /** Re-shoot an existing photo instead of adding one. */
       replace_id?: string | null;
+      /** The traced runs, so the saved photo carries the lines. The map's
+       *  own polylines are browser overlays and can't be in the image —
+       *  Static Maps redraws them server-side at the same centre and zoom. */
+      paths?: { color: string; closed: boolean; points: { lat: number; lng: number }[] }[];
     },
   ) =>
     request<{

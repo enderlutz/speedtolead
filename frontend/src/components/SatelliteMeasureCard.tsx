@@ -484,12 +484,19 @@ export default function SatelliteMeasureCard({
         strokeColor: color,
         strokeWeight: run.id === activeRun ? 4 : 3,
         strokeOpacity: run.id === activeRun ? 1 : 0.75,
+        // Google makes overlays clickable by default, so they ate any tap
+        // that landed on an existing line or dot — which made it impossible
+        // to start a new run that crosses one already drawn. Overlapping
+        // runs in different colours is exactly how Alan reads the drawing,
+        // so clicks have to reach the map underneath.
+        clickable: false,
       }));
 
       run.points.forEach((p) => {
         overlaysRef.current.push(new g.Marker({
           position: p,
           map: mapRef.current,
+          clickable: false,
           icon: {
             path: g.SymbolPath.CIRCLE,
             // Bigger on touch: a 5px dot under a fingertip is invisible at
@@ -510,6 +517,7 @@ export default function SatelliteMeasureCard({
         overlaysRef.current.push(new g.Marker({
           position: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 },
           map: mapRef.current,
+          clickable: false,
           icon: { path: g.SymbolPath.CIRCLE, scale: 0, fillOpacity: 0, strokeOpacity: 0 },
           label: {
             text: `${Math.round(feet)} ft`,
@@ -577,6 +585,22 @@ export default function SatelliteMeasureCard({
         also_scope: true,
         linear_feet: viewTotal > 0 ? Math.round(viewTotal) : null,
         replace_id: replaceId || null,
+        // Send the traced runs so the saved photo carries the lines, in the
+        // same colours as on screen. The map's polylines are browser
+        // overlays and can never be in the image — Google has to redraw
+        // them server-side at the same centre and zoom, which is also why
+        // they land exactly where they were traced.
+        // Colour is taken from the run's index in the FULL list, matching
+        // the on-screen rendering, and only then filtered. Filtering first
+        // would renumber the colours whenever an empty run sat in the
+        // middle, so the photo would disagree with what was just traced.
+        paths: runs
+          .map((r, idx) => ({
+            color: RUN_COLORS[idx % RUN_COLORS.length].replace("#", ""),
+            closed: r.closed,
+            points: r.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+          }))
+          .filter((r) => r.points.length >= 2),
       });
       toast.success(
         res.total_linear_feet

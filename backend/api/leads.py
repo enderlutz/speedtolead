@@ -2101,6 +2101,14 @@ async def upload_measurement(
         db.close()
 
 
+class CapturePath(BaseModel):
+    """One traced run, to be drawn onto the captured image."""
+    # Six hex digits, no "#". Validated before it reaches the URL.
+    color: str = "f59e0b"
+    closed: bool = False
+    points: list[dict] = []
+
+
 class SatelliteCaptureBody(BaseModel):
     """What the embedded satellite map is looking at when Capture is pressed."""
     lat: float
@@ -2119,6 +2127,48 @@ class SatelliteCaptureBody(BaseModel):
     # Re-shoot an existing photo instead of adding one, so re-framing a run
     # you already measured doesn't count its footage twice.
     replace_id: str | None = None
+    # The measured runs, so the saved photo shows the lines that were traced
+    # rather than a bare aerial. The interactive map's polylines are browser
+    # overlays and cannot be in the image — Static Maps has to redraw them.
+    paths: list[CapturePath] = []
+
+
+def _is_hex6(v: str) -> bool:
+    """Six hex digits. Done by hand because `re` is not imported here."""
+    return len(v or "") == 6 and all(c in "0123456789abcdefABCDEF" for c in v)
+
+
+def _path_params(paths: list[CapturePath]) -> str:
+    """Static Maps `path=` arguments for the traced runs.
+
+    Google draws these server-side at the same centre and zoom as the image,
+    so the line lands exactly where it was traced. Colours match the
+    on-screen runs, which is the whole point — Alan reads the different
+    colours to tell one side of the fence from another.
+    """
+    out: list[str] = []
+    for path in paths or []:
+        pts = []
+        for p in path.points or []:
+            try:
+                lat = float(p.get("lat"))
+                lng = float(p.get("lng"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                continue
+            # 6dp is ~11cm — far finer than the imagery, and keeps the URL
+            # short enough to stay inside Google's 16k limit.
+            pts.append(f"{lat:.6f},{lng:.6f}")
+        if len(pts) < 2:
+            continue
+        if path.closed and len(pts) > 2:
+            pts.append(pts[0])
+        color = path.color if _is_hex6(path.color) else "f59e0b"
+        # ff suffix = fully opaque. weight 4 reads clearly at scale=2 without
+        # covering the fence line underneath it.
+        out.append(f"&path=color:0x{color}ff|weight:4|" + "|".join(pts))
+    return "".join(out)
 
 
 def _fetch_static_map(url_for, server_key: str, browser_key: str, lead_id: str) -> bytes:
@@ -2217,12 +2267,24 @@ def capture_satellite_measurement(
     if not (w.isdigit() and h.isdigit() and 2 <= len(w) <= 4 and 2 <= len(h) <= 4):
         raise HTTPException(status_code=400, detail="size must look like 640x640")
 
+    path_args = _path_params(body.paths)
+
     def _static_url(k: str) -> str:
         return (
             "https://maps.googleapis.com/maps/api/staticmap"
             f"?center={body.lat},{body.lng}&zoom={zoom}&size={body.size}"
-            f"&scale={scale}&maptype=satellite&format=png&key={k}"
+            f"&scale={scale}&maptype=satellite&format=png{path_args}&key={k}"
         )
+
+    # Google caps the Static Maps URL at 16384 characters. Drop the lines
+    # rather than lose the photo — a bare aerial is still usable, a 400 is
+    # not. Only reachable with hundreds of traced points.
+    if len(_static_url("x" * 40)) > 16384:
+        logger.warning(
+            f"Satellite capture for lead {lead_id}: path args too long "
+            f"({len(path_args)} chars), capturing without the traced lines."
+        )
+        path_args = ""
 
     data = _fetch_static_map(_static_url, server_key, browser_key, lead_id)
 
