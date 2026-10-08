@@ -1460,16 +1460,24 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
         # GHL's own automations handle the customer messaging from there. We
         # deliberately send no SMS (to the customer or Alan) and write no GHL
         # notes of our own, so the dashboard never oversteps their automations.
-        tagged = False
-        if lead.ghl_contact_id:
-            try:
-                from services.ghl import add_contact_tag
-                # B (STERLING) leads use their own GHL tag (exact lowercase
-                # spelling) so Alan's B-side address automation fires.
-                addr_tag = "asking for address sterling" if lead.pipeline_version == "v2b" else "asking-for-address"
-                tagged = add_contact_tag(lead.ghl_contact_id, addr_tag, lead.ghl_location_id or None)
-            except Exception as e:
-                logger.warning(f"asking-for-address tag failed for lead {lead_id}: {e}")
+        # Sterling Leads A gets exactly "asking-for-address"; B (STERLING)
+        # leads use their own tag (exact lowercase spelling) so Alan's
+        # B-side address automation fires instead.
+        #
+        # The tag is the button's whole job, so if it doesn't land we say so
+        # and leave the lead un-asked — it used to report "Tagged" and lock
+        # the button even when GHL had refused.
+        if not lead.ghl_contact_id:
+            raise HTTPException(status_code=400, detail="This lead has no GHL contact, so there's nothing to tag.")
+        addr_tag = "asking for address sterling" if lead.pipeline_version == "v2b" else "asking-for-address"
+        try:
+            from services.ghl import add_contact_tag
+            tagged = add_contact_tag(lead.ghl_contact_id, addr_tag, lead.ghl_location_id or None)
+        except Exception as e:
+            logger.warning(f"{addr_tag} tag failed for lead {lead_id}: {e}")
+            tagged = False
+        if not tagged:
+            raise HTTPException(status_code=502, detail=f"GHL didn't accept the '{addr_tag}' tag. Nothing was changed — try again.")
 
         # Local dashboard state only (nothing here touches GHL): move to the
         # Asking-for-Address column and remember the button was pressed so it
@@ -1481,8 +1489,8 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
         lead.updated_at = _now()
         db.commit()
 
-        log_event(lead_id, "address_requested", f"asking-for-address tag added for {lead.contact_name}")
-        return {"status": "ok", "tagged": tagged}
+        log_event(lead_id, "address_requested", f"'{addr_tag}' tag added for {lead.contact_name}")
+        return {"status": "ok", "tagged": True, "tag": addr_tag}
 
     except HTTPException:
         raise

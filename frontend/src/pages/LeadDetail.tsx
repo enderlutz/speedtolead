@@ -130,6 +130,10 @@ const TIER_LOOK = {
   legacy:    { label: "Legacy",    tag: "Best finish", icon: Crown, accent: ACCENT.gold },
 } as const;
 
+// New Build button, archived 2026-10-08 (Alan: focus on Ask for Address).
+// Flip to true to bring it back; the endpoint and its SMS are untouched.
+const SHOW_NEW_BUILD: boolean = false;
+
 const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 
 // True below the `lg` breakpoint (single-column layout). Used to place a few
@@ -409,6 +413,15 @@ function ObjectionsPanel({
   );
 }
 
+/** True when an address has a house number in front of a street name —
+ *  "12419 Longwood Trace Ln", not "Longwood Trace Lane", "Conroe TX",
+ *  "PO BOX 745" or "# 135". The map and the measurement need the house. */
+function hasHouseNumber(address: string | null | undefined): boolean {
+  const a = (address || "").trim();
+  if (!a || /\bp\.?\s*o\.?\s*box\b/i.test(a)) return false;
+  return /(^|[^#\d])\b\d{1,6}[a-z]?\s+[a-z]{2,}/i.test(a);
+}
+
 /** One fact about the customer, with the icon doing the labelling. */
 function ContactFact({
   icon: Icon, accent, label, right, children,
@@ -508,6 +521,7 @@ export default function LeadDetail() {
   const [contactPhone, setContactPhone] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactAddress, setContactAddress] = useState("");
+  const [contactZip, setContactZip] = useState("");
   const [leadSource, setLeadSource] = useState<string>("ad");
   const [messages, setMessages] = useState<MessageEntry[]>([]);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(() => urlParams.get("invoice") === "1");
@@ -567,6 +581,7 @@ export default function LeadDetail() {
       setContactPhone(data.contact_phone || "");
       setContactEmail(data.contact_email || "");
       setContactAddress(data.address || "");
+      setContactZip(data.zip_code || "");
       setLeadSource(data.lead_source || "ad");
       // Estimator fields
       const fd = data.form_data || {};
@@ -921,6 +936,7 @@ export default function LeadDetail() {
         contact_phone: contactPhone,
         contact_email: contactEmail,
         address: contactAddress,
+        zip_code: contactZip.trim(),
         lead_source: leadSource,
       });
       setLead((prev) => (prev ? { ...prev, ...updated } : prev));
@@ -1071,8 +1087,10 @@ export default function LeadDetail() {
 
   const journey: JourneyStep[] = [
     { key: "address", label: "Address", icon: MapPin, accent: ACCENT.blue, target: "est-contact",
-      done: !!lead.address,
-      hint: "Get a street address on file so the map and the pricing zone can resolve." },
+      done: hasHouseNumber(lead.address),
+      hint: lead.address && !hasHouseNumber(lead.address)
+        ? `We only have "${lead.address}" — no house number. Ask for the full address.`
+        : "Get a street address on file so the map and the pricing zone can resolve." },
     { key: "replied", label: "Replied", icon: MessageSquare, accent: ACCENT.rose, target: "est-contact",
       done: repliedFirst,
       skipped: !repliedFirst && !!firstSentAt,
@@ -1467,11 +1485,11 @@ export default function LeadDetail() {
                     <Button variant="outline" size="sm" onClick={async () => {
                       setAskingAddress(true);
                       try {
-                        await api.askForAddress(id!);
+                        const r = await api.askForAddress(id!);
                         const data = await api.getLead(id!);
                         setLead(data);
-                        toast.success("Tagged “asking-for-address” — GHL will take it from here");
-                      } catch { toast.error("Failed to add tag"); }
+                        toast.success(`Tagged “${r.tag || "asking-for-address"}” — GHL will take it from here`);
+                      } catch (e) { toast.error(errMessage(e, "Failed to add tag")); }
                       finally { setAskingAddress(false); }
                     }}
                     disabled={askingAddress || lead?.form_data?.address_action === "asked_for_address" || lead?.pipeline_version === "v1"}
@@ -1479,7 +1497,10 @@ export default function LeadDetail() {
                       <Navigation className="h-3.5 w-3.5 mr-1" />
                       {lead?.form_data?.address_action === "asked_for_address" ? "Asked" : askingAddress ? "Tagging..." : "Ask for Address"}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={async () => {
+                    {/* New Build — archived 2026-10-08, Alan's call: focus on
+                        Ask for Address. The endpoint (/leads/{id}/new-build)
+                        and its SMS are kept; uncomment to bring it back. */}
+                    {SHOW_NEW_BUILD && <Button variant="outline" size="sm" onClick={async () => {
                       setAskingNewBuild(true);
                       try {
                         await api.newBuild(id!);
@@ -1493,7 +1514,7 @@ export default function LeadDetail() {
                     title={lead?.pipeline_version === "v1" ? "Export to new pipeline before sending SMS" : undefined}>
                       <MapPin className="h-3.5 w-3.5 mr-1" />
                       {lead?.form_data?.address_action === "new_build" ? "Sent" : askingNewBuild ? "Sending..." : "New Build"}
-                    </Button>
+                    </Button>}
                     <Button variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
                       <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
                     </Button>
@@ -1520,6 +1541,9 @@ export default function LeadDetail() {
                   </Field>
                   <Field label="Address">
                     <Input value={contactAddress} onChange={(e) => setContactAddress(e.target.value)} />
+                  </Field>
+                  <Field label="ZIP code">
+                    <Input value={contactZip} maxLength={5} inputMode="numeric" onChange={(e) => setContactZip(e.target.value)} />
                   </Field>
                   <Field label="Lead source">
                     <select
@@ -1561,6 +1585,9 @@ export default function LeadDetail() {
                       {lead.area && (
                         <span className="block truncate text-[11px] font-normal text-muted-foreground">{lead.area}</span>
                       )}
+                    </ContactFact>
+                    <ContactFact icon={Compass} accent={ACCENT.cyan} label="ZIP code">
+                      {lead.zip_code || "—"}
                     </ContactFact>
                   </div>
                   {/* Inline source picker — fires save on change so admin doesn't have to enter Edit mode for this one field */}

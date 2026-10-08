@@ -1332,7 +1332,7 @@ export const api = {
   backfillTags: () =>
     request<{ checked: number; archived: number; total_leads: number }>("/api/leads/backfill-tags", { method: "POST" }),
   askForAddress: (id: string) =>
-    request<{ status: string; tagged: boolean }>(`/api/leads/${id}/ask-address`, { method: "POST" }),
+    request<{ status: string; tagged: boolean; tag?: string }>(`/api/leads/${id}/ask-address`, { method: "POST" }),
   newBuild: (id: string) =>
     request<{ status: string; sms_sent: boolean }>(`/api/leads/${id}/new-build`, { method: "POST" }),
   archiveLead: (id: string) =>
