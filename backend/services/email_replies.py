@@ -52,13 +52,13 @@ _QUOTE_TEXT = [
     re.compile(r"^\s*From: .+\n\s*(Sent|Date): ", re.I | re.M),
     re.compile(r"^\s*>", re.M),
 ]
-_SIGNOFF = re.compile(r"^\s*Sent from my (iPhone|iPad|Android|Galaxy|phone|Samsung)[^\n]*$|^\s*Get Outlook for \w+\s*$",
+_SIGNOFF = re.compile(r"\s*Sent from (my )?(iPhone|Yahoo Mail for \w+|iPad|Android|Galaxy|phone|Samsung)[^\n]*$|^\s*Get Outlook for \w+\s*$",
                       re.I | re.M)
 
 
 def _html_to_text(body: str) -> str:
     b = re.sub(r"<(style|script|head)[^>]*>.*?</\1>", " ", body, flags=re.S | re.I)
-    b = re.sub(r"<br\s*/?>|</(p|div|li|tr|h\d)>", "\n", b, flags=re.I)
+    b = re.sub(r"<br\s*/?>|</?(p|div|li|tr|h\d)\b[^>]*>", "\n", b, flags=re.I)
     b = re.sub(r"<[^>]+>", "", b)
     return html_lib.unescape(b).replace("\xa0", " ")
 

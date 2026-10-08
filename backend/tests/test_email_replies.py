@@ -114,3 +114,10 @@ def test_due_picks_old_unread_inbound_and_recent_threads(db, monkeypatch):
     row.email_checked_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     assert row.id not in {m.id for m in er.due(db)}
+
+
+def test_divs_without_line_breaks_still_split_lines():
+    html = '<div>Thank you!</div><div>Sent from my iPhone</div>'
+    assert er.reply_text(html, "text/html") == "Thank you!"
+    lines = er.reply_text("<div>Eric Lynch</div><div>Builders Surplus</div>", "text/html").splitlines()
+    assert [ln for ln in lines if ln] == ["Eric Lynch", "Builders Surplus"]
