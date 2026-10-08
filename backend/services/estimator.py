@@ -272,16 +272,22 @@ def calculate_fence_staining(
     mid = tiers["signature"]
 
     # Expanded breakdown — per-sqft rates for all 3 tiers + surcharges
+    # Each tier line is tagged so an edit knows which price it belongs to even
+    # if somebody rewords the label. Surcharge lines carry no tag: they apply
+    # to every tier. See tiers_from_breakdown().
     breakdown = [
         {"label": f"Essential: ${rates['essential']:.2f}/sqft x {sqft:.0f} sqft",
          "value": round(sqft * rates["essential"], 2),
-         "note": f"Base rate for {age_bracket.replace('_', ' ')} fence"},
+         "note": f"Base rate for {age_bracket.replace('_', ' ')} fence",
+         "tier": "essential"},
         {"label": f"Signature: ${rates['signature']:.2f}/sqft x {sqft:.0f} sqft",
          "value": round(sqft * rates["signature"], 2),
-         "note": f"Recommended tier"},
+         "note": f"Recommended tier",
+         "tier": "signature"},
         {"label": f"Legacy: ${rates['legacy']:.2f}/sqft x {sqft:.0f} sqft",
          "value": round(sqft * rates["legacy"], 2),
-         "note": f"Premium tier"},
+         "note": f"Premium tier",
+         "tier": "legacy"},
     ]
     if zone_surcharge_rate > 0:
         breakdown.append({
@@ -307,6 +313,70 @@ def calculate_fence_staining(
     }
 
     return mid, mid, breakdown, meta
+
+
+TIER_KEYS = ("essential", "signature", "legacy")
+
+
+def tier_of_line(line: dict) -> str | None:
+    """Which tier a breakdown line is the base price of, or None for a
+    surcharge that applies to every tier.
+
+    Lines generated since Oct 2026 carry a `tier` tag. Older stored estimates
+    only have the label, which starts "Essential:", "Signature:" or
+    "Legacy:", so that prefix is the fallback."""
+    t = str(line.get("tier") or "").strip().lower()
+    if t in TIER_KEYS:
+        return t
+    head = str(line.get("label") or "").strip().lower().split(":", 1)[0].strip()
+    return head if head in TIER_KEYS else None
+
+
+def tiers_from_breakdown(items: list[dict], old_tiers: dict, old_items: list[dict]) -> dict:
+    """The three prices, from the breakdown lines.
+
+    A breakdown is one base line per tier plus surcharges that apply to all
+    three — the zone, the small-job uplift, anything added by hand. So each
+    tier is ITS OWN base line plus every surcharge line. It is not the sum of
+    the whole list: that was the bug, and it turned a $1,263.60 Essential into
+    $4,389.20 because the Signature and Legacy lines got added in too.
+
+    A tier whose base line was deleted keeps the base it had. A breakdown
+    with no tier lines at all (a legacy import, a one-line custom quote)
+    falls back to the old rule — the lines sum to Essential and the other
+    two keep their ratio to it — because that is the only reading those have.
+    """
+    bases: dict[str, float] = {}
+    extras = 0.0
+    for it in items or []:
+        t = tier_of_line(it)
+        v = float(it.get("value") or 0)
+        if t and t not in bases:
+            bases[t] = v
+        else:
+            extras += v
+
+    old = {t: float((old_tiers or {}).get(t) or 0) for t in TIER_KEYS}
+
+    if not bases:
+        total = sum(float(it.get("value") or 0) for it in items or [])
+        sig_ratio = old["signature"] / old["essential"] if old["essential"] > 0 else 1.16
+        leg_ratio = old["legacy"] / old["essential"] if old["essential"] > 0 else 1.50
+        return {
+            "essential": round(total, 2),
+            "signature": round(total * sig_ratio, 2),
+            "legacy": round(total * leg_ratio, 2),
+        }
+
+    old_extras = sum(
+        float(it.get("value") or 0)
+        for it in old_items or []
+        if tier_of_line(it) is None
+    )
+    for t in TIER_KEYS:
+        if t not in bases:
+            bases[t] = max(0.0, old[t] - old_extras)
+    return {t: round(bases[t] + extras, 2) for t in TIER_KEYS}
 
 
 def calculate_estimate(

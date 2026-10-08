@@ -10,6 +10,7 @@ import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
+import { TIER_KEYS, tiersFromBreakdown } from "@/lib/breakdown";
 import { ghlContactUrl } from "@/lib/ghlLink";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -1694,6 +1695,7 @@ export default function LeadDetail() {
                   <BreakdownEditor
                     estimateId={estimate.id}
                     items={estimate.breakdown}
+                    tiers={estimate.tiers}
                     onSaved={(updated) => {
                       setLead((prev) => {
                         if (!prev) return prev;
@@ -2785,10 +2787,11 @@ function CallRecordingsCard({ leadId }: { leadId: string }) {
 
 
 function BreakdownEditor({
-  estimateId, items, onSaved,
+  estimateId, items, tiers, onSaved,
 }: {
   estimateId: string;
   items: BreakdownItem[];
+  tiers: EstimateDetail["tiers"];
   onSaved: (updated: EstimateDetail) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -2852,7 +2855,10 @@ function BreakdownEditor({
     setEditItems(savedSnapshot.map((item) => ({ ...item })));
   };
 
-  const total = editing ? editItems.reduce((sum, item) => sum + (item.value || 0), 0) : 0;
+  // What Save will store — the same rule as the server: each tier is its own
+  // base line plus every surcharge line. Shown live so a $10 change to the
+  // Essential line reads as a $10 change, not as a mystery.
+  const preview = editing ? tiersFromBreakdown(editItems, tiers, items) : null;
 
   if (!editing) {
     return (
@@ -2953,8 +2959,18 @@ function BreakdownEditor({
       </div>
 
       {/* Total + Save */}
-      <div className="flex items-center justify-between pt-1.5 border-t">
-        <span className="text-xs font-medium">Essential Total: {formatCurrency(total)}</span>
+      <p className="text-[10px] leading-snug text-muted-foreground">
+        Edit a tier's own line to change that price. Every other line is a surcharge and goes on all three.
+      </p>
+      <div className="flex items-center justify-between gap-2 pt-1.5 border-t">
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">
+          {preview ? TIER_KEYS.map((t) => (
+            <span key={t}>
+              <span className="capitalize text-muted-foreground">{t}</span>{" "}
+              <span className={cn("font-semibold", t === "signature" && "text-primary")}>{formatCurrency(preview[t])}</span>
+            </span>
+          )) : null}
+        </div>
         <div className="flex gap-1.5">
           <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
             Cancel

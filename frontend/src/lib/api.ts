@@ -577,6 +577,9 @@ export interface BreakdownItem {
   note?: string;
   rate?: number;
   qty?: number;
+  /** "essential" | "signature" | "legacy" on a tier's base line. Absent on
+   *  a surcharge, which applies to every tier. */
+  tier?: string;
 }
 
 // --- Call Recording types ---

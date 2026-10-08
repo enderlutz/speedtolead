@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
 from api.settings import get_promotion_markup_percent
 from services.notifications import notify_estimate_sent, notify_new_lead_red, notify_custom_proposal_sent
+from services.estimator import tier_of_line, tiers_from_breakdown
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
 from services.template_cache import get_template as get_cached_template
 from services.ghl import send_sms, send_email, add_contact_note, add_contact_tag, update_opportunity_stage
@@ -1539,6 +1540,9 @@ class BreakdownItemOverride(BaseModel):
     qty: float | None = None     # quantity (e.g. sqft)
     value: float                 # subtotal (rate × qty, or flat amount)
     note: str = ""
+    # "essential" | "signature" | "legacy" on a tier's base line; absent on a
+    # surcharge, which applies to every tier.
+    tier: str | None = None
 
 
 class BreakdownOverrideBody(BaseModel):
@@ -1547,34 +1551,38 @@ class BreakdownOverrideBody(BaseModel):
 
 @router.put("/estimates/{estimate_id}/breakdown")
 def override_breakdown(estimate_id: str, body: BreakdownOverrideBody):
-    """Override the estimate breakdown. Recalculates all 3 tiers proportionally."""
+    """Override the estimate breakdown and recompute the three prices from it.
+
+    Each tier is its own base line plus every surcharge line — see
+    services.estimator.tiers_from_breakdown for why, and for the bug the
+    old "sum everything" rule caused."""
     db = get_db()
     try:
         est = db.query(Estimate).filter(Estimate.id == estimate_id).first()
         if not est:
             raise HTTPException(status_code=404, detail="Estimate not found")
 
-        # Get original tier ratios
         old_tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
-        old_essential = float(old_tiers.get("essential", 0))
-        old_signature = float(old_tiers.get("signature", 0))
-        old_legacy = float(old_tiers.get("legacy", 0))
+        try:
+            old_items = json.loads(est.breakdown) if isinstance(est.breakdown, str) else (est.breakdown or [])
+        except (ValueError, TypeError):
+            old_items = []
 
-        # Calculate ratios (signature/essential, legacy/essential)
-        sig_ratio = old_signature / old_essential if old_essential > 0 else 1.16
-        leg_ratio = old_legacy / old_essential if old_essential > 0 else 1.50
+        # Build breakdown for storage. The tier tag rides along so a reworded
+        # label still knows which price it belongs to.
+        breakdown = []
+        for item in body.items:
+            line = {"label": item.label, "value": round(item.value, 2), "note": item.note,
+                    "rate": item.rate, "qty": item.qty}
+            tier = tier_of_line({"tier": item.tier, "label": item.label})
+            if tier:
+                line["tier"] = tier
+            breakdown.append(line)
 
-        # New essential = sum of all breakdown items
-        new_essential = sum(item.value for item in body.items)
-        new_signature = round(new_essential * sig_ratio, 2)
-        new_legacy = round(new_essential * leg_ratio, 2)
-        new_essential = round(new_essential, 2)
-
-        # Build breakdown for storage
-        breakdown = [{"label": item.label, "value": round(item.value, 2), "note": item.note,
-                       "rate": item.rate, "qty": item.qty} for item in body.items]
-
-        new_tiers = {"essential": new_essential, "signature": new_signature, "legacy": new_legacy}
+        new_tiers = tiers_from_breakdown(breakdown, old_tiers, old_items)
+        new_essential = new_tiers["essential"]
+        new_signature = new_tiers["signature"]
+        new_legacy = new_tiers["legacy"]
 
         est.breakdown = json.dumps(breakdown)
         est.tiers = json.dumps(new_tiers)
