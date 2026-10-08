@@ -323,7 +323,10 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
  *  automated texts have gone, how many calls we've tried. The follow-ups
  *  run while the opportunity sits in ESTIMATE SENT; see
  *  backend/services/followup_status.py for how each number is read. */
-function SinceEstimateCard({ info }: { info: NonNullable<LeadDetailType["after_estimate"]> }) {
+function SinceEstimateCard({ info, discovery }: {
+  info: NonNullable<LeadDetailType["after_estimate"]>;
+  discovery?: LeadDetailType["discovery_call"];
+}) {
   const STATUS = {
     running: { dot: "bg-emerald-500 animate-pulse", cls: "border-emerald-300 bg-emerald-50 text-emerald-900",
       title: "Follow-ups running", sub: "Still in Estimate Sent, so the GHL texts keep going." },
@@ -344,6 +347,15 @@ function SinceEstimateCard({ info }: { info: NonNullable<LeadDetailType["after_e
           <p className="text-[11px] leading-snug opacity-90">{STATUS.sub}</p>
         </div>
       </div>
+      {discovery ? (
+        <p className={cn("flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium",
+          discovery.done ? "bg-emerald-50 text-emerald-800" : "bg-muted/50 text-muted-foreground")}>
+          <Phone className="h-3.5 w-3.5" />
+          {discovery.done
+            ? `Discovery call before the estimate${discovery.mid_call_send ? " — sent while on the phone" : ""}`
+            : "No discovery call before the estimate"}
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-2">
         <StatTile icon={MessageSquare} label="Follow-up texts" accent={ACCENT.violet}
                   hint={info.last_auto_text_at ? `Last one ${timeAgo(info.last_auto_text_at)}` : "None sent yet"}>
@@ -1162,9 +1174,15 @@ export default function LeadDetail() {
     { key: "replied", label: "Replied", icon: MessageSquare, accent: ACCENT.rose, target: "est-contact",
       done: repliedFirst,
       skipped: !repliedFirst && !!firstSentAt,
-      hint: !repliedFirst && firstSentAt
+      // A discovery call rides along with Replied: a real phone conversation
+      // that started before the first estimate went out.
+      badge: lead.discovery_call?.done ? "Discovery call" : undefined,
+      hint: (!repliedFirst && firstSentAt
         ? "They never answered before we sent the estimate — sent anyway. A reply now shows under Heard back."
-        : "Waiting on their first reply. Answering the intake text is the first sign they're real." },
+        : "Waiting on their first reply. Answering the intake text is the first sign they're real.")
+        + (lead.discovery_call?.done
+          ? ` Discovery call ${timeAgo(lead.discovery_call.at || "")}${lead.discovery_call.mid_call_send ? " — the estimate went out on it" : ""}.`
+          : firstSentAt ? " No discovery call before the estimate." : "") },
     // Not every customer gets a scope, so once the estimate has gone out
     // without one this reads "Skipped", not "You are here".
     { key: "scope", label: "Scope sent", icon: FileText, accent: ACCENT.amber, target: "est-measure",
@@ -2347,7 +2365,7 @@ export default function LeadDetail() {
             </div>
           )}
 
-          {lead.after_estimate ? <SinceEstimateCard info={lead.after_estimate} /> : null}
+          {lead.after_estimate ? <SinceEstimateCard info={lead.after_estimate} discovery={lead.discovery_call} /> : null}
 
           {/* "Send a custom PDF" — archived 2026-10-08, Alan's call: unused
               and taking up room. Component, endpoint and any proposals

@@ -877,6 +877,12 @@ def get_lead(lead_id: str):
         except Exception:
             logger.exception("after-estimate summary failed for %s", lead.id)
             result["after_estimate"] = None
+        try:
+            from services.followup_status import discovery_call
+            result["discovery_call"] = discovery_call(db, lead)
+        except Exception:
+            logger.exception("discovery-call check failed for %s", lead.id)
+            result["discovery_call"] = None
         return result
     finally:
         db.close()

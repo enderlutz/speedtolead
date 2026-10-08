@@ -544,6 +544,9 @@ export interface LeadDetail extends Lead {
   estimated_in_person_auto?: boolean; // whether estimator activity was detected for this lead
   /** First time a fence scope was texted to the customer, across redraws. */
   fence_scope_first_sent_at?: string | null;
+  /** Did we talk to them on the phone before the first estimate went out
+   *  (including the call the estimate was sent on)? */
+  discovery_call?: { done: boolean; at: string | null; seconds: number; mid_call_send: boolean } | null;
   /** Since the latest estimate send. Null until one has gone out. */
   after_estimate?: {
     first_sent_at: string;

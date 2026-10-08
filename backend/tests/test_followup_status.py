@@ -108,3 +108,49 @@ def test_calls_tried_is_never_less_than_connected(db):
     db.commit()
     out = fs.after_estimate(db, lead)
     assert out["calls_tried"] == out["calls_connected"] == 1
+
+
+# --- discovery call: a real conversation that STARTED before the first send ---
+
+def _rec(db, lead, start, secs=180, vm=False):
+    db.add(CallRecording(id=str(uuid.uuid4()), lead_id=lead.id, duration_seconds=secs, is_voicemail=vm,
+                         created_at=start.isoformat()))
+    db.commit()
+
+
+def test_a_call_before_the_estimate_is_a_discovery_call(db):
+    lead = _lead(db)
+    _rec(db, lead, T0 - timedelta(days=1))
+    d = fs.discovery_call(db, lead)
+    assert d["done"] and not d["mid_call_send"]
+
+
+def test_the_call_the_estimate_was_sent_on_counts(db):
+    """GHL stamps the call when it starts; the send happened 3 minutes in."""
+    lead = _lead(db)
+    _rec(db, lead, T0 - timedelta(minutes=3), secs=600)
+    d = fs.discovery_call(db, lead)
+    assert d["done"] and d["mid_call_send"]
+
+
+def test_a_call_after_the_estimate_is_not_one(db):
+    lead = _lead(db)
+    _rec(db, lead, T0 + timedelta(hours=2))
+    assert fs.discovery_call(db, lead)["done"] is False
+
+
+def test_voicemail_and_short_calls_are_not_conversations(db):
+    lead = _lead(db)
+    _rec(db, lead, T0 - timedelta(days=1), secs=90, vm=True)
+    _rec(db, lead, T0 - timedelta(days=2), secs=12)
+    assert fs.discovery_call(db, lead)["done"] is False
+
+
+def test_a_logged_conversation_before_the_send_counts(db):
+    lead = _lead(db)
+    db.add(CallDisposition(id=str(uuid.uuid4()), lead_id=lead.id, outcome="callback",
+                           disposed_at=(T0 - timedelta(hours=3)).isoformat()))
+    db.add(CallDisposition(id=str(uuid.uuid4()), lead_id=lead.id, outcome="no_answer",
+                           disposed_at=(T0 - timedelta(hours=4)).isoformat()))
+    db.commit()
+    assert fs.discovery_call(db, lead)["done"] is True

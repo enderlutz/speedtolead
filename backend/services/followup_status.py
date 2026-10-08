@@ -187,3 +187,56 @@ def after_estimate(db, lead) -> dict | None:
         "calls_connected": max(connected, talked_logged),
         "last_call_at": max(calls, key=lambda t: _ts(t)) if calls else None,
     }
+
+
+def discovery_call(db, lead) -> dict:
+    """Did we talk to this customer on the phone before the estimate went out?
+
+    Alan's definition (2026-10-08): a real conversation whose call STARTED
+    before the first estimate was sent — which includes the call where the
+    estimate is sent while they're on the line, because GHL stamps a call at
+    the moment it starts. Tracked so close rates can later be compared with
+    and without one.
+
+    A call counts as a conversation on the same rule as calls_connected: a
+    non-voicemail recording of 30 seconds or more. A call logged as a real
+    conversation (closed, an objection, call back) also counts when it was
+    logged before the first send. With no estimate sent yet, any such call so
+    far counts.
+    """
+    from database import CallDisposition, CallRecording, Estimate
+
+    sends = sorted(
+        t for t in (
+            _ts(r[0]) for r in db.query(Estimate.sent_at)
+            .filter(Estimate.lead_id == lead.id, Estimate.sent_at.isnot(None),
+                    Estimate.status.in_(("sent", "closed"))).all()
+        ) if t
+    )
+    first_sent = sends[0] if sends else None
+
+    def before(t):
+        return t is not None and (first_sent is None or t <= first_sent)
+
+    calls = []
+    for start, secs, vm in (
+        db.query(CallRecording.created_at, CallRecording.duration_seconds, CallRecording.is_voicemail)
+        .filter(CallRecording.lead_id == lead.id).all()
+    ):
+        t = _ts(start)
+        if before(t) and not vm and int(secs or 0) >= 30:
+            calls.append((t, int(secs or 0)))
+    for outcome, at in (
+        db.query(CallDisposition.outcome, CallDisposition.disposed_at)
+        .filter(CallDisposition.lead_id == lead.id).all()
+    ):
+        t = _ts(at)
+        if outcome in TALKED_OUTCOMES and before(t):
+            calls.append((t, 0))
+    if not calls:
+        return {"done": False, "at": None, "seconds": 0, "mid_call_send": False}
+    calls.sort()
+    first_at, secs = calls[0]
+    # Was the estimate sent while they were on this call?
+    mid = any(first_sent and t <= first_sent <= t + timedelta(seconds=s + 60) for t, s in calls if s)
+    return {"done": True, "at": first_at.isoformat(), "seconds": secs, "mid_call_send": bool(mid)}
