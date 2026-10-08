@@ -239,7 +239,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
             key={s.key}
             className={cn(
               "h-1.5 flex-1 rounded-full transition-all duration-500",
-              s.done ? `bg-gradient-to-r ${s.accent.grad}` : s.skipped ? "bg-amber-400/60" : s === current ? "animate-pulse bg-white/40" : "bg-white/15",
+              s.done ? `bg-gradient-to-r ${s.accent.grad}` : s.skipped ? "bg-white/5" : s === current ? "animate-pulse bg-white/40" : "bg-white/15",
             )}
           />
         ))}
@@ -249,6 +249,8 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         {steps.map((s) => {
           const isCurrent = s === current;
           const Icon = s.icon;
+          // Booked is the win, so it gets a gold star rather than a tick.
+          const won = s.key === "booked" && s.done;
           return (
             <button
               key={s.key}
@@ -257,21 +259,27 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
               title={s.hint}
               className={cn(
                 "flex flex-col items-center gap-1 rounded-xl px-1.5 py-2 text-center transition active:scale-95",
-                s.done ? "bg-white/10 hover:bg-white/15"
-                  : s.skipped ? "bg-amber-400/10 ring-1 ring-amber-300/40 hover:bg-amber-400/15"
+                won ? "bg-amber-300/15 ring-2 ring-amber-300/70 shadow-[0_0_18px_rgba(252,211,77,0.45)] hover:bg-amber-300/20"
+                  : s.done ? "bg-white/10 hover:bg-white/15"
+                  : s.skipped ? "border border-dashed border-white/25 bg-transparent text-white/45 hover:border-white/40"
                   : isCurrent ? "bg-white/15 ring-2 ring-white/60 hover:bg-white/20"
                   : "bg-white/5 opacity-70 hover:bg-white/10 hover:opacity-100",
               )}
             >
               <span className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-lg",
-                s.done ? `bg-gradient-to-br ${s.accent.grad} shadow-md shadow-black/20` : s.skipped ? "bg-amber-400/30" : "bg-white/10",
+                won ? "bg-gradient-to-br from-amber-300 to-yellow-500 text-amber-950 shadow-md shadow-amber-500/40"
+                  : s.done ? `bg-gradient-to-br ${s.accent.grad} shadow-md shadow-black/20`
+                  : s.skipped ? "border border-dashed border-white/25 bg-transparent"
+                  : "bg-white/10",
               )}>
-                {s.done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                {won ? <Star className="h-4 w-4 fill-current" />
+                  : s.done ? <Check className="h-4 w-4" />
+                  : <Icon className={cn("h-4 w-4", s.skipped && "opacity-40")} />}
               </span>
-              <span className="text-[11px] font-semibold leading-tight">{s.label}</span>
-              <span className="text-[9px] leading-tight text-white/60">
-                {s.done ? "Done" : s.skipped ? "Skipped" : isCurrent ? "You are here" : "Later"}
+              <span className={cn("text-[11px] font-semibold leading-tight", s.skipped && "line-through decoration-white/30")}>{s.label}</span>
+              <span className={cn("text-[9px] leading-tight", won ? "font-bold text-amber-200" : "text-white/60")}>
+                {won ? "Booked!" : s.done ? "Done" : s.skipped ? "Skipped" : isCurrent ? "You are here" : "Later"}
               </span>
             </button>
           );
