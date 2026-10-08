@@ -1396,7 +1396,7 @@ export const api = {
     // the GHL "estimate sent" tag (which would otherwise trigger P1 / P04
     // automations). Default behavior unchanged.
     if (opts && opts.applyTag === false) body.apply_tag = false;
-    return request<EstimateDetail & { proposal_url?: string; sms_sent?: boolean; sms_scheduled?: boolean; scheduled_send_at?: string }>(
+    return request<EstimateDetail & { proposal_url?: string; sms_sent?: boolean; sms_scheduled?: boolean; scheduled_send_at?: string; opportunity_created?: boolean }>(
       `/api/estimates/${id}/approve`,
       {
         method: "POST",

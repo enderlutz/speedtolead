@@ -926,9 +926,13 @@ export default function LeadDetail() {
         playSuccessSound();
         toast.success(`Estimate approved${tagNote}!`);
       }
+      if (result.opportunity_created) {
+        // A call-in lead had no opportunity; the send just made one.
+        toast.info("Added to Sterling Leads A — opportunity created at Estimate Sent", { duration: 8000 });
+      }
       setShowScheduler(false);
-    } catch {
-      toast.error("Failed to approve");
+    } catch (e) {
+      toast.error(errMessage(e, "Failed to approve"));
     } finally {
       setApproving(false);
     }

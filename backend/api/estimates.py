@@ -61,6 +61,58 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class _NoOpportunity(Exception):
+    """GHL wouldn't give us an opportunity to send against."""
+
+
+def _ensure_sterling_a_opportunity(lead: Lead, signature_price: float) -> bool:
+    """Give a call-in lead its opportunity at the moment of sending.
+
+    A customer who phones in gets a GHL contact but no opportunity, so the
+    dashboard holds them as a "contact" row: off the Sterling Leads A board,
+    and with nothing for the estimate-sent follow-up workflows to move. Alan
+    used to put them into the pipeline by hand in GHL and wait up to five
+    minutes for the poller to pull the card in before he could send.
+
+    Now sending does it: an opportunity is created in Sterling Leads A ("fence
+    staining new automation flow") straight at ESTIMATE SENT, the lead joins
+    the A board, and the normal send — proposal text plus the "estimate
+    sent" tag that starts the follow-ups — runs as for any other lead.
+
+    Returns True when it created one. Raises _NoOpportunity when GHL won't,
+    so nothing is sent half-done. Leads that already have an opportunity, and
+    B leads, are left alone.
+    """
+    if lead.ghl_opportunity_id or lead.pipeline_version not in ("contact", "v2", "", None):
+        return False
+    if not (lead.ghl_contact_id and lead.ghl_location_id):
+        raise _NoOpportunity("This lead has no GHL contact to attach an opportunity to.")
+    from services.poller import TARGET_PIPELINE, _find_pipeline_and_stages
+    from services.ghl import create_opportunity
+
+    pipeline_id, stages = _find_pipeline_and_stages(lead.ghl_location_id)
+    if not pipeline_id:
+        raise _NoOpportunity(f"Couldn't find the '{TARGET_PIPELINE}' pipeline in GHL.")
+    stage_id = stages.get("estimate sent") or V2_ESTIMATE_SENT_STAGE_ID
+    opp_id = create_opportunity(
+        location_id=lead.ghl_location_id,
+        pipeline_id=pipeline_id,
+        pipeline_stage_id=stage_id,
+        contact_id=lead.ghl_contact_id,
+        name=lead.contact_name or "Fence staining",
+        monetary_value=signature_price or 0,
+    )
+    if not opp_id:
+        raise _NoOpportunity("GHL didn't create the opportunity.")
+    lead.ghl_opportunity_id = opp_id
+    lead.pipeline_version = "v2"
+    lead.ghl_pipeline_stage_id = stage_id
+    log_event(lead.id, "opportunity_created_on_send",
+              "Call-in lead had no opportunity — created one in Sterling Leads A at ESTIMATE SENT",
+              {"opportunity_id": opp_id, "pipeline_id": pipeline_id})
+    return True
+
+
 def _mark_lead_estimate_sent(lead: Lead) -> None:
     """Update a lead to the 'estimate sent' state on whichever pipeline it lives on.
     v1 leads use kanban_column; v2 leads also need ghl_pipeline_stage_id, and we
@@ -1092,6 +1144,14 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
         settings = get_settings()
         now = _now()
 
+        # A call-in lead with no opportunity gets one now, before anything is
+        # sent — if GHL refuses, nothing goes out and the VA is told why.
+        try:
+            tiers = json.loads(est.tiers) if isinstance(est.tiers, str) else (est.tiers or {})
+            opportunity_created = _ensure_sterling_a_opportunity(lead, float(tiers.get("signature") or 0))
+        except _NoOpportunity as e:
+            raise HTTPException(status_code=502, detail=f"{e} Nothing was sent — try again.")
+
         # Status flip + lead update happen synchronously so the dashboard
         # reflects "sent" immediately even though the PDF is still cooking.
         est.status = "sent"
@@ -1160,6 +1220,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
         result["sms_sent"] = bool(send_sms_flag and not scheduled_send_at)
         result["sms_scheduled"] = bool(scheduled_send_at)
         result["scheduled_send_at"] = scheduled_send_at
+        result["opportunity_created"] = opportunity_created
         return result
 
     except HTTPException:
