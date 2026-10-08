@@ -195,6 +195,10 @@ type JourneyStep = {
   target: string;
   /** One line on what to do, shown for the current step. */
   hint: string;
+  /** Not done, and never will be — we moved past it on purpose (sent the
+   *  estimate without ever getting a first reply). Shown amber, and never
+   *  "You are here". */
+  skipped?: boolean;
 };
 
 /** The six stages of a lead, from "we have an address" to "it's on the
@@ -203,7 +207,7 @@ type JourneyStep = {
  *  "what do I do next on this one?" is there before a single card is read. */
 function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
   const done = steps.filter((s) => s.done).length;
-  const current = steps.find((s) => !s.done);
+  const current = steps.find((s) => !s.done && !s.skipped);
   const jump = (id: string) =>
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
@@ -235,7 +239,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
             key={s.key}
             className={cn(
               "h-1.5 flex-1 rounded-full transition-all duration-500",
-              s.done ? `bg-gradient-to-r ${s.accent.grad}` : s === current ? "animate-pulse bg-white/40" : "bg-white/15",
+              s.done ? `bg-gradient-to-r ${s.accent.grad}` : s.skipped ? "bg-amber-400/60" : s === current ? "animate-pulse bg-white/40" : "bg-white/15",
             )}
           />
         ))}
@@ -254,19 +258,20 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
               className={cn(
                 "flex flex-col items-center gap-1 rounded-xl px-1.5 py-2 text-center transition active:scale-95",
                 s.done ? "bg-white/10 hover:bg-white/15"
+                  : s.skipped ? "bg-amber-400/10 ring-1 ring-amber-300/40 hover:bg-amber-400/15"
                   : isCurrent ? "bg-white/15 ring-2 ring-white/60 hover:bg-white/20"
                   : "bg-white/5 opacity-70 hover:bg-white/10 hover:opacity-100",
               )}
             >
               <span className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-lg",
-                s.done ? `bg-gradient-to-br ${s.accent.grad} shadow-md shadow-black/20` : "bg-white/10",
+                s.done ? `bg-gradient-to-br ${s.accent.grad} shadow-md shadow-black/20` : s.skipped ? "bg-amber-400/30" : "bg-white/10",
               )}>
                 {s.done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
               </span>
               <span className="text-[11px] font-semibold leading-tight">{s.label}</span>
               <span className="text-[9px] leading-tight text-white/60">
-                {s.done ? "Done" : isCurrent ? "You are here" : "Later"}
+                {s.done ? "Done" : s.skipped ? "Skipped" : isCurrent ? "You are here" : "Later"}
               </span>
             </button>
           );
@@ -911,14 +916,25 @@ export default function LeadDetail() {
   const heardBack =
     inbound.some((m) => after(m.created_at)) ||
     dispositions.some((d) => TALKED.includes(d.outcome) && after(d.disposed_at));
+  // Replied only counts if it happened BEFORE the first estimate went out.
+  // When we sent without one — no answer to the intake text or the calls —
+  // that's an override, and a reply afterwards is "Heard back", not this.
+  const before = (iso: string | null | undefined) =>
+    !!iso && (!firstSentAt || new Date(iso).getTime() <= new Date(firstSentAt).getTime());
+  const repliedFirst =
+    inbound.some((m) => before(m.created_at)) ||
+    dispositions.some((d) => TALKED.includes(d.outcome) && before(d.disposed_at));
 
   const journey: JourneyStep[] = [
     { key: "address", label: "Address", icon: MapPin, accent: ACCENT.blue, target: "est-contact",
       done: !!lead.address,
       hint: "Get a street address on file so the map and the pricing zone can resolve." },
     { key: "replied", label: "Replied", icon: MessageSquare, accent: ACCENT.rose, target: "est-contact",
-      done: !!lead.customer_responded || inbound.length > 0,
-      hint: "Waiting on their first reply. Answering the intake text is the first sign they're real." },
+      done: repliedFirst,
+      skipped: !repliedFirst && !!firstSentAt,
+      hint: !repliedFirst && firstSentAt
+        ? "They never answered before we sent the estimate — sent anyway. A reply now shows under Heard back."
+        : "Waiting on their first reply. Answering the intake text is the first sign they're real." },
     { key: "measured", label: "Measured", icon: Ruler, accent: ACCENT.violet, target: "est-measure",
       done: Number(linearFeet) > 0 || !!lead.measurement_uploaded,
       hint: "Trace the fence on the satellite and capture it — Linear Feet fills itself." },
