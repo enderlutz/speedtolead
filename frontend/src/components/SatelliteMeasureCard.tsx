@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, type MeasurementPhoto } from "@/lib/api";
 import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
 import { Button } from "@/components/ui/button";
@@ -265,6 +266,7 @@ function runFeet(run: Run): number {
 export default function SatelliteMeasureCard({
   leadId, lat, lng, address, zipCode, onLinearFeet, onChange,
 }: Props) {
+  const navigate = useNavigate();
   const mapDivRef = useRef<HTMLDivElement>(null);
   // Typed loosely on purpose: src/types/google-maps.d.ts is a hand-written
   // minimal shim, not @types/google.maps, so Map/Marker aren't fully described.
@@ -607,6 +609,7 @@ export default function SatelliteMeasureCard({
 
   async function capture(replaceId?: string) {
     if (!mapRef.current) return;
+    let saved = false;
     setCapturing(true);
     try {
       const c = mapRef.current.getCenter();
@@ -642,8 +645,8 @@ export default function SatelliteMeasureCard({
       });
       toast.success(
         res.total_linear_feet
-          ? `${res.label} saved — job total ${res.total_linear_feet} ft, ready for scope of work`
-          : `${res.label} saved — ready for scope of work`,
+          ? `${res.label} saved — job total ${res.total_linear_feet} ft. Opening the scope editor…`
+          : `${res.label} saved. Opening the scope editor…`,
       );
       // Google has no imagery-date parameter, so the one thing we control is
       // detail: capturing below the framed zoom means a wider, coarser image
@@ -661,6 +664,7 @@ export default function SatelliteMeasureCard({
       resetRuns();
       await loadPhotos();
       onChange();
+      saved = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Capture failed";
       // Google's refusal arrives as "502: {"detail":"..."}". Pull out the
@@ -697,6 +701,12 @@ export default function SatelliteMeasureCard({
     } finally {
       setCapturing(false);
     }
+    // Straight into the scope editor with the photo just captured, so the
+    // enhance / drone view / fence colours step starts without a tab
+    // change (Alan, 2026-10-09). Capture already made it the scope's
+    // source image, and Linear Feet is saved on the server, so nothing is
+    // lost by leaving. The editor's back arrow returns to this customer.
+    if (saved) navigate(`/leads/${leadId}/scope`);
   }
 
   async function removePhoto(p: MeasurementPhoto) {
