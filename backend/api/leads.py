@@ -1835,7 +1835,7 @@ def clear_badge(lead_id: str, body: ClearBadgeBody, user: dict = Depends(get_cur
 
 
 @router.put("/leads/{lead_id}/contact")
-def update_contact(lead_id: str, body: ContactUpdate):
+def update_contact(lead_id: str, body: ContactUpdate, user: dict = Depends(require_staff)):
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -1861,7 +1861,16 @@ def update_contact(lead_id: str, body: ContactUpdate):
         if body.zip_code is not None and body.zip_code != lead.zip_code:
             ghl_push["zip_code"] = body.zip_code
             lead.zip_code = body.zip_code
-        if body.lead_source is not None:
+        # Only validated when it is actually CHANGING. The edit form posts
+        # every field including the lead's current source, and 513 leads
+        # carry "contact_mirror" — written by services/contact_mirror.py:131
+        # and not in the allow-list — so echoing back an untouched value
+        # rejected the whole save. Michelle Stout could not have an email
+        # added for that reason, and nor could a fifth of the customer base.
+        #
+        # Validating only real changes also means a provenance value added
+        # later can never break saving on the leads that already carry it.
+        if body.lead_source is not None and body.lead_source != (lead.lead_source or ""):
             valid = ("ad", "referral", "google_my_business", "repeat_customer", "yard_sign", "other")
             if body.lead_source not in valid:
                 raise HTTPException(status_code=400, detail=f"lead_source must be one of {valid}")

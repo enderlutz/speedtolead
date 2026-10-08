@@ -129,6 +129,21 @@ function useIsMobile(query = "(max-width: 1023px)"): boolean {
   return isMobile;
 }
 
+/** The options, plus the lead's own source when that isn't one of them.
+ *
+ *  513 leads carry "contact_mirror" (written by the GHL contact mirror, not
+ *  a channel anybody picks). A <select> whose value matches no <option>
+ *  renders blank, so those leads looked sourceless — and picking anything
+ *  from the dropdown would have silently overwritten the provenance. */
+function leadSourceOptionsFor(current: string) {
+  const known = LEAD_SOURCE_OPTIONS.some((o) => o.value === current);
+  if (!current || known) return LEAD_SOURCE_OPTIONS;
+  return [
+    { value: current as LeadSource, label: `${current} (how we found them)` },
+    ...LEAD_SOURCE_OPTIONS,
+  ];
+}
+
 export default function LeadDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -548,8 +563,11 @@ export default function LeadDetail() {
       setLead((prev) => (prev ? { ...prev, ...updated } : prev));
       setEditingContact(false);
       toast.success("Contact info saved");
-    } catch {
-      toast.error("Failed to save contact info");
+    } catch (e) {
+      // The bare catch here hid a 400 about lead_source for a fifth of the
+      // customer base — the message said nothing and the cause took a
+      // database query to find.
+      toast.error(errMessage(e, "Failed to save contact info"));
     } finally {
       setSavingContact(false);
     }
@@ -1010,7 +1028,7 @@ export default function LeadDetail() {
                       onChange={(e) => setLeadSource(e.target.value)}
                       className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
                     >
-                      {LEAD_SOURCE_OPTIONS.map((opt) => (
+                      {leadSourceOptionsFor(leadSource).map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
@@ -1052,7 +1070,7 @@ export default function LeadDetail() {
                       onChange={(e) => handleSaveLeadSource(e.target.value as LeadSource)}
                       className="text-xs border border-input rounded-md px-2 py-1 bg-background"
                     >
-                      {LEAD_SOURCE_OPTIONS.map((opt) => (
+                      {leadSourceOptionsFor(leadSource).map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
