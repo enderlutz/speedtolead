@@ -241,7 +241,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         ))}
       </div>
 
-      <div className="relative mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+      <div className="relative mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-8">
         {steps.map((s) => {
           const isCurrent = s === current;
           const Icon = s.icon;
@@ -479,6 +479,17 @@ export default function LeadDetail() {
       mine.sort((a, b) => (b.job_date || "").localeCompare(a.job_date || ""));
       setLatestScheduledJob(mine[0]);
     }).catch(() => {});
+  }, [id]);
+
+  // Logged call outcomes, for the "Heard back" step of the customer journey.
+  const [dispositions, setDispositions] = useState<CallDispositionEntry[]>([]);
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    api.listCallDispositions(id)
+      .then((r) => { if (!cancelled) setDispositions(r.dispositions || []); })
+      .catch(() => { /* the step just stays open */ });
+    return () => { cancelled = true; };
   }, [id]);
 
   // Real-time: update if customer replies or views proposal for THIS lead
@@ -880,10 +891,34 @@ export default function LeadDetail() {
 
   // The six stages the strip at the top of the Estimate tab shows. Each one
   // is read straight off data already on the page — nothing is stored.
+  // "Replied" — they've answered us at all, usually the intake text.
+  // "Heard back" — they've engaged AFTER the estimate went out: a text in,
+  // or a call where we actually spoke to them. Voicemail and no-answer don't
+  // count; a call logged as closed, an objection or a call-back does.
+  // Kept apart from "Viewed" on purpose: viewed-and-silent is the case that
+  // needs a call, and it only shows if the two are separate steps.
+  const inbound = messages.filter((m) => m.direction === "inbound");
+  const firstSentAt = sortedEstimates
+    .filter((e) => e.status === "sent" && e.sent_at)
+    .map((e) => e.sent_at as string)
+    .sort()[0] || "";
+  const TALKED: CallDispositionOutcome[] = [
+    "closed", "objection_price", "objection_timing", "objection_spouse",
+    "objection_hoa", "objection_more_estimates", "callback",
+  ];
+  const after = (iso: string | null | undefined) =>
+    !!firstSentAt && !!iso && new Date(iso).getTime() > new Date(firstSentAt).getTime();
+  const heardBack =
+    inbound.some((m) => after(m.created_at)) ||
+    dispositions.some((d) => TALKED.includes(d.outcome) && after(d.disposed_at));
+
   const journey: JourneyStep[] = [
     { key: "address", label: "Address", icon: MapPin, accent: ACCENT.blue, target: "est-contact",
       done: !!lead.address,
       hint: "Get a street address on file so the map and the pricing zone can resolve." },
+    { key: "replied", label: "Replied", icon: MessageSquare, accent: ACCENT.rose, target: "est-contact",
+      done: !!lead.customer_responded || inbound.length > 0,
+      hint: "Waiting on their first reply. Answering the intake text is the first sign they're real." },
     { key: "measured", label: "Measured", icon: Ruler, accent: ACCENT.violet, target: "est-measure",
       done: Number(linearFeet) > 0 || !!lead.measurement_uploaded,
       hint: "Trace the fence on the satellite and capture it — Linear Feet fills itself." },
@@ -896,6 +931,11 @@ export default function LeadDetail() {
     { key: "viewed", label: "Viewed", icon: Eye, accent: ACCENT.amber, target: "est-send",
       done: (lead.proposal_view_count || 0) > 0,
       hint: "Waiting on the customer to open their proposal. A call now beats a text later." },
+    { key: "heard", label: "Heard back", icon: Phone, accent: ACCENT.emerald, target: "est-send",
+      done: heardBack,
+      hint: (lead.proposal_view_count || 0) > 0
+        ? "They opened it and went quiet. Call them now — this is the moment."
+        : "No text or real conversation since the estimate went out. Call, then log how it went." },
     { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-visits",
       done: !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid",
       hint: "Collect the deposit and put the visits on the calendar." },
