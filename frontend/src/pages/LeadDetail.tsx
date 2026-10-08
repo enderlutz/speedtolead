@@ -10,7 +10,7 @@ import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
-import { TIER_KEYS, tiersFromBreakdown } from "@/lib/breakdown";
+import { TIER_KEYS, tiersFromBreakdown, setTierPrice, type TierKey } from "@/lib/breakdown";
 import { ghlContactUrl } from "@/lib/ghlLink";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -3300,6 +3300,36 @@ function BreakdownEditor({
         </div>
       </div>
 
+      {/* The prices the customer sees. Type one and the editor works
+          backwards to the line and its per-sqft rate, so the surcharge is
+          never added on top of a price that already includes it. */}
+      {preview ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-primary">Set the price the customer sees</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {TIER_KEYS.map((t) => (
+              <label key={t} className="space-y-0.5">
+                <span className="block text-[10px] font-semibold capitalize text-muted-foreground">{t}</span>
+                <Input
+                  key={`${t}-${preview[t]}`}
+                  type="number" step="0.01" inputMode="decimal"
+                  defaultValue={preview[t].toFixed(2)}
+                  className="h-8 text-sm font-semibold tabular-nums"
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  onBlur={(e) => {
+                    const target = parseFloat(e.target.value);
+                    if (!Number.isFinite(target) || Math.abs(target - preview[t]) < 0.005) return;
+                    const r = setTierPrice(editItems, t as TierKey, target);
+                    if ("error" in r) { toast.error(r.error); e.target.value = preview[t].toFixed(2); return; }
+                    setEditItems(r.items);
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         {editItems.map((item, i) => (
           <div key={i} className="rounded-md border bg-muted/20 p-2 space-y-1.5">
@@ -3370,7 +3400,7 @@ function BreakdownEditor({
 
       {/* Total + Save */}
       <p className="text-[10px] leading-snug text-muted-foreground">
-        Edit a tier's own line to change that price. Every other line is a surcharge and goes on all three.
+        A package's price is its own line plus every surcharge. Set the price above and the line and rate follow.
       </p>
       <div className="flex items-center justify-between gap-2 pt-1.5 border-t">
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">

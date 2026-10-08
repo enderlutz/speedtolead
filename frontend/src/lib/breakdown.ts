@@ -45,3 +45,47 @@ export function tiersFromBreakdown(items: BreakdownItem[], oldTiers: Tiers, oldI
   }
   return out;
 }
+
+
+/** "Signature: $0.88/sqft x 894 sqft" → 894. */
+export function sqftFromLine(line: Pick<BreakdownItem, "label" | "qty">): number | null {
+  if (line.qty != null && line.qty > 0) return line.qty;
+  const m = /x\s*([\d,]+(?:\.\d+)?)\s*sq\s*ft/i.exec(line.label || "");
+  return m ? Number(m[1].replace(/,/g, "")) : null;
+}
+
+/** $0.88 stays "0.88"; $0.719183 becomes "0.7192" — enough decimals that
+ *  rate x sqft visibly lands on the price. */
+export function formatRate(rate: number): string {
+  const four = rate.toFixed(4);
+  return four.endsWith("00") ? rate.toFixed(2) : four.replace(/0+$/, "");
+}
+
+/**
+ * Set a package's FINAL price — what the customer sees — and work backwards.
+ *
+ * A tier's price is its own line plus every surcharge, so typing the target
+ * into the line itself put the surcharge on top a second time (Ehis
+ * Osazuwa: line set to 866.45 + 223.50 surcharge = 1,089.95). This takes the
+ * target, subtracts the surcharges to get the line, derives the per-sqft
+ * rate that produces it, and rewrites the label so the arithmetic on the
+ * page is true. Returns the new lines, or an error to show.
+ */
+export function setTierPrice(items: BreakdownItem[], tier: TierKey, target: number):
+  { items: BreakdownItem[] } | { error: string } {
+  const idx = items.findIndex((it) => tierOfLine(it) === tier);
+  if (idx < 0) return { error: `There's no ${tier} line to change.` };
+  const extras = items.reduce((s, it, i) => s + (i !== idx && tierOfLine(it) === null ? Number(it.value) || 0 : 0), 0);
+  const base = Math.round((target - extras) * 100) / 100;
+  if (!(base > 0)) {
+    return { error: `That's less than the surcharges alone ($${extras.toFixed(2)}). Lower or remove a surcharge first.` };
+  }
+  const line = items[idx];
+  const sqft = sqftFromLine(line);
+  const name = tier.charAt(0).toUpperCase() + tier.slice(1);
+  const next: BreakdownItem = sqft
+    ? { ...line, tier, value: base, rate: base / sqft, qty: sqft,
+        label: `${name}: $${formatRate(base / sqft)}/sqft x ${Math.round(sqft)} sqft` }
+    : { ...line, tier, value: base };
+  return { items: items.map((it, i) => (i === idx ? next : it)) };
+}
