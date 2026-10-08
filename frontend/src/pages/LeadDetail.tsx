@@ -5,7 +5,10 @@ import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, 
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
-import { formatCurrency, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
+import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
+import { fireConfetti } from "@/lib/confetti";
+import { Panel, Field, StatTile, ToggleChip, Pill, ProgressPill } from "@/components/Panel";
 import { ghlContactUrl } from "@/lib/ghlLink";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -19,8 +22,9 @@ import EstimatorLeadPanel from "@/components/EstimatorLeadPanel";
 import LeadActivityHistory from "@/components/LeadActivityHistory";
 import DailyTaskList from "@/components/DailyTaskList";
 import {
-  ArrowLeft, MapPin, Phone, Mail, User, Calculator, RefreshCw,
+  ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
+  Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, Home, CreditCard, Check, Receipt,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -103,13 +107,31 @@ const FENCE_SIDES = {
   Outside: ["Outside Front", "Outside Left", "Outside Back", "Outside Right"],
 };
 
+// Three states, three colours, carried through the whole page: green is
+// always "go", amber is always "waiting on something", red is always "stop".
 const APPROVAL_CONFIG = {
-  green: { label: "Ready to Send", cls: "bg-green-50 border-green-300 text-green-800", dot: "bg-green-500" },
-  yellow: { label: "Add-ons Pending", cls: "bg-yellow-50 border-yellow-300 text-yellow-800", dot: "bg-yellow-500" },
-  red: { label: "Owner Review Required", cls: "bg-red-50 border-red-300 text-red-800", dot: "bg-red-500" },
+  green:  { label: "Ready to send",         icon: CheckCircle2, cls: "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-900", chip: "from-emerald-500 to-teal-600" },
+  yellow: { label: "Add-ons pending",       icon: Hourglass,    cls: "border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900",     chip: "from-amber-500 to-orange-600" },
+  red:    { label: "Owner review required", icon: Shield,       cls: "border-red-300 bg-gradient-to-r from-red-50 to-rose-50 text-red-900",             chip: "from-red-500 to-rose-600" },
 } as const;
 
-const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
+const selectCls = "h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+
+/** The gradient behind each confidence choice: sure is green, unsure is red,
+ *  so the VA's own doubt is visible from across the room. */
+const CONFIDENCE_TONE: Record<string, string> = {
+  "100": "from-emerald-500 to-teal-600",
+  "80":  "from-amber-500 to-orange-600",
+  "60":  "from-rose-500 to-pink-600",
+};
+
+/** Bronze, brand blue, gold. Signature is the one we recommend, so it is the
+ *  only one painted solid. */
+const TIER_LOOK = {
+  essential: { label: "Essential", tag: "Good",        icon: Medal, accent: ACCENT.slate },
+  signature: { label: "Signature", tag: "Recommended", icon: Star,  accent: ACCENT.blue },
+  legacy:    { label: "Legacy",    tag: "Best finish", icon: Crown, accent: ACCENT.gold },
+} as const;
 
 const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 
@@ -142,6 +164,271 @@ function leadSourceOptionsFor(current: string) {
     { value: current as LeadSource, label: `${current} (how we found them)` },
     ...LEAD_SOURCE_OPTIONS,
   ];
+}
+
+
+function ApprovalBanner({
+  cfg, reason, className,
+}: {
+  cfg: (typeof APPROVAL_CONFIG)[keyof typeof APPROVAL_CONFIG];
+  reason?: string;
+  className?: string;
+}) {
+  const Icon = cfg.icon;
+  return (
+    <div className={cn("flex items-start gap-3 rounded-2xl border p-3", cfg.cls, className)}>
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${cfg.chip} shadow-sm`}>
+        <Icon className="h-4 w-4 text-white" />
+      </div>
+      <div className="min-w-0">
+        <p className="font-heading text-sm font-bold leading-tight">{cfg.label}</p>
+        {reason ? <p className="mt-0.5 text-xs opacity-90">{reason}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+type JourneyStep = {
+  key: string;
+  label: string;
+  icon: React.ElementType;
+  accent: Accent;
+  done: boolean;
+  /** Element id to scroll to when the chip is tapped. */
+  target: string;
+  /** One line on what to do, shown for the current step. */
+  hint: string;
+};
+
+/** The six stages of a lead, from "we have an address" to "it's on the
+ *  calendar". Each chip scrolls to the card where that stage happens. The
+ *  bar fills left to right and the current stage pulses, so the answer to
+ *  "what do I do next on this one?" is there before a single card is read. */
+function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
+  const done = steps.filter((s) => s.done).length;
+  const current = steps.find((s) => !s.done);
+  const jump = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return (
+    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4 text-white shadow-lg ring-1 ring-white/10">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-indigo-500/30 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-fuchsia-500/20 blur-3xl" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Estimate journey</p>
+          <p className="font-heading text-lg font-bold leading-tight">
+            {current ? `Next up: ${current.label}` : "Booked — every step done"}
+          </p>
+          <p className="mt-0.5 text-xs text-white/70">
+            {current ? current.hint : "Nice work. Everything from here lives on the calendar and Company Cam."}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-heading text-2xl font-bold tabular-nums leading-none">
+            {done}<span className="text-white/40">/{steps.length}</span>
+          </p>
+          <p className="mt-1 text-[10px] uppercase tracking-wider text-white/60">steps</p>
+        </div>
+      </div>
+
+      <div className="relative mt-3 flex gap-1">
+        {steps.map((s) => (
+          <div
+            key={s.key}
+            className={cn(
+              "h-1.5 flex-1 rounded-full transition-all duration-500",
+              s.done ? `bg-gradient-to-r ${s.accent.grad}` : s === current ? "animate-pulse bg-white/40" : "bg-white/15",
+            )}
+          />
+        ))}
+      </div>
+
+      <div className="relative mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        {steps.map((s) => {
+          const isCurrent = s === current;
+          const Icon = s.icon;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => jump(s.target)}
+              title={s.hint}
+              className={cn(
+                "flex flex-col items-center gap-1 rounded-xl px-1.5 py-2 text-center transition active:scale-95",
+                s.done ? "bg-white/10 hover:bg-white/15"
+                  : isCurrent ? "bg-white/15 ring-2 ring-white/60 hover:bg-white/20"
+                  : "bg-white/5 opacity-70 hover:bg-white/10 hover:opacity-100",
+              )}
+            >
+              <span className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg",
+                s.done ? `bg-gradient-to-br ${s.accent.grad} shadow-md shadow-black/20` : "bg-white/10",
+              )}>
+                {s.done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+              </span>
+              <span className="text-[11px] font-semibold leading-tight">{s.label}</span>
+              <span className="text-[9px] leading-tight text-white/60">
+                {s.done ? "Done" : isCurrent ? "You are here" : "Later"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** One fact about the customer, with the icon doing the labelling. */
+function ContactFact({
+  icon: Icon, accent, label, right, children,
+}: {
+  icon: React.ElementType;
+  accent: Accent;
+  label: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border bg-muted/20 px-2.5 py-2">
+      <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accent.grad} shadow-sm`}>
+        <Icon className="h-3.5 w-3.5 text-white" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <div className="truncate text-sm font-medium">{children}</div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+/** Pick the fence sides on a little top-down map of the house instead of
+ *  eight checkboxes. Inside is violet, outside is sky, everywhere on the
+ *  page. The value is the same list of "Inside Front"-style names the
+ *  estimator has always saved. */
+function SidesPicker({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  const groups: Array<{ group: keyof typeof FENCE_SIDES; accent: Accent }> = [
+    { group: "Inside", accent: ACCENT.violet },
+    { group: "Outside", accent: ACCENT.cyan },
+  ];
+  const toggle = (name: string) =>
+    onChange(value.includes(name) ? value.filter((s) => s !== name) : [...value, name]);
+  const setGroup = (names: string[], on: boolean) => {
+    const rest = value.filter((s) => !names.includes(s));
+    onChange(on ? [...rest, ...names] : rest);
+  };
+  return (
+    <Field label="Fence sides" hint="Tap the sides that get stained. Front faces the street.">
+      <div className="grid grid-cols-2 gap-3">
+        {groups.map((g) => {
+          const names = FENCE_SIDES[g.group];
+          const n = names.filter((s) => value.includes(s)).length;
+          const cell = (side: string) => {
+            const name = `${g.group} ${side}`;
+            const on = value.includes(name);
+            return (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={on}
+                title={name}
+                onClick={() => toggle(name)}
+                className={cn(
+                  "flex aspect-square items-center justify-center rounded-lg border text-[11px] font-semibold transition active:scale-95",
+                  on
+                    ? `border-transparent bg-gradient-to-br ${g.accent.grad} text-white shadow-sm`
+                    : "border-dashed border-input bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+                )}
+              >
+                {side}
+              </button>
+            );
+          };
+          return (
+            <div key={g.group} className="rounded-xl border bg-muted/20 p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-1">
+                <span className={cn("text-[11px] font-bold uppercase tracking-wide", g.accent.text)}>{g.group}</span>
+                <div className="flex items-center gap-1.5">
+                  <ProgressPill done={n} total={names.length} />
+                  <button
+                    type="button"
+                    onClick={() => setGroup(names, n < names.length)}
+                    className="text-[10px] font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  >
+                    {n < names.length ? "All" : "None"}
+                  </button>
+                </div>
+              </div>
+              <div className="mx-auto grid max-w-[170px] grid-cols-3 gap-1">
+                <span />
+                {cell("Back")}
+                <span />
+                {cell("Left")}
+                <div className="flex aspect-square items-center justify-center rounded-lg bg-background ring-1 ring-foreground/10">
+                  <Home className="h-5 w-5 text-muted-foreground" />
+                </div>
+                {cell("Right")}
+                <span />
+                {cell("Front")}
+                <span />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
+/** One package price. Signature is the one we lead with, so it is the only
+ *  one painted solid; the other two sit either side of it like bronze and
+ *  gold. */
+function TierCard({ tier, price }: { tier: keyof typeof TIER_LOOK; price: number }) {
+  const look = TIER_LOOK[tier];
+  const Icon = look.icon;
+  const monthly = Math.round(price / 21);
+  const hero = tier === "signature";
+  return (
+    <div className={cn(
+      "relative flex items-center gap-3 overflow-hidden rounded-xl p-3",
+      hero ? "bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md shadow-indigo-500/20" : "border bg-card",
+    )}>
+      {hero ? <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-white/10 blur-2xl" /> : null}
+      <div className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm",
+        hero ? "bg-white/20 ring-1 ring-white/40" : `bg-gradient-to-br ${look.accent.grad}`,
+      )}>
+        <Icon className="h-4 w-4 text-white" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-heading text-sm font-semibold">{look.label}</span>
+          <span className={cn(
+            "rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+            hero ? "bg-white/20 text-white" : look.accent.soft,
+          )}>
+            {look.tag}
+          </span>
+        </div>
+        <p className={cn("text-[10px]", hero ? "text-white/75" : "text-muted-foreground")}>~${monthly}/mo</p>
+      </div>
+      <p className={cn("font-heading font-bold tabular-nums", hero ? "text-2xl" : "text-lg")}>{formatCurrency(price)}</p>
+    </div>
+  );
+}
+
+/** A small labelled fact for the meta card. */
+function Fact({ icon: Icon, label, children }: { icon: React.ElementType; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-2.5 py-2">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="truncate text-xs font-medium">{children}</p>
+      </div>
+    </div>
+  );
 }
 
 export default function LeadDetail() {
@@ -492,6 +779,7 @@ export default function LeadDetail() {
       const tagNote = applyTag ? "" : " (no GHL tag)";
       if (smsScheduled) {
         playSuccessSound();
+        fireConfetti();
         const sendTime = new Date(scheduledSendAt!).toLocaleString("en-US", {
           timeZone: "America/Chicago", month: "short", day: "numeric",
           hour: "numeric", minute: "2-digit", hour12: true,
@@ -499,6 +787,7 @@ export default function LeadDetail() {
         toast.success(`SMS scheduled for ${sendTime}${tagNote}! Proposal: ${url}`, { duration: 8000 });
       } else if (smsSent) {
         playSuccessSound();
+        fireConfetti();
         toast.success(`SMS sent to customer${tagNote}! Proposal: ${url}`, { duration: 8000 });
       } else if (url) {
         playWarningSound();
@@ -670,6 +959,29 @@ export default function LeadDetail() {
     ? `https://www.google.com/maps/@?api=1&map_action=map&basemap=satellite&center=${encodeURIComponent(mapQuery)}&zoom=20`
     : null;
 
+  // The six stages the strip at the top of the Estimate tab shows. Each one
+  // is read straight off data already on the page — nothing is stored.
+  const journey: JourneyStep[] = [
+    { key: "address", label: "Address", icon: MapPin, accent: ACCENT.blue, target: "est-contact",
+      done: !!lead.address,
+      hint: "Get a street address on file so the map and the pricing zone can resolve." },
+    { key: "measured", label: "Measured", icon: Ruler, accent: ACCENT.violet, target: "est-measure",
+      done: Number(linearFeet) > 0 || !!lead.measurement_uploaded,
+      hint: "Trace the fence on the satellite and capture it — Linear Feet fills itself." },
+    { key: "priced", label: "Priced", icon: Calculator, accent: ACCENT.fuchsia, target: "est-inputs",
+      done: (estimate?.tiers?.signature || 0) > 0,
+      hint: "Fill in the inputs and hit Save & Recalculate to get the three prices." },
+    { key: "sent", label: "Sent", icon: Send, accent: ACCENT.cyan, target: "est-send",
+      done: sortedEstimates.some((e) => e.status === "sent"),
+      hint: "Send the proposal — text and email. The follow-ups start on their own." },
+    { key: "viewed", label: "Viewed", icon: Eye, accent: ACCENT.amber, target: "est-send",
+      done: (lead.proposal_view_count || 0) > 0,
+      hint: "Waiting on the customer to open their proposal. A call now beats a text later." },
+    { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-visits",
+      done: !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid",
+      hint: "Collect the deposit and put the visits on the calendar." },
+  ];
+
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-5xl">
       {/* Sticky call script panel — auto-fills from this lead. Persistent
@@ -694,8 +1006,13 @@ export default function LeadDetail() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
+        {/* Every customer gets their own colour, hashed from the name, so the
+            page is recognisable at a glance when flipping between leads. */}
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${accentForName(lead.contact_name || "").grad} font-heading text-sm font-bold text-white shadow-md shadow-black/10`}>
+          {initials(lead.contact_name || "")}
+        </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg sm:text-2xl font-semibold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
+          <h1 className="font-heading text-lg sm:text-2xl font-bold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <Badge variant="outline" className="text-xs">{lead.location_label}</Badge>
             <Badge variant="outline" className="text-xs capitalize">{lead.status}</Badge>
@@ -906,9 +1223,9 @@ export default function LeadDetail() {
         }}
       >
         <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="estimate">Estimate</TabsTrigger>
-          <TabsTrigger value="scope">Fence Scope</TabsTrigger>
-          <TabsTrigger value="companycam">Company Cam</TabsTrigger>
+          <TabsTrigger value="estimate"><Calculator className="hidden sm:block" /> Estimate</TabsTrigger>
+          <TabsTrigger value="scope"><Ruler className="hidden sm:block" /> Fence Scope</TabsTrigger>
+          <TabsTrigger value="companycam"><Camera className="hidden sm:block" /> Company Cam</TabsTrigger>
           {/* Call / Exterior / Upsell tabs hidden 2026-07-14 to trim visual fat.
               Their tab panels + logic are untouched; uncomment to restore. */}
           {/*
@@ -930,34 +1247,35 @@ export default function LeadDetail() {
           </TabsTrigger>
           <TabsTrigger value="upsell">Upsell</TabsTrigger>
           */}
-          <TabsTrigger value="estimator">Estimator</TabsTrigger>
-          <TabsTrigger value="history">Activity History</TabsTrigger>
+          <TabsTrigger value="estimator"><WandSparkles className="hidden sm:block" /> Estimator</TabsTrigger>
+          <TabsTrigger value="history"><History className="hidden sm:block" /> Activity History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="estimate" className="space-y-4 sm:space-y-6 mt-4">
+          {/* Six stages from "we have an address" to "it's on the calendar",
+              each tappable, each the same colour it is everywhere else on
+              the page. Answers "what do I do next on this lead?" before a
+              single card is read. */}
+          <JourneyStrip steps={journey} />
+
           {/* Mobile: approval status */}
           {approvalCfg && (
-            <div className={`rounded-lg border p-3 sm:p-4 lg:hidden ${approvalCfg.cls}`}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`h-2.5 w-2.5 rounded-full ${approvalCfg.dot}`} />
-                <span className="text-sm font-semibold">{approvalCfg.label}</span>
-              </div>
-              <p className="text-xs">{estimate?.approval_reason}</p>
-            </div>
+            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="lg:hidden" />
           )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Left column */}
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           {/* Contact info */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                  <User className="h-4 w-4" /> Contact Information
-                </CardTitle>
-                {!editingContact ? (
-                  <div className="flex gap-1.5 flex-wrap">
+          <Panel
+            id="est-contact"
+            className="scroll-mt-4"
+            icon={UserRound}
+            title="Contact"
+            sub={lead.area || (lead.zip_code ? `ZIP ${lead.zip_code}` : "Who we're quoting")}
+            accent={ACCENT.blue}
+            right={!editingContact ? (
+                  <div className="flex gap-1.5 flex-wrap justify-end">
                     <Button variant="outline" size="sm" onClick={async () => {
                       setAskingAddress(true);
                       try {
@@ -1000,83 +1318,78 @@ export default function LeadDetail() {
                     </Button>
                   </div>
                 )}
-              </div>
-            </CardHeader>
-            <CardContent>
+          >
               {editingContact ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Name</label>
+                  <Field label="Name">
                     <Input value={contactName} onChange={(e) => setContactName(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone</label>
+                  </Field>
+                  <Field label="Phone">
                     <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
+                  </Field>
+                  <Field label="Email">
                     <Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Address</label>
+                  </Field>
+                  <Field label="Address">
                     <Input value={contactAddress} onChange={(e) => setContactAddress(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Lead source</label>
+                  </Field>
+                  <Field label="Lead source">
                     <select
                       value={leadSource}
                       onChange={(e) => setLeadSource(e.target.value)}
-                      className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
+                      className={selectCls}
                     >
                       {leadSourceOptionsFor(leadSource).map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
-                  </div>
+                  </Field>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="truncate">{lead.contact_name || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <a href={`tel:${lead.contact_phone}`} className="text-primary hover:underline">{lead.contact_phone || "—"}</a>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="truncate">{lead.contact_email || "—"}</span>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="truncate">{lead.address || "—"}</span>
-                      {mapsUrl && (
-                        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
-                          <ExternalLink className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <ContactFact icon={UserRound} accent={ACCENT.blue} label="Name">
+                      {lead.contact_name || "—"}
+                    </ContactFact>
+                    <ContactFact icon={Phone} accent={ACCENT.emerald} label="Phone">
+                      {lead.contact_phone
+                        ? <a href={`tel:${lead.contact_phone}`} className="text-primary hover:underline">{lead.contact_phone}</a>
+                        : "—"}
+                    </ContactFact>
+                    <ContactFact icon={Mail} accent={ACCENT.violet} label="Email">
+                      {lead.contact_email || "—"}
+                    </ContactFact>
+                    <ContactFact
+                      icon={MapPin}
+                      accent={ACCENT.amber}
+                      label="Address"
+                      right={mapsUrl ? (
+                        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 self-center" title="Open in Google Maps">
+                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-primary" />
                         </a>
+                      ) : undefined}
+                    >
+                      {lead.address || "—"}
+                      {lead.area && (
+                        <span className="block truncate text-[11px] font-normal text-muted-foreground">{lead.area}</span>
                       )}
-                    </div>
-                    {lead.area && (
-                      <span className="text-xs text-muted-foreground pl-6">{lead.area}</span>
-                    )}
+                    </ContactFact>
                   </div>
                   {/* Inline source picker — fires save on change so admin doesn't have to enter Edit mode for this one field */}
-                  <div className="flex items-center gap-2 col-span-1 sm:col-span-2 pt-1 border-t mt-1">
-                    <span className="text-xs font-medium text-muted-foreground">Source:</span>
+                  <div className="flex items-center gap-2 pt-2 border-t">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Source</span>
                     <select
                       value={leadSource}
                       onChange={(e) => handleSaveLeadSource(e.target.value as LeadSource)}
-                      className="text-xs border border-input rounded-md px-2 py-1 bg-background"
+                      className="h-8 rounded-lg border border-input bg-background px-2 text-xs"
                     >
                       {leadSourceOptionsFor(leadSource).map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
-                    <span className="text-[10px] text-muted-foreground italic ml-auto">Default = Ad. Update if this came from a different channel.</span>
+                    <span className="text-[10px] text-muted-foreground italic ml-auto hidden sm:inline">Default = Ad. Update if this came from a different channel.</span>
                   </div>
-                </div>
+                </>
               )}
 
               {/* Payment Links (Phase 2, 2026-06-08). Unified controls for the
@@ -1084,9 +1397,9 @@ export default function LeadDetail() {
                   DepositCard above the tabs and the Generate-Invoice button
                   strip that used to live here. Deposit always shows; Full
                   Invoice prompts admin to schedule first if no job exists. */}
-              <div className="mt-3 pt-3 border-t space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Payment Links
+              <div className="pt-3 border-t space-y-2">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                  <CircleDollarSign className="h-3.5 w-3.5 text-emerald-600" /> Payment links
                 </p>
                 <DepositRow
                   lead={lead}
@@ -1097,19 +1410,12 @@ export default function LeadDetail() {
                   onGenerate={() => setInvoiceModalOpen(true)}
                 />
               </div>
-            </CardContent>
-          </Card>
+          </Panel>
 
           {/* Google Maps Satellite View */}
           {lead.address && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                  <MapPin className="h-4 w-4" /> Satellite View
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md overflow-hidden border" style={{ minHeight: 250 }}>
+            <Panel icon={Satellite} title="Satellite view" sub={mapQuery} accent={ACCENT.cyan} bodyClassName="space-y-2 p-2">
+                <div className="rounded-xl overflow-hidden border" style={{ minHeight: 250 }}>
                   <iframe
                     title="Satellite view"
                     width="100%"
@@ -1125,12 +1431,11 @@ export default function LeadDetail() {
                   href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}&basemap=satellite`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-md border text-sm py-2 hover:bg-muted transition-colors sm:hidden"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border text-sm py-2 hover:bg-muted transition-colors sm:hidden"
                 >
                   <ExternalLink className="h-3.5 w-3.5" /> Open in Google Maps
                 </a>
-              </CardContent>
-            </Card>
+            </Panel>
           )}
 
           {/* "Before you call" pre-call brief — hidden 2026-09-29, Alan's call:
@@ -1147,17 +1452,19 @@ export default function LeadDetail() {
               upload card below stays for the cases this can't serve — new
               construction Google Earth hasn't photographed yet, or a
               surveyor's PDF. */}
-          <SatelliteMeasureCard
-            leadId={lead.id}
-            lat={lead.lat || 0}
-            lng={lead.lng || 0}
-            address={lead.address || ""}
-            zipCode={zipCode || lead.zip_code || ""}
-            onLinearFeet={(feet) => setLinearFeet(String(feet))}
-            onChange={() => {
-              api.getLead(lead.id).then(setLead).catch(() => {});
-            }}
-          />
+          <div id="est-measure" className="scroll-mt-4">
+            <SatelliteMeasureCard
+              leadId={lead.id}
+              lat={lead.lat || 0}
+              lng={lead.lng || 0}
+              address={lead.address || ""}
+              zipCode={zipCode || lead.zip_code || ""}
+              onLinearFeet={(feet) => setLinearFeet(String(feet))}
+              onChange={() => {
+                api.getLead(lead.id).then(setLead).catch(() => {});
+              }}
+            />
+          </div>
 
           {/* Measurement screenshot — VA's Google Maps screenshot. Sits between
               the satellite view and the estimator because it's the artifact
@@ -1175,103 +1482,109 @@ export default function LeadDetail() {
           />
 
           {/* Estimate input form */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                <Calculator className="h-4 w-4" /> Estimator Input
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Linear Feet</label>
-                  <Input type="number" placeholder="e.g. 150" value={linearFeet} onChange={(e) => setLinearFeet(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">ZIP Code</label>
-                  <Input type="text" placeholder="e.g. 77429" maxLength={5} value={zipCode} onChange={(e) => setZipCode(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Fence Height</label>
+          <Panel
+            id="est-inputs"
+            className="scroll-mt-4"
+            icon={Calculator}
+            title="Estimator input"
+            sub="What the three prices are built from"
+            accent={ACCENT.fuchsia}
+            bodyClassName="space-y-4 p-3.5"
+          >
+              {/* The two numbers that matter most get the biggest boxes. */}
+              <div className="grid grid-cols-2 gap-3">
+                <StatTile icon={Ruler} label="Linear feet" accent={ACCENT.violet}>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 150"
+                    value={linearFeet}
+                    onChange={(e) => setLinearFeet(e.target.value)}
+                    className="h-11 text-xl font-bold tabular-nums"
+                  />
+                </StatTile>
+                <StatTile icon={MapPin} label="ZIP code" accent={ACCENT.amber}>
+                  <Input
+                    type="text"
+                    placeholder="e.g. 77429"
+                    maxLength={5}
+                    value={zipCode}
+                    onChange={(e) => setZipCode(e.target.value)}
+                    className="h-11 text-xl font-bold tabular-nums"
+                  />
+                </StatTile>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Fence height">
                   <select className={selectCls} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
                     {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Fence Age</label>
+                </Field>
+                <Field label="Fence age">
                   <select className={selectCls} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>
                     {FENCE_AGE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Previously Stained</label>
+                </Field>
+                <Field label="Previously stained">
                   <select className={selectCls} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
                     {PREVIOUSLY_STAINED_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Timeline</label>
+                </Field>
+                <Field label="Timeline">
                   <select className={selectCls} value={timeline} onChange={(e) => setTimeline(e.target.value)}>
                     <option value="">Select...</option>
                     {timelineOptionsFor(timeline).map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Confidence</label>
-                  <select className={selectCls} value={confidencePct} onChange={(e) => setConfidencePct(e.target.value)}>
-                    {CONFIDENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </div>
+                </Field>
               </div>
+
+              {/* Confidence as three buttons, green to red, instead of a
+                  dropdown: the VA's own doubt should be visible at a glance. */}
+              <Field label="Confidence in the measurement">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {CONFIDENCE_OPTIONS.map((o) => {
+                    const on = confidencePct === o.value;
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setConfidencePct(o.value)}
+                        className={cn(
+                          "h-10 rounded-xl border px-2 text-xs font-semibold transition active:scale-95",
+                          on
+                            ? `border-transparent bg-gradient-to-br ${CONFIDENCE_TONE[o.value]} text-white shadow-sm`
+                            : "border-input bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                        )}
+                      >
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
 
               {/* Confidence Note — shown when not confident */}
               {confidencePct === "60" && (
-                <div>
-                  <label className="text-xs font-medium text-red-600 mb-1 block">Why are you not confident?</label>
+                <Field label={<span className="text-rose-600">Why are you not confident?</span>}>
                   <textarea
-                    className="w-full border border-red-200 rounded-md px-3 py-2 text-sm bg-red-50/30 focus:outline-none focus:ring-2 focus:ring-red-300 min-h-[60px]"
+                    className="w-full border border-rose-200 rounded-xl px-3 py-2 text-sm bg-rose-50/30 focus:outline-none focus:ring-2 focus:ring-rose-300 min-h-[60px]"
                     placeholder="Explain why you're not confident in this measurement..."
                     value={confidenceNote}
                     onChange={(e) => setConfidenceNote(e.target.value)}
                   />
-                </div>
+                </Field>
               )}
 
               {/* Fence Sides */}
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-2 block">Fence Sides</label>
-                <div className="grid grid-cols-2 gap-4">
-                  {Object.entries(FENCE_SIDES).map(([group, sides]) => (
-                    <div key={group}>
-                      <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">{group}</p>
-                      <div className="space-y-1.5">
-                        {sides.map((side) => (
-                          <label key={side} className="flex items-center gap-2 text-sm cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={fenceSides.includes(side)}
-                              onChange={(e) => {
-                                if (e.target.checked) setFenceSides((prev) => [...prev, side]);
-                                else setFenceSides((prev) => prev.filter((s) => s !== side));
-                              }}
-                              className="rounded border-input"
-                            />
-                            {side.replace("Inside ", "").replace("Outside ", "")}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <SidesPicker value={fenceSides} onChange={setFenceSides} />
 
               {/* Additional Services + Add-on Handled + Military Discount */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Additional Services</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Additional services">
                   <Input placeholder="e.g. gate painting, pressure washing" value={additionalServices} onChange={(e) => setAdditionalServices(e.target.value)} />
                   {additionalServices && additionalServices.toLowerCase() !== "none" && (
-                    <label className="flex items-center gap-2 text-xs mt-1.5 cursor-pointer text-green-700">
+                    <label className="flex items-center gap-2 text-xs mt-1.5 cursor-pointer text-emerald-700">
                       <input
                         type="checkbox"
                         checked={Boolean(lead?.form_data?.addons_handled)}
@@ -1289,58 +1602,62 @@ export default function LeadDetail() {
                       Add-on sent / handled
                     </label>
                   )}
-                </div>
-                <div className="flex flex-col gap-2 pb-1 justify-end">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={includeFinancing}
-                      onChange={(e) => setIncludeFinancing(e.target.checked)}
-                      className="rounded border-input"
-                    />
-                    Include Financing
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={militaryDiscount}
-                      onChange={(e) => setMilitaryDiscount(e.target.checked)}
-                      className="rounded border-input"
-                    />
-                    Military Discount
-                  </label>
-                </div>
+                </Field>
+                <Field label="Options">
+                  <div className="flex flex-wrap gap-1.5">
+                    <ToggleChip
+                      on={includeFinancing}
+                      onClick={() => setIncludeFinancing((v) => !v)}
+                      icon={CreditCard}
+                      accent={ACCENT.blue}
+                      title="Show the monthly financing figure on the proposal"
+                    >
+                      Financing
+                    </ToggleChip>
+                    <ToggleChip
+                      on={militaryDiscount}
+                      onClick={() => setMilitaryDiscount((v) => !v)}
+                      icon={Shield}
+                      accent={ACCENT.emerald}
+                      title="Apply the military discount"
+                    >
+                      Military discount
+                    </ToggleChip>
+                  </div>
+                </Field>
               </div>
 
               {/* Additional Notes — collapsible so long GHL notes don't dominate */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-muted-foreground">Additional Notes</label>
-                  {additionalNotes && (
-                    <button
-                      type="button"
-                      onClick={() => setNotesExpanded((v) => !v)}
-                      className="text-[11px] text-muted-foreground hover:text-foreground underline"
-                    >
-                      {notesExpanded ? "Collapse" : "Expand"}
-                    </button>
-                  )}
-                </div>
+              <Field
+                label="Additional notes"
+                right={additionalNotes ? (
+                  <button
+                    type="button"
+                    onClick={() => setNotesExpanded((v) => !v)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                  >
+                    {notesExpanded ? "Collapse" : "Expand"}
+                  </button>
+                ) : undefined}
+              >
                 <textarea
-                  className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                  className="w-full border border-input rounded-xl px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y"
                   rows={notesExpanded ? 12 : 3}
                   placeholder="Anything else the customer mentioned (special requests, gate access, pets, etc.)"
                   value={additionalNotes}
                   onChange={(e) => setAdditionalNotes(e.target.value)}
                 />
-              </div>
+              </Field>
 
-              <Button onClick={handleSaveRecalculate} disabled={saving} className="w-full">
+              <Button
+                onClick={handleSaveRecalculate}
+                disabled={saving}
+                className="h-11 w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 text-sm font-semibold text-white shadow-md shadow-fuchsia-500/20 hover:from-fuchsia-700 hover:to-violet-700"
+              >
                 <RefreshCw className={`h-4 w-4 mr-2 ${saving ? "animate-spin" : ""}`} />
                 {saving ? "Recalculating..." : "Save & Recalculate"}
               </Button>
-            </CardContent>
-          </Card>
+          </Panel>
 
           {/* (Follow-up automation, Messages, Chatbot, Call Recordings all
               relocated to the Call tab below.) */}
@@ -1350,23 +1667,17 @@ export default function LeadDetail() {
         <div className="space-y-4 sm:space-y-6">
           {/* Approval status — desktop */}
           {approvalCfg && (
-            <div className={`hidden lg:block rounded-lg border p-4 ${approvalCfg.cls}`}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`h-2.5 w-2.5 rounded-full ${approvalCfg.dot}`} />
-                <span className="text-sm font-semibold">{approvalCfg.label}</span>
-              </div>
-              <p className="text-xs">{estimate?.approval_reason}</p>
-            </div>
+            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="hidden lg:flex" />
           )}
 
           {/* Estimate switcher — only renders when there are multiple estimates
               on this lead. Lets the VA edit/view different estimates for the
               same customer (e.g. quotes for different houses). */}
           {sortedEstimates.length > 1 && (
-            <Card>
-              <CardContent className="pt-4 pb-3">
+            <Card className="gap-0 py-0">
+              <div className="p-3.5">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="text-xs font-semibold text-muted-foreground">Estimates on this lead</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estimates on this lead</p>
                   <Button
                     size="sm"
                     variant="outline"
@@ -1387,9 +1698,9 @@ export default function LeadDetail() {
                       <button
                         key={e.id}
                         onClick={() => setSelectedEstimateId(e.id)}
-                        className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors ${
+                        className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
                           isSel
-                            ? "bg-primary text-primary-foreground border-primary"
+                            ? "bg-gradient-to-br from-blue-600 to-indigo-700 text-white border-transparent shadow-sm"
                             : "border-border hover:bg-muted/50"
                         }`}
                         title={e.label || `Estimate #${num}`}
@@ -1397,7 +1708,7 @@ export default function LeadDetail() {
                         <span className="font-semibold">#{num}</span>
                         {e.label && <span className="ml-1">· {e.label.length > 18 ? e.label.slice(0, 18) + "…" : e.label}</span>}
                         {!e.label && sigPrice > 0 && (
-                          <span className="ml-1 opacity-80">· {formatCurrency(sigPrice)}</span>
+                          <span className="ml-1 opacity-80 tabular-nums">· {formatCurrency(sigPrice)}</span>
                         )}
                         <span className={`ml-1 text-[9px] uppercase tracking-wide ${
                           isSel ? "opacity-90" : e.status === "sent" ? "text-emerald-600" : e.status === "pending" ? "text-amber-600" : "text-muted-foreground"
@@ -1408,7 +1719,7 @@ export default function LeadDetail() {
                     );
                   })}
                 </div>
-              </CardContent>
+              </div>
             </Card>
           )}
 
@@ -1431,9 +1742,10 @@ export default function LeadDetail() {
 
           {/* Tier prices */}
           {estimate && estimate.tiers && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm sm:text-base">
+            <Panel
+              icon={Gem}
+              title={
+                <>
                   Estimate
                   {sortedEstimates.length > 1 && estimate && (
                     <span className="ml-2 text-xs font-normal text-muted-foreground">
@@ -1441,34 +1753,21 @@ export default function LeadDetail() {
                       {estimate.label && ` · ${estimate.label}`}
                     </span>
                   )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(["essential", "signature", "legacy"] as const).map((tier) => {
-                  const price = estimate.tiers[tier] || 0;
-                  const monthly = Math.round(price / 21);
-                  return (
-                    <div
-                      key={tier}
-                      className={`flex items-center justify-between p-2.5 sm:p-3 rounded-md border ${
-                        tier === "signature" ? "bg-primary/5 border-primary/20" : "bg-muted/30"
-                      }`}
-                    >
-                      <div>
-                        <span className="text-sm font-medium capitalize">{tier}</span>
-                        {tier === "signature" && <span className="ml-1 text-[10px] text-primary font-medium">Rec.</span>}
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-bold">{formatCurrency(price)}</span>
-                        <span className="text-[10px] text-muted-foreground ml-1">~${monthly}/mo</span>
-                      </div>
-                    </div>
-                  );
-                })}
+                </>
+              }
+              sub="Three packages, one fence"
+              accent={ACCENT.gold}
+              bodyClassName="space-y-2 p-3.5"
+            >
+                {(["essential", "signature", "legacy"] as const).map((tier) => (
+                  <TierCard key={tier} tier={tier} price={estimate.tiers[tier] || 0} />
+                ))}
                 {fenceSides.length > 0 && (
-                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs">
-                    <span className="font-semibold text-muted-foreground">Sides included:</span>{" "}
-                    <span className="font-medium">{fenceSides.join(", ")}</span>
+                  <div className="flex flex-wrap items-center gap-1 pt-1">
+                    <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sides</span>
+                    {fenceSides.map((s) => (
+                      <Pill key={s} accent={s.startsWith("Inside") ? ACCENT.violet : ACCENT.cyan}>{s}</Pill>
+                    ))}
                   </div>
                 )}
                 {estimate.breakdown.length > 0 && (
@@ -1487,14 +1786,21 @@ export default function LeadDetail() {
                     }}
                   />
                 )}
-              </CardContent>
-            </Card>
+            </Panel>
           )}
 
           {/* Actions */}
           {estimate && estimate.status === "pending" && (
-            <div className="space-y-2">
-              <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="w-full">
+            <Panel
+              id="est-send"
+              className="scroll-mt-4"
+              icon={Rocket}
+              title="Send the estimate"
+              sub="Text and email · the follow-ups start on their own"
+              accent={ACCENT.emerald}
+              bodyClassName="space-y-2.5 p-3.5"
+            >
+              <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="h-10 w-full rounded-xl">
                 <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
               </Button>
 
@@ -1504,7 +1810,7 @@ export default function LeadDetail() {
 
               {/* Send disabled — old pipeline */}
               {lead.pipeline_version === "v1" && (
-                <div className="rounded-lg border-2 border-red-300 bg-red-50/60 p-3">
+                <div className="rounded-xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-rose-50 p-3">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
                     <div>
@@ -1520,7 +1826,7 @@ export default function LeadDetail() {
 
               {/* After-hours warning */}
               {isAfterHours() && !showScheduler && lead.pipeline_version !== "v1" && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <div className="rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-3">
                   <div className="flex items-start gap-2">
                     <Clock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
                     <div>
@@ -1533,19 +1839,17 @@ export default function LeadDetail() {
 
               {/* Schedule send UI */}
               {showScheduler && (
-                <div className="rounded-lg border-2 border-blue-300 bg-blue-50/50 p-4 space-y-3">
+                <div className="rounded-xl border-2 border-blue-300 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 space-y-3">
                   <h4 className="text-xs font-semibold text-blue-800 uppercase tracking-wider flex items-center gap-1.5">
                     <Calendar className="h-3.5 w-3.5" /> Schedule Send
                   </h4>
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Date</label>
+                    <Field label="Date">
                       <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="h-8 text-sm" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (Houston)</label>
+                    </Field>
+                    <Field label="Time (Houston)">
                       <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className="h-8 text-sm" />
-                    </div>
+                    </Field>
                   </div>
                   {/* Weekday derived from the date — the check that catches an
                       off-by-one before the message goes out. The clock line
@@ -1578,65 +1882,51 @@ export default function LeadDetail() {
                 </div>
               )}
 
-              <div className="mb-2 space-y-1">
-                <div className="text-xs font-medium text-muted-foreground">Send via</div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  <label
-                    className={`flex items-center gap-2 text-xs select-none ${
-                      lead.contact_phone ? "text-foreground cursor-pointer" : "text-muted-foreground cursor-not-allowed"
-                    }`}
-                    title={
-                      lead.contact_phone
-                        ? `SMS to ${lead.contact_phone}`
-                        : "No phone on file — SMS unavailable"
-                    }
+              <Field label="Send via">
+                <div className="flex flex-wrap gap-1.5">
+                  <ToggleChip
+                    on={sendSms && !!lead.contact_phone}
+                    disabled={!lead.contact_phone}
+                    onClick={() => setSendSms((v) => !v)}
+                    icon={MessageSquare}
+                    accent={ACCENT.emerald}
+                    title={lead.contact_phone ? `SMS to ${lead.contact_phone}` : "No phone on file — SMS unavailable"}
                   >
-                    <input
-                      type="checkbox"
-                      checked={sendSms && !!lead.contact_phone}
-                      disabled={!lead.contact_phone}
-                      onChange={(e) => setSendSms(e.target.checked)}
-                      className="h-3.5 w-3.5"
-                    />
                     SMS
-                    {lead.contact_phone && (
-                      <span className="text-muted-foreground truncate">→ {lead.contact_phone}</span>
-                    )}
-                  </label>
-                  <label
-                    className={`flex items-center gap-2 text-xs select-none ${
-                      lead.contact_email ? "text-foreground cursor-pointer" : "text-muted-foreground cursor-not-allowed"
-                    }`}
-                    title={
-                      lead.contact_email
-                        ? `Email to ${lead.contact_email}`
-                        : "No email on file — email unavailable"
-                    }
+                    {lead.contact_phone && <span className="font-normal opacity-80">· {lead.contact_phone}</span>}
+                  </ToggleChip>
+                  <ToggleChip
+                    on={alsoEmail && !!lead.contact_email}
+                    disabled={!lead.contact_email}
+                    onClick={() => setAlsoEmail((v) => !v)}
+                    icon={Mail}
+                    accent={ACCENT.violet}
+                    title={lead.contact_email ? `Email to ${lead.contact_email}` : "No email on file — email unavailable"}
+                    className="max-w-full"
                   >
-                    <input
-                      type="checkbox"
-                      checked={alsoEmail && !!lead.contact_email}
-                      disabled={!lead.contact_email}
-                      onChange={(e) => setAlsoEmail(e.target.checked)}
-                      className="h-3.5 w-3.5"
-                    />
                     Email
-                    {lead.contact_email && (
-                      <span className="text-muted-foreground truncate">→ {lead.contact_email}</span>
-                    )}
-                  </label>
+                    {lead.contact_email && <span className="truncate font-normal opacity-80">· {lead.contact_email}</span>}
+                  </ToggleChip>
                 </div>
-              </div>
+              </Field>
+
               <div className="flex gap-2">
-                <Button
-                  onClick={() => handleApprove()}
-                  disabled={approving || lead.pipeline_version === "v1"}
-                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : "Sends the proposal + applies the 'estimate sent' GHL tag (triggers P1 / P04 automations)"}
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-300"
-                >
-                  <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
-                  {approving ? "Sending..." : "Send Now"}
-                </Button>
+                {/* The one button the whole page leads to. It glows when the
+                    estimate is cleared to go, and only then. */}
+                <div className="relative flex-1">
+                  {estimate.approval_status === "green" && !approving && lead.pipeline_version !== "v1" && (
+                    <div className="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 opacity-40 blur-md" />
+                  )}
+                  <Button
+                    onClick={() => handleApprove()}
+                    disabled={approving || lead.pipeline_version === "v1"}
+                    title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : "Sends the proposal + applies the 'estimate sent' GHL tag (triggers P1 / P04 automations)"}
+                    className="relative h-11 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none"
+                  >
+                    <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
+                    {approving ? "Sending..." : "Send Now"}
+                  </Button>
+                </div>
                 {/* A deliberate buffer, not a delay for its own sake: an
                     estimate landing the second a call ends reads as a machine
                     spitting out a number. Ten minutes reads as someone working
@@ -1660,7 +1950,7 @@ export default function LeadDetail() {
                   title={lead.pipeline_version === "v1"
                     ? "Export to new pipeline before scheduling"
                     : `Schedules the estimate ${SEND_BUFFER_MINUTES} minutes out, so it doesn't land the instant the call ends`}
-                  className="shrink-0"
+                  className="h-11 shrink-0 rounded-xl"
                 >
                   <Clock className="h-4 w-4 mr-1" /> In {SEND_BUFFER_MINUTES} min
                 </Button>
@@ -1672,9 +1962,9 @@ export default function LeadDetail() {
                   }}
                   disabled={approving || lead.pipeline_version === "v1"}
                   title={lead.pipeline_version === "v1" ? "Export to new pipeline before scheduling" : undefined}
-                  className="shrink-0"
+                  className="h-11 shrink-0 rounded-xl"
                 >
-                  <Clock className="h-4 w-4 mr-1" /> Schedule
+                  <Calendar className="h-4 w-4 mr-1" /> Schedule
                 </Button>
               </div>
               {/* Marks that this estimate was done on-site (in person) vs remote.
@@ -1713,14 +2003,14 @@ export default function LeadDetail() {
                 onClick={() => handleApprove(undefined, false)}
                 disabled={approving || lead.pipeline_version === "v1"}
                 title="Send the proposal without applying the 'estimate sent' GHL tag (no GHL automation fires)"
-                className="w-full border-amber-300 text-amber-900 hover:bg-amber-50 hover:text-amber-900"
+                className="w-full rounded-xl border-amber-300 text-amber-900 hover:bg-amber-50 hover:text-amber-900"
               >
                 <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
                 {approving ? "Sending..." : "Send Without Tag (no automation)"}
               </Button>
               {estimate.approval_status === "red" && (
                 <>
-                  <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full">
+                  <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full rounded-xl">
                     <Shield className={`h-4 w-4 mr-2 ${requestingReview ? "animate-spin" : ""}`} />
                     {requestingReview ? "Sending..." : "Request Alan's Approval"}
                   </Button>
@@ -1729,23 +2019,36 @@ export default function LeadDetail() {
                   </p>
                 </>
               )}
-            </div>
+            </Panel>
           )}
 
           {estimate && estimate.status === "sent" && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-green-600 justify-center">
-                <CheckCircle2 className="h-4 w-4" />
-                <span className="text-sm font-medium">Sent {estimate.sent_at ? formatDateTime(estimate.sent_at) : ""}</span>
+            <div id="est-send" className="relative scroll-mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-md shadow-emerald-500/20">
+              <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+              <div className="relative flex items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 ring-2 ring-white/40">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-heading text-base font-bold leading-tight">Estimate sent</p>
+                  <p className="text-xs text-white/80">{estimate.sent_at ? formatDateTime(estimate.sent_at) : ""}</p>
+                </div>
               </div>
-              <a href={api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" className="w-full">
-                  <FileText className="h-4 w-4 mr-2" /> View PDF
+              <div className="relative mt-3 flex gap-2">
+                <a href={api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer" className="flex-1">
+                  <Button variant="outline" className="h-10 w-full rounded-xl border-white/40 bg-white/10 text-white hover:bg-white/20 hover:text-white">
+                    <FileText className="h-4 w-4 mr-2" /> View PDF
+                  </Button>
+                </a>
+                <Button
+                  variant="outline"
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  className="h-10 rounded-xl border-white/30 bg-white/10 text-white hover:bg-rose-600 hover:text-white"
+                >
+                  {cancelling ? "Cancelling..." : "Cancel Estimate"}
                 </Button>
-              </a>
-              <Button variant="destructive" onClick={handleCancel} disabled={cancelling} className="w-full">
-                {cancelling ? "Cancelling..." : "Cancel Estimate"}
-              </Button>
+              </div>
             </div>
           )}
 
@@ -1758,7 +2061,9 @@ export default function LeadDetail() {
 
           {/* All scheduled visits for this customer (clean/stain/finish-up) —
               add, edit, and reschedule each; shows invite vs internal. */}
-          <ScheduledVisitsCard lead={lead} />
+          <div id="est-visits" className="scroll-mt-4">
+            <ScheduledVisitsCard lead={lead} />
+          </div>
 
           {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
               data all kept: 3 submissions ever, none from a real customer, and
@@ -1769,31 +2074,24 @@ export default function LeadDetail() {
               Desktop keeps it full-width below the grid (rendered there when
               !isMobile). Only one instance mounts, so no double fetch. */}
           {isMobile && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" /> The Hit List
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <DailyTaskList leadId={lead.id} />
-              </CardContent>
-            </Card>
+            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}>
+              <DailyTaskList leadId={lead.id} />
+            </Panel>
           )}
 
           {/* Meta info */}
-          <Card>
-            <CardContent className="pt-4 text-xs space-y-1 text-muted-foreground">
-              <p>Created: {formatDate(lead.created_at)}</p>
-              <p>ZIP: {lead.zip_code || "—"}</p>
-              <p>Service: {lead.service_type}</p>
+          <Card className="gap-0 py-0">
+            <div className="grid grid-cols-2 gap-1.5 p-2">
+              <Fact icon={Calendar} label="Created">{formatDate(lead.created_at)}</Fact>
+              <Fact icon={MapPin} label="ZIP">{lead.zip_code || "—"}</Fact>
+              <Fact icon={Paintbrush} label="Service">{lead.service_type}</Fact>
               {estimate && (
                 <>
-                  <p>Zone: {String(estimate.inputs?.["_zone"] ?? "—")}</p>
-                  <p>Sqft: {String(estimate.inputs?.["_sqft"] ?? "—")}</p>
+                  <Fact icon={Compass} label="Zone">{String(estimate.inputs?.["_zone"] ?? "—")}</Fact>
+                  <Fact icon={Ruler} label="Sq ft">{String(estimate.inputs?.["_sqft"] ?? "—")}</Fact>
                 </>
               )}
-            </CardContent>
+            </div>
           </Card>
 
           {/* Estimate history — every estimate sent to this customer with
@@ -1803,17 +2101,7 @@ export default function LeadDetail() {
 
           {/* Export to new pipeline (v1 leads only) */}
           {lead.pipeline_version === "v1" && (
-            <Card className="border-blue-200 bg-blue-50/40">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <ArrowRightCircle className="h-4 w-4 text-blue-600" />
-                  Export to New Pipeline
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 pt-0">
-                <p className="text-xs text-muted-foreground">
-                  Move this lead onto the new GHL pipeline. All history (estimates, notes, contact info) is preserved.
-                </p>
+            <Panel icon={ArrowRightCircle} title="Export to new pipeline" sub="History, estimates and contact info all come along" accent={ACCENT.blue}>
                 <select
                   value={exportStageId}
                   onChange={(e) => setExportStageId(e.target.value)}
@@ -1824,12 +2112,11 @@ export default function LeadDetail() {
                     <option key={s.id} value={s.id}>{s.label}</option>
                   ))}
                 </select>
-                <Button onClick={handleExportToV2} disabled={exporting} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                <Button onClick={handleExportToV2} disabled={exporting} className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white hover:from-blue-700 hover:to-indigo-800">
                   {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRightCircle className="h-4 w-4 mr-2" />}
                   Export to "{V2_STAGES.find((s) => s.id === exportStageId)?.shortLabel}"
                 </Button>
-              </CardContent>
-            </Card>
+            </Panel>
           )}
         </div>
       </div>
@@ -1845,16 +2132,9 @@ export default function LeadDetail() {
               the dashboard queue, mirrored here. Desktop position; on phones
               it's rendered up under "Send a custom PDF" instead. */}
           {!isMobile && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" /> The Hit List
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <DailyTaskList leadId={lead.id} />
-              </CardContent>
-            </Card>
+            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}>
+              <DailyTaskList leadId={lead.id} />
+            </Panel>
           )}
 
           {/* QuickBooks payments — restricted preview (allowlisted accounts only). */}
@@ -2664,9 +2944,9 @@ function BreakdownEditor({
           </button>
         </div>
         {items.map((item, i) => (
-          <div key={i} className="flex justify-between text-xs">
+          <div key={i} className="flex justify-between rounded-md px-2 py-1 text-xs odd:bg-muted/40">
             <span className="truncate mr-2">{item.label}</span>
-            <span className="font-medium shrink-0">{formatCurrency(item.value)}</span>
+            <span className="font-medium tabular-nums shrink-0">{formatCurrency(item.value)}</span>
           </div>
         ))}
       </div>
@@ -3113,9 +3393,14 @@ function DepositRow({
     : status === "pending" ? "PENDING"
     : status === "waived"  ? "WAIVED"
                            : "NOT STARTED";
+  const barCls =
+    status === "paid"    ? "border-l-emerald-500"
+    : status === "pending" ? "border-l-amber-500"
+    : status === "waived"  ? "border-l-slate-400"
+                           : "border-l-blue-500";
 
   return (
-    <div className="rounded-md border p-2.5 space-y-2 bg-muted/20">
+    <div className={`rounded-xl border border-l-4 ${barCls} p-2.5 space-y-2 bg-muted/20`}>
       <div className="flex items-center gap-2 flex-wrap">
         <DollarSign className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold">Deposit · ${amount.toFixed(0)}</span>
@@ -3262,7 +3547,7 @@ function FullInvoiceRow({
 }) {
   if (!job) {
     return (
-      <div className="rounded-md border p-2.5 bg-muted/20">
+      <div className="rounded-xl border border-l-4 border-l-slate-300 p-2.5 bg-muted/20">
         <div className="flex items-center gap-2 flex-wrap">
           <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="text-xs font-semibold">Full Invoice</span>
@@ -3281,9 +3566,13 @@ function FullInvoiceRow({
     status === "paid"    ? "PAID"
     : status === "pending" ? "PENDING"
                            : (job.qb_invoice_id ? "DRAFT" : "NOT GENERATED");
+  const barCls =
+    status === "paid"    ? "border-l-emerald-500"
+    : status === "pending" ? "border-l-amber-500"
+                           : "border-l-blue-500";
 
   return (
-    <div className="rounded-md border p-2.5 space-y-2 bg-muted/20">
+    <div className={`rounded-xl border border-l-4 ${barCls} p-2.5 space-y-2 bg-muted/20`}>
       <div className="flex items-center gap-2 flex-wrap">
         <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold">Full Invoice</span>
@@ -3471,18 +3760,17 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
   const roll = data?.rollup;
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <DollarSign className="h-4 w-4" /> Payments (QuickBooks)
-          </CardTitle>
-          <Button size="sm" variant="outline" onClick={() => setLinking(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> Link invoice
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Panel
+      icon={CircleDollarSign}
+      title="Payments (QuickBooks)"
+      sub="Invoices linked to this customer"
+      accent={ACCENT.emerald}
+      right={
+        <Button size="sm" variant="outline" onClick={() => setLinking(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1" /> Link invoice
+        </Button>
+      }
+    >
         {loading ? (
           <div className="h-12 bg-muted rounded animate-pulse" />
         ) : invoices.length === 0 ? (
@@ -3491,12 +3779,18 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
           </p>
         ) : (
           <>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <span>Paid <span className="font-semibold text-emerald-700">{qbMoney(roll?.paid || 0)}</span></span>
-              <span>Balance <span className="font-semibold text-amber-700">{qbMoney(roll?.balance || 0)}</span></span>
-              <span className="text-muted-foreground">of {qbMoney(roll?.total || 0)} · {roll?.count} invoice{roll?.count === 1 ? "" : "s"}</span>
+            <div className="grid grid-cols-3 gap-2">
+              <StatTile icon={CheckCircle2} label="Paid" accent={ACCENT.emerald}>
+                <p className="font-heading text-lg font-bold tabular-nums text-emerald-700">{qbMoney(roll?.paid || 0)}</p>
+              </StatTile>
+              <StatTile icon={Hourglass} label="Balance" accent={ACCENT.amber}>
+                <p className="font-heading text-lg font-bold tabular-nums text-amber-700">{qbMoney(roll?.balance || 0)}</p>
+              </StatTile>
+              <StatTile icon={Receipt} label="Total" accent={ACCENT.slate} hint={`${roll?.count} invoice${roll?.count === 1 ? "" : "s"}`}>
+                <p className="font-heading text-lg font-bold tabular-nums">{qbMoney(roll?.total || 0)}</p>
+              </StatTile>
             </div>
-            <div className="rounded-lg border divide-y">
+            <div className="rounded-xl border divide-y">
               {invoices.map((inv) => (
                 <div key={inv.qb_invoice_id} className="flex items-center gap-3 px-3 py-2 text-sm">
                   <div className="min-w-0 flex-1">
@@ -3520,7 +3814,6 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
             </div>
           </>
         )}
-      </CardContent>
       {linking && (
         <LinkInvoiceModal
           leadId={leadId}
@@ -3529,7 +3822,7 @@ function LeadInvoicesCard({ leadId, leadName }: { leadId: string; leadName: stri
           onLinked={() => { setLinking(false); load(); }}
         />
       )}
-    </Card>
+    </Panel>
   );
 }
 
@@ -3623,16 +3916,13 @@ function NearbyJobsCard({ leadId }: { leadId: string }) {
   const topPick = jobs[0]; // first row is already the closest same-ZIP or closest nearby
 
   return (
-    <Card className="border-cyan-200 bg-cyan-50/30">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-          <MapPin className="h-4 w-4" /> Route-Stack — Nearby Jobs
-          <span className="ml-auto text-[11px] font-normal text-muted-foreground">
-            Next {data?.window_days ?? 14} days
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Panel
+      icon={Route}
+      title="Route-stack — nearby jobs"
+      sub="Pitch a date we're already in the area"
+      accent={ACCENT.cyan}
+      right={<Pill accent={ACCENT.cyan}>Next {data?.window_days ?? 14} days</Pill>}
+    >
         {loading && (
           <p className="text-xs text-muted-foreground italic">Loading…</p>
         )}
@@ -3648,7 +3938,7 @@ function NearbyJobsCard({ leadId }: { leadId: string }) {
             The 'pitch this date' callout is a one-line shortcut admin
             can read mid-call. */}
         {!loading && topPick?.same_zip && (
-          <div className="bg-white border border-emerald-300 rounded-md p-2.5">
+          <div className="rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-2.5">
             <p className="text-xs font-semibold text-emerald-900 mb-0.5">
               💡 Route-stack suggestion
             </p>
@@ -3685,14 +3975,13 @@ function NearbyJobsCard({ leadId }: { leadId: string }) {
             </ul>
           </div>
         )}
-      </CardContent>
-    </Card>
+    </Panel>
   );
 }
 
 function NearbyJobRow({ job }: { job: NearbyJob }) {
   return (
-    <li className="text-xs bg-white border rounded-md px-2.5 py-1.5 flex items-baseline gap-2 flex-wrap">
+    <li className="text-xs bg-card border rounded-lg px-2.5 py-1.5 flex items-baseline gap-2 flex-wrap">
       <span className="font-semibold">{job.customer_name || "(no name)"}</span>
       <span className="text-muted-foreground">·</span>
       <span>{formatDate(job.job_date)}</span>

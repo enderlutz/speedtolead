@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, type TaskAllocationRow, type ReimbursementRow } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Panel } from "@/components/Panel";
+import { ACCENT } from "@/lib/accents";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
-import { Clock, Receipt, ChevronDown, ChevronUp, Image as ImageIcon } from "lucide-react";
+import { Clock, Receipt, Image as ImageIcon } from "lucide-react";
 import HoursPie from "@/components/HoursPie";
 
 type AllocRow = TaskAllocationRow & { employee_name: string };
@@ -49,24 +50,23 @@ export default function TimeSpentCard({ leadId }: Props) {
   const taskBreakdown = Array.from(byTask.entries()).sort((a, b) => b[1] - a[1]);
 
   return (
-    <Card>
-      <CardHeader className="pb-2 cursor-pointer" onClick={() => setOpen((v) => !v)}>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Clock className="h-4 w-4 text-primary" /> Time Spent
-          {!isEmpty && (
-            <span className="text-xs font-normal text-muted-foreground ml-2">
-              {total_hours.toFixed(1)}h logged
-              {total_reimbursements > 0 && ` · ${formatCurrency(total_reimbursements)} reimbursed`}
-              {pending_reimbursements > 0 && ` · ${formatCurrency(pending_reimbursements)} pending`}
-            </span>
-          )}
-          <span className="ml-auto">
-            {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </span>
-        </CardTitle>
-      </CardHeader>
+    <Panel
+      icon={Clock}
+      title="Time spent"
+      sub={isEmpty ? "Nothing logged for this customer yet" : (
+        <>
+          {total_hours.toFixed(1)}h logged
+          {total_reimbursements > 0 && ` · ${formatCurrency(total_reimbursements)} reimbursed`}
+          {pending_reimbursements > 0 && ` · ${formatCurrency(pending_reimbursements)} pending`}
+        </>
+      )}
+      accent={ACCENT.slate}
+      collapsed={!open}
+      onToggle={() => setOpen((v) => !v)}
+      bodyClassName="space-y-4 p-3.5"
+    >
       {open && (
-        <CardContent className="space-y-4">
+        <div className="space-y-4">
           {isEmpty ? (
             <p className="text-sm text-muted-foreground text-center py-3">
               No time logged for this customer yet.
@@ -185,8 +185,8 @@ export default function TimeSpentCard({ leadId }: Props) {
               )}
             </>
           )}
-        </CardContent>
+        </div>
       )}
-    </Card>
+    </Panel>
   );
 }

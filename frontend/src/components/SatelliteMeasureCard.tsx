@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type MeasurementPhoto } from "@/lib/api";
 import { loadGoogleMaps, onMapsAuthFailure } from "@/lib/googleMaps";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/Panel";
+import { ACCENT } from "@/lib/accents";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
-} from "lucide-react";
+  Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -717,19 +717,12 @@ export default function SatelliteMeasureCard({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Ruler className="h-4 w-4" />
-          Measure &amp; Capture
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Click along the fence to measure it. Add a separate measurement for
-          each run — insides, back side — and they add up. Capture saves the
-          photo and fills Linear Feet. No new tab.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Panel
+      icon={Ruler}
+      title="Measure & capture"
+      sub="Click along the fence to measure it. Add a separate run for each stretch — insides, back side — and they add up. Capture saves the photo and fills Linear Feet."
+      accent={ACCENT.violet}
+    >
         {status === "nokey" || status === "error" || status === "authfail" ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-1">
             {status === "nokey" ? (
@@ -977,8 +970,7 @@ export default function SatelliteMeasureCard({
             ) : null}
           </div>
         ) : null}
-      </CardContent>
-    </Card>
+    </Panel>
   );
 }
 

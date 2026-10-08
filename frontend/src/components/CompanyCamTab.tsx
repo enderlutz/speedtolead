@@ -31,24 +31,10 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
+import { ACCENT, type Accent } from "@/lib/accents";
+import { Panel, Field, StatTile, ProgressPill } from "@/components/Panel";
 
 const PACKAGES = ["essential", "signature", "legacy"] as const;
-
-/** One accent per stage of the job, so a crew member learns the colour rather
- *  than reading the heading. `grad` paints the icon chip, `band` the header
- *  wash behind it. */
-type Accent = { grad: string; band: string };
-
-const ACCENT: Record<string, Accent> = {
-  violet:  { grad: "from-violet-500 to-indigo-600",   band: "from-violet-500/10 to-indigo-500/5" },
-  amber:   { grad: "from-amber-500 to-orange-600",    band: "from-amber-500/10 to-orange-500/5" },
-  cyan:    { grad: "from-cyan-500 to-sky-600",        band: "from-cyan-500/10 to-sky-500/5" },
-  emerald: { grad: "from-emerald-500 to-teal-600",    band: "from-emerald-500/10 to-teal-500/5" },
-  blue:    { grad: "from-blue-500 to-indigo-600",     band: "from-blue-500/10 to-indigo-500/5" },
-  fuchsia: { grad: "from-fuchsia-500 to-purple-600",  band: "from-fuchsia-500/10 to-purple-500/5" },
-  rose:    { grad: "from-rose-500 to-pink-600",       band: "from-rose-500/10 to-pink-500/5" },
-  slate:   { grad: "from-slate-500 to-slate-700",     band: "from-slate-500/10 to-slate-500/5" },
-};
 
 /** Icon + accent per photo section. Keyed on the backend's section keys; an
  *  unknown key still renders, just in grey with a camera. */
@@ -61,76 +47,6 @@ const SECTION_LOOK: Record<string, { icon: React.ElementType; accent: Accent }> 
 
 const sectionLook = (key: string) =>
   SECTION_LOOK[key] || { icon: Camera, accent: ACCENT.slate };
-
-/** A card with a coloured header band. Replaces CardHeader/CardContent here
- *  because the band has to run the full width, under the icon chip. */
-function Panel({
-  id, icon: Icon, title, sub, right, accent, className, children,
-}: {
-  id?: string;
-  icon: React.ElementType;
-  title: string;
-  sub?: string;
-  right?: React.ReactNode;
-  accent: Accent;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card id={id} className={cn("gap-0 py-0", className)}>
-      <div className={`flex items-center gap-3 border-b bg-gradient-to-r ${accent.band} px-3.5 py-3`}>
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accent.grad} shadow-sm shadow-black/10`}>
-          <Icon className="h-4 w-4 text-white" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-heading text-sm font-semibold leading-tight">{title}</p>
-          {sub ? <p className="truncate text-[11px] text-muted-foreground">{sub}</p> : null}
-        </div>
-        {right}
-      </div>
-      <div className="space-y-3 p-3.5">{children}</div>
-    </Card>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </label>
-      {children}
-      {hint ? <p className="text-[11px] leading-snug text-muted-foreground/80">{hint}</p> : null}
-    </div>
-  );
-}
-
-/** A number with its own icon chip, so the four things a crew loads the van
- *  with read as four things and not as a form. */
-function StatTile({
-  icon: Icon, label, accent, hint, children,
-}: {
-  icon: React.ElementType;
-  label: string;
-  accent: Accent;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border bg-card p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
-        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accent.grad} shadow-sm`}>
-          <Icon className="h-3.5 w-3.5 text-white" />
-        </div>
-      </div>
-      {children}
-      {hint ? <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">{hint}</p> : null}
-    </div>
-  );
-}
 
 /** How much of the job is on file. Reads at arm's length in sunlight, which a
  *  row of numbers does not. */
@@ -414,20 +330,6 @@ function Checklist({
         );
       })}
     </div>
-  );
-}
-
-/** "3 of 4" — a checklist with nothing showing its own progress gets half
- *  filled in and abandoned. */
-function ProgressPill({ done, total }: { done: number; total: number }) {
-  const all = total > 0 && done === total;
-  return (
-    <span className={cn(
-      "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums",
-      all ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground",
-    )}>
-      {all ? <Check className="h-2.5 w-2.5" /> : null}{done} of {total}
-    </span>
   );
 }
 

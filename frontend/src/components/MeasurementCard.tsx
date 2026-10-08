@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/Panel";
+import { ACCENT } from "@/lib/accents";
 import { toast } from "sonner";
-import { Upload, X, Ruler, ExternalLink, Loader2 } from "lucide-react";
+import { Upload, X, ExternalLink, Loader2 } from "lucide-react";
 
 interface Props {
   leadId: string;
@@ -82,16 +83,12 @@ export default function MeasurementCard({
   };
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Ruler className="h-4 w-4 text-primary" /> Measurement Screenshot
-          <span className="text-xs font-normal text-muted-foreground">
-            (Google Maps measurement, for admin review)
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Panel
+      icon={Upload}
+      title="Measurement screenshot"
+      sub="Google Maps measurement, for admin review"
+      accent={ACCENT.slate}
+    >
         {hasMeasurement ? (
           <div className="space-y-2">
             <div className="border rounded-md overflow-hidden bg-muted/20">
@@ -169,7 +166,6 @@ export default function MeasurementCard({
             if (e.target) e.target.value = "";
           }}
         />
-      </CardContent>
-    </Card>
+    </Panel>
   );
 }

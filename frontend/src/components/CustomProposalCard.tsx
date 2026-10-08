@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CustomProposalItem } from "@/lib/api";
-import { Card, CardContent } from "@/components/ui/card";
+import { Panel } from "@/components/Panel";
+import { ACCENT } from "@/lib/accents";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { FileText, UploadCloud, X, Send, Loader2, ExternalLink, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, UploadCloud, X, Send, Loader2, ExternalLink, Trash2 } from "lucide-react";
 
 /** Upload a pre-made PDF and send it to the customer as a proposal — same
  * /proposal link, viewer, and SMS as a generated estimate. For one-off custom
@@ -91,27 +92,16 @@ export default function CustomProposalCard({
   };
 
   return (
-    <Card>
-      <CardContent className={open ? "pt-4 space-y-3" : "py-3"}>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="w-full flex items-center justify-between gap-2 text-left"
-        >
-          <span className="text-sm font-semibold flex items-center gap-1.5">
-            <FileText className="h-4 w-4" /> Send a custom PDF
-            {sent.length > 0 && (
-              <span className="text-[10px] font-normal text-muted-foreground">({sent.length} sent)</span>
-            )}
-          </span>
-          {open ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
-        </button>
-
+    <Panel
+      icon={FileText}
+      title="Send a custom PDF"
+      sub={`${sent.length > 0 ? `${sent.length} sent · ` : ""}Your own proposal PDF, same link, viewer and text as a normal estimate`}
+      accent={ACCENT.slate}
+      collapsed={!open}
+      onToggle={() => setOpen((o) => !o)}
+    >
         {open && (
         <>
-        <p className="text-xs text-muted-foreground -mt-1">
-          Upload your own proposal PDF. The customer gets the same link + viewer and a text — just like a normal estimate.
-        </p>
 
         {file ? (
           <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2.5">
@@ -202,7 +192,6 @@ export default function CustomProposalCard({
         )}
         </>
         )}
-      </CardContent>
-    </Card>
+    </Panel>
   );
 }

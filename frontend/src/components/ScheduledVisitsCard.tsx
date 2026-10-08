@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Lead, type ScheduledJob } from "@/lib/api";
+import { Panel } from "@/components/Panel";
+import { ACCENT } from "@/lib/accents";
 import { Button } from "@/components/ui/button";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
 import { Calendar, Plus, Send, BellOff, Pencil } from "lucide-react";
@@ -34,17 +36,17 @@ export default function ScheduledVisitsCard({ lead }: { lead: Lead }) {
   };
 
   return (
-    <div className="rounded-xl border bg-background p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">Scheduled visits</h3>
-          {jobs.length > 0 && <span className="text-xs text-muted-foreground">({jobs.length})</span>}
-        </div>
+    <Panel
+      icon={Calendar}
+      title="Scheduled visits"
+      sub={jobs.length > 0 ? `${jobs.length} on the calendar` : "A sale is often several visits"}
+      accent={ACCENT.amber}
+      right={
         <Button size="sm" variant="outline" onClick={() => setModal({ mode: "create", job: null })}>
           <Plus className="h-3.5 w-3.5 mr-1" /> Add a visit
         </Button>
-      </div>
+      }
+    >
 
       {jobs.length === 0 ? (
         <p className="text-xs text-muted-foreground">
@@ -55,7 +57,7 @@ export default function ScheduledVisitsCard({ lead }: { lead: Lead }) {
           {jobs.map((j) => {
             const invited = !!j.google_event_id;
             return (
-              <div key={j.id} className="flex items-center justify-between gap-2 border rounded-md px-2.5 py-2">
+              <div key={j.id} className={`flex items-center justify-between gap-2 rounded-lg border border-l-4 ${invited ? "border-l-emerald-500" : "border-l-amber-500"} px-2.5 py-2`}>
                 <div className="min-w-0">
                   <div className="text-sm font-medium truncate">
                     {j.job_label || "Visit"}
@@ -92,6 +94,6 @@ export default function ScheduledVisitsCard({ lead }: { lead: Lead }) {
           onSaved={() => { setModal(null); load(); }}
         />
       )}
-    </div>
+    </Panel>
   );
 }

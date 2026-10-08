@@ -204,7 +204,7 @@ export function LeadDelayPanel({ leadId, onChange }: { leadId: string; onChange?
   const hasReason = !!delay.reason_added_at;
 
   return (
-    <div className="rounded-lg border-2 border-red-300 bg-red-50 p-3 space-y-2">
+    <div className="rounded-2xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-rose-50 p-3 space-y-2 shadow-sm shadow-red-500/10">
       <div className="flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
         <p className="text-sm font-semibold text-red-900">24h+ without estimate</p>

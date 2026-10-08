@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, type EstimateHistoryItem } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/Panel";
+import { ACCENT } from "@/lib/accents";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
@@ -76,20 +77,17 @@ export default function EstimateHistoryCard({ leadId, refreshKey = 0 }: Props) {
   if (items.length === 0) return null; // no sent estimates yet — hide entirely
 
   return (
-    <Card>
-      <CardHeader className="pb-2 cursor-pointer" onClick={() => setOpen((v) => !v)}>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <History className="h-4 w-4 text-primary" /> Estimate History
-          <span className="text-xs font-normal text-muted-foreground ml-1">
-            {items.length} sent
-          </span>
-          <span className="ml-auto">
-            {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </span>
-        </CardTitle>
-      </CardHeader>
+    <Panel
+      icon={History}
+      title="Estimate history"
+      sub={`${items.length} sent to this customer`}
+      accent={ACCENT.violet}
+      collapsed={!open}
+      onToggle={() => setOpen((v) => !v)}
+      bodyClassName="space-y-2 p-3.5"
+    >
       {open && (
-        <CardContent className="space-y-2">
+        <div className="space-y-2">
           {items.slice().reverse().map((it) => {
             const inputs = (it.inputs || {}) as Record<string, unknown>;
             const tiers = it.tiers || { essential: 0, signature: 0, legacy: 0 };
@@ -187,8 +185,8 @@ export default function EstimateHistoryCard({ leadId, refreshKey = 0 }: Props) {
               </div>
             );
           })}
-        </CardContent>
+        </div>
       )}
-    </Card>
+    </Panel>
   );
 }
