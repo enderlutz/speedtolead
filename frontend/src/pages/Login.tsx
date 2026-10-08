@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, setToken } from "@/lib/api";
-import { Zap, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -31,30 +31,25 @@ export default function Login() {
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: "#0f172a" }}
+      style={{ background: "#15130F" }}
     >
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 mb-8 justify-center">
+          {/* The wordmark on its own ivory, with a gold hairline. */}
           <div
-            className="h-10 w-10 rounded-xl flex items-center justify-center"
-            style={{ background: "#0693e3" }}
+            className="rounded-2xl px-5 py-3.5"
+            style={{ background: "#F8F3E7", boxShadow: "0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(201,151,47,0.45)" }}
           >
-            <Zap className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <p className="font-bold text-white text-base leading-none">{"Sterling Fence Staining"}</p>
-            <p className="text-xs mt-0.5" style={{ color: "#8ed1fc" }}>
-              Dashboard
-            </p>
+            <img src="/sterling-logo.png" alt="Sterling Fence Staining" className="h-12 w-auto" draggable={false} />
           </div>
         </div>
 
         <div
           className="rounded-2xl p-8"
-          style={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.08)" }}
+          style={{ background: "#201C16", border: "1px solid rgba(201,151,47,0.25)" }}
         >
           <h1 className="text-xl font-bold text-white mb-1">Sign in</h1>
-          <p className="text-sm mb-6" style={{ color: "#94a3b8" }}>
+          <p className="text-sm mb-6" style={{ color: "#9A917F" }}>
             Enter your username and password to continue.
           </p>
 
@@ -62,7 +57,7 @@ export default function Login() {
             <div>
               <label
                 className="block text-sm font-medium mb-1.5"
-                style={{ color: "#cbd5e1" }}
+                style={{ color: "#D8D2C4" }}
               >
                 Username
               </label>
@@ -75,11 +70,11 @@ export default function Login() {
                 required
                 className="w-full rounded-lg px-4 py-2.5 text-sm outline-none transition-colors"
                 style={{
-                  background: "#0f172a",
+                  background: "#0F0E0B",
                   border: "1px solid rgba(255,255,255,0.12)",
-                  color: "#f1f5f9",
+                  color: "#F8F3E7",
                 }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "#0693e3")}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "#C9972F")}
                 onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)")}
               />
             </div>
@@ -87,7 +82,7 @@ export default function Login() {
             <div>
               <label
                 className="block text-sm font-medium mb-1.5"
-                style={{ color: "#cbd5e1" }}
+                style={{ color: "#D8D2C4" }}
               >
                 Password
               </label>
@@ -100,11 +95,11 @@ export default function Login() {
                   required
                   className="w-full rounded-lg px-4 py-2.5 pr-11 text-sm outline-none transition-colors"
                   style={{
-                    background: "#0f172a",
+                    background: "#0F0E0B",
                     border: "1px solid rgba(255,255,255,0.12)",
-                    color: "#f1f5f9",
+                    color: "#F8F3E7",
                   }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "#0693e3")}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "#C9972F")}
                   onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)")}
                 />
                 <button
@@ -112,7 +107,7 @@ export default function Login() {
                   onClick={() => setShowPassword((s) => !s)}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: "#94a3b8" }}
+                  style={{ color: "#9A917F" }}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -131,9 +126,10 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-opacity"
+              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity"
               style={{
-                background: "#0693e3",
+                background: "linear-gradient(135deg, #E3BE63, #B4823B)",
+                color: "#15130F",
                 opacity: loading ? 0.7 : 1,
                 cursor: loading ? "not-allowed" : "pointer",
               }}

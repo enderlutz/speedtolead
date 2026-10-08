@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, Zap, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map, Contact } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map, Contact } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -118,11 +118,10 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-sidebar-border bg-sidebar sticky top-0 z-40">
-      <div className="flex items-center gap-2">
-        <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
-          <Zap className="h-4 w-4 text-primary-foreground" />
+      <div className="flex items-center gap-2.5">
+        <div className="rounded-lg bg-ivory px-2 py-1.5 shadow-md shadow-black/30 ring-1 ring-gold/40">
+          <img src="/sterling-logo.png" alt={divisionBrand(getDivision()).name} className="h-6 w-auto" draggable={false} />
         </div>
-        <span className="text-sm font-bold text-sidebar-foreground tracking-tight">{divisionBrand(getDivision()).name}</span>
       </div>
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
@@ -160,7 +159,7 @@ function SidebarRevenueWidget() {
         </div>
         <div className="h-1.5 rounded-full bg-sidebar-accent overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-400 transition-all duration-500"
+            className="h-full rounded-full bg-gradient-to-r from-bronze to-gold-light transition-all duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -220,20 +219,21 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           ${open ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* Logo */}
-        <div className="px-4 py-5 border-b border-sidebar-border flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shadow-md shadow-primary/30">
-              <Zap className="h-4.5 w-4.5 text-primary-foreground" />
+        {/* Logo — the real wordmark on an ivory plaque (the logo's own
+            background colour, so it has no visible edge), top left, with a
+            gold hairline. Alan, 2026-10-08. */}
+        <div className="px-3 pt-4 pb-3 border-b border-sidebar-border shrink-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="rounded-xl bg-ivory px-3 py-2.5 shadow-lg shadow-black/40 ring-1 ring-gold/40">
+              <img src="/sterling-logo.png" alt={divisionBrand(getDivision()).name} className="h-10 w-auto" draggable={false} />
             </div>
-            <div>
-              <h1 className="text-sm font-bold text-sidebar-foreground tracking-tight leading-none">{divisionBrand(getDivision()).name}</h1>
-              <p className="text-[10px] text-sidebar-foreground/50 mt-0.5">{divisionBrand(getDivision()).subtitle}</p>
-            </div>
+            <button onClick={onClose} className="md:hidden p-1.5 rounded-md text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button onClick={onClose} className="md:hidden p-1.5 rounded-md text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
-            <X className="h-4 w-4" />
-          </button>
+          <p className="mt-2.5 px-1 text-[9px] font-semibold uppercase tracking-[0.24em] text-gold/80">
+            {divisionBrand(getDivision()).subtitle} · Houston
+          </p>
         </div>
 
         {/* Division switcher — fragned only, directly under the header. */}
@@ -241,7 +241,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1">
-          <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold px-3 mb-2">Menu</p>
+          <p className="text-[10px] uppercase tracking-widest text-gold/60 font-semibold px-3 mb-2">Menu</p>
           {NAV_ITEMS.filter(item => {
             const u = getCurrentUser();
             // Division scope — hide items not meant for the active division.
@@ -259,7 +259,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-150 ${
                   isActive
-                    ? "bg-primary text-primary-foreground font-semibold shadow-md shadow-primary/20"
+                    ? "bg-gradient-to-r from-gold to-bronze text-ink font-semibold shadow-md shadow-gold/25"
                     : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 }`
               }

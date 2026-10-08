@@ -129,12 +129,13 @@ const CONFIDENCE_TONE: Record<string, string> = {
   "60":  "from-rose-500 to-pink-600",
 };
 
-/** Bronze, brand blue, gold. Signature is the one we recommend, so it is the
- *  only one painted solid. */
+/** Bronze, ink-and-gold, gold. Signature is the one we recommend, so it is
+ *  the only one painted solid: charcoal with the brand gold on it. Legacy
+ *  sits on ivory with a gold edge. */
 const TIER_LOOK = {
-  essential: { label: "Essential", tag: "Good",        icon: Medal, accent: ACCENT.slate },
-  signature: { label: "Signature", tag: "Recommended", icon: Star,  accent: ACCENT.blue },
-  legacy:    { label: "Legacy",    tag: "Best finish", icon: Crown, accent: ACCENT.gold },
+  essential: { label: "Essential", tag: "Good",        icon: Medal, accent: ACCENT.bronze, card: "border bg-card" },
+  signature: { label: "Signature", tag: "Recommended", icon: Star,  accent: ACCENT.ink,    card: "" },
+  legacy:    { label: "Legacy",    tag: "Best finish", icon: Crown, accent: ACCENT.gold,   card: "border border-gold/40 bg-gradient-to-br from-ivory to-card shadow-sm shadow-gold/10" },
 } as const;
 
 // New Build button, archived 2026-10-08 (Alan: focus on Ask for Address).
@@ -231,13 +232,14 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
   const jump = (id: string) =>
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4 text-white shadow-lg ring-1 ring-white/10">
-      <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-indigo-500/30 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-fuchsia-500/20 blur-3xl" />
+    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-stone-900 via-ink to-stone-900 p-4 text-white shadow-xl shadow-black/20 ring-1 ring-gold/30">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gold/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cedar/25 blur-3xl" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gold-light/70 to-transparent" />
 
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Customer journey</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gold-light/90">Customer journey</p>
           <p className="font-heading text-lg font-bold leading-tight">
             {current ? `Next up: ${current.label}` : "Every step done — reviewed and paid"}
           </p>
@@ -291,7 +293,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
                   : s.done ? "bg-white/10 hover:bg-white/15"
                   : s.skipped ? "border border-dashed border-white/25 bg-transparent text-white/45 hover:border-white/40"
                   : s.active ? `bg-white/10 ring-2 ${s.accent.ring} hover:bg-white/15`
-                  : isCurrent ? "bg-white/15 ring-2 ring-white/60 hover:bg-white/20"
+                  : isCurrent ? "bg-white/15 ring-2 ring-gold-light/80 hover:bg-white/20"
                   : "bg-white/5 opacity-70 hover:bg-white/10 hover:opacity-100",
               )}
             >
@@ -603,28 +605,29 @@ function TierCard({ tier, price }: { tier: keyof typeof TIER_LOOK; price: number
   return (
     <div className={cn(
       "relative flex items-center gap-3 overflow-hidden rounded-xl p-3",
-      hero ? "bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md shadow-indigo-500/20" : "border bg-card",
+      hero ? "bg-gradient-to-br from-stone-800 via-ink to-stone-900 text-white shadow-lg shadow-black/25 ring-1 ring-gold/50" : look.card,
     )}>
-      {hero ? <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-white/10 blur-2xl" /> : null}
+      {hero ? <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gold/25 blur-2xl" /> : null}
+      {hero ? <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gold-light/70 to-transparent" /> : null}
       <div className={cn(
         "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm",
-        hero ? "bg-white/20 ring-1 ring-white/40" : `bg-gradient-to-br ${look.accent.grad}`,
+        hero ? "bg-gradient-to-br from-gold-light to-bronze ring-1 ring-gold-light/60 shadow-gold/30" : `bg-gradient-to-br ${look.accent.grad}`,
       )}>
-        <Icon className="h-4 w-4 text-white" />
+        <Icon className={cn("h-4 w-4", hero ? "fill-current text-ink" : "text-white")} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-heading text-sm font-semibold">{look.label}</span>
           <span className={cn(
             "rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-            hero ? "bg-white/20 text-white" : look.accent.soft,
+            hero ? "bg-gold/25 text-gold-light ring-1 ring-gold/40" : look.accent.soft,
           )}>
             {look.tag}
           </span>
         </div>
-        {monthly ? <p className={cn("text-[10px]", hero ? "text-white/75" : "text-muted-foreground")}>{monthly}</p> : null}
+        {monthly ? <p className={cn("text-[10px]", hero ? "text-white/70" : "text-muted-foreground")}>{monthly}</p> : null}
       </div>
-      <p className={cn("font-heading font-bold tabular-nums", hero ? "text-2xl" : "text-lg")}>{formatCurrency(price)}</p>
+      <p className={cn("font-heading font-bold tabular-nums", hero ? "text-2xl text-gold-light" : "text-lg")}>{formatCurrency(price)}</p>
     </div>
   );
 }
@@ -1379,7 +1382,7 @@ export default function LeadDetail() {
         </button>
         {/* Every customer gets their own colour, hashed from the name, so the
             page is recognisable at a glance when flipping between leads. */}
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${accentForName(lead.contact_name || "").grad} font-heading text-sm font-bold text-white shadow-md shadow-black/10`}>
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${accentForName(lead.contact_name || "").grad} font-heading text-sm font-bold text-white shadow-md shadow-black/10 ring-2 ring-gold/40 ring-offset-2 ring-offset-background`}>
           {initials(lead.contact_name || "")}
         </div>
         <div className="min-w-0 flex-1">
@@ -1593,7 +1596,7 @@ export default function LeadDetail() {
           }
         }}
       >
-        <TabsList className="w-full sm:w-auto">
+        <TabsList className="w-full sm:w-auto bg-ink/[0.06] ring-1 ring-gold/25">
           <TabsTrigger value="estimate"><Calculator className="hidden sm:block" /> Estimate</TabsTrigger>
           <TabsTrigger value="scope"><Ruler className="hidden sm:block" /> Fence Scope</TabsTrigger>
           <TabsTrigger value="companycam"><Camera className="hidden sm:block" /> Company Cam</TabsTrigger>
@@ -1654,7 +1657,7 @@ export default function LeadDetail() {
             icon={UserRound}
             title="Contact"
             sub={lead.area || (lead.zip_code ? `ZIP ${lead.zip_code}` : "Who we're quoting")}
-            accent={ACCENT.blue}
+            accent={ACCENT.ink}
             right={(
                   <div className="flex gap-1.5 flex-wrap justify-end">
                     <Button variant="outline" size="sm" onClick={async () => {
@@ -1849,7 +1852,7 @@ export default function LeadDetail() {
             icon={Calculator}
             title="Estimator input"
             sub="What the three prices are built from"
-            accent={ACCENT.fuchsia}
+            accent={ACCENT.cedar}
             bodyClassName="space-y-4 p-3.5"
           >
               {/* The customer's timeline: their answer, read-only. */}
@@ -2022,7 +2025,7 @@ export default function LeadDetail() {
               <Button
                 onClick={handleSaveRecalculate}
                 disabled={saving}
-                className="h-11 w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-violet-600 text-sm font-semibold text-white shadow-md shadow-fuchsia-500/20 hover:from-fuchsia-700 hover:to-violet-700"
+                className="h-11 w-full rounded-xl bg-gradient-to-r from-stone-800 to-ink text-sm font-semibold text-gold-light shadow-md shadow-black/20 ring-1 ring-gold/30 hover:from-stone-700 hover:to-stone-900"
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${saving ? "animate-spin" : ""}`} />
                 {saving ? "Recalculating..." : "Save & Recalculate"}
@@ -2286,13 +2289,13 @@ export default function LeadDetail() {
                     estimate is cleared to go, and only then. */}
                 <div className="relative flex-1">
                   {estimate.approval_status === "green" && !approving && lead.pipeline_version !== "v1" && (
-                    <div className="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 opacity-40 blur-md" />
+                    <div className="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-gold-light to-gold opacity-50 blur-md" />
                   )}
                   <Button
                     onClick={() => handleApprove()}
                     disabled={approving || lead.pipeline_version === "v1"}
                     title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : "Sends the proposal + applies the 'estimate sent' GHL tag (triggers P1 / P04 automations)"}
-                    className="relative h-11 w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 hover:from-emerald-600 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none"
+                    className="relative h-11 w-full rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze text-sm font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60 hover:from-gold hover:via-gold hover:to-bronze disabled:from-stone-300 disabled:via-stone-300 disabled:to-stone-300 disabled:text-stone-600 disabled:shadow-none disabled:ring-0"
                   >
                     <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
                     {approving ? "Sending..." : "Send Now"}
@@ -2394,15 +2397,16 @@ export default function LeadDetail() {
           )}
 
           {estimate && estimate.status === "sent" && (
-            <div id="est-send" className="relative scroll-mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-md shadow-emerald-500/20">
-              <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
+            <div id="est-send" className="relative scroll-mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-stone-800 via-ink to-stone-900 p-4 text-white shadow-lg shadow-black/25 ring-1 ring-gold/40">
+              <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gold/25 blur-2xl" />
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gold-light/70 to-transparent" />
               <div className="relative flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 ring-2 ring-white/40">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gold-light to-bronze text-ink ring-2 ring-gold-light/50 shadow-md shadow-gold/30">
                   <CheckCircle2 className="h-6 w-6" />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-heading text-base font-bold leading-tight">Estimate sent</p>
-                  <p className="text-xs text-white/80">{estimate.sent_at ? formatDateTime(estimate.sent_at) : ""}</p>
+                  <p className="font-heading text-base font-bold leading-tight text-gold-light">Estimate sent</p>
+                  <p className="text-xs text-white/75">{estimate.sent_at ? formatDateTime(estimate.sent_at) : ""}</p>
                 </div>
               </div>
               <div className="relative mt-3 flex gap-2">
