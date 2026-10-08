@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 import { Upload, Save, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -52,6 +53,7 @@ function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
 }
 
 export default function FenceScopeEditor({ leadId }: Props) {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [address, setAddress] = useState("");
   const [hasSource, setHasSource] = useState(false);
@@ -556,7 +558,13 @@ export default function FenceScopeEditor({ leadId }: Props) {
         leadId={leadId}
         open={sendOpen}
         onOpenChange={setSendOpen}
-        onSent={() => { void adoptServerVersion(); }}
+        onSent={async () => {
+          await adoptServerVersion();
+          // Scope's out — straight back to the customer's Estimator Input
+          // so the estimate can be built and sent without clicking through
+          // pages (Alan, 2026-10-09).
+          navigate(`/leads/${leadId}?focus=inputs`);
+        }}
       />
       {logoMissing && (
         <div

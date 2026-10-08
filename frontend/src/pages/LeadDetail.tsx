@@ -693,6 +693,18 @@ export default function LeadDetail() {
   }, [id]);
   useEffect(() => { loadObjections(); }, [loadObjections]);
 
+  // Arriving with ?focus=inputs (from sending the fence scope): open the
+  // Estimate tab and bring the Estimator Input into view once it's drawn.
+  const focusedRef = useRef(false);
+  useEffect(() => {
+    if (focusedRef.current || !lead || urlParams.get("focus") !== "inputs") return;
+    focusedRef.current = true;
+    setActiveTab("estimate");
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById("est-inputs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+  }, [lead, urlParams]);
+
   // Logged call outcomes, for the "Heard back" step of the customer journey.
   const [dispositions, setDispositions] = useState<CallDispositionEntry[]>([]);
   useEffect(() => {
