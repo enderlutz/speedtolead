@@ -285,6 +285,13 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
             .count()
         )
         stats["not_seen_this_sweep"] = stale
+        # Deleted in GHL → off the dashboard, but only once GHL confirms it.
+        if stale and stats["fetched"]:
+            try:
+                stats["deleted_in_ghl"] = reconcile_deleted(db, loc, started)
+            except Exception as e:
+                db.rollback()
+                logger.error(f"contact mirror: deletion check failed: {e}")
         stats["renamed"] = renamed[:50]
         stats["finished_at"] = _now()
         logger.info(
@@ -295,6 +302,55 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
         return stats
     finally:
         db.close()
+
+
+def remove_deleted_contact(db, contact: "Contact | None", lead: "Lead | None", *, reason: str, actor: str = "") -> None:
+    """A contact is gone from GHL: take it off the dashboard.
+
+    The contacts-list row (a mirror copy) is deleted. The lead is ARCHIVED,
+    not deleted — its estimates, texts, calls and payments are history the
+    numbers depend on, and an archived lead can be restored. It drops off
+    the boards, the Hit List and the call list like any archived lead."""
+    from services.activity_log import log_event
+    now = _now()
+    if lead is not None:
+        lead.status = "archived"
+        lead.kanban_column = "archived"
+        lead.updated_at = now
+        log_event(lead.id, "contact_deleted", reason, {"by": actor})
+    if contact is not None:
+        db.delete(contact)
+    db.commit()
+
+
+# More than this many contacts missing in one sweep looks like a short read,
+# not a clean-up in GHL — so nothing is removed and it is logged instead.
+MAX_DELETIONS_PER_SWEEP = 25
+
+
+def reconcile_deleted(db, loc: str, started: str) -> dict:
+    """Contacts this sweep didn't see: ask GHL about each one, and remove only
+    those GHL confirms are deleted. A contact GHL can't answer for stays."""
+    from services.ghl import contact_status
+    stale = (
+        db.query(Contact)
+        .filter(Contact.ghl_location_id == loc)
+        .filter((Contact.synced_at < started) | (Contact.synced_at.is_(None)))
+        .all()
+    )
+    out = {"missing": len(stale), "removed": 0, "kept": 0, "skipped": False}
+    if len(stale) > MAX_DELETIONS_PER_SWEEP:
+        out["skipped"] = True
+        logger.warning(f"contact mirror: {len(stale)} contacts missing in one sweep — not removing any (looks like a short read)")
+        return out
+    for c in stale:
+        if contact_status(c.ghl_contact_id, loc) != "deleted":
+            out["kept"] += 1
+            continue
+        lead = db.query(Lead).filter(Lead.ghl_contact_id == c.ghl_contact_id).first()
+        remove_deleted_contact(db, c, lead, reason=f"Contact deleted in GHL ({c.name or c.phone})", actor="ghl")
+        out["removed"] += 1
+    return out
 
 
 def sync_all_locations(create_leads: bool = True) -> dict:

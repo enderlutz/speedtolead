@@ -3414,6 +3414,10 @@ export const api = {
   getCrewStats: (start?: string, end?: string) => request<CrewStats>(`/api/crew-app/stats${start || end ? `?start=${start || ""}&end=${end || ""}` : ""}`),
 
   // --- Contacts (mirror of the GHL contact list) ---
+  /** Admin only. Deletes the contact in GHL (its conversations and
+   *  opportunities go with it there), then archives the lead here. */
+  deleteContact: (contactRowId: string) =>
+    request<{ ok: boolean; lead_archived: boolean }>(`/api/contacts/${contactRowId}`, { method: "DELETE" }),
   listContacts: (params: {
     q?: string; estimate?: "sent" | "not_sent"; has_lead?: boolean;
     limit?: number; offset?: number;

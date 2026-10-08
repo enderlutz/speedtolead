@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight } from "lucide-react";
+import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type ContactRow, type ContactStats } from "@/lib/api";
+import { api, getCurrentUser, type ContactRow, type ContactStats } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -224,6 +224,29 @@ export default function Contacts() {
     }));
   }, [loading, rows.length, saved.anchor, saved.scroll]);
 
+  const isAdmin = getCurrentUser()?.role === "admin";
+
+  // Deletes in GHL first — which also removes their conversations and
+  // opportunity there, and can't be undone — so it asks for "DELETE".
+  // The lead is archived here, not deleted, so its history stays.
+  const deleteContact = async (c: ContactRow) => {
+    const who = c.name || c.phone || "this contact";
+    const typed = window.prompt(
+      `Delete ${who} in GoHighLevel AND on the dashboard?\n\n` +
+      `GHL deletes their conversations and opportunity with them. That can't be undone there. ` +
+      `Here the lead is archived, so its estimates and history are kept.\n\nType DELETE to confirm.`,
+    );
+    if ((typed || "").trim().toUpperCase() !== "DELETE") return;
+    try {
+      await api.deleteContact(c.id);
+      setRows((prev) => prev.filter((r) => r.id !== c.id));
+      setTotal((t) => Math.max(0, t - 1));
+      toast.success(`${who} deleted in GHL and archived here`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't delete");
+    }
+  };
+
   const openLead = (leadId: string) => {
     writeView({ q, search, estimate, offset, scroll: scroller()?.scrollTop || 0, anchor: leadId });
     navigate(`/leads/${leadId}`);
@@ -347,7 +370,7 @@ export default function Contacts() {
               <th className="text-left font-medium px-3 py-2">History</th>
               <th className="text-left font-medium px-3 py-2">Stage</th>
               <th className="text-left font-medium px-3 py-2">Where from</th>
-              <th className="w-8" />
+              <th className="w-16" />
             </tr>
           </thead>
           <tbody>
@@ -449,7 +472,19 @@ export default function Contacts() {
                   ) : null}
                 </td>
                 <td className="px-2 py-2 text-muted-foreground">
-                  {c.lead_id ? <ChevronRight className="h-4 w-4" /> : null}
+                  <div className="flex items-center justify-end gap-1">
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        title="Delete this contact in GHL and here"
+                        onClick={(e) => { e.stopPropagation(); void deleteContact(c); }}
+                        className="rounded-md p-1 opacity-40 transition hover:bg-red-50 hover:text-red-600 hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                    {c.lead_id ? <ChevronRight className="h-4 w-4" /> : null}
+                  </div>
                 </td>
               </tr>
             ))}

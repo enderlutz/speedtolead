@@ -195,6 +195,38 @@ def get_contact(contact_id: str, location_id: str | None = None, api_key: str | 
         return None
 
 
+def contact_status(contact_id: str, location_id: str | None = None) -> str:
+    """"exists", "deleted" or "unknown".
+
+    get_contact() returns None for a deleted contact AND for a network blip,
+    which is fine for reading and dangerous for deleting. This tells them
+    apart: only GHL saying the contact is not there counts as deleted."""
+    try:
+        r = _client.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(location_id), timeout=10)
+    except Exception as e:
+        logger.warning(f"GHL contact_status {contact_id}: {e}")
+        return "unknown"
+    if r.status_code == 200:
+        return "exists" if (r.json() or {}).get("contact") else "unknown"
+    body = (r.text or "").lower()
+    if r.status_code == 404 or (r.status_code in (400, 422) and "not found" in body):
+        return "deleted"
+    return "unknown"
+
+
+def delete_contact(contact_id: str, location_id: str | None = None) -> bool:
+    """Delete a contact in GHL. GHL removes its conversations and opportunities
+    with it. True when it's gone, including when it already was."""
+    try:
+        r = _client.delete(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(location_id), timeout=15)
+    except Exception as e:
+        logger.error(f"GHL delete_contact {contact_id}: {e}")
+        return False
+    if r.status_code in (200, 204):
+        return True
+    return contact_status(contact_id, location_id) == "deleted"
+
+
 def upsert_contact(
     location_id: str,
     name: str = "",

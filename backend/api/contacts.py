@@ -409,6 +409,32 @@ def _call_tally(db, lead_id: str) -> dict[str, int]:
     }
 
 
+@router.delete("/contacts/{contact_row_id}")
+def delete_contact_everywhere(contact_row_id: str, user: dict = Depends(require_admin)):
+    """Delete a contact in GHL and take it off the dashboard.
+
+    Admin only, and GHL first: if GHL won't delete it, nothing changes here.
+    GHL removes the contact's conversations and opportunities with it, which
+    can't be undone there. On the dashboard the lead is archived, not
+    deleted, so its history stays (see contact_mirror.remove_deleted_contact).
+    """
+    from services.contact_mirror import remove_deleted_contact
+    from services.ghl import delete_contact
+    db = get_db()
+    try:
+        c = db.query(Contact).filter(Contact.id == contact_row_id).first()
+        if not c:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        if not delete_contact(c.ghl_contact_id, c.ghl_location_id or None):
+            raise HTTPException(status_code=502, detail="GHL didn't delete the contact. Nothing was changed.")
+        lead = db.query(Lead).filter(Lead.ghl_contact_id == c.ghl_contact_id).first()
+        who = (user or {}).get("name") or (user or {}).get("sub") or ""
+        remove_deleted_contact(db, c, lead, reason=f"Contact deleted from the dashboard by {who}", actor=who)
+        return {"ok": True, "lead_archived": bool(lead)}
+    finally:
+        db.close()
+
+
 @router.post("/contacts/{lead_id}/refresh")
 def refresh_contact_history(lead_id: str, user: dict = Depends(get_current_user)):
     """Pull one customer's texts and calls from GHL right now.
