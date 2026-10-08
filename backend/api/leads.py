@@ -1485,6 +1485,9 @@ def ask_for_address(lead_id: str, user: dict = Depends(get_current_user)):
         lead.kanban_column = "no_address"
         existing_fd = lead.to_dict()["form_data"]
         existing_fd["address_action"] = "asked_for_address"
+        # When and who, so the lead page can say "following up since …".
+        existing_fd["address_asked_at"] = _now()
+        existing_fd["address_asked_by"] = (user or {}).get("name") or (user or {}).get("sub") or ""
         lead.form_data = json.dumps(existing_fd)
         lead.updated_at = _now()
         db.commit()

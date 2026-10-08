@@ -1082,13 +1082,36 @@ export default function LeadDetail() {
     inbound.some((m) => before(m.created_at)) ||
     dispositions.some((d) => TALKED.includes(d.outcome) && before(d.disposed_at));
 
+  // After Ask for Address: say what is happening, so nobody has to guess.
+  // GHL's automation texts the customer from the tag; this only reports it.
+  const askedAt = (lead.form_data?.address_asked_at as string | undefined) || "";
+  const asked = lead.form_data?.address_action === "asked_for_address";
+  const firstName = (lead.contact_name || "the customer").split(" ")[0];
+  const repliedSinceAsk = asked && !!askedAt &&
+    messages.some((m) => m.direction === "inbound" && (m.created_at || "") > askedAt);
+  const addressChase = !asked ? null
+    : hasHouseNumber(lead.address)
+      ? { replied: true, tone: "bg-emerald-50 text-emerald-800",
+          text: `Full address received — the follow-up for it can stop.` }
+      : repliedSinceAsk
+        ? { replied: true, tone: "bg-sky-50 text-sky-900",
+            text: `${firstName} replied since we asked — check their message for the full address and update it here.` }
+        : { replied: false, tone: "bg-amber-50 text-amber-900",
+            text: `Following up with ${firstName} for their full address — the GHL automation is texting them`
+              + (askedAt ? ` (asked ${timeAgo(askedAt)}${lead.form_data?.address_asked_by ? ` by ${lead.form_data.address_asked_by}` : ""})` : "")
+              + `. Nothing to do until they reply.` };
+
   const jp = lead.job_progress;
   const photos = (section: string) => jp?.photos?.[section] || 0;
 
   const journey: JourneyStep[] = [
     { key: "address", label: "Address", icon: MapPin, accent: ACCENT.blue, target: "est-contact",
       done: hasHouseNumber(lead.address),
-      hint: lead.address && !hasHouseNumber(lead.address)
+      active: !!addressChase && !hasHouseNumber(lead.address),
+      activeLabel: addressChase?.replied ? "They replied" : "Asking for it",
+      hint: addressChase && !hasHouseNumber(lead.address)
+        ? addressChase.text
+        : lead.address && !hasHouseNumber(lead.address)
         ? `We only have "${lead.address}" — no house number. Ask for the full address.`
         : "Get a street address on file so the map and the pricing zone can resolve." },
     { key: "replied", label: "Replied", icon: MessageSquare, accent: ACCENT.rose, target: "est-contact",
@@ -1495,7 +1518,7 @@ export default function LeadDetail() {
                     disabled={askingAddress || lead?.form_data?.address_action === "asked_for_address" || lead?.pipeline_version === "v1"}
                     title={lead?.pipeline_version === "v1" ? "Export to new pipeline first" : undefined}>
                       <Navigation className="h-3.5 w-3.5 mr-1" />
-                      {lead?.form_data?.address_action === "asked_for_address" ? "Asked" : askingAddress ? "Tagging..." : "Ask for Address"}
+                      {lead?.form_data?.address_action === "asked_for_address" ? "Following up for address" : askingAddress ? "Tagging..." : "Ask for Address"}
                     </Button>
                     {/* New Build — archived 2026-10-08, Alan's call: focus on
                         Ask for Address. The endpoint (/leads/{id}/new-build)
@@ -1585,6 +1608,12 @@ export default function LeadDetail() {
                       {lead.area && (
                         <span className="block truncate text-[11px] font-normal text-muted-foreground">{lead.area}</span>
                       )}
+                      {addressChase ? (
+                        <span className={cn("mt-1 flex items-start gap-1 whitespace-normal rounded-md px-1.5 py-1 text-[11px] font-medium leading-snug",
+                          addressChase.tone)}>
+                          <Clock className="mt-0.5 h-3 w-3 shrink-0" />{addressChase.text}
+                        </span>
+                      ) : null}
                     </ContactFact>
                     <ContactFact icon={Compass} accent={ACCENT.cyan} label="ZIP code">
                       {lead.zip_code || "—"}
