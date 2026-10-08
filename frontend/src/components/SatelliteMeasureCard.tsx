@@ -603,16 +603,35 @@ export default function SatelliteMeasureCard({
       const msg = e instanceof Error ? e.message : "Capture failed";
       // Google's refusal arrives as "502: {"detail":"..."}". Pull out the
       // sentence that actually says what to do.
+      // The backend tries the server key and then the browser key, and names
+      // both in the detail. Collapsing that to one friendly sentence hid the
+      // fact that BOTH had been refused, and claimed the browser key still
+      // worked when it had just failed. Show Google's own words per key.
+      const triedBoth = /browser key:/i.test(msg) && /server key:/i.test(msg);
       const billing = /enable Billing/i.test(msg);
-      const notEnabled = /has not been used in project|is disabled/i.test(msg);
-      const friendly = billing
-        ? "Google needs Billing enabled on the Cloud project behind the SERVER key. "
-          + "The map you just drew on uses a different key, which is why it still works."
-        : notEnabled
-          ? "Enable the Maps Static API on the server Google Maps key, then try again."
-          : msg;
-      if (billing || notEnabled) setKeyProblem(friendly);
-      toast.error(friendly, { duration: 10000 });
+      const notEnabled = /has not been used in project|is disabled|not enabled/i.test(msg);
+      const refusal = msg.replace(/^.*refused the capture\s*[—:-]\s*/i, "");
+
+      const headline = triedBoth
+        ? "Both Google Maps keys were refused, so this needs fixing in the Google Cloud Console — "
+          + "no change on our side can get around it. Google's reason for each key is below; "
+          + "send it to whoever manages the Cloud project."
+        : billing
+          ? "Google needs Billing enabled on the Cloud project behind this Maps key."
+          : notEnabled
+            ? "Enable the Maps Static API on this Google Maps key, then try again."
+            : msg;
+
+      if (triedBoth || billing || notEnabled) {
+        setKeyProblem(headline);
+        // Split "server key: … ; browser key: …" into one line each.
+        setDiagnosis(
+          triedBoth
+            ? refusal.split(/;\s*(?=(?:server|browser) key:)/i).map((t) => t.trim()).filter(Boolean)
+            : [],
+        );
+      }
+      toast.error(headline, { duration: 12000 });
     } finally {
       setCapturing(false);
     }
@@ -839,9 +858,25 @@ export default function SatelliteMeasureCard({
                 : "Ask Google what's wrong"}
             </Button>
             {diagnosis.length > 0 ? (
-              <ul className="text-[11px] text-amber-900 space-y-1 font-mono break-words">
-                {diagnosis.map((d, i) => <li key={i}>{d}</li>)}
-              </ul>
+              <>
+                <ul className="text-[11px] text-amber-900 space-y-1 font-mono break-words">
+                  {diagnosis.map((d, i) => <li key={i}>{d}</li>)}
+                </ul>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(diagnosis.join("\n"));
+                      toast.success("Copied — paste it to whoever manages the Cloud project");
+                    } catch {
+                      toast.error("Couldn't copy. Select the text above instead.");
+                    }
+                  }}
+                >
+                  Copy for Fragne
+                </Button>
+              </>
             ) : null}
           </div>
         ) : null}
