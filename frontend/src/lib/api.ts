@@ -1974,6 +1974,13 @@ export const api = {
       `/api/leads/${leadId}/resync-stage`,
       { method: "POST" },
     ),
+  /** Mark whether the customer left a Google review. Its own endpoint, so it
+   *  never re-prices the estimate the way the form-data save does. */
+  setGoogleReview: (leadId: string, left: boolean) =>
+    request<{ google_review_left_at: string | null }>(`/api/leads/${leadId}/google-review`, {
+      method: "PUT",
+      body: JSON.stringify({ left }),
+    }),
   setDeclineReasons: (leadId: string, reasons: string[], otherText: string) =>
     request<{ status: string; reasons: string[] }>(`/api/leads/${leadId}/decline-reasons`, {
       method: "POST",

@@ -1550,6 +1550,39 @@ class DeclineReasonsBody(BaseModel):
     other_text: str = ""
 
 
+class GoogleReviewBody(BaseModel):
+    left: bool
+
+
+@router.put("/leads/{lead_id}/google-review")
+def set_google_review(lead_id: str, body: GoogleReviewBody, user: dict = Depends(get_current_user)):
+    """Mark whether the customer left a Google review — the last step of the
+    customer journey. Nothing in the app can see Google reviews, so a person
+    marks it.
+
+    Deliberately not routed through PUT /form-data: that endpoint re-prices
+    the latest pending estimate (and creates one when none is pending), which
+    must never happen because somebody ticked a box about a review."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        fd = lead.to_dict()["form_data"]
+        if body.left:
+            fd["google_review_left_at"] = fd.get("google_review_left_at") or _now()
+            fd["google_review_marked_by"] = (user or {}).get("name") or (user or {}).get("sub") or ""
+        else:
+            fd.pop("google_review_left_at", None)
+            fd.pop("google_review_marked_by", None)
+        lead.form_data = json.dumps(fd)
+        lead.updated_at = _now()
+        db.commit()
+        return {"google_review_left_at": fd.get("google_review_left_at")}
+    finally:
+        db.close()
+
+
 @router.post("/leads/{lead_id}/decline-reasons")
 def set_decline_reasons(lead_id: str, body: DeclineReasonsBody, user: dict = Depends(get_current_user)):
     """Capture WHY a deal was lost. Multi-select with rank order. The first

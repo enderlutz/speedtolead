@@ -199,6 +199,10 @@ type JourneyStep = {
    *  estimate without ever getting a first reply). Shown amber, and never
    *  "You are here". */
   skipped?: boolean;
+  /** "sale" — winning the job; "job" — doing it. Drawn as two rows. */
+  phase?: "sale" | "job";
+  /** Replaces the scroll-to-card tap, for a step marked by hand. */
+  onClick?: () => void;
 };
 
 /** The six stages of a lead, from "we have an address" to "it's on the
@@ -219,10 +223,10 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Customer journey</p>
           <p className="font-heading text-lg font-bold leading-tight">
-            {current ? `Next up: ${current.label}` : "Booked — every step done"}
+            {current ? `Next up: ${current.label}` : "Every step done — reviewed and paid"}
           </p>
           <p className="mt-0.5 text-xs text-white/70">
-            {current ? current.hint : "Nice work. Everything from here lives on the calendar and Company Cam."}
+            {current ? current.hint : "A finished customer. Ask for a referral."}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -245,8 +249,16 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         ))}
       </div>
 
-      <div className="relative mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-9">
-        {steps.map((s) => {
+      {(["sale", "job"] as const).map((phase) => {
+        const row = steps.filter((s) => (s.phase || "sale") === phase);
+        if (row.length === 0) return null;
+        return (
+      <div key={phase} className="relative mt-3">
+      {phase === "job" ? (
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">The job</p>
+      ) : null}
+      <div className={cn("grid gap-1.5", phase === "sale" ? "grid-cols-3 sm:grid-cols-9" : "grid-cols-4")}>
+        {row.map((s) => {
           const isCurrent = s === current;
           const Icon = s.icon;
           // Booked is the win, so it gets a gold star rather than a tick.
@@ -255,7 +267,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
             <button
               key={s.key}
               type="button"
-              onClick={() => jump(s.target)}
+              onClick={() => (s.onClick ? s.onClick() : jump(s.target))}
               title={s.hint}
               className={cn(
                 "flex flex-col items-center gap-1 rounded-xl px-1.5 py-2 text-center transition active:scale-95",
@@ -285,6 +297,9 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
           );
         })}
       </div>
+      </div>
+        );
+      })}
     </div>
   );
 }
@@ -971,6 +986,39 @@ export default function LeadDetail() {
     { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-visits",
       done: !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid",
       hint: "Collect the deposit and put the visits on the calendar." },
+
+    // ── The job. Read off the last scheduled visit. ──
+    { key: "started", label: "Job started", icon: Paintbrush, accent: ACCENT.cyan, target: "est-visits", phase: "job",
+      done: !!latestScheduledJob && (!!latestScheduledJob.started_at
+        || ["in_progress", "completed"].includes(latestScheduledJob.status)),
+      hint: "The crew taps Start on the job when they arrive." },
+    { key: "completed", label: "Job done", icon: CheckCircle2, accent: ACCENT.emerald, target: "est-visits", phase: "job",
+      done: !!latestScheduledJob && (latestScheduledJob.status === "completed" || !!latestScheduledJob.completed_at),
+      hint: "Walkthrough with the customer, then the crew marks the job complete." },
+    { key: "invoiced", label: "Invoiced", icon: Receipt, accent: ACCENT.violet, target: "est-contact", phase: "job",
+      done: !!latestScheduledJob && (!!latestScheduledJob.qb_invoice_id
+        || ["pending", "paid"].includes((latestScheduledJob.payment_status || "").toLowerCase())),
+      hint: "Generate the full invoice under Payment links — it texts them a tap-to-pay link." },
+    { key: "reviewed", label: "Google review", icon: Star, accent: ACCENT.gold, target: "est-contact", phase: "job",
+      done: !!lead.form_data?.google_review_left_at,
+      hint: "Ask every customer for a review, happy or not. Tap here once they've left one.",
+      onClick: async () => {
+        const left = !lead.form_data?.google_review_left_at;
+        const ok = window.confirm(left
+          ? `Mark that ${lead.contact_name || "this customer"} left a Google review?`
+          : "Un-mark the Google review?");
+        if (!ok) return;
+        try {
+          const r = await api.setGoogleReview(lead.id, left);
+          setLead((prev) => prev ? {
+            ...prev,
+            form_data: { ...prev.form_data, google_review_left_at: r.google_review_left_at || "" },
+          } : prev);
+          toast.success(left ? "Google review marked" : "Google review un-marked");
+        } catch (e) {
+          toast.error(errMessage(e, "Couldn't save"));
+        }
+      } },
   ];
 
   return (
