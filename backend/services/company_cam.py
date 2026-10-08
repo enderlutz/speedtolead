@@ -161,6 +161,142 @@ def derive_from_estimate(db, lead_id: str) -> dict:
     return out
 
 
+# --- the eight sides of a fence ---
+#
+# The same vocabulary the estimator saves in `form_data.fence_sides`, so a
+# colour row on Company Cam and a side on the estimate are literally the same
+# string. Front faces the street.
+FENCE_SIDE_GROUPS: dict[str, list[str]] = {
+    "Inside":  ["Inside Front", "Inside Left", "Inside Back", "Inside Right"],
+    "Outside": ["Outside Front", "Outside Left", "Outside Back", "Outside Right"],
+}
+FENCE_SIDE_KEYS: tuple[str, ...] = tuple(
+    s for group in FENCE_SIDE_GROUPS.values() for s in group
+)
+
+
+def normalize_sides(raw) -> list[str]:
+    """A list of known side names, in the order given, no repeats. Accepts a
+    list or the comma-separated string older form_data used."""
+    if isinstance(raw, str):
+        raw = [x.strip() for x in raw.split(",")]
+    out: list[str] = []
+    for x in raw or []:
+        name = str(x or "").strip()
+        if name in FENCE_SIDE_KEYS and name not in out:
+            out.append(name)
+    return out
+
+
+def sides_label(sides: list[str]) -> str:
+    """"All insides", "Inside: Front, Left · Outside: Back", "Whole fence".
+    What a row of sides is called in the cleaner's instructions."""
+    chosen = normalize_sides(sides)
+    if not chosen:
+        return ""
+    if len(chosen) == len(FENCE_SIDE_KEYS):
+        return "Whole fence"
+    parts: list[str] = []
+    for group, names in FENCE_SIDE_GROUPS.items():
+        mine = [n for n in names if n in chosen]
+        if not mine:
+            continue
+        if len(mine) == len(names):
+            parts.append(f"All {group.lower()}s")
+        else:
+            short = ", ".join(n.replace(f"{group} ", "") for n in mine)
+            parts.append(f"{group}: {short}")
+    return " · ".join(parts)
+
+
+def estimate_sides(db, lead) -> list[str]:
+    """The sides the customer bought, as the estimator last saved them.
+
+    `form_data.fence_sides` is what the VA sees on the Estimate tab, so it
+    wins; the latest sent estimate's inputs are the fallback for a lead whose
+    form_data was never written back."""
+    from database import Estimate
+
+    try:
+        fd = json.loads(lead.form_data or "{}") if isinstance(lead.form_data, str) else (lead.form_data or {})
+    except (ValueError, TypeError):
+        fd = {}
+    sides = normalize_sides(fd.get("fence_sides")) if isinstance(fd, dict) else []
+    if sides:
+        return sides
+    est = (
+        db.query(Estimate)
+        .filter(Estimate.lead_id == lead.id, Estimate.status == "sent")
+        .order_by(Estimate.sent_at.desc().nullslast())
+        .first()
+    )
+    if not est:
+        return []
+    try:
+        inputs = json.loads(est.inputs or "{}")
+    except (ValueError, TypeError):
+        inputs = {}
+    return normalize_sides(inputs.get("fence_sides")) if isinstance(inputs, dict) else []
+
+
+# --- the colours we actually use ---
+#
+# Every colour recorded on a real job through Sep 2026 (frontend/src/data/
+# jobs.json), so the crew taps a name instead of spelling it. Not the
+# catalogue — Sterling buys from several brands and this is what has gone on
+# a fence. The live stain inventory is merged in ahead of these at request
+# time, so a colour on the shelf is always offered even if it is new here.
+# "Other" on the screen takes anything else, HOA colours included.
+STAIN_COLORS: list[str] = [
+    "October Brown",
+    "Cedar Naturaltone",
+    "Simply Cedar",
+    "Chocolate Chip",
+    "Classic Mahogany",
+    "Redwood Naturaltone",
+    "Pine Bark",
+    "Dark Walnut",
+    "Natural Cedar",
+    "Pecan",
+    "Darkest Night",
+    "Cowboy Suede",
+    "Potato Skin",
+    "Charwood",
+    "Bark Mulch",
+]
+
+
+def color_options(db) -> list[str]:
+    """What is on the shelf, then the rest of the usual list. De-duplicated
+    ignoring case, so "pine bark" in inventory and "Pine Bark" here is one
+    chip, spelled the way inventory has it."""
+    from database import StainInventoryItem
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        n = str(name or "").strip()
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            out.append(n)
+
+    try:
+        rows = (
+            db.query(StainInventoryItem)
+            .filter(StainInventoryItem.active.is_(True))
+            .order_by(StainInventoryItem.color_name)
+            .all()
+        )
+        for r in rows:
+            add(r.color_name)
+    except Exception:  # noqa: BLE001 — a missing table must not break the crew screen
+        logger.exception("stain inventory unavailable for colour options")
+    for c in STAIN_COLORS:
+        add(c)
+    return out
+
+
 # --- where the customer actually is on colour ---
 #
 # Alan's problem: sometimes a colour is closed on the phone and settled.
@@ -188,7 +324,8 @@ COLOR_STATUSES: list[dict] = [
     {
         "key": "not_chosen",
         "label": "No colour picked yet",
-        "hint": "The cleaner shows the range and gets a decision.",
+        "hint": "The cleaner shows the range and gets a decision. If they're "
+                "leaning a direction — browns, nothing reddish — write that down.",
         "wants_colors": 0,
     },
 ]
@@ -204,12 +341,27 @@ COLOR_AREA_SUGGESTIONS = [
 
 
 def normalize_color_plan(raw) -> list[dict]:
-    """Clean a colour plan off the wire into (area, status, colors)."""
+    """Clean a colour plan off the wire into (area, sides, status, colors, leaning).
+
+    A row is a set of sides. Its `area` is derived from them — "All insides",
+    "Inside: Front, Left · Outside: Back" — so the cleaner's instructions read
+    naturally. A row with no sides keeps whatever free-text area it had, which
+    is how rows written before the sides map carry on working.
+
+    A side belongs to one row: the first row to claim it keeps it.
+
+    A row is dropped only when it says nothing at all — no sides, no area, no
+    colours. It used to be dropped for having no area and no colours, which
+    threw away every freshly added row before anybody could type in it.
+    """
     out: list[dict] = []
+    claimed: set[str] = set()
     for row in raw or []:
         if not isinstance(row, dict):
             continue
-        area = str(row.get("area") or "").strip()[:80]
+        sides = [s for s in normalize_sides(row.get("sides")) if s not in claimed]
+        claimed.update(sides)
+        area = sides_label(sides) if sides else str(row.get("area") or "").strip()[:80]
         status = str(row.get("status") or "").strip()
         if status not in COLOR_STATUS_KEYS:
             status = "not_chosen"
@@ -218,9 +370,16 @@ def normalize_color_plan(raw) -> list[dict]:
             for c in (row.get("colors") or [])
             if str(c).strip()
         ][:8]
-        if not area and not colors:
+        leaning = str(row.get("leaning") or "").strip()[:120] if status == "not_chosen" else ""
+        if not area and not sides and not colors:
             continue
-        out.append({"area": area or "Whole fence", "status": status, "colors": colors})
+        out.append({
+            "area": area or "Whole fence",
+            "sides": sides,
+            "status": status,
+            "colors": colors,
+            "leaning": leaning,
+        })
     return out[:12]
 
 
@@ -238,7 +397,12 @@ def cleaner_color_actions(plan: list[dict]) -> list[str]:
             shown = ", ".join(colors) if colors else "the samples"
             out.append(f"{area}: show {shown} and confirm which one they want.")
         elif row.get("status") == "not_chosen":
-            out.append(f"{area}: no colour chosen — show the range and get a decision.")
+            leaning = str(row.get("leaning") or "").strip()
+            if leaning:
+                out.append(f"{area}: no colour chosen — they're leaning towards "
+                           f"{leaning}; show those and get a decision.")
+            else:
+                out.append(f"{area}: no colour chosen — show the range and get a decision.")
         elif row.get("status") == "confirmed" and not colors:
             out.append(f"{area}: marked confirmed but no colour written down — check before you start.")
     return out

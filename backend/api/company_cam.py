@@ -31,7 +31,9 @@ from services.company_cam import (
     SQFT_PER_GALLON,
     STAINER_CHECKLIST,
     cleaner_color_actions,
+    color_options,
     derive_from_estimate,
+    estimate_sides,
     filter_checklist,
     gallons_for,
     normalize_color_plan,
@@ -256,6 +258,13 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             "upsell_options": upsell_options(),
             "color_statuses": COLOR_STATUSES,
             "color_areas": COLOR_AREA_SUGGESTIONS,
+            # What's on the shelf first, then the colours we usually use.
+            "color_options": color_options(db),
+            # The sides the customer bought, as the estimator last saved them.
+            # The colour map lights these up; the rest stay tappable so a
+            # crew can add an on-site upsell without going back to the
+            # estimate.
+            "estimate_sides": estimate_sides(db, lead),
             "cleaner_checklist": CLEANER_CHECKLIST,
             "stainer_checklist": STAINER_CHECKLIST,
             "almost_done_default": ALMOST_DONE_TEMPLATE.format(

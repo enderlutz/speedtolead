@@ -3529,9 +3529,15 @@ export interface CompanyCamPhoto {
 /** Where the customer is on colour, per area of the fence. A single colour
  *  field can't say "front gates settled, insides still between three". */
 export interface ColorPlanRow {
+  /** Derived from `sides` on the server ("All insides", "Inside: Front, Left").
+   *  Free text only on rows written before the sides map existed. */
   area: string;
+  /** "Inside Front"-style names — the same strings as the estimator's fence_sides. */
+  sides: string[];
   status: "confirmed" | "choosing" | "not_chosen";
   colors: string[];
+  /** Only while status is not_chosen: "browns, nothing reddish". */
+  leaning: string;
 }
 
 export interface CompanyCamJob {
@@ -3590,6 +3596,10 @@ export interface CompanyCamPayload {
   upsell_options: { key: string; label: string }[];
   color_statuses: { key: string; label: string; hint: string; wants_colors: number }[];
   color_areas: string[];
+  /** What's on the shelf first, then the colours we usually use. */
+  color_options: string[];
+  /** The sides the customer bought, as the estimator last saved them. */
+  estimate_sides: string[];
   cleaner_checklist: { key: string; label: string; hint?: string }[];
   stainer_checklist: { key: string; label: string; hint?: string }[];
   /** The preset "almost done" text, editable before sending. */

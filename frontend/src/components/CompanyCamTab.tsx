@@ -20,7 +20,7 @@ import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
-  CircleDollarSign, Package, Hash,
+  CircleDollarSign, Package, Hash, Plus, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -32,7 +32,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
 import { ACCENT, type Accent } from "@/lib/accents";
-import { Panel, Field, StatTile, ProgressPill } from "@/components/Panel";
+import { Panel, Field, StatTile, ProgressPill, Pill } from "@/components/Panel";
+import { SidesPicker } from "@/components/SidesPicker";
+import { sidesLabel } from "@/lib/fenceSides";
 
 const PACKAGES = ["essential", "signature", "legacy"] as const;
 
@@ -202,87 +204,257 @@ const STATUS_TONE: Record<string, { bar: string; on: string; text: string }> = {
   not_chosen: { bar: "bg-slate-300",   on: "bg-slate-600 text-white hover:bg-slate-600",     text: "text-slate-600" },
 };
 
+/** The one free-text box in a colour row. Uncontrolled like the rest of this
+ *  screen: saves on blur or Enter, and remounts (via `key`) when the saved
+ *  value changes underneath it. */
+function CommitInput({
+  value, onCommit, placeholder, className,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  return (
+    <Input
+      key={value}
+      defaultValue={value}
+      placeholder={placeholder}
+      className={className}
+      onBlur={(e) => { const v = e.target.value.trim(); if (v !== value) onCommit(v); }}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+    />
+  );
+}
+
+/** "Other / HOA colour". Adds on Enter or blur, then clears itself. */
+function AddColorBox({ onAdd }: { onAdd: (color: string) => void }) {
+  const commit = (el: HTMLInputElement) => {
+    const v = el.value.trim();
+    if (v) { onAdd(v); el.value = ""; }
+  };
+  return (
+    <Input
+      placeholder="Other / HOA colour — type it, then Enter"
+      className="h-9 text-sm"
+      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(e.currentTarget); } }}
+      onBlur={(e) => commit(e.currentTarget)}
+    />
+  );
+}
+
+const EMPTY_ROW: ColorPlanRow = { area: "", sides: [], status: "not_chosen", colors: [], leaning: "" };
+
+/** One colour: the sides it covers, where the customer is on it, and the
+ *  colours in play. */
+function ColorRow({
+  row, statuses, colorOptions, estimateSides, elsewhere, isDraft, onChange, onRemove,
+}: {
+  row: ColorPlanRow;
+  statuses: { key: string; label: string; hint: string; wants_colors: number }[];
+  colorOptions: string[];
+  estimateSides: string[];
+  elsewhere: string[];
+  isDraft?: boolean;
+  onChange: (patch: Partial<ColorPlanRow>) => void;
+  onRemove: () => void;
+}) {
+  const st = statuses.find((x) => x.key === row.status);
+  const tone = STATUS_TONE[row.status] || STATUS_TONE.not_chosen;
+  const label = row.sides.length ? sidesLabel(row.sides) : row.area;
+  const single = row.status === "confirmed";
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const has = (c: string) => row.colors.some((x) => same(x, c));
+  const toggleColor = (c: string) => {
+    if (single) onChange({ colors: has(c) ? [] : [c] });
+    else onChange({ colors: has(c) ? row.colors.filter((x) => !same(x, c)) : [...row.colors, c] });
+  };
+  const custom = row.colors.filter((c) => !colorOptions.some((o) => same(o, c)));
+  const chipCls = (on: boolean) => cn(
+    "inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-semibold transition active:scale-95",
+    on
+      ? "border-transparent bg-gradient-to-br from-fuchsia-500 to-purple-600 text-white shadow-sm"
+      : "border-input bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+  );
+
+  return (
+    <div className="relative overflow-hidden rounded-xl border bg-card pl-3">
+      <div className={`absolute inset-y-0 left-0 w-1.5 ${tone.bar}`} />
+      <div className="space-y-2.5 p-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className={cn("text-sm font-semibold leading-tight", !label && "text-muted-foreground")}>
+              {label || "Which sides get this colour?"}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {row.sides.length
+                ? `${row.sides.length} of 8 sides`
+                : isDraft
+                  ? "Tap the sides below — it saves as soon as you pick one."
+                  : "Written before the sides map. Tap the sides to place it."}
+            </p>
+          </div>
+          <button type="button" onClick={onRemove}
+                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-600"
+                  title="Remove">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <SidesPicker
+          compact
+          value={row.sides}
+          highlight={estimateSides}
+          elsewhere={elsewhere}
+          onChange={(sides) => onChange({ sides })}
+        />
+
+        <div className="flex flex-wrap gap-1.5">
+          {statuses.map((o) => {
+            const on = row.status === o.key;
+            const t = STATUS_TONE[o.key] || STATUS_TONE.not_chosen;
+            return (
+              <Button key={o.key} size="sm"
+                      variant={on ? "default" : "outline"}
+                      className={cn("h-8 text-[11px] font-semibold", on && t.on)}
+                      onClick={() => onChange({ status: o.key as ColorPlanRow["status"] })}>
+                {on ? <Check className="mr-1 h-3 w-3" /> : null}{o.label}
+              </Button>
+            );
+          })}
+        </div>
+        {st ? <p className="text-[11px] leading-snug text-muted-foreground">{st.hint}</p> : null}
+
+        {row.status !== "not_chosen" ? (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {colorOptions.map((c) => (
+                <button key={c} type="button" aria-pressed={has(c)} onClick={() => toggleColor(c)} className={chipCls(has(c))}>
+                  {has(c) ? <Check className="h-3 w-3" /> : null}{c}
+                </button>
+              ))}
+              {custom.map((c) => (
+                <button key={`custom-${c}`} type="button" aria-pressed onClick={() => toggleColor(c)}
+                        className={chipCls(true)} title="Tap to remove">
+                  <Check className="h-3 w-3" />{c}<X className="h-3 w-3 opacity-80" />
+                </button>
+              ))}
+            </div>
+            <AddColorBox onAdd={(c) => onChange({ colors: single ? [c] : (has(c) ? row.colors : [...row.colors, c]) })} />
+            <p className="text-[10px] text-muted-foreground">
+              {single ? "One colour — tapping another swaps it." : "Tap every colour still in play."}
+            </p>
+          </div>
+        ) : (
+          <CommitInput
+            value={row.leaning}
+            onCommit={(v) => onChange({ leaning: v })}
+            placeholder="Leaning a direction? e.g. browns, nothing reddish"
+            className="h-9 text-sm"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
- * Where the customer is on colour, per area of the fence.
+ * Where the customer is on colour, per part of the fence.
  *
- * One colour field could not say "front gates settled, insides still between
+ * One colour field could not say "insides settled, outsides still between
  * three", which is the normal case: photos don't do the colours justice, so
- * the cleaner holds samples up at the fence. Each row therefore carries an
- * area, a status, and the colours in play — and the statuses are what
- * generate the cleaner's to-do list on arrival.
+ * the cleaner holds samples up at the fence. Each row is therefore a set of
+ * sides — the same eight the estimator uses — with a status and the colours
+ * in play. The statuses generate the cleaner's to-do list on arrival.
+ *
+ * A side belongs to one row. Tapping it in another row moves it.
  */
 function ColorPlan({
-  plan, statuses, areas, onChange,
+  plan, statuses, colorOptions, estimateSides, onChange,
 }: {
   plan: ColorPlanRow[];
   statuses: { key: string; label: string; hint: string; wants_colors: number }[];
-  areas: string[];
+  colorOptions: string[];
+  estimateSides: string[];
   onChange: (next: ColorPlanRow[]) => void;
 }) {
-  const set = (i: number, patch: Partial<ColorPlanRow>) =>
-    onChange(plan.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  // "Add a part of the fence" opens a row here first. It goes to the server
+  // the moment it has a side or a colour. Before that the server has nothing
+  // to keep — and saving it anyway is exactly how the old version lost every
+  // new row before anybody could touch it.
+  const [drafts, setDrafts] = useState<ColorPlanRow[]>([]);
+
+  const strip = (rows: ColorPlanRow[], taken: Set<string>) =>
+    rows.map((r) => ({ ...r, sides: r.sides.filter((s) => !taken.has(s)) }));
+
+  const claimedExcept = (skip: { saved?: number; draft?: number }) => {
+    const out: string[] = [];
+    plan.forEach((r, i) => { if (i !== skip.saved) out.push(...r.sides); });
+    drafts.forEach((r, i) => { if (i !== skip.draft) out.push(...r.sides); });
+    return out;
+  };
+
+  const setSaved = (i: number, patch: Partial<ColorPlanRow>) => {
+    let next = plan.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+    if (patch.sides) {
+      const mine = new Set(patch.sides);
+      next = next.map((r, idx) => (idx === i ? r : { ...r, sides: r.sides.filter((s) => !mine.has(s)) }));
+      setDrafts((d) => strip(d, mine));
+    }
+    onChange(next);
+  };
+
+  const setDraft = (i: number, patch: Partial<ColorPlanRow>) => {
+    const row = { ...drafts[i], ...patch };
+    if (row.sides.length || row.colors.length) {
+      const mine = new Set(row.sides);
+      setDrafts((d) => strip(d.filter((_, idx) => idx !== i), mine));
+      onChange([...strip(plan, mine), row]);
+    } else {
+      setDrafts((d) => d.map((r, idx) => (idx === i ? row : r)));
+    }
+  };
+
+  const covered = new Set([...plan, ...drafts].flatMap((r) => r.sides));
+  const uncovered = estimateSides.filter((s) => !covered.has(s));
 
   return (
     <div className="space-y-2">
-      {plan.map((row, i) => {
-        const st = statuses.find((x) => x.key === row.status);
-        const tone = STATUS_TONE[row.status] || STATUS_TONE.not_chosen;
-        return (
-          <div key={i} className="relative overflow-hidden rounded-xl border bg-card pl-3">
-            <div className={`absolute inset-y-0 left-0 w-1.5 ${tone.bar}`} />
-            <div className="space-y-2 p-2.5">
-              <div className="flex items-start gap-1.5">
-                <Input
-                  defaultValue={row.area}
-                  placeholder="Which part? e.g. Front gates"
-                  list="cc-color-areas"
-                  onBlur={(e) => { if (e.target.value !== row.area) set(i, { area: e.target.value }); }}
-                  className="h-9 text-sm font-medium"
-                />
-                <button type="button" onClick={() => onChange(plan.filter((_, idx) => idx !== i))}
-                        className="mt-1 rounded-md p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-600"
-                        title="Remove">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {statuses.map((o) => {
-                  const on = row.status === o.key;
-                  const t = STATUS_TONE[o.key] || STATUS_TONE.not_chosen;
-                  return (
-                    <Button key={o.key} size="sm"
-                            variant={on ? "default" : "outline"}
-                            className={cn("h-8 text-[11px] font-semibold", on && t.on)}
-                            onClick={() => set(i, { status: o.key as ColorPlanRow["status"] })}>
-                      {on ? <Check className="mr-1 h-3 w-3" /> : null}{o.label}
-                    </Button>
-                  );
-                })}
-              </div>
-              {st ? <p className="text-[11px] leading-snug text-muted-foreground">{st.hint}</p> : null}
-              {row.status !== "not_chosen" ? (
-                <Input
-                  defaultValue={row.colors.join(", ")}
-                  placeholder={row.status === "choosing"
-                    ? "Every colour in play, comma separated"
-                    : "The colour"}
-                  onBlur={(e) => {
-                    const next = e.target.value.split(",").map((c) => c.trim()).filter(Boolean);
-                    if (next.join(",") !== row.colors.join(",")) set(i, { colors: next });
-                  }}
-                  className="h-9 text-sm"
-                />
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-      <datalist id="cc-color-areas">
-        {areas.map((a) => <option key={a} value={a} />)}
-      </datalist>
-      <Button variant="outline" size="sm" className="h-9 w-full border-dashed sm:w-auto"
-              onClick={() => onChange([...plan, { area: "", status: "not_chosen", colors: [] }])}>
-        + Add a part of the fence
+      {plan.map((row, i) => (
+        <ColorRow
+          key={`saved-${i}`}
+          row={row}
+          statuses={statuses}
+          colorOptions={colorOptions}
+          estimateSides={estimateSides}
+          elsewhere={claimedExcept({ saved: i })}
+          onChange={(p) => setSaved(i, p)}
+          onRemove={() => onChange(plan.filter((_, idx) => idx !== i))}
+        />
+      ))}
+      {drafts.map((row, i) => (
+        <ColorRow
+          key={`draft-${i}`}
+          row={row}
+          statuses={statuses}
+          colorOptions={colorOptions}
+          estimateSides={estimateSides}
+          elsewhere={claimedExcept({ draft: i })}
+          isDraft
+          onChange={(p) => setDraft(i, p)}
+          onRemove={() => setDrafts((d) => d.filter((_, idx) => idx !== i))}
+        />
+      ))}
+      {uncovered.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-amber-200 bg-amber-50/60 px-2.5 py-2 text-[11px] text-amber-900">
+          <AlertTriangle className="mr-0.5 h-3 w-3 shrink-0" />
+          <span className="font-semibold">On the estimate, no colour yet:</span>
+          {uncovered.map((s) => <Pill key={s} accent={ACCENT.amber}>{s}</Pill>)}
+        </div>
+      ) : null}
+      <Button variant="outline" size="sm" className="h-10 w-full border-dashed"
+              onClick={() => setDrafts((d) => [...d, { ...EMPTY_ROW }])}>
+        <Plus className="mr-1 h-3.5 w-3.5" /> Add a part of the fence
       </Button>
     </div>
   );
@@ -413,7 +585,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
   const {
     job, sections, photos, upsell_options, blockers, customer,
-    color_statuses, color_areas, cleaner_checklist, stainer_checklist,
+    color_statuses, color_options, estimate_sides, cleaner_checklist, stainer_checklist,
     almost_done_default, cleaner_actions,
   } = data;
   const totalPhotos = Object.values(photos).reduce((n, arr) => n + arr.length, 0);
@@ -617,15 +789,17 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
       {/* Colour, per area. Drives what the cleaner has to settle on site. */}
       <Panel icon={Palette} accent={ACCENT.fuchsia}
              title="Stain colour — where the customer is"
-             sub="A row per part of the fence">
+             sub="A row per colour — tap the sides it covers">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          They can be at a different stage on each — front gates settled while
-          the insides are still between three colours is normal.
+          They can be at a different stage on each — insides settled while the
+          outsides are still between three colours is normal. Insides brown and
+          outsides the HOA colour is two rows.
         </p>
         <ColorPlan
           plan={job.color_plan}
           statuses={color_statuses}
-          areas={color_areas}
+          colorOptions={color_options}
+          estimateSides={estimate_sides}
           onChange={(next) => void patch({ color_plan: next })}
         />
 

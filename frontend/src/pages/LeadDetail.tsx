@@ -8,7 +8,8 @@ import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { cn, formatCurrency, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
-import { Panel, Field, StatTile, ToggleChip, Pill, ProgressPill } from "@/components/Panel";
+import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
+import { SidesPicker } from "@/components/SidesPicker";
 import { ghlContactUrl } from "@/lib/ghlLink";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
@@ -24,7 +25,7 @@ import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
-  Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, Home, CreditCard, Check, Receipt,
+  Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -101,11 +102,6 @@ const CONFIDENCE_OPTIONS = [
   { label: "Somewhat confident", value: "80" },
   { label: "I'm not confident", value: "60" },
 ];
-
-const FENCE_SIDES = {
-  Inside: ["Inside Front", "Inside Left", "Inside Back", "Inside Right"],
-  Outside: ["Outside Front", "Outside Left", "Outside Back", "Outside Right"],
-};
 
 // Three states, three colours, carried through the whole page: green is
 // always "go", amber is always "waiting on something", red is always "stop".
@@ -300,84 +296,6 @@ function ContactFact({
       </div>
       {right}
     </div>
-  );
-}
-
-/** Pick the fence sides on a little top-down map of the house instead of
- *  eight checkboxes. Inside is violet, outside is sky, everywhere on the
- *  page. The value is the same list of "Inside Front"-style names the
- *  estimator has always saved. */
-function SidesPicker({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
-  const groups: Array<{ group: keyof typeof FENCE_SIDES; accent: Accent }> = [
-    { group: "Inside", accent: ACCENT.violet },
-    { group: "Outside", accent: ACCENT.cyan },
-  ];
-  const toggle = (name: string) =>
-    onChange(value.includes(name) ? value.filter((s) => s !== name) : [...value, name]);
-  const setGroup = (names: string[], on: boolean) => {
-    const rest = value.filter((s) => !names.includes(s));
-    onChange(on ? [...rest, ...names] : rest);
-  };
-  return (
-    <Field label="Fence sides" hint="Tap the sides that get stained. Front faces the street.">
-      <div className="grid grid-cols-2 gap-3">
-        {groups.map((g) => {
-          const names = FENCE_SIDES[g.group];
-          const n = names.filter((s) => value.includes(s)).length;
-          const cell = (side: string) => {
-            const name = `${g.group} ${side}`;
-            const on = value.includes(name);
-            return (
-              <button
-                key={name}
-                type="button"
-                aria-pressed={on}
-                title={name}
-                onClick={() => toggle(name)}
-                className={cn(
-                  "flex aspect-square items-center justify-center rounded-lg border text-[11px] font-semibold transition active:scale-95",
-                  on
-                    ? `border-transparent bg-gradient-to-br ${g.accent.grad} text-white shadow-sm`
-                    : "border-dashed border-input bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground",
-                )}
-              >
-                {side}
-              </button>
-            );
-          };
-          return (
-            <div key={g.group} className="rounded-xl border bg-muted/20 p-2.5">
-              <div className="mb-2 flex items-center justify-between gap-1">
-                <span className={cn("text-[11px] font-bold uppercase tracking-wide", g.accent.text)}>{g.group}</span>
-                <div className="flex items-center gap-1.5">
-                  <ProgressPill done={n} total={names.length} />
-                  <button
-                    type="button"
-                    onClick={() => setGroup(names, n < names.length)}
-                    className="text-[10px] font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                  >
-                    {n < names.length ? "All" : "None"}
-                  </button>
-                </div>
-              </div>
-              <div className="mx-auto grid max-w-[170px] grid-cols-3 gap-1">
-                <span />
-                {cell("Back")}
-                <span />
-                {cell("Left")}
-                <div className="flex aspect-square items-center justify-center rounded-lg bg-background ring-1 ring-foreground/10">
-                  <Home className="h-5 w-5 text-muted-foreground" />
-                </div>
-                {cell("Right")}
-                <span />
-                {cell("Front")}
-                <span />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Field>
   );
 }
 
@@ -1577,7 +1495,9 @@ export default function LeadDetail() {
               )}
 
               {/* Fence Sides */}
-              <SidesPicker value={fenceSides} onChange={setFenceSides} />
+              <Field label="Fence sides" hint="Tap the sides that get stained. Front faces the street.">
+                <SidesPicker value={fenceSides} onChange={setFenceSides} />
+              </Field>
 
               {/* Additional Services + Add-on Handled + Military Discount */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

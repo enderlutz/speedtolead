@@ -33,6 +33,7 @@ from fastapi import HTTPException  # noqa: E402
 from database import CompanyCamJob, CompanyCamPhoto, Estimate, Lead  # noqa: E402
 from api import company_cam as cc  # noqa: E402
 from services.company_cam import SQFT_PER_GALLON, gallons_for, upsell_options  # noqa: E402
+import services.company_cam as cc_svc  # noqa: E402
 
 USER = {"sub": "alanbonner", "name": "Alan"}
 
@@ -423,6 +424,130 @@ def test_a_bogus_colour_status_falls_back_rather_than_storing(db):
         {"area": "Whole fence", "status": "whatever", "colors": ["A"]},
     ]), user=USER)
     assert r["job"]["color_plan"][0]["status"] == "not_chosen"
+
+
+# --- colour rows are sets of sides, the same eight the estimator uses ---
+
+def test_a_fresh_row_with_only_sides_is_kept(db):
+    """The bug Alan hit: "Add a part of the fence" created a row with no
+    name and no colour, the server threw it away, and the row vanished
+    before anybody could type in it. A row with sides is a row."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"sides": ["Inside Front"], "status": "not_chosen", "colors": []},
+    ]), user=USER)
+    plan = r["job"]["color_plan"]
+    assert len(plan) == 1
+    assert plan[0]["sides"] == ["Inside Front"]
+    assert plan[0]["area"] == "Inside: Front"
+
+
+def test_a_row_that_says_nothing_is_still_dropped(db):
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"sides": [], "area": "", "status": "not_chosen", "colors": []},
+    ]), user=USER)
+    assert r["job"]["color_plan"] == []
+
+
+@pytest.mark.parametrize("sides,label", [
+    (["Inside Front", "Inside Left", "Inside Back", "Inside Right"], "All insides"),
+    (["Inside Front", "Inside Left", "Outside Back"], "Inside: Front, Left · Outside: Back"),
+    (list(cc_svc.FENCE_SIDE_KEYS), "Whole fence"),
+])
+def test_the_rows_name_comes_from_its_sides(sides, label):
+    assert cc_svc.sides_label(sides) == label
+
+
+def test_unknown_sides_are_dropped_not_stored(db):
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"sides": ["Inside Front", "The pool bit", "Outside Back"], "status": "confirmed",
+         "colors": ["October Brown"]},
+    ]), user=USER)
+    assert r["job"]["color_plan"][0]["sides"] == ["Inside Front", "Outside Back"]
+
+
+def test_a_side_belongs_to_one_row(db):
+    """Insides brown, outsides the HOA colour: a side cannot be both. The
+    first row to claim it keeps it."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"sides": ["Inside Front", "Inside Back"], "status": "confirmed", "colors": ["October Brown"]},
+        {"sides": ["Inside Back", "Outside Front"], "status": "confirmed", "colors": ["Cedar Naturaltone"]},
+    ]), user=USER)
+    plan = r["job"]["color_plan"]
+    assert plan[0]["sides"] == ["Inside Front", "Inside Back"]
+    assert plan[1]["sides"] == ["Outside Front"]
+
+
+def test_a_row_written_before_the_sides_map_keeps_its_name(db):
+    """Old rows only had free text. They carry on until somebody picks sides."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"area": "Front gates", "status": "confirmed", "colors": ["Classic Mahogany"]},
+    ]), user=USER)
+    row = r["job"]["color_plan"][0]
+    assert row["area"] == "Front gates"
+    assert row["sides"] == []
+
+
+def test_leaning_a_direction_reaches_the_cleaner(db):
+    """"Haven't chosen, but something in the browns" is a real answer and the
+    cleaner should arrive knowing it."""
+    lead = _lead(db)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"sides": ["Inside Front", "Inside Left", "Inside Back", "Inside Right"],
+         "status": "not_chosen", "colors": [], "leaning": "browns, nothing reddish"},
+    ]), user=USER)
+    actions = cc.get_company_cam(lead.id, user=USER)["cleaner_actions"]
+    assert "All insides: no colour chosen — they're leaning towards browns, nothing reddish" in " ".join(actions)
+
+
+def test_leaning_is_only_kept_while_no_colour_is_chosen(db):
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"sides": ["Inside Front"], "status": "confirmed", "colors": ["Pine Bark"],
+         "leaning": "browns"},
+    ]), user=USER)
+    assert r["job"]["color_plan"][0]["leaning"] == ""
+
+
+def test_colour_chips_start_with_what_is_on_the_shelf(db):
+    """Inventory first, then the usual list, one chip per colour whatever the
+    capitalisation."""
+    from database import StainInventoryItem
+    db.add(StainInventoryItem(id="s1", brand="Ready Seal", color_name="pine bark",
+                              gallons=5, active=True))
+    db.add(StainInventoryItem(id="s2", brand="Cabot", color_name="Bleached Oak",
+                              gallons=2, active=True))
+    db.add(StainInventoryItem(id="s3", brand="Cabot", color_name="Retired Red",
+                              gallons=0, active=False))
+    db.commit()
+    lead = _lead(db)
+    opts = cc.get_company_cam(lead.id, user=USER)["color_options"]
+    assert opts[:2] == ["Bleached Oak", "pine bark"]
+    assert "Pine Bark" not in opts          # the shelf's spelling wins
+    assert "Retired Red" not in opts        # inactive stays off the screen
+    assert "October Brown" in opts          # the usual list follows
+
+
+def test_the_colour_map_knows_which_sides_were_bought(db):
+    """The estimator's sides, so the map can light them up."""
+    import json
+    lead = _lead(db, form_data=json.dumps({"fence_sides": ["Inside Front", "Inside Back", "bogus"]}))
+    assert cc.get_company_cam(lead.id, user=USER)["estimate_sides"] == ["Inside Front", "Inside Back"]
+
+
+def test_bought_sides_fall_back_to_the_sent_estimate(db):
+    import json
+    lead = _lead(db)
+    _estimate(db, lead)
+    est = db.query(Estimate).filter(Estimate.lead_id == lead.id).first()
+    est.inputs = json.dumps({"linear_feet": 159, "fence_height": "7ft",
+                             "fence_sides": "Outside Front, Outside Left"})
+    db.commit()
+    assert cc.get_company_cam(lead.id, user=USER)["estimate_sides"] == ["Outside Front", "Outside Left"]
 
 
 # --- money ---
