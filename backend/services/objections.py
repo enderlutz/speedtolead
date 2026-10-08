@@ -62,7 +62,7 @@ An objection is a reason the customer gives for not buying, not buying now, or n
 
 Categories:
 - price: too expensive, over budget, more than expected, wants it cheaper, asks for a discount because of cost
-- timing: not now, later, a future date, too busy, out of town, waiting on something unrelated. Vague stalls count as timing: "I need a little bit more time", "not sure at this time", "if/when I'm ready". Softer "let me think about it / look it over / I'll get back to you" count as timing with low confidence.
+- timing: not now, later, a future date, too busy, out of town, waiting on something unrelated. Vague stalls count as timing: "I need a little bit more time", "not sure at this time", "if/when I'm ready", "let me think about it", "I'll take a look at it and see what we can do", "I'll look it over and get back to you". A customer ending the call or the thread this way after getting the estimate is a timing objection — tag it with high confidence.
 - spouse_family: needs to talk to a wife, husband, partner or family member first
 - shopping_quotes: waiting on or comparing other companies' quotes
 - hoa: needs HOA approval, or an HOA rule is a blocker
