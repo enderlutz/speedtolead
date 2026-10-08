@@ -67,6 +67,13 @@ async def _message_poller_loop():
             )
         except Exception as e:
             logger.error(f"Message poller error: {e}")
+        # An email arrives as our own quoted text; fetch what the customer
+        # actually wrote (services/email_replies.py).
+        try:
+            from services.email_replies import sweep_once as email_sweep
+            await asyncio.to_thread(email_sweep)
+        except Exception as e:
+            logger.error(f"Email reply sweep error: {e}")
         await asyncio.sleep(300)
 
 

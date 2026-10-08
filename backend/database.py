@@ -518,6 +518,9 @@ class Message(Base):
     # Customers send fence photos, damage close-ups and colours they like.
     # JSON array of URLs, "[]" when there are none.
     attachments_json = Column(Text, default="[]")
+    # Inbound emails only: when the customer's own words were fetched from
+    # the full email (services/email_replies.py). Empty = not yet.
+    email_checked_at = Column(Text, default="")
 
 
 class Contact(Base):
@@ -4104,6 +4107,10 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE messages ADD COLUMN attachments_json TEXT DEFAULT '[]'"))
         logger.info("Migration: added messages.attachments_json")
+    if "email_checked_at" not in message_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE messages ADD COLUMN email_checked_at TEXT DEFAULT ''"))
+        logger.info("Migration: added messages.email_checked_at")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

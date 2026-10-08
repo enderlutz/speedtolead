@@ -776,6 +776,43 @@ def get_conversation_messages_all(
     return out
 
 
+def get_message(message_id: str, location_id: str | None = None) -> dict | None:
+    """One conversation message by id — carries `meta.email.messageIds` for an
+    email, which the webhook payload does not."""
+    try:
+        r = _client.get(f"{GHL_BASE}/conversations/messages/{message_id}",
+                        headers=_headers(location_id), timeout=15)
+        if r.status_code == 404:
+            return {}
+        r.raise_for_status()
+        data = r.json()
+        return data.get("message", data)
+    except Exception as e:
+        logger.error(f"GHL get_message failed: {e}")
+        return None
+
+
+def get_email_message(email_id: str, location_id: str | None = None) -> dict | None:
+    """The full email behind a conversation email message.
+
+    A conversation's email entry shows one body for the whole thread — for a
+    customer replying to our estimate email that is OUR quoted text, and their
+    own words are not in it (Liza Reheiser, 2026-10-06). Each email in the
+    thread is fetched here by its own id. {} when GHL has no such email,
+    None when the call failed and is worth retrying."""
+    try:
+        r = _client.get(f"{GHL_BASE}/conversations/messages/email/{email_id}",
+                        headers=_headers(location_id), timeout=15)
+        if r.status_code == 404:
+            return {}
+        r.raise_for_status()
+        data = r.json()
+        return data.get("emailMessage", data)
+    except Exception as e:
+        logger.error(f"GHL get_email_message failed: {e}")
+        return None
+
+
 # --- Pipelines ---
 
 def get_pipelines(location_id: str) -> list[dict]:
