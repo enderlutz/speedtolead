@@ -23,11 +23,18 @@ from database import (
 )
 from api.auth import get_current_user
 from services.company_cam import (
+    CLEANER_CHECKLIST,
+    COLOR_AREA_SUGGESTIONS,
+    COLOR_STATUSES,
     SECTION_KEYS,
     SECTIONS,
     SQFT_PER_GALLON,
+    STAINER_CHECKLIST,
+    cleaner_color_actions,
     derive_from_estimate,
+    filter_checklist,
     gallons_for,
+    normalize_color_plan,
     upsell_options,
 )
 
@@ -143,13 +150,17 @@ def _photo_dict(p: CompanyCamPhoto) -> dict:
     }
 
 
-def _job_dict(job: CompanyCamJob) -> dict:
+def _json_list(raw: str | None) -> list:
+    """A stored JSON array, or an empty list — never an exception."""
     try:
-        upsells = json.loads(job.upsells_json or "[]")
-        if not isinstance(upsells, list):
-            upsells = []
+        v = json.loads(raw or "[]")
+        return v if isinstance(v, list) else []
     except (ValueError, TypeError):
-        upsells = []
+        return []
+
+
+def _job_dict(job: CompanyCamJob) -> dict:
+    upsells = _json_list(job.upsells_json)
     return {
         "lead_id": job.lead_id,
         "sqft": float(job.sqft or 0),
@@ -158,6 +169,9 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "gallons_edited": bool(job.gallons_edited),
         "sqft_per_gallon": SQFT_PER_GALLON,
         "package": job.package or "",
+        # Dollars on the wire, cents in the column.
+        "final_price": round(int(job.final_price_cents or 0) / 100.0, 2),
+        "color_plan": _json_list(job.color_plan_json),
         "color": job.color or "",
         "color_confirmed": bool(job.color_confirmed),
         "color_shown_at": job.color_shown_at or "",
@@ -167,7 +181,18 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "staining_notes": job.staining_notes or "",
         "upsells": [str(u) for u in upsells],
         "upsell_notes": job.upsell_notes or "",
+        "actual_sqft": float(job.actual_sqft or 0),
+        "stain_gallons_used": float(job.stain_gallons_used or 0),
+        "stain_gallons_bought": float(job.stain_gallons_bought or 0),
+        "bleach_gallons_used": float(job.bleach_gallons_used or 0),
+        "final_color": job.final_color or "",
+        "cleaner_checklist": _json_list(job.cleaner_checklist_json),
+        "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
+        "neighbor_first_name": job.neighbor_first_name or "",
+        "neighbor_last_name": job.neighbor_last_name or "",
+        "neighbor_phone": job.neighbor_phone or "",
+        "neighbor_project": job.neighbor_project or "",
         "neighbor_notes": job.neighbor_notes or "",
         "almost_done_sent_at": job.almost_done_sent_at or "",
         "almost_done_sent_by": job.almost_done_sent_by or "",
@@ -196,8 +221,12 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
         out.append("After-cleaning photos: every side.")
     if not by_section.get("stain_after"):
         out.append("After-staining photos: every side, plus any damage.")
-    if not (job.color or "").strip():
-        out.append("Confirm the stain colour with the customer.")
+    plan = _json_list(job.color_plan_json)
+    if not plan and not (job.color or "").strip():
+        out.append("No stain colour recorded — say where the customer is on colour.")
+    # Not a blocker when a colour is still being chosen: that is a legitimate
+    # state the cleaner resolves on site. It becomes the cleaner's action list
+    # instead, which is the whole point of tracking it per area.
     if float(job.gallons_needed or 0) <= 0:
         out.append("No stain quantity yet — check the square footage.")
     return out
@@ -225,6 +254,15 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             "sections": SECTIONS,
             "photos": grouped,
             "upsell_options": upsell_options(),
+            "color_statuses": COLOR_STATUSES,
+            "color_areas": COLOR_AREA_SUGGESTIONS,
+            "cleaner_checklist": CLEANER_CHECKLIST,
+            "stainer_checklist": STAINER_CHECKLIST,
+            "almost_done_default": ALMOST_DONE_TEMPLATE.format(
+                first_name=_first_name(lead.contact_name)),
+            # What the cleaner has to settle on site. Derived, never stored,
+            # so it cannot drift from the plan it describes.
+            "cleaner_actions": cleaner_color_actions(_json_list(job.color_plan_json)),
             "blockers": _blockers(job, photos),
             "customer": {
                 "name": lead.contact_name or "",
@@ -250,7 +288,21 @@ class CompanyCamPatch(BaseModel):
     staining_notes: str | None = None
     upsells: list[str] | None = None
     upsell_notes: str | None = None
+    # Dollars in, cents stored.
+    final_price: float | None = None
+    color_plan: list[dict] | None = None
+    actual_sqft: float | None = None
+    stain_gallons_used: float | None = None
+    stain_gallons_bought: float | None = None
+    bleach_gallons_used: float | None = None
+    final_color: str | None = None
+    cleaner_checklist: list[str] | None = None
+    stainer_checklist: list[str] | None = None
     neighbor_interested: bool | None = None
+    neighbor_first_name: str | None = None
+    neighbor_last_name: str | None = None
+    neighbor_phone: str | None = None
+    neighbor_project: str | None = None
     neighbor_notes: str | None = None
 
 
@@ -277,9 +329,26 @@ def update_company_cam(
         if body.recalc_gallons:
             job.gallons_edited = False
             job.gallons_needed = gallons_for(job.sqft)
+        if body.final_price is not None:
+            job.final_price_cents = max(0, int(round(float(body.final_price) * 100)))
+        if body.color_plan is not None:
+            job.color_plan_json = json.dumps(normalize_color_plan(body.color_plan))
+        for field in ("actual_sqft", "stain_gallons_used",
+                      "stain_gallons_bought", "bleach_gallons_used"):
+            v = getattr(body, field)
+            if v is not None:
+                setattr(job, field, max(0.0, float(v)))
+        if body.cleaner_checklist is not None:
+            job.cleaner_checklist_json = json.dumps(
+                filter_checklist(body.cleaner_checklist, "cleaner"))
+        if body.stainer_checklist is not None:
+            job.stainer_checklist_json = json.dumps(
+                filter_checklist(body.stainer_checklist, "stainer"))
         for field in (
-            "package", "color", "scope_explanation",
+            "package", "color", "scope_explanation", "final_color",
             "cleaning_notes", "staining_notes", "upsell_notes", "neighbor_notes",
+            "neighbor_first_name", "neighbor_last_name", "neighbor_phone",
+            "neighbor_project",
         ):
             v = getattr(body, field)
             if v is not None:
@@ -473,8 +542,17 @@ def _first_name(name: str | None) -> str:
     return n.split()[0] if n else "there"
 
 
+class AlmostDoneBody(BaseModel):
+    """An edited message. Blank falls back to the template."""
+    message: str | None = None
+
+
 @router.post("/company-cam/{lead_id}/almost-done")
-def send_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
+def send_almost_done(
+    lead_id: str,
+    body: AlmostDoneBody | None = None,
+    user: dict = Depends(get_current_user),
+):
     """Tell the customer we're 20-30 minutes out from finishing.
 
     The point is to catch them while the crew is still on site, so a problem
@@ -507,7 +585,14 @@ def send_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
                 f"by {job.almost_done_sent_by or 'someone'}.",
             )
 
-        message = ALMOST_DONE_TEMPLATE.format(first_name=_first_name(lead.contact_name))
+        # The crew edits the wording for the customer in front of them, so
+        # whatever they approved is what gets sent. Length-capped: a single
+        # SMS segment is 160 chars and GHL will split beyond that, but the
+        # template is already longer than one segment, so the cap only exists
+        # to stop a runaway paste.
+        edited = (body.message or "").strip() if body else ""
+        message = edited[:900] or ALMOST_DONE_TEMPLATE.format(
+            first_name=_first_name(lead.contact_name))
         ok = ghl.send_sms(
             lead.ghl_contact_id, message, location_id=lead.ghl_location_id or None
         )
@@ -523,7 +608,7 @@ def send_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
         db.commit()
         log_event(lead_id, "almost_done_sms_sent",
                   "Told the customer we're almost finished",
-                  {"actor": _actor(user)})
+                  {"actor": _actor(user), "edited": bool(edited)})
         return {"ok": True, "message": message, "job": _job_dict(job)}
     finally:
         db.close()

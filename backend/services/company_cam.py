@@ -159,3 +159,124 @@ def derive_from_estimate(db, lead_id: str) -> dict:
     if (est.closed_tier or "").strip():
         out["package"] = est.closed_tier.strip().lower()
     return out
+
+
+# --- where the customer actually is on colour ---
+#
+# Alan's problem: sometimes a colour is closed on the phone and settled.
+# Often it isn't — the photos don't do the colours justice, so the customer
+# is "between two or three" and the cleaner has to hold the samples up at the
+# fence. And it can differ by area: the front gates settled, the insides not.
+#
+# So colour is not one field. It is a list of areas, each with a status and
+# the colours in play, which is also what tells the cleaner what to do when
+# they arrive.
+COLOR_STATUSES: list[dict] = [
+    {
+        "key": "confirmed",
+        "label": "Confirmed — no doubt",
+        "hint": "Settled on the call. The cleaner does not need to confirm anything.",
+        "wants_colors": 1,
+    },
+    {
+        "key": "choosing",
+        "label": "Choosing between a few",
+        "hint": "List every colour in play. The cleaner shows these at the fence "
+                "and confirms which one.",
+        "wants_colors": 2,
+    },
+    {
+        "key": "not_chosen",
+        "label": "No colour picked yet",
+        "hint": "The cleaner shows the range and gets a decision.",
+        "wants_colors": 0,
+    },
+]
+
+COLOR_STATUS_KEYS = tuple(s["key"] for s in COLOR_STATUSES)
+
+# Starter areas. Free text, because a fence is not always divisible the way a
+# dropdown expects — "the bit by the pool" is a real answer.
+COLOR_AREA_SUGGESTIONS = [
+    "Whole fence", "Inside fences", "Front gates",
+    "Outside front", "Outside back", "Outside left", "Outside right",
+]
+
+
+def normalize_color_plan(raw) -> list[dict]:
+    """Clean a colour plan off the wire into (area, status, colors)."""
+    out: list[dict] = []
+    for row in raw or []:
+        if not isinstance(row, dict):
+            continue
+        area = str(row.get("area") or "").strip()[:80]
+        status = str(row.get("status") or "").strip()
+        if status not in COLOR_STATUS_KEYS:
+            status = "not_chosen"
+        colors = [
+            str(c).strip()[:60]
+            for c in (row.get("colors") or [])
+            if str(c).strip()
+        ][:8]
+        if not area and not colors:
+            continue
+        out.append({"area": area or "Whole fence", "status": status, "colors": colors})
+    return out[:12]
+
+
+def cleaner_color_actions(plan: list[dict]) -> list[str]:
+    """What the cleaner has to settle on site, in plain words.
+
+    This is the point of the whole structure — Alan described it as "the next
+    step for the cleaner", not as a record of a decision.
+    """
+    out: list[str] = []
+    for row in plan or []:
+        area = row.get("area") or "the fence"
+        colors = row.get("colors") or []
+        if row.get("status") == "choosing":
+            shown = ", ".join(colors) if colors else "the samples"
+            out.append(f"{area}: show {shown} and confirm which one they want.")
+        elif row.get("status") == "not_chosen":
+            out.append(f"{area}: no colour chosen — show the range and get a decision.")
+        elif row.get("status") == "confirmed" and not colors:
+            out.append(f"{area}: marked confirmed but no colour written down — check before you start.")
+    return out
+
+
+# --- end-of-job checklists ---
+#
+# Alan's wording, kept close to how he said it. These exist because the crew
+# is moving to a flat rate per job: coming back to redo work will be on their
+# own time, so what "done properly" means has to be written down rather than
+# assumed.
+CLEANER_CHECKLIST: list[dict] = [
+    {"key": "rocks_back", "label": "Rocks and landscaping pushed back where they were"},
+    {"key": "plants_watered", "label": "All plants watered really well"},
+    {"key": "fence_rinsed", "label": "All residue rinsed off the fence"},
+    {"key": "hose_rolled", "label": "Customer's water hose turned off and rolled back up"},
+]
+
+STAINER_CHECKLIST: list[dict] = [
+    {"key": "two_coats", "label": "Two coats of stain"},
+    {"key": "hinges_clean", "label": "All hinges checked — no stain on them"},
+    {"key": "under_rails", "label": "Checked underneath all the 2x4s"},
+    {"key": "two_walkarounds", "label": "Two full walkarounds done"},
+    {
+        "key": "customer_satisfied",
+        "label": "Customer has seen it and is completely satisfied",
+        "hint": "If they're not home, call them — it's your job to make sure what "
+                "they wanted matches what you did. Coming back is on your time.",
+    },
+]
+
+CHECKLIST_KEYS = {
+    "cleaner": tuple(i["key"] for i in CLEANER_CHECKLIST),
+    "stainer": tuple(i["key"] for i in STAINER_CHECKLIST),
+}
+
+
+def filter_checklist(raw, which: str) -> list[str]:
+    """Keep only the ticks we recognise, so a stale client cannot store junk."""
+    valid = CHECKLIST_KEYS.get(which, ())
+    return [str(k) for k in (raw or []) if str(k) in valid]

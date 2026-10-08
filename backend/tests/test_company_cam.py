@@ -361,3 +361,174 @@ def test_a_gallon_override_can_be_dropped_again(db):
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(recalc_gallons=True), user=USER)
     assert r["job"]["gallons_edited"] is False
     assert r["job"]["gallons_needed"] == 10.0
+
+
+# --- colour: where the customer actually is, per area of the fence ---
+
+def test_colour_can_differ_by_area(db):
+    """Alan's real case: front gates settled, insides still between three.
+    A single colour field could not say this at all."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"area": "Front gates", "status": "confirmed", "colors": ["Canyon Brown"]},
+        {"area": "Inside fences", "status": "choosing",
+         "colors": ["Canyon Brown", "October Brown", "Chocolate"]},
+    ]), user=USER)
+    plan = r["job"]["color_plan"]
+    assert len(plan) == 2
+    assert plan[0]["status"] == "confirmed"
+    assert plan[1]["colors"] == ["Canyon Brown", "October Brown", "Chocolate"]
+
+
+def test_the_plan_becomes_the_cleaners_instructions(db):
+    """The point of the structure — Alan called it "the next step for the
+    cleaner", not a record of a decision."""
+    lead = _lead(db)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"area": "Front gates", "status": "confirmed", "colors": ["Canyon Brown"]},
+        {"area": "Inside fences", "status": "choosing", "colors": ["October Brown", "Chocolate"]},
+        {"area": "Outside back", "status": "not_chosen", "colors": []},
+    ]), user=USER)
+    actions = cc.get_company_cam(lead.id, user=USER)["cleaner_actions"]
+    joined = " ".join(actions)
+    # Nothing to do where it is settled.
+    assert "Front gates" not in joined
+    assert "Inside fences: show October Brown, Chocolate" in joined
+    assert "Outside back: no colour chosen" in joined
+
+
+def test_confirmed_with_no_colour_written_down_is_flagged(db):
+    """Someone ticked confirmed and moved on. The crew needs to know."""
+    lead = _lead(db)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"area": "Whole fence", "status": "confirmed", "colors": []},
+    ]), user=USER)
+    actions = cc.get_company_cam(lead.id, user=USER)["cleaner_actions"]
+    assert any("no colour written down" in a for a in actions)
+
+
+def test_a_colour_still_being_chosen_is_not_a_blocker(db):
+    """It is a legitimate state the cleaner resolves on site, so it belongs in
+    the action list, not in "still needed"."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"area": "Whole fence", "status": "choosing", "colors": ["A", "B"]},
+    ]), user=USER)
+    assert not any("colour" in b.lower() for b in r["blockers"])
+
+
+def test_a_bogus_colour_status_falls_back_rather_than_storing(db):
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_plan=[
+        {"area": "Whole fence", "status": "whatever", "colors": ["A"]},
+    ]), user=USER)
+    assert r["job"]["color_plan"][0]["status"] == "not_chosen"
+
+
+# --- money ---
+
+def test_final_price_is_stored_as_cents(db):
+    """Money is integer cents — Numeric degrades to float on SQLite."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_price=1831.57), user=USER)
+    assert r["job"]["final_price"] == 1831.57
+    row = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    assert row.final_price_cents == 183157
+
+
+# --- what actually happened ---
+
+def test_actuals_are_kept_apart_from_the_estimates(db):
+    """The gap between them is the number worth having."""
+    lead = _lead(db)
+    _estimate(db, lead, sqft=1113)
+    cc.get_company_cam(lead.id, user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(
+        actual_sqft=1260, stain_gallons_used=8, stain_gallons_bought=3,
+        bleach_gallons_used=2.5, final_color="Canyon Brown",
+    ), user=USER)
+    j = r["job"]
+    assert j["sqft"] == 1113 and j["actual_sqft"] == 1260
+    assert j["gallons_needed"] == 7.0 and j["stain_gallons_used"] == 8
+    assert j["stain_gallons_bought"] == 3 and j["bleach_gallons_used"] == 2.5
+    assert j["final_color"] == "Canyon Brown"
+
+
+def test_negative_actuals_are_clamped(db):
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(
+        actual_sqft=-5, stain_gallons_used=-1), user=USER)
+    assert r["job"]["actual_sqft"] == 0
+    assert r["job"]["stain_gallons_used"] == 0
+
+
+# --- checklists ---
+
+def test_checklists_accept_only_known_items(db):
+    """A stale client must not be able to store junk as a completed step."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(
+        cleaner_checklist=["rocks_back", "made_it_up"],
+        stainer_checklist=["two_coats", "rocks_back"],
+    ), user=USER)
+    assert r["job"]["cleaner_checklist"] == ["rocks_back"]
+    # rocks_back is a cleaner item, so it is not valid on the stainer list.
+    assert r["job"]["stainer_checklist"] == ["two_coats"]
+
+
+def test_both_checklists_are_offered_with_their_items(db):
+    lead = _lead(db)
+    out = cc.get_company_cam(lead.id, user=USER)
+    cleaner = {i["key"] for i in out["cleaner_checklist"]}
+    stainer = {i["key"] for i in out["stainer_checklist"]}
+    assert {"rocks_back", "plants_watered", "fence_rinsed", "hose_rolled"} <= cleaner
+    assert {"two_coats", "hinges_clean", "under_rails",
+            "two_walkarounds", "customer_satisfied"} <= stainer
+
+
+# --- the referral ---
+
+def test_a_neighbour_is_captured_as_a_lead_not_as_prose(db):
+    """Alan calls these. A name and a number is what makes that possible."""
+    lead = _lead(db)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(
+        neighbor_interested=True,
+        neighbor_first_name="Dave", neighbor_last_name="Mendez",
+        neighbor_phone="(713) 555-0101",
+        neighbor_project="Back fence, maybe the gates",
+        neighbor_notes="House to the left, grey truck. Call after 5.",
+    ), user=USER)
+    j = r["job"]
+    assert j["neighbor_first_name"] == "Dave"
+    assert j["neighbor_phone"] == "(713) 555-0101"
+    assert j["neighbor_project"] == "Back fence, maybe the gates"
+
+
+# --- the editable almost-done text ---
+
+def test_the_crew_can_edit_the_text_before_it_sends(db, monkeypatch):
+    sent = {}
+    from services import ghl
+    monkeypatch.setattr(ghl, "send_sms", lambda cid, msg, **k: sent.update(msg=msg) or True)
+
+    lead = _lead(db, name="Michele Horton")
+    cc.send_almost_done(lead.id, body=cc.AlmostDoneBody(
+        message="Hi Michele, finishing up in about 20 minutes — come take a look!"),
+        user=USER)
+    assert sent["msg"] == "Hi Michele, finishing up in about 20 minutes — come take a look!"
+
+
+def test_an_empty_edit_falls_back_to_the_preset(db, monkeypatch):
+    sent = {}
+    from services import ghl
+    monkeypatch.setattr(ghl, "send_sms", lambda cid, msg, **k: sent.update(msg=msg) or True)
+
+    lead = _lead(db, name="Michele Horton")
+    cc.send_almost_done(lead.id, body=cc.AlmostDoneBody(message="   "), user=USER)
+    assert sent["msg"].startswith("Hey Michele,")
+
+
+def test_the_preset_is_offered_with_the_customers_name(db):
+    lead = _lead(db, name="Michele Horton")
+    out = cc.get_company_cam(lead.id, user=USER)
+    assert out["almost_done_default"].startswith("Hey Michele,")

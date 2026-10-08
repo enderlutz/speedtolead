@@ -1722,6 +1722,16 @@ class CompanyCamJob(Base):
     gallons_edited = Column(Boolean, default=False, nullable=False)
 
     package = Column(Text, default="")            # essential | signature | legacy
+    # Integer cents. SQLAlchemy degrades Numeric to float on SQLite, and this
+    # is money. Alan-only in the UI; the crew never sees it.
+    final_price_cents = Column(Integer, default=0)
+
+    # Where the customer actually is on colour, per area of the fence:
+    # [{area, status: confirmed|choosing|not_chosen, colors: [...]}]. A single
+    # colour field could not express "front gates settled, insides still
+    # between three", which is the common case once photos fail to do the
+    # colours justice. See services/company_cam.py.
+    color_plan_json = Column(Text, default="[]")
     color = Column(Text, default="")
     color_confirmed = Column(Boolean, default=False, nullable=False)
     # Alan's rule: show the customer the colour even when it is already
@@ -1739,7 +1749,27 @@ class CompanyCamJob(Base):
     upsells_json = Column(Text, default="[]")     # service keys the crew ticked
     upsell_notes = Column(Text, default="")
 
+    # What actually happened, filled in at the end of the job. Separate from
+    # the estimates above, because the gap between them is the thing worth
+    # knowing — for pricing, and for the stain inventory.
+    actual_sqft = Column(Float, default=0.0)
+    stain_gallons_used = Column(Float, default=0.0)
+    stain_gallons_bought = Column(Float, default=0.0)
+    bleach_gallons_used = Column(Float, default=0.0)
+    final_color = Column(Text, default="")
+
+    # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
+    cleaner_checklist_json = Column(Text, default="[]")
+    stainer_checklist_json = Column(Text, default="[]")
+
     neighbor_interested = Column(Boolean, default=False, nullable=False)
+    # A referral is a lead, so it is captured as one rather than as prose.
+    # All optional — a first name and a phone number is already enough for
+    # Alan to make the call.
+    neighbor_first_name = Column(Text, default="")
+    neighbor_last_name = Column(Text, default="")
+    neighbor_phone = Column(Text, default="")
+    neighbor_project = Column(Text, default="")
     neighbor_notes = Column(Text, default="")
 
     almost_done_sent_at = Column(Text, default="")
@@ -4086,6 +4116,34 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE call_recordings ADD COLUMN notes TEXT DEFAULT ''"))
             logger.info("Migration: added call_recordings.notes")
+        pass
+    if inspector.has_table("company_cam_jobs"):
+        cc_cols = {c["name"] for c in inspector.get_columns("company_cam_jobs")}
+        # Added 2026-10-08. create_all only builds columns when it creates the
+        # table, so an existing company_cam_jobs needs these explicitly.
+        for col, ddl in (
+            ("final_price_cents", "INTEGER DEFAULT 0"),
+            ("color_plan_json", "TEXT DEFAULT '[]'"),
+            ("actual_sqft", "DOUBLE PRECISION DEFAULT 0"),
+            ("stain_gallons_used", "DOUBLE PRECISION DEFAULT 0"),
+            ("stain_gallons_bought", "DOUBLE PRECISION DEFAULT 0"),
+            ("bleach_gallons_used", "DOUBLE PRECISION DEFAULT 0"),
+            ("final_color", "TEXT DEFAULT ''"),
+            ("cleaner_checklist_json", "TEXT DEFAULT '[]'"),
+            ("stainer_checklist_json", "TEXT DEFAULT '[]'"),
+            ("neighbor_first_name", "TEXT DEFAULT ''"),
+            ("neighbor_last_name", "TEXT DEFAULT ''"),
+            ("neighbor_phone", "TEXT DEFAULT ''"),
+            ("neighbor_project", "TEXT DEFAULT ''"),
+        ):
+            if col not in cc_cols:
+                t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE company_cam_jobs ADD COLUMN {col} {t}"))
+                logger.info(f"Migration: added company_cam_jobs.{col}")
+
+    if inspector.has_table("call_recordings"):
+        call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}
         if "is_voicemail" not in call_rec_cols:
             with _engine.begin() as conn:
                 conn.execute(text(

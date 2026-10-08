@@ -3416,11 +3416,33 @@ export const api = {
     if (!res.ok) throw new Error((await res.text()) || "Photo upload failed");
     return res.json() as Promise<CompanyCamPhoto>;
   },
+  /** Fetch a non-Storage Company Cam photo as a blob url.
+   *
+   *  An <img src> sends no Authorization header and the backend reads no
+   *  cookie, so pointing an <img> straight at the image endpoint 401s and
+   *  renders broken — which is exactly why the imported fence-scope drawing
+   *  showed a caption and no picture. Same approach as the measurement
+   *  photos. Storage-backed photos are public CDN urls and need none of
+   *  this. */
+  fetchCompanyCamPhotoUrl: async (leadId: string, photoId: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/company-cam/${leadId}/photos/${photoId}/image`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
     leadId: string,
-    patch: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean },
+    patch: Partial<CompanyCamJob> & {
+      upsells?: string[];
+      recalc_gallons?: boolean;
+      color_plan?: ColorPlanRow[];
+      cleaner_checklist?: string[];
+      stainer_checklist?: string[];
+    },
   ) =>
     request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}`, {
       method: "PATCH",
@@ -3428,9 +3450,10 @@ export const api = {
     }),
   markCompanyCamColorShown: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/color-shown`, { method: "POST" }),
-  sendCompanyCamAlmostDone: (leadId: string) =>
+  sendCompanyCamAlmostDone: (leadId: string, message?: string) =>
     request<{ ok: boolean; message: string; job: CompanyCamJob }>(
-      `/api/company-cam/${leadId}/almost-done`, { method: "POST" }),
+      `/api/company-cam/${leadId}/almost-done`,
+      { method: "POST", body: JSON.stringify({ message: message || null }) }),
   resetCompanyCamAlmostDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/almost-done/reset`, { method: "POST" }),
   updateCompanyCamPhoto: (leadId: string, photoId: string,
@@ -3503,6 +3526,14 @@ export interface CompanyCamPhoto {
   uploaded_by: string;
 }
 
+/** Where the customer is on colour, per area of the fence. A single colour
+ *  field can't say "front gates settled, insides still between three". */
+export interface ColorPlanRow {
+  area: string;
+  status: "confirmed" | "choosing" | "not_chosen";
+  colors: string[];
+}
+
 export interface CompanyCamJob {
   lead_id: string;
   sqft: number;
@@ -3512,6 +3543,9 @@ export interface CompanyCamJob {
   /** Square feet one gallon covers — shown so the maths is never a mystery. */
   sqft_per_gallon: number;
   package: string;
+  /** Dollars. Alan-only — the crew never sees this. */
+  final_price: number;
+  color_plan: ColorPlanRow[];
   color: string;
   color_confirmed: boolean;
   color_shown_at: string;
@@ -3521,7 +3555,20 @@ export interface CompanyCamJob {
   staining_notes: string;
   upsells: string[];
   upsell_notes: string;
+  /** What actually happened. The gap from the estimates above is the number
+   *  worth knowing — for pricing and for the stain inventory. */
+  actual_sqft: number;
+  stain_gallons_used: number;
+  stain_gallons_bought: number;
+  bleach_gallons_used: number;
+  final_color: string;
+  cleaner_checklist: string[];
+  stainer_checklist: string[];
   neighbor_interested: boolean;
+  neighbor_first_name: string;
+  neighbor_last_name: string;
+  neighbor_phone: string;
+  neighbor_project: string;
   neighbor_notes: string;
   almost_done_sent_at: string;
   almost_done_sent_by: string;
@@ -3541,6 +3588,14 @@ export interface CompanyCamPayload {
   sections: CompanyCamSection[];
   photos: Record<string, CompanyCamPhoto[]>;
   upsell_options: { key: string; label: string }[];
+  color_statuses: { key: string; label: string; hint: string; wants_colors: number }[];
+  color_areas: string[];
+  cleaner_checklist: { key: string; label: string; hint?: string }[];
+  stainer_checklist: { key: string; label: string; hint?: string }[];
+  /** The preset "almost done" text, editable before sending. */
+  almost_done_default: string;
+  /** What the cleaner has to settle on site. Derived, never stored. */
+  cleaner_actions: string[];
   /** What still has to happen before the job is properly documented. */
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
