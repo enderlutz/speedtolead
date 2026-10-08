@@ -38,7 +38,7 @@ import TimeSpentCard from "@/components/TimeSpentCard";
 import MeasurementCard from "@/components/MeasurementCard";
 import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
-import CustomProposalCard from "@/components/CustomProposalCard";
+// import CustomProposalCard from "@/components/CustomProposalCard"; // archived 2026-10-08
 import ExteriorTab from "@/components/ExteriorTab";
 import FenceScopeSummaryCard from "@/components/FenceScopeSummaryCard";
 import UpsellTab from "@/components/UpsellTab";
@@ -2299,12 +2299,14 @@ export default function LeadDetail() {
             </div>
           )}
 
-          {/* Send a pre-made PDF as the proposal (same link + viewer + SMS) */}
-          <CustomProposalCard
+          {/* "Send a custom PDF" — archived 2026-10-08, Alan's call: unused
+              and taking up room. Component, endpoint and any proposals
+              already sent through it are kept. Uncomment to bring it back. */}
+          {/* <CustomProposalCard
             leadId={lead.id}
             pipelineVersion={lead.pipeline_version}
             onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
-          />
+          /> */}
 
           {/* All scheduled visits for this customer (clean/stain/finish-up) —
               add, edit, and reschedule each; shows invite vs internal. */}
