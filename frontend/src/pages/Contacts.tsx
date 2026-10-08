@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
@@ -127,15 +127,36 @@ function CallTally({
   );
 }
 
+// Where you were, so Back from a customer lands on the same row instead of
+// the top of page one. Alan works down this list calling people; scrolling
+// back to where he was after every customer wasted the time this page is
+// meant to save. sessionStorage: per tab, gone when the tab closes.
+const VIEW_KEY = "contacts_view_v1";
+type SavedView = { q: string; search: string; estimate: EstimateFilter; offset: number; scroll: number; anchor: string };
+
+function readView(): Partial<SavedView> {
+  try { return JSON.parse(sessionStorage.getItem(VIEW_KEY) || "{}") || {}; } catch { return {}; }
+}
+function writeView(v: SavedView) {
+  try { sessionStorage.setItem(VIEW_KEY, JSON.stringify(v)); } catch { /* private mode — just don't remember */ }
+}
+/** The page scrolls inside <main>, not the window. */
+function scroller(): HTMLElement | null {
+  return document.querySelector("main");
+}
+
 export default function Contacts() {
   const navigate = useNavigate();
+  const saved = useRef(readView()).current;
   const [rows, setRows] = useState<ContactRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffset] = useState(saved.offset || 0);
   const [stats, setStats] = useState<ContactStats | null>(null);
-  const [q, setQ] = useState("");
-  const [search, setSearch] = useState("");
-  const [estimate, setEstimate] = useState<EstimateFilter>("all");
+  const [q, setQ] = useState(saved.q || "");
+  const [search, setSearch] = useState(saved.search || "");
+  const [estimate, setEstimate] = useState<EstimateFilter>(saved.estimate || "all");
+  const restored = useRef(false);
+  const [flash, setFlash] = useState("");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
@@ -172,9 +193,41 @@ export default function Contacts() {
 
   // Debounced so typing a name doesn't fire a request per keystroke.
   useEffect(() => {
-    const t = setTimeout(() => { setSearch(q.trim()); setOffset(0); }, 300);
+    const t = setTimeout(() => {
+      const next = q.trim();
+      // Only a real change of search resets to page one — not coming back
+      // to the page with the search you left it on.
+      if (next !== search) {
+        setSearch(next);
+        setOffset(0);
+      }
+    }, 300);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, search]);
+
+  // Back from a customer: once the rows are in, put the scroll back and, if
+  // the row you opened is on screen, centre it and flash it so you can see
+  // where you were even if the list moved.
+  useEffect(() => {
+    if (restored.current || loading || rows.length === 0) return;
+    restored.current = true;
+    if (!saved.anchor && !saved.scroll) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = saved.anchor ? document.querySelector(`[data-lead-row="${saved.anchor}"]`) : null;
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        setFlash(saved.anchor || "");
+        setTimeout(() => setFlash(""), 2000);
+      } else {
+        scroller()?.scrollTo({ top: saved.scroll || 0 });
+      }
+    }));
+  }, [loading, rows.length, saved.anchor, saved.scroll]);
+
+  const openLead = (leadId: string) => {
+    writeView({ q, search, estimate, offset, scroll: scroller()?.scrollTop || 0, anchor: leadId });
+    navigate(`/leads/${leadId}`);
+  };
 
   async function runSync() {
     setSyncing(true);
@@ -301,8 +354,9 @@ export default function Contacts() {
             {rows.map((c, i) => (
               <tr
                 key={c.id}
-                onClick={() => c.lead_id && navigate(`/leads/${c.lead_id}`)}
-                className={`border-t hover:bg-muted/30 ${c.lead_id ? "cursor-pointer" : ""}`}
+                data-lead-row={c.lead_id || undefined}
+                onClick={() => c.lead_id && openLead(c.lead_id)}
+                className={`border-t transition-colors duration-700 hover:bg-muted/30 ${c.lead_id ? "cursor-pointer" : ""} ${flash && flash === c.lead_id ? "bg-amber-100" : ""}`}
               >
                 <td className="px-3 py-2 text-muted-foreground tabular-nums">{offset + i + 1}</td>
                 <td className="px-3 py-2">
