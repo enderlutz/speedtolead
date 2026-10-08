@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, type QuickApproveInfo } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatMonthly } from "@/lib/utils";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -149,7 +149,7 @@ export default function QuickApprove() {
           <CardContent className="pt-5 space-y-2.5">
             {(["essential", "signature", "legacy"] as const).map((tier) => {
               const price = info.tiers[tier] || 0;
-              const monthly = Math.round(price / 21);
+              const monthly = formatMonthly(price);
               return (
                 <div
                   key={tier}
@@ -171,9 +171,11 @@ export default function QuickApprove() {
                     <span className="text-sm font-bold">
                       {formatCurrency(price)}
                     </span>
-                    <span className="text-[10px] text-muted-foreground ml-1">
-                      ~${monthly}/mo
-                    </span>
+                    {monthly ? (
+                      <span className="text-[10px] text-muted-foreground ml-1">
+                        {monthly}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               );

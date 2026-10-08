@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { formatMonthly } from "@/lib/utils";
 import { api, type LeadDetail, type EstimateDetail } from "@/lib/api";
 import { generatePricingIncludes } from "@/lib/pricing-includes";
 import { pdfToScreen, screenToPdf } from "@/lib/pdf-coords";
@@ -68,14 +69,10 @@ export default function PdfPreviewModal({ open, onOpenChange, lead, estimate, fe
       markupPercent > 0 && amount > 0
         ? `You save ${fmtDollar(amount * (markupPercent / 100))}`
         : "";
-    // Affirm monthly financing — price over FINANCING_MONTHS, mirroring
-    // _format_monthly_price in backend/api/estimates.py. Keep the two in step
-    // or the preview stops matching the PDF the customer receives.
-    const FINANCING_MONTHS = 36;
-    const fmtMonthly = (amount: number) =>
-      amount > 0
-        ? `${fmtDollar(amount / FINANCING_MONTHS)}/mo for ${FINANCING_MONTHS} mo.*`
-        : "";
+    // Affirm monthly financing — the shared formatter mirrors
+    // _format_monthly_price in backend/api/estimates.py; the PDF adds the
+    // footnote asterisk.
+    const fmtMonthly = (amount: number) => (amount > 0 ? `${formatMonthly(amount)}*` : "");
     const fmtSlashed = (amount: number) =>
       markupPercent > 0 && amount > 0
         ? fmtDollar(amount * (1 + markupPercent / 100))

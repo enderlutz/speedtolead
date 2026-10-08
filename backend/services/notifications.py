@@ -207,7 +207,7 @@ def notify_estimate_sent(lead: dict, tiers: dict, sender_name: str = ""):
     header = f"{sender} sent estimate to {name}" if sender else f"Estimate sent to {name}"
     msg = (
         f"{header}: "
-        f"Essential ${ess:,.0f} / Signature ${sig:,.0f} / Legacy ${leg:,.0f}"
+        f"Essential ${ess:,.2f} / Signature ${sig:,.2f} / Legacy ${leg:,.2f}"
     )
 
     if settings.owner_ghl_contact_id:

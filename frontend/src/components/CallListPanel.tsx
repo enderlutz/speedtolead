@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatCurrency } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { api, type CallListItem, type CallListResponse } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -351,7 +352,7 @@ function CallRow({
           </Link>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
             <span className="font-semibold text-foreground">
-              ${item.signature_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatCurrency(item.signature_price)}
             </span>
             <span>·</span>
             <Badge variant="outline" className="text-[10px] py-0 h-auto">

@@ -2,6 +2,7 @@
 // get linear feet, recalc the estimate, then finish/send on the lead page.
 // See fencescope.md. Route: /video-estimates (staff).
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatCurrency } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { api, type VideoSubmission } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -181,9 +182,9 @@ function ReviewCard({ sub, onResolved }: { sub: VideoSubmission; onResolved: () 
         </Button>
         {tiers && (
           <div className="flex items-center justify-around rounded-md bg-muted/40 py-2 text-sm">
-            <div className="text-center"><div className="text-xs text-muted-foreground">Essential</div><div className="font-semibold">${tiers.essential.toLocaleString()}</div></div>
-            <div className="text-center"><div className="text-xs text-muted-foreground">Signature</div><div className="font-semibold">${tiers.signature.toLocaleString()}</div></div>
-            <div className="text-center"><div className="text-xs text-muted-foreground">Legacy</div><div className="font-semibold">${tiers.legacy.toLocaleString()}</div></div>
+            <div className="text-center"><div className="text-xs text-muted-foreground">Essential</div><div className="font-semibold">{formatCurrency(tiers.essential)}</div></div>
+            <div className="text-center"><div className="text-xs text-muted-foreground">Signature</div><div className="font-semibold">{formatCurrency(tiers.signature)}</div></div>
+            <div className="text-center"><div className="text-xs text-muted-foreground">Legacy</div><div className="font-semibold">{formatCurrency(tiers.legacy)}</div></div>
           </div>
         )}
       </div>

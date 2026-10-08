@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatCurrency } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { api, type DailyTask, type Lead, type CallDispositionOutcome, type DailyActivityEvent, type TouchedActor, type CallTally as CallTallyData } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -220,7 +221,7 @@ function dateLabel(ymd: string): string {
   return pretty;
 }
 function money(n: number): string {
-  return n > 0 ? `$${n.toLocaleString()}` : "—";
+  return n > 0 ? formatCurrency(n) : "—";
 }
 
 // ── Owner / who-touched avatars ─────────────────────────────────────────────

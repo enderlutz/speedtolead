@@ -5,7 +5,7 @@ import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, 
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
-import { cn, formatCurrency, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
+import { cn, formatCurrency, formatMonthly, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
@@ -306,7 +306,7 @@ function ContactFact({
 function TierCard({ tier, price }: { tier: keyof typeof TIER_LOOK; price: number }) {
   const look = TIER_LOOK[tier];
   const Icon = look.icon;
-  const monthly = Math.round(price / 21);
+  const monthly = formatMonthly(price);
   const hero = tier === "signature";
   return (
     <div className={cn(
@@ -330,7 +330,7 @@ function TierCard({ tier, price }: { tier: keyof typeof TIER_LOOK; price: number
             {look.tag}
           </span>
         </div>
-        <p className={cn("text-[10px]", hero ? "text-white/75" : "text-muted-foreground")}>~${monthly}/mo</p>
+        {monthly ? <p className={cn("text-[10px]", hero ? "text-white/75" : "text-muted-foreground")}>{monthly}</p> : null}
       </div>
       <p className={cn("font-heading font-bold tabular-nums", hero ? "text-2xl" : "text-lg")}>{formatCurrency(price)}</p>
     </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { formatCurrency } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { api, type LeadMapData, type LeadMapStop, type LeadMapPin, type LeadMapSchedule } from "@/lib/api";
 import { loadGoogleMaps } from "@/lib/googleMaps";
@@ -85,7 +86,7 @@ function scheduleLines(s: LeadMapSchedule): string {
 function hoverHtml(lead: LeadMapPin): string {
   let extra = "";
   if (lead.group === "sent" && lead.signature_price)
-    extra = `<br/><strong>Signature: $${lead.signature_price.toLocaleString()}</strong>`;
+    extra = `<br/><strong>Signature: ${formatCurrency(lead.signature_price)}</strong>`;
   else if (lead.group === "closed_scheduled" && lead.schedule)
     extra = scheduleLines(lead.schedule);
   // Paying customer badge — shown on top of whatever else the pin carries.

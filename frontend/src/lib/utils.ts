@@ -33,13 +33,31 @@ export function errName(e: unknown): string {
   return "";
 }
 
+/** Always to the cent. The number on the dashboard has to be the number on
+ *  the customer's proposal, so whoever is on the phone can read it out
+ *  without opening the PDF. Alan asked for this on 2026-10-08 after
+ *  $1,253.60 showed up as $1,254. */
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
+}
+
+/** The Affirm financing term the proposal quotes. Mirrors FINANCING_MONTHS
+ *  in backend/api/estimates.py — keep the two in step or the dashboard
+ *  stops matching the PDF the customer holds. */
+export const FINANCING_MONTHS = 36;
+
+/** "$34.82/mo for 36 mo." — the monthly line under a tier price, computed
+ *  exactly as the PDF does it (price over the term, rounded UP to the
+ *  cent). Empty for a tier with no price. */
+export function formatMonthly(price: number): string {
+  if (!price || price <= 0) return "";
+  const cents = Math.ceil((price / FINANCING_MONTHS) * 100) / 100;
+  return `${formatCurrency(cents)}/mo for ${FINANCING_MONTHS} mo.`;
 }
 
 export function formatDate(iso: string): string {

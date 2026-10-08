@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type SentLogEntry } from "@/lib/api";
-import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatMonthly, formatDateTime } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -505,7 +505,7 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
               <div className="grid grid-cols-3 gap-2">
                 {(["essential", "signature", "legacy"] as const).map((tier) => {
                   const price = entry.tiers?.[tier] || 0;
-                  const monthly = Math.round(price / 21);
+                  const monthly = formatMonthly(price);
                   const isWon = entry.closed_tier === tier;
                   return (
                     <div key={tier} className={`rounded-md border p-3 text-center ${
@@ -513,7 +513,7 @@ function SentLogCard({ entry, expanded, onToggle, onUpdate }: {
                     }`}>
                       <p className="text-xs font-medium capitalize">{tier} {isWon && "✓"}</p>
                       <p className="text-lg font-bold">{formatCurrency(price)}</p>
-                      <p className="text-xs text-muted-foreground">~${monthly}/mo</p>
+                      {monthly ? <p className="text-xs text-muted-foreground">{monthly}</p> : null}
                     </div>
                   );
                 })}

@@ -981,9 +981,9 @@ def _approve_estimate_background(
                 header = f"Estimate #{estimate_number} sent" if estimate_number > 1 else "Estimate sent"
             _sqft = _sqft_from_estimate(est)
             note_body = (
-                f"{header} — Essential: ${tiers_dict.get('essential', 0):,.0f} | "
-                f"Signature: ${tiers_dict.get('signature', 0):,.0f} | "
-                f"Legacy: ${tiers_dict.get('legacy', 0):,.0f}\n"
+                f"{header} — Essential: ${tiers_dict.get('essential', 0):,.2f} | "
+                f"Signature: ${tiers_dict.get('signature', 0):,.2f} | "
+                f"Legacy: ${tiers_dict.get('legacy', 0):,.2f}\n"
                 + (f"Sq ft: {_sqft:,.0f}\n" if _sqft > 0 else "")
                 + f"Sides included: {sides_text}\n"
                 f"Proposal: {proposal_url}"
@@ -1459,9 +1459,9 @@ def request_review(estimate_id: str):
         msg = (
             f"Review needed: {lead.contact_name} — {lead.address}\n"
             f"Reason: {est.approval_reason}\n"
-            f"Essential ${tiers.get('essential', 0):,.0f} / "
-            f"Signature ${tiers.get('signature', 0):,.0f} / "
-            f"Legacy ${tiers.get('legacy', 0):,.0f}\n"
+            f"Essential ${tiers.get('essential', 0):,.2f} / "
+            f"Signature ${tiers.get('signature', 0):,.2f} / "
+            f"Legacy ${tiers.get('legacy', 0):,.2f}\n"
             f"Approve: {approve_url}"
         )
 
@@ -1795,8 +1795,8 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = D
                 tiers_dict = est.to_dict()["tiers"]
                 _sqft = _sqft_from_estimate(est)
                 add_contact_note(lead.ghl_contact_id,
-                    f"Estimate sent — Essential: ${tiers_dict.get('essential',0):,.0f} | "
-                    f"Signature: ${tiers_dict.get('signature',0):,.0f} | Legacy: ${tiers_dict.get('legacy',0):,.0f}\n"
+                    f"Estimate sent — Essential: ${tiers_dict.get('essential',0):,.2f} | "
+                    f"Signature: ${tiers_dict.get('signature',0):,.2f} | Legacy: ${tiers_dict.get('legacy',0):,.2f}\n"
                     + (f"Sq ft: {_sqft:,.0f}\n" if _sqft > 0 else "")
                     + f"Proposal: {proposal_url}",
                     lead.ghl_location_id or None)
