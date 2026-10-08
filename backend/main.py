@@ -678,8 +678,19 @@ def health():
 
     from services import ai_image
 
+    # Which commit is actually running. "Did it deploy yet?" has been asked
+    # on nearly every change to this project and there was no way to answer
+    # it from outside without logging in. Railway injects these; empty
+    # locally, which is itself the answer.
+    commit = (
+        _os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+        or _os.environ.get("RAILWAY_DEPLOYMENT_ID")
+        or ""
+    )
     return {
         "status": "ok",
+        "commit": commit[:12],
+        "deployed_branch": _os.environ.get("RAILWAY_GIT_BRANCH", ""),
         "integrations": {
             "openai_images": ai_image.is_configured(),
             "ghl": bool((_os.getenv("GHL_API_KEY") or "").strip()),

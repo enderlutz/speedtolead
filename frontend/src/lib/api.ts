@@ -1467,7 +1467,7 @@ export const api = {
       has_separate_browser_key: boolean;
       checks: Record<string, { ok: boolean; http?: number; google_status?: string; detail?: string }>;
       note: string;
-    }>(`/api/leads/maps-key/selftest`),
+    }>(`/api/maps-key/selftest`),
   getMapsKey: () =>
     request<{
       maps_api_key: string;
