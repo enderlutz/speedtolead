@@ -319,6 +319,47 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
   );
 }
 
+/** Since the estimate went out: are the GHL follow-ups running, how many
+ *  automated texts have gone, how many calls we've tried. The follow-ups
+ *  run while the opportunity sits in ESTIMATE SENT; see
+ *  backend/services/followup_status.py for how each number is read. */
+function SinceEstimateCard({ info }: { info: NonNullable<LeadDetailType["after_estimate"]> }) {
+  const STATUS = {
+    running: { dot: "bg-emerald-500 animate-pulse", cls: "border-emerald-300 bg-emerald-50 text-emerald-900",
+      title: "Follow-ups running", sub: "Still in Estimate Sent, so the GHL texts keep going." },
+    stopped: { dot: "bg-slate-400", cls: "border-slate-300 bg-slate-50 text-slate-800",
+      title: "Follow-ups stopped", sub: `Moved to ${info.stage_name || "another stage"}, which ends them.` },
+    not_started: { dot: "bg-amber-500", cls: "border-amber-300 bg-amber-50 text-amber-900",
+      title: "No follow-ups", sub: "Sent without the follow-up tag. Nobody is chasing this one but us." },
+    waiting: { dot: "bg-sky-500", cls: "border-sky-300 bg-sky-50 text-sky-900",
+      title: "Follow-ups start with the send", sub: "Scheduled — the tag goes on when the estimate does." },
+  }[info.status];
+  return (
+    <Panel id="est-followups" className="scroll-mt-4" icon={Hourglass} title="Since the estimate"
+           sub={`Sent ${timeAgo(info.last_sent_at)}`} accent={ACCENT.cyan}>
+      <div className={cn("flex items-start gap-2 rounded-xl border px-3 py-2", STATUS.cls)}>
+        <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", STATUS.dot)} />
+        <div>
+          <p className="text-sm font-bold leading-tight">{STATUS.title}</p>
+          <p className="text-[11px] leading-snug opacity-90">{STATUS.sub}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <StatTile icon={MessageSquare} label="Follow-up texts" accent={ACCENT.violet}
+                  hint={info.last_auto_text_at ? `Last one ${timeAgo(info.last_auto_text_at)}` : "None sent yet"}>
+          <p className="font-heading text-2xl font-bold tabular-nums">{info.auto_texts}</p>
+        </StatTile>
+        <StatTile icon={Phone} label="Calls tried" accent={ACCENT.emerald}
+                  hint={info.calls_tried
+                    ? `${info.calls_connected} connected · last ${timeAgo(info.last_call_at || "")}`
+                    : "Nobody has called yet"}>
+          <p className="font-heading text-2xl font-bold tabular-nums">{info.calls_tried}</p>
+        </StatTile>
+      </div>
+    </Panel>
+  );
+}
+
 function ObjectionsPanel({
   leadId, objections, categories, onChange,
 }: {
@@ -1134,7 +1175,9 @@ export default function LeadDetail() {
     { key: "priced", label: "Priced", icon: Calculator, accent: ACCENT.fuchsia, target: "est-inputs",
       done: (estimate?.tiers?.signature || 0) > 0,
       hint: "Fill in the inputs and hit Save & Recalculate to get the three prices." },
-    { key: "sent", label: "Sent", icon: Send, accent: ACCENT.cyan, target: "est-send",
+    { key: "sent", label: "Sent", icon: Send, accent: ACCENT.cyan, target: "est-followups",
+      badge: lead.after_estimate?.status === "running" ? "Follow-ups on"
+        : lead.after_estimate?.status === "not_started" ? "No follow-ups" : undefined,
       done: sortedEstimates.some((e) => e.status === "sent"),
       hint: "Send the proposal — text and email. The follow-ups start on their own." },
     { key: "viewed", label: "Viewed", icon: Eye, accent: ACCENT.amber, target: "est-send",
@@ -1145,9 +1188,10 @@ export default function LeadDetail() {
       badge: afterObjections.length
         ? `${new Set(afterObjections.map((o) => o.category)).size} objection${new Set(afterObjections.map((o) => o.category)).size === 1 ? "" : "s"}`
         : undefined,
-      hint: (lead.proposal_view_count || 0) > 0
+      hint: ((lead.proposal_view_count || 0) > 0
         ? "They opened it and went quiet. Call them now — this is the moment."
-        : "No text or real conversation since the estimate went out. Call, then log how it went." },
+        : "No text or real conversation since the estimate went out. Call, then log how it went.")
+        + (lead.after_estimate ? ` ${lead.after_estimate.calls_tried} call${lead.after_estimate.calls_tried === 1 ? "" : "s"} tried since, ${lead.after_estimate.calls_connected} connected.` : "") },
     { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-visits",
       done: !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid",
       hint: "Collect the deposit and put the visits on the calendar." },
@@ -2298,6 +2342,8 @@ export default function LeadDetail() {
               </div>
             </div>
           )}
+
+          {lead.after_estimate ? <SinceEstimateCard info={lead.after_estimate} /> : null}
 
           {/* "Send a custom PDF" — archived 2026-10-08, Alan's call: unused
               and taking up room. Component, endpoint and any proposals

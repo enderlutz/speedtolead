@@ -544,6 +544,20 @@ export interface LeadDetail extends Lead {
   estimated_in_person_auto?: boolean; // whether estimator activity was detected for this lead
   /** First time a fence scope was texted to the customer, across redraws. */
   fence_scope_first_sent_at?: string | null;
+  /** Since the latest estimate send. Null until one has gone out. */
+  after_estimate?: {
+    first_sent_at: string;
+    last_sent_at: string;
+    /** running = tag on + still in ESTIMATE SENT; stopped = the opportunity
+     *  moved; not_started = sent without the tag; waiting = scheduled send. */
+    status: "running" | "stopped" | "not_started" | "waiting";
+    stage_name: string;
+    auto_texts: number;
+    last_auto_text_at: string | null;
+    calls_tried: number;
+    calls_connected: number;
+    last_call_at: string | null;
+  } | null;
   /** Company Cam progress, read only. Photo counts per section. */
   job_progress?: {
     photos: Record<string, number>;

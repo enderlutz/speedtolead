@@ -867,6 +867,16 @@ def get_lead(lead_id: str):
             "color_confirmed": sum(1 for r in plan if r.get("status") == "confirmed" and r.get("colors")),
             "final_color": (cc.final_color or "") if cc else "",
         }
+
+        # Since the estimate went out: are the follow-ups running, how many
+        # automated texts went, how many calls were tried. Never blocks the
+        # page — a failure here just leaves the block off.
+        try:
+            from services.followup_status import after_estimate
+            result["after_estimate"] = after_estimate(db, lead)
+        except Exception:
+            logger.exception("after-estimate summary failed for %s", lead.id)
+            result["after_estimate"] = None
         return result
     finally:
         db.close()
