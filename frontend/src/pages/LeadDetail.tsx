@@ -213,7 +213,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
 
       <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Estimate journey</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Customer journey</p>
           <p className="font-heading text-lg font-bold leading-tight">
             {current ? `Next up: ${current.label}` : "Booked — every step done"}
           </p>
