@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useNow } from "@/hooks/useNow";
-import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type LeadObjectionEntry, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -26,7 +26,7 @@ import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
-  Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt,
+  Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -203,6 +203,11 @@ type JourneyStep = {
   phase?: "sale" | "job";
   /** Replaces the scroll-to-card tap, for a step marked by hand. */
   onClick?: () => void;
+  /** Started but not finished — "Getting cleaned". Pulses in its colour. */
+  active?: boolean;
+  activeLabel?: string;
+  /** A short count under the label, e.g. "2 objections". */
+  badge?: string;
 };
 
 /** The six stages of a lead, from "we have an address" to "it's on the
@@ -257,7 +262,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
       {phase === "job" ? (
         <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-white/50">The job</p>
       ) : null}
-      <div className={cn("grid gap-1.5", phase === "sale" ? "grid-cols-3 sm:grid-cols-9" : "grid-cols-4")}>
+      <div className={cn("grid gap-1.5", phase === "sale" ? "grid-cols-3 sm:grid-cols-9" : "grid-cols-4 sm:grid-cols-7")}>
         {row.map((s) => {
           const isCurrent = s === current;
           const Icon = s.icon;
@@ -274,6 +279,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
                 won ? "bg-amber-300/15 ring-2 ring-amber-300/70 shadow-[0_0_18px_rgba(252,211,77,0.45)] hover:bg-amber-300/20"
                   : s.done ? "bg-white/10 hover:bg-white/15"
                   : s.skipped ? "border border-dashed border-white/25 bg-transparent text-white/45 hover:border-white/40"
+                  : s.active ? `bg-white/10 ring-2 ${s.accent.ring} hover:bg-white/15`
                   : isCurrent ? "bg-white/15 ring-2 ring-white/60 hover:bg-white/20"
                   : "bg-white/5 opacity-70 hover:bg-white/10 hover:opacity-100",
               )}
@@ -283,6 +289,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
                 won ? "bg-gradient-to-br from-amber-300 to-yellow-500 text-amber-950 shadow-md shadow-amber-500/40"
                   : s.done ? `bg-gradient-to-br ${s.accent.grad} shadow-md shadow-black/20`
                   : s.skipped ? "border border-dashed border-white/25 bg-transparent"
+                  : s.active ? `animate-pulse bg-gradient-to-br ${s.accent.grad} opacity-80`
                   : "bg-white/10",
               )}>
                 {won ? <Star className="h-4 w-4 fill-current" />
@@ -291,8 +298,12 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
               </span>
               <span className={cn("text-[11px] font-semibold leading-tight", s.skipped && "line-through decoration-white/30")}>{s.label}</span>
               <span className={cn("text-[9px] leading-tight", won ? "font-bold text-amber-200" : "text-white/60")}>
-                {won ? "Booked!" : s.done ? "Done" : s.skipped ? "Skipped" : isCurrent ? "You are here" : "Later"}
+                {won ? "Booked!" : s.done ? "Done" : s.skipped ? "Skipped"
+                  : s.active ? (s.activeLabel || "In progress") : isCurrent ? "You are here" : "Later"}
               </span>
+              {s.badge ? (
+                <span className="rounded-full bg-amber-300/90 px-1.5 text-[9px] font-bold leading-4 text-amber-950">{s.badge}</span>
+              ) : null}
             </button>
           );
         })}
@@ -301,6 +312,100 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         );
       })}
     </div>
+  );
+}
+
+function ObjectionsPanel({
+  leadId, objections, categories, onChange,
+}: {
+  leadId: string;
+  objections: LeadObjectionEntry[];
+  categories: Record<string, { label: string; winnable: boolean }>;
+  onChange: () => void;
+}) {
+  const [scanning, setScanning] = useState(false);
+  const after = objections.filter((o) => o.timing === "after_estimate");
+  const before = objections.filter((o) => o.timing !== "after_estimate");
+  const tone = (cat: string) =>
+    cat === "opt_out" ? "border-red-300 bg-red-50 text-red-900"
+      : categories[cat]?.winnable === false ? "border-slate-300 bg-slate-50 text-slate-800"
+      : "border-amber-300 bg-amber-50 text-amber-950";
+  const scan = async () => {
+    setScanning(true);
+    try {
+      const r = await api.scanObjections(leadId);
+      toast.success(r.scanned ? `Read ${r.scanned} new text${r.scanned === 1 ? "" : "s"} or calls — ${r.found} objection${r.found === 1 ? "" : "s"} found`
+        : "Nothing new to read");
+      onChange();
+    } catch (e) {
+      toast.error(errMessage(e, "Scan failed"));
+    } finally {
+      setScanning(false);
+    }
+  };
+  const remove = async (o: LeadObjectionEntry) => {
+    if (!window.confirm(`Remove "${categories[o.category]?.label || o.category}"? It won't be added back.`)) return;
+    try { await api.removeObjection(leadId, o.id); onChange(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't remove")); }
+  };
+  const row = (o: LeadObjectionEntry) => (
+    <div key={o.id} className={cn("flex items-start gap-2 rounded-xl border px-2.5 py-2", tone(o.category),
+      o.timing !== "after_estimate" && "opacity-70")}>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-bold">{categories[o.category]?.label || o.category}</span>
+          {o.confidence === "low" ? <span className="text-[9px] font-semibold uppercase tracking-wide opacity-60">maybe</span> : null}
+          <span className="text-[10px] opacity-70">
+            {o.source === "call" ? (o.mid_call_send ? "on the call the estimate went out" : "on a call") : "by text"} · {timeAgo(o.said_at)}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs italic leading-snug">“{o.quote}”</p>
+      </div>
+      <button type="button" onClick={() => remove(o)} title="Wrong — remove it"
+              className="shrink-0 rounded-md p-1 opacity-50 transition hover:bg-black/5 hover:opacity-100">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+  return (
+    <Panel
+      id="est-objections"
+      className="scroll-mt-4"
+      icon={MessageSquareWarning}
+      title="Objections"
+      sub={objections.length
+        ? `${after.length} after the estimate${before.length ? ` · ${before.length} before` : ""} — read from their texts and calls`
+        : "Read automatically from every new text and call"}
+      accent={ACCENT.amber}
+      right={
+        <Button size="sm" variant="outline" onClick={scan} disabled={scanning}
+                title="Read this customer's whole history now. New texts and calls are read automatically.">
+          {scanning ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+          Scan history
+        </Button>
+      }
+    >
+      {objections.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          None found. Older customers aren't read until you press Scan history.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {objections.some((o) => o.category === "opt_out") ? (
+            <p className="rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white">
+              This customer asked us to stop. Check do-not-contact before reaching out.
+            </p>
+          ) : null}
+          {after.map(row)}
+          {before.length ? (
+            <>
+              <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Before the estimate</p>
+              {before.map(row)}
+            </>
+          ) : null}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -508,6 +613,17 @@ export default function LeadDetail() {
       setLatestScheduledJob(mine[0]);
     }).catch(() => {});
   }, [id]);
+
+  // What the objection scanner found for this customer.
+  const [objections, setObjections] = useState<LeadObjectionEntry[]>([]);
+  const [objectionCats, setObjectionCats] = useState<Record<string, { label: string; winnable: boolean }>>({});
+  const loadObjections = useCallback(() => {
+    if (!id) return;
+    api.listObjections(id)
+      .then((r) => { setObjections(r.objections); setObjectionCats(r.categories); })
+      .catch(() => { /* the panel just stays empty */ });
+  }, [id]);
+  useEffect(() => { loadObjections(); }, [loadObjections]);
 
   // Logged call outcomes, for the "Heard back" step of the customer journey.
   const [dispositions, setDispositions] = useState<CallDispositionEntry[]>([]);
@@ -936,9 +1052,11 @@ export default function LeadDetail() {
   ];
   const after = (iso: string | null | undefined) =>
     !!firstSentAt && !!iso && new Date(iso).getTime() > new Date(firstSentAt).getTime();
+  const afterObjections = objections.filter((o) => o.timing === "after_estimate");
   const heardBack =
     inbound.some((m) => after(m.created_at)) ||
-    dispositions.some((d) => TALKED.includes(d.outcome) && after(d.disposed_at));
+    dispositions.some((d) => TALKED.includes(d.outcome) && after(d.disposed_at)) ||
+    afterObjections.length > 0;
   // Replied only counts if it happened BEFORE the first estimate went out.
   // When we sent without one — no answer to the intake text or the calls —
   // that's an override, and a reply afterwards is "Heard back", not this.
@@ -947,6 +1065,9 @@ export default function LeadDetail() {
   const repliedFirst =
     inbound.some((m) => before(m.created_at)) ||
     dispositions.some((d) => TALKED.includes(d.outcome) && before(d.disposed_at));
+
+  const jp = lead.job_progress;
+  const photos = (section: string) => jp?.photos?.[section] || 0;
 
   const journey: JourneyStep[] = [
     { key: "address", label: "Address", icon: MapPin, accent: ACCENT.blue, target: "est-contact",
@@ -978,8 +1099,11 @@ export default function LeadDetail() {
     { key: "viewed", label: "Viewed", icon: Eye, accent: ACCENT.amber, target: "est-send",
       done: (lead.proposal_view_count || 0) > 0,
       hint: "Waiting on the customer to open their proposal. A call now beats a text later." },
-    { key: "heard", label: "Heard back", icon: Phone, accent: ACCENT.emerald, target: "est-send",
+    { key: "heard", label: "Heard back", icon: Phone, accent: ACCENT.emerald, target: "est-objections",
       done: heardBack,
+      badge: afterObjections.length
+        ? `${new Set(afterObjections.map((o) => o.category)).size} objection${new Set(afterObjections.map((o) => o.category)).size === 1 ? "" : "s"}`
+        : undefined,
       hint: (lead.proposal_view_count || 0) > 0
         ? "They opened it and went quiet. Call them now — this is the moment."
         : "No text or real conversation since the estimate went out. Call, then log how it went." },
@@ -992,6 +1116,21 @@ export default function LeadDetail() {
       done: !!latestScheduledJob && (!!latestScheduledJob.started_at
         || ["in_progress", "completed"].includes(latestScheduledJob.status)),
       hint: "The crew taps Start on the job when they arrive." },
+    { key: "colour", label: "Colour chosen", icon: Palette, accent: ACCENT.fuchsia, target: "est-visits", phase: "job",
+      done: !!jp?.final_color || ((jp?.color_rows || 0) > 0 && jp?.color_confirmed === jp?.color_rows),
+      active: (jp?.color_rows || 0) > 0 && (jp?.color_confirmed || 0) < (jp?.color_rows || 0) && !jp?.final_color,
+      activeLabel: `${jp?.color_confirmed || 0} of ${jp?.color_rows || 0} settled`,
+      hint: "Confirm the stain colour for every part of the fence on Company Cam." },
+    { key: "cleaned", label: "Fence cleaned", icon: Sparkles, accent: ACCENT.cyan, target: "est-visits", phase: "job",
+      done: photos("clean_after") > 0,
+      active: photos("clean_before") > 0 && photos("clean_after") === 0,
+      activeLabel: "Getting cleaned",
+      hint: "Cleaner uploads before-cleaning photos on arrival, after-cleaning photos when done." },
+    { key: "stained", label: "Fence stained", icon: Paintbrush, accent: ACCENT.emerald, target: "est-visits", phase: "job",
+      done: photos("stain_after") > 0,
+      active: photos("stain_before") > 0 && photos("stain_after") === 0,
+      activeLabel: "Getting stained",
+      hint: "Stainer uploads before-staining photos on arrival, after-staining photos when done." },
     { key: "completed", label: "Job done", icon: CheckCircle2, accent: ACCENT.emerald, target: "est-visits", phase: "job",
       done: !!latestScheduledJob && (latestScheduledJob.status === "completed" || !!latestScheduledJob.completed_at),
       hint: "Walkthrough with the customer, then the crew marks the job complete." },
@@ -1296,6 +1435,16 @@ export default function LeadDetail() {
               the page. Answers "what do I do next on this lead?" before a
               single card is read. */}
           <JourneyStrip steps={journey} />
+
+          {/* Every objection the scanner found in this customer's texts and
+              calls, each with their exact words and whether it came before or
+              after the estimate. Nobody picks; a wrong one can be removed. */}
+          <ObjectionsPanel
+            leadId={lead.id}
+            objections={objections}
+            categories={objectionCats}
+            onChange={loadObjections}
+          />
 
           {/* Mobile: approval status */}
           {approvalCfg && (

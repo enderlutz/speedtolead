@@ -843,6 +843,30 @@ def get_lead(lead_id: str):
         ]
         stamps = sorted(s for s in stamps if s)
         result["fence_scope_first_sent_at"] = stamps[0] if stamps else None
+
+        # Where the job is, from Company Cam — read only, so opening a lead
+        # never creates a Company Cam record. Drives the job row of the
+        # customer journey: colour chosen, getting cleaned, getting stained.
+        from database import CompanyCamJob, CompanyCamPhoto
+        from sqlalchemy import func as _f
+        photos = dict(
+            db.query(CompanyCamPhoto.section, _f.count(CompanyCamPhoto.id))
+            .filter(CompanyCamPhoto.lead_id == lead.id)
+            .group_by(CompanyCamPhoto.section).all()
+        )
+        cc = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+        plan = []
+        if cc:
+            try:
+                plan = json.loads(cc.color_plan_json or "[]") or []
+            except (ValueError, TypeError):
+                plan = []
+        result["job_progress"] = {
+            "photos": {k: int(v) for k, v in photos.items()},
+            "color_rows": len(plan),
+            "color_confirmed": sum(1 for r in plan if r.get("status") == "confirmed" and r.get("colors")),
+            "final_color": (cc.final_color or "") if cc else "",
+        }
         return result
     finally:
         db.close()
@@ -1548,6 +1572,66 @@ DECLINE_REASON_PRESETS = {
 class DeclineReasonsBody(BaseModel):
     reasons: list[str]  # preset keys, in rank order (index 0 = top reason)
     other_text: str = ""
+
+
+@router.get("/leads/{lead_id}/objections")
+def list_objections(lead_id: str, user: dict = Depends(get_current_user)):
+    """Objections the scanner found for this customer, oldest first. Removed
+    ones are left out."""
+    from database import LeadObjection
+    from services.objections import CATEGORIES
+    db = get_db()
+    try:
+        rows = (
+            db.query(LeadObjection)
+            .filter(LeadObjection.lead_id == lead_id, LeadObjection.removed_at.is_(None))
+            .order_by(LeadObjection.said_at)
+            .all()
+        )
+        return {
+            "objections": [r.to_dict() for r in rows],
+            "categories": {k: {"label": v[0], "winnable": v[1]} for k, v in CATEGORIES.items()},
+        }
+    finally:
+        db.close()
+
+
+@router.post("/leads/{lead_id}/objections/scan")
+def scan_objections(lead_id: str, user: dict = Depends(get_current_user)):
+    """Read this customer's whole history now. The background scanner only
+    reads conversations from after it went live, so this is how an older
+    customer gets scanned. Each text and call is still read only once."""
+    from services.objections import scan_lead
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        raise HTTPException(status_code=503, detail="AI is not configured on the server")
+    db = get_db()
+    try:
+        return scan_lead(db, lead_id)
+    except Exception as e:
+        db.rollback()
+        logger.exception("manual objection scan failed")
+        raise HTTPException(status_code=502, detail=f"Scan failed: {e}")
+    finally:
+        db.close()
+
+
+@router.delete("/leads/{lead_id}/objections/{objection_id}")
+def remove_objection(lead_id: str, objection_id: str, user: dict = Depends(get_current_user)):
+    """A rep removes a wrong tag. Kept as removed, so a rescan won't add it back."""
+    from database import LeadObjection
+    db = get_db()
+    try:
+        row = db.query(LeadObjection).filter(
+            LeadObjection.id == objection_id, LeadObjection.lead_id == lead_id).first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Objection not found")
+        row.removed_at = _now()
+        row.removed_by = (user or {}).get("name") or (user or {}).get("sub") or ""
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
 
 
 class GoogleReviewBody(BaseModel):

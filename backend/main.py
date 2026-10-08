@@ -198,6 +198,24 @@ async def _transcribe_backlog_loop():
         await asyncio.sleep(get_settings().transcribe_backlog_interval_seconds)
 
 
+async def _objection_scan_loop():
+    """Background task: tag objections in new customer texts and calls.
+
+    Only reads what arrived after the scanner first ran, and stops at a daily
+    cap — AI analysis has exhausted the API credit before. Older customers
+    are scanned on request from the lead page."""
+    await asyncio.sleep(240)
+    while True:
+        try:
+            from services.objections import sweep_once
+            result = await asyncio.to_thread(sweep_once)
+            if result.get("leads"):
+                logger.info(f"[objections] {result['leads']} leads scanned, {result.get('found', 0)} objections")
+        except Exception as e:
+            logger.error(f"Objection scan error: {e}")
+        await asyncio.sleep(get_settings().objection_scan_interval_seconds)
+
+
 async def _intent_extraction_loop():
     """Background task: read customer intent off transcripts, for open leads.
 
@@ -521,6 +539,7 @@ async def lifespan(app: FastAPI):
     # contact an inert lead row) so the message and call pollers can reach
     # people who never had an opportunity card — 469 of 1,972 on 2026-09-29.
     contact_mirror = asyncio.create_task(_contact_mirror_loop())
+    objection_scan = asyncio.create_task(_objection_scan_loop())
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
@@ -563,6 +582,7 @@ async def lifespan(app: FastAPI):
     if msg_poller is not None:
         msg_poller.cancel()
     contact_mirror.cancel()
+    objection_scan.cancel()
     sms_worker.cancel()
     weekly.cancel()
     wrapped_loop.cancel()

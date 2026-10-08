@@ -34,10 +34,12 @@ SQFT_PER_GALLON = 165.0
 
 # The photo sections, in the order the job actually happens.
 #
-# There is deliberately no "before staining" section. Alan's reasoning, and
-# it is right: the after-cleaning photos already show the fence immediately
-# before stain goes on, so a fourth set would be the same fence twice and
-# crews would stop bothering with any of it.
+# "Before staining" was left out at first: the after-cleaning photos already
+# show the fence right before stain goes on. Alan added it back on
+# 2026-10-08 as the stainer's own check — anything else they notice around
+# the house before they start — and because uploading them is what marks the
+# job as "getting stained" on the customer journey. Not a blocker: it is an
+# extra check, not proof the job was done.
 SECTIONS: list[dict] = [
     {
         "key": "fence_scope",
@@ -65,6 +67,15 @@ SECTIONS: list[dict] = [
         "hint": "The clean fence, every side. This is also the stainer's "
                 "before-shot, so make it count.",
         "wants_damage": False,
+    },
+    {
+        "key": "stain_before",
+        "label": "Before staining",
+        "who": "Stainer, on arrival",
+        "hint": "Before any stain goes on: anything you notice around the house — "
+                "plants, cars, AC units, pool, anything already damaged or in the "
+                "way. It's the extra check. Mark damage as damage.",
+        "wants_damage": True,
     },
     {
         "key": "stain_after",

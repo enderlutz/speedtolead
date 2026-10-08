@@ -3849,6 +3849,57 @@ _engine = None
 _SessionLocal = None
 
 
+class LeadObjection(Base):
+    """One objection a customer raised, found by the objection scanner.
+
+    Tagged per message or per transcript line, so one customer can carry
+    several and they can change over time. `timing` is decided in code from
+    the moment it was said against the first estimate send — never by the
+    model. Removing a wrong tag sets removed_at; the row stays so a rescan
+    won't put it back.
+    """
+    __tablename__ = "lead_objections"
+    __table_args__ = (
+        Index("idx_lead_objections_lead", "lead_id"),
+        UniqueConstraint("lead_id", "source_id", "line", "category", name="uq_lead_objection"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    category = Column(Text, nullable=False)
+    source = Column(Text, default="")          # text | call
+    source_id = Column(Text, default="")       # message id or call recording id
+    line = Column(Integer, nullable=True)      # transcript segment index for a call
+    quote = Column(Text, default="")
+    said_at = Column(Text, default="")         # UTC ISO
+    timing = Column(Text, default="")          # before_estimate | after_estimate
+    mid_call_send = Column(Boolean, default=False)
+    confidence = Column(Text, default="high")
+    created_at = Column(Text, default="")
+    removed_at = Column(Text, nullable=True)
+    removed_by = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "lead_id": self.lead_id, "category": self.category,
+            "source": self.source or "", "source_id": self.source_id or "",
+            "line": self.line, "quote": self.quote or "", "said_at": self.said_at or "",
+            "timing": self.timing or "", "mid_call_send": bool(self.mid_call_send),
+            "confidence": self.confidence or "high", "created_at": self.created_at or "",
+        }
+
+
+class ObjectionScan(Base):
+    """A text or call the objection scanner has already read, so it is read
+    once. Keyed on the source so a re-poll never pays twice."""
+    __tablename__ = "objection_scans"
+
+    source_key = Column(Text, primary_key=True)   # "text:<id>" | "call:<id>"
+    lead_id = Column(Text, nullable=False, index=True)
+    scanned_at = Column(Text, default="")
+    found = Column(Integer, default=0)
+
+
 def init_db():
     global _engine, _SessionLocal
     settings = get_settings()

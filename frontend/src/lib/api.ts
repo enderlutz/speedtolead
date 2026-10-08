@@ -544,6 +544,13 @@ export interface LeadDetail extends Lead {
   estimated_in_person_auto?: boolean; // whether estimator activity was detected for this lead
   /** First time a fence scope was texted to the customer, across redraws. */
   fence_scope_first_sent_at?: string | null;
+  /** Company Cam progress, read only. Photo counts per section. */
+  job_progress?: {
+    photos: Record<string, number>;
+    color_rows: number;
+    color_confirmed: number;
+    final_color: string;
+  };
 }
 
 export interface EstimateDetail {
@@ -1974,6 +1981,13 @@ export const api = {
       `/api/leads/${leadId}/resync-stage`,
       { method: "POST" },
     ),
+  listObjections: (leadId: string) =>
+    request<{ objections: LeadObjectionEntry[]; categories: Record<string, { label: string; winnable: boolean }> }>(
+      `/api/leads/${leadId}/objections`),
+  scanObjections: (leadId: string) =>
+    request<{ ok: boolean; scanned: number; found: number }>(`/api/leads/${leadId}/objections/scan`, { method: "POST" }),
+  removeObjection: (leadId: string, objectionId: string) =>
+    request<{ ok: boolean }>(`/api/leads/${leadId}/objections/${objectionId}`, { method: "DELETE" }),
   /** Mark whether the customer left a Google review. Its own endpoint, so it
    *  never re-prices the estimate the way the form-data save does. */
   setGoogleReview: (leadId: string, left: boolean) =>
@@ -3540,6 +3554,23 @@ export interface CompanyCamPhoto {
 
 /** Where the customer is on colour, per area of the fence. A single colour
  *  field can't say "front gates settled, insides still between three". */
+/** One objection the scanner found. `timing` is computed from timestamps
+ *  against the first estimate send, never by the AI. */
+export interface LeadObjectionEntry {
+  id: string;
+  lead_id: string;
+  category: string;
+  source: "text" | "call" | string;
+  source_id: string;
+  line: number | null;
+  quote: string;
+  said_at: string;
+  timing: "before_estimate" | "after_estimate" | string;
+  mid_call_send: boolean;
+  confidence: "high" | "low" | string;
+  created_at: string;
+}
+
 export interface ColorPlanRow {
   /** Derived from `sides` on the server ("All insides", "Inside: Front, Left").
    *  Free text only on rows written before the sides map existed. */

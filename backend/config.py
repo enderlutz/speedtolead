@@ -161,6 +161,12 @@ class Settings(BaseSettings):
     # seconds. At the defaults that is ~150/hour, and the loop no-ops for
     # free once the backlog is empty.
     enable_transcribe_backlog_drain: bool = True
+    # Objection scanner (services/objections.py). Reads each new customer
+    # text and call transcript and tags objections. Off switch + a daily cap
+    # because AI analysis has exhausted the API credit before.
+    enable_objection_scan: bool = True
+    objection_scan_daily_cap: int = 300
+    objection_scan_interval_seconds: int = 300
     transcribe_backlog_batch: int = 25
     transcribe_backlog_interval_seconds: int = 600
 

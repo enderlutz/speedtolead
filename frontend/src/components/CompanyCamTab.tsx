@@ -20,7 +20,7 @@ import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
-  CircleDollarSign, Package, Hash, Plus, X,
+  CircleDollarSign, Package, Hash, Plus, X, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -44,6 +44,7 @@ const SECTION_LOOK: Record<string, { icon: React.ElementType; accent: Accent }> 
   fence_scope:  { icon: Ruler,      accent: ACCENT.violet },
   clean_before: { icon: Camera,     accent: ACCENT.amber },
   clean_after:  { icon: Sparkles,   accent: ACCENT.cyan },
+  stain_before: { icon: Eye,        accent: ACCENT.blue },
   stain_after:  { icon: Paintbrush, accent: ACCENT.emerald },
 };
 
@@ -643,7 +644,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
         </div>
 
         {/* Tap a stage to jump to it. */}
-        <div className="relative mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="relative mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {steps.map((s) => (
             <button
               key={s.key}
