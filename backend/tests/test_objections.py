@@ -99,7 +99,9 @@ def test_a_call_that_started_before_the_send_still_counts_as_after(db):
          "quote": "more than I wanted to spend", "confidence": "high"},
     ]))
     rows = {x.category: x for x in db.query(LeadObjection).filter(LeadObjection.lead_id == lead.id)}
-    assert rows["timing"].timing == "before_estimate"
+    # Alan's rule: the estimate went out during this call, so everything
+    # said on it counts as after — even the line before the send.
+    assert rows["timing"].timing == "after_estimate"
     assert rows["price"].timing == "after_estimate"
     assert rows["price"].mid_call_send and rows["timing"].mid_call_send
 
@@ -194,3 +196,36 @@ def test_job_progress_is_read_only(db):
 def test_before_staining_is_a_photo_section_but_not_a_blocker():
     from services.company_cam import SECTION_KEYS
     assert SECTION_KEYS.index("clean_after") < SECTION_KEYS.index("stain_before") < SECTION_KEYS.index("stain_after")
+
+
+def test_waiting_on_photos_is_a_category(db):
+    lead = _lead(db)
+    _sent(db, lead, T0)
+    rec = _call(db, lead, T0 - timedelta(minutes=3), 1535, [(1526, "but I'll send you some pictures")])
+    ob.scan_lead(db, lead.id, classify=_fake([
+        {"category": "waiting_photos", "source": "call", "source_id": rec.id, "line": 0,
+         "quote": "I'll send you some pictures", "confidence": "high"}]))
+    row = db.query(LeadObjection).filter(LeadObjection.lead_id == lead.id).one()
+    assert row.category == "waiting_photos" and row.timing == "after_estimate" and row.mid_call_send
+
+
+def test_a_call_that_ended_before_the_send_stays_before(db):
+    lead = _lead(db)
+    _sent(db, lead, T0 + timedelta(hours=1))
+    rec = _call(db, lead, T0, 300, [(100, "my wife decides")])
+    ob.scan_lead(db, lead.id, classify=_fake([
+        {"category": "spouse_family", "source": "call", "source_id": rec.id, "line": 0,
+         "quote": "my wife decides", "confidence": "high"}]))
+    row = db.query(LeadObjection).filter(LeadObjection.lead_id == lead.id).one()
+    assert row.timing == "before_estimate" and not row.mid_call_send
+
+
+def test_the_sweep_reaches_back_two_weeks(db, monkeypatch):
+    """A call from the day before the scanner first ran still gets read."""
+    from database import SystemConfig
+    lead = _lead(db)
+    _call(db, lead, T0 - timedelta(days=1), 858, [(400, "waiting on my neighbor")])
+    db.merge(SystemConfig(key="objection_scan_started_at", value=T0.isoformat()))
+    db.commit()
+    start = ob.scanner_start(db) - timedelta(days=ob.BACKFILL_DAYS)
+    assert lead.id in ob.leads_due(db, start, 10)

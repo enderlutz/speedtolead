@@ -1129,7 +1129,10 @@ export default function LeadDetail() {
   const heardBack =
     inbound.some((m) => after(m.created_at)) ||
     dispositions.some((d) => TALKED.includes(d.outcome) && after(d.disposed_at)) ||
-    afterObjections.length > 0;
+    afterObjections.length > 0 ||
+    // A real conversation after the send — including a call that started
+    // before it and was still going (the estimate sent while on the line).
+    (lead.after_estimate?.calls_connected || 0) > 0;
   // Replied only counts if it happened BEFORE the first estimate went out.
   // When we sent without one — no answer to the intake text or the calls —
   // that's an override, and a reply afterwards is "Heard back", not this.

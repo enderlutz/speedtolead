@@ -157,13 +157,25 @@ def after_estimate(db, lead) -> dict | None:
                   if kind == "TYPE_SMS" and _ts(t) and _ts(t) > after and template_key(body) in keys]
     calls = [t for kind, _, t in outbound if kind == "TYPE_CALL" and _ts(t) and _ts(t) > last_sent]
 
+    # A conversation counts if it happened after the send — including a call
+    # that started BEFORE the send and was still going 30s+ after it. That's
+    # the estimate sent while the customer is on the line (Ray Rascoe: call
+    # at 4:20, estimate at 4:23, 22 more minutes of conversation). GHL stamps
+    # the call at its start, so a start-time check alone missed it.
     connected = 0
+    on_call_at_send = False
     for start, secs, vm in (
         db.query(CallRecording.created_at, CallRecording.duration_seconds, CallRecording.is_voicemail)
         .filter(CallRecording.lead_id == lead.id).all()
     ):
-        if _ts(start) and _ts(start) > last_sent and not vm and int(secs or 0) >= 30:
+        t, secs = _ts(start), int(secs or 0)
+        if not t or vm or secs < 30:
+            continue
+        if t > last_sent:
             connected += 1
+        elif t + timedelta(seconds=secs) >= last_sent + timedelta(seconds=30):
+            connected += 1
+            on_call_at_send = True
     talked_logged = sum(
         1 for outcome, at in db.query(CallDisposition.outcome, CallDisposition.disposed_at)
         .filter(CallDisposition.lead_id == lead.id).all()
@@ -186,6 +198,7 @@ def after_estimate(db, lead) -> dict | None:
         "calls_tried": max(len(calls), connected, talked_logged),
         "calls_connected": max(connected, talked_logged),
         "last_call_at": max(calls, key=lambda t: _ts(t)) if calls else None,
+        "on_call_at_send": on_call_at_send,
     }
 
 

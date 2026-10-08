@@ -154,3 +154,20 @@ def test_a_logged_conversation_before_the_send_counts(db):
                            disposed_at=(T0 - timedelta(hours=4)).isoformat()))
     db.commit()
     assert fs.discovery_call(db, lead)["done"] is True
+
+
+def test_a_call_still_going_when_the_estimate_was_sent_counts_as_connected(db):
+    """Ray Rascoe: the call started 3 minutes before the send and ran 22
+    minutes past it. That is hearing back."""
+    lead = _lead(db)
+    _rec(db, lead, T0 - timedelta(minutes=3), secs=1535)
+    out = fs.after_estimate(db, lead)
+    assert out["on_call_at_send"] is True
+    assert out["calls_connected"] == 1 and out["calls_tried"] >= 1
+
+
+def test_a_call_that_ended_before_the_send_does_not(db):
+    lead = _lead(db)
+    _rec(db, lead, T0 - timedelta(minutes=10), secs=300)
+    out = fs.after_estimate(db, lead)
+    assert out["on_call_at_send"] is False and out["calls_connected"] == 0

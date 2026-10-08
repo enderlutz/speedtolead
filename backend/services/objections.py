@@ -45,6 +45,7 @@ CATEGORIES: dict[str, tuple[str, bool]] = {
     "scope": ("Scope", True),
     "fence_condition": ("Fence condition", True),
     "neighbors": ("Neighbours", True),
+    "waiting_photos": ("Waiting on photos", True),
     "replacing_instead": ("Replacing instead", False),
     "diy": ("Doing it themselves", False),
     "went_elsewhere": ("Went elsewhere", False),
@@ -69,6 +70,7 @@ Categories:
 - scope: wants fewer or different sides, or less work, to bring the price down
 - fence_condition: thinks the fence needs repair or replacement first, unsure staining is worth it
 - neighbors: waiting on neighbours — their agreement, their availability, their fence being fixed or matching
+- waiting_photos: we're waiting on the customer to send photos, a video or other information before we can quote, re-quote or go ahead (e.g. "I'll send you some pictures"). Tag it whether the customer offers or staff asks and the customer agrees.
 - replacing_instead: has decided to replace the fence rather than stain it
 - diy: will do it themselves
 - went_elsewhere: hired another company, or already had it done
@@ -137,13 +139,20 @@ def classify_timing(said_at: datetime, sent_at: datetime | None, *, call_start: 
                     call_seconds: int = 0) -> tuple[str, bool]:
     """("after_estimate" | "before_estimate", estimate sent during this call?).
 
-    No estimate sent yet means before. On a call, a minute's grace either side
-    of the send covers the ring time GHL counts and the recording doesn't."""
+    No estimate sent yet means before. If the estimate went out DURING the
+    call, every objection on that call counts as after — Alan's rule
+    (2026-10-08, Ray Rascoe and Michelle Stout): the customer is reacting to
+    the estimate they're looking at, and line-by-line timing against GHL's
+    ring-inclusive start time is too fragile to split one conversation.
+    Otherwise a line's moment decides, with a minute's grace on calls for the
+    ring time the recording doesn't include."""
     if sent_at is None:
         return "before_estimate", False
     mid_call = bool(call_start and call_start <= sent_at <= call_start + timedelta(seconds=call_seconds) + GRACE)
+    if mid_call:
+        return "after_estimate", True
     grace = GRACE if call_start else timedelta(0)
-    return ("after_estimate" if said_at >= sent_at - grace else "before_estimate"), mid_call
+    return ("after_estimate" if said_at >= sent_at - grace else "before_estimate"), False
 
 
 def _gather(db, lead, *, only_after: datetime | None):
@@ -319,6 +328,13 @@ def scanner_start(db) -> datetime:
     return now
 
 
+# The automatic scanner also reads this far back from the moment it first
+# ran, once, so customers from just before it went live (Ray Rascoe and
+# Michelle Stout, 2026-10-07) are covered without a button. Each text and
+# call is still read only once, and the daily cap still applies.
+BACKFILL_DAYS = 14
+
+
 def sweep_once() -> dict:
     """One pass of the background loop."""
     from database import get_db
@@ -327,7 +343,7 @@ def sweep_once() -> dict:
         return {"skipped": True}
     db = get_db()
     try:
-        start = scanner_start(db)
+        start = scanner_start(db) - timedelta(days=BACKFILL_DAYS)
         room = max(0, settings.objection_scan_daily_cap - scans_today(db))
         done = found = 0
         for lead_id in leads_due(db, start, min(room, 20)):

@@ -560,6 +560,8 @@ export interface LeadDetail extends Lead {
     calls_tried: number;
     calls_connected: number;
     last_call_at: string | null;
+    /** On the phone with them when the estimate went out, 30s+ after it. */
+    on_call_at_send?: boolean;
   } | null;
   /** Company Cam progress, read only. Photo counts per section. */
   job_progress?: {
