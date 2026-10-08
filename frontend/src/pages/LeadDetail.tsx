@@ -59,10 +59,9 @@ const FENCE_AGE_OPTIONS = [
   "Didn't answer", "Brand new (less than 6 months)", "1-6 years", "6-15 years", "Older than 15 years / Not sure",
 ];
 const PREVIOUSLY_STAINED_OPTIONS = ["Didn't answer", "No", "Yes"];
-const TIMELINE_OPTIONS = ["As soon as possible", "Within 2 weeks", "Sometime this month", "Just planning ahead"];
 
 /**
- * Map what GHL actually stores onto the four options above.
+ * Map what GHL actually stores onto the four timeline answers.
  *
  * The Meta lead form has been reworded several times and its picklist labels
  * never matched this list exactly. Measured 2026-10-01 across every non-test
@@ -77,7 +76,7 @@ const TIMELINE_OPTIONS = ["As soon as possible", "Within 2 weeks", "Sometime thi
  * Matching is done on intent, not on exact strings, so the next time the ad
  * form is reworded this keeps working. An unrecognised value is returned
  * unchanged rather than blanked — losing the answer is worse than showing an
- * odd label, and `timelineOptionsFor` keeps it selectable so a save
+ * odd label, and Save & Recalculate still writes it back, so a save
  * round-trips it intact.
  */
 function normalizeTimeline(raw: unknown): string {
@@ -91,12 +90,20 @@ function normalizeTimeline(raw: unknown): string {
   return s;
 }
 
-/** Options plus the current value when it isn't one of them, so an
- *  unrecognised answer still displays and still survives a save. */
-function timelineOptionsFor(current: string): string[] {
-  return !current || TIMELINE_OPTIONS.includes(current)
-    ? TIMELINE_OPTIONS
-    : [current, ...TIMELINE_OPTIONS];
+/** How the customer's own timeline answer is painted. It is their answer,
+ *  not ours — shown, never edited (Alan, 2026-10-08) — and it doesn't
+ *  change the price, so it rides as a badge instead of taking a box. */
+const TIMELINE_LOOK: Record<string, { grad: string; icon: React.ElementType; hint: string }> = {
+  "As soon as possible": { grad: "from-rose-500 to-orange-500", icon: Flame, hint: "Ready now" },
+  "Within 2 weeks": { grad: "from-amber-500 to-orange-500", icon: Rocket, hint: "Soon" },
+  "Sometime this month": { grad: "from-sky-500 to-blue-600", icon: Calendar, hint: "This month" },
+  "Just planning ahead": { grad: "from-slate-500 to-slate-700", icon: Compass, hint: "Shopping around" },
+};
+
+/** A form answer the customer left empty, or filled with a "nothing". */
+function isBlankAnswer(v: unknown): boolean {
+  const s = String(v ?? "").trim().toLowerCase().replace(/[.!]/g, "");
+  return !s || ["none", "no", "n/a", "na", "nothing", "nope", "-", "--"].includes(s);
 }
 const CONFIDENCE_OPTIONS = [
   { label: "I'm confident", value: "100" },
@@ -499,6 +506,92 @@ function ContactFact({
   );
 }
 
+/** A contact fact you edit where it sits: tap it, change it, tick to save
+ *  (Alan, 2026-10-08 — no more Edit button for the whole card). Enter saves,
+ *  Escape puts it back. */
+function EditableFact({
+  icon, accent, label, value, display, right, onSave, placeholder, maxLength, inputMode, className,
+}: {
+  icon: React.ElementType;
+  accent: Accent;
+  label: string;
+  value: string;
+  display?: React.ReactNode;
+  right?: React.ReactNode;
+  onSave: (next: string) => Promise<void>;
+  placeholder?: string;
+  maxLength?: number;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const open = () => { setDraft(value); setEditing(true); };
+  const confirm = async () => {
+    const next = draft.trim();
+    if (next === (value || "").trim()) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await onSave(next);
+      setEditing(false);
+    } catch {
+      // onSave already said why; the field stays open to fix.
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className={className}>
+      <ContactFact
+        icon={icon}
+        accent={accent}
+        label={label}
+        right={editing ? (
+          <div className="flex shrink-0 items-center gap-1 self-center">
+            <button type="button" onClick={confirm} disabled={saving} title="Save"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            </button>
+            <button type="button" onClick={() => setEditing(false)} disabled={saving} title="Cancel"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1 self-center">
+            {right}
+            <button type="button" onClick={open} title={`Edit ${label.toLowerCase()}`}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      >
+        {editing ? (
+          <Input
+            autoFocus
+            value={draft}
+            placeholder={placeholder}
+            maxLength={maxLength}
+            inputMode={inputMode}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); confirm(); }
+              if (e.key === "Escape") setEditing(false);
+            }}
+            className="mt-0.5 h-8 text-sm"
+          />
+        ) : (
+          <button type="button" onClick={open} className="block w-full truncate text-left hover:text-primary">
+            {display ?? (value || "—")}
+          </button>
+        )}
+      </ContactFact>
+    </div>
+  );
+}
+
 /** One package price. Signature is the one we lead with, so it is the only
  *  one painted solid; the other two sit either side of it like bronze and
  *  gold. */
@@ -568,13 +661,6 @@ export default function LeadDetail() {
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [editingContact, setEditingContact] = useState(false);
-  const [savingContact, setSavingContact] = useState(false);
-  const [contactName, setContactName] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [contactAddress, setContactAddress] = useState("");
-  const [contactZip, setContactZip] = useState("");
   const [leadSource, setLeadSource] = useState<string>("ad");
   const [messages, setMessages] = useState<MessageEntry[]>([]);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(() => urlParams.get("invoice") === "1");
@@ -630,11 +716,6 @@ export default function LeadDetail() {
       setLead(data);
       setMessages(msgs);
       // Contact fields
-      setContactName(data.contact_name || "");
-      setContactPhone(data.contact_phone || "");
-      setContactEmail(data.contact_email || "");
-      setContactAddress(data.address || "");
-      setContactZip(data.zip_code || "");
       setLeadSource(data.lead_source || "ad");
       // Estimator fields
       const fd = data.form_data || {};
@@ -821,7 +902,8 @@ export default function LeadDetail() {
           previously_stained: previouslyStained,
           service_timeline: timeline,
           confident_pct: confidencePct,
-          zip_code: zipCode,
+          // The contact's ZIP is the one that prices the job.
+          zip_code: lead?.zip_code || zipCode,
           fence_sides: fenceSides,
           additional_services: additionalServices,
           additional_notes: additionalNotes,
@@ -996,28 +1078,17 @@ export default function LeadDetail() {
     }
   };
 
-  const handleSaveContact = async () => {
+  /** Save one contact field from where it sits. The server changes only what
+   *  was sent and mirrors it to GHL. Throws so the field stays open on error. */
+  const saveContactField = async (field: "contact_name" | "contact_phone" | "contact_email" | "address" | "zip_code", value: string) => {
     if (!id) return;
-    setSavingContact(true);
     try {
-      const updated = await api.updateContact(id, {
-        contact_name: contactName,
-        contact_phone: contactPhone,
-        contact_email: contactEmail,
-        address: contactAddress,
-        zip_code: contactZip.trim(),
-        lead_source: leadSource,
-      });
+      const updated = await api.updateContact(id, { [field]: value });
       setLead((prev) => (prev ? { ...prev, ...updated } : prev));
-      setEditingContact(false);
-      toast.success("Contact info saved");
+      toast.success("Saved");
     } catch (e) {
-      // The bare catch here hid a 400 about lead_source for a fifth of the
-      // customer base — the message said nothing and the cause took a
-      // database query to find.
-      toast.error(errMessage(e, "Failed to save contact info"));
-    } finally {
-      setSavingContact(false);
+      toast.error(errMessage(e, "Couldn't save that"));
+      throw e;
     }
   };
 
@@ -1584,7 +1655,7 @@ export default function LeadDetail() {
             title="Contact"
             sub={lead.area || (lead.zip_code ? `ZIP ${lead.zip_code}` : "Who we're quoting")}
             accent={ACCENT.blue}
-            right={!editingContact ? (
+            right={(
                   <div className="flex gap-1.5 flex-wrap justify-end">
                     <Button variant="outline" size="sm" onClick={async () => {
                       setAskingAddress(true);
@@ -1619,87 +1690,53 @@ export default function LeadDetail() {
                       <MapPin className="h-3.5 w-3.5 mr-1" />
                       {lead?.form_data?.address_action === "new_build" ? "Sent" : askingNewBuild ? "Sending..." : "New Build"}
                     </Button>}
-                    <Button variant="ghost" size="sm" onClick={() => setEditingContact(true)}>
-                      <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex gap-1.5">
-                    <Button variant="ghost" size="sm" onClick={() => setEditingContact(false)}>Cancel</Button>
-                    <Button size="sm" onClick={handleSaveContact} disabled={savingContact}>
-                      <Save className="h-3.5 w-3.5 mr-1" /> {savingContact ? "Saving..." : "Save"}
-                    </Button>
                   </div>
                 )}
           >
-              {editingContact ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Name">
-                    <Input value={contactName} onChange={(e) => setContactName(e.target.value)} />
-                  </Field>
-                  <Field label="Phone">
-                    <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
-                  </Field>
-                  <Field label="Email">
-                    <Input value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-                  </Field>
-                  <Field label="Address">
-                    <Input value={contactAddress} onChange={(e) => setContactAddress(e.target.value)} />
-                  </Field>
-                  <Field label="ZIP code">
-                    <Input value={contactZip} maxLength={5} inputMode="numeric" onChange={(e) => setContactZip(e.target.value)} />
-                  </Field>
-                  <Field label="Lead source">
-                    <select
-                      value={leadSource}
-                      onChange={(e) => setLeadSource(e.target.value)}
-                      className={selectCls}
-                    >
-                      {leadSourceOptionsFor(leadSource).map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-              ) : (
-                <>
+              <>
+                  {/* Each fact edits in place (Alan, 2026-10-08). ZIP sits
+                      beside the address — it lives here and nowhere else;
+                      the estimate reads it from the contact. */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <ContactFact icon={UserRound} accent={ACCENT.blue} label="Name">
-                      {lead.contact_name || "—"}
-                    </ContactFact>
-                    <ContactFact icon={Phone} accent={ACCENT.emerald} label="Phone">
-                      {lead.contact_phone
-                        ? <a href={`tel:${lead.contact_phone}`} className="text-primary hover:underline">{lead.contact_phone}</a>
-                        : "—"}
-                    </ContactFact>
-                    <ContactFact icon={Mail} accent={ACCENT.violet} label="Email">
-                      {lead.contact_email || "—"}
-                    </ContactFact>
-                    <ContactFact
-                      icon={MapPin}
-                      accent={ACCENT.amber}
-                      label="Address"
-                      right={mapsUrl ? (
-                        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 self-center" title="Open in Google Maps">
-                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-primary" />
+                    <EditableFact icon={UserRound} accent={ACCENT.blue} label="Name"
+                      value={lead.contact_name || ""} onSave={(v) => saveContactField("contact_name", v)} />
+                    <EditableFact icon={Phone} accent={ACCENT.emerald} label="Phone"
+                      value={lead.contact_phone || ""} inputMode="tel"
+                      right={lead.contact_phone ? (
+                        <a href={`tel:${lead.contact_phone}`} title="Call" className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary">
+                          <Phone className="h-3.5 w-3.5" />
                         </a>
                       ) : undefined}
-                    >
-                      {lead.address || "—"}
-                      {lead.area && (
-                        <span className="block truncate text-[11px] font-normal text-muted-foreground">{lead.area}</span>
-                      )}
+                      onSave={(v) => saveContactField("contact_phone", v)} />
+                    <EditableFact icon={Mail} accent={ACCENT.violet} label="Email" className="sm:col-span-2"
+                      value={lead.contact_email || ""} inputMode="email"
+                      onSave={(v) => saveContactField("contact_email", v)} />
+                    <div className="flex gap-2 sm:col-span-2">
+                      <EditableFact icon={MapPin} accent={ACCENT.amber} label="Address" className="min-w-0 flex-1"
+                        value={lead.address || ""}
+                        right={mapsUrl ? (
+                          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" title="Open in Google Maps"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        ) : undefined}
+                        onSave={(v) => saveContactField("address", v)} />
+                      <EditableFact icon={Compass} accent={ACCENT.cyan} label="ZIP" className="w-36 shrink-0"
+                        value={lead.zip_code || ""} maxLength={5} inputMode="numeric" placeholder="77429"
+                        onSave={(v) => saveContactField("zip_code", v)} />
+                    </div>
+                  </div>
+                  {lead.area || addressChase ? (
+                    <div className="space-y-1">
+                      {lead.area && <p className="truncate px-1 text-[11px] text-muted-foreground">{lead.area}</p>}
                       {addressChase ? (
-                        <span className={cn("mt-1 flex items-start gap-1 whitespace-normal rounded-md px-1.5 py-1 text-[11px] font-medium leading-snug",
+                        <span className={cn("flex items-start gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium leading-snug",
                           addressChase.tone)}>
                           <Clock className="mt-0.5 h-3 w-3 shrink-0" />{addressChase.text}
                         </span>
                       ) : null}
-                    </ContactFact>
-                    <ContactFact icon={Compass} accent={ACCENT.cyan} label="ZIP code">
-                      {lead.zip_code || "—"}
-                    </ContactFact>
-                  </div>
+                    </div>
+                  ) : null}
                   {/* Inline source picker — fires save on change so admin doesn't have to enter Edit mode for this one field */}
                   <div className="flex items-center gap-2 pt-2 border-t">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Source</span>
@@ -1715,7 +1752,6 @@ export default function LeadDetail() {
                     <span className="text-[10px] text-muted-foreground italic ml-auto hidden sm:inline">Default = Ad. Update if this came from a different channel.</span>
                   </div>
                 </>
-              )}
 
               {/* Payment Links (Phase 2, 2026-06-08). Unified controls for the
                   $250 deposit + full job invoice. Replaces the standalone
@@ -1783,7 +1819,7 @@ export default function LeadDetail() {
               lat={lead.lat || 0}
               lng={lead.lng || 0}
               address={lead.address || ""}
-              zipCode={zipCode || lead.zip_code || ""}
+              zipCode={lead.zip_code || zipCode || ""}
               onLinearFeet={(feet) => setLinearFeet(String(feet))}
               onChange={() => {
                 api.getLead(lead.id).then(setLead).catch(() => {});
@@ -1816,28 +1852,35 @@ export default function LeadDetail() {
             accent={ACCENT.fuchsia}
             bodyClassName="space-y-4 p-3.5"
           >
-              {/* The two numbers that matter most get the biggest boxes. */}
-              <div className="grid grid-cols-2 gap-3">
-                <StatTile icon={Ruler} label="Linear feet" accent={ACCENT.violet}>
-                  <Input
-                    type="number"
-                    placeholder="e.g. 150"
-                    value={linearFeet}
-                    onChange={(e) => setLinearFeet(e.target.value)}
-                    className="h-11 text-xl font-bold tabular-nums"
-                  />
-                </StatTile>
-                <StatTile icon={MapPin} label="ZIP code" accent={ACCENT.amber}>
-                  <Input
-                    type="text"
-                    placeholder="e.g. 77429"
-                    maxLength={5}
-                    value={zipCode}
-                    onChange={(e) => setZipCode(e.target.value)}
-                    className="h-11 text-xl font-bold tabular-nums"
-                  />
-                </StatTile>
-              </div>
+              {/* The customer's timeline: their answer, read-only. */}
+              {timeline ? (() => {
+                const look = TIMELINE_LOOK[timeline] ?? { grad: "from-slate-500 to-slate-700", icon: Clock, hint: "Their answer" };
+                const TIcon = look.icon;
+                return (
+                  <div className={`flex items-center gap-3 rounded-xl bg-gradient-to-r ${look.grad} px-3 py-2.5 text-white shadow-sm`}>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/20 ring-1 ring-white/40">
+                      <TIcon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-white/80">Customer's timeline</p>
+                      <p className="truncate text-sm font-semibold">{timeline}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">{look.hint}</span>
+                  </div>
+                );
+              })() : null}
+
+              {/* Linear feet is the one number we type. ZIP lives on the
+                  contact card and prices the job from there. */}
+              <StatTile icon={Ruler} label="Linear feet" accent={ACCENT.violet}>
+                <Input
+                  type="number"
+                  placeholder="e.g. 150"
+                  value={linearFeet}
+                  onChange={(e) => setLinearFeet(e.target.value)}
+                  className="h-11 text-xl font-bold tabular-nums"
+                />
+              </StatTile>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Fence height">
@@ -1853,12 +1896,6 @@ export default function LeadDetail() {
                 <Field label="Previously stained">
                   <select className={selectCls} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
                     {PREVIOUSLY_STAINED_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </Field>
-                <Field label="Timeline">
-                  <select className={selectCls} value={timeline} onChange={(e) => setTimeline(e.target.value)}>
-                    <option value="">Select...</option>
-                    {timelineOptionsFor(timeline).map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </Field>
               </div>
@@ -1908,6 +1945,8 @@ export default function LeadDetail() {
 
               {/* Additional Services + Add-on Handled + Military Discount */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Only when the customer asked for something extra. */}
+                {(!isBlankAnswer(lead.form_data?.additional_services) || !isBlankAnswer(additionalServices)) && (
                 <Field label="Additional services">
                   <Input placeholder="e.g. gate painting, pressure washing" value={additionalServices} onChange={(e) => setAdditionalServices(e.target.value)} />
                   {additionalServices && additionalServices.toLowerCase() !== "none" && (
@@ -1930,6 +1969,7 @@ export default function LeadDetail() {
                     </label>
                   )}
                 </Field>
+                )}
                 <Field label="Options">
                   <div className="flex flex-wrap gap-1.5">
                     <ToggleChip
@@ -1954,7 +1994,9 @@ export default function LeadDetail() {
                 </Field>
               </div>
 
-              {/* Additional Notes — collapsible so long GHL notes don't dominate */}
+              {/* Additional Notes — collapsible so long GHL notes don't dominate.
+                  Hidden when the customer left none. */}
+              {(!isBlankAnswer(lead.form_data?.additional_notes) || !isBlankAnswer(additionalNotes)) && (
               <Field
                 label="Additional notes"
                 right={additionalNotes ? (
@@ -1975,6 +2017,7 @@ export default function LeadDetail() {
                   onChange={(e) => setAdditionalNotes(e.target.value)}
                 />
               </Field>
+              )}
 
               <Button
                 onClick={handleSaveRecalculate}
