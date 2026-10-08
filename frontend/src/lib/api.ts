@@ -1495,6 +1495,9 @@ export const api = {
        *  own polylines are browser overlays and can't be in the image —
        *  Static Maps redraws them server-side at the same centre and zoom. */
       paths?: { color: string; closed: boolean; points: { lat: number; lng: number }[] }[];
+      /** The house itself, marked in the saved photo so an aerial of a street
+       *  of near-identical roofs can still be matched to a customer. */
+      pin?: { lat: number; lng: number } | null;
     },
   ) =>
     request<{

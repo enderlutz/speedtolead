@@ -282,6 +282,12 @@ export default function SatelliteMeasureCard({
   // Set when Google refuses the capture for a key/billing reason. The map
   // and the capture use DIFFERENT keys (browser vs server), so "the map
   // works but Capture won't" is normal and needs its own diagnosis.
+  // Where the house actually is. The map centres here on open, but the VA
+  // pans and zooms while tracing, so the map centre stops being the house —
+  // and a captured aerial of a street of near-identical roofs is impossible
+  // to match to a customer without a pin on it.
+  const [pin, setPin] = useState<Pt | null>(null);
+  const pinOverlayRef = useRef<GMarker | null>(null);
   const [keyProblem, setKeyProblem] = useState("");
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnosis, setDiagnosis] = useState<string[]>([]);
@@ -401,9 +407,12 @@ export default function SatelliteMeasureCard({
 
     setLocateNote("");
 
+    setPin(null);
+
     if (lat && lng) {
       mapRef.current.setCenter({ lat, lng });
       mapRef.current.setZoom(DEFAULT_ZOOM);
+      setPin({ lat, lng });
     } else if (address && address.trim()) {
       // Most leads aren't geocoded — the background map loop only covers
       // leads in mappable stages — so without this the map would sit on
@@ -413,6 +422,7 @@ export default function SatelliteMeasureCard({
           if (cancelled) return;
           mapRef.current?.setCenter(p);
           mapRef.current?.setZoom(DEFAULT_ZOOM);
+          setPin(p);
           if (note) setLocateNote(note);
         });
       } catch {
@@ -530,6 +540,28 @@ export default function SatelliteMeasureCard({
     });
   }, [runs, activeRun, status]);
 
+  // Its own effect and its own ref: the run overlays are torn down on every
+  // points change, and the pin must survive that.
+  useEffect(() => {
+    const g = mapsNS();
+    if (status !== "ready" || !mapRef.current || !g) return;
+    pinOverlayRef.current?.setMap(null);
+    pinOverlayRef.current = null;
+    if (!pin) return;
+    pinOverlayRef.current = new g.Marker({
+      position: pin,
+      map: mapRef.current,
+      title: address || "The property being measured",
+      // Must not eat taps — the house is exactly where tracing starts.
+      clickable: false,
+      zIndex: 1,
+    });
+    return () => {
+      pinOverlayRef.current?.setMap(null);
+      pinOverlayRef.current = null;
+    };
+  }, [pin, status, address]);
+
   const doSearch = useCallback(() => {
     const g = mapsNS();
     const q = search.trim();
@@ -542,6 +574,9 @@ export default function SatelliteMeasureCard({
         }
         const loc = res[0].geometry.location;
         mapRef.current.setCenter({ lat: loc.lat(), lng: loc.lng() });
+        // Searching is how a wrong geocode gets corrected, so the pin moves
+        // with it — otherwise it would still mark the wrong house.
+        setPin({ lat: loc.lat(), lng: loc.lng() });
         mapRef.current.setZoom(DEFAULT_ZOOM);
       });
     } catch {
@@ -594,6 +629,9 @@ export default function SatelliteMeasureCard({
         // the on-screen rendering, and only then filtered. Filtering first
         // would renumber the colours whenever an empty run sat in the
         // middle, so the photo would disagree with what was just traced.
+        // Marks the house in the saved photo. Without it an aerial of a
+        // street of near-identical roofs cannot be matched to a customer.
+        pin: pin ? { lat: pin.lat, lng: pin.lng } : null,
         paths: runs
           .map((r, idx) => ({
             color: RUN_COLORS[idx % RUN_COLORS.length].replace("#", ""),

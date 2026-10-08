@@ -2131,11 +2131,34 @@ class SatelliteCaptureBody(BaseModel):
     # rather than a bare aerial. The interactive map's polylines are browser
     # overlays and cannot be in the image — Static Maps has to redraw them.
     paths: list[CapturePath] = []
+    # The house being measured. A VA pans and zooms while tracing, so the
+    # image centre stops being the property — and an aerial of a street of
+    # near-identical roofs cannot be matched back to a customer without it.
+    pin: dict | None = None
 
 
 def _is_hex6(v: str) -> bool:
     """Six hex digits. Done by hand because `re` is not imported here."""
     return len(v or "") == 6 and all(c in "0123456789abcdefABCDEF" for c in v)
+
+
+def _marker_param(pin: dict | None) -> str:
+    """Static Maps `markers=` for the property itself.
+
+    Google's default red teardrop, which is what everyone already reads as
+    "this one". Drawn after the paths in the URL so it sits above the traced
+    lines rather than under them.
+    """
+    if not pin:
+        return ""
+    try:
+        lat = float(pin.get("lat"))
+        lng = float(pin.get("lng"))
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return ""
+    return f"&markers=color:red|{lat:.6f},{lng:.6f}"
 
 
 def _path_params(paths: list[CapturePath]) -> str:
@@ -2268,12 +2291,13 @@ def capture_satellite_measurement(
         raise HTTPException(status_code=400, detail="size must look like 640x640")
 
     path_args = _path_params(body.paths)
+    pin_arg = _marker_param(body.pin)
 
     def _static_url(k: str) -> str:
         return (
             "https://maps.googleapis.com/maps/api/staticmap"
             f"?center={body.lat},{body.lng}&zoom={zoom}&size={body.size}"
-            f"&scale={scale}&maptype=satellite&format=png{path_args}&key={k}"
+            f"&scale={scale}&maptype=satellite&format=png{path_args}{pin_arg}&key={k}"
         )
 
     # Google caps the Static Maps URL at 16384 characters. Drop the lines

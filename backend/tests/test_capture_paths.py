@@ -103,3 +103,38 @@ def test_a_run_left_with_one_valid_point_draws_nothing():
 ])
 def test_hex6_validation(v, ok):
     assert _is_hex6(v) is ok
+
+
+# --- the pin on the house ---
+
+def test_the_property_is_marked():
+    """A captured aerial of a street of near-identical roofs cannot be
+    matched back to a customer without this."""
+    from api.leads import _marker_param
+    assert _marker_param({"lat": 29.76, "lng": -95.37}) == \
+        "&markers=color:red|29.760000,-95.370000"
+
+
+@pytest.mark.parametrize("pin", [
+    None, {}, {"lat": "abc", "lng": 1}, {"lng": -95.37}, {"lat": 999, "lng": 0},
+    {"lat": 0, "lng": 181}, "not-a-dict",
+])
+def test_a_pin_we_cannot_trust_is_left_off_rather_than_sent(pin):
+    """A bad pin must not reach the URL, and must not cost the photo."""
+    from api.leads import _marker_param
+    assert _marker_param(pin) == ""
+
+
+def test_the_pin_is_drawn_over_the_lines_not_under_them():
+    """Static Maps paints in URL order, so markers must come after paths."""
+    from api.leads import SatelliteCaptureBody, _marker_param, _path_params
+    body = SatelliteCaptureBody(
+        lat=29.76, lng=-95.37,
+        paths=[CapturePath(points=[A, B])],
+        pin={"lat": 29.76, "lng": -95.37},
+    )
+    url = (
+        "https://maps.googleapis.com/maps/api/staticmap?center=1,1&zoom=20"
+        f"{_path_params(body.paths)}{_marker_param(body.pin)}&key=K"
+    )
+    assert url.index("&path=") < url.index("&markers="), "pin must be drawn last"
