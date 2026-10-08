@@ -245,7 +245,7 @@ function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         ))}
       </div>
 
-      <div className="relative mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-8">
+      <div className="relative mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-9">
         {steps.map((s) => {
           const isCurrent = s === current;
           const Icon = s.icon;
@@ -935,6 +935,14 @@ export default function LeadDetail() {
       hint: !repliedFirst && firstSentAt
         ? "They never answered before we sent the estimate — sent anyway. A reply now shows under Heard back."
         : "Waiting on their first reply. Answering the intake text is the first sign they're real." },
+    // Not every customer gets a scope, so once the estimate has gone out
+    // without one this reads "Skipped", not "You are here".
+    { key: "scope", label: "Scope sent", icon: FileText, accent: ACCENT.amber, target: "est-measure",
+      done: !!lead.fence_scope_first_sent_at,
+      skipped: !lead.fence_scope_first_sent_at && !!firstSentAt,
+      hint: !lead.fence_scope_first_sent_at && firstSentAt
+        ? "No scope of work went to this customer — the estimate was sent without one."
+        : "Draw the scope on the Fence Scope tab and text it, so they confirm the sides before we price." },
     { key: "measured", label: "Measured", icon: Ruler, accent: ACCENT.violet, target: "est-measure",
       done: Number(linearFeet) > 0 || !!lead.measurement_uploaded,
       hint: "Trace the fence on the satellite and capture it — Linear Feet fills itself." },

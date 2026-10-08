@@ -542,6 +542,8 @@ export interface LeadDetail extends Lead {
   estimate?: EstimateDetail;
   estimated_in_person?: boolean;      // effective: manual override if set, else auto-detected
   estimated_in_person_auto?: boolean; // whether estimator activity was detected for this lead
+  /** First time a fence scope was texted to the customer, across redraws. */
+  fence_scope_first_sent_at?: string | null;
 }
 
 export interface EstimateDetail {

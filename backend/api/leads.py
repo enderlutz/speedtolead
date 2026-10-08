@@ -830,6 +830,19 @@ def get_lead(lead_id: str):
         manual = fd.get("estimated_in_person")
         result["estimated_in_person_auto"] = has_activity
         result["estimated_in_person"] = manual if isinstance(manual, bool) else has_activity
+
+        # When the fence scope was first texted to the customer. The lead's
+        # own stamp is wiped whenever the scope is redrawn, but each archived
+        # version keeps the send time it had, so "was a scope ever sent"
+        # needs both. Drives the "Scope sent" step of the customer journey.
+        from database import FenceScopeVersion
+        stamps = [lead.fence_scope_sent_at] + [
+            r[0] for r in db.query(FenceScopeVersion.sent_at)
+            .filter(FenceScopeVersion.lead_id == lead.id,
+                    FenceScopeVersion.sent_at.isnot(None)).all()
+        ]
+        stamps = sorted(s for s in stamps if s)
+        result["fence_scope_first_sent_at"] = stamps[0] if stamps else None
         return result
     finally:
         db.close()
