@@ -2121,6 +2121,57 @@ class SatelliteCaptureBody(BaseModel):
     replace_id: str | None = None
 
 
+def _fetch_static_map(url_for, server_key: str, browser_key: str, lead_id: str) -> bytes:
+    """Fetch one Static Maps image, trying each key we hold.
+
+    The server key is tried first: it is the one meant for server-to-server
+    calls and is normally unrestricted. But the two keys can live on
+    different Cloud projects with different billing, and when the server
+    key's project is unbilled Google refuses it outright — which is exactly
+    what happened here, while the interactive map carried on working because
+    it uses the browser key.
+
+    So rather than failing, fall back. The browser key's project is
+    demonstrably billed, because the map renders from it. It may also carry
+    an HTTP-referrer restriction, which a server call cannot satisfy — that
+    was the stated reason for never trying it, but it was an assumption, and
+    it costs one request to find out. If both are refused the error names
+    both attempts, so the fix goes to the right project.
+    """
+    import httpx
+
+    attempts: list[tuple[str, str]] = []
+    tried: set[str] = set()
+    for label, key in (("server key", server_key), ("browser key", browser_key)):
+        if not key or key in tried:
+            continue
+        tried.add(key)
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                resp = client.get(url_for(key))
+        except Exception as e:
+            attempts.append((label, f"could not reach Google: {e}"))
+            continue
+        if resp.status_code == 200 and resp.content:
+            ctype = resp.headers.get("content-type", "")
+            if "image" in ctype:
+                if label != "server key":
+                    logger.warning(
+                        f"Satellite capture for lead {lead_id} fell back to the "
+                        f"{label} — the server key was refused."
+                    )
+                return resp.content
+            # A 200 that isn't an image is Google's "sorry" PNG-less page.
+            attempts.append((label, (resp.text or "")[:160] or f"200 but {ctype or 'no type'}"))
+            continue
+        # Google puts the real reason in the body on a 4xx; surface it,
+        # because "capture failed" with no cause is unactionable.
+        attempts.append((label, (resp.text or "")[:160] or f"HTTP {resp.status_code}"))
+
+    detail = "; ".join(f"{label}: {why}" for label, why in attempts) or "no key configured"
+    raise HTTPException(status_code=502, detail=f"Google Maps refused the capture — {detail}")
+
+
 @router.post("/leads/{lead_id}/measurement/capture")
 def capture_satellite_measurement(
     lead_id: str,
@@ -2140,12 +2191,14 @@ def capture_satellite_measurement(
     from the Static Maps API at the exact centre and zoom the VA framed,
     which is what makes "what I see is what I get" hold.
 
-    Uses the server key (`google_maps_api_key`), not the browser key — this
-    is a server-to-server call and the browser key is referer-restricted.
+    Prefers the server key (`google_maps_api_key`) because this is a
+    server-to-server call, but falls back to the browser key when Google
+    refuses the first one — see _fetch_static_map for why.
     """
     settings = get_settings()
-    key = (settings.google_maps_api_key or settings.google_maps_browser_key or "").strip()
-    if not key:
+    server_key = (settings.google_maps_api_key or "").strip()
+    browser_key = (settings.google_maps_browser_key or "").strip()
+    if not (server_key or browser_key):
         raise HTTPException(status_code=503, detail="No Google Maps API key configured")
 
     # Clamp to what Static Maps accepts, so a bad client value fails here
@@ -2164,26 +2217,14 @@ def capture_satellite_measurement(
     if not (w.isdigit() and h.isdigit() and 2 <= len(w) <= 4 and 2 <= len(h) <= 4):
         raise HTTPException(status_code=400, detail="size must look like 640x640")
 
-    url = (
-        "https://maps.googleapis.com/maps/api/staticmap"
-        f"?center={body.lat},{body.lng}&zoom={zoom}&size={body.size}"
-        f"&scale={scale}&maptype=satellite&format=png&key={key}"
-    )
-    try:
-        import httpx
-        with httpx.Client(timeout=20.0) as client:
-            resp = client.get(url)
-        if resp.status_code != 200 or not resp.content:
-            # Google puts the real reason in the body on a 4xx; surface it,
-            # because "capture failed" with no cause is unactionable.
-            detail = (resp.text or "")[:200] or f"HTTP {resp.status_code}"
-            raise HTTPException(status_code=502, detail=f"Google Maps refused the capture: {detail}")
-        data = resp.content
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Satellite capture failed for lead {lead_id}: {e}")
-        raise HTTPException(status_code=502, detail=f"Could not reach Google Maps: {e}")
+    def _static_url(k: str) -> str:
+        return (
+            "https://maps.googleapis.com/maps/api/staticmap"
+            f"?center={body.lat},{body.lng}&zoom={zoom}&size={body.size}"
+            f"&scale={scale}&maptype=satellite&format=png&key={k}"
+        )
+
+    data = _fetch_static_map(_static_url, server_key, browser_key, lead_id)
 
     db = get_db()
     try:
