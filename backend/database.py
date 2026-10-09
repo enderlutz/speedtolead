@@ -1855,6 +1855,10 @@ class LeadMeasurement(Base):
     center_lng = Column(Float, nullable=True)
     zoom = Column(Integer, nullable=True)
     source = Column(Text, default="satellite_capture")   # satellite_capture | upload
+    # Which estimate the photo was taken for (Alan, 2026-10-08: "every time
+    # you do a photo, it's tagged to an estimate"). Set to the lead's newest
+    # estimate at capture/upload; older rows are placed by time when listed.
+    estimate_id = Column(Text, nullable=True)
     created_at = Column(Text, default="")
     created_by = Column(Text, default="")
 
@@ -1871,6 +1875,7 @@ class LeadMeasurement(Base):
             "center_lng": self.center_lng,
             "zoom": self.zoom,
             "source": self.source or "",
+            "estimate_id": self.estimate_id,
             "created_at": self.created_at or "",
             "created_by": self.created_by or "",
         }
@@ -4111,6 +4116,12 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE messages ADD COLUMN email_checked_at TEXT DEFAULT ''"))
         logger.info("Migration: added messages.email_checked_at")
+
+    measurement_cols = {c["name"] for c in inspector.get_columns("lead_measurements")}
+    if "estimate_id" not in measurement_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE lead_measurements ADD COLUMN estimate_id TEXT"))
+        logger.info("Migration: added lead_measurements.estimate_id")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

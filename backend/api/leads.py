@@ -2212,10 +2212,46 @@ def backfill_tags():
 
 
 # ─── Measurement screenshot (Google Maps) ────────────────────────────────
-# Single image per lead, uploaded by the VA after measuring on Google Maps.
-# Re-uploading replaces the prior image; delete clears it.
+# Uploaded by the VA when the in-app satellite view can't see the house (a
+# new build Google hasn't photographed, a surveyor's PDF). Since 2026-10-08
+# an upload is one more photo in the lead's list, beside the captures, and
+# the legacy single-image columns on `leads` keep mirroring the newest.
 
 MAX_MEASUREMENT_BYTES = 15 * 1024 * 1024  # 15 MB
+
+
+def _current_estimate_id(db, lead_id: str) -> str | None:
+    """The estimate a new photo belongs to: the lead's newest. "New Estimate
+    (different house?)" makes a newer one, and photos taken after that are
+    for it. Alan, 2026-10-08: every photo tagged to its estimate."""
+    row = (
+        db.query(Estimate.id)
+        .filter(Estimate.lead_id == lead_id)
+        .order_by(Estimate.created_at.desc())
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _estimate_labels(db, lead_id: str, rows: list) -> dict:
+    """"Estimate 1", "Estimate 2"… for each photo, by the estimate's place in
+    the lead's history. A photo with no tag (taken before tagging existed) is
+    placed by time: the newest estimate that existed when it was taken."""
+    ests = (
+        db.query(Estimate.id, Estimate.created_at)
+        .filter(Estimate.lead_id == lead_id)
+        .order_by(Estimate.created_at.asc())
+        .all()
+    )
+    seq_of = {e_id: i + 1 for i, (e_id, _) in enumerate(ests)}
+    out = {}
+    for r in rows:
+        n = seq_of.get(r.estimate_id)
+        if n is None and ests:
+            before = [i + 1 for i, (_, at) in enumerate(ests) if (at or "") <= (r.created_at or "")]
+            n = before[-1] if before else 1
+        out[r.id] = n
+    return out
 
 
 @router.post("/leads/{lead_id}/measurement")
@@ -2237,19 +2273,46 @@ async def upload_measurement(
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        stamp = _now()
+        actor = (user or {}).get("sub") or ""
         lead.measurement_image_data = data
         lead.has_measurement_image = True  # avoids loading BLOB in to_dict() egress hot path
         lead.measurement_filename = file.filename or "measurement"
         lead.measurement_mime = file.content_type or "image/png"
-        lead.measurement_uploaded_at = _now()
+        lead.measurement_uploaded_at = stamp
         # "username" is not a JWT claim — it is "sub" — so this recorded an
         # empty string on every upload since it shipped.
-        lead.measurement_uploaded_by = (user or {}).get("sub") or ""
-        lead.updated_at = _now()
+        lead.measurement_uploaded_by = actor
+        lead.updated_at = stamp
+
+        # One more photo in the list, beside the satellite captures.
+        top = (
+            db.query(func.max(LeadMeasurement.seq))
+            .filter(LeadMeasurement.lead_id == lead_id)
+            .scalar()
+        ) or 0
+        shot = LeadMeasurement(
+            id=str(uuid.uuid4()),
+            lead_id=lead_id,
+            seq=int(top) + 1,
+            image_data=data,
+            has_image=True,
+            mime=lead.measurement_mime,
+            source="upload",
+            estimate_id=_current_estimate_id(db, lead_id),
+            created_at=stamp,
+            created_by=actor,
+        )
+        db.add(shot)
         db.commit()
-        log_event(lead.id, "measurement_uploaded", f"Measurement screenshot uploaded by {lead.measurement_uploaded_by or 'unknown'}", {})
+        log_event(lead.id, "measurement_uploaded",
+                  f"Measurement screenshot uploaded by {actor or 'unknown'} (photo {shot.seq})",
+                  {"seq": shot.seq, "source": "upload"})
         return {
             "measurement_uploaded": True,
+            "measurement_id": shot.id,
+            "seq": shot.seq,
+            "label": f"Photo {shot.seq}",
             "measurement_filename": lead.measurement_filename,
             "measurement_uploaded_at": lead.measurement_uploaded_at,
             "measurement_uploaded_by": lead.measurement_uploaded_by,
@@ -2590,6 +2653,8 @@ def capture_satellite_measurement(
         shot.center_lng = body.lng
         shot.zoom = zoom if plain else int(round(requested_zoom))
         shot.source = "satellite_capture"
+        if not shot.estimate_id:
+            shot.estimate_id = _current_estimate_id(db, lead_id)
 
         # The legacy single-image columns keep mirroring the newest capture,
         # so the Measurement card and anything else reading them is unaffected.
@@ -2676,8 +2741,16 @@ def list_measurements(lead_id: str, user: dict = Depends(get_current_user)):
             .all()
         )
         total = sum(float(r.linear_feet or 0) for r in rows)
+        seqs = _estimate_labels(db, lead_id, rows)
+        out = []
+        for r in rows:
+            d = r.to_dict()
+            n = seqs.get(r.id)
+            d["estimate_seq"] = n
+            d["estimate_label"] = f"Estimate {n}" if n else ""
+            out.append(d)
         return {
-            "measurements": [r.to_dict() for r in rows],
+            "measurements": out,
             "total_linear_feet": round(total) if total else None,
         }
     finally:

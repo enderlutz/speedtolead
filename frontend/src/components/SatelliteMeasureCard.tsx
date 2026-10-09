@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
-  ArrowUp, ZoomIn, ZoomOut } from "lucide-react";
+  ArrowUp, ZoomIn, ZoomOut, Upload, FileText } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -951,6 +951,30 @@ export default function SatelliteMeasureCard({
     if (saved) navigate(`/leads/${leadId}/scope`);
   }
 
+  // For the cases the map can't serve — a new build Google Earth hasn't
+  // photographed, a surveyor's PDF. The upload is one more photo in the
+  // same list; this replaced the separate "Measurement screenshot" card
+  // (Alan, 2026-10-08: the two were the same thing twice).
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  async function uploadShot(file: File) {
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("That file is over 15 MB");
+      return;
+    }
+    setUploading(true);
+    try {
+      const r = await api.uploadMeasurement(leadId, file);
+      toast.success(`${r.label || "Photo"} saved`);
+      await loadPhotos();
+      onChange();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function removePhoto(p: MeasurementPhoto) {
     if (!confirm(`Delete ${p.label}? The job total will be re-calculated.`)) return;
     try {
@@ -1286,18 +1310,40 @@ export default function SatelliteMeasureCard({
           </div>
         ) : null}
 
-        {/* Retained photos. Nothing is replaced, so an earlier view can
-            always be re-opened rather than re-measured. */}
-        {photos.length > 0 ? (
-          <div className="space-y-2 pt-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">
-                Saved photos ({photos.length})
-              </span>
-              <span className="text-sm font-semibold tabular-nums">
-                {jobTotal ? `${jobTotal} ft total` : "no footage recorded"}
-              </span>
-            </div>
+        {/* Every photo for this customer — captures and uploads alike, each
+            tagged with the estimate it was taken for. Nothing is replaced,
+            so an earlier view can always be re-opened rather than
+            re-measured. */}
+        <div className="space-y-2 border-t pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Photos{photos.length ? ` (${photos.length})` : ""}
+            </span>
+            {jobTotal ? (
+              <span className="text-sm font-semibold tabular-nums">{jobTotal} ft total</span>
+            ) : null}
+            <Button
+              variant="outline" size="sm" className="ml-auto h-7 text-xs"
+              onClick={() => uploadRef.current?.click()}
+              disabled={uploading}
+              title="Google Earth screenshot or a surveyor's PDF, for when the map can't see the house"
+            >
+              {uploading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+              Upload a screenshot
+            </Button>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void uploadShot(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+          {photos.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {photos.map((p) => (
                 <PhotoTile
@@ -1310,16 +1356,20 @@ export default function SatelliteMeasureCard({
                 />
               ))}
             </div>
-            {jobTotal && onLinearFeet ? (
-              <Button
-                variant="outline" size="sm" className="w-full"
-                onClick={() => onLinearFeet(jobTotal)}
-              >
-                Use {jobTotal} ft as Linear Feet
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Nothing saved yet. Capture the view above, or upload a screenshot if the map can't see the house.
+            </p>
+          )}
+          {jobTotal && onLinearFeet ? (
+            <Button
+              variant="outline" size="sm" className="w-full"
+              onClick={() => onLinearFeet(jobTotal)}
+            >
+              Use {jobTotal} ft as Linear Feet
+            </Button>
+          ) : null}
+        </div>
     </Panel>
   );
 }
@@ -1352,20 +1402,38 @@ function PhotoTile({
     };
   }, [leadId, photo.id, photo.has_image]);
 
+  const isPdf = (photo.mime || "").includes("pdf");
+  const captured = photo.source === "satellite_capture";
   return (
-    <div className="rounded-md border overflow-hidden group relative">
-      {url ? (
-        <img src={url} alt={photo.label} className="w-full aspect-square object-cover" />
+    <div className="rounded-xl border overflow-hidden group relative bg-card">
+      {url && !isPdf ? (
+        <a href={url} target="_blank" rel="noreferrer" title="Open full size">
+          <img src={url} alt={photo.label} className="w-full aspect-square object-cover" />
+        </a>
+      ) : url && isPdf ? (
+        <a href={url} target="_blank" rel="noreferrer" title="Open the PDF"
+          className="flex w-full aspect-square flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
+          <FileText className="h-7 w-7" />
+          <span className="text-[10px] font-semibold uppercase tracking-wide">PDF</span>
+        </a>
       ) : (
         <div className="w-full aspect-square bg-muted animate-pulse" />
       )}
+      {/* Which estimate this photo is for. */}
+      {photo.estimate_label ? (
+        <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-ink/80 px-2 py-0.5 text-[10px] font-bold text-gold-light ring-1 ring-gold/40 backdrop-blur-sm">
+          {photo.estimate_label}
+        </span>
+      ) : null}
       <div className="px-2 py-1 flex items-center gap-1 text-xs">
         <span className="font-medium">{photo.label}</span>
+        {!captured ? <span className="text-[10px] text-muted-foreground">uploaded</span> : null}
         <span className="tabular-nums text-muted-foreground ml-auto">
           {photo.linear_feet ? `${Math.round(photo.linear_feet)} ft` : "—"}
         </span>
       </div>
       <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {captured ? (
         <Button
           size="sm" variant="secondary" className="h-6 w-6 p-0"
           onClick={onReshoot} disabled={disabled}
@@ -1373,6 +1441,7 @@ function PhotoTile({
         >
           <RefreshCw className="h-3 w-3" />
         </Button>
+        ) : null}
         <Button
           size="sm" variant="destructive" className="h-6 w-6 p-0"
           onClick={onDelete}

@@ -533,6 +533,11 @@ export interface MeasurementPhoto {
   center_lng: number | null;
   zoom: number | null;
   source: string;
+  /** The estimate this photo was taken for, and its place in the lead's
+   *  history ("Estimate 2"). Empty when the lead has no estimates yet. */
+  estimate_id?: string | null;
+  estimate_seq?: number | null;
+  estimate_label?: string;
   created_at: string;
   created_by: string;
 }
@@ -1478,6 +1483,10 @@ export const api = {
     if (!res.ok) throw new Error((await res.text()) || "Measurement upload failed");
     return res.json() as Promise<{
       measurement_uploaded: boolean;
+      /** The upload is also a photo in the lead's list (2026-10-08). */
+      measurement_id?: string;
+      seq?: number;
+      label?: string;
       measurement_filename: string;
       measurement_uploaded_at: string;
       measurement_uploaded_by: string;

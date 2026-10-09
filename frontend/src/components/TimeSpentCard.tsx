@@ -33,6 +33,12 @@ export default function TimeSpentCard({ leadId }: Props) {
   if (!data) return null;
   const { allocations, reimbursements, total_hours, total_reimbursements, pending_reimbursements } = data;
   const isEmpty = allocations.length === 0 && reimbursements.length === 0;
+  // Crew hours and reimbursements only exist once the job has been worked
+  // and logged in Payroll. Until then the card said "Nothing logged for this
+  // customer yet" on every sales-stage lead (Alan, 2026-10-08: "I don't know
+  // what the hell time spent is") — so it stays out of the way until there
+  // is something to show.
+  if (isEmpty) return null;
 
   // Group allocations by employee for the worker breakdown
   const byEmployee = new Map<string, AllocRow[]>();

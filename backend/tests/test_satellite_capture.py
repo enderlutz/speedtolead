@@ -490,3 +490,56 @@ def test_a_fractional_zoom_alone_is_cropped_not_rounded(db, api_client):
     assert "zoom=20" in api_client.google_calls[-1]
     assert _saved_size(db, lead.id) == (970, 970)      # 640 * 2^0.6
     assert r["zoom"] == 20.4
+
+
+# --- Every photo tagged to its estimate (Alan, 2026-10-08) -----------------
+
+def _estimate(db, lead_id, created_at):
+    from database import Estimate
+    e = Estimate(id=str(uuid.uuid4()), lead_id=lead_id, status="pending", inputs="{}",
+                 breakdown="[]", tiers="{}", created_at=created_at)
+    db.add(e)
+    db.commit()
+    return e
+
+
+def test_a_capture_is_tagged_to_the_newest_estimate(db, api_client):
+    lead = _lead(db)
+    _estimate(db, lead.id, "2026-10-01T10:00:00Z")
+    second = _estimate(db, lead.id, "2026-10-05T10:00:00Z")
+    _capture(api_client, lead.id)
+    rows = api_client.get(f"/api/leads/{lead.id}/measurements").json()["measurements"]
+    assert [(r["estimate_id"], r["estimate_label"]) for r in rows] == [(second.id, "Estimate 2")]
+
+
+def test_an_uploaded_screenshot_joins_the_photo_list(db, api_client):
+    lead = _lead(db)
+    _estimate(db, lead.id, "2026-10-01T10:00:00Z")
+    r = api_client.post(f"/api/leads/{lead.id}/measurement",
+                        files={"file": ("earth.png", PNG, "image/png")})
+    assert r.status_code == 200 and r.json()["label"] == "Photo 1"
+    rows = api_client.get(f"/api/leads/{lead.id}/measurements").json()["measurements"]
+    assert [(x["source"], x["estimate_label"], x["has_image"]) for x in rows] == [("upload", "Estimate 1", True)]
+    # The legacy single image still mirrors it for older readers.
+    assert api_client.get(f"/api/leads/{lead.id}/measurement").status_code == 200
+
+
+def test_an_untagged_photo_is_placed_by_time(db, api_client):
+    from database import LeadMeasurement
+    lead = _lead(db)
+    _estimate(db, lead.id, "2026-09-01T10:00:00Z")
+    _estimate(db, lead.id, "2026-09-20T10:00:00Z")
+    db.add(LeadMeasurement(id=str(uuid.uuid4()), lead_id=lead.id, seq=1, has_image=False,
+                           created_at="2026-09-10T10:00:00Z"))
+    db.add(LeadMeasurement(id=str(uuid.uuid4()), lead_id=lead.id, seq=2, has_image=False,
+                           created_at="2026-09-25T10:00:00Z"))
+    db.commit()
+    rows = api_client.get(f"/api/leads/{lead.id}/measurements").json()["measurements"]
+    assert [x["estimate_label"] for x in rows] == ["Estimate 1", "Estimate 2"]
+
+
+def test_no_estimates_means_no_tag(db, api_client):
+    lead = _lead(db)
+    _capture(api_client, lead.id)
+    rows = api_client.get(f"/api/leads/{lead.id}/measurements").json()["measurements"]
+    assert rows[0]["estimate_label"] == ""

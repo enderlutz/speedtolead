@@ -88,16 +88,15 @@ export function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
         </div>
       </div>
 
-      <div className="relative mt-3 flex gap-1">
-        {steps.map((s) => (
-          <div
-            key={s.key}
-            className={cn(
-              "h-1.5 flex-1 rounded-full transition-all duration-500",
-              s.done ? `bg-gradient-to-r ${s.accent.grad}` : s.skipped ? "bg-white/5" : s === current ? "animate-pulse bg-white/40" : "bg-white/15",
-            )}
-          />
-        ))}
+      {/* One bar for the whole journey. It used to be a coloured segment per
+          step, which lined up with nothing: the chips sit in two rows and,
+          on a phone, scroll underneath it (Alan, 2026-10-08: "it doesn't
+          align with the actual thing"). */}
+      <div className="relative mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-bronze via-gold to-gold-light shadow-[0_0_10px_rgba(227,190,99,0.6)] transition-all duration-700"
+          style={{ width: `${Math.round((done / Math.max(1, steps.length)) * 100)}%` }}
+        />
       </div>
 
       {(["sale", "job"] as const).map((phase) => {

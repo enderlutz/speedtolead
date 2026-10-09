@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useNow } from "@/hooks/useNow";
-import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type LeadObjectionEntry, type FollowUpFlag, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
+import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type LeadObjectionEntry, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
@@ -12,13 +12,12 @@ import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
 import { TIER_KEYS, tiersFromBreakdown, setTierPrice, type TierKey } from "@/lib/breakdown";
-import { ghlContactUrl } from "@/lib/ghlLink";
 import { toast } from "sonner";
 import { useSSE } from "@/hooks/useSSE";
 import { playSuccessSound, playWarningSound, playReplySound, playProposalViewedSound } from "@/hooks/useNotificationSound";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EstimatorLeadPanel from "@/components/EstimatorLeadPanel";
@@ -36,7 +35,6 @@ import ScheduledVisitsCard from "@/components/ScheduledVisitsCard";
 import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
-import MeasurementCard from "@/components/MeasurementCard";
 import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
 import EstimateHistoryCard from "@/components/EstimateHistoryCard";
 // import CustomProposalCard from "@/components/CustomProposalCard"; // archived 2026-10-08
@@ -142,6 +140,10 @@ const TIER_LOOK = {
 // New Build button, archived 2026-10-08 (Alan: focus on Ask for Address).
 // Flip to true to bring it back; the endpoint and its SMS are untouched.
 const SHOW_NEW_BUILD: boolean = false;
+
+// Route stack / nearby jobs card, archived 2026-10-08 (Alan: not needed
+// right now). Flip to true to bring it back; the endpoint is untouched.
+const SHOW_ROUTE_STACK: boolean = false;
 
 const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 
@@ -556,7 +558,6 @@ export default function LeadDetail() {
   const [askingAddress, setAskingAddress] = useState(false);
   const [askingNewBuild, setAskingNewBuild] = useState(false);
   const [declineModalOpen, setDeclineModalOpen] = useState(false);
-  const [resyncing, setResyncing] = useState(false);
   // Multi-estimate switcher — null means "auto-pick the latest editable one"
   const [selectedEstimateId, setSelectedEstimateId] = useState<string | null>(null);
   const [creatingNewEstimate, setCreatingNewEstimate] = useState(false);
@@ -1257,38 +1258,17 @@ export default function LeadDetail() {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="font-heading text-lg sm:text-2xl font-bold tracking-tight truncate">{lead.contact_name || "Unknown Lead"}</h1>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            <Badge variant="outline" className="text-xs">{lead.location_label}</Badge>
-            <Badge variant="outline" className="text-xs capitalize">{lead.status}</Badge>
-            {lead.customer_responded && <Badge className="text-xs bg-blue-100 text-blue-800">Responded</Badge>}
-            {/* Sprint 2 T2.B — Proposal view status badge. Highest-leverage
-                intent signal in the funnel: green when viewed (call now),
-                gray when not (still waiting). Click count + last-viewed
-                relative time give Alan everything he needs at a glance. */}
-            <ProposalViewBadge
-              viewCount={lead.proposal_view_count || 0}
-              firstViewedAt={lead.proposal_viewed_at}
-              lastViewedAt={lead.proposal_last_viewed_at}
-            />
-            {/* Sprint 2 T2.E — Smart follow-up flag. Reads call dispositions
-                + proposal views + estimate sent timestamps to surface
-                "what kind of touch does this lead need next?" Renders
-                only when a rule fires (most won't, keeping the header tidy). */}
-            <FollowUpFlagBadge leadId={lead.id} />
-            {((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined)?.length ? (
-              <Badge className="text-xs bg-slate-200 text-slate-700">
-                Declined ({(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length} reason{(((lead.form_data as Record<string, unknown>).decline_reasons) as string[]).length === 1 ? "" : "s"})
-              </Badge>
-            ) : null}
-          </div>
-          {/* Sprint 2 T2.C — Last-contact line. Tells Alan/Olga at a glance
-              when this lead was last touched so multi-person teams don't
-              double-dial. Pulls from call dispositions (T2.A) + estimate.sent_at
-              + lead.proposal_last_viewed_at — whichever is most recent. */}
-          <LastContactLine
-            leadId={lead.id}
-            estimateSentAt={estimate?.sent_at}
-            proposalLastViewedAt={lead.proposal_last_viewed_at}
+          {/* One quiet line (Alan, 2026-10-08: "all we need to know is how
+              many times they viewed, when they last viewed, and when the
+              estimate was sent"). Status, Responded, the follow-up flag and
+              the last-call line are gone — the customer journey says all of
+              that. */}
+          <HeaderMeta
+            location={lead.location_label}
+            viewCount={lead.proposal_view_count || 0}
+            lastViewedAt={lead.proposal_last_viewed_at || lead.proposal_viewed_at}
+            sentAt={estimate?.sent_at}
+            declined={(((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined) || []).length}
           />
         </div>
         </div>
@@ -1325,51 +1305,10 @@ export default function LeadDetail() {
               Practice call
             </Button>
           )}
-          {/* Straight back into the customer's GHL conversation. The contact
-              detail page is the chat thread, so the two ids already on every
-              lead are all this needs — see lib/ghlLink.ts for why the domain
-              is not interchangeable. */}
-          {ghlContactUrl(lead.ghl_location_id, lead.ghl_contact_id) && (
-            <a
-              href={ghlContactUrl(lead.ghl_location_id, lead.ghl_contact_id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open this customer's conversation in GHL"
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              <MessageSquare className="h-3.5 w-3.5 mr-1" />
-              Open in GHL
-              <ExternalLink className="h-3 w-3 ml-1 opacity-60" />
-            </a>
-          )}
-          {lead.pipeline_version !== "v1" && lead.ghl_opportunity_id && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                setResyncing(true);
-                try {
-                  const r = await api.resyncStageFromGHL(lead.id);
-                  if (r.changed) {
-                    toast.success("Stage re-synced from GHL");
-                    const data = await api.getLead(id!);
-                    setLead(data);
-                  } else {
-                    toast.info("Already in sync with GHL");
-                  }
-                } catch (e) {
-                  toast.error(errMessage(e, "Couldn't sync from GHL"));
-                } finally {
-                  setResyncing(false);
-                }
-              }}
-              disabled={resyncing}
-              title="Pull this lead's current stage straight from GHL"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${resyncing ? "animate-spin" : ""}`} />
-              Sync from GHL
-            </Button>
-          )}
+          {/* "Open in GHL" and "Sync from GHL" — archived 2026-10-08, Alan's
+              call: everything syncs from GHL on its own now. The resync
+              endpoint (api.resyncStageFromGHL) and lib/ghlLink.ts are kept;
+              see git history for the buttons. */}
           <Button
             variant="outline"
             size="sm"
@@ -1700,20 +1639,9 @@ export default function LeadDetail() {
             />
           </div>
 
-          {/* Measurement screenshot — VA's Google Maps screenshot. Sits between
-              the satellite view and the estimator because it's the artifact
-              that translates "the property" into "the number" Alan inputs. */}
-          <MeasurementCard
-            leadId={lead.id}
-            hasMeasurement={!!lead.measurement_uploaded}
-            uploadedAt={lead.measurement_uploaded_at}
-            uploadedBy={lead.measurement_uploaded_by}
-            filename={lead.measurement_filename}
-            onChange={() => {
-              // Re-fetch the lead to refresh measurement metadata
-              api.getLead(lead.id).then(setLead).catch(() => {});
-            }}
-          />
+          {/* The separate "Measurement screenshot" card is gone (2026-10-08,
+              Alan: it and the capture photos were the same thing twice). An
+              upload is now one more photo in the Measure & capture list. */}
 
           {/* Estimate input form */}
           <Panel
@@ -2373,7 +2301,7 @@ export default function LeadDetail() {
           {/* Below the grid (full width inside the Estimate tab): route
               stacking hints + worker hours. NearbyJobsCard gets the wider
               canvas it couldn't have when stuffed above the grid. */}
-          <NearbyJobsCard leadId={lead.id} />
+          {SHOW_ROUTE_STACK && <NearbyJobsCard leadId={lead.id} />}
           <TimeSpentCard leadId={lead.id} />
 
           {/* The lead's Daily Task List row — the exact same row (stage picker,
@@ -4304,27 +4232,45 @@ function NearbyJobRow({ job }: { job: NearbyJob }) {
 // Fetches the rule-engine output via /follow-up-flag and renders the
 // label in a color appropriate to the kind. Hot leads pulse to draw the
 // eye; cold leads are muted so they don't distract.
-function FollowUpFlagBadge({ leadId }: { leadId: string }) {
-  const [flag, setFlag] = useState<FollowUpFlag | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    api.getFollowUpFlag(leadId)
-      .then((r) => { if (!cancelled) setFlag(r.flag); })
-      .catch(() => { /* silent */ });
-    return () => { cancelled = true; };
-  }, [leadId]);
-  if (!flag) return null;
-  const cls = {
-    hot:          "bg-red-600 text-white animate-pulse",
-    callback_due: "bg-blue-600 text-white",
-    warm:         "bg-emerald-600 text-white",
-    stale:        "bg-amber-200 text-amber-900",
-    cold:         "bg-slate-200 text-slate-600",
-  }[flag.kind];
+/** The header's one line of context: the location, how often the proposal
+ *  was opened and when last, when the estimate went out. Green with a flame
+ *  while they're looking at it right now (the last hour). */
+function HeaderMeta({
+  location, viewCount, lastViewedAt, sentAt, declined,
+}: {
+  location?: string | null;
+  viewCount: number;
+  lastViewedAt?: string | null;
+  sentAt?: string | null;
+  declined: number;
+}) {
+  const now = useNow();
+  const hot = !!lastViewedAt && (now - new Date(lastViewedAt).getTime()) / 60000 <= 60;
+  const sep = <span className="text-muted-foreground/40">·</span>;
   return (
-    <Badge className={`text-xs ${cls}`} title={`Follow-up signal: ${flag.kind}`}>
-      {flag.label}
-    </Badge>
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
+      {location ? <Pill accent={ACCENT.ink}>{location}</Pill> : null}
+      {viewCount > 0 ? (
+        <span className={cn("inline-flex items-center gap-1 font-medium", hot ? "text-emerald-700" : "text-foreground")}>
+          <Eye className="h-3.5 w-3.5" />
+          Viewed {viewCount}×{lastViewedAt ? `, last ${timeAgo(lastViewedAt)}` : ""}{hot ? " 🔥" : ""}
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1"><Eye className="h-3.5 w-3.5 opacity-60" />Not viewed yet</span>
+      )}
+      {sep}
+      {sentAt ? (
+        <span className="inline-flex items-center gap-1"><Send className="h-3.5 w-3.5 opacity-60" />Estimate sent {timeAgo(sentAt)}</span>
+      ) : (
+        <span className="inline-flex items-center gap-1"><Send className="h-3.5 w-3.5 opacity-60" />No estimate sent yet</span>
+      )}
+      {declined ? (
+        <>
+          {sep}
+          <Pill accent={ACCENT.slate}>Declined · {declined} reason{declined === 1 ? "" : "s"}</Pill>
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -4414,98 +4360,6 @@ function RecentConversationCard({
 // view). Shows up to 2 touchpoints so admin can see "called 14 min ago ·
 // estimate sent 2d ago" at a glance — the call answers 'did anyone
 // already work this?', the estimate answers 'how stale is it?'.
-function LastContactLine({
-  leadId,
-  estimateSentAt,
-  proposalLastViewedAt,
-}: {
-  leadId: string;
-  estimateSentAt?: string | null;
-  proposalLastViewedAt?: string | null;
-}) {
-  const [lastCall, setLastCall] = useState<CallDispositionEntry | null>(null);
-  // Fire and forget: fetch the latest disposition for this lead. The
-  // CallDispositionCard below also fetches; this duplicate query is
-  // cheap (1-row index lookup) and avoids prop-drilling state up.
-  useEffect(() => {
-    let cancelled = false;
-    api.listCallDispositions(leadId)
-      .then((r) => { if (!cancelled) setLastCall(r.dispositions[0] || null); })
-      .catch(() => { /* silent — empty is a fine default */ });
-    return () => { cancelled = true; };
-  }, [leadId]);
-
-  type Touch = { kind: "call" | "viewed" | "estimate"; at: string; label: string; icon: string };
-  const touches: Touch[] = [];
-  if (lastCall?.disposed_at) {
-    const optLabel = DISPOSITION_OPTIONS.find((d) => d.value === lastCall.outcome)?.label || lastCall.outcome;
-    touches.push({ kind: "call", at: lastCall.disposed_at, label: `Called (${optLabel})`, icon: "📞" });
-  }
-  if (proposalLastViewedAt) {
-    touches.push({ kind: "viewed", at: proposalLastViewedAt, label: "Proposal viewed", icon: "👁" });
-  }
-  if (estimateSentAt) {
-    touches.push({ kind: "estimate", at: estimateSentAt, label: "Estimate sent", icon: "✉️" });
-  }
-  touches.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-
-  if (touches.length === 0) {
-    return (
-      <p className="text-[11px] text-muted-foreground italic mt-1">
-        No contact logged yet — first touch will show here.
-      </p>
-    );
-  }
-  // Show top 2 touchpoints to give context without crowding the header.
-  return (
-    <p className="text-[11px] text-muted-foreground mt-1 flex items-baseline gap-2 flex-wrap">
-      {touches.slice(0, 2).map((t, i) => (
-        <span key={`${t.kind}-${i}`} className={i === 0 ? "font-semibold text-foreground" : ""}>
-          <span className="mr-0.5">{t.icon}</span>
-          {t.label} {timeAgo(t.at)}
-          {i === 0 && touches.length > 1 && <span className="mx-1.5 text-muted-foreground">·</span>}
-        </span>
-      ))}
-    </p>
-  );
-}
-
-
-// Sprint 2 T2.B — Proposal view badge for the lead header. Three states:
-//   gray   "Proposal not viewed"            — never opened
-//   green  "Viewed 3× · 4 min ago"          — opened recently (hot intent)
-//   blue   "Viewed 5× · 2 days ago"         — opened but cold
-// 'Recently' threshold: 60 minutes. Past that, the customer's attention
-// is gone — no longer a real-time intent signal.
-function ProposalViewBadge({
-  viewCount,
-  firstViewedAt,
-  lastViewedAt,
-}: {
-  viewCount: number;
-  firstViewedAt?: string | null;
-  lastViewedAt?: string | null;
-}) {
-  const now = useNow();
-  if (viewCount <= 0 && !firstViewedAt) {
-    return <Badge className="text-xs bg-slate-200 text-slate-700">Proposal not viewed</Badge>;
-  }
-  const ts = lastViewedAt || firstViewedAt;
-  let hot = false;
-  if (ts) {
-    const minutesAgo = (now - new Date(ts).getTime()) / 60000;
-    hot = minutesAgo <= 60;
-  }
-  const count = viewCount || 1;
-  return (
-    <Badge className={`text-xs ${hot ? "bg-emerald-600 text-white" : "bg-blue-100 text-blue-800"}`}>
-      <Eye className="h-3 w-3 mr-1 inline" />
-      Viewed {count}×{ts ? ` · ${timeAgo(ts)}` : ""}{hot ? " · 🔥" : ""}
-    </Badge>
-  );
-}
-
-
 // Sprint 2 T2.A — Call disposition picker. One-tap after every call so
 // we finally have why-didn't-this-close data. Renders the option grid +
 // optional notes input + a compact timeline of past dispositions for
