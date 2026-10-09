@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import HoustonClock from "@/components/HoustonClock";
 import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map, Contact } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
@@ -117,8 +118,11 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
 
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   return (
-    <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-sidebar-border bg-sidebar sticky top-0 z-40">
+    <div className="md:hidden flex items-center justify-between gap-2 px-4 py-3 border-b border-sidebar-border bg-sidebar sticky top-0 z-40">
       <img src="/sterling-logo-dark.png" alt={divisionBrand(getDivision()).name} className="h-7 w-auto" draggable={false} />
+      {/* Houston time, to the minute, on every screen (Alan, 2026-10-09). On
+          a desktop the same clock floats in the top-right corner — see App. */}
+      <HoustonClock className="ml-auto" />
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
       </button>

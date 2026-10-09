@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-route
 import { Toaster } from "sonner";
 import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken, getDivision } from "@/lib/api";
 import Sidebar, { MobileHeader } from "@/components/Sidebar";
+import HoustonClock from "@/components/HoustonClock";
 import { isBrickAllowedPath } from "@/lib/brickNav";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import UpdateBanner from "@/components/UpdateBanner";
@@ -183,6 +184,9 @@ function AppLayout() {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <ImpersonationBanner />
           <MobileHeader onToggle={() => setSidebarOpen(true)} />
+          {/* Houston time in the top-right corner of every screen on a
+              desktop (Alan, 2026-10-09). The phone header carries its own. */}
+          <HoustonClock className="fixed right-3 top-1 z-40 hidden md:inline-flex" />
           <main className="flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<RequireView view="dashboard"><Dashboard /></RequireView>} />
