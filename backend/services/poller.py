@@ -88,104 +88,12 @@ def _is_backward_across_send(current_stage_id: str, incoming_stage_id: str, cfg:
     inc = cfg.stage_order.get(incoming_stage_id or "", -1)
     return cur >= cfg.estimate_sent_order and 0 <= inc < cfg.estimate_sent_order
 
-# --- Smart GHL field resolver (value-based, works across locations) ---
-
-_HEIGHT_VALUES = {"6ft", "6.5ft", "7ft", "8ft", "standard", "rot board", "not sure"}
-_AGE_VALUES = {"brand new", "less than 6", "1-6 year", "6-12 year", "6-15 year", "older than 15", "not sure"}
-# "this month" rather than "sometime this month": GHL's live picklist option
-# is literally "This month", so the longer phrase never matched it and the
-# value fell through to be stored under its raw GHL field id instead.
-_TIMELINE_VALUES = {"as soon as possible", "asap", "within 2 weeks", "this month", "just planning ahead", "getting a quote", "planning ahead"}
-_BOOL_VALUES = {"yes", "no"}
-
-
-def _classify_field(value: str) -> str | None:
-    v = str(value).lower().strip()
-    if any(h in v for h in _HEIGHT_VALUES):
-        return "fence_height"
-    if any(a in v for a in _AGE_VALUES):
-        return "fence_age"
-    if any(t in v for t in _TIMELINE_VALUES):
-        return "service_timeline"
-    return None
-
-
-def _load_field_mappings() -> dict[str, str]:
-    """Load saved GHL field ID → our field name mappings from DB."""
-    try:
-        from database import get_db, GhlFieldMapping
-        db = get_db()
-        try:
-            mappings = db.query(GhlFieldMapping).filter(GhlFieldMapping.our_field_name.isnot(None)).all()
-            return {m.ghl_field_id: m.our_field_name for m in mappings if m.our_field_name}
-        finally:
-            db.close()
-    except Exception:
-        return {}
-
-
-# Cache mappings in memory, reload every 5 minutes
-_field_mapping_cache: dict[str, str] = {}
-_field_mapping_loaded = False
-
-
-def _get_field_mappings() -> dict[str, str]:
-    global _field_mapping_cache, _field_mapping_loaded
-    if not _field_mapping_loaded:
-        _field_mapping_cache = _load_field_mappings()
-        _field_mapping_loaded = True
-    return _field_mapping_cache
-
-
-def invalidate_field_mapping_cache():
-    global _field_mapping_loaded
-    _field_mapping_loaded = False
-
-
-def resolve_custom_fields(raw_fields: list | dict) -> dict:
-    result: dict = {}
-    saved_mappings = _get_field_mappings()
-
-    items: list[tuple[str, str]] = []
-    if isinstance(raw_fields, list):
-        for cf in raw_fields:
-            field_id = cf.get("id") or ""
-            key = cf.get("key") or field_id
-            value = cf.get("value") or ""
-            if isinstance(value, list):
-                value = ", ".join(str(v) for v in value)
-            if key and value:
-                # Check saved mapping first (by field ID)
-                if field_id and field_id in saved_mappings:
-                    result[saved_mappings[field_id]] = str(value)
-                    continue
-                items.append((key, str(value)))
-    elif isinstance(raw_fields, dict):
-        for key, value in raw_fields.items():
-            if isinstance(value, list):
-                value = ", ".join(str(v) for v in value)
-            if key and value:
-                if key in saved_mappings:
-                    result[saved_mappings[key]] = str(value)
-                    continue
-                items.append((key, str(value)))
-
-    # Fall back to value-based guessing for unmapped fields
-    stained_candidates: list[str] = []
-    for key, value in items:
-        v_lower = value.lower().strip()
-        field_name = _classify_field(value)
-        if field_name:
-            result[field_name] = value
-            continue
-        if v_lower in ("yes", "no"):
-            stained_candidates.append(value)
-            continue
-        result[key] = value
-
-    if stained_candidates and "previously_stained" not in result:
-        result["previously_stained"] = stained_candidates[0]
-    return result
+# The field resolver lives in services/form_answers.py (2026-10-09): it
+# names a field by its GHL key before guessing from the value. Re-exported
+# so nothing that imported it from here breaks.
+from services.form_answers import (  # noqa: E402,F401
+    resolve_custom_fields, merge_answers, invalidate_field_mapping_cache,
+)
 
 
 def _now() -> str:
@@ -443,29 +351,24 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                             if postal and postal != existing.zip_code:
                                 existing.zip_code = postal; changed = True
 
-                            # Refresh custom fields (fence_height/age/etc.) by
-                            # merging GHL-side values into form_data. We only
-                            # write back if something actually changed so we
-                            # don't churn updated_at.
+                            # Refresh the customer's answers (fence height
+                            # and age, repairs, sides…) from GHL. Written back
+                            # only when something changed, so updated_at
+                            # doesn't churn.
                             try:
-                                ghl_form = resolve_custom_fields(contact.get("customFields") or [])
-                            except Exception:
-                                ghl_form = {}
-                            if ghl_form:
-                                try:
-                                    current_fd = json.loads(existing.form_data or "{}")
-                                except Exception:
+                                current_fd = json.loads(existing.form_data or "{}")
+                                if not isinstance(current_fd, dict):
                                     current_fd = {}
+                            except Exception:
+                                current_fd = {}
+                            try:
+                                fd_changed = merge_answers(current_fd, contact.get("customFields") or [], location_id)
+                            except Exception as e:
+                                logger.warning(f"Poller: form answers for {existing.id} failed: {e}")
                                 fd_changed = False
-                                for k, v in ghl_form.items():
-                                    if v in (None, ""):
-                                        continue
-                                    if str(current_fd.get(k, "")) != str(v):
-                                        current_fd[k] = v
-                                        fd_changed = True
-                                if fd_changed:
-                                    existing.form_data = json.dumps(current_fd)
-                                    changed = True
+                            if fd_changed:
+                                existing.form_data = json.dumps(current_fd)
+                                changed = True
 
                         # Stamp dashboard_synced_at whenever we successfully
                         # touched this opp this cycle (even if no fields
@@ -575,7 +478,7 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
 
                     # Resolve custom fields
                     custom_fields = contact.get("customFields") or []
-                    form_data = resolve_custom_fields(custom_fields)
+                    form_data = resolve_custom_fields(custom_fields, location_id)
 
                     # Check for estimate_sent tag
                     ghl_tags = [t.lower().strip() for t in (contact.get("tags") or [])]

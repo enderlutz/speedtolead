@@ -10,7 +10,7 @@ import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
-import { sideChips } from "@/lib/fenceSides";
+import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
 import { TIER_KEYS, tiersFromBreakdown, setTierPrice, type TierKey } from "@/lib/breakdown";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, Lightbulb, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
   Ruler, Camera, History, Rocket, Gem, PhoneCall, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
+  Hammer, Home,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -99,6 +100,43 @@ const TIMELINE_LOOK: Record<string, { grad: string; icon: React.ElementType; hin
   "Sometime this month": { grad: "from-sky-500 to-blue-600", icon: Calendar, hint: "This month" },
   "Just planning ahead": { grad: "from-slate-500 to-slate-700", icon: Compass, hint: "Shopping around" },
 };
+
+/** The sides on the estimate — or, when nobody has picked any yet, what
+ *  the customer wrote on the form ("inside facing" → the four insides). */
+function pickSides(raw: unknown, answer: unknown): string[] {
+  const chosen = Array.isArray(raw)
+    ? (raw as string[])
+    : raw ? String(raw).split(",").map((s) => s.trim()).filter(Boolean) : [];
+  if (chosen.length > 0) return chosen;
+  return sidesFromAnswer(String(answer ?? "")) ?? [];
+}
+
+/** How the customer's "Repairs?" answer is painted. "Yes — some boards,
+ *  posts or a gate need attention" is the one the crew has to know about. */
+function repairsLook(answer: string): { grad: string; icon: React.ElementType; hint: string } {
+  const v = answer.toLowerCase();
+  if (/^\s*no\b/.test(v)) return { grad: "from-slate-500 to-slate-700", icon: Paintbrush, hint: "Staining only" };
+  if (/^\s*yes|need|repair/.test(v)) return { grad: "from-amber-500 to-orange-600", icon: Hammer, hint: "Wants repairs" };
+  return { grad: "from-slate-500 to-slate-700", icon: Hammer, hint: "Their answer" };
+}
+
+/** One of the customer's own form answers: shown, never edited. */
+function AnswerTile({ icon: Icon, grad, label, value, hint }: {
+  icon: React.ElementType; grad: string; label: string; value: string; hint: string;
+}) {
+  return (
+    <div className={`flex items-center gap-3 rounded-xl bg-gradient-to-r ${grad} px-3 py-2.5 text-white shadow-sm`}>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/20 ring-1 ring-white/40">
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-white/80">{label}</p>
+        <p className="truncate text-sm font-semibold" title={value}>{value}</p>
+      </div>
+      <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">{hint}</span>
+    </div>
+  );
+}
 
 /** A form answer the customer left empty, or filled with a "nothing". */
 function isBlankAnswer(v: unknown): boolean {
@@ -618,8 +656,7 @@ export default function LeadDetail() {
       setTimeline(normalizeTimeline(fd.service_timeline));
       setConfidencePct(fd.confident_pct || "100");
       setZipCode(fd.zip_code || data.zip_code || "");
-      const rawSides = fd.fence_sides;
-      setFenceSides(Array.isArray(rawSides) ? rawSides : rawSides ? String(rawSides).split(",").map((s: string) => s.trim()).filter(Boolean) : []);
+      setFenceSides(pickSides(fd.fence_sides, fd.sides_wanted));
       setAdditionalServices(fd.additional_services || "");
       setAdditionalNotes(fd.additional_notes || "");
       setMilitaryDiscount(Boolean(fd.military_discount));
@@ -654,6 +691,16 @@ export default function LeadDetail() {
       setLatestScheduledJob(mine[0]);
     }).catch(() => {});
   }, [id]);
+
+  // The customer's own answers from the ad form (2026-10-09): shown in
+  // Estimator input, never edited. sides_wanted is their words; when they
+  // parse ("inside facing" → the four insides) the picker is offered them.
+  const repairsAnswer = String(lead?.form_data?.repairs ?? "").trim();
+  const sidesAnswer = String(lead?.form_data?.sides_wanted ?? "").trim();
+  const answerSides = sidesAnswer ? sidesFromAnswer(sidesAnswer) : null;
+  const answerOnPicker = !!answerSides
+    && answerSides.length === fenceSides.length
+    && answerSides.every((s) => fenceSides.includes(s));
 
   // What the objection scanner found for this customer.
   const [objections, setObjections] = useState<LeadObjectionEntry[]>([]);
@@ -766,20 +813,13 @@ export default function LeadDetail() {
     setTimeline(normalizeTimeline(inputs.service_timeline));
     setConfidencePct(String(inputs.confident_pct ?? "100"));
     setZipCode(String(inputs.zip_code ?? ""));
-    const rawSides = inputs.fence_sides;
-    setFenceSides(
-      Array.isArray(rawSides)
-        ? rawSides as string[]
-        : rawSides
-          ? String(rawSides).split(",").map((s) => s.trim()).filter(Boolean)
-          : [],
-    );
+    setFenceSides(pickSides(inputs.fence_sides, inputs.sides_wanted ?? sidesAnswer));
     setAdditionalServices(String(inputs.additional_services ?? ""));
     setAdditionalNotes(String(inputs.additional_notes ?? ""));
     setMilitaryDiscount(Boolean(inputs.military_discount));
     setConfidenceNote(String(inputs.confidence_note ?? ""));
     setIncludeFinancing(String(inputs.include_financing ?? "true") !== "false");
-  }, [estimate]);
+  }, [estimate, sidesAnswer]);
 
   const handleSaveRecalculate = async () => {
     if (!id) return;
@@ -1710,6 +1750,25 @@ export default function LeadDetail() {
                 );
               })() : null}
 
+              {/* What they told us on the form: repairs, and which sides. */}
+              {(repairsAnswer || sidesAnswer) ? (
+                <div className={cn("grid gap-2", repairsAnswer && sidesAnswer && "sm:grid-cols-2")}>
+                  {repairsAnswer ? (() => {
+                    const look = repairsLook(repairsAnswer);
+                    return <AnswerTile icon={look.icon} grad={look.grad} label="Repairs?" value={repairsAnswer} hint={look.hint} />;
+                  })() : null}
+                  {sidesAnswer ? (
+                    <AnswerTile
+                      icon={Home}
+                      grad="from-violet-500 to-purple-600"
+                      label="Sides?"
+                      value={sidesAnswer}
+                      hint={answerOnPicker ? "On the picker" : "Their words"}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+
               {/* Linear feet is the one number we type. ZIP lives on the
                   contact card and prices the job from there. */}
               <StatTile icon={Ruler} label="Linear feet" accent={ACCENT.violet}>
@@ -1779,7 +1838,21 @@ export default function LeadDetail() {
               )}
 
               {/* Fence Sides */}
-              <Field label="Fence sides" hint="Tap the sides that get stained. Front faces the street.">
+              <Field
+                label="Fence sides"
+                hint={sidesAnswer
+                  ? <>They wrote: <span className="font-semibold text-foreground/80">“{sidesAnswer}”</span>. Front faces the street.</>
+                  : "Tap the sides that get stained. Front faces the street."}
+                right={answerSides && !answerOnPicker ? (
+                  <button
+                    type="button"
+                    onClick={() => setFenceSides(answerSides)}
+                    className="text-[11px] font-semibold text-violet-700 underline underline-offset-2 hover:text-violet-900"
+                  >
+                    Use their answer
+                  </button>
+                ) : undefined}
+              >
                 <SidesPicker value={fenceSides} onChange={setFenceSides} />
               </Field>
 

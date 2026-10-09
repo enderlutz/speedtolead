@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from config import get_settings
 from database import get_db, Contact, Lead
 from services.ghl import get_contacts
+from services.form_answers import merge_answers, CUSTOMER_ONLY
 from services.identity import stamp_lead_keys
 from services.name_match import phone_key
 
@@ -188,6 +189,7 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
         "no_lead": 0,
         "leads_created": 0,
         "names_corrected": 0,
+        "answers_refreshed": 0,
         "no_phone": 0,
         "errors": 0,
     }
@@ -282,6 +284,20 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
                 if lead and (row.dnd or (row.dnd_sms and not _carrier_error(row.dnd_note))) and not lead.do_not_contact:
                     lead.do_not_contact = True
                     lead.updated_at = _now()
+                # The customer's own answers ("Repairs?", "sides?") ride on
+                # the contact, not the opportunity, so a refill from someone
+                # the poller no longer watches still reaches the lead page.
+                # Customer-only fields: nothing an estimator typed is touched.
+                if lead and c.get("customFields"):
+                    try:
+                        fd = json.loads(lead.form_data or "{}")
+                        fd = fd if isinstance(fd, dict) else None
+                    except Exception:
+                        fd = None
+                    if fd is not None and merge_answers(fd, c.get("customFields") or [], loc, only=CUSTOMER_ONLY):
+                        lead.form_data = json.dumps(fd)
+                        lead.updated_at = _now()
+                        stats["answers_refreshed"] += 1
                 row.date_added = (c.get("dateAdded") or "").strip()
                 row.date_updated = (c.get("dateUpdated") or "").strip()
                 row.lead_id = lead.id if lead else None

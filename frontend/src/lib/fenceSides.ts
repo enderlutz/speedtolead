@@ -12,6 +12,24 @@ export type SideGroup = keyof typeof FENCE_SIDES;
 
 export const ALL_SIDES: readonly string[] = [...FENCE_SIDES.Inside, ...FENCE_SIDES.Outside];
 
+/** The sides a customer's own words point at, or null when they don't.
+ *  "inside facing" → the four insides; "both" / "all" / "whole" → every
+ *  side; "outside" alone → the four outsides. The ad form's "sides?"
+ *  question is free text (2026-10-09), so anything else — "yes", "I would
+ *  like a quote" — is left for a person to read. A gate mentioned on the
+ *  other side is a note, not a second group. */
+export function sidesFromAnswer(text: string): string[] | null {
+  const v = text.toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!v) return null;
+  const inside = /\b(inside|inner|interior|facing)\b/.test(v);
+  const outside = /\b(outside|outer|exterior|street)\b/.test(v);
+  const gate = /\bgates?\b/.test(v);
+  if (/\b(both|all|whole|entire|every)\b/.test(v) || (inside && outside && !gate)) return [...ALL_SIDES];
+  if (inside) return [...FENCE_SIDES.Inside];
+  if (outside) return [...FENCE_SIDES.Outside];
+  return null;
+}
+
 /** "All insides", "Inside: Front, Left · Outside: Back", "Whole fence".
  *  Mirrors sides_label() on the backend so the two never disagree. */
 export function sidesLabel(sides: string[]): string {

@@ -1160,11 +1160,34 @@ FIELD_ALIASES: dict[str, str] = {
     "customernotes": "additional_notes",
     "linear_feet": "linear_feet",
     "linearfeet": "linear_feet",
+    # Our own sides list, named first so the "sides" alias below can never
+    # claim it.
+    "fence_sides": "fence_sides",
+    "fencesides": "fence_sides",
+    # The two questions on the October ads (GHL fields "Repairs?" and
+    # "sides?"). The customer's words, read on the lead page, never priced.
+    "repairs": "repairs",
+    "sides": "sides_wanted",
+    "which_sides": "sides_wanted",
 }
 
 
 def _normalize_key(key: str) -> str:
     return re.sub(r"[^a-z0-9]", "", key.lower().strip())
+
+
+def _alias_for(key: str) -> str | None:
+    """Our field name for a webhook key. An exact alias wins over one that
+    merely appears inside the key, so "fence_sides" is never read as the
+    customer's "sides?" answer."""
+    norm = _normalize_key(key)
+    by_norm = {_normalize_key(k): v for k, v in FIELD_ALIASES.items()}
+    if norm in by_norm:
+        return by_norm[norm]
+    for alias_norm, our_name in by_norm.items():
+        if alias_norm in norm:
+            return our_name
+    return None
 
 
 def parse_webhook_payload(payload: dict) -> dict:
@@ -1203,30 +1226,17 @@ def parse_webhook_payload(payload: dict) -> dict:
         for cf in custom_fields:
             key = cf.get("key") or cf.get("id") or ""
             value = cf.get("value") or cf.get("field_value") or ""
-            norm = _normalize_key(key)
-            for alias_norm, our_name in {_normalize_key(k): v for k, v in FIELD_ALIASES.items()}.items():
-                if norm == alias_norm or alias_norm in norm:
-                    form_data[our_name] = value
-                    break
-            else:
-                form_data[key] = value
+            form_data[_alias_for(key) or key] = value
     elif isinstance(custom_fields, dict):
         for key, value in custom_fields.items():
-            norm = _normalize_key(key)
-            for alias_norm, our_name in {_normalize_key(k): v for k, v in FIELD_ALIASES.items()}.items():
-                if norm == alias_norm or alias_norm in norm:
-                    form_data[our_name] = value
-                    break
-            else:
-                form_data[key] = value
+            form_data[_alias_for(key) or key] = value
 
-    # Check top-level for form fields too
+    # Check top-level for form fields too (exact names only)
+    by_norm = {_normalize_key(k): v for k, v in FIELD_ALIASES.items()}
     for raw_key in list(payload.keys()):
-        norm = _normalize_key(raw_key)
-        for alias_norm, our_name in {_normalize_key(k): v for k, v in FIELD_ALIASES.items()}.items():
-            if norm == alias_norm:
-                form_data.setdefault(our_name, payload[raw_key])
-                break
+        our_name = by_norm.get(_normalize_key(raw_key))
+        if our_name:
+            form_data.setdefault(our_name, payload[raw_key])
 
     # Determine service type
     svc = str(form_data.get("service_type") or payload.get("service_type") or "fence_staining").lower()

@@ -280,6 +280,9 @@ OUR_FIELD_OPTIONS = [
     {"value": "fence_sides", "label": "Fence Sides"},
     {"value": "confident_pct", "label": "Confidence Level"},
     {"value": "military_discount", "label": "Military Discount"},
+    # The customer's own answers from the ad form, shown on the lead page.
+    {"value": "repairs", "label": "Repairs? (customer's answer)"},
+    {"value": "sides_wanted", "label": "Sides? (customer's answer)"},
 ]
 
 
@@ -379,6 +382,9 @@ def update_field_mapping(body: FieldMappingUpdate):
             raise HTTPException(status_code=404, detail="Field not found — sync first")
         mapping.our_field_name = body.our_field_name if body.our_field_name else None
         db.commit()
+        # The pollers cache the mappings; a new one should count right away.
+        from services.form_answers import invalidate_field_mapping_cache
+        invalidate_field_mapping_cache()
         return {"status": "ok"}
     except HTTPException:
         raise
