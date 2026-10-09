@@ -102,23 +102,70 @@ def _scheduled_send_state(db, lead_ids: list[str] | None) -> tuple[set[str], set
     return in_flight, overdue
 
 
+def _dt(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        d = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
+    """Leads whose latest estimate send came AFTER the customer last filled
+    the form. A customer who came back is a new lead again (Alan,
+    2026-10-09): an estimate from months ago doesn't count as sent for this
+    visit. `lead_ids=None` means every lead (for the stats)."""
+    from services.intake import last_intakes
+
+    log = db.query(AutomationLog.lead_id, func.max(AutomationLog.created_at)) \
+        .filter(AutomationLog.event_type.in_(SENT_EVENTS), AutomationLog.lead_id.isnot(None))
+    # Belt and braces: an estimate texted before the log event existed
+    # still counts. The link in an outbound message is the artefact.
+    msgs = db.query(Message.lead_id, func.max(Message.created_at)) \
+        .filter(Message.direction == "outbound", Message.body.contains(PROPOSAL_LINK),
+                Message.lead_id.isnot(None))
+    if lead_ids is not None:
+        if not lead_ids:
+            return set()
+        log = log.filter(AutomationLog.lead_id.in_(lead_ids))
+        msgs = msgs.filter(Message.lead_id.in_(lead_ids))
+    last_send: dict[str, datetime] = {}
+    for lid, t in list(log.group_by(AutomationLog.lead_id).all()) + list(msgs.group_by(Message.lead_id).all()):
+        d = _dt(t)
+        if d and (lid not in last_send or d > last_send[lid]):
+            last_send[lid] = d
+    intakes = {lid: _dt(t) for lid, t in last_intakes(db, lead_ids).items()}
+    return {lid for lid, sent in last_send.items()
+            if not intakes.get(lid) or sent >= intakes[lid]}
+
+
 @router.get("/contacts")
 def list_contacts(
     q: str | None = Query(None, description="name, phone or email substring"),
     estimate: str | None = Query(None, description="sent | not_sent"),
     has_lead: bool | None = Query(None),
+    sort: str = Query("intake", description="intake — newest form fill first | added — GHL's own order"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user: dict = Depends(get_current_user),
 ):
-    """One page of the mirror, newest-added first — the GHL contact order.
+    """One page of the mirror.
+
+    Newest form fill first by default (Alan, 2026-10-09): a customer who
+    came in months ago and filled the form again yesterday is a new lead
+    again, and has to sit at the top of the list, not where their first
+    visit left them. `sort=added` is GHL's own contact order.
 
     Each row carries the counts the team actually triages on: whether an
-    estimate went out, and how much history we hold (texts, calls). Counts are
-    computed per page, so widening the page costs proportionally and nothing
-    scans the whole table.
+    estimate went out since they last came in, and how much history we hold
+    (texts, calls). Counts are computed per page, so widening the page costs
+    proportionally and nothing scans the whole table.
     """
     del user
+    from services.intake import INTAKE_BODY, INTAKE_TYPE, intake_counts
+
     db = get_db()
     try:
         query = db.query(Contact)
@@ -142,13 +189,29 @@ def list_contacts(
 
         total = query.count()
 
-        # NULLS LAST: a contact with no dateAdded must not outrank Amy May.
+        # The latest "Opportunity created" card per lead — one per form
+        # fill (services/intake.py) — falls back to the GHL added date for a
+        # contact that never had one. NULLS LAST: a contact with no
+        # dateAdded must not outrank Amy May.
+        latest_card = (
+            db.query(Message.lead_id.label("lid"), func.max(Message.created_at).label("t"))
+            .filter(Message.message_type == INTAKE_TYPE, Message.body == INTAKE_BODY,
+                    Message.lead_id.isnot(None))
+            .group_by(Message.lead_id)
+            .subquery()
+        )
+        query = query.outerjoin(latest_card, latest_card.c.lid == Contact.lead_id)
+        came_in = func.coalesce(latest_card.c.t, Contact.date_added)
+        order = came_in if sort == "intake" else Contact.date_added
         rows = (
-            query.order_by(Contact.date_added.desc().nullslast())
+            query.add_columns(came_in.label("came_in"))
+            .order_by(order.desc().nullslast())
             .offset(offset)
             .limit(limit)
             .all()
         )
+        came_in_by_contact = {r[0].id: r[1] for r in rows}
+        rows = [r[0] for r in rows]
 
         lead_ids = [r.lead_id for r in rows if r.lead_id]
         sent: set[str] = set()
@@ -162,6 +225,7 @@ def list_contacts(
         # send_at (does not). See _scheduled_send_state.
         scheduled: set[str] = set()
         overdue: set[str] = set()
+        refills: dict[str, int] = {}
 
         if lead_ids:
             # The pipeline still matters — it just no longer decides whether
@@ -175,21 +239,8 @@ def list_contacts(
             ):
                 stage_by_lead[lid] = (ver or "", names.get(stage_id or "", ""))
 
-            sent = {
-                r[0] for r in db.query(AutomationLog.lead_id)
-                .filter(AutomationLog.lead_id.in_(lead_ids))
-                .filter(AutomationLog.event_type.in_(SENT_EVENTS))
-                .distinct().all()
-            }
-            # Belt and braces: an estimate texted before the log event existed
-            # still counts. The link in an outbound message is the artefact.
-            sent |= {
-                r[0] for r in db.query(Message.lead_id)
-                .filter(Message.lead_id.in_(lead_ids))
-                .filter(Message.direction == "outbound")
-                .filter(Message.body.contains(PROPOSAL_LINK))
-                .distinct().all()
-            }
+            sent = _sent_since_intake(db, lead_ids)
+            refills = intake_counts(db, lead_ids)
             msg_counts = dict(
                 db.query(Message.lead_id, func.count(Message.id))
                 .filter(Message.lead_id.in_(lead_ids))
@@ -222,6 +273,10 @@ def list_contacts(
         for r in rows:
             d = r.to_dict()
             lid = r.lead_id
+            # When they last came in, and how many times. A second fill is a
+            # new lead again and the row says so.
+            d["last_intake_at"] = came_in_by_contact.get(r.id) or r.date_added or ""
+            d["intake_count"] = max(1, int(refills.get(lid, 0))) if lid else 1
             d["estimate_sent"] = bool(lid and lid in sent)
             # Lets the badge say "sending in 10 min" rather than a bare "sent",
             # and flag a stalled send instead of hiding it among the people we
@@ -276,21 +331,9 @@ def contact_stats(user: dict = Depends(get_current_user)):
         ).scalar() or 0
         dnd = db.query(func.count(Contact.id)).filter(Contact.dnd.is_(True)).scalar() or 0
 
-        sent_ids = {
-            r[0] for r in db.query(AutomationLog.lead_id)
-            .filter(AutomationLog.event_type.in_(SENT_EVENTS))
-            .filter(AutomationLog.lead_id.isnot(None))
-            .distinct().all()
-        }
-        sent_ids |= {
-            r[0] for r in db.query(Message.lead_id)
-            .filter(Message.direction == "outbound")
-            .filter(Message.body.contains(PROPOSAL_LINK))
-            .filter(Message.lead_id.isnot(None))
-            .distinct().all()
-        }
-        # Same rule as the rows, so the headline number can't disagree with
-        # the badges underneath it.
+        # Sent since the customer last came in — same rule as the rows, so
+        # the headline number can't disagree with the badges underneath it.
+        sent_ids = _sent_since_intake(db, None)
         scheduled_ids, overdue_ids = _scheduled_send_state(db, None)
         sent_ids |= scheduled_ids
 

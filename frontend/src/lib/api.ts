@@ -549,9 +549,21 @@ export interface LeadDetail extends Lead {
   estimated_in_person_auto?: boolean; // whether estimator activity was detected for this lead
   /** First time a fence scope was texted to the customer, across redraws. */
   fence_scope_first_sent_at?: string | null;
+  /** The latest, for a customer who came back and restarted the journey. */
+  fence_scope_last_sent_at?: string | null;
+  /** When they came in, and how many times. `restarts` means the journey
+   *  is measured from the latest form fill (there is a GHL card for it);
+   *  older leads with no card keep their whole history. */
+  intake?: { at: string | null; first_at: string | null; count: number; restarts: boolean } | null;
   /** Did we talk to them on the phone before the first estimate went out
-   *  (including the call the estimate was sent on)? */
-  discovery_call?: { done: boolean; at: string | null; seconds: number; mid_call_send: boolean } | null;
+   *  (including the call the estimate was sent on)? Measured within the
+   *  current cycle — since their latest form fill. */
+  discovery_call?: {
+    done: boolean; at: string | null; seconds: number; mid_call_send: boolean;
+    intake_at: string | null; estimate_sent: boolean;
+    /** How long after the form the first real conversation started. */
+    minutes_from_intake: number | null;
+  } | null;
   /** Since the latest estimate send. Null until one has gone out. */
   after_estimate?: {
     first_sent_at: string;
@@ -3435,11 +3447,14 @@ export const api = {
     request<{ ok: boolean; lead_archived: boolean }>(`/api/contacts/${contactRowId}`, { method: "DELETE" }),
   listContacts: (params: {
     q?: string; estimate?: "sent" | "not_sent"; has_lead?: boolean;
+    /** intake — newest form fill first (default) | added — GHL's own order */
+    sort?: "intake" | "added";
     limit?: number; offset?: number;
   } = {}) => {
     const qs = new URLSearchParams();
     if (params.q) qs.set("q", params.q);
     if (params.estimate) qs.set("estimate", params.estimate);
+    if (params.sort) qs.set("sort", params.sort);
     if (params.has_lead !== undefined) qs.set("has_lead", String(params.has_lead));
     qs.set("limit", String(params.limit ?? 100));
     qs.set("offset", String(params.offset ?? 0));
@@ -3566,6 +3581,10 @@ export interface ContactRow {
   attempt_count: number;
   /** @deprecated same as conversation_count; kept for deploy skew. */
   call_count: number;
+  /** When they last filled the form (falls back to the GHL added date). */
+  last_intake_at: string;
+  /** How many times they've come in. 2+ means they came back. */
+  intake_count: number;
   /** "" when nobody ever made an opportunity card for them. */
   pipeline: string;
   stage: string;

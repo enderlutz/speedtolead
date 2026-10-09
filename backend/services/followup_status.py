@@ -93,22 +93,37 @@ def automated_template_keys(db, *, force: bool = False) -> frozenset:
     return keys
 
 
-def after_estimate(db, lead) -> dict | None:
-    """The block the lead page shows under "Estimate sent". None until an
-    estimate has gone out."""
-    from database import (
-        AutomationLog, CallDisposition, CallRecording, Estimate, Message,
-    )
-    from services.pipeline_stages import STAGE_NAME_BY_ID
-    from services.pipeline_stages_b import ESTIMATE_SENT_STAGE_ID_B, STAGE_NAME_BY_ID_B
+def cycle_sends(db, lead) -> tuple[datetime | None, list[datetime]]:
+    """(when this customer last came in, the estimate sends since then).
 
+    A customer who fills the form again starts over (services/intake.py), so
+    an estimate sent before that refill is a previous cycle's: it doesn't
+    count as "sent", and a call before it isn't this cycle's discovery call.
+    """
+    from database import Estimate
+    from services.intake import latest_intake
+
+    intake = latest_intake(db, lead)
     sends = sorted(
         t for t in (
             _ts(r[0]) for r in db.query(Estimate.sent_at)
             .filter(Estimate.lead_id == lead.id, Estimate.sent_at.isnot(None),
                     Estimate.status.in_(("sent", "closed"))).all()
-        ) if t
+        ) if t and (intake is None or t >= intake)
     )
+    return intake, sends
+
+
+def after_estimate(db, lead) -> dict | None:
+    """The block the lead page shows under "Estimate sent". None until an
+    estimate has gone out — since the customer last came in."""
+    from database import (
+        AutomationLog, CallDisposition, CallRecording, Message,
+    )
+    from services.pipeline_stages import STAGE_NAME_BY_ID
+    from services.pipeline_stages_b import ESTIMATE_SENT_STAGE_ID_B, STAGE_NAME_BY_ID_B
+
+    _, sends = cycle_sends(db, lead)
     if not sends:
         return None
     first_sent, last_sent = sends[0], sends[-1]
@@ -216,20 +231,21 @@ def discovery_call(db, lead) -> dict:
     conversation (closed, an objection, call back) also counts when it was
     logged before the first send. With no estimate sent yet, any such call so
     far counts.
-    """
-    from database import CallDisposition, CallRecording, Estimate
 
-    sends = sorted(
-        t for t in (
-            _ts(r[0]) for r in db.query(Estimate.sent_at)
-            .filter(Estimate.lead_id == lead.id, Estimate.sent_at.isnot(None),
-                    Estimate.status.in_(("sent", "closed"))).all()
-        ) if t
-    )
+    Measured within the current cycle (2026-10-09): from the customer's
+    latest form fill to the first estimate sent after it. A conversation
+    from a previous cycle doesn't carry over — if they came back, we talk to
+    them again. Reports how long after the form the call came and how long
+    it ran, which is what the discovery-call statistics are built from.
+    """
+    from database import CallDisposition, CallRecording
+
+    intake, sends = cycle_sends(db, lead)
     first_sent = sends[0] if sends else None
 
     def before(t):
-        return t is not None and (first_sent is None or t <= first_sent)
+        return (t is not None and (intake is None or t >= intake)
+                and (first_sent is None or t <= first_sent))
 
     calls = []
     for start, secs, vm in (
@@ -246,10 +262,28 @@ def discovery_call(db, lead) -> dict:
         t = _ts(at)
         if outcome in TALKED_OUTCOMES and before(t):
             calls.append((t, 0))
+    base = {
+        "intake_at": intake.isoformat() if intake else None,
+        "estimate_sent": first_sent is not None,
+    }
     if not calls:
-        return {"done": False, "at": None, "seconds": 0, "mid_call_send": False}
+        return {**base, "done": False, "at": None, "seconds": 0, "mid_call_send": False,
+                "minutes_from_intake": None}
     calls.sort()
     first_at, secs = calls[0]
     # Was the estimate sent while they were on this call?
     mid = any(first_sent and t <= first_sent <= t + timedelta(seconds=s + 60) for t, s in calls if s)
-    return {"done": True, "at": first_at.isoformat(), "seconds": secs, "mid_call_send": bool(mid)}
+    # The longest conversation before the send is the discovery call's
+    # length — a 5-second connect followed by a 10-minute call-back is a
+    # 10-minute discovery call.
+    longest = max(s for _, s in calls)
+    return {
+        **base,
+        "done": True,
+        "at": first_at.isoformat(),
+        "seconds": longest,
+        "mid_call_send": bool(mid),
+        "minutes_from_intake": (
+            max(0, int((first_at - intake).total_seconds() // 60)) if intake else None
+        ),
+    }

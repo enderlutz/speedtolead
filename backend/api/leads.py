@@ -843,6 +843,18 @@ def get_lead(lead_id: str):
         ]
         stamps = sorted(s for s in stamps if s)
         result["fence_scope_first_sent_at"] = stamps[0] if stamps else None
+        # The latest, for a customer who came back: the journey restarts at
+        # their new form fill, so "scope sent" means sent since then.
+        result["fence_scope_last_sent_at"] = stamps[-1] if stamps else None
+
+        # When they came in, and how many times. A refill restarts the
+        # journey (services/intake.py), and the page needs to say so.
+        try:
+            from services.intake import intake_summary
+            result["intake"] = intake_summary(db, lead)
+        except Exception:
+            logger.exception("intake summary failed for %s", lead.id)
+            result["intake"] = None
 
         # Where the job is, from Company Cam — read only, so opening a lead
         # never creates a Company Cam record. Drives the job row of the

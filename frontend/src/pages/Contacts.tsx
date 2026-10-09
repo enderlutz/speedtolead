@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight, Trash2 } from "lucide-react";
+import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api, getCurrentUser, type ContactRow, type ContactStats } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -11,14 +11,20 @@ import { Badge } from "@/components/ui/badge";
  * Contacts — a straight mirror of the GHL contact list.
  *
  * The lead boards only ever showed people who had an opportunity card in one
- * of two polled pipelines. This shows everyone, in GHL's own order (newest
- * added first), so "who have we never sent an estimate to?" can be answered
- * against the whole customer base rather than a subset of it.
+ * of two polled pipelines. This shows everyone, so "who have we never sent
+ * an estimate to?" can be answered against the whole customer base rather
+ * than a subset of it.
+ *
+ * Newest form fill first (Alan, 2026-10-09): one in ten customers fills the
+ * form again, and a customer who came in in August and came back in October
+ * is a new lead again — they belong at the top, with "no estimate" meaning
+ * none since they came back. GHL's own added-order is a toggle away.
  */
 
 const PAGE_SIZE = 100;
 
 type EstimateFilter = "all" | "sent" | "not_sent";
+type SortKey = "intake" | "added";
 
 function fmtPhone(p: string): string {
   const d = (p || "").replace(/\D/g, "").slice(-10);
@@ -132,7 +138,7 @@ function CallTally({
 // back to where he was after every customer wasted the time this page is
 // meant to save. sessionStorage: per tab, gone when the tab closes.
 const VIEW_KEY = "contacts_view_v1";
-type SavedView = { q: string; search: string; estimate: EstimateFilter; offset: number; scroll: number; anchor: string };
+type SavedView = { q: string; search: string; estimate: EstimateFilter; sort?: SortKey; offset: number; scroll: number; anchor: string };
 
 function readView(): Partial<SavedView> {
   try { return JSON.parse(sessionStorage.getItem(VIEW_KEY) || "{}") || {}; } catch { return {}; }
@@ -155,6 +161,7 @@ export default function Contacts() {
   const [q, setQ] = useState(saved.q || "");
   const [search, setSearch] = useState(saved.search || "");
   const [estimate, setEstimate] = useState<EstimateFilter>(saved.estimate || "all");
+  const [sort, setSort] = useState<SortKey>(saved.sort || "intake");
   const restored = useRef(false);
   const [flash, setFlash] = useState("");
   const [loading, setLoading] = useState(true);
@@ -169,6 +176,7 @@ export default function Contacts() {
       const page = await api.listContacts({
         q: search || undefined,
         estimate: estimate === "all" ? undefined : estimate,
+        sort,
         limit: PAGE_SIZE,
         offset,
       });
@@ -179,7 +187,7 @@ export default function Contacts() {
     } finally {
       setLoading(false);
     }
-  }, [search, estimate, offset]);
+  }, [search, estimate, sort, offset]);
 
   const patchRow = useCallback((leadId: string, patch: Partial<ContactRow>) => {
     setRows((prev) => prev.map((r) => (r.lead_id === leadId ? { ...r, ...patch } : r)));
@@ -248,7 +256,7 @@ export default function Contacts() {
   };
 
   const openLead = (leadId: string) => {
-    writeView({ q, search, estimate, offset, scroll: scroller()?.scrollTop || 0, anchor: leadId });
+    writeView({ q, search, estimate, sort, offset, scroll: scroller()?.scrollTop || 0, anchor: leadId });
     navigate(`/leads/${leadId}`);
   };
 
@@ -285,7 +293,7 @@ export default function Contacts() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Contacts</h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-            Everyone in Go High Level, newest first — not just the ones on a board.
+            Everyone in Go High Level, newest form fill first — a customer who fills the form again comes back to the top.
           </p>
         </div>
         <Button onClick={runSync} disabled={syncing} variant="outline" size="sm">
@@ -320,15 +328,31 @@ export default function Contacts() {
           />
         </div>
         {([
-          ["all", "Everyone"],
-          ["not_sent", "No estimate"],
-          ["sent", "Estimate sent"],
-        ] as [EstimateFilter, string][]).map(([key, label]) => (
+          ["all", "Everyone", ""],
+          ["not_sent", "No estimate yet", "Nobody has sent them a price since they last filled the form"],
+          ["sent", "Estimate sent", "A price went out since they last filled the form"],
+        ] as [EstimateFilter, string, string][]).map(([key, label, title]) => (
           <Button
             key={key}
             size="sm"
             variant={estimate === key ? "default" : "outline"}
             onClick={() => { setEstimate(key); setOffset(0); }}
+            title={title || undefined}
+          >
+            {label}
+          </Button>
+        ))}
+        <span className="mx-1 hidden h-5 w-px bg-border sm:inline-block" />
+        {([
+          ["intake", "Newest form fill", "A customer who fills the form again moves back to the top"],
+          ["added", "Newest in GHL", "GHL's own order — when the contact was first added"],
+        ] as [SortKey, string, string][]).map(([key, label, title]) => (
+          <Button
+            key={key}
+            size="sm"
+            variant={sort === key ? "secondary" : "ghost"}
+            onClick={() => { setSort(key); setOffset(0); }}
+            title={title}
           >
             {label}
           </Button>
@@ -411,8 +435,18 @@ export default function Contacts() {
                     </div>
                   ) : null}
                 </td>
+                {/* When they last came in. A second fill is a new lead again,
+                    so it says so — and keeps the first date in the tooltip. */}
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                  {fmtDate(c.date_added)}
+                  {fmtDate(c.last_intake_at || c.date_added)}
+                  {c.intake_count > 1 ? (
+                    <div
+                      className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold text-bronze"
+                      title={`First came in ${fmtDate(c.date_added)}. Filled the form ${c.intake_count} times — this is a new lead again.`}
+                    >
+                      <RotateCcw className="h-2.5 w-2.5" /> came back ×{c.intake_count}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2">
                   {/* A scheduled estimate reads as sent straight away — the
@@ -438,8 +472,12 @@ export default function Contacts() {
                   ) : c.estimate_sent ? (
                     <Badge variant="secondary">sent</Badge>
                   ) : (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700">
-                      never sent
+                    <Badge
+                      variant="outline"
+                      className="border-amber-400 text-amber-700"
+                      title={c.intake_count > 1 ? "They came back and nobody has priced them since" : undefined}
+                    >
+                      {c.intake_count > 1 ? "none since they came back" : "never sent"}
                     </Badge>
                   )}
                 </td>

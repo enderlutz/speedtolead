@@ -27,7 +27,7 @@ import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, Lightbulb, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
-  Ruler, Camera, History, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
+  Ruler, Camera, History, Rocket, Gem, PhoneCall, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -1089,8 +1089,17 @@ export default function LeadDetail() {
   // count; a call logged as closed, an objection or a call-back does.
   // Kept apart from "Viewed" on purpose: viewed-and-silent is the case that
   // needs a call, and it only shows if the two are separate steps.
-  const inbound = messages.filter((m) => m.direction === "inbound");
-  const firstSentAt = sortedEstimates
+  // The current cycle. A customer who fills the form again starts over
+  // (Alan, 2026-10-09, Allque: came in August 28th, filled the form again
+  // October 8th): every step below is measured from their latest form
+  // fill, so last month's estimate and last month's call don't tick boxes
+  // for this visit. Leads from before GHL's cards exist have no cycle and
+  // keep their whole history.
+  const cycleStart = lead.intake?.restarts && lead.intake.at ? new Date(lead.intake.at).getTime() : 0;
+  const inCycle = (iso: string | null | undefined) => !!iso && new Date(iso).getTime() >= cycleStart;
+  const cycleEstimates = sortedEstimates.filter((e) => inCycle(e.sent_at) || inCycle(e.created_at));
+  const inbound = messages.filter((m) => m.direction === "inbound" && inCycle(m.created_at));
+  const firstSentAt = cycleEstimates
     .filter((e) => e.status === "sent" && e.sent_at)
     .map((e) => e.sent_at as string)
     .sort()[0] || "";
@@ -1112,7 +1121,11 @@ export default function LeadDetail() {
   // When we sent without one — no answer to the intake text or the calls —
   // that's an override, and a reply afterwards is "Heard back", not this.
   const before = (iso: string | null | undefined) =>
-    !!iso && (!firstSentAt || new Date(iso).getTime() <= new Date(firstSentAt).getTime());
+    inCycle(iso) && (!firstSentAt || new Date(iso as string).getTime() <= new Date(firstSentAt).getTime());
+  // "12 min", "3 h", "2 d" — how long after the form the call came.
+  const fmtMinutes = (m: number) => m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`;
+  const disc = lead.discovery_call;
+  const cameBack = !!lead.intake?.restarts && (lead.intake?.count || 1) > 1;
   const repliedFirst =
     inbound.some((m) => before(m.created_at)) ||
     dispositions.some((d) => TALKED.includes(d.outcome) && before(d.disposed_at));
@@ -1152,33 +1165,43 @@ export default function LeadDetail() {
     { key: "replied", label: "Replied", icon: MessageSquare, accent: ACCENT.rose, target: "est-contact",
       done: repliedFirst,
       skipped: !repliedFirst && !!firstSentAt,
-      // A discovery call rides along with Replied: a real phone conversation
-      // that started before the first estimate went out.
-      badge: lead.discovery_call?.done ? "Discovery call" : undefined,
-      hint: (!repliedFirst && firstSentAt
+      hint: !repliedFirst && firstSentAt
         ? "They never answered before we sent the estimate — sent anyway. A reply now shows under Heard back."
-        : "Waiting on their first reply. Answering the intake text is the first sign they're real.")
-        + (lead.discovery_call?.done
-          ? ` Discovery call ${timeAgo(lead.discovery_call.at || "")}${lead.discovery_call.mid_call_send ? " — the estimate went out on it" : ""}.`
-          : firstSentAt ? " No discovery call before the estimate." : "") },
+        : "Waiting on their first reply. Answering the intake text is the first sign they're real." },
+    // The discovery call: a real phone conversation before the estimate
+    // goes out — ideally the one it goes out on. Its own step (Alan,
+    // 2026-10-09) because it is the metric: how fast we got them on the
+    // phone, how long we talked, and later, how much better those close.
+    { key: "discovery", label: "Discovery call", icon: PhoneCall, accent: ACCENT.forest, target: "est-contact",
+      done: !!disc?.done,
+      skipped: !disc?.done && !!firstSentAt,
+      badge: disc?.done && disc.minutes_from_intake != null ? `${fmtMinutes(disc.minutes_from_intake)} after the form` : undefined,
+      hint: disc?.done
+        ? `Talked ${timeAgo(disc.at || "")}`
+          + (disc.seconds >= 60 ? `, ${Math.round(disc.seconds / 60)} min on the phone` : "")
+          + (disc.minutes_from_intake != null ? `, ${fmtMinutes(disc.minutes_from_intake)} after they came in` : "")
+          + (disc.mid_call_send ? " — and the estimate went out on the call." : ".")
+        : firstSentAt
+          ? "The estimate went out without a conversation first. A call now counts as hearing back, not as a discovery call."
+          : "Get them on the phone before the estimate goes out — best of all, send it while they're on the line." },
     // Not every customer gets a scope, so once the estimate has gone out
     // without one this reads "Skipped", not "You are here".
     { key: "scope", label: "Scope sent", icon: FileText, accent: ACCENT.amber, target: "est-measure",
-      done: !!lead.fence_scope_first_sent_at,
-      skipped: !lead.fence_scope_first_sent_at && !!firstSentAt,
-      hint: !lead.fence_scope_first_sent_at && firstSentAt
+      done: inCycle(lead.fence_scope_last_sent_at),
+      skipped: !inCycle(lead.fence_scope_last_sent_at) && !!firstSentAt,
+      hint: !inCycle(lead.fence_scope_last_sent_at) && firstSentAt
         ? "No scope of work went to this customer — the estimate was sent without one."
         : "Draw the scope on the Fence Scope tab and text it, so they confirm the sides before we price." },
     { key: "measured", label: "Measured", icon: Ruler, accent: ACCENT.violet, target: "est-measure",
       done: Number(linearFeet) > 0 || !!lead.measurement_uploaded,
       hint: "Trace the fence on the satellite and capture it — Linear Feet fills itself." },
     { key: "priced", label: "Priced", icon: Calculator, accent: ACCENT.fuchsia, target: "est-inputs",
-      done: (estimate?.tiers?.signature || 0) > 0,
+      done: cycleEstimates.some((e) => (e.tiers?.signature || 0) > 0),
       hint: "Fill in the inputs and hit Save & Recalculate to get the three prices." },
     { key: "sent", label: "Sent", icon: Send, accent: ACCENT.cyan, target: "est-followups",
       badge: lead.after_estimate?.status === "running" ? "Follow-ups on"
         : lead.after_estimate?.status === "not_started" ? "No follow-ups" : undefined,
-      done: sortedEstimates.some((e) => e.status === "sent"),
+      done: cycleEstimates.some((e) => e.status === "sent"),
       hint: "Send the proposal — text and email. The follow-ups start on their own." },
     { key: "viewed", label: "Viewed", icon: Eye, accent: ACCENT.amber, target: "est-send",
       done: (lead.proposal_view_count || 0) > 0,
@@ -1471,7 +1494,12 @@ export default function LeadDetail() {
               each tappable, each the same colour it is everywhere else on
               the page. Answers "what do I do next on this lead?" before a
               single card is read. */}
-          <JourneyStrip steps={journey} />
+          <JourneyStrip
+            steps={journey}
+            note={cameBack
+              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
+              : undefined}
+          />
 
           {/* Every objection the scanner found in this customer's texts and
               calls, each with their exact words and whether it came before or

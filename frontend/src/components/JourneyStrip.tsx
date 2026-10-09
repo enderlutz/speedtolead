@@ -10,7 +10,7 @@
 // of buttons before any card — so each row is a swipeable strip instead,
 // scrolled so the current step sits in the middle.
 import { useEffect, useRef } from "react";
-import { Check, Star } from "lucide-react";
+import { Check, Star, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Accent } from "@/lib/accents";
 
@@ -42,7 +42,7 @@ export type JourneyStep = {
 // Below Tailwind's `sm` the rows swipe; from `sm` up they are grids.
 const PHONE = "(max-width: 639px)";
 
-export function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
+export function JourneyStrip({ steps, note }: { steps: JourneyStep[]; /** One line under the title, e.g. "came back and restarted". */ note?: string }) {
   const done = steps.filter((s) => s.done).length;
   const current = steps.find((s) => !s.done && !s.skipped);
   const jump = (id: string) =>
@@ -79,6 +79,11 @@ export function JourneyStrip({ steps }: { steps: JourneyStep[] }) {
           <p className="mt-0.5 text-xs text-white/70">
             {current ? current.hint : "A finished customer. Ask for a referral."}
           </p>
+          {note ? (
+            <p className="mt-1.5 inline-flex max-w-full items-center gap-1 rounded-full bg-gold/20 px-2 py-0.5 text-[10px] font-semibold text-gold-light ring-1 ring-gold/40">
+              <RotateCcw className="h-3 w-3 shrink-0" /><span className="truncate">{note}</span>
+            </p>
+          ) : null}
         </div>
         <div className="shrink-0 text-right">
           <p className="font-heading text-2xl font-bold tabular-nums leading-none">
