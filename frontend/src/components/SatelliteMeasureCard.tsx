@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
-  ArrowUp, RotateCcw, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
+  ArrowUp, ZoomIn, ZoomOut } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -70,7 +70,6 @@ const DEFAULT_ZOOM = 20;
 // covers the frame. Capture sends the fractional zoom and the rotation and
 // the server turns and crops the Static Maps image to match.
 const ZOOM_STEP = 0.25;
-const ROT_STEP = 15;
 const ZOOM_MIN = 14;
 const ZOOM_MAX = 22;
 
@@ -355,20 +354,63 @@ export default function SatelliteMeasureCard({
 
   /** Zoom to a fractional level. Google takes the whole number — and may
    *  refuse to go as far as asked, since its ceiling depends on the imagery
-   *  at that spot — and the wrapper's scale takes whatever is left. */
+   *  at that spot — and the wrapper's scale takes whatever is left.
+   *
+   *  Google is moved with moveCamera, which is instant. setZoom ANIMATES the
+   *  tiles over a quarter second, and under a CSS scale that has already
+   *  snapped to compensate, that reads as the picture lurching to half size
+   *  and growing back — the glitch Alan saw on the slider (2026-10-08). */
   const setZoomFine = useCallback((target: number) => {
     const map = mapRef.current;
-    if (!map?.setZoom) return;
+    if (!map?.getZoom) return;
     const want = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX + 1, target));
     const whole = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(want)));
-    if (map.getZoom?.() !== whole) map.setZoom(whole);
-    const got = map.getZoom?.();
+    if (map.getZoom() !== whole) {
+      const c = map.getCenter?.();
+      if (typeof map.moveCamera === "function" && c) map.moveCamera({ zoom: whole, center: c });
+      else map.setZoom(whole);
+    }
+    const got = map.getZoom();
     const base = typeof got === "number" ? got : whole;
     const f = Math.max(-0.5, Math.min(1, want - base));
     viewRef.current.frac = f;
     setFrac(f);
     setZf(base + f);
   }, []);
+
+  // The compass dial: grab it and spin. The view turns by the same amount
+  // the finger moved round the dial's centre, so it follows wherever it was
+  // grabbed; a tap (no turn) puts north back at the top.
+  const dialRef = useRef<HTMLDivElement>(null);
+  const dialDrag = useRef<{ id: number; angle0: number; rot0: number; turned: boolean } | null>(null);
+
+  function dialAngle(e: React.PointerEvent): number {
+    const r = dialRef.current?.getBoundingClientRect();
+    if (!r) return 0;
+    return (Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI;
+  }
+
+  function onDialDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dialDrag.current = { id: e.pointerId, angle0: dialAngle(e), rot0: viewRef.current.rot, turned: false };
+  }
+
+  function onDialMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = dialDrag.current;
+    if (!d || d.id !== e.pointerId) return;
+    const delta = dialAngle(e) - d.angle0;
+    if (!d.turned && Math.abs(delta) < 3) return;
+    d.turned = true;
+    setRotation(d.rot0 + delta);
+  }
+
+  function onDialUp(e: React.PointerEvent<HTMLDivElement>) {
+    const d = dialDrag.current;
+    if (!d || d.id !== e.pointerId) return;
+    dialDrag.current = null;
+    if (!d.turned && e.type === "pointerup") setRotation(0);
+  }
 
   const setRotation = useCallback((deg: number) => {
     const r = ((deg % 360) + 360) % 360;
@@ -494,18 +536,25 @@ export default function SatelliteMeasureCard({
     }
   }
 
-  // Wheel zooms by fractions. Registered by hand: React's onWheel is
-  // passive, so it can't stop the page scrolling under the map.
+  // Wheel zooms by fractions; with shift held it turns the view. Registered
+  // by hand: React's onWheel is passive, so it can't stop the page scrolling
+  // under the map.
   useEffect(() => {
     const el = overlayRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      setZoomFine(zoomFine() - e.deltaY * 0.0025);
+      if (e.shiftKey) {
+        setRotation(viewRef.current.rot + (e.deltaY || e.deltaX) * 0.2);
+        return;
+      }
+      const z = mapRef.current?.getZoom?.();
+      const cur = (typeof z === "number" ? z : DEFAULT_ZOOM) + viewRef.current.frac;
+      setZoomFine(cur - e.deltaY * 0.0025);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [setZoomFine]);
+  }, [setZoomFine, setRotation]);
 
   // Build the map exactly once.
   //
@@ -995,7 +1044,9 @@ export default function SatelliteMeasureCard({
             ref={mapDivRef}
             className="absolute"
             style={{
-              left: "-50%", top: "-50%", width: "200%", height: "200%",
+              // 210%: turned 45° at the smallest scale (0.71) the frame's
+              // diagonal needs exactly 200% — the extra is margin.
+              left: "-55%", top: "-55%", width: "210%", height: "210%",
               transform: `rotate(${rot}deg) scale(${Math.pow(2, frac)})`,
               willChange: "transform",
             }}
@@ -1019,29 +1070,43 @@ export default function SatelliteMeasureCard({
             ))}
           </div>
 
-          {/* The angle. Turn the view so the fence runs the way you're
-              looking at it; the arrow always points north, and tapping it
-              puts north back at the top. Two fingers twist on a phone. */}
-          <div className="absolute right-2 top-2 flex flex-col items-center gap-0.5 rounded-lg bg-black/60 p-1 text-white backdrop-blur-sm">
+          {/* The angle: a compass you spin. Drag anywhere on the dial and
+              the view turns with your finger; the arrow always points north;
+              a tap puts north back at the top. Two fingers twist on a phone,
+              shift + scroll turns it on a desktop. */}
+          <div className="absolute right-2 top-2 flex flex-col items-center gap-1 text-white">
+            <div
+              ref={dialRef}
+              onPointerDown={onDialDown}
+              onPointerMove={onDialMove}
+              onPointerUp={onDialUp}
+              onPointerCancel={onDialUp}
+              title="Drag to turn the view · tap to point north"
+              className="relative h-16 w-16 cursor-grab touch-none select-none rounded-full bg-black/60 shadow-md shadow-black/30 ring-1 ring-white/25 backdrop-blur-sm active:cursor-grabbing"
+            >
+              {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
+                <span
+                  key={a}
+                  className={a % 90 ? "absolute left-1/2 top-1 h-1 w-px bg-white/30" : "absolute left-1/2 top-1 h-1.5 w-px bg-white/60"}
+                  style={{ transform: `translateX(-50%) rotate(${a}deg)`, transformOrigin: "50% 28px" }}
+                />
+              ))}
+              <div className="absolute inset-0 flex items-center justify-center" style={{ transform: `rotate(${rot}deg)` }}>
+                <div className="flex -translate-y-2.5 flex-col items-center">
+                  <ArrowUp className="h-5 w-5 text-gold-light drop-shadow" />
+                  <span className="text-[9px] font-bold leading-none">N</span>
+                </div>
+              </div>
+              <span className="pointer-events-none absolute inset-x-0 bottom-1 text-center text-[9px] font-semibold tabular-nums text-white/80">
+                {Math.round(rot)}°
+              </span>
+            </div>
             <button
               type="button"
-              onClick={() => setRotation(0)}
-              title={rot ? `North is ${Math.round(rot)}° off — tap to put it back at the top` : "North is up"}
-              className="flex h-9 w-9 flex-col items-center justify-center rounded-md hover:bg-white/15"
+              onClick={() => setRotation(viewRef.current.rot + 180)}
+              title="Flip the view around"
+              className="h-7 rounded-md bg-black/60 px-2 text-[10px] font-bold backdrop-blur-sm hover:bg-black/75"
             >
-              <ArrowUp className="h-4 w-4 transition-transform" style={{ transform: `rotate(${rot}deg)` }} />
-              <span className="text-[8px] font-bold leading-none">N</span>
-            </button>
-            <button type="button" onClick={() => setRotation(viewRef.current.rot - ROT_STEP)} title={`Turn ${ROT_STEP}° left`}
-              className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/15">
-              <RotateCcw className="h-4 w-4" />
-            </button>
-            <button type="button" onClick={() => setRotation(viewRef.current.rot + ROT_STEP)} title={`Turn ${ROT_STEP}° right`}
-              className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/15">
-              <RotateCw className="h-4 w-4" />
-            </button>
-            <button type="button" onClick={() => setRotation(viewRef.current.rot + 180)} title="Flip the view around"
-              className="flex h-9 w-9 items-center justify-center rounded-md text-[10px] font-bold hover:bg-white/15">
               180°
             </button>
           </div>
