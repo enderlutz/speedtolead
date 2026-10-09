@@ -112,6 +112,28 @@ def _dt(value) -> datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+def _carrier_error(note: str | None) -> bool:
+    """GHL writes the Twilio error into the SMS DND note when a number
+    bounces ("TWILIO_ERROR_CODE: 30005"). That is a dead number, not an
+    opt-out."""
+    return bool(note) and ("TWILIO" in note.upper() or "ERROR" in note.upper())
+
+
+def _stops(db, lead_ids: list[str] | None) -> tuple[set[str], set[str]]:
+    """(leads who told us to stop — tagged by the objection scanner, never
+    removed; leads flagged do-not-contact)."""
+    from database import LeadObjection
+    stops_q = db.query(LeadObjection.lead_id).filter(
+        LeadObjection.category == "opt_out", LeadObjection.removed_at.is_(None))
+    dnc_q = db.query(Lead.id).filter(Lead.do_not_contact.is_(True))
+    if lead_ids is not None:
+        if not lead_ids:
+            return set(), set()
+        stops_q = stops_q.filter(LeadObjection.lead_id.in_(lead_ids))
+        dnc_q = dnc_q.filter(Lead.id.in_(lead_ids))
+    return {r[0] for r in stops_q.distinct().all()}, {r[0] for r in dnc_q.all()}
+
+
 def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
     """Leads whose latest estimate send came AFTER the customer last filled
     the form. A customer who came back is a new lead again (Alan,
@@ -164,7 +186,7 @@ def list_contacts(
     proportionally and nothing scans the whole table.
     """
     del user
-    from services.intake import INTAKE_BODY, INTAKE_TYPE, intake_counts
+    from services.intake import intake_counts, last_intakes
 
     db = get_db()
     try:
@@ -189,29 +211,25 @@ def list_contacts(
 
         total = query.count()
 
-        # The latest "Opportunity created" card per lead — one per form
-        # fill (services/intake.py) — falls back to the GHL added date for a
-        # contact that never had one. NULLS LAST: a contact with no
-        # dateAdded must not outrank Amy May.
-        latest_card = (
-            db.query(Message.lead_id.label("lid"), func.max(Message.created_at).label("t"))
-            .filter(Message.message_type == INTAKE_TYPE, Message.body == INTAKE_BODY,
-                    Message.lead_id.isnot(None))
-            .group_by(Message.lead_id)
-            .subquery()
-        )
-        query = query.outerjoin(latest_card, latest_card.c.lid == Contact.lead_id)
-        came_in = func.coalesce(latest_card.c.t, Contact.date_added)
-        order = came_in if sort == "intake" else Contact.date_added
-        rows = (
-            query.add_columns(came_in.label("came_in"))
-            .order_by(order.desc().nullslast())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-        came_in_by_contact = {r[0].id: r[1] for r in rows}
-        rows = [r[0] for r in rows]
+        # When each contact last came in: their latest real form fill
+        # (services/intake.py — which needs the texts around each card, so
+        # it is worked out here rather than in SQL), falling back to the GHL
+        # added date. The whole matching set is ordered in Python and then
+        # paged; it is a two-thousand-row table. NULLS LAST: a contact with
+        # no dateAdded must not outrank Amy May.
+        heads = query.with_entities(Contact.id, Contact.lead_id, Contact.date_added).all()
+        fills = last_intakes(db, [h.lead_id for h in heads if h.lead_id])
+        came_in_by_contact = {
+            h.id: ((h.lead_id and fills.get(h.lead_id)) or h.date_added or "") for h in heads
+        }
+        floor = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+        def key(h):
+            v = came_in_by_contact[h.id] if sort == "intake" else (h.date_added or "")
+            return _dt(v) or floor
+        page_ids = [h.id for h in sorted(heads, key=key, reverse=True)[offset:offset + limit]]
+        by_id = {r.id: r for r in db.query(Contact).filter(Contact.id.in_(page_ids)).all()} if page_ids else {}
+        rows = [by_id[i] for i in page_ids if i in by_id]
 
         lead_ids = [r.lead_id for r in rows if r.lead_id]
         sent: set[str] = set()
@@ -226,6 +244,8 @@ def list_contacts(
         scheduled: set[str] = set()
         overdue: set[str] = set()
         refills: dict[str, int] = {}
+        stops: set[str] = set()
+        dnc: set[str] = set()
 
         if lead_ids:
             # The pipeline still matters — it just no longer decides whether
@@ -241,6 +261,7 @@ def list_contacts(
 
             sent = _sent_since_intake(db, lead_ids)
             refills = intake_counts(db, lead_ids)
+            stops, dnc = _stops(db, lead_ids)
             msg_counts = dict(
                 db.query(Message.lead_id, func.count(Message.id))
                 .filter(Message.lead_id.in_(lead_ids))
@@ -278,6 +299,12 @@ def list_contacts(
             d["last_intake_at"] = came_in_by_contact.get(r.id) or r.date_added or ""
             d["intake_count"] = max(1, int(refills.get(lid, 0))) if lid else 1
             d["estimate_sent"] = bool(lid and lid in sent)
+            # Three sources of "don't text them", shown apart: GHL's own
+            # opt-out (dnd / SMS DND), what they told us ("stop texting me",
+            # tagged by the objection scanner), and a number that bounces.
+            d["asked_to_stop"] = bool(lid and lid in stops)
+            d["texts_bouncing"] = bool(r.dnd_sms and _carrier_error(r.dnd_note))
+            d["opted_out"] = bool(r.dnd or (r.dnd_sms and not _carrier_error(r.dnd_note)) or (lid and lid in dnc))
             # Lets the badge say "sending in 10 min" rather than a bare "sent",
             # and flag a stalled send instead of hiding it among the people we
             # genuinely never priced.
@@ -329,7 +356,20 @@ def contact_stats(user: dict = Depends(get_current_user)):
         no_phone = db.query(func.count(Contact.id)).filter(
             or_(Contact.phone_key == "", Contact.phone_key.is_(None))
         ).scalar() or 0
-        dnd = db.query(func.count(Contact.id)).filter(Contact.dnd.is_(True)).scalar() or 0
+        # "Do not contact" is everyone who can't be texted on purpose: GHL's
+        # own opt-out on any channel, anyone who told us to stop, and the
+        # lead flag. The old count read only GHL's all-channel flag, which
+        # is set by hand — it said 2 (Alan, 2026-10-09: "I know it's more").
+        # Bouncing numbers are counted apart: nobody opted out, the number
+        # is just dead.
+        stops, dnc = _stops(db, None)
+        dnd = 0
+        bouncing = 0
+        for c_dnd, c_sms, c_note, c_lid in db.query(Contact.dnd, Contact.dnd_sms, Contact.dnd_note, Contact.lead_id).all():
+            if c_dnd or (c_sms and not _carrier_error(c_note)) or (c_lid and (c_lid in stops or c_lid in dnc)):
+                dnd += 1
+            elif c_sms:
+                bouncing += 1
 
         # Sent since the customer last came in — same rule as the rows, so
         # the headline number can't disagree with the badges underneath it.
@@ -354,6 +394,7 @@ def contact_stats(user: dict = Depends(get_current_user)):
             "send_overdue": send_overdue,
             "no_phone": no_phone,
             "dnd": dnd,
+            "texts_bouncing": bouncing,
             "newest": (newest.name if newest else ""),
             "oldest": (oldest.name if oldest else ""),
             "last_sync": last_sync,

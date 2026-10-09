@@ -572,6 +572,12 @@ class Contact(Base):
     # GHL's own do-not-disturb flag. Mirrored so the contact list can show it;
     # the send path still enforces Lead.do_not_contact separately.
     dnd = Column(Boolean, default=False)
+    # GHL's per-channel opt-out for texts (dndSettings.SMS). Set by a STOP
+    # reply — or by Twilio when the number bounces; dnd_note keeps GHL's
+    # reason so the two can be told apart. The all-channel `dnd` above is
+    # only ever set by hand, which is why it was 2 of 2,042.
+    dnd_sms = Column(Boolean, default=False)
+    dnd_note = Column(Text, default="")
     date_added = Column(Text, default="")        # GHL dateAdded — the sort order
     date_updated = Column(Text, default="")
     lead_id = Column(Text, nullable=True)        # NULL = in GHL, never a lead
@@ -599,6 +605,8 @@ class Contact(Base):
             "contact_type": self.contact_type or "",
             "tags": _j(self.tags_json) or [],
             "dnd": bool(self.dnd),
+            "dnd_sms": bool(self.dnd_sms),
+            "dnd_note": self.dnd_note or "",
             "date_added": self.date_added or "",
             "date_updated": self.date_updated or "",
             "lead_id": self.lead_id,
@@ -4133,6 +4141,14 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE objection_scans ADD COLUMN kind TEXT DEFAULT 'live'"))
         logger.info("Migration: added objection_scans.kind")
+
+    if inspector.has_table("contacts"):
+        contact_cols = {c["name"] for c in inspector.get_columns("contacts")}
+        if "dnd_sms" not in contact_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE contacts ADD COLUMN dnd_sms BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE contacts ADD COLUMN dnd_note TEXT DEFAULT ''"))
+            logger.info("Migration: added contacts.dnd_sms / dnd_note")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

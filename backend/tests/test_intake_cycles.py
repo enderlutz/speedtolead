@@ -48,11 +48,17 @@ def _lead(db, name="Allque", created=T0):
     return lead
 
 
-def _card(db, lead, at):
-    """GHL's activity row for a new opportunity card — one per form fill."""
+def _card(db, lead, at, *, welcomed=True):
+    """GHL's activity row for a new opportunity card. A real form fill is
+    followed by the intake workflow's introduction text; an automation's
+    card (`welcomed=False`) is not."""
     db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, direction="outbound",
                    body=intake.INTAKE_BODY, message_type=intake.INTAKE_TYPE,
                    created_at=at.strftime("%Y-%m-%dT%H:%M:%S.000Z")))
+    if welcomed:
+        db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, direction="outbound", message_type="TYPE_SMS",
+                       body=f"Hi {lead.contact_name}! this is Amy with Sterling Fence Staining. I just received your information!",
+                       created_at=(at + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S.000Z")))
     db.commit()
 
 
@@ -76,6 +82,42 @@ def test_each_card_is_a_form_fill_and_two_in_a_day_are_one(db):
     _card(db, lead, T0 + timedelta(minutes=5))          # the B pipeline's twin card
     _card(db, lead, REFILL)
     assert intake.intake_summary(db, lead)["count"] == 2
+    assert intake.latest_intake(db, lead) == REFILL
+
+
+def test_the_automations_card_after_a_send_is_not_a_form_fill(db):
+    """Michelle Stout: estimate 8:52, "Opportunity created" 8:59 from the
+    estimate-sent workflow, no welcome text — and the page said she had
+    never been priced."""
+    lead = _lead(db, "Michelle Stout", created=T0)
+    _sent(db, lead, T0 + timedelta(hours=6))
+    # Her only card: the automation's. Her form fill made the lead before
+    # the poller stored anything, so there is no welcomed card at all.
+    _card(db, lead, T0 + timedelta(hours=6, minutes=7), welcomed=False)
+    assert intake.intake_summary(db, lead) == {
+        "at": T0.isoformat(), "first_at": T0.isoformat(), "count": 1, "restarts": False}
+    assert fs.after_estimate(db, lead) is not None
+    assert _list()[0]["estimate_sent"] is True and _list()[0]["intake_count"] == 1
+
+
+def test_a_later_card_nobody_was_welcomed_for_is_not_a_form_fill(db):
+    """A card made by hand or by a pipeline move, weeks after a send."""
+    lead = _lead(db)
+    _card(db, lead, T0 + timedelta(minutes=1))
+    _sent(db, lead, T0 + timedelta(minutes=20))
+    _card(db, lead, REFILL, welcomed=False)
+    assert intake.latest_intake(db, lead) == T0 + timedelta(minutes=1)
+    assert _list()[0]["estimate_sent"] is True
+
+
+def test_the_welcome_text_can_come_the_next_morning(db):
+    """Kevin Doan: form at 11 pm Houston, the workflow's text at 5:30 am."""
+    lead = _lead(db)
+    _card(db, lead, REFILL, welcomed=False)
+    db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, direction="outbound", message_type="TYPE_SMS",
+                   body="Hi Kevin! this is Amy with Sterling Fence Staining. I just received your information!",
+                   created_at=(REFILL + timedelta(hours=6, minutes=23)).strftime("%Y-%m-%dT%H:%M:%S.000Z")))
+    db.commit()
     assert intake.latest_intake(db, lead) == REFILL
 
 

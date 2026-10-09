@@ -69,6 +69,18 @@ def _full_name(c: dict) -> str:
     return joined or (c.get("contactName") or c.get("name") or "").strip()
 
 
+def sms_dnd(c: dict) -> tuple[bool, str]:
+    """GHL's per-channel opt-out for texts: dndSettings.SMS.status "active",
+    with GHL's note on why ("Updated by Alan Bonner at…" or a Twilio
+    error). The all-channel `dnd` flag is separate and set by hand."""
+    sms = (c.get("dndSettings") or {}).get("SMS") or {}
+    return (str(sms.get("status") or "").lower() == "active", str(sms.get("message") or "")[:200])
+
+
+def _carrier_error(note: str) -> bool:
+    return bool(note) and ("TWILIO" in note.upper() or "ERROR" in note.upper())
+
+
 def _address(c: dict) -> str:
     return (c.get("address1") or "").strip()
 
@@ -134,10 +146,10 @@ def _create_shadow_lead(db, c: dict, cid: str, loc: str, label: str,
         dashboard_synced_at=_now(),
         created_at=(c.get("dateAdded") or "").strip() or _now(),
         updated_at=_now(),
-        # GHL's own opt-out. Mirrored onto the lead so the send endpoint's
-        # do_not_contact check covers these rows from the moment they exist,
-        # rather than only after someone replies "stop" to us.
-        do_not_contact=bool(c.get("dnd")),
+        # GHL's own opt-out, any channel. Mirrored onto the lead so the send
+        # endpoint's do_not_contact check covers these rows from the moment
+        # they exist, rather than only after someone replies "stop" to us.
+        do_not_contact=bool(c.get("dnd")) or (sms_dnd(c)[0] and not _carrier_error(sms_dnd(c)[1])),
     )
     stamp_lead_keys(lead)
     db.add(lead)
@@ -263,6 +275,13 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
                 row.contact_type = (c.get("type") or "").strip()
                 row.tags_json = json.dumps(c.get("tags") or [])
                 row.dnd = bool(c.get("dnd"))
+                row.dnd_sms, row.dnd_note = sms_dnd(c)
+                # A customer who opted out in GHL must not be texted from
+                # here either. Only ever set, never cleared: a flag someone
+                # set on the dashboard is not GHL's to undo.
+                if lead and (row.dnd or (row.dnd_sms and not _carrier_error(row.dnd_note))) and not lead.do_not_contact:
+                    lead.do_not_contact = True
+                    lead.updated_at = _now()
                 row.date_added = (c.get("dateAdded") or "").strip()
                 row.date_updated = (c.get("dateUpdated") or "").strip()
                 row.lead_id = lead.id if lead else None

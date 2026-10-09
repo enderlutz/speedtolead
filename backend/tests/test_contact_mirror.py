@@ -311,3 +311,27 @@ def test_contacts_missing_from_a_sweep_are_reported_not_deleted(db, fake_ghl):
 
     assert stats["not_seen_this_sweep"] == 1
     assert db.query(Contact).count() == 2  # still there — never auto-deleted
+
+
+# ── opt-outs ─────────────────────────────────────────────────────────
+
+
+def test_a_stop_reply_in_ghl_is_an_opt_out_and_a_bounce_is_not(db, fake_ghl):
+    """GHL keeps a STOP in dndSettings.SMS, not in the all-channel `dnd`
+    flag (which is set by hand and was 2 of 2,042). A Twilio error in the
+    same place is a dead number, not an opt-out."""
+    stop = _contact("c-stop", "Gina Cichon", "+12815550001",
+                    dndSettings={"SMS": {"status": "active", "message": "Updated by Alan Bonner at 2026-10-01"}})
+    dead = _contact("c-dead", "Andy Lewis", "+12815550002",
+                    dndSettings={"SMS": {"status": "active", "message": "TWILIO_ERROR_CODE: 30005"}})
+    fine = _contact("c-fine", "Pat Fine", "+12815550003")
+    fake_ghl["contacts"] = [stop, dead, fine]
+    contact_mirror.sync_all_locations(create_leads=True)
+    rows = {r.ghl_contact_id: r for r in db.query(Contact).all()}
+    assert rows["c-stop"].dnd_sms and not rows["c-dead"].dnd is True
+    assert rows["c-dead"].dnd_sms and "TWILIO" in rows["c-dead"].dnd_note
+    assert rows["c-fine"].dnd_sms is False
+    leads = {l.id: l for l in db.query(Lead).all()}
+    assert leads[rows["c-stop"].lead_id].do_not_contact is True
+    assert leads[rows["c-dead"].lead_id].do_not_contact is False
+    assert leads[rows["c-fine"].lead_id].do_not_contact is False

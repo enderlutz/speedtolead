@@ -3581,6 +3581,16 @@ export interface ContactRow {
   attempt_count: number;
   /** @deprecated same as conversation_count; kept for deploy skew. */
   call_count: number;
+  /** GHL's per-channel SMS block (dndSettings.SMS) and GHL's note on why. */
+  dnd_sms: boolean;
+  dnd_note: string;
+  /** Told us to stop — "stop texting me", tagged by the objection scanner. */
+  asked_to_stop: boolean;
+  /** Can't be texted on purpose: GHL opt-out on any channel, told us to
+   *  stop, or flagged do-not-contact on the lead. */
+  opted_out: boolean;
+  /** GHL's SMS block is a Twilio error — the number is dead, nobody opted out. */
+  texts_bouncing: boolean;
   /** When they last filled the form (falls back to the GHL added date). */
   last_intake_at: string;
   /** How many times they've come in. 2+ means they came back. */
@@ -3724,7 +3734,10 @@ export interface ContactStats {
   no_estimate: number;
   send_overdue: number;
   no_phone: number;
+  /** Do not contact: GHL opt-outs + told us to stop + the lead flag. */
   dnd: number;
+  /** Numbers Twilio can't deliver to. Not opt-outs. */
+  texts_bouncing: number;
   newest: string;
   oldest: string;
   last_sync: string;

@@ -308,7 +308,13 @@ export default function Contacts() {
           <Stat label="Never got an estimate" value={stats.no_estimate} hint="the list to work" />
           <Stat label="Estimate sent" value={stats.estimate_sent} />
           <Stat label="No phone number" value={stats.no_phone} hint="can't be called" />
-          <Stat label="Opted out in GHL" value={stats.dnd} hint="do not contact" />
+          {/* GHL's own opt-outs on any channel, plus everyone who told us
+              to stop, plus the lead flag. The old count read only GHL's
+              all-channel switch, which is set by hand, and said 2. */}
+          <Stat label="Do not contact" value={stats.dnd} hint="opted out in GHL, or told us to stop" />
+          {stats.texts_bouncing > 0 ? (
+            <Stat label="Texts bouncing" value={stats.texts_bouncing} hint="dead numbers — call instead" />
+          ) : null}
           {/* Only appears when something is actually wrong — a queued estimate
               that sailed past its send time without going out. */}
           {stats.send_overdue > 0 ? (
@@ -409,9 +415,16 @@ export default function Contacts() {
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{c.name || "(no name)"}</span>
-                    {c.dnd ? (
-                      <Badge variant="destructive" className="gap-1">
-                        <Ban className="h-3 w-3" /> opted out
+                    {c.opted_out ? (
+                      <Badge
+                        variant="destructive" className="gap-1"
+                        title={c.asked_to_stop ? "They told us to stop texting them" : c.dnd_note ? `Opted out in GHL — ${c.dnd_note}` : "Opted out in GHL"}
+                      >
+                        <Ban className="h-3 w-3" /> {c.asked_to_stop ? "told us to stop" : "opted out"}
+                      </Badge>
+                    ) : c.texts_bouncing ? (
+                      <Badge variant="outline" className="gap-1 border-amber-400 text-amber-700" title={`Texts don't deliver — ${c.dnd_note}. Call instead.`}>
+                        texts bouncing
                       </Badge>
                     ) : null}
                   </div>
