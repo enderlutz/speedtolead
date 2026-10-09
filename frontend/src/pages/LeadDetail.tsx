@@ -2085,18 +2085,22 @@ export default function LeadDetail() {
                     icon={Mail}
                     accent={ACCENT.violet}
                     title={lead.contact_email ? `Email to ${lead.contact_email}` : "No email on file — email unavailable"}
-                    className="max-w-full"
+                    className="max-w-full overflow-hidden"
                   >
                     Email
-                    {lead.contact_email && <span className="truncate font-normal opacity-80">· {lead.contact_email}</span>}
+                    {lead.contact_email && <span className="min-w-0 truncate font-normal opacity-80">· {lead.contact_email}</span>}
                   </ToggleChip>
                 </div>
               </Field>
 
-              <div className="flex gap-2">
+              {/* One row on a desktop. On a phone Send Now takes the full
+                  width and the two timing buttons sit under it as a pair —
+                  three in a row ran "Schedule" clean off the screen (Alan,
+                  2026-10-09). */}
+              <div className="grid gap-2 sm:flex">
                 {/* The one button the whole page leads to. It glows when the
                     estimate is cleared to go, and only then. */}
-                <div className="relative flex-1">
+                <div className="relative sm:flex-1">
                   {estimate.approval_status === "green" && !approving && lead.pipeline_version !== "v1" && (
                     <div className="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-gold-light to-gold opacity-50 blur-md" />
                   )}
@@ -2110,6 +2114,7 @@ export default function LeadDetail() {
                     {approving ? "Sending..." : "Send Now"}
                   </Button>
                 </div>
+                <div className="grid grid-cols-2 gap-2 sm:contents">
                 {/* A deliberate buffer, not a delay for its own sake: an
                     estimate landing the second a call ends reads as a machine
                     spitting out a number. Ten minutes reads as someone working
@@ -2133,7 +2138,7 @@ export default function LeadDetail() {
                   title={lead.pipeline_version === "v1"
                     ? "Export to new pipeline before scheduling"
                     : `Schedules the estimate ${SEND_BUFFER_MINUTES} minutes out, so it doesn't land the instant the call ends`}
-                  className="h-11 shrink-0 rounded-xl"
+                  className="h-11 rounded-xl sm:shrink-0"
                 >
                   <Clock className="h-4 w-4 mr-1" /> In {SEND_BUFFER_MINUTES} min
                 </Button>
@@ -2145,10 +2150,11 @@ export default function LeadDetail() {
                   }}
                   disabled={approving || lead.pipeline_version === "v1"}
                   title={lead.pipeline_version === "v1" ? "Export to new pipeline before scheduling" : undefined}
-                  className="h-11 shrink-0 rounded-xl"
+                  className="h-11 rounded-xl sm:shrink-0"
                 >
                   <Calendar className="h-4 w-4 mr-1" /> Schedule
                 </Button>
+                </div>
               </div>
               {/* Marks that this estimate was done on-site (in person) vs remote.
                   Auto-detected from estimator activity (photos/videos, recordings,
