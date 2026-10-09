@@ -1513,7 +1513,11 @@ export const api = {
   captureSatelliteMeasurement: (
     leadId: string,
     body: {
-      lat: number; lng: number; zoom: number;
+      lat: number; lng: number;
+      /** May be fractional — the map has a fine zoom. */
+      zoom: number;
+      /** Degrees clockwise the view was turned; 0 = north up. */
+      rotation?: number;
       /** "520x520" — match the on-screen map so the capture frames the same
        *  ground area the VA just measured. Max 640 per side. */
       size?: string;

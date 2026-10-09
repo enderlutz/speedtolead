@@ -2270,7 +2270,12 @@ class SatelliteCaptureBody(BaseModel):
     """What the embedded satellite map is looking at when Capture is pressed."""
     lat: float
     lng: float
-    zoom: int = 20
+    # May be fractional: the map has a fine zoom (Alan, 2026-10-08 — Google's
+    # own control jumped a whole level, "too far in or too far out").
+    zoom: float = 20
+    # Degrees clockwise the VA turned the view; 0 is north-up. Static Maps is
+    # north-up only, so the server turns and crops the image to match.
+    rotation: float = 0
     # 640x640 at scale=2 is the largest the standard Static Maps tier serves,
     # giving a 1280px image — enough to trace a fence on.
     size: str = "640x640"
@@ -2402,6 +2407,33 @@ def _fetch_static_map(url_for, server_key: str, browser_key: str, lead_id: str) 
     raise HTTPException(status_code=502, detail=f"Google Maps refused the capture — {detail}")
 
 
+def _turn_and_crop(png: bytes, rotation: float, frame_w: int, frame_h: int, density: float) -> bytes:
+    """Turn a north-up Static Maps image clockwise by `rotation` degrees and
+    crop it to the framed view.
+
+    The on-screen map is a CSS transform of Google's north-up map (see
+    SatelliteMeasureCard), so the saved photo is made the same way: turn the
+    image about its centre, then keep the centre `frame * density` pixels.
+    `density` is image pixels per on-screen pixel; the fetch is sized so it
+    lands between 0.7 and 2, and so that the crop never reaches the empty
+    corners a turn leaves behind. No resampling beyond the turn itself — the
+    photo is kept at the pixels Google sent.
+    """
+    from io import BytesIO
+    from PIL import Image
+
+    img = Image.open(BytesIO(png)).convert("RGB")
+    if abs(rotation) >= 0.01:
+        img = img.rotate(-rotation, resample=Image.BICUBIC)   # PIL turns anticlockwise
+    cw = max(1, min(img.width, round(frame_w * density)))
+    ch = max(1, min(img.height, round(frame_h * density)))
+    x0 = round(img.width / 2 - cw / 2)
+    y0 = round(img.height / 2 - ch / 2)
+    out = BytesIO()
+    img.crop((x0, y0, x0 + cw, y0 + ch)).save(out, format="PNG")
+    return out.getvalue()
+
+
 @router.post("/leads/{lead_id}/measurement/capture")
 def capture_satellite_measurement(
     lead_id: str,
@@ -2431,6 +2463,22 @@ def capture_satellite_measurement(
     if not (server_key or browser_key):
         raise HTTPException(status_code=503, detail="No Google Maps API key configured")
 
+    import math
+
+    requested_zoom = float(body.zoom)
+    rotation = float(body.rotation or 0) % 360
+    w, _, h = (body.size or "").partition("x")
+    if not (w.isdigit() and h.isdigit() and 2 <= len(w) <= 4 and 2 <= len(h) <= 4):
+        raise HTTPException(status_code=400, detail="size must look like 640x640")
+    frame_w, frame_h = int(w), int(h)
+
+    path_args = _path_params(body.paths)
+    pin_arg = _marker_param(body.pin)
+
+    # A whole-number zoom with the view north-up is the plain case: ask
+    # Google for exactly that, at the on-screen size, so what was framed is
+    # what is saved.
+    #
     # Clamp to what Static Maps accepts, so a bad client value fails here
     # with a clear message instead of as an opaque 400 from Google.
     # Google's docs give "21+" for Static Maps, and its satellite basemap only
@@ -2440,20 +2488,29 @@ def capture_satellite_measurement(
     # view than the VA framed whenever they zoomed past it. 22 is the
     # practical limit for aerial coverage; the value used is returned so a
     # clamp is visible instead of silent.
-    requested_zoom = int(body.zoom)
-    zoom = max(1, min(22, requested_zoom))
-    scale = 2 if int(body.scale) >= 2 else 1
-    w, _, h = (body.size or "").partition("x")
-    if not (w.isdigit() and h.isdigit() and 2 <= len(w) <= 4 and 2 <= len(h) <= 4):
-        raise HTTPException(status_code=400, detail="size must look like 640x640")
-
-    path_args = _path_params(body.paths)
-    pin_arg = _marker_param(body.pin)
+    #
+    # A turned view or a fractional zoom can't be asked for — Static Maps is
+    # north-up and whole zooms only — so fetch the largest north-up image at
+    # the highest whole zoom that still covers the framed view (its diagonal,
+    # when turned), then turn and crop it here. See _turn_and_crop.
+    plain = abs(rotation) < 0.01 and abs(requested_zoom - round(requested_zoom)) < 0.001
+    if plain:
+        zoom = max(1, min(22, int(round(requested_zoom))))
+        scale = 2 if int(body.scale) >= 2 else 1
+        size = body.size
+    else:
+        right_angle = min(rotation % 90, 90 - rotation % 90) < 0.01
+        need = max(frame_w, frame_h) * (1 if right_angle else math.sqrt(2))
+        # 640 logical px at whole zoom Z span 640 * 2^(requested - Z) px of
+        # the framed view.
+        zoom = max(1, min(22, math.floor(requested_zoom - math.log2(need / 640))))
+        scale = 2
+        size = "640x640"
 
     def _static_url(k: str) -> str:
         return (
             "https://maps.googleapis.com/maps/api/staticmap"
-            f"?center={body.lat},{body.lng}&zoom={zoom}&size={body.size}"
+            f"?center={body.lat},{body.lng}&zoom={zoom}&size={size}"
             f"&scale={scale}&maptype=satellite&format=png{path_args}{pin_arg}&key={k}"
         )
 
@@ -2468,6 +2525,15 @@ def capture_satellite_measurement(
         path_args = ""
 
     data = _fetch_static_map(_static_url, server_key, browser_key, lead_id)
+    if not plain:
+        # scale=2 at whole zoom Z is one image px per logical px at Z+1.
+        density = 2 ** (zoom + 1 - requested_zoom)
+        data = _turn_and_crop(data, rotation, frame_w, frame_h, density)
+
+    # What goes back and into the log: whole numbers stay whole.
+    zoom_out = zoom if plain else round(requested_zoom, 2)
+    requested_out = int(round(requested_zoom)) if plain else round(requested_zoom, 2)
+    zoom_label = f"{zoom_out:g}"
 
     db = get_db()
     try:
@@ -2522,14 +2588,14 @@ def capture_satellite_measurement(
         shot.linear_feet = feet
         shot.center_lat = body.lat
         shot.center_lng = body.lng
-        shot.zoom = zoom
+        shot.zoom = zoom if plain else int(round(requested_zoom))
         shot.source = "satellite_capture"
 
         # The legacy single-image columns keep mirroring the newest capture,
         # so the Measurement card and anything else reading them is unaffected.
         lead.measurement_image_data = data
         lead.has_measurement_image = True
-        lead.measurement_filename = f"satellite-{shot.seq}-z{zoom}.png"
+        lead.measurement_filename = f"satellite-{shot.seq}-z{zoom_label}.png"
         lead.measurement_mime = "image/png"
         lead.measurement_uploaded_at = stamp
         lead.measurement_uploaded_by = actor
@@ -2566,7 +2632,7 @@ def capture_satellite_measurement(
             f"Satellite view captured in-app by {actor or 'unknown'} "
             f"(photo {shot.seq})"
             + (f" — measured {feet} ft, lead total {total_feet} ft" if feet else ""),
-            {"lat": body.lat, "lng": body.lng, "zoom": zoom,
+            {"lat": body.lat, "lng": body.lng, "zoom": zoom_out, "rotation": round(rotation, 1),
              "also_scope": bool(body.also_scope), "linear_feet": feet,
              "seq": shot.seq, "total_linear_feet": total_feet},
         )
@@ -2585,8 +2651,9 @@ def capture_satellite_measurement(
             # What Google was actually asked for. If `zoom` came back lower
             # than `requested_zoom`, the saved image is wider than what was
             # on screen and the UI says so rather than hiding it.
-            "zoom": zoom,
-            "requested_zoom": requested_zoom,
+            "zoom": zoom_out,
+            "requested_zoom": requested_out,
+            "rotation": round(rotation, 1),
         }
     finally:
         db.close()

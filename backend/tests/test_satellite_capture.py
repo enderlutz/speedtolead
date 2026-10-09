@@ -430,3 +430,63 @@ def test_scope_source_can_be_left_alone(db, api_client):
     row = db.query(Lead).filter(Lead.id == lead.id).one()
     assert row.measurement_image_data == PNG
     assert row.fence_scope_source_image is None
+
+
+# --- A turned or finely-zoomed view (Alan, 2026-10-08) ----------------------
+#
+# Static Maps is north-up and whole zooms only. The map on screen can be
+# turned and zoomed by fractions, so the server fetches a bigger north-up
+# image at the highest whole zoom that still covers the framed view, turns
+# it, and crops the centre to what was on screen.
+
+def _real_png(side=1280):
+    from io import BytesIO
+    from PIL import Image
+    buf = BytesIO()
+    Image.new("RGB", (side, side), (20, 90, 40)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _saved_size(db, lead_id):
+    from io import BytesIO
+    from PIL import Image
+    db.expire_all()
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    return Image.open(BytesIO(lead.measurement_image_data)).size
+
+
+def test_a_whole_zoom_north_up_is_asked_for_as_is(db, api_client):
+    lead = _lead(db)
+    _capture(api_client, lead.id, zoom=20, rotation=0, size="600x600")
+    url = api_client.google_calls[-1]
+    assert "zoom=20" in url and "size=600x600" in url
+
+
+def test_a_turned_view_fetches_wider_and_crops_the_centre(db, api_client):
+    """600px frame turned 30°: its diagonal is 849px, so the 640-logical-px
+    fetch has to drop to zoom 19 (1280px at scale 2) to cover it. One screen
+    px is then 2^(19+1-19.5) = 1.41 image px, so the crop is 849px square."""
+    api_client.set_google(content=_real_png())
+    lead = _lead(db)
+    r = _capture(api_client, lead.id, zoom=19.5, rotation=30, size="600x600").json()
+    url = api_client.google_calls[-1]
+    assert "zoom=19" in url and "size=640x640" in url and "scale=2" in url
+    assert _saved_size(db, lead.id) == (849, 849)
+    assert (r["zoom"], r["requested_zoom"], r["rotation"]) == (19.5, 19.5, 30.0)
+
+
+def test_a_right_angle_turn_needs_no_extra_cover(db, api_client):
+    api_client.set_google(content=_real_png())
+    lead = _lead(db)
+    _capture(api_client, lead.id, zoom=20, rotation=90, size="600x600")
+    assert "zoom=20" in api_client.google_calls[-1]
+    assert _saved_size(db, lead.id) == (1200, 1200)
+
+
+def test_a_fractional_zoom_alone_is_cropped_not_rounded(db, api_client):
+    api_client.set_google(content=_real_png())
+    lead = _lead(db)
+    r = _capture(api_client, lead.id, zoom=20.4, size="640x640").json()
+    assert "zoom=20" in api_client.google_calls[-1]
+    assert _saved_size(db, lead.id) == (970, 970)      # 640 * 2^0.6
+    assert r["zoom"] == 20.4

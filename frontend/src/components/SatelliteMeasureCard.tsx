@@ -8,7 +8,8 @@ import { ACCENT } from "@/lib/accents";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw } from "lucide-react";
+  Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
+  ArrowUp, RotateCcw, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -59,6 +60,19 @@ interface Props {
 
 const EARTH_FT = 20902231; // mean Earth radius in feet
 const DEFAULT_ZOOM = 20;
+
+// Fine zoom and rotation (Alan, 2026-10-08: "adjust the angle I'm looking at
+// the house" and "zoom in exactly as much as I want"). Google's satellite
+// basemap is raster, so Maps JS neither turns it nor zooms it by fractions.
+// Google holds the whole-number zoom; a CSS transform on the map div carries
+// the rest — turned by `rot` degrees and scaled by 2^frac. The div is twice
+// the frame's size so that, turned and at the smallest scale, it still
+// covers the frame. Capture sends the fractional zoom and the rotation and
+// the server turns and crops the Static Maps image to match.
+const ZOOM_STEP = 0.25;
+const ROT_STEP = 15;
+const ZOOM_MIN = 14;
+const ZOOM_MAX = 22;
 
 // One colour per run so overlapping measurements stay tellable apart.
 const RUN_COLORS = ["#f59e0b", "#38bdf8", "#a3e635", "#f472b6", "#fb923c", "#c084fc"];
@@ -201,58 +215,20 @@ function locateProperty(
   );
 }
 
-/** Google's click payload: a latLng it computed, plus the raw DOM event. */
-type GMapMouseEvent = {
-  latLng?: { lat(): number; lng(): number };
-  domEvent?: MouseEvent | TouchEvent;
-};
-
-/**
- * The tapped point, preferring our own projection over Google's.
- *
- * Falls back to Google's latLng only when the raw DOM event or the map state
- * isn't available, so the worst case is the old behaviour rather than no
- * point at all.
- */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function pointFromMapClick(
-  e: GMapMouseEvent, map: any, div: HTMLDivElement | null,
-): Pt | null {
-  const fallback = e.latLng
-    ? { lat: e.latLng.lat(), lng: e.latLng.lng() }
-    : null;
-
-  const dom = e.domEvent;
-  if (!dom || !div || !map?.getCenter || !map?.getZoom) return fallback;
-
-  // A touch tap reports its coordinates on changedTouches, not on the event.
-  let clientX: number | undefined;
-  let clientY: number | undefined;
-  if ("clientX" in dom && typeof dom.clientX === "number") {
-    clientX = dom.clientX;
-    clientY = (dom as MouseEvent).clientY;
-  } else {
-    const t = (dom as TouchEvent).changedTouches?.[0]
-      || (dom as TouchEvent).touches?.[0];
-    if (t) { clientX = t.clientX; clientY = t.clientY; }
-  }
-  if (clientX === undefined || clientY === undefined) return fallback;
-
-  // Measured now, not cached — that is the whole point.
-  const rect = div.getBoundingClientRect();
-  if (!rect.width || !rect.height) return fallback;
-
-  const c = map.getCenter();
-  const z = map.getZoom();
-  if (!c || typeof z !== "number") return fallback;
-
-  return latLngFromPixel(
-    { lat: c.lat(), lng: c.lng() },
-    z, rect.width, rect.height,
-    clientX - rect.left, clientY - rect.top,
-  );
+/** A point's offset from the map centre, in map pixels at `zoom` — the
+ *  inverse of latLngFromPixel, for placing the footage labels. */
+function pixelFromLatLng(center: Pt, zoom: number, p: Pt): { x: number; y: number } {
+  const scale = 256 * Math.pow(2, zoom);
+  const proj = (q: Pt) => {
+    const sinLat = Math.sin((q.lat * Math.PI) / 180);
+    return {
+      x: ((q.lng + 180) / 360) * scale,
+      y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+    };
+  };
+  const c = proj(center), q = proj(p);
+  return { x: q.x - c.x, y: q.y - c.y };
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function runFeet(run: Run): number {
   const path = run.closed && run.points.length > 2
@@ -268,6 +244,19 @@ export default function SatelliteMeasureCard({
 }: Props) {
   const navigate = useNavigate();
   const mapDivRef = useRef<HTMLDivElement>(null);
+  // The square the VA sees. The map div inside it is twice its size and
+  // transformed; the overlay on top takes every gesture.
+  const frameRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const [rot, setRot] = useState(0);          // degrees clockwise, 0 = north up
+  const [frac, setFrac] = useState(0);        // zoom beyond Google's whole number
+  const [zf, setZf] = useState(DEFAULT_ZOOM); // the fine zoom, for the slider
+  // Mirrors of rot/frac for the gesture handlers, written synchronously so a
+  // pinch never reads a stale value.
+  const viewRef = useRef({ rot: 0, frac: 0 });
+  // Bumped on every pan and zoom so the footage labels follow the map.
+  const [tick, setTick] = useState(0);
+  const [labels, setLabels] = useState<{ key: string; x: number; y: number; text: string }[]>([]);
   // Typed loosely on purpose: src/types/google-maps.d.ts is a hand-written
   // minimal shim, not @types/google.maps, so Map/Marker aren't fully described.
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -336,6 +325,188 @@ export default function SatelliteMeasureCard({
     return () => { cancelled = true; };
   }, []);
 
+  /** Map-local offset for a screen offset: undo the frame's turn and scale. */
+  function unrotate(dx: number, dy: number): { x: number; y: number } {
+    const { rot: r, frac: f } = viewRef.current;
+    const a = (-r * Math.PI) / 180;
+    const s = Math.pow(2, f);
+    return {
+      x: (dx * Math.cos(a) - dy * Math.sin(a)) / s,
+      y: (dx * Math.sin(a) + dy * Math.cos(a)) / s,
+    };
+  }
+
+  /** Screen offset for a map-local offset: apply the frame's turn and scale. */
+  function rotateOut(ux: number, uy: number): { x: number; y: number } {
+    const { rot: r, frac: f } = viewRef.current;
+    const a = (r * Math.PI) / 180;
+    const s = Math.pow(2, f);
+    return {
+      x: (ux * Math.cos(a) - uy * Math.sin(a)) * s,
+      y: (ux * Math.sin(a) + uy * Math.cos(a)) * s,
+    };
+  }
+
+  /** The zoom as framed: Google's whole number plus our fraction. */
+  function zoomFine(): number {
+    const z = mapRef.current?.getZoom?.();
+    return (typeof z === "number" ? z : DEFAULT_ZOOM) + viewRef.current.frac;
+  }
+
+  /** Zoom to a fractional level. Google takes the whole number — and may
+   *  refuse to go as far as asked, since its ceiling depends on the imagery
+   *  at that spot — and the wrapper's scale takes whatever is left. */
+  const setZoomFine = useCallback((target: number) => {
+    const map = mapRef.current;
+    if (!map?.setZoom) return;
+    const want = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX + 1, target));
+    const whole = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(want)));
+    if (map.getZoom?.() !== whole) map.setZoom(whole);
+    const got = map.getZoom?.();
+    const base = typeof got === "number" ? got : whole;
+    const f = Math.max(-0.5, Math.min(1, want - base));
+    viewRef.current.frac = f;
+    setFrac(f);
+    setZf(base + f);
+  }, []);
+
+  const setRotation = useCallback((deg: number) => {
+    const r = ((deg % 360) + 360) % 360;
+    viewRef.current.rot = r;
+    setRot(r);
+  }, []);
+
+  /** North up, whole zoom: how every property opens. */
+  const resetView = useCallback(() => {
+    viewRef.current = { rot: 0, frac: 0 };
+    setRot(0);
+    setFrac(0);
+    setZf(DEFAULT_ZOOM);
+  }, []);
+
+  /** Where a tap on the frame landed, computed from first principles — see
+   *  latLngFromPixel — through the frame's turn and scale. */
+  function pointFromFrame(clientX: number, clientY: number): Pt | null {
+    const map = mapRef.current, frame = frameRef.current, div = mapDivRef.current;
+    if (!map?.getCenter || !map?.getZoom || !frame || !div) return null;
+    const r = frame.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    const u = unrotate(clientX - (r.left + r.width / 2), clientY - (r.top + r.height / 2));
+    const W = div.offsetWidth, H = div.offsetHeight;
+    const c = map.getCenter();
+    const z = map.getZoom();
+    if (!c || typeof z !== "number") return null;
+    return latLngFromPixel({ lat: c.lat(), lng: c.lng() }, z, W, H, W / 2 + u.x, H / 2 + u.y);
+  }
+
+  /** Drag the picture by a screen delta: the map's centre moves the other
+   *  way, through the same projection a tap uses, so it tracks the finger
+   *  exactly whatever the angle and scale. */
+  function panByScreen(dx: number, dy: number) {
+    const map = mapRef.current, div = mapDivRef.current;
+    if (!map?.getCenter || !map?.getZoom || !div) return;
+    const u = unrotate(dx, dy);
+    const W = div.offsetWidth, H = div.offsetHeight;
+    const c = map.getCenter();
+    const z = map.getZoom();
+    if (!c || typeof z !== "number") return;
+    map.setCenter(latLngFromPixel({ lat: c.lat(), lng: c.lng() }, z, W, H, W / 2 - u.x, H / 2 - u.y));
+  }
+
+  function addPoint(p: Pt) {
+    setRuns((prev) => prev.map((r) =>
+      r.id === activeRunRef.current ? { ...r, points: [...r.points, p] } : r,
+    ));
+  }
+
+  // One gesture layer for tap, drag, pinch and twist. A tap is a press that
+  // moved less than 4px; anything else pans. Two fingers zoom by their
+  // distance and turn by their angle.
+  const gestureRef = useRef<{
+    pts: Map<number, { x: number; y: number }>;
+    down: { x: number; y: number } | null;
+    moved: boolean;
+    pinch: { dist: number; angle: number; zf: number; rot: number; mid: { x: number; y: number } } | null;
+  }>({ pts: new Map(), down: null, moved: false, pinch: null });
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (status !== "ready") return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const g = gestureRef.current;
+    g.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.pts.size === 1) {
+      g.down = { x: e.clientX, y: e.clientY };
+      g.moved = false;
+      g.pinch = null;
+    } else if (g.pts.size === 2) {
+      const [a, b] = [...g.pts.values()];
+      g.pinch = {
+        dist: Math.hypot(b.x - a.x, b.y - a.y),
+        angle: Math.atan2(b.y - a.y, b.x - a.x),
+        zf: zoomFine(),
+        rot: viewRef.current.rot,
+        mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      };
+      g.moved = true;
+    }
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const g = gestureRef.current;
+    const prev = g.pts.get(e.pointerId);
+    if (!prev) return;
+    const cur = { x: e.clientX, y: e.clientY };
+    g.pts.set(e.pointerId, cur);
+    if (g.pts.size >= 2 && g.pinch) {
+      const [a, b] = [...g.pts.values()];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      setZoomFine(g.pinch.zf + Math.log2(Math.max(0.05, dist / Math.max(1, g.pinch.dist))));
+      setRotation(g.pinch.rot + ((angle - g.pinch.angle) * 180) / Math.PI);
+      panByScreen(mid.x - g.pinch.mid.x, mid.y - g.pinch.mid.y);
+      g.pinch.mid = mid;
+      return;
+    }
+    if (g.pts.size === 1 && g.down) {
+      if (!g.moved && Math.hypot(cur.x - g.down.x, cur.y - g.down.y) < 4) return;
+      g.moved = true;
+      panByScreen(cur.x - prev.x, cur.y - prev.y);
+    }
+  }
+
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const g = gestureRef.current;
+    if (!g.pts.has(e.pointerId)) return;
+    g.pts.delete(e.pointerId);
+    if (g.pts.size === 0) {
+      if (!g.moved && e.type === "pointerup") {
+        const p = pointFromFrame(e.clientX, e.clientY);
+        if (p) addPoint(p);
+      }
+      g.pinch = null;
+      g.moved = false;
+      g.down = null;
+    } else if (g.pts.size === 1) {
+      // Lifting one finger of a pinch must not drop a point.
+      g.pinch = null;
+      g.moved = true;
+    }
+  }
+
+  // Wheel zooms by fractions. Registered by hand: React's onWheel is
+  // passive, so it can't stop the page scrolling under the map.
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoomFine(zoomFine() - e.deltaY * 0.0025);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [setZoomFine]);
+
   // Build the map exactly once.
   //
   // This deliberately depends on `mapsKey` alone. It used to also depend on
@@ -363,27 +534,24 @@ export default function SatelliteMeasureCard({
           tilt: 0,             // Static Maps has no tilt; keep them matched.
           rotateControl: false,
           streetViewControl: false,
-          fullscreenControl: true,
+          fullscreenControl: false,
           mapTypeControl: false,
           clickableIcons: false,
-          // "greedy" so one finger pans the map. The mobile default is
-          // "cooperative", which needs two fingers and makes a one-finger
-          // drag scroll the page instead — which reads as the map ignoring
-          // you. Measuring is a tapping job, so the map wins the gesture.
-          gestureHandling: "greedy",
-          // Chunkier controls for thumbs.
-          controlSize: 32,
-          zoomControl: true,
+          // Google gets no gestures at all. The div is turned and scaled by
+          // CSS (see the constants at the top), which Google's own drag and
+          // scroll-zoom know nothing about — a drag to the right would slide
+          // the picture off at an angle. The overlay above the map handles
+          // tap, drag, wheel, pinch and twist, and moves the map itself.
+          gestureHandling: "none",
+          draggable: false,
+          scrollwheel: false,
+          disableDoubleClickZoom: true,
+          keyboardShortcuts: false,
+          zoomControl: false,
         });
-        mapRef.current.addListener("click", (e: GMapMouseEvent) => {
-          const p = pointFromMapClick(e, mapRef.current, mapDivRef.current);
-          if (!p) return;
-          setRuns((prev) => prev.map((r) =>
-            r.id === activeRunRef.current
-              ? { ...r, points: [...r.points, p] }
-              : r,
-          ));
-        });
+        // Every pan and zoom re-places the on-screen footage labels.
+        mapRef.current.addListener("center_changed", () => setTick((t) => t + 1));
+        mapRef.current.addListener("zoom_changed", () => setTick((t) => t + 1));
         setStatus("ready");
       })
       .catch(() => { if (!cancelled) setStatus("error"); });
@@ -411,6 +579,7 @@ export default function SatelliteMeasureCard({
 
     setPin(null);
 
+    resetView();
     if (lat && lng) {
       mapRef.current.setCenter({ lat, lng });
       mapRef.current.setZoom(DEFAULT_ZOOM);
@@ -432,7 +601,7 @@ export default function SatelliteMeasureCard({
       }
     }
     return () => { cancelled = true; };
-  }, [leadId, lat, lng, address, zipCode, status]);
+  }, [leadId, lat, lng, address, zipCode, status, resetView]);
 
   // The click handler is registered once, so it closes over the first
   // activeRun. A ref keeps it reading the current one.
@@ -522,25 +691,35 @@ export default function SatelliteMeasureCard({
         }));
       });
 
+    });
+  }, [runs, activeRun, status]);
+
+  // The per-leg footage labels are React elements over the frame, not Google
+  // markers: a marker label turns with the map and reads sideways or upside
+  // down once the view is rotated. Placed from the map's centre and zoom
+  // through the same transform the map div has.
+  useEffect(() => {
+    const map = mapRef.current, frame = frameRef.current;
+    if (status !== "ready" || !map?.getCenter || !frame) { setLabels([]); return; }
+    const c = map.getCenter();
+    const z = map.getZoom();
+    if (!c || typeof z !== "number") { setLabels([]); return; }
+    const center = { lat: c.lat(), lng: c.lng() };
+    const half = { x: frame.clientWidth / 2, y: frame.clientHeight / 2 };
+    const out: { key: string; x: number; y: number; text: string }[] = [];
+    runs.forEach((run) => {
+      const path = run.closed && run.points.length > 2 ? [...run.points, run.points[0]] : run.points;
       for (let i = 1; i < path.length; i++) {
         const a = path[i - 1], b = path[i];
         const feet = haversineFeet(a, b);
         if (feet < 3) continue;
-        overlaysRef.current.push(new g.Marker({
-          position: { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 },
-          map: mapRef.current,
-          clickable: false,
-          icon: { path: g.SymbolPath.CIRCLE, scale: 0, fillOpacity: 0, strokeOpacity: 0 },
-          label: {
-            text: `${Math.round(feet)} ft`,
-            color: "#fff",
-            fontSize: "12px",
-            fontWeight: "700",
-          },
-        }));
+        const u = pixelFromLatLng(center, z, { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 });
+        const d = rotateOut(u.x, u.y);
+        out.push({ key: `${run.id}-${i}`, x: half.x + d.x, y: half.y + d.y, text: `${Math.round(feet)} ft` });
       }
     });
-  }, [runs, activeRun, status]);
+    setLabels(out);
+  }, [runs, status, tick, rot, frac]);
 
   // Its own effect and its own ref: the run overlays are torn down on every
   // points change, and the pin must survive that.
@@ -557,6 +736,17 @@ export default function SatelliteMeasureCard({
       // Must not eat taps — the house is exactly where tracing starts.
       clickable: false,
       zIndex: 1,
+      // A ring rather than Google's teardrop: the map can be turned, and a
+      // teardrop pointing sideways reads as a mistake. The saved photo still
+      // gets Google's red marker.
+      icon: {
+        path: g.SymbolPath.CIRCLE,
+        scale: 11,
+        fillColor: "#ef4444",
+        fillOpacity: 0.25,
+        strokeColor: "#ef4444",
+        strokeWeight: 3,
+      },
     });
     return () => {
       pinOverlayRef.current?.setMap(null);
@@ -579,12 +769,12 @@ export default function SatelliteMeasureCard({
         // Searching is how a wrong geocode gets corrected, so the pin moves
         // with it — otherwise it would still mark the wrong house.
         setPin({ lat: loc.lat(), lng: loc.lng() });
-        mapRef.current.setZoom(DEFAULT_ZOOM);
+        setZoomFine(DEFAULT_ZOOM);
       });
     } catch {
       toast.error("Address lookup failed");
     }
-  }, [search]);
+  }, [search, setZoomFine]);
 
   function addRun() {
     // id computed from current state rather than inside the updater — a
@@ -613,12 +803,15 @@ export default function SatelliteMeasureCard({
     setCapturing(true);
     try {
       const c = mapRef.current.getCenter();
-      const rect = mapDivRef.current?.getBoundingClientRect();
+      const rect = frameRef.current?.getBoundingClientRect();
       const px = Math.max(100, Math.min(640, Math.round(rect?.width || 640)));
       const res = await api.captureSatelliteMeasurement(leadId, {
         lat: c.lat(),
         lng: c.lng(),
-        zoom: Math.round(mapRef.current.getZoom()),
+        // The fine zoom and the angle, exactly as framed. The server turns
+        // and crops Google's north-up image to match (see _turn_and_crop).
+        zoom: Math.round(zoomFine() * 100) / 100,
+        rotation: Math.round(viewRef.current.rot * 10) / 10,
         size: `${px}x${px}`,
         also_scope: true,
         linear_feet: viewTotal > 0 ? Math.round(viewTotal) : null,
@@ -651,7 +844,7 @@ export default function SatelliteMeasureCard({
       // Google has no imagery-date parameter, so the one thing we control is
       // detail: capturing below the framed zoom means a wider, coarser image
       // than was measured. Said out loud rather than silently accepted.
-      if (res.zoom < res.requested_zoom) {
+      if (res.zoom < res.requested_zoom - 0.01) {
         toast.warning(
           `Saved at zoom ${res.zoom} — Google wouldn't serve the image at ${res.requested_zoom}, `
           + "so it covers more ground than you framed.",
@@ -730,7 +923,7 @@ export default function SatelliteMeasureCard({
     <Panel
       icon={Ruler}
       title="Measure & capture"
-      sub="Click along the fence to measure it. Add a separate run for each stretch — insides, back side — and they add up. Capture saves the photo and fills Linear Feet."
+      sub="Tap along the fence to measure it; drag to move, scroll or pinch to zoom, and turn the view with the buttons on the map. Add a separate run for each stretch and they add up. Capture saves the photo as you framed it and fills Linear Feet."
       accent={ACCENT.violet}
     >
         {status === "nokey" || status === "error" || status === "authfail" ? (
@@ -791,11 +984,93 @@ export default function SatelliteMeasureCard({
           </div>
         ) : null}
 
-        {/* Square, to match the square Static Maps capture. */}
+        {/* Square, to match the square Static Maps capture. The map div is
+            twice the frame and transformed; the overlay takes every gesture;
+            the controls sit outside the transform so they never turn. */}
         <div
-          ref={mapDivRef}
-          className="w-full aspect-square max-w-full rounded-lg border bg-muted"
-        />
+          ref={frameRef}
+          className="relative w-full aspect-square max-w-full overflow-hidden rounded-xl border bg-muted select-none"
+        >
+          <div
+            ref={mapDivRef}
+            className="absolute"
+            style={{
+              left: "-50%", top: "-50%", width: "200%", height: "200%",
+              transform: `rotate(${rot}deg) scale(${Math.pow(2, frac)})`,
+              willChange: "transform",
+            }}
+          />
+          <div
+            ref={overlayRef}
+            className="absolute inset-0 cursor-crosshair touch-none"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
+            {labels.map((l) => (
+              <span
+                key={l.key}
+                className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[12px] font-bold text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]"
+                style={{ left: l.x, top: l.y }}
+              >
+                {l.text}
+              </span>
+            ))}
+          </div>
+
+          {/* The angle. Turn the view so the fence runs the way you're
+              looking at it; the arrow always points north, and tapping it
+              puts north back at the top. Two fingers twist on a phone. */}
+          <div className="absolute right-2 top-2 flex flex-col items-center gap-0.5 rounded-lg bg-black/60 p-1 text-white backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={() => setRotation(0)}
+              title={rot ? `North is ${Math.round(rot)}° off — tap to put it back at the top` : "North is up"}
+              className="flex h-9 w-9 flex-col items-center justify-center rounded-md hover:bg-white/15"
+            >
+              <ArrowUp className="h-4 w-4 transition-transform" style={{ transform: `rotate(${rot}deg)` }} />
+              <span className="text-[8px] font-bold leading-none">N</span>
+            </button>
+            <button type="button" onClick={() => setRotation(viewRef.current.rot - ROT_STEP)} title={`Turn ${ROT_STEP}° left`}
+              className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/15">
+              <RotateCcw className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={() => setRotation(viewRef.current.rot + ROT_STEP)} title={`Turn ${ROT_STEP}° right`}
+              className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/15">
+              <RotateCw className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={() => setRotation(viewRef.current.rot + 180)} title="Flip the view around"
+              className="flex h-9 w-9 items-center justify-center rounded-md text-[10px] font-bold hover:bg-white/15">
+              180°
+            </button>
+          </div>
+
+          {/* Fine zoom. Google's own control jumps a whole level at a time,
+              which is either too close or too far for a scope photo. Scroll
+              or pinch for the same thing. */}
+          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-lg bg-black/60 px-2 py-1 text-white backdrop-blur-sm">
+            <button type="button" onClick={() => setZoomFine(zf - ZOOM_STEP)} title="Zoom out a little"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-white/15">
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <input
+              type="range"
+              min={ZOOM_MIN}
+              max={ZOOM_MAX + 1}
+              step={0.05}
+              value={zf}
+              onChange={(e) => setZoomFine(Number(e.target.value))}
+              aria-label="Zoom"
+              className="h-1.5 min-w-0 flex-1 accent-gold"
+            />
+            <button type="button" onClick={() => setZoomFine(zf + ZOOM_STEP)} title="Zoom in a little"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-white/15">
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <span className="w-12 shrink-0 text-right text-[11px] font-semibold tabular-nums">{zf.toFixed(2)}×</span>
+          </div>
+        </div>
 
         {/* Each run, its footage, and which one clicks land on. */}
         <div className="space-y-1.5">
