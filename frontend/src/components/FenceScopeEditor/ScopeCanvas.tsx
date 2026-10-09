@@ -230,9 +230,15 @@ export default function ScopeCanvas({
         }
       }
       // Clicking near the end of an existing run welds to it exactly, so an
-      // L-shaped fence closes at the corner instead of nearly closing.
-      const corner = snapToVertex(pos.x, pos.y, scope.segments, bodyRect, SNAP_RADIUS_SCREEN / view.zoom);
-      scope.addDrawingPoint(corner ?? toNormalized(pos.x, pos.y, bodyRect));
+      // L-shaped fence closes at the corner instead of nearly closing — but
+      // never back onto the point this run just placed (see snapToVertex).
+      const last = points.length ? points[points.length - 1] : null;
+      const corner = snapToVertex(pos.x, pos.y, scope.segments, bodyRect, SNAP_RADIUS_SCREEN / view.zoom, last);
+      const next = corner ?? toNormalized(pos.x, pos.y, bodyRect);
+      // Two taps on the same spot would be stripped at Confirm anyway;
+      // dropping the duplicate here keeps the point count honest.
+      if (last && last.x === next.x && last.y === next.y) return;
+      scope.addDrawingPoint(next);
       return;
     }
     if (e.target === e.currentTarget || e.target.getClassName() === "Image" || e.target.getClassName() === "Rect") {
