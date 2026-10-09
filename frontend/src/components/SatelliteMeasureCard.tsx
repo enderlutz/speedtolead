@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
-  ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair } from "lucide-react";
+  ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair, ExternalLink } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -1052,6 +1052,13 @@ export default function SatelliteMeasureCard({
     }
   }
 
+  // Google Maps on the property, satellite basemap. Address + ZIP when we
+  // have them (a bare street geocodes to the wrong city), else the pin.
+  const mapsQuery = [address, zipCode].map((x) => (x || "").trim()).filter(Boolean).join(", ");
+  const mapsHref = mapsQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
+    : lat && lng ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}` : "";
+
   return (
     <Panel
       icon={Ruler}
@@ -1060,6 +1067,19 @@ export default function SatelliteMeasureCard({
         ? "Drag the map so the crosshair sits on a fence corner, then press Add point. Pinch to zoom, twist or use the dial to turn. Add a run for each stretch and they add up; Capture saves the photo as framed and fills Linear Feet."
         : "Click along the fence to measure it; drag to move, scroll or pinch to zoom, and spin the dial to turn the view. Add a separate run for each stretch and they add up. Capture saves the photo as you framed it and fills Linear Feet."}
       accent={ACCENT.violet}
+      right={mapsHref ? (
+        // The separate "Satellite view" card was the same map twice (Alan,
+        // 2026-10-09), so it's gone; this is its one useful part — the
+        // property in Google Maps, on a phone straight into the app.
+        <a
+          href={mapsHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gold/40 bg-ivory px-2.5 py-1.5 text-xs font-semibold text-ink shadow-sm transition hover:bg-gold/15 active:scale-95"
+        >
+          <ExternalLink className="h-3.5 w-3.5 text-bronze" /> Open in Maps
+        </a>
+      ) : undefined}
     >
         {status === "nokey" || status === "error" || status === "authfail" ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-1">

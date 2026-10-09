@@ -208,16 +208,25 @@ async def _transcribe_backlog_loop():
 async def _objection_scan_loop():
     """Background task: tag objections in new customer texts and calls.
 
-    Only reads what arrived after the scanner first ran, and stops at a daily
-    cap — AI analysis has exhausted the API credit before. Older customers
-    are scanned on request from the lead page."""
+    The live pass reads what arrived after the scanner first ran, under a
+    daily cap — AI analysis has exhausted the API credit before. The
+    whole-history pass (backfill_once) works through everyone older, then
+    stops."""
     await asyncio.sleep(240)
     while True:
         try:
-            from services.objections import sweep_once
+            from services.objections import backfill_once, sweep_once
             result = await asyncio.to_thread(sweep_once)
             if result.get("leads"):
                 logger.info(f"[objections] {result['leads']} leads scanned, {result.get('found', 0)} objections")
+            # Then a chunk of the whole-history pass, in the same loop so the
+            # two never read the same lead at once. While it has work it
+            # runs back to back; once done the loop returns to its interval.
+            back = await asyncio.to_thread(backfill_once)
+            if back.get("leads"):
+                logger.info(f"[objections backfill] {back['leads']} leads, {back.get('found', 0)} objections")
+                await asyncio.sleep(5)
+                continue
         except Exception as e:
             logger.error(f"Objection scan error: {e}")
         await asyncio.sleep(get_settings().objection_scan_interval_seconds)

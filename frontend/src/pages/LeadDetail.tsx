@@ -27,7 +27,7 @@ import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
   Send, AlertTriangle, CheckCircle2, FileText, Lightbulb, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
-  Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
+  Ruler, Camera, History, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
@@ -1611,31 +1611,10 @@ export default function LeadDetail() {
               </div>
           </Panel>
 
-          {/* Google Maps Satellite View */}
-          {lead.address && (
-            <Panel icon={Satellite} title="Satellite view" sub={mapQuery} accent={ACCENT.cyan} bodyClassName="space-y-2 p-2">
-                <div className="rounded-xl overflow-hidden border" style={{ minHeight: 250 }}>
-                  <iframe
-                    title="Satellite view"
-                    width="100%"
-                    height="300"
-                    style={{ border: 0, display: "block" }}
-                    loading="lazy"
-                    allowFullScreen
-                    referrerPolicy="no-referrer-when-downgrade"
-                    src={`https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ""}&q=${encodeURIComponent(mapQuery)}&maptype=satellite&zoom=20`}
-                  />
-                </div>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}&basemap=satellite`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl border text-sm py-2 hover:bg-muted transition-colors sm:hidden"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" /> Open in Google Maps
-                </a>
-            </Panel>
-          )}
+          {/* The "Satellite view" card is archived (2026-10-09, Alan: "it's
+              repetitive to see the map on the measure and capture as well…
+              just combine it into one"). Measure & capture below is the one
+              map now, with an Open in Maps button in its header. */}
 
           {/* "Before you call" pre-call brief — hidden 2026-09-29, Alan's call:
               not useful in practice and it was taking up room above the

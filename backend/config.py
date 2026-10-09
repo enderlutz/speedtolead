@@ -167,6 +167,13 @@ class Settings(BaseSettings):
     enable_objection_scan: bool = True
     objection_scan_daily_cap: int = 300
     objection_scan_interval_seconds: int = 300
+    # One pass over every customer's whole history (Alan, 2026-10-09: "spend
+    # the night checking everyone's objections"). Runs beside the live scan,
+    # newest customers first, and stops for good once nothing is left.
+    enable_objection_backfill: bool = True
+    objection_backfill_workers: int = 6
+    objection_backfill_chunk: int = 36
+    objection_backfill_daily_cap: int = 2500
     transcribe_backlog_batch: int = 25
     transcribe_backlog_interval_seconds: int = 600
 

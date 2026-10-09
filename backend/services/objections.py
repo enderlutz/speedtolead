@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 MODEL = "claude-opus-5-5"
 GRACE = timedelta(seconds=60)
+# How many of a customer's most recent texts go in front of the model.
+WINDOW = 120
 
 # key -> (label, can still be won?)
 CATEGORIES: dict[str, tuple[str, bool]] = {
@@ -158,8 +160,11 @@ def classify_timing(said_at: datetime, sent_at: datetime | None, *, call_start: 
 def _gather(db, lead, *, only_after: datetime | None):
     """The lead's conversation, with the items not yet scanned marked NEW.
 
-    Returns (prompt_text, new_texts, new_calls) where the new_* maps hold what
-    the timing needs: text id -> sent time, call id -> (start, seconds, lines).
+    Returns (prompt_text, new_texts, new_calls, skipped) where the new_* maps
+    hold what the timing needs: text id -> sent time, call id -> (start,
+    seconds, lines), and `skipped` lists the source keys there is nothing to
+    read in (an empty text, a voicemail, a call with no transcript lines) —
+    marked read anyway, or the lead would come back as due forever.
     """
     from database import CallRecording, CallTranscript, Message, ObjectionScan
 
@@ -169,14 +174,25 @@ def _gather(db, lead, *, only_after: datetime | None):
         .order_by(Message.created_at).all()
     )
     new_texts: dict[str, datetime] = {}
+    skipped: list[str] = []
     lines_out: list[str] = []
-    for m in msgs[-60:]:
+
+    def unread(m) -> bool:
+        at = _ts(m.created_at)
+        return (m.direction == "inbound" and f"text:{m.id}" not in scanned
+                and (only_after is None or (at is not None and at >= only_after)))
+
+    # The most recent WINDOW texts are the context. An unread customer text
+    # older than that (only in very long threads) is marked read unscanned.
+    skipped += [f"text:{m.id}" for m in msgs[:-WINDOW] if unread(m)]
+    for m in msgs[-WINDOW:]:
         at = _ts(m.created_at)
         body = (m.body or "").strip()
         if not at or not body:
+            if unread(m):
+                skipped.append(f"text:{m.id}")
             continue
-        is_new = (m.direction == "inbound" and f"text:{m.id}" not in scanned
-                  and (only_after is None or at >= only_after))
+        is_new = unread(m)
         if is_new:
             new_texts[m.id] = at
         who = "CUSTOMER" if m.direction == "inbound" else "STAFF"
@@ -191,23 +207,24 @@ def _gather(db, lead, *, only_after: datetime | None):
     )
     for rec, tr in calls:
         start = _ts(rec.created_at)
-        if not start or f"call:{rec.id}" in scanned or getattr(rec, "is_voicemail", False):
+        if f"call:{rec.id}" in scanned:
             continue
-        if only_after is not None and start < only_after:
+        if start and only_after is not None and start < only_after:
             continue
         try:
             segs = json.loads(tr.segments or "[]")
             smap = json.loads(tr.speaker_map or "{}")
         except (ValueError, TypeError):
-            continue
-        if not segs:
+            segs, smap = [], {}
+        if not start or not segs or getattr(rec, "is_voicemail", False):
+            skipped.append(f"call:{rec.id}")
             continue
         new_calls[rec.id] = (start, int(rec.duration_seconds or 0), segs)
         lines_out.append(f"\n[call id={rec.id} started {start.isoformat()} NEW]")
         for i, sg in enumerate(segs):
             who = smap.get(str(sg.get("speaker")), f"Speaker {sg.get('speaker')}")
             lines_out.append(f"  {i} ({who}): {(sg.get('text') or '').strip()}")
-    return "\n".join(lines_out), new_texts, new_calls
+    return "\n".join(lines_out), new_texts, new_calls, skipped
 
 
 def _call_model(conversation: str) -> list[dict]:
@@ -232,7 +249,8 @@ def _call_model(conversation: str) -> list[dict]:
     return json.loads(text or "{}").get("objections", [])
 
 
-def scan_lead(db, lead_id: str, *, only_after: datetime | None = None, classify=None) -> dict:
+def scan_lead(db, lead_id: str, *, only_after: datetime | None = None, classify=None,
+              kind: str = "live") -> dict:
     """Scan whatever is new on one lead. Idempotent: each text and call is read
     once. `classify` is injectable for tests."""
     from database import Lead, LeadObjection, ObjectionScan
@@ -240,8 +258,12 @@ def scan_lead(db, lead_id: str, *, only_after: datetime | None = None, classify=
     lead = db.query(Lead).filter(Lead.id == lead_id).first()
     if not lead:
         return {"ok": False, "error": "lead not found"}
-    conversation, new_texts, new_calls = _gather(db, lead, only_after=only_after)
+    conversation, new_texts, new_calls, skipped = _gather(db, lead, only_after=only_after)
+    now = _now()
+    for key in skipped:
+        db.merge(ObjectionScan(source_key=key, lead_id=lead_id, scanned_at=now, kind="skip"))
     if not new_texts and not new_calls:
+        db.commit()
         return {"ok": True, "scanned": 0, "found": 0}
 
     tags = (classify or _call_model)(conversation)
@@ -278,11 +300,10 @@ def scan_lead(db, lead_id: str, *, only_after: datetime | None = None, classify=
         removed.add((sid, line, cat))
         found += 1
 
-    now = _now()
     for mid_ in new_texts:
-        db.merge(ObjectionScan(source_key=f"text:{mid_}", lead_id=lead_id, scanned_at=now))
+        db.merge(ObjectionScan(source_key=f"text:{mid_}", lead_id=lead_id, scanned_at=now, kind=kind))
     for cid in new_calls:
-        db.merge(ObjectionScan(source_key=f"call:{cid}", lead_id=lead_id, scanned_at=now))
+        db.merge(ObjectionScan(source_key=f"call:{cid}", lead_id=lead_id, scanned_at=now, kind=kind))
     db.commit()
     return {"ok": True, "scanned": len(new_texts) + len(new_calls), "found": found}
 
@@ -308,10 +329,18 @@ def leads_due(db, since: datetime, limit: int) -> list[str]:
     return [r[0] for r in rows]
 
 
-def scans_today(db) -> int:
+def scans_today(db, kind: str = "live") -> int:
+    """Leads scanned today by one kind of pass. The live cap and the backfill
+    cap are counted apart, so a night of backfill can't use up the live
+    scanner's day."""
     from database import ObjectionScan
     day = datetime.now(timezone.utc).date().isoformat()
-    return db.query(ObjectionScan.lead_id).filter(ObjectionScan.scanned_at >= day).distinct().count()
+    q = db.query(ObjectionScan.lead_id).filter(ObjectionScan.scanned_at >= day)
+    if kind == "live":
+        q = q.filter((ObjectionScan.kind == "live") | ObjectionScan.kind.is_(None))
+    else:
+        q = q.filter(ObjectionScan.kind == kind)
+    return q.distinct().count()
 
 
 def scanner_start(db) -> datetime:
@@ -357,3 +386,62 @@ def sweep_once() -> dict:
         return {"leads": done, "found": found}
     finally:
         db.close()
+
+
+# --- The whole-history pass ----------------------------------------------
+#
+# The live scanner only reads from 14 days before it first ran. Alan
+# (2026-10-09) wants every customer's objections, so this reads everything
+# older too — about 1,500 customers on the day it shipped — newest first, a
+# few at a time in parallel. Each text and call is still read once, so it is
+# safe across restarts; it stops for good when nothing is left.
+
+BACKFILL_SINCE = datetime(2020, 1, 1, tzinfo=timezone.utc)
+BACKFILL_DONE_KEY = "objection_backfill_done_at"
+# Leads whose scan raised in this process. Skipped until the next restart,
+# so one bad conversation can't be retried in a loop.
+_backfill_failed: set[str] = set()
+
+
+def _backfill_one(lead_id: str, classify=None) -> dict:
+    from database import get_db
+    db = get_db()
+    try:
+        return scan_lead(db, lead_id, classify=classify, kind="backfill")
+    except Exception:
+        db.rollback()
+        _backfill_failed.add(lead_id)
+        logger.exception("objection backfill failed for %s", lead_id)
+        return {"ok": False, "found": 0}
+    finally:
+        db.close()
+
+
+def backfill_once(classify=None) -> dict:
+    """One chunk of the whole-history pass. {"done": True} once finished."""
+    from concurrent.futures import ThreadPoolExecutor
+    from database import SystemConfig, get_db
+    settings = get_settings()
+    if not settings.enable_objection_backfill or not (settings.anthropic_api_key or classify):
+        return {"skipped": True}
+    db = get_db()
+    try:
+        if db.query(SystemConfig).filter(SystemConfig.key == BACKFILL_DONE_KEY).first():
+            return {"done": True}
+        room = max(0, settings.objection_backfill_daily_cap - scans_today(db, "backfill"))
+        if room == 0:
+            return {"capped": True}
+        want = min(room, settings.objection_backfill_chunk)
+        due = [x for x in leads_due(db, BACKFILL_SINCE, want + len(_backfill_failed))
+               if x not in _backfill_failed][:want]
+        if not due:
+            if not _backfill_failed:
+                db.merge(SystemConfig(key=BACKFILL_DONE_KEY, value=_now()))
+                db.commit()
+            return {"done": True, "failed": len(_backfill_failed)}
+    finally:
+        db.close()
+    # Different leads in parallel; one lead is only ever read by one worker.
+    with ThreadPoolExecutor(max_workers=max(1, settings.objection_backfill_workers)) as pool:
+        results = list(pool.map(lambda x: _backfill_one(x, classify), due))
+    return {"leads": len(due), "found": sum(r.get("found", 0) for r in results)}

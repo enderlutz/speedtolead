@@ -3906,6 +3906,11 @@ class ObjectionScan(Base):
     lead_id = Column(Text, nullable=False, index=True)
     scanned_at = Column(Text, default="")
     found = Column(Integer, default=0)
+    # "live" — the scanner reading new texts and calls (counts toward its
+    # daily cap) | "backfill" — the one-off pass over old history | "skip" —
+    # nothing to read (empty text, voicemail, no transcript), marked so the
+    # lead stops coming back as due.
+    kind = Column(Text, default="live")
 
 
 def init_db():
@@ -4122,6 +4127,12 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE lead_measurements ADD COLUMN estimate_id TEXT"))
         logger.info("Migration: added lead_measurements.estimate_id")
+
+    scan_cols = {c["name"] for c in inspector.get_columns("objection_scans")}
+    if "kind" not in scan_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE objection_scans ADD COLUMN kind TEXT DEFAULT 'live'"))
+        logger.info("Migration: added objection_scans.kind")
 
     estimate_cols = {c["name"] for c in inspector.get_columns("estimates")}
     if "correction_pending" not in estimate_cols:

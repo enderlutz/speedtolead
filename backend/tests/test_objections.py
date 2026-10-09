@@ -229,3 +229,69 @@ def test_the_sweep_reaches_back_two_weeks(db, monkeypatch):
     db.commit()
     start = ob.scanner_start(db) - timedelta(days=ob.BACKFILL_DAYS)
     assert lead.id in ob.leads_due(db, start, 10)
+
+
+# --- the whole-history pass (Alan, 2026-10-09: "check everyone's objections")
+
+
+def _backfill_on(monkeypatch):
+    from config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(s, "enable_objection_backfill", True)
+    monkeypatch.setattr(s, "objection_backfill_workers", 2)
+    monkeypatch.setattr(s, "objection_backfill_chunk", 10)
+    monkeypatch.setattr(s, "objection_backfill_daily_cap", 100)
+    ob._backfill_failed.clear()
+
+
+def test_the_backfill_reads_old_history_then_stops(db, monkeypatch):
+    from database import SystemConfig
+    _backfill_on(monkeypatch)
+    lead = _lead(db)
+    m = _text(db, lead, T0 - timedelta(days=200), "my wife has to see it first")
+    tag = {"category": "spouse_family", "source": "text", "source_id": m.id, "line": None,
+           "quote": "my wife has to see it first", "confidence": "high"}
+    r = ob.backfill_once(classify=_fake([tag]))
+    assert r == {"leads": 1, "found": 1}
+    db.expire_all()
+    assert db.query(LeadObjection).filter(LeadObjection.lead_id == lead.id).count() == 1
+    assert ob.backfill_once(classify=_fake([]))["done"] is True
+    assert db.query(SystemConfig).filter(SystemConfig.key == ob.BACKFILL_DONE_KEY).first()
+
+
+def test_nothing_to_read_is_marked_read_so_a_lead_never_loops(db):
+    """An empty text, a voicemail and a call with no lines can't be scanned,
+    but must stop the lead coming back as due."""
+    lead = _lead(db)
+    _text(db, lead, T0, "   ")
+    rec = _call(db, lead, T0, 30, [])
+    rec.is_voicemail = True
+    db.commit()
+    assert lead.id in ob.leads_due(db, T0 - timedelta(days=1), 10)
+    seen = _fake([])
+    ob.scan_lead(db, lead.id, classify=seen)
+    assert seen.seen == []          # nothing went to the model
+    assert ob.leads_due(db, T0 - timedelta(days=1), 10) == []
+
+
+def test_backfill_scans_do_not_use_up_the_live_cap(db, monkeypatch):
+    _backfill_on(monkeypatch)
+    lead = _lead(db)
+    _text(db, lead, T0 - timedelta(days=90), "too much")
+    ob.backfill_once(classify=_fake([]))
+    assert ob.scans_today(db, "backfill") == 1
+    assert ob.scans_today(db) == 0
+
+
+def test_a_lead_that_errors_is_not_retried_in_a_loop(db, monkeypatch):
+    _backfill_on(monkeypatch)
+    lead = _lead(db)
+    _text(db, lead, T0 - timedelta(days=90), "hmm")
+    calls = []
+
+    def boom(conversation):
+        calls.append(1)
+        raise RuntimeError("model down")
+    ob.backfill_once(classify=boom)
+    r = ob.backfill_once(classify=boom)
+    assert len(calls) == 1 and r.get("failed") == 1
