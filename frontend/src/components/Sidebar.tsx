@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map, Contact } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Images, Map, Contact, Lightbulb } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -109,6 +109,9 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/revenue", icon: TrendingUp, label: "Revenue", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // { to: "/agents", icon: Sparkles, label: "Agents", allowedRoles: ["admin"] }, // hidden 2026-06-07
   { to: "/pricing", icon: DollarSign, label: "Pricing", perm: "pricing", divisions: ["fence"] },
+  // The project notes for the interactive proposal (2026-10-09): a page that
+  // renders src/content/proposal-v2.md, so the plan can be read from anywhere.
+  { to: "/new-proposal", icon: Lightbulb, label: "New Proposal", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   // { to: "/ai-fence", icon: Brain, label: "AI Fence Est.", restrictTo: "fragned" }, // hidden 2026-06-07
   { to: "/internal", icon: Gauge, label: "Internal", restrictTo: "fragned" },
   { to: "/settings", icon: Settings2, label: "Settings", perm: "settings" },

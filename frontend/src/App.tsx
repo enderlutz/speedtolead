@@ -55,6 +55,7 @@ import StainInventory from "@/pages/StainInventory";
 import FencePhotos from "@/pages/FencePhotos";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
+import ProposalProject from "@/pages/ProposalProject";
 import MapTab from "@/map/MapTab";
 import FenceScopeEditorPage from "@/pages/FenceScopeEditor";
 import Eula from "@/pages/Eula";
@@ -224,6 +225,7 @@ function AppLayout() {
               <Route path="/invoice-queue" element={<RequireView view="invoice_queue"><InvoiceQueue /></RequireView>} />
               <Route path="/revenue" element={<RevenueOnly><Revenue /></RevenueOnly>} />
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
+              <Route path="/new-proposal" element={<StaffOnly><ProposalProject /></StaffOnly>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />
               <Route path="/agents" element={<RequireView view="agents"><Agents /></RequireView>} />
