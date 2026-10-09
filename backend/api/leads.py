@@ -1278,7 +1278,7 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
             if estimate.status == "sent":
                 raise HTTPException(
                     status_code=400,
-                    detail="This estimate has already been sent. Cancel it first or click '+ New Estimate' to start a fresh one.",
+                    detail="This estimate has already been sent. Cancel it first or click 'Revise estimate' to start a fresh one.",
                 )
         else:
             estimate = (
@@ -1390,9 +1390,9 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
 
 
 # ─── Multi-estimate: create another pending estimate on a lead ─────────
-# Used when the same customer wants multiple quotes — different houses,
-# different fence configs, etc. Clones inputs from the latest estimate
-# (sent or pending) so the VA doesn't have to re-enter everything.
+# "Revise estimate". Nearly always the same house: the scope of work
+# changed, or the first estimate was off, so a fresh one is started from the
+# latest estimate's inputs (sent or pending) rather than blank.
 
 @router.post("/leads/{lead_id}/estimates/new")
 def create_new_estimate(lead_id: str, user: dict = Depends(get_current_user)):
@@ -2221,9 +2221,9 @@ MAX_MEASUREMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 
 
 def _current_estimate_id(db, lead_id: str) -> str | None:
-    """The estimate a new photo belongs to: the lead's newest. "New Estimate
-    (different house?)" makes a newer one, and photos taken after that are
-    for it. Alan, 2026-10-08: every photo tagged to its estimate."""
+    """The estimate a new photo belongs to: the lead's newest. "Revise
+    estimate" makes a newer one, and photos taken after that are for it.
+    Alan, 2026-10-08: every photo tagged to its estimate."""
     row = (
         db.query(Estimate.id)
         .filter(Estimate.lead_id == lead_id)

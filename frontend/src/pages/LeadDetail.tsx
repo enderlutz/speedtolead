@@ -827,7 +827,7 @@ export default function LeadDetail() {
       const fresh = await api.getLead(id);
       setLead(fresh);
       setSelectedEstimateId(fresh_estimate.id);
-      toast.success("New estimate created — adjust inputs and recalculate");
+      toast.success("Revision started from the last estimate — adjust the inputs and recalculate. The earlier one stays in the history.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create estimate");
     } finally {
@@ -1853,8 +1853,10 @@ export default function LeadDetail() {
           )}
 
           {/* Estimate switcher — only renders when there are multiple estimates
-              on this lead. Lets the VA edit/view different estimates for the
-              same customer (e.g. quotes for different houses). */}
+              on this lead. Each one is a revision: the scope changed, or the
+              first was wrong, so a fresh estimate is started from the last
+              one's inputs (Alan, 2026-10-09: it's "basically a new estimate
+              because you're adjusting the scope of work for the customer"). */}
           {sortedEstimates.length > 1 && (
             <Card className="gap-0 py-0">
               <div className="p-3.5">
@@ -1868,7 +1870,7 @@ export default function LeadDetail() {
                     disabled={creatingNewEstimate}
                   >
                     <Plus className="h-3 w-3 mr-1" />
-                    {creatingNewEstimate ? "Creating…" : "New Estimate"}
+                    {creatingNewEstimate ? "Starting…" : "Revise estimate"}
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -1905,7 +1907,7 @@ export default function LeadDetail() {
             </Card>
           )}
 
-          {/* "+ New Estimate" — also available when there's only one estimate
+          {/* "Revise estimate" — also available when there's only one estimate
               (or none). Shown as a small action above the tier prices card. */}
           {sortedEstimates.length <= 1 && lead?.estimates && (
             <div className="flex justify-end">
@@ -1915,9 +1917,10 @@ export default function LeadDetail() {
                 className="h-7 text-xs"
                 onClick={handleCreateNewEstimate}
                 disabled={creatingNewEstimate}
+                title="Start a fresh estimate from this one's inputs — for when the scope of work changed or the first one was off. The sent one stays in the history."
               >
                 <Plus className="h-3 w-3 mr-1" />
-                {creatingNewEstimate ? "Creating…" : "New Estimate (different house?)"}
+                {creatingNewEstimate ? "Starting…" : "Revise estimate"}
               </Button>
             </div>
           )}
