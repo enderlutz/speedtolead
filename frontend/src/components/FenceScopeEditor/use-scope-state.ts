@@ -56,18 +56,27 @@ export function flippedOrientation(rotation: number, mirrored: boolean, axis: "x
   return { rotation: (((360 - rotation + half) % 360) + 360) % 360, mirrored: !mirrored };
 }
 
+/** The undo stack and where we are in it, kept as one value so every change
+ * is a pure function of the previous one. */
+interface History {
+  list: ScopeDoc[];
+  index: number;
+}
+
 export function useScopeState(initial: ScopeDoc) {
   // Undo/redo as a plain history stack of full document snapshots. Simple,
   // and correct — this tool's whole job is being deterministic, so a history
   // model a VA can reason about beats a clever diff-based one.
-  const [history, setHistory] = useState<ScopeDoc[]>([initial]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const doc = history[historyIndex];
-  const segments = doc.segments;
-  const rotation = doc.rotation;
-  const mirrored = doc.mirrored;
-  const enhanced = doc.enhanced;
-  const useAi = doc.useAi;
+  //
+  // Every change goes through `commitWith`, which reads the CURRENT document
+  // inside the state updater rather than from a closure. That matters for
+  // anything that commits twice in a row from one handler (brighten, then
+  // adopt the drone render) and for a render that lands a minute after the
+  // button was pressed: a stale closure would commit on top of an old copy
+  // and quietly undo whatever was traced in between.
+  const [hist, setHist] = useState<History>({ list: [initial], index: 0 });
+  const doc = hist.list[hist.index];
+  const { segments, rotation, mirrored, enhanced, useAi } = doc;
 
   const [mode, setMode] = useState<DrawMode>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -78,49 +87,49 @@ export function useScopeState(initial: ScopeDoc) {
   // changes" label has to re-render the moment a save lands.
   const [savedAtIndex, setSavedAtIndex] = useState(0);
 
-  const commitDoc = useCallback(
-    (next: ScopeDoc) => {
-      setHistory((h) => [...h.slice(0, historyIndex + 1), next]);
-      setHistoryIndex((i) => i + 1);
-    },
-    [historyIndex]
-  );
-
-  const commit = useCallback(
-    (next: FenceScopeSegment[]) => commitDoc({ segments: next, rotation, mirrored, enhanced, useAi }),
-    [commitDoc, rotation, mirrored, enhanced, useAi]
-  );
+  const commitWith = useCallback((make: (current: ScopeDoc) => ScopeDoc) => {
+    setHist((h) => {
+      const current = h.list[h.index];
+      const next = make(current);
+      // Nothing changed: no undo entry, no autosave, no un-confirming.
+      if (next === current) return h;
+      return { list: [...h.list.slice(0, h.index + 1), next], index: h.index + 1 };
+    });
+  }, []);
 
   // Re-seeds the whole history — for loading data that arrived after this
   // hook was already constructed (the fetch is async; the hook isn't).
   const load = useCallback((next: ScopeDoc) => {
-    setHistory([next]);
-    setHistoryIndex(0);
+    setHist({ list: [next], index: 0 });
     setSavedAtIndex(0);
+    setSelectedId(null);
   }, []);
 
   // Mid-trace, undo means "take back the point I just placed". The points of
   // a run in progress aren't in the document history, so stepping the history
   // instead would skip straight past them and delete a finished fence — which
   // looks like undo removing the wrong line entirely.
+  const midTrace = drawingPoints.length > 0;
   const undo = useCallback(() => {
-    if (drawingPoints.length > 0) {
+    if (midTrace) {
       setDrawingPoints((pts) => pts.slice(0, -1));
       return;
     }
-    setHistoryIndex((i) => Math.max(0, i - 1));
-  }, [drawingPoints.length]);
+    setHist((h) => ({ ...h, index: Math.max(0, h.index - 1) }));
+  }, [midTrace]);
 
   const redo = useCallback(() => {
-    if (drawingPoints.length > 0) return;
-    setHistoryIndex((i) => Math.min(history.length - 1, i + 1));
-  }, [history.length, drawingPoints.length]);
+    if (midTrace) return;
+    setHist((h) => ({ ...h, index: Math.min(h.list.length - 1, h.index + 1) }));
+  }, [midTrace]);
 
-  const canUndo = drawingPoints.length > 0 || historyIndex > 0;
-  const canRedo = drawingPoints.length === 0 && historyIndex < history.length - 1;
+  const canUndo = midTrace || hist.index > 0;
+  const canRedo = !midTrace && hist.index < hist.list.length - 1;
 
-  const markSaved = useCallback(() => setSavedAtIndex(historyIndex), [historyIndex]);
-  const isDirty = savedAtIndex !== historyIndex;
+  /** Marks a revision as on the server — the one that was read when the
+   * save started, not whatever is current by the time it lands. */
+  const markSaved = useCallback((at: number) => setSavedAtIndex(at), []);
+  const isDirty = savedAtIndex !== hist.index;
 
   // ---- orientation ----
   // Anything mid-trace is in the old orientation and would land in the wrong
@@ -128,36 +137,33 @@ export function useScopeState(initial: ScopeDoc) {
   const rotateBy = useCallback(
     (dir: 1 | -1) => {
       const turn = dir === 1 ? turnCW : turnCCW;
-      commitDoc({
-        rotation: (((rotation + dir * 90) % 360) + 360) % 360,
-        mirrored,
-        enhanced,
-        useAi,
-        segments: segments.map((s) => ({ ...s, points: s.points.map(turn) })),
-      });
+      commitWith((d) => ({
+        ...d,
+        rotation: (((d.rotation + dir * 90) % 360) + 360) % 360,
+        segments: d.segments.map((s) => ({ ...s, points: s.points.map(turn) })),
+      }));
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, mirrored, enhanced, useAi, segments]
+    [commitWith]
   );
 
   const flip = useCallback(
     (axis: "x" | "y") => {
       const move = axis === "x" ? mirrorX : mirrorY;
-      commitDoc({
-        ...flippedOrientation(rotation, mirrored, axis),
-        enhanced,
-        useAi,
+      commitWith((d) => ({
+        ...d,
+        ...flippedOrientation(d.rotation, d.mirrored, axis),
         // A mirror reverses which side of a line is which, so blue arrows have
         // to be negated to keep pointing at the same physical face of a fence.
-        segments: segments.map((s) => ({
+        segments: d.segments.map((s) => ({
           ...s,
           points: s.points.map(move),
           arrowDirection: s.arrowDirection === 1 ? -1 : 1,
         })),
-      });
+      }));
       setDrawingPoints([]);
     },
-    [commitDoc, rotation, mirrored, enhanced, useAi, segments]
+    [commitWith]
   );
 
   // Puts the photo back the way the property actually is, marks and all.
@@ -168,40 +174,43 @@ export function useScopeState(initial: ScopeDoc) {
   // many presses of [ ] H J will get them home, because a scope that went out
   // upside down is a scope the customer can't check.
   const resetOrientation = useCallback(() => {
-    if (rotation === 0 && !mirrored) return;
-    const quarterTurns = (((rotation % 360) + 360) % 360) / 90;
-    const undo = (p: FenceScopePoint): FenceScopePoint => {
-      let q = p;
-      for (let i = 0; i < quarterTurns; i++) q = turnCCW(q);
-      return mirrored ? mirrorX(q) : q;
-    };
-    commitDoc({
-      rotation: 0,
-      mirrored: false,
-      enhanced,
-      useAi,
-      segments: segments.map((s) => ({
-        ...s,
-        points: s.points.map(undo),
-        // Same reason flip() negates these: un-mirroring swaps which face of
-        // the fence a blue arrow is pointing at.
-        arrowDirection: mirrored ? (s.arrowDirection === 1 ? -1 : 1) : s.arrowDirection,
-      })),
+    commitWith((d) => {
+      if (d.rotation === 0 && !d.mirrored) return d;
+      const quarterTurns = (((d.rotation % 360) + 360) % 360) / 90;
+      const back = (p: FenceScopePoint): FenceScopePoint => {
+        let q = p;
+        for (let i = 0; i < quarterTurns; i++) q = turnCCW(q);
+        return d.mirrored ? mirrorX(q) : q;
+      };
+      return {
+        ...d,
+        rotation: 0,
+        mirrored: false,
+        segments: d.segments.map((s) => ({
+          ...s,
+          points: s.points.map(back),
+          // Same reason flip() negates these: un-mirroring swaps which face of
+          // the fence a blue arrow is pointing at.
+          arrowDirection: d.mirrored ? (s.arrowDirection === 1 ? -1 : 1) : s.arrowDirection,
+        })),
+      };
     });
     setDrawingPoints([]);
-  }, [commitDoc, rotation, mirrored, enhanced, useAi, segments]);
+  }, [commitWith]);
 
   const toggleEnhance = useCallback(
-    () => commitDoc({ segments, rotation, mirrored, enhanced: !enhanced, useAi }),
-    [commitDoc, segments, rotation, mirrored, enhanced, useAi]
+    () => commitWith((d) => ({ ...d, enhanced: !d.enhanced })),
+    [commitWith]
+  );
+
+  const setEnhanced = useCallback(
+    (next: boolean) => commitWith((d) => (d.enhanced === next ? d : { ...d, enhanced: next })),
+    [commitWith]
   );
 
   const setUseAi = useCallback(
-    (next: boolean) => {
-      if (next === useAi) return;
-      commitDoc({ segments, rotation, mirrored, enhanced, useAi: next });
-    },
-    [commitDoc, segments, rotation, mirrored, enhanced, useAi]
+    (next: boolean) => commitWith((d) => (d.useAi === next ? d : { ...d, useAi: next })),
+    [commitWith]
   );
 
   // ---- drawing a new path ----
@@ -216,25 +225,18 @@ export function useScopeState(initial: ScopeDoc) {
   }, []);
 
   const finishDrawing = useCallback(() => {
-    setDrawingPoints((raw) => {
-      const pts = stripDuplicates(raw);
-      // A gate can be one click-drag, but a bare single point isn't a
-      // fence — the VA's traced line is the source of truth, and one point
-      // draws nothing. Spec Section 10: never invent geometry.
-      if (pts.length >= 2 && mode !== "select") {
-        const seg: FenceScopeSegment = {
-          id: newId(),
-          color: mode,
-          points: pts,
-          arrowDirection: 1,
-        };
-        commit([...segments, seg]);
-        setSelectedId(seg.id);
-      }
-      return [];
-    });
+    const pts = stripDuplicates(drawingPoints);
+    // A gate can be one click-drag, but a bare single point isn't a
+    // fence — the VA's traced line is the source of truth, and one point
+    // draws nothing. Spec Section 10: never invent geometry.
+    if (pts.length >= 2 && mode !== "select") {
+      const seg: FenceScopeSegment = { id: newId(), color: mode, points: pts, arrowDirection: 1 };
+      commitWith((d) => ({ ...d, segments: [...d.segments, seg] }));
+      setSelectedId(seg.id);
+    }
+    setDrawingPoints([]);
     setMode("select");
-  }, [mode, segments, commit]);
+  }, [drawingPoints, mode, commitWith]);
 
   const cancelDrawing = useCallback(() => {
     setDrawingPoints([]);
@@ -242,28 +244,32 @@ export function useScopeState(initial: ScopeDoc) {
   }, []);
 
   // ---- editing existing segments ----
+  const patchSegments = useCallback(
+    (fn: (list: FenceScopeSegment[]) => FenceScopeSegment[]) =>
+      commitWith((d) => ({ ...d, segments: fn(d.segments) })),
+    [commitWith]
+  );
+
   const updateSegment = useCallback(
-    (id: string, patch: Partial<FenceScopeSegment>) => {
-      commit(segments.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-    },
-    [segments, commit]
+    (id: string, patch: Partial<FenceScopeSegment>) =>
+      patchSegments((list) => list.map((s) => (s.id === id ? { ...s, ...patch } : s))),
+    [patchSegments]
   );
 
   const updatePoint = useCallback(
-    (segId: string, pointIndex: number, p: FenceScopePoint) => {
-      commit(
-        segments.map((s) =>
+    (segId: string, pointIndex: number, p: FenceScopePoint) =>
+      patchSegments((list) =>
+        list.map((s) =>
           s.id === segId ? { ...s, points: s.points.map((pt, i) => (i === pointIndex ? p : pt)) } : s
         )
-      );
-    },
-    [segments, commit]
+      ),
+    [patchSegments]
   );
 
   const addPointToSegment = useCallback(
-    (segId: string, afterIndex: number) => {
-      commit(
-        segments.map((s) => {
+    (segId: string, afterIndex: number) =>
+      patchSegments((list) =>
+        list.map((s) => {
           if (s.id !== segId) return s;
           const a = s.points[afterIndex];
           const b = s.points[afterIndex + 1] ?? a;
@@ -272,44 +278,42 @@ export function useScopeState(initial: ScopeDoc) {
           points.splice(afterIndex + 1, 0, mid);
           return { ...s, points };
         })
-      );
-    },
-    [segments, commit]
+      ),
+    [patchSegments]
   );
 
   const removePoint = useCallback(
-    (segId: string, pointIndex: number) => {
-      commit(
-        segments
+    (segId: string, pointIndex: number) =>
+      patchSegments((list) =>
+        list
           .map((s) => (s.id === segId ? { ...s, points: s.points.filter((_, i) => i !== pointIndex) } : s))
           // A segment collapsed to under 2 points is no longer a line —
           // remove it rather than render nothing from a phantom record.
           .filter((s) => s.points.length >= 2)
-      );
-    },
-    [segments, commit]
+      ),
+    [patchSegments]
   );
 
   const deleteSegment = useCallback(
     (segId: string) => {
-      commit(segments.filter((s) => s.id !== segId));
+      patchSegments((list) => list.filter((s) => s.id !== segId));
       setSelectedId((cur) => (cur === segId ? null : cur));
     },
-    [segments, commit]
+    [patchSegments]
   );
 
   const flipArrows = useCallback(
-    (segId: string) => {
-      commit(segments.map((s) => (s.id === segId ? { ...s, arrowDirection: s.arrowDirection === 1 ? -1 : 1 } : s)));
-    },
-    [segments, commit]
+    (segId: string) =>
+      patchSegments((list) =>
+        list.map((s) => (s.id === segId ? { ...s, arrowDirection: s.arrowDirection === 1 ? -1 : 1 } : s))
+      ),
+    [patchSegments]
   );
 
   const setColor = useCallback(
-    (segId: string, color: FenceColor) => {
-      commit(segments.map((s) => (s.id === segId ? { ...s, color } : s)));
-    },
-    [segments, commit]
+    (segId: string, color: FenceColor) =>
+      patchSegments((list) => list.map((s) => (s.id === segId ? { ...s, color } : s))),
+    [patchSegments]
   );
 
   const selectedSegment = useMemo(() => segments.find((s) => s.id === selectedId) || null, [segments, selectedId]);
@@ -317,7 +321,7 @@ export function useScopeState(initial: ScopeDoc) {
   return {
     segments,
     /** Bumps only on a real change — what autosave debounces against. */
-    revision: historyIndex,
+    revision: hist.index,
     rotation,
     mirrored,
     enhanced,
@@ -328,6 +332,7 @@ export function useScopeState(initial: ScopeDoc) {
     /** True when the photo no longer matches how the property actually sits. */
     reoriented: rotation !== 0 || mirrored,
     toggleEnhance,
+    setEnhanced,
     setUseAi,
     mode,
     setMode,

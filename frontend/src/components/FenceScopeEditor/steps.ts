@@ -36,3 +36,29 @@ export function sendBlockedReason(steps: ScopeSteps): string | null {
     default: return null;
   }
 }
+
+// The rules above are four steps; the screen shows three. Brightening and
+// the drone render are both "get the photo ready" and now happen from one
+// button, so showing them as two steps made the strip longer without telling
+// anyone anything (Alan, 2026-10-09: easier to navigate).
+
+export type Stage = 1 | 2 | 3;
+
+export const STAGES: { n: Stage; label: string; short: string }[] = [
+  { n: 1, label: "Photo ready", short: "Photo" },
+  { n: 2, label: "Mark the fence", short: "Mark" },
+  { n: 3, label: "Check & send", short: "Send" },
+];
+
+/** The stage currently being worked on, or null when everything is done. */
+export function currentStage(steps: ScopeSteps): Stage | null {
+  const step = firstIncompleteStep(steps);
+  if (step === null) return null;
+  return step <= 2 ? 1 : step === 3 ? 2 : 3;
+}
+
+export function stageDone(steps: ScopeSteps, n: Stage): boolean {
+  if (n === 1) return steps.brightened && steps.droned;
+  if (n === 2) return steps.drawn;
+  return steps.confirmed;
+}

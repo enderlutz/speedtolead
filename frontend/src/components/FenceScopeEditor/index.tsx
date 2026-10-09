@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { Upload, Save, Loader2, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  Upload, Loader2, AlertTriangle, ChevronLeft, Send, ZoomIn, ZoomOut, Maximize2, ExternalLink,
+  Image as ImageIcon, MapPinned,
+} from "lucide-react";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useSSE } from "@/hooks/useSSE";
 import { useCanvasView } from "./use-canvas-view";
 import { useScopeState } from "./use-scope-state";
@@ -16,9 +19,9 @@ import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
 import SendScopeDialog from "./SendScopeDialog";
 import ScopeVersions from "./ScopeVersions";
-import ScopeChecklist from "./ScopeChecklist";
+import StepStrip from "./StepStrip";
 import { sendBlockedReason } from "./steps";
-import Toolbar from "./Toolbar";
+import Dock from "./Dock";
 import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./constants";
 
 interface Props {
@@ -52,10 +55,14 @@ function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   });
 }
 
+const GOLD_BTN = "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze px-3.5 text-xs font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60 transition hover:from-gold hover:to-bronze active:scale-95 disabled:from-stone-500 disabled:via-stone-500 disabled:to-stone-500 disabled:text-stone-300 disabled:opacity-60 disabled:shadow-none disabled:ring-0";
+const CHIP_BTN = "inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-gold/50 bg-white px-2 text-[11px] font-semibold text-bronze transition hover:bg-gold/15 disabled:opacity-50";
+
 export default function FenceScopeEditor({ leadId }: Props) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [address, setAddress] = useState("");
+  const [contactName, setContactName] = useState("");
   const [hasSource, setHasSource] = useState(false);
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
   // The drone re-render lives beside the original, never on top of it.
@@ -74,8 +81,8 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const [logoImage, setLogoImage] = useState<HTMLImageElement | null>(null);
   const [logoMissing, setLogoMissing] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
-  const [logoDragOver, setLogoDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
@@ -97,6 +104,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
     api.getFenceScope(leadId).then((d) => {
       if (cancelled) return;
       setAddress(d.address);
+      setContactName(d.contact_name || "");
       setHasSource(d.has_source);
       seenVersion.current = d.updated_at;
       scope.load({
@@ -183,11 +191,14 @@ export default function FenceScopeEditor({ leadId }: Props) {
     void loadAiImage();
   }, [hasAi, loadAiImage]);
 
+  // scope.setUseAi commits against the live document (see use-scope-state),
+  // so this is safe to call a minute after the button was pressed.
+  const setUseAi = scope.setUseAi;
   const adoptRender = useCallback(async () => {
     setHasAi(true);
     await loadAiImage();
-    scope.setUseAi(true);
-  }, [loadAiImage, scope]);
+    setUseAi(true);
+  }, [loadAiImage, setUseAi]);
 
   /** Keeps asking whether the render landed. A render takes a minute or two,
    * which is long enough for a deploy, a flaky signal or a backgrounded phone
@@ -257,21 +268,34 @@ export default function FenceScopeEditor({ leadId }: Props) {
     });
   }, [scope.segments.length, runDroneRender]);
 
+  // Stage 1 in one press: brighten, then the drone view — or just switch to
+  // the drone view if one already exists and the original is showing.
+  const preparePhoto = useCallback(async () => {
+    scope.setEnhanced(true);
+    if (hasAi) {
+      setUseAi(true);
+      return;
+    }
+    if (!aiConfigured) return;
+    await handleGenerateAi();
+  }, [scope, hasAi, setUseAi, aiConfigured, handleGenerateAi]);
+
   const handleDiscardAi = useCallback(async () => {
     try {
       await api.deleteFenceScopeAi(leadId);
-      scope.setUseAi(false);
+      setUseAi(false);
       setHasAi(false);
       setAiImage(null);
       toast.success("Drone view discarded — back to the original screenshot");
     } catch {
       toast.error("Could not discard the drone view");
     }
-  }, [leadId, scope]);
+  }, [leadId, setUseAi]);
 
   // Available room for the page, measured off the element rather than the
   // window, since the frame also changes height when banners above it come and
-  // go.
+  // go. The element's own padding is subtracted — on a desktop that padding
+  // is where the floating dock sits, so the page never hides under it.
   //
   // A callback ref rather than an effect: the editor renders a spinner and an
   // upload prompt before this element exists, so an effect with an empty
@@ -284,8 +308,11 @@ export default function FenceScopeEditor({ leadId }: Props) {
     if (!node) return;
     const measure = () => {
       const rect = node.getBoundingClientRect();
-      const width = Math.max(1, rect.width - 16);
-      const height = Math.max(1, rect.height - 16);
+      const cs = getComputedStyle(node);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const width = Math.max(1, rect.width - padX);
+      const height = Math.max(1, rect.height - padY);
       // Same-value guard: re-setting state on every callback could ping-pong
       // with its own layout.
       setFrame((p) => (p.width === width && p.height === height ? p : { width, height }));
@@ -342,6 +369,10 @@ export default function FenceScopeEditor({ leadId }: Props) {
 
   const handleUpload = useCallback(
     async (file: File) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Only image files are allowed");
+        return;
+      }
       if (file.size > MAX_SOURCE_IMAGE_MB * 1024 * 1024) {
         toast.error(`File too large — max ${MAX_SOURCE_IMAGE_MB}MB`);
         return;
@@ -352,7 +383,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
         const img = await loadImageFromBlob(file);
         setSourceImage(img);
         setHasSource(true);
-        toast.success("Aerial screenshot uploaded");
+        toast.success("Screenshot uploaded — now prepare the photo");
       } catch {
         toast.error("Upload failed");
       } finally {
@@ -367,14 +398,19 @@ export default function FenceScopeEditor({ leadId }: Props) {
     segments: scope.segments, rotation: scope.rotation, mirrored: scope.mirrored,
     enhanced: scope.enhanced, useAi: scope.useAi,
   });
+  const revisionRef = useRef(scope.revision);
   const dirtyRef = useRef(scope.isDirty);
   const tracingRef = useRef(false);
   const busyRef = useRef(false);
+  // An edit landed while a save was in flight: save again once it's done,
+  // or that edit would sit unsaved until the next one.
+  const queuedRef = useRef(false);
   useEffect(() => {
     docRef.current = {
       segments: scope.segments, rotation: scope.rotation, mirrored: scope.mirrored,
       enhanced: scope.enhanced, useAi: scope.useAi,
     };
+    revisionRef.current = scope.revision;
     dirtyRef.current = scope.isDirty;
     // Points placed but not yet committed are unsaved work too — reloading
     // over a half-traced fence would throw them away.
@@ -384,21 +420,31 @@ export default function FenceScopeEditor({ leadId }: Props) {
   const markSavedRef = useRef(scope.markSaved);
   useEffect(() => { markSavedRef.current = scope.markSaved; });
 
+  const persistRef = useRef<() => Promise<boolean>>(async () => false);
   const persist = useCallback(async () => {
-    if (busyRef.current) return;
+    if (busyRef.current) {
+      queuedRef.current = true;
+      return false;
+    }
     busyRef.current = true;
     try {
       const d = docRef.current;
+      const at = revisionRef.current;
       const r = await api.saveFenceScopeSegments(leadId, d.segments, d.rotation, d.mirrored, d.enhanced, d.useAi);
       // Record the version we just created, so the broadcast it triggers is
       // recognised as our own and doesn't reload the editor underneath us.
       if (r.updated_at) seenVersion.current = r.updated_at;
-      markSavedRef.current();
+      markSavedRef.current(at);
       return true;
     } finally {
       busyRef.current = false;
+      if (queuedRef.current) {
+        queuedRef.current = false;
+        window.setTimeout(() => void persistRef.current().catch(() => {}), 100);
+      }
     }
   }, [leadId]);
+  useEffect(() => { persistRef.current = persist; }, [persist]);
 
   // Autosave. Every edit is written on its own, so nothing depends on
   // remembering to press Save — closing a phone mid-trace keeps the work.
@@ -417,6 +463,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
     const d = await api.getFenceScope(leadId);
     seenVersion.current = d.updated_at;
     setAddress(d.address);
+    setContactName(d.contact_name || "");
     setHasSource(d.has_source);
     setHasAi(d.has_ai);
     setAiConfigured(!!d.ai_configured);
@@ -511,48 +558,145 @@ export default function FenceScopeEditor({ leadId }: Props) {
     if (exported) setSendOpen(true);
   };
 
+  // "Looks right — send it": looking at it and saying so IS the confirmation,
+  // so one press does both instead of a confirm button that then unlocks a
+  // send button.
+  const confirmAndSend = () => {
+    setConfirmed(true);
+    void handleSend();
+  };
+
+  const mapsHref = address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+    : "";
+
+  const header = (
+    <div className="shrink-0 bg-gradient-to-r from-stone-900 via-ink to-stone-900 text-white">
+      {/* Right padding on a desktop keeps Send clear of the Houston clock
+          that floats in the corner of every screen. */}
+      <div className="flex items-center gap-2 px-2 py-2 sm:px-3 md:pr-44">
+        <button
+          type="button"
+          onClick={() => navigate(`/leads/${leadId}`)}
+          title="Back to the customer"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white/80 transition hover:bg-white/10 hover:text-white active:scale-95"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gold-light/90">Fence scope</p>
+          <p className="truncate font-heading text-sm font-bold leading-tight sm:text-base">
+            {loading ? "…" : contactName || "Lead"}
+            {address ? <span className="ml-2 hidden text-xs font-normal text-white/60 sm:inline">{address}</span> : null}
+          </p>
+        </div>
+        {hasSource ? (
+          <span
+            className="flex shrink-0 items-center gap-1.5 pr-1 text-[11px] text-white/70"
+            title={saving ? "Saving" : scope.isDirty ? "Saving in a moment — every change is kept automatically" : "Every change is saved automatically"}
+          >
+            <span className={cn("h-2 w-2 rounded-full", saving || scope.isDirty ? "animate-pulse bg-gold" : "bg-emerald-400")} />
+            <span className="hidden sm:inline">{saving ? "Saving…" : scope.isDirty ? "Saving shortly…" : "Saved"}</span>
+          </span>
+        ) : null}
+        {hasSource ? (
+          <button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={exporting || !!blockedReason}
+            title={blockedReason || "Text this scope to the customer"}
+            className={GOLD_BTN}
+          >
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Send
+          </button>
+        ) : null}
+      </div>
+      <div className="h-px bg-gradient-to-r from-transparent via-gold-light/70 to-transparent" />
+    </div>
+  );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="flex h-full flex-col bg-ivory">
+        {header}
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-bronze" />
+        </div>
       </div>
     );
   }
 
   if (!hasSource) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 gap-3 border-2 border-dashed rounded-lg">
-        <Upload className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Upload an aerial screenshot of the property to start the scope.</p>
-        <input
-          ref={fileInputRef}
-          type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = ""; }}
-        />
-        <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-          {uploading ? "Uploading…" : "Choose screenshot"}
-        </Button>
+      <div className="flex h-full flex-col bg-ivory">
+        {header}
+        <div className="flex flex-1 items-center justify-center p-4">
+          <div
+            className={cn(
+              "w-full max-w-md rounded-2xl border-2 border-dashed p-6 text-center transition",
+              dragOver ? "border-gold bg-gold/10" : "border-gold/50 bg-white/70",
+            )}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) void handleUpload(f);
+            }}
+          >
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-light to-bronze shadow-md shadow-gold/30">
+              <ImageIcon className="h-6 w-6 text-ink" />
+            </div>
+            <h2 className="mt-3 font-heading text-base font-bold text-ink">Start with a screenshot of the property</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Open the address in Google Maps, switch to satellite, screenshot the house and its fence, then drop it here.
+              The editor brightens it, renders the drone view and lets you mark the fence.
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUpload(f); e.target.value = ""; }}
+            />
+            <div className="mt-4 flex flex-col items-stretch justify-center gap-2 sm:flex-row">
+              <button type="button" disabled={uploading} onClick={() => fileInputRef.current?.click()} className={cn(GOLD_BTN, "justify-center")}>
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {uploading ? "Uploading…" : "Choose screenshot"}
+              </button>
+              {mapsHref ? (
+                <a
+                  href={mapsHref} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-gold/50 bg-white px-3.5 text-xs font-semibold text-ink transition hover:bg-gold/15"
+                >
+                  <MapPinned className="h-4 w-4 text-bronze" /> Open in Google Maps <ExternalLink className="h-3 w-3 opacity-60" />
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full min-w-0 overflow-hidden">
-      <Toolbar
-        scope={scope} activePointIndex={activePointIndex} exporting={exporting} onExport={handleExport}
-        zoom={view.zoom} zoomIn={view.zoomIn} zoomOut={view.zoomOut} fitToPage={view.fit}
-        hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
-        onGenerateAi={handleGenerateAi} onDiscardAi={handleDiscardAi}
-        onSend={() => void handleSend()}
-        sendBlockedReason={blockedReason}
-      />
-      <ScopeChecklist
+    <div className="flex h-full min-w-0 flex-col overflow-hidden bg-ivory">
+      {header}
+      <StepStrip
         steps={steps}
         aiConfigured={aiConfigured}
         rendering={rendering}
-        onEnhance={scope.toggleEnhance}
-        onGenerateAi={() => void handleGenerateAi()}
-        onConfirm={() => setConfirmed(true)}
+        busy={exporting}
+        onPrepare={() => void preparePhoto()}
+        onConfirmAndSend={confirmAndSend}
+      />
+      {/* What this customer has already been sent, and the one-click way to
+          correct it. Revising reuses the drone render, so a fix that used to
+          cost a minute of regeneration now takes seconds. */}
+      <ScopeVersions
+        leadId={leadId}
+        revision={scope.revision}
+        onRevised={() => { void adoptServerVersion(); setConfirmed(false); }}
       />
       <SendScopeDialog
         leadId={leadId}
@@ -566,101 +710,123 @@ export default function FenceScopeEditor({ leadId }: Props) {
           navigate(`/leads/${leadId}?focus=inputs`);
         }}
       />
-      {logoMissing && (
+
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          className={`flex items-center gap-2 px-3 py-2 text-xs border-b min-w-0 transition-colors ${
-            logoDragOver ? "bg-primary/10" : "bg-amber-50 dark:bg-amber-950/30"
-          }`}
-          onDragOver={(e) => { e.preventDefault(); setLogoDragOver(true); }}
-          onDragLeave={() => setLogoDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setLogoDragOver(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) void handleLogoUpload(f);
-          }}
+          ref={attachContainer}
+          className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#1c1915] p-2 sm:pb-[76px]"
         >
-          <Upload className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1 min-w-0">
-            No company logo set — scopes show plain text until one is uploaded. Drag your logo here, or
-          </span>
-          <input
-            ref={logoInputRef}
-            type="file" accept="image/*" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleLogoUpload(f); e.target.value = ""; }}
-          />
-          <Button size="sm" variant="outline" disabled={logoUploading} onClick={() => logoInputRef.current?.click()}>
-            {logoUploading ? "Uploading…" : "Choose file"}
-          </Button>
+          <div className="shadow-2xl shadow-black/60 ring-1 ring-white/10" style={{ width: page.width, height: page.height }}>
+            <ScopeCanvas
+              scope={scope}
+              page={page}
+              view={view}
+              sourceImage={orientedSource}
+              logoImage={logoImage}
+              headerTheme={headerTheme}
+              address={address}
+              activePointIndex={activePointIndex}
+              onActivePointChange={setActivePointIndex}
+              stageRef={stageRef}
+            />
+          </div>
+
+          {/* Things that need saying, over the top-left of the canvas. They
+              used to be three separate full-width bars above it. */}
+          <div className="pointer-events-none absolute left-2 top-2 flex max-w-[calc(100%-4.5rem)] flex-col gap-1.5">
+            {remoteChange ? (
+              <Notice tone="gold">
+                Changed on another device
+                <button type="button" className={CHIP_BTN} onClick={() => void adoptServerVersion()}>Load it</button>
+              </Notice>
+            ) : null}
+            {/* Carl Hiller's scope went out upside down: a single flip was
+                saved, nothing on screen said so, and it was texted a minute
+                later. The orientation controls stay — a tilted property
+                sometimes needs them — but they can no longer be invisible. */}
+            {scope.reoriented ? (
+              <Notice tone="warn">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <span className="min-w-0">
+                  Photo is turned{scope.mirrored ? " and flipped" : ""} — the customer would see it the wrong way round
+                  {scope.mirrored && scope.rotation === 180 ? " (upside down)" : ""}.
+                </span>
+                <button type="button" className={CHIP_BTN} onClick={() => scope.resetOrientation()}>Put it back</button>
+              </Notice>
+            ) : null}
+            {logoMissing ? (
+              <Notice tone="gold">
+                <Upload className="h-3.5 w-3.5 shrink-0 text-bronze" />
+                <span className="min-w-0">No company logo set — scopes show plain text until one is uploaded.</span>
+                <input
+                  ref={logoInputRef}
+                  type="file" accept="image/*" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleLogoUpload(f); e.target.value = ""; }}
+                />
+                <button type="button" className={CHIP_BTN} disabled={logoUploading} onClick={() => logoInputRef.current?.click()}>
+                  {logoUploading ? "Uploading…" : "Choose file"}
+                </button>
+              </Notice>
+            ) : null}
+          </div>
+
+          {/* Zoom, on the right where a thumb lands. Pinch and the wheel work
+              too; this is for whoever doesn't know that. */}
+          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 flex-col items-center rounded-xl bg-ink/85 p-1 text-white shadow-lg ring-1 ring-white/10 backdrop-blur">
+            <ZoomBtn onClick={view.zoomIn} title="Zoom in"><ZoomIn className="h-4 w-4" /></ZoomBtn>
+            <span className="w-9 py-0.5 text-center text-[10px] tabular-nums text-white/70">{Math.round(view.zoom * 100)}%</span>
+            <ZoomBtn onClick={view.zoomOut} title="Zoom out"><ZoomOut className="h-4 w-4" /></ZoomBtn>
+            <ZoomBtn onClick={view.fit} title="Fit the whole page"><Maximize2 className="h-4 w-4" /></ZoomBtn>
+          </div>
+
+          {/* Desktop: the dock floats over the bottom of the canvas. Centred
+              with flex rather than a translate: a transform here would make
+              the dock the containing block for its menus' fixed backdrop. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 hidden justify-center sm:flex">
+            <div className="pointer-events-auto">
+            <Dock
+              scope={scope} activePointIndex={activePointIndex}
+              exporting={exporting} onExport={() => void handleExport()}
+              hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
+              onGenerateAi={() => void handleGenerateAi()} onDiscardAi={() => void handleDiscardAi()}
+            />
+            </div>
+          </div>
         </div>
-      )}
-      {/* Carl Hiller's scope went out upside down: a single flip was saved,
-          nothing on screen said so, and it was texted a minute later. The
-          orientation controls stay — a tilted property sometimes needs them —
-          but they can no longer be invisible. */}
-      {scope.reoriented && (
-        <div className="flex items-center gap-2 px-3 py-2 text-xs border-b min-w-0 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-          <span className="flex-1 min-w-0">
-            This photo is turned or flipped — the customer will see their property
-            the wrong way round{scope.mirrored && scope.rotation === 180 ? " (upside down)" : ""}.
-          </span>
-          <Button
-            size="sm" variant="outline" className="h-6 px-2 text-[11px] shrink-0"
-            onClick={() => scope.resetOrientation()}
-          >
-            Put it back
-          </Button>
-        </div>
-      )}
-      {/* What this customer has already been sent, and the one-click way to
-          correct it. Revising reuses the drone render, so a fix that used to
-          cost a minute of regeneration now takes seconds. */}
-      <ScopeVersions
-        leadId={leadId}
-        revision={scope.revision}
-        onRevised={() => { void adoptServerVersion(); setConfirmed(false); }}
-      />
-      <div className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-muted-foreground border-b min-w-0">
-        <span className="flex items-center gap-2 min-w-0">
-          <span className="shrink-0">
-            {saving ? "Saving…" : scope.isDirty ? "Saving shortly…" : "Saved"}
-          </span>
-          {remoteChange && (
-            <span className="flex items-center gap-1.5 shrink-0 text-amber-600 dark:text-amber-500">
-              Changed on another device
-              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => void adoptServerVersion()}>
-                Load it
-              </Button>
-            </span>
-          )}
-          <span className="ml-3 opacity-70 hidden sm:inline truncate">
-            {view.pannable
-              ? "Drag or two-finger scroll to move · pinch to zoom"
-              : "Zoom in to move around · pinch or +/− to zoom"}
-            {" · [ ] turn · H / J flip"}
-          </span>
-        </span>
-        <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving} className="shrink-0">
-          <Save className="h-3.5 w-3.5 mr-1" /> Save
-        </Button>
-      </div>
-      <div ref={attachContainer} className="flex-1 min-h-0 min-w-0 flex items-center justify-center bg-neutral-800 p-2 overflow-hidden">
-        <div className="shadow-lg" style={{ width: page.width, height: page.height }}>
-          <ScopeCanvas
-            scope={scope}
-            page={page}
-            view={view}
-            sourceImage={orientedSource}
-            logoImage={logoImage}
-            headerTheme={headerTheme}
-            address={address}
-            activePointIndex={activePointIndex}
-            onActivePointChange={setActivePointIndex}
-            stageRef={stageRef}
+
+        {/* Phone: the dock is a bar under the canvas, so it never covers the
+            fence being traced. */}
+        <div className="shrink-0 sm:hidden">
+          <Dock
+            scope={scope} activePointIndex={activePointIndex}
+            exporting={exporting} onExport={() => void handleExport()}
+            hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
+            onGenerateAi={() => void handleGenerateAi()} onDiscardAi={() => void handleDiscardAi()}
           />
         </div>
       </div>
     </div>
+  );
+}
+
+function Notice({ tone, children }: { tone: "gold" | "warn"; children: React.ReactNode }) {
+  return (
+    <div className={cn(
+      "pointer-events-auto flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-[11px] font-medium shadow-lg backdrop-blur",
+      tone === "warn" ? "bg-amber-50/95 text-amber-900 ring-1 ring-amber-300" : "bg-ivory/95 text-ink ring-1 ring-gold/40",
+    )}>
+      {children}
+    </div>
+  );
+}
+
+function ZoomBtn({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button" onClick={onClick} title={title}
+      className="flex h-9 w-9 items-center justify-center rounded-lg text-white/85 transition hover:bg-white/15 active:scale-95"
+    >
+      {children}
+    </button>
   );
 }
