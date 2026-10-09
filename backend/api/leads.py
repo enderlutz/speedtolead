@@ -1278,7 +1278,7 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
             if estimate.status == "sent":
                 raise HTTPException(
                     status_code=400,
-                    detail="This estimate has already been sent. Cancel it first or click 'Revise estimate' to start a fresh one.",
+                    detail="This estimate has already been sent. Cancel it first or click 'New estimate' to start a fresh one.",
                 )
         else:
             estimate = (
@@ -1390,7 +1390,7 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
 
 
 # ─── Multi-estimate: create another pending estimate on a lead ─────────
-# "Revise estimate". Nearly always the same house: the scope of work
+# "New estimate". Nearly always the same house: the scope of work
 # changed, or the first estimate was off, so a fresh one is started from the
 # latest estimate's inputs (sent or pending) rather than blank.
 
@@ -2221,7 +2221,7 @@ MAX_MEASUREMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 
 
 def _current_estimate_id(db, lead_id: str) -> str | None:
-    """The estimate a new photo belongs to: the lead's newest. "Revise
+    """The estimate a new photo belongs to: the lead's newest. "New
     estimate" makes a newer one, and photos taken after that are for it.
     Alan, 2026-10-08: every photo tagged to its estimate."""
     row = (

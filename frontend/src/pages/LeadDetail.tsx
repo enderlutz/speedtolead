@@ -827,7 +827,7 @@ export default function LeadDetail() {
       const fresh = await api.getLead(id);
       setLead(fresh);
       setSelectedEstimateId(fresh_estimate.id);
-      toast.success("Revision started from the last estimate — adjust the inputs and recalculate. The earlier one stays in the history.");
+      toast.success("New estimate started from the last one — adjust the inputs and recalculate. The earlier one stays in the history.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create estimate");
     } finally {
@@ -1870,7 +1870,7 @@ export default function LeadDetail() {
                     disabled={creatingNewEstimate}
                   >
                     <Plus className="h-3 w-3 mr-1" />
-                    {creatingNewEstimate ? "Starting…" : "Revise estimate"}
+                    {creatingNewEstimate ? "Starting…" : "New estimate"}
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -1907,7 +1907,7 @@ export default function LeadDetail() {
             </Card>
           )}
 
-          {/* "Revise estimate" — also available when there's only one estimate
+          {/* "New estimate" — also available when there's only one estimate
               (or none). Shown as a small action above the tier prices card. */}
           {sortedEstimates.length <= 1 && lead?.estimates && (
             <div className="flex justify-end">
@@ -1920,7 +1920,7 @@ export default function LeadDetail() {
                 title="Start a fresh estimate from this one's inputs — for when the scope of work changed or the first one was off. The sent one stays in the history."
               >
                 <Plus className="h-3 w-3 mr-1" />
-                {creatingNewEstimate ? "Starting…" : "Revise estimate"}
+                {creatingNewEstimate ? "Starting…" : "New estimate"}
               </Button>
             </div>
           )}
