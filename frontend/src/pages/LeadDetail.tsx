@@ -10,6 +10,7 @@ import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
+import { sideChips } from "@/lib/fenceSides";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
 import { TIER_KEYS, tiersFromBreakdown, setTierPrice, type TierKey } from "@/lib/breakdown";
 import { toast } from "sonner";
@@ -25,7 +26,7 @@ import LeadActivityHistory from "@/components/LeadActivityHistory";
 import DailyTaskList from "@/components/DailyTaskList";
 import {
   ArrowLeft, MapPin, Phone, Mail, Calculator, RefreshCw,
-  Send, AlertTriangle, CheckCircle2, FileText, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
+  Send, AlertTriangle, CheckCircle2, FileText, Lightbulb, MessageSquare, ExternalLink, Shield, Pencil, Save, Archive, ArchiveRestore, Eye, Navigation, Clock, Calendar, Plus, Undo2, Trash2, Loader2, WandSparkles, Upload, ChevronDown, ChevronUp, Mic, ArrowRightCircle, Star, Play, Pause, RotateCw, DollarSign, Copy, GraduationCap, X,
   Ruler, Camera, History, Satellite, Rocket, Gem, Crown, Medal, CalendarCheck, CircleDollarSign, Route, Flame, UserRound, Hourglass, Compass, Paintbrush, CreditCard, Check, Receipt, Palette, Sparkles, MessageSquareWarning,
 } from "lucide-react";
 import { useTrainingMode } from "@/lib/training_mode_context";
@@ -115,7 +116,9 @@ const CONFIDENCE_OPTIONS = [
 const APPROVAL_CONFIG = {
   green:  { label: "Ready to send",         icon: CheckCircle2, cls: "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-900", chip: "from-emerald-500 to-teal-600" },
   yellow: { label: "Add-ons pending",       icon: Hourglass,    cls: "border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-900",     chip: "from-amber-500 to-orange-600" },
-  red:    { label: "Owner review required", icon: Shield,       cls: "border-red-300 bg-gradient-to-r from-red-50 to-rose-50 text-red-900",             chip: "from-red-500 to-rose-600" },
+  // Was "Owner review required" in red — Alan, 2026-10-08: heavy for what
+  // it is. The reason underneath still says exactly what to look at.
+  red:    { label: "Something to think about", icon: Lightbulb,    cls: "border-gold/50 bg-gradient-to-r from-ivory to-card text-walnut",                chip: "from-gold to-bronze" },
 } as const;
 
 const selectCls = "h-10 w-full rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
@@ -149,8 +152,8 @@ const SHOW_ROUTE_STACK: boolean = false;
 // (icon beside the full label) from `sm` up. The active one is the card
 // colour with the brand bronze text.
 const LEAD_TAB =
-  "h-auto flex-col gap-1 rounded-lg px-1 py-2 text-[10px] font-semibold leading-none " +
-  "sm:h-[calc(100%-1px)] sm:flex-row sm:gap-1.5 sm:rounded-md sm:px-2 sm:py-0.5 sm:text-sm sm:font-medium " +
+  "h-auto flex-col gap-1 rounded-lg px-1 py-2 text-center text-[10px] font-semibold leading-tight whitespace-normal " +
+  "sm:h-[calc(100%-1px)] sm:flex-row sm:gap-1.5 sm:rounded-md sm:px-2 sm:py-0.5 sm:text-sm sm:font-medium sm:whitespace-nowrap " +
   "data-active:bg-card data-active:text-bronze data-active:shadow-sm data-active:ring-1 data-active:ring-gold/30 " +
   "[&_svg]:size-4 [&_svg]:shrink-0";
 
@@ -1426,7 +1429,7 @@ export default function LeadDetail() {
             <Ruler /><span className="sm:hidden">Scope</span><span className="hidden sm:inline">Fence Scope</span>
           </TabsTrigger>
           <TabsTrigger value="companycam" className={LEAD_TAB}>
-            <Camera /><span className="sm:hidden">Photos</span><span className="hidden sm:inline">Company Cam</span>
+            <Camera /><span className="sm:hidden">Company Cam</span><span className="hidden sm:inline">Company Cam</span>
           </TabsTrigger>
           {/* Call / Exterior / Upsell tabs hidden 2026-07-14 to trim visual fat.
               Their tab panels + logic are untouched; uncomment to restore. */}
@@ -1959,8 +1962,8 @@ export default function LeadDetail() {
                 {fenceSides.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1 pt-1">
                     <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sides</span>
-                    {fenceSides.map((s) => (
-                      <Pill key={s} accent={s.startsWith("Inside") ? ACCENT.violet : ACCENT.cyan}>{s}</Pill>
+                    {sideChips(fenceSides).map((c) => (
+                      <Pill key={c.label} accent={c.group === "all" ? ACCENT.gold : c.group === "Inside" ? ACCENT.violet : ACCENT.cyan}>{c.label}</Pill>
                     ))}
                   </div>
                 )}

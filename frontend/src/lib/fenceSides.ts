@@ -28,3 +28,21 @@ export function sidesLabel(sides: string[]): string {
   });
   return parts.join(" · ");
 }
+
+/** The chips the estimate shows for the chosen sides. All four of a group
+ *  collapse to one chip ("Insides of fence"), all eight to "Whole fence"
+ *  (Alan, 2026-10-08: four purple pills saying the same thing is "extra
+ *  shit"). Anything less lists the sides. */
+export function sideChips(sides: string[]): { label: string; group: SideGroup | "all" }[] {
+  const chosen = ALL_SIDES.filter((s) => sides.includes(s));
+  if (chosen.length === 0) return [];
+  if (chosen.length === ALL_SIDES.length) return [{ label: "Whole fence", group: "all" }];
+  const out: { label: string; group: SideGroup | "all" }[] = [];
+  (Object.keys(FENCE_SIDES) as SideGroup[]).forEach((group) => {
+    const names = FENCE_SIDES[group];
+    const mine = names.filter((n) => chosen.includes(n));
+    if (mine.length === names.length) out.push({ label: `${group}s of fence`, group });
+    else mine.forEach((n) => out.push({ label: n, group }));
+  });
+  return out;
+}

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
-  ArrowUp, ZoomIn, ZoomOut, Upload, FileText } from "lucide-react";
+  ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -214,6 +214,49 @@ function locateProperty(
   );
 }
 
+/** A slider you can actually grab on a phone. The native range input is a
+ *  6px line whose thumb has to be hit exactly, which on an iPhone it never
+ *  was (Alan, 2026-10-08: "I can't even do the sliding bar"). This is a
+ *  32px-tall track: press anywhere on it and drag. */
+function TouchSlider({
+  min, max, value, onChange, label,
+}: {
+  min: number; max: number; value: number; onChange: (v: number) => void; label: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const down = useRef(false);
+  const set = (clientX: number) => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r || !r.width) return;
+    const t = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    onChange(min + t * (max - min));
+  };
+  const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+  return (
+    <div
+      ref={ref}
+      role="slider"
+      aria-label={label}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={Math.round(value * 100) / 100}
+      className="relative h-8 min-w-0 flex-1 cursor-pointer touch-none select-none"
+      onPointerDown={(e) => {
+        down.current = true;
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
+        set(e.clientX);
+      }}
+      onPointerMove={(e) => { if (down.current) set(e.clientX); }}
+      onPointerUp={() => { down.current = false; }}
+      onPointerCancel={() => { down.current = false; }}
+    >
+      <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/25" />
+      <div className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-gradient-to-r from-bronze to-gold-light" style={{ width: `${pct}%` }} />
+      <div className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold-light shadow-md ring-2 ring-ink/50" style={{ left: `${pct}%` }} />
+    </div>
+  );
+}
+
 /** A point's offset from the map centre, in map pixels at `zoom` — the
  *  inverse of latLngFromPixel, for placing the footage labels. */
 function pixelFromLatLng(center: Pt, zoom: number, p: Pt): { x: number; y: number } {
@@ -392,7 +435,7 @@ export default function SatelliteMeasureCard({
 
   function onDialDown(e: React.PointerEvent<HTMLDivElement>) {
     e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     dialDrag.current = { id: e.pointerId, angle0: dialAngle(e), rot0: viewRef.current.rot, turned: false };
   }
 
@@ -461,6 +504,19 @@ export default function SatelliteMeasureCard({
     ));
   }
 
+  /** Phone: the point goes where the crosshair is — the map's centre. */
+  function addPointAtCrosshair() {
+    const c = mapRef.current?.getCenter?.();
+    if (!c) return;
+    addPoint({ lat: c.lat(), lng: c.lng() });
+  }
+
+  function undoLastPoint() {
+    setRuns((prev) => prev.map((r) =>
+      r.id === activeRunRef.current ? { ...r, points: r.points.slice(0, -1) } : r,
+    ));
+  }
+
   // One gesture layer for tap, drag, pinch and twist. A tap is a press that
   // moved less than 4px; anything else pans. Two fingers zoom by their
   // distance and turn by their angle.
@@ -473,7 +529,7 @@ export default function SatelliteMeasureCard({
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (status !== "ready") return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     const g = gestureRef.current;
     g.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (g.pts.size === 1) {
@@ -522,7 +578,11 @@ export default function SatelliteMeasureCard({
     if (!g.pts.has(e.pointerId)) return;
     g.pts.delete(e.pointerId);
     if (g.pts.size === 0) {
-      if (!g.moved && e.type === "pointerup") {
+      // A tap adds a point — with a mouse or a pen. Under a finger it was
+      // adding points by accident (a flick to scroll, a brush of the
+      // thumb), and a fingertip hides the corner it is meant to hit; on a
+      // phone the point goes where the crosshair is, via the button below.
+      if (!g.moved && e.type === "pointerup" && e.pointerType !== "touch") {
         const p = pointFromFrame(e.clientX, e.clientY);
         if (p) addPoint(p);
       }
@@ -996,7 +1056,9 @@ export default function SatelliteMeasureCard({
     <Panel
       icon={Ruler}
       title="Measure & capture"
-      sub="Tap along the fence to measure it; drag to move, scroll or pinch to zoom, and turn the view with the buttons on the map. Add a separate run for each stretch and they add up. Capture saves the photo as you framed it and fills Linear Feet."
+      sub={IS_TOUCH
+        ? "Drag the map so the crosshair sits on a fence corner, then press Add point. Pinch to zoom, twist or use the dial to turn. Add a run for each stretch and they add up; Capture saves the photo as framed and fills Linear Feet."
+        : "Click along the fence to measure it; drag to move, scroll or pinch to zoom, and spin the dial to turn the view. Add a separate run for each stretch and they add up. Capture saves the photo as you framed it and fills Linear Feet."}
       accent={ACCENT.violet}
     >
         {status === "nokey" || status === "error" || status === "authfail" ? (
@@ -1092,6 +1154,19 @@ export default function SatelliteMeasureCard({
                 {l.text}
               </span>
             ))}
+            {/* Phone: line the crosshair up on a corner and press Add point.
+                In the active run's colour, so it is clear which line it
+                joins. */}
+            {IS_TOUCH && status === "ready" ? (
+              <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div
+                  className="h-8 w-8 rounded-full border-[3px] shadow-[0_0_0_2px_rgba(0,0,0,0.55)]"
+                  style={{ borderColor: RUN_COLORS[Math.max(0, runs.findIndex((r) => r.id === activeRun)) % RUN_COLORS.length] }}
+                />
+                <div className="absolute left-1/2 top-1/2 h-0.5 w-12 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+                <div className="absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+              </div>
+            ) : null}
           </div>
 
           {/* The angle: a compass you spin. Drag anywhere on the dial and
@@ -1106,13 +1181,13 @@ export default function SatelliteMeasureCard({
               onPointerUp={onDialUp}
               onPointerCancel={onDialUp}
               title="Drag to turn the view · tap to point north"
-              className="relative h-16 w-16 cursor-grab touch-none select-none rounded-full bg-black/60 shadow-md shadow-black/30 ring-1 ring-white/25 backdrop-blur-sm active:cursor-grabbing"
+              className={`relative ${IS_TOUCH ? "h-20 w-20" : "h-16 w-16"} cursor-grab touch-none select-none rounded-full bg-black/60 shadow-md shadow-black/30 ring-1 ring-white/25 backdrop-blur-sm active:cursor-grabbing`}
             >
               {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
                 <span
                   key={a}
                   className={a % 90 ? "absolute left-1/2 top-1 h-1 w-px bg-white/30" : "absolute left-1/2 top-1 h-1.5 w-px bg-white/60"}
-                  style={{ transform: `translateX(-50%) rotate(${a}deg)`, transformOrigin: "50% 28px" }}
+                  style={{ transform: `translateX(-50%) rotate(${a}deg)`, transformOrigin: IS_TOUCH ? "50% 36px" : "50% 28px" }}
                 />
               ))}
               <div className="absolute inset-0 flex items-center justify-center" style={{ transform: `rotate(${rot}deg)` }}>
@@ -1140,26 +1215,40 @@ export default function SatelliteMeasureCard({
               or pinch for the same thing. */}
           <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-lg bg-black/60 px-2 py-1 text-white backdrop-blur-sm">
             <button type="button" onClick={() => setZoomFine(zf - ZOOM_STEP)} title="Zoom out a little"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-white/15">
+              className={`flex ${IS_TOUCH ? "h-10 w-10" : "h-8 w-8"} shrink-0 items-center justify-center rounded-md hover:bg-white/15`}>
               <ZoomOut className="h-4 w-4" />
             </button>
-            <input
-              type="range"
-              min={ZOOM_MIN}
-              max={ZOOM_MAX + 1}
-              step={0.05}
-              value={zf}
-              onChange={(e) => setZoomFine(Number(e.target.value))}
-              aria-label="Zoom"
-              className="h-1.5 min-w-0 flex-1 accent-gold"
-            />
+            <TouchSlider min={ZOOM_MIN} max={ZOOM_MAX + 1} value={zf} onChange={setZoomFine} label="Zoom" />
             <button type="button" onClick={() => setZoomFine(zf + ZOOM_STEP)} title="Zoom in a little"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-white/15">
+              className={`flex ${IS_TOUCH ? "h-10 w-10" : "h-8 w-8"} shrink-0 items-center justify-center rounded-md hover:bg-white/15`}>
               <ZoomIn className="h-4 w-4" />
             </button>
             <span className="w-12 shrink-0 text-right text-[11px] font-semibold tabular-nums">{zf.toFixed(2)}×</span>
           </div>
         </div>
+
+        {/* Phone: big buttons for the things a thumb can't do precisely on
+            the map itself — drop a point, take one back, turn the view. */}
+        {IS_TOUCH ? (
+          <div className="flex gap-2">
+            <Button
+              onClick={addPointAtCrosshair}
+              disabled={status !== "ready"}
+              className="h-12 flex-1 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze text-sm font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60"
+            >
+              <Crosshair className="h-4 w-4 mr-2" /> Add point at crosshair
+            </Button>
+            <Button variant="outline" onClick={undoLastPoint} title="Take the last point back" className="h-12 w-12 rounded-xl p-0">
+              <Undo2 className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={() => setRotation(viewRef.current.rot - 15)} title="Turn 15° left" className="h-12 w-12 rounded-xl p-0">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={() => setRotation(viewRef.current.rot + 15)} title="Turn 15° right" className="h-12 w-12 rounded-xl p-0">
+              <RotateCw className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null}
 
         {/* Each run, its footage, and which one clicks land on. */}
         <div className="space-y-1.5">
