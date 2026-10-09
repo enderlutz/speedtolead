@@ -304,7 +304,13 @@ function ObjectionsPanel({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs font-bold">{categories[o.category]?.label || o.category}</span>
-          {o.confidence === "low" ? <span className="text-[9px] font-semibold uppercase tracking-wide opacity-60">maybe</span> : null}
+          {/* Alan (2026-10-09): say it plainly — "Confident" or "Not
+              confident" — not a faint "maybe" on some rows and nothing on
+              the rest. Not confident is the pile to check first. */}
+          <span className={cn("rounded-full px-1.5 text-[9px] font-bold uppercase tracking-wide leading-4",
+            o.confidence === "low" ? "bg-black/10 opacity-80" : "bg-emerald-600/15 text-emerald-900")}>
+            {o.confidence === "low" ? "Not confident" : "Confident"}
+          </span>
           <span className="text-[10px] opacity-70">
             {o.source === "call" ? (o.mid_call_send ? "on the call the estimate went out" : "on a call") : "by text"} · {timeAgo(o.said_at)}
           </span>
@@ -337,7 +343,7 @@ function ObjectionsPanel({
     >
       {objections.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          None found. Older customers aren't read until you press Scan history.
+          None found. Every text and call has been read; new ones are read as they arrive.
         </p>
       ) : (
         <div className="space-y-1.5">
