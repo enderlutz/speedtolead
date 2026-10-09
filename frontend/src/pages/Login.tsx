@@ -35,13 +35,14 @@ export default function Login() {
     >
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 mb-8 justify-center">
-          {/* The wordmark on its own ivory, with a gold hairline. */}
-          <div
-            className="rounded-2xl px-5 py-3.5"
-            style={{ background: "#F8F3E7", boxShadow: "0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(201,151,47,0.45)" }}
-          >
-            <img src="/sterling-logo.png" alt="Sterling Fence Staining" className="h-12 w-auto" draggable={false} />
-          </div>
+          {/* The wordmark reversed out, straight on the charcoal. */}
+          <img
+            src="/sterling-logo-dark.png"
+            alt="Sterling Fence Staining"
+            className="h-16 w-auto"
+            style={{ filter: "drop-shadow(0 4px 14px rgba(0,0,0,0.6))" }}
+            draggable={false}
+          />
         </div>
 
         <div

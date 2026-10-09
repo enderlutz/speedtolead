@@ -118,11 +118,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
 export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-sidebar-border bg-sidebar sticky top-0 z-40">
-      <div className="flex items-center gap-2.5">
-        <div className="rounded-lg bg-ivory px-2 py-1.5 shadow-md shadow-black/30 ring-1 ring-gold/40">
-          <img src="/sterling-logo.png" alt={divisionBrand(getDivision()).name} className="h-6 w-auto" draggable={false} />
-        </div>
-      </div>
+      <img src="/sterling-logo-dark.png" alt={divisionBrand(getDivision()).name} className="h-7 w-auto" draggable={false} />
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
       </button>
@@ -219,21 +215,22 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           ${open ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* Logo — the real wordmark on an ivory plaque (the logo's own
-            background colour, so it has no visible edge), top left, with a
-            gold hairline. Alan, 2026-10-08. */}
-        <div className="px-3 pt-4 pb-3 border-b border-sidebar-border shrink-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="rounded-xl bg-ivory px-3 py-2.5 shadow-lg shadow-black/40 ring-1 ring-gold/40">
-              <img src="/sterling-logo.png" alt={divisionBrand(getDivision()).name} className="h-10 w-auto" draggable={false} />
-            </div>
+        {/* Logo — the wordmark reversed out (ivory and gold on the charcoal,
+            transparent background: public/sterling-logo-dark.png) so it
+            reads as printed on the sidebar, not stuck on it. Alan,
+            2026-10-08: "make the top left look more seamless". */}
+        <div className="relative px-4 pt-5 pb-4 shrink-0 overflow-hidden">
+          <div className="pointer-events-none absolute -left-10 -top-16 h-40 w-56 rounded-full bg-gold/10 blur-3xl" />
+          <div className="relative flex items-start justify-between gap-2">
+            <img src="/sterling-logo-dark.png" alt={divisionBrand(getDivision()).name} className="h-11 w-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" draggable={false} />
             <button onClick={onClose} className="md:hidden p-1.5 rounded-md text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
               <X className="h-4 w-4" />
             </button>
           </div>
-          <p className="mt-2.5 px-1 text-[9px] font-semibold uppercase tracking-[0.24em] text-gold/80">
+          <p className="relative mt-2.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-gold/70">
             {divisionBrand(getDivision()).subtitle} · Houston
           </p>
+          <div className="pointer-events-none absolute inset-x-4 bottom-0 h-px bg-gradient-to-r from-gold/50 via-gold/15 to-transparent" />
         </div>
 
         {/* Division switcher — fragned only, directly under the header. */}
