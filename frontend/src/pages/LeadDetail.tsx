@@ -145,6 +145,15 @@ const SHOW_NEW_BUILD: boolean = false;
 // right now). Flip to true to bring it back; the endpoint is untouched.
 const SHOW_ROUTE_STACK: boolean = false;
 
+// The lead page's tabs: a tile (icon over a short label) on a phone, a row
+// (icon beside the full label) from `sm` up. The active one is the card
+// colour with the brand bronze text.
+const LEAD_TAB =
+  "h-auto flex-col gap-1 rounded-lg px-1 py-2 text-[10px] font-semibold leading-none " +
+  "sm:h-[calc(100%-1px)] sm:flex-row sm:gap-1.5 sm:rounded-md sm:px-2 sm:py-0.5 sm:text-sm sm:font-medium " +
+  "data-active:bg-card data-active:text-bronze data-active:shadow-sm data-active:ring-1 data-active:ring-gold/30 " +
+  "[&_svg]:size-4 [&_svg]:shrink-0";
+
 const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 
 // True below the `lg` breakpoint (single-column layout). Used to place a few
@@ -1405,10 +1414,20 @@ export default function LeadDetail() {
           }
         }}
       >
-        <TabsList className="w-full sm:w-auto bg-ink/[0.06] ring-1 ring-gold/25">
-          <TabsTrigger value="estimate"><Calculator className="hidden sm:block" /> Estimate</TabsTrigger>
-          <TabsTrigger value="scope"><Ruler className="hidden sm:block" /> Fence Scope</TabsTrigger>
-          <TabsTrigger value="companycam"><Camera className="hidden sm:block" /> Company Cam</TabsTrigger>
+        {/* On a phone the five tabs are icon-over-label tiles of equal width
+            (Alan, 2026-10-08: the one-row strip "looks like shit" on iPhone —
+            five long labels in 32px, no icons). From `sm` up: icon beside
+            the full label, as before. */}
+        <TabsList className="w-full h-auto! rounded-xl bg-ink/[0.06] p-1 ring-1 ring-gold/25 sm:h-8! sm:w-auto sm:rounded-lg sm:p-[3px]">
+          <TabsTrigger value="estimate" className={LEAD_TAB}>
+            <Calculator /><span className="sm:hidden">Estimate</span><span className="hidden sm:inline">Estimate</span>
+          </TabsTrigger>
+          <TabsTrigger value="scope" className={LEAD_TAB}>
+            <Ruler /><span className="sm:hidden">Scope</span><span className="hidden sm:inline">Fence Scope</span>
+          </TabsTrigger>
+          <TabsTrigger value="companycam" className={LEAD_TAB}>
+            <Camera /><span className="sm:hidden">Photos</span><span className="hidden sm:inline">Company Cam</span>
+          </TabsTrigger>
           {/* Call / Exterior / Upsell tabs hidden 2026-07-14 to trim visual fat.
               Their tab panels + logic are untouched; uncomment to restore. */}
           {/*
@@ -1430,8 +1449,12 @@ export default function LeadDetail() {
           </TabsTrigger>
           <TabsTrigger value="upsell">Upsell</TabsTrigger>
           */}
-          <TabsTrigger value="estimator"><WandSparkles className="hidden sm:block" /> Estimator</TabsTrigger>
-          <TabsTrigger value="history"><History className="hidden sm:block" /> Activity History</TabsTrigger>
+          <TabsTrigger value="estimator" className={LEAD_TAB}>
+            <WandSparkles /><span className="sm:hidden">Estimator</span><span className="hidden sm:inline">Estimator</span>
+          </TabsTrigger>
+          <TabsTrigger value="history" className={LEAD_TAB}>
+            <History /><span className="sm:hidden">History</span><span className="hidden sm:inline">Activity History</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="estimate" className="space-y-4 sm:space-y-6 mt-4">
