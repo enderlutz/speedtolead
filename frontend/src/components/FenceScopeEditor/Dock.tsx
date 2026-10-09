@@ -7,9 +7,16 @@
 // Everything about the photo itself lives behind one Photo menu, and the
 // rarely-used bits behind "more".
 //
-// On a desktop the dock floats over the bottom of the canvas; on a phone it
-// is a bar beneath it, under the thumb, with the pen labels kept because
-// "Inside / Outside / Both" is the whole job.
+// On a desktop the dock floats over the bottom of the canvas. On a phone it
+// is a bar beneath it that wraps to two rows — pens on top, tools under —
+// rather than scrolling sideways, which nobody discovers (Alan, 2026-10-09:
+// couldn't find turn or flip).
+//
+// The pens ALWAYS start a new line, selection or no selection. The first
+// version turned them into "recolour the selected line" once a line was
+// selected — which it is right after Confirm — so pressing Both after a blue
+// run repainted the blue run red instead of starting the gate (Alan,
+// 2026-10-09). Recolouring is its own control now.
 import {
   MousePointer2, Undo2, Redo2, Trash2, Download, Image as ImageIcon, MoreHorizontal,
   FlipHorizontal2, Plus, Minus, RotateCcw, RotateCw, FlipHorizontal, FlipVertical,
@@ -44,12 +51,20 @@ const IDLE = "text-white/85 hover:bg-white/10";
 const GOLD = "bg-gradient-to-r from-gold-light via-gold to-bronze text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60 hover:from-gold hover:to-bronze";
 
 function Rule() {
-  return <div className="mx-0.5 h-5 w-px shrink-0 bg-white/15" />;
+  return <div className="mx-0.5 hidden h-5 w-px shrink-0 bg-white/15 sm:block" />;
 }
 
-function Dot({ hex }: { hex: string }) {
-  return <span className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/50" style={{ background: hex }} />;
+function Dot({ hex, className }: { hex: string; className?: string }) {
+  return <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/50", className)} style={{ background: hex }} />;
 }
+
+// Swatch icons for the Colour menu, one per pen, made once so the menu
+// button isn't handed a new component type every render.
+const SWATCH: Record<FenceColor, React.ElementType> = {
+  blue: () => <Dot hex={BLUE} className="h-3.5 w-3.5" />,
+  green: () => <Dot hex={GREEN} className="h-3.5 w-3.5" />,
+  red: () => <Dot hex={RED} className="h-3.5 w-3.5" />,
+};
 
 export default function Dock({
   scope, activePointIndex, exporting, onExport, hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi,
@@ -63,184 +78,203 @@ export default function Dock({
     const n = scope.drawingPoints.length;
     return (
       <Shell>
-        <button type="button" onClick={scope.cancelDrawing} className={cn(BTN, IDLE)} title="Throw this run away (Esc)">
-          <X className="h-4 w-4" /> Cancel
-        </button>
-        <button type="button" onClick={scope.undo} className={cn(BTN, IDLE)} title="Take back the last point (Ctrl/Cmd+Z)">
-          <Undo className="h-4 w-4" /> <span className="hidden sm:inline">Last point</span>
-        </button>
-        <span className="shrink-0 px-1 text-[11px] text-white/70 tabular-nums">
-          {n} point{n === 1 ? "" : "s"}
-          <span className="hidden md:inline"> · tap the last point again to finish</span>
-        </span>
-        <div className="flex-1" />
-        <button
-          type="button" onClick={scope.finishDrawing} disabled={n < 2}
-          className={cn(BTN, GOLD, "px-3.5")} title="Finish this fence line (Enter)"
-        >
-          <Check className="h-4 w-4" /> Confirm line
-        </button>
-      </Shell>
-    );
-  }
-
-  // ---- a line is selected: its own controls ----
-  if (selected && !penDown) {
-    const done = () => { scope.selectSegment(null); };
-    return (
-      <Shell>
-        {selected.color !== "red" ? (
-          <button type="button" onClick={() => scope.flipArrows(selected.id)} className={cn(BTN, IDLE)} title="Point the arrows at the other face (F)">
-            <FlipHorizontal2 className="h-4 w-4" /> <span className="hidden sm:inline">Flip</span> arrows
+        <Group className="w-full">
+          <button type="button" onClick={scope.cancelDrawing} className={cn(BTN, IDLE)} title="Throw this run away (Esc)">
+            <X className="h-4 w-4" /> Cancel
           </button>
-        ) : null}
-        <Rule />
-        {PENS.filter((p) => p.color !== selected.color).map((p) => (
+          <button type="button" onClick={scope.undo} className={cn(BTN, IDLE)} title="Take back the last point (Ctrl/Cmd+Z)">
+            <Undo className="h-4 w-4" /> <span className="hidden sm:inline">Last point</span>
+          </button>
+          <span className="shrink-0 px-1 text-[11px] text-white/70 tabular-nums">
+            {n} point{n === 1 ? "" : "s"}
+            <span className="hidden md:inline"> · tap the last point again to finish</span>
+          </span>
+          <div className="flex-1" />
           <button
-            key={p.color} type="button" onClick={() => scope.setColor(selected.id, p.color)}
-            className={cn(BTN, IDLE)} title={`Make this ${p.hint.toLowerCase()}`}
+            type="button" onClick={scope.finishDrawing} disabled={n < 2}
+            className={cn(BTN, GOLD, "px-3.5")} title="Finish this fence line (Enter)"
           >
-            <Dot hex={p.hex} /> {p.label}
+            <Check className="h-4 w-4" /> Confirm line
           </button>
-        ))}
-        <Rule />
-        <button
-          type="button"
-          onClick={() => scope.addPointToSegment(selected.id, activePointIndex ?? selected.points.length - 2)}
-          className={cn(BTN, IDLE)} title="Add a corner after the selected point"
-        >
-          <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Point</span>
-        </button>
-        <button
-          type="button" disabled={activePointIndex == null}
-          onClick={() => { if (activePointIndex != null) scope.removePoint(selected.id, activePointIndex); }}
-          className={cn(BTN, IDLE)} title="Remove the selected point"
-        >
-          <Minus className="h-4 w-4" /> <span className="hidden sm:inline">Point</span>
-        </button>
-        <button
-          type="button" onClick={() => scope.deleteSegment(selected.id)}
-          className={cn(BTN, "text-red-300 hover:bg-red-500/20")} title="Delete this line (Delete)"
-        >
-          <Trash2 className="h-4 w-4" /> <span className="hidden sm:inline">Delete</span>
-        </button>
-        <div className="flex-1" />
-        <button type="button" onClick={done} className={cn(BTN, "bg-white/15 text-white hover:bg-white/25")} title="Done with this line (Esc)">
-          <Check className="h-4 w-4" /> Done
-        </button>
+        </Group>
       </Shell>
     );
   }
 
-  // ---- idle (or a pen picked, nothing placed yet) ----
+  const lineSelected = !!selected && !penDown;
+
   return (
     <Shell>
-      <button
-        type="button" onClick={() => scope.setMode("select")}
-        className={cn(BTN, !penDown ? "bg-white/20 text-white" : IDLE)} title="Select and move lines (V)"
-      >
-        <MousePointer2 className="h-4 w-4" /> <span className="hidden md:inline">Select</span>
-      </button>
-      {PENS.map((p) => {
-        const on = scope.mode === p.color;
-        return (
-          <button
-            key={p.color} type="button" onClick={() => scope.startDrawing(p.color)}
-            className={cn(BTN, on ? "text-white shadow-md" : IDLE)}
-            style={on ? { background: p.hex, boxShadow: `0 0 0 1px ${p.hex}, 0 4px 14px ${p.hex}66` } : undefined}
-            title={`${p.hint} (${p.key})`}
-          >
-            {on ? <Check className="h-3.5 w-3.5" /> : <Dot hex={p.hex} />} {p.label}
-          </button>
-        );
-      })}
-      {penDown ? (
-        <span className="hidden shrink-0 px-1 text-[11px] text-white/70 lg:inline">Tap along the fence</span>
-      ) : null}
-      <Rule />
-      <button type="button" onClick={scope.undo} disabled={!scope.canUndo} className={cn(BTN, IDLE, "px-2")} title="Undo (Ctrl/Cmd+Z)">
-        <Undo2 className="h-4 w-4" />
-      </button>
-      <button type="button" onClick={scope.redo} disabled={!scope.canRedo} className={cn(BTN, IDLE, "hidden px-2 sm:inline-flex")} title="Redo (Ctrl/Cmd+Shift+Z)">
-        <Redo2 className="h-4 w-4" />
-      </button>
+      {/* The pens. Always "start a new line" — see the note at the top. */}
+      <Group className="max-sm:w-full">
+        <button
+          type="button" onClick={() => scope.setMode("select")}
+          className={cn(BTN, !penDown && !lineSelected ? "bg-white/20 text-white" : IDLE)} title="Select and move lines (V)"
+        >
+          <MousePointer2 className="h-4 w-4" /> <span className="hidden md:inline">Select</span>
+        </button>
+        {PENS.map((p) => {
+          const on = scope.mode === p.color;
+          return (
+            <button
+              key={p.color} type="button" onClick={() => scope.startDrawing(p.color)}
+              className={cn(BTN, on ? "text-white shadow-md" : IDLE)}
+              style={on ? { background: p.hex, boxShadow: `0 0 0 1px ${p.hex}, 0 4px 14px ${p.hex}66` } : undefined}
+              title={`Start a new line — ${p.hint.toLowerCase()} (${p.key})`}
+            >
+              {on ? <Check className="h-3.5 w-3.5" /> : <Dot hex={p.hex} />} {p.label}
+            </button>
+          );
+        })}
+        {penDown ? (
+          <span className="hidden shrink-0 px-1 text-[11px] text-white/70 lg:inline">Tap along the fence</span>
+        ) : null}
+      </Group>
+
       <Rule />
 
-      <Menu icon={ImageIcon} label="Photo" title="Everything about the photo: brighten, drone view, turn and flip">
-        {(close) => (
-          <>
-            <MenuLabel>Look</MenuLabel>
-            <MenuItem
-              icon={Sparkles} label={scope.enhanced ? "Brightened" : "Brighten"} checked={scope.enhanced}
-              hint="Sharper, brighter, more colour. Free and instant."
-              onClick={() => { scope.toggleEnhance(); close(); }}
-            />
-            {hasAi ? (
+      {lineSelected && selected ? (
+        // ---- the selected line's own controls ----
+        <Group className="max-sm:w-full">
+          <span className="hidden shrink-0 pl-1 text-[10px] font-bold uppercase tracking-wider text-white/50 sm:inline">This line</span>
+          {selected.color !== "red" ? (
+            <button type="button" onClick={() => scope.flipArrows(selected.id)} className={cn(BTN, IDLE)} title="Point the arrows at the other face (F)">
+              <FlipHorizontal2 className="h-4 w-4" /> Arrows
+            </button>
+          ) : null}
+          <Menu icon={SWATCH[selected.color]} label="Colour" title="Change which faces this line marks">
+            {(close) => (
               <>
-                <MenuItem
-                  icon={Plane} label="Drone view" checked={scope.useAi}
-                  hint="The photorealistic re-render of the property"
-                  onClick={() => { scope.setUseAi(true); close(); }}
-                />
-                <MenuItem
-                  icon={ImageIcon} label="Original screenshot" checked={!scope.useAi}
-                  hint="What was uploaded"
-                  onClick={() => { scope.setUseAi(false); close(); }}
-                />
+                <MenuLabel>This line marks</MenuLabel>
+                {PENS.map((p) => (
+                  <MenuItem
+                    key={p.color}
+                    icon={SWATCH[p.color]}
+                    label={p.hint}
+                    checked={selected.color === p.color}
+                    onClick={() => { scope.setColor(selected.id, p.color); close(); }}
+                  />
+                ))}
               </>
-            ) : (
-              <MenuItem
-                icon={rendering ? Loader2 : Plane} label={rendering ? "Rendering… up to a minute" : "Run drone view"}
-                disabled={rendering || !aiConfigured}
-                hint={aiConfigured ? "Re-renders the screenshot as an overhead drone photo. A few cents." : "Needs an OpenAI key on the server"}
-                onClick={() => { onGenerateAi(); close(); }}
-              />
             )}
-            <MenuLabel>Turn</MenuLabel>
-            <MenuItem icon={RotateCcw} label="Turn left" shortcut="[" onClick={() => { scope.rotateBy(-1); close(); }} />
-            <MenuItem icon={RotateCw} label="Turn right" shortcut="]" onClick={() => { scope.rotateBy(1); close(); }} />
-            <MenuItem icon={FlipHorizontal} label="Mirror left-to-right" shortcut="H" onClick={() => { scope.flip("x"); close(); }} />
-            <MenuItem icon={FlipVertical} label="Flip top-to-bottom" shortcut="J" onClick={() => { scope.flip("y"); close(); }} />
-            {scope.reoriented ? (
-              <MenuItem icon={ArrowLeftRight} label="Put it back" hint="Back to how the property actually sits" onClick={() => { scope.resetOrientation(); close(); }} />
-            ) : null}
-            {hasAi ? (
-              <>
-                <MenuRule />
-                <MenuItem
-                  icon={rendering ? Loader2 : Plane} label={rendering ? "Rendering…" : "Render the drone view again"}
-                  disabled={rendering} hint="Costs another render"
-                  onClick={() => { onGenerateAi(); close(); }}
-                />
-                <MenuItem icon={X} label="Discard the drone view" danger hint="Keeps only the original screenshot" onClick={() => { onDiscardAi(); close(); }} />
-              </>
-            ) : null}
-          </>
-        )}
-      </Menu>
+          </Menu>
+          <button
+            type="button"
+            onClick={() => scope.addPointToSegment(selected.id, activePointIndex ?? selected.points.length - 2)}
+            className={cn(BTN, IDLE)} title="Add a corner after the selected point"
+          >
+            <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Point</span>
+          </button>
+          <button
+            type="button" disabled={activePointIndex == null}
+            onClick={() => { if (activePointIndex != null) scope.removePoint(selected.id, activePointIndex); }}
+            className={cn(BTN, IDLE)} title="Remove the selected point"
+          >
+            <Minus className="h-4 w-4" /> <span className="hidden sm:inline">Point</span>
+          </button>
+          <button
+            type="button" onClick={() => scope.deleteSegment(selected.id)}
+            className={cn(BTN, "text-red-300 hover:bg-red-500/20")} title="Delete this line (Delete)"
+          >
+            <Trash2 className="h-4 w-4" /> <span className="hidden sm:inline">Delete</span>
+          </button>
+          <div className="flex-1" />
+          <button type="button" onClick={() => scope.selectSegment(null)} className={cn(BTN, "bg-white/15 text-white hover:bg-white/25")} title="Done with this line (Esc)">
+            <Check className="h-4 w-4" /> Done
+          </button>
+        </Group>
+      ) : (
+        // ---- the editor's tools ----
+        <Group className="max-sm:w-full">
+          <button type="button" onClick={scope.undo} disabled={!scope.canUndo} className={cn(BTN, IDLE, "px-2")} title="Undo (Ctrl/Cmd+Z)">
+            <Undo2 className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={scope.redo} disabled={!scope.canRedo} className={cn(BTN, IDLE, "px-2")} title="Redo (Ctrl/Cmd+Shift+Z)">
+            <Redo2 className="h-4 w-4" />
+          </button>
+          <Rule />
 
-      <Menu icon={MoreHorizontal} title="More" align="right">
-        {(close) => (
-          <>
-            <MenuItem
-              icon={Download} label={exporting ? "Exporting…" : "Download as PNG"} disabled={exporting || scope.segments.length === 0}
-              hint="A full-size copy, without sending it"
-              onClick={() => { onExport(); close(); }}
-            />
-            <MenuRule />
-            <MenuLabel><span className="inline-flex items-center gap-1"><Keyboard className="h-3 w-3" /> Keys</span></MenuLabel>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 px-2.5 pb-2 text-[11px] text-ink/80">
-              <span><b>B / G / R</b> pens</span><span><b>V</b> select</span>
-              <span><b>Enter</b> finish line</span><span><b>Esc</b> cancel</span>
-              <span><b>F</b> flip arrows</span><span><b>Del</b> delete line</span>
-              <span><b>[ ]</b> turn photo</span><span><b>H / J</b> mirror / flip</span>
-              <span><b>⌘Z</b> undo</span><span><b>⌘S</b> save now</span>
-            </div>
-          </>
-        )}
-      </Menu>
+          <Menu icon={ImageIcon} label="Photo" title="Everything about the photo: brighten, drone view, turn and flip">
+            {(close) => (
+              <>
+                <MenuLabel>Look</MenuLabel>
+                <MenuItem
+                  icon={Sparkles} label={scope.enhanced ? "Brightened" : "Brighten"} checked={scope.enhanced}
+                  hint="Sharper, brighter, more colour. Free and instant."
+                  onClick={() => { scope.toggleEnhance(); close(); }}
+                />
+                {hasAi ? (
+                  <>
+                    <MenuItem
+                      icon={Plane} label="Drone view" checked={scope.useAi}
+                      hint="The photorealistic re-render of the property"
+                      onClick={() => { scope.setUseAi(true); close(); }}
+                    />
+                    <MenuItem
+                      icon={ImageIcon} label="Original screenshot" checked={!scope.useAi}
+                      hint="What was uploaded"
+                      onClick={() => { scope.setUseAi(false); close(); }}
+                    />
+                  </>
+                ) : (
+                  <MenuItem
+                    icon={rendering ? Loader2 : Plane} label={rendering ? "Rendering… up to a minute" : "Run drone view"}
+                    disabled={rendering || !aiConfigured}
+                    hint={aiConfigured ? "Re-renders the screenshot as an overhead drone photo. A few cents." : "Needs an OpenAI key on the server"}
+                    onClick={() => { onGenerateAi(); close(); }}
+                  />
+                )}
+                <MenuLabel>Turn &amp; flip</MenuLabel>
+                <MenuItem icon={RotateCcw} label="Turn left 90°" shortcut="[" onClick={() => { scope.rotateBy(-1); close(); }} />
+                <MenuItem icon={RotateCw} label="Turn right 90°" shortcut="]" onClick={() => { scope.rotateBy(1); close(); }} />
+                <MenuItem icon={FlipHorizontal} label="Mirror left-to-right" shortcut="H" onClick={() => { scope.flip("x"); close(); }} />
+                <MenuItem icon={FlipVertical} label="Flip top-to-bottom" shortcut="J" onClick={() => { scope.flip("y"); close(); }} />
+                {scope.reoriented ? (
+                  <MenuItem icon={ArrowLeftRight} label="Put it back" hint="Back to how the property actually sits" onClick={() => { scope.resetOrientation(); close(); }} />
+                ) : null}
+                {hasAi ? (
+                  <>
+                    <MenuRule />
+                    <MenuItem
+                      icon={rendering ? Loader2 : Plane} label={rendering ? "Rendering…" : "Render the drone view again"}
+                      disabled={rendering} hint="Costs another render"
+                      onClick={() => { onGenerateAi(); close(); }}
+                    />
+                    <MenuItem icon={X} label="Discard the drone view" danger hint="Keeps only the original screenshot" onClick={() => { onDiscardAi(); close(); }} />
+                  </>
+                ) : null}
+              </>
+            )}
+          </Menu>
+
+          <Menu icon={MoreHorizontal} title="More" align="right">
+            {(close) => (
+              <>
+                <MenuItem
+                  icon={Download} label={exporting ? "Exporting…" : "Download as PNG"} disabled={exporting || scope.segments.length === 0}
+                  hint="A full-size copy, without sending it"
+                  onClick={() => { onExport(); close(); }}
+                />
+                <MenuRule />
+                <MenuLabel><span className="inline-flex items-center gap-1"><Keyboard className="h-3 w-3" /> Keys</span></MenuLabel>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 px-2.5 pb-2 text-[11px] text-ink/80">
+                  <span><b>B / G / R</b> pens</span><span><b>V</b> select</span>
+                  <span><b>Enter</b> finish line</span><span><b>Esc</b> cancel</span>
+                  <span><b>F</b> flip arrows</span><span><b>Del</b> delete line</span>
+                  <span><b>[ ]</b> turn photo</span><span><b>H / J</b> mirror / flip</span>
+                  <span><b>⌘Z</b> undo</span><span><b>⌘S</b> save now</span>
+                </div>
+              </>
+            )}
+          </Menu>
+        </Group>
+      )}
     </Shell>
   );
+}
+
+function Group({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <div className={cn("flex min-w-0 items-center gap-1", className)}>{children}</div>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -248,12 +282,12 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div
       className={cn(
         "flex items-center gap-1 px-1.5 py-1.5",
-        // Phone: a bar that scrolls sideways if it must. Desktop: a pill
-        // that must NOT clip or filter — its menus pop up out of it, and a
+        // Phone: a bar that wraps to two rows. Desktop: one pill that must
+        // NOT clip or filter — its menus pop up out of it, and a
         // backdrop-filter here would pin their full-screen backdrop inside.
-        "w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "w-full flex-wrap",
         "bg-gradient-to-r from-stone-900 via-ink to-stone-900 text-white",
-        "sm:w-auto sm:max-w-[calc(100vw-2rem)] sm:overflow-visible sm:rounded-2xl sm:shadow-2xl sm:shadow-black/40 sm:ring-1 sm:ring-gold/35",
+        "sm:w-auto sm:max-w-[calc(100vw-2rem)] sm:flex-nowrap sm:overflow-visible sm:rounded-2xl sm:shadow-2xl sm:shadow-black/40 sm:ring-1 sm:ring-gold/35",
       )}
     >
       {children}

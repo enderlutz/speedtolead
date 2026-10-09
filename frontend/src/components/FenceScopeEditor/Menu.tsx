@@ -33,7 +33,7 @@ export function Menu({
         )}
       >
         <Icon className="h-4 w-4" />
-        {label ? <span className="hidden sm:inline">{label}</span> : null}
+        {label ? <span>{label}</span> : null}
         <ChevronUp className={cn("h-3 w-3 opacity-60 transition", open && "rotate-180")} />
       </button>
       {open ? (
