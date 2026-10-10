@@ -561,17 +561,13 @@ export default function ProposalMockup() {
           <SectionTitle kicker="Optional" title="Anything need replacing?" sub="Count it up. We bring the wood." />
           <div className="space-y-2.5">
             <Counter label="Pickets" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
-              <select value={picketType} onChange={(e) => setPicketType(e.target.value)} className="h-8 rounded-lg border border-[#15130F]/15 bg-white px-2 text-xs font-semibold">
-                {PICKETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-              </select>
+              <Chips options={PICKETS} value={picketType} onChange={setPicketType} />
             </Counter>
             {PARTS.map((part) => (
               <Counter key={part.key} label={part.label} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
             <Counter label="Post replacement" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
-              <select value={postType} onChange={(e) => setPostType(e.target.value)} className="h-8 rounded-lg border border-[#15130F]/15 bg-white px-2 text-xs font-semibold">
-                {POSTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-              </select>
+              <Chips options={POSTS} value={postType} onChange={setPostType} />
             </Counter>
           </div>
           <div className="mt-3 flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
@@ -607,21 +603,44 @@ export default function ProposalMockup() {
           </div>
         </section>
 
-        {/* Reviews */}
+        {/* Reviews, laid out the way Google shows them: the rating up top,
+            then cards you can read in a glance. Sample text until the real
+            reviews are pulled in. */}
         <section className="bg-white px-4 py-6">
-          <SectionTitle kicker="Google reviews" title="5.0 out of 5" />
-          <div className="space-y-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Google reviews</p>
+              <div className="flex items-baseline gap-2">
+                <span className="font-heading text-4xl font-bold leading-none">5.0</span>
+                <span className="flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-4 w-4 fill-current" style={{ color: GOLD }} />)}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-[#15130F]/60">Rated by homeowners around Houston</p>
+            </div>
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F8F3E7] font-heading text-2xl font-bold ring-1 ring-[#15130F]/10" aria-hidden>G</span>
+          </div>
+          <div className={cn(phone ? "-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "grid gap-3 sm:grid-cols-3")}>
             {[
-              ["Sample review", "Fence looks brand new. Crew was on time and cleaned up after. Sample text until real reviews are pulled in."],
-              ["Sample review", "Picked Signature in Cedar Naturaltone and it came out exactly like the photo. Sample text."],
-            ].map(([who, text], i) => (
-              <blockquote key={i} className="rounded-2xl bg-[#F8F3E7] p-3 ring-1 ring-[#15130F]/10">
-                <p className="flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
-                <p className="mt-1 text-sm">{text}</p>
-                <p className="mt-1 text-[11px] font-semibold text-[#15130F]/60">{who}</p>
+              ["M", "Sample customer", "Cypress", "Fence looks brand new. Crew was on time, kept the hinges clean and tidied up after. Sample text until real reviews are pulled in."],
+              ["R", "Sample customer", "Katy", "Picked Signature in Cedar Naturaltone and it came out exactly like the photo on the proposal. Sample text."],
+              ["J", "Sample customer", "Tomball", "Easy to pick a package on my phone and pay the deposit. Two days later it was done. Sample text."],
+            ].map(([initial, who, where, text]) => (
+              <blockquote key={text} className={cn("rounded-2xl bg-[#F8F3E7] p-3 ring-1 ring-[#15130F]/10", phone && "w-[82%] shrink-0 snap-start")}>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-[#15130F]" style={{ background: GOLD }}>{initial}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold leading-tight">{who}</p>
+                    <p className="text-[11px] text-[#15130F]/55">{where} · 2 weeks ago</p>
+                  </div>
+                </div>
+                <p className="mt-1.5 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
+                <p className="mt-1.5 text-sm leading-relaxed">{text}</p>
               </blockquote>
             ))}
           </div>
+          <a href="https://maps.app.goo.gl/xR56n81cjxNwt7R78" target="_blank" rel="noopener noreferrer"
+            className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold ring-1 ring-[#15130F]/15">
+            See all our reviews on Google
+          </a>
         </section>
 
         {/* How to pay: the deposit, or the whole job over time. Both go to
@@ -819,6 +838,27 @@ function PayOption({ lender, text, note, dim, learn }: { lender: "klarna" | "aff
   );
 }
 
+/** A choice as tap-pills with the price on each, instead of a drop-down
+ *  (Alan, 2026-10-10). */
+function Chips({ options, value, onChange }: {
+  options: { key: string; label: string; price: number }[]; value: string; onChange: (key: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {options.map((o) => {
+        const on = o.key === value;
+        return (
+          <button key={o.key} type="button" onClick={() => onChange(o.key)} aria-pressed={on}
+            className={cn("rounded-lg px-2 py-1 text-[11px] font-semibold leading-tight transition",
+              on ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/75 ring-1 ring-[#15130F]/15")}>
+            {o.label} <span className={cn("ml-0.5", on ? "text-white/70" : "text-[#15130F]/45")}>{formatCurrency(o.price).replace(".00", "")}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Counter({ label, price, n, onChange, art, children }: {
   label: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
 }) {
@@ -864,20 +904,20 @@ function FencePart({ part }: { part: FencePartKey }) {
   const wood = "#D9C2A3", edge = "#A98A63";
   const hot = (k: FencePartKey) => (part === k ? { fill: GOLD, stroke: "#8C6224" } : { fill: wood, stroke: edge });
   const pickets = [15, 22, 29, 36, 43, 50, 57, 64];
+  const picketLayer = pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket")} strokeWidth="1" />);
+  const railLayer = [14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="5" rx="0.5" {...hot("rail")} strokeWidth="1" />);
+  // From the street the pickets hide the rails. The rail view is the back
+  // of the fence, where the three rails run across the pickets.
+  const fromBack = part === "rail";
   return (
     <svg viewBox="0 0 82 62" width="64" height="48" role="img" aria-label={part}>
       <rect x="0" y="57" width="82" height="5" fill="#6b8f4e" />
-      {/* posts */}
       <rect x="6" y="6" width="7" height="52" rx="1" {...hot("post")} strokeWidth="1" />
       <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post")} strokeWidth="1" />
-      {/* rails */}
-      {[14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="4" {...hot("rail")} strokeWidth="1" />)}
-      {/* pickets */}
-      {pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket")} strokeWidth="1" />)}
-      {/* rot board along the bottom */}
+      {fromBack ? <>{picketLayer}{railLayer}</> : <>{railLayer}{picketLayer}</>}
       <rect x="13" y="50" width="56" height="6" {...hot("rotboard")} strokeWidth="1" />
-      {/* cap along the top */}
       <rect x="4" y="5" width="74" height="5" rx="1" {...hot("cap")} strokeWidth="1" />
+      {fromBack ? <text x="41" y="3.5" textAnchor="middle" fontSize="4.5" fontWeight="700" fill="#8C6224">BACK OF FENCE</text> : null}
     </svg>
   );
 }
