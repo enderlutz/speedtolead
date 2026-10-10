@@ -490,9 +490,12 @@ image, real reviews, the Legacy and remaining Signature photos.
 - **Posts: one "Post replacement" line** with a 6, 7 or 8 ft fence choice,
   like the pickets, instead of three post lines. Same prices ($225, $255,
   $350).
-- **No scope drawing → say the size.** "About 280 ft of fence" plus the
-  sides list. Not the gallons: "that's a little overkill." Personal, not
-  salesy, very simple.
+- **No scope drawing → the sides only, no footage** (Alan, 2026-10-10,
+  correcting the earlier note): when the fence couldn't be seen, the bid
+  is padded on purpose, "because it's better to give them a price than
+  nothing", so a footage number next to it would invite the wrong
+  conversation. With a drawing, the footage shows. Not the gallons:
+  "that's a little overkill." Personal, not salesy, very simple.
 - **The warranty terms, in plain words**, behind the Terms button: peeling
   or cracking from our application, we come back and touch it up for a
   year; damage from anything else (the lawn guy, a replaced board, the

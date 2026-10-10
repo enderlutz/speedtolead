@@ -414,10 +414,12 @@ export default function ProposalMockup() {
               <p className="mt-2 text-[15px] text-[#15130F]/70">This is what we'd stain. Not right? Tap Call or text at the top.</p>
             </>
           ) : (
-            // No drawing for this customer: the size and the sides, in words.
+            // No drawing for this customer: just the sides, in words. No
+            // footage: a fence we couldn't see is bid on the safe side, and a
+            // number next to it invites the wrong conversation (Alan,
+            // 2026-10-10).
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
-              <p className="font-heading text-2xl font-bold leading-tight">About {customer.feet} ft of fence</p>
-              <p className="mt-1 text-[13px] font-bold uppercase tracking-wider text-[#8C6224]">Sides included in the price</p>
+              <p className="text-[13px] font-bold uppercase tracking-wider text-[#8C6224]">Sides included in the price</p>
               <ul className="mt-1.5 space-y-1.5">
                 {customer.sides.map((s) => (
                   <li key={s} className="flex items-center gap-2 text-base font-semibold"><Check className="h-4 w-4" style={{ color: GOLD }} /> {s}</li>
