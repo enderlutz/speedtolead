@@ -186,8 +186,79 @@ Alan walked through the current PDF proposal page by page. What he said:
   Affirm, one asked what the interest would be, and one left because
   "it's not in the budget" after talking to a spouse. The ask is for a
   split, not a long loan.
+
+  **Research (2026-10-09), what the lenders allow through Stripe and what
+  the big retailers show:**
+
+  | Through Stripe | Amount per purchase | How it's paid |
+  |---|---|---|
+  | Klarna | $10 to about $5,000; **Pay in 4 usually up to $2,000**, set per customer | 4 payments, one every 2 weeks, 0% interest |
+  | Afterpay | $1 to $2,000 | 4 payments, one every 2 weeks, 0% interest |
+  | Affirm | $50 to $30,000 | Pay in 4 on small amounts; **monthly plans (3 to 36 months) on larger**, interest set per customer, 0% offers sometimes |
+  | PayPal Pay Later (not Stripe) | Pay in 4 up to $1,500; monthly $199 to $10,000 | same two shapes |
+
+  So for Sterling's prices after the discount (about $1,100 to $2,500):
+  pay-in-4 covers Essential and Signature on most jobs and often misses
+  Legacy; a monthly plan covers everything. The lender decides per
+  customer at checkout; we never see or set the approval.
+
+  What the big retailers do: one line under every price, in the lender's
+  wording, and the lender handles approval at checkout. Under $2,000 the
+  line is "4 interest-free payments of $X" (Klarna, Afterpay, PayPal);
+  over it, "as low as $X/mo" (Affirm, Apple, Peloton). PayPal reports
+  carts 39% larger and two thirds of pay-later users more likely to
+  finish a purchase when the option is shown. Nobody shows "36 months"
+  as the headline.
+
+  **Recommendation:** show "or 4 payments of $X, interest-free" when the
+  price is $2,000 or under, and "or as low as $X/mo" above it, with
+  Klarna and Affirm both switched on in Stripe so the customer sees
+  whichever fits at checkout. The "3 monthly payments at 0% interest" on
+  the mockup is not a product any of them sells off the shelf; a true 3-pay
+  0% plan would be Sterling's own (charge the card three times), which
+  means Sterling carries the non-payment risk. Not recommended. Fees to
+  keep in mind: the pay-later methods cost about 6% + 30¢ per payment
+  versus 2.9% + 30¢ for a card.
 - Alan is sending a newer mockup he started, for direction. Then the first
   mockup gets built from all of this and iterated.
+
+### The mockups Alan sent (2026-10-09, second pass)
+
+- **Packages page ("Three ways to protect your fence").** Alan: "I like
+  what we have here… I think it looks great", maybe still a little salesy.
+  Headline "Three ways to protect your fence. Same expert service.
+  Different levels of protection." A banner: "All packages include two
+  coats of stain and a 1-year workmanship warranty." Three cards, each
+  with its photo, a "Lasts N years" seal, two or three short lines, the
+  regular price struck through, the 20% off price, and a payment line.
+  Footer: "Choose based on the condition of your wood and the look you
+  want." Lifespans on the mockup read 1–3 / 3–4 / 4–7; Alan's own words
+  earlier were 1–2 / 2–4 / 4–7. Confirm which.
+- **Cover page (the VA's draft).** Rep and customer looking at the fence
+  instead of the family photo. Alan: "I like the family a lot… something
+  we can figure out later." Keeps the icons row (Scope of work, Pricing,
+  Finish options) and the facts bar (Prepared for, Date, Proposal #,
+  contact).
+- **What you get page.** Professional fence preparation: full prep wash;
+  premium materials; **"Two coats of stain with attention to boards,
+  edges and details"** (replaces "controlled application / consistent
+  coverage"); clean jobsite. Our proven process and guarantee:
+  package-backed guarantee; 5.0 Google rating; fences restored (the mockup
+  says 800+, the current PDF says 1,500+ — confirm); **7+ years of
+  experience**, not 5+.
+- **Neighborhood special.** Alan is leaning away from "10% more if a
+  neighbour books within 7 days": "seven days might be too soon… I think
+  it'd be better to say if anybody else wants to get it done, you both get
+  an extra $100 off, and there's no time frame on it." Written into the
+  mockup that way; decision still his.
+- **Signature Finish photos page (in progress).** Real job photos with
+  the colour name on each: Redwood Naturaltone, Cedar Naturaltone, Cottage
+  Gray, Pecan, Monticello Tan, Redwood, Dark Walnut, Chocolate Chips.
+  This is the shape of the stain library.
+- **Financing on the mockup** reads "or 3 monthly payments of $421.20 at
+  0% interest". Alan asked for research on what works best (split in 4
+  versus 3 monthly) and what the big companies do; see the research note
+  under C9.
 
 ### What today's proposal contains (so nothing gets lost)
 
@@ -229,6 +300,38 @@ in the tab; names can be corrected there.
   Carlsbad Dawn (printed "Carlbad Dawn"), Saddlebag Tan, Quiet Chamois,
   Parisian Gray, Smoked Leather, October Brown, Classic Mahogany, Badlands
   Red, Rusticana, Potato Skin, Plymouth Red.
+
+### The first mockup (built 2026-10-09)
+
+Open it with the **Open the mockup** button at the top of this page
+(`/new-proposal/mockup`). Staff only; a made-up customer; every button
+changes only that page. It follows the brief above:
+
+1. Top bar: logo and a gold "Call or text" button.
+2. Cover: the family photo from today's PDF, "Hi Jordan, here's your fence
+   plan", then Prepared for, Date, Property, Proposal #, and the date the
+   price is good through (end of the month).
+3. Step 1, Your fence: the scope drawing when there is one (a stand-in
+   drawing with the editor's blue and red lines), or the "sides included"
+   list when there isn't. The staff bar toggles between the two.
+4. Step 2, Pick your package: the three cards with the PDF's own photos, a
+   "Lasts N years" seal, two or three lines, regular price struck through,
+   20% off, the price, and the payment line ("or 4 payments of $X,
+   interest-free" up to $2,000, "or as low as $X/mo" above). Banner: two
+   coats and the 1-year warranty on every package.
+5. Step 3, Pick your color: for Signature, eight real job photos (tap to
+   enlarge, tap the name to pick); for Legacy, the 24 solid colours as
+   swatches until their photos are loaded; Essential says clear coat.
+6. Optional, Anything need replacing?: the repair tally with Alan's
+   prices. "Your fence has a rot board / a cap" sets the post price.
+7. What you get: prep and process lists, the neighbour offer written as
+   "$100 off for both of you, no deadline".
+8. Google reviews: 5.0, with sample quotes marked as samples.
+9. Save as PDF, Terms, and the sticky bottom bar: the package, the colour,
+   the repairs, the total, the payment line, and "Reserve my spot · $250".
+
+Not in it yet: the deposit and financing checkout (Stripe), a real scope
+image, real reviews, the Legacy and remaining Signature photos.
 
 ## The three phases (draft until the questions are answered)
 

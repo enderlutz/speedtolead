@@ -7,8 +7,9 @@
 // anything to a customer.
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Link } from "react-router-dom";
 import notes from "@/content/proposal-v2.md?raw";
-import { Lightbulb, ShieldAlert, GitBranch } from "lucide-react";
+import { Lightbulb, ShieldAlert, GitBranch, Smartphone } from "lucide-react";
 import { Panel } from "@/components/Panel";
 import { ACCENT } from "@/lib/accents";
 
@@ -54,6 +55,12 @@ export default function ProposalProject() {
           <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-ivory/80">
             <GitBranch className="h-3 w-3" /> proposal-v2
           </span>
+          <Link
+            to="/new-proposal/mockup"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-bronze px-3 text-xs font-bold text-ink shadow-sm ring-1 ring-gold-light/60 transition hover:brightness-110 active:scale-95"
+          >
+            <Smartphone className="h-3.5 w-3.5" /> Open the mockup
+          </Link>
         </div>
         <div className="flex items-start gap-2 border-t border-white/10 bg-rose-500/15 px-5 py-2.5 text-xs text-rose-100">
           <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-300" />
