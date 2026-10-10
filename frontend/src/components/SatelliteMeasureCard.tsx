@@ -56,6 +56,9 @@ interface Props {
   onLinearFeet?: (feet: number) => void;
   /** Re-fetch the lead so the measurement and scope previews refresh. */
   onChange: () => void;
+  /** Folded by the page once the estimate has gone out; a tap opens it. */
+  collapsed?: boolean;
+  onToggle?: () => void;
 }
 
 const EARTH_FT = 20902231; // mean Earth radius in feet
@@ -282,7 +285,7 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle,
 }: Props) {
   const navigate = useNavigate();
   const mapDivRef = useRef<HTMLDivElement>(null);
@@ -1063,10 +1066,14 @@ export default function SatelliteMeasureCard({
     <Panel
       icon={Ruler}
       title="Measure & capture"
+      // One line (Alan, 2026-10-09: the page had too many words). Each
+      // control carries its own tip.
       sub={IS_TOUCH
-        ? "Drag the map so the crosshair sits on a fence corner, then press Add point. Pinch to zoom, twist or use the dial to turn. Add a run for each stretch and they add up; Capture saves the photo as framed and fills Linear Feet."
-        : "Click along the fence to measure it; drag to move, scroll or pinch to zoom, and spin the dial to turn the view. Add a separate run for each stretch and they add up. Capture saves the photo as you framed it and fills Linear Feet."}
+        ? "Put the crosshair on a corner, press Add point, repeat. Capture fills Linear feet."
+        : "Click along the fence, then Capture. Linear feet fills itself."}
       accent={ACCENT.violet}
+      collapsed={collapsed}
+      onToggle={onToggle}
       right={mapsHref ? (
         // The separate "Satellite view" card was the same map twice (Alan,
         // 2026-10-09), so it's gone; this is its one useful part — the

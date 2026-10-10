@@ -31,37 +31,50 @@ export function Panel({
   onToggle?: () => void;
   children?: React.ReactNode;
 }) {
-  const header = (
-    <>
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accent.grad} shadow-sm shadow-black/10`}>
-        <Icon className="h-4 w-4 text-white" />
-      </div>
-      <div className="min-w-0 flex-1 text-left">
-        <div className="font-heading text-sm font-semibold leading-tight">{title}</div>
-        {sub ? <div className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{sub}</div> : null}
-      </div>
-      {right}
-      {onToggle ? (
-        collapsed
-          ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-          : <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
-      ) : null}
-    </>
+  const chip = (
+    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accent.grad} shadow-sm shadow-black/10`}>
+      <Icon className="h-4 w-4 text-white" />
+    </div>
+  );
+  const text = (
+    <div className="min-w-0 flex-1 text-left">
+      <div className="font-heading text-sm font-semibold leading-tight">{title}</div>
+      {sub ? <div className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{sub}</div> : null}
+    </div>
   );
   const bandCls = `flex w-full items-center gap-3 bg-gradient-to-r ${accent.band} px-3.5 py-3`;
   return (
     <Card id={id} className={cn("gap-0 py-0", className)}>
       {onToggle ? (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          className={cn(bandCls, !collapsed && "border-b", "transition hover:brightness-[0.98]")}
-        >
-          {header}
-        </button>
+        // The title and the chevron both fold the card. `right` sits between
+        // them, outside either button, so a control in the header is never
+        // a button inside a button.
+        <div className={cn(bandCls, !collapsed && "border-b")}>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:opacity-90"
+          >
+            {chip}
+            {text}
+          </button>
+          {right}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={collapsed ? "Open" : "Fold"}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-black/5 hover:text-foreground"
+          >
+            {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          </button>
+        </div>
       ) : (
-        <div className={cn(bandCls, "border-b")}>{header}</div>
+        <div className={cn(bandCls, "border-b")}>
+          {chip}
+          {text}
+          {right}
+        </div>
       )}
       {collapsed ? null : (
         <div className={cn("space-y-3 p-3.5", bodyClassName)}>{children}</div>

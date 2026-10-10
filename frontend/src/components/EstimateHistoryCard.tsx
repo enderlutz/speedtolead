@@ -41,7 +41,8 @@ const SIDES_PRETTY = (sides: unknown): string => {
 
 export default function EstimateHistoryCard({ leadId, refreshKey = 0 }: Props) {
   const [items, setItems] = useState<EstimateHistoryItem[] | null>(null);
-  const [open, setOpen] = useState(true);
+  // Folded until asked for (Alan, 2026-10-09: the page had too much open).
+  const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});

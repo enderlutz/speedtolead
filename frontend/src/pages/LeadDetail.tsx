@@ -304,12 +304,14 @@ function SinceEstimateCard({ info, discovery }: {
 }
 
 function ObjectionsPanel({
-  leadId, objections, categories, onChange,
+  leadId, objections, categories, onChange, collapsed, onToggle,
 }: {
   leadId: string;
   objections: LeadObjectionEntry[];
   categories: Record<string, { label: string; winnable: boolean }>;
   onChange: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
   const [scanning, setScanning] = useState(false);
   const after = objections.filter((o) => o.timing === "after_estimate");
@@ -371,6 +373,8 @@ function ObjectionsPanel({
         ? `${after.length} after the estimate${before.length ? ` · ${before.length} before` : ""} — read from their texts and calls`
         : "Read automatically from every new text and call"}
       accent={ACCENT.amber}
+      collapsed={collapsed}
+      onToggle={onToggle}
       right={
         <Button size="sm" variant="outline" onClick={scan} disabled={scanning}
                 title="Read this customer's whole history now. New texts and calls are read automatically.">
@@ -617,6 +621,16 @@ export default function LeadDetail() {
   // Multi-estimate switcher — null means "auto-pick the latest editable one"
   const [selectedEstimateId, setSelectedEstimateId] = useState<string | null>(null);
   const [creatingNewEstimate, setCreatingNewEstimate] = useState(false);
+
+  // Which cards are open. The page follows the process: before the estimate
+  // goes out the inputs are open and the aftermath is folded; after it goes
+  // out, the reverse. Nothing is hidden, only folded — a tap opens any card
+  // (Alan, 2026-10-09: "too much going on"). Keyed by lead so a choice on
+  // one customer never carries to the next.
+  const [panelOpen, setPanelOpen] = useState<Record<string, boolean>>({});
+  const isOpen = (key: string, dflt: boolean) => panelOpen[`${id}:${key}`] ?? dflt;
+  const toggle = (key: string, dflt: boolean) =>
+    setPanelOpen((p) => ({ ...p, [`${id}:${key}`]: !(p[`${id}:${key}`] ?? dflt) }));
 
   // Two-tab layout (2026-06-08). Estimate is the default landing tab — it's
   // what VAs hit when refining inputs and sending. Call is the cockpit Alan
@@ -1282,7 +1296,7 @@ export default function LeadDetail() {
     { key: "completed", label: "Job done", icon: CheckCircle2, accent: ACCENT.emerald, target: "est-visits", phase: "job",
       done: !!latestScheduledJob && (latestScheduledJob.status === "completed" || !!latestScheduledJob.completed_at),
       hint: "Walkthrough with the customer, then the crew marks the job complete." },
-    { key: "invoiced", label: "Invoiced", icon: Receipt, accent: ACCENT.violet, target: "est-contact", phase: "job",
+    { key: "invoiced", label: "Invoiced", icon: Receipt, accent: ACCENT.violet, target: "est-payments", phase: "job",
       done: !!latestScheduledJob && (!!latestScheduledJob.qb_invoice_id
         || ["pending", "paid"].includes((latestScheduledJob.payment_status || "").toLowerCase())),
       hint: "Generate the full invoice under Payment links — it texts them a tap-to-pay link." },
@@ -1307,6 +1321,14 @@ export default function LeadDetail() {
         }
       } },
   ];
+
+  // What starts open on this lead, read off the journey.
+  const stepKey = journey.find((st) => !st.done && !st.skipped)?.key || "done";
+  const sentNow = journey.some((st) => st.key === "sent" && st.done);
+  const contactDefault = ["address", "replied", "discovery"].includes(stepKey);
+  const inputsDefault = !sentNow;
+  const visitsDefault = sentNow || !!latestScheduledJob;
+  const paymentsDefault = !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid";
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-5xl">
@@ -1549,6 +1571,8 @@ export default function LeadDetail() {
             objections={objections}
             categories={objectionCats}
             onChange={loadObjections}
+            collapsed={!isOpen("objections", objections.length > 0)}
+            onToggle={() => toggle("objections", objections.length > 0)}
           />
 
           {/* Mobile: approval status */}
@@ -1565,8 +1589,12 @@ export default function LeadDetail() {
             className="scroll-mt-4"
             icon={UserRound}
             title="Contact"
-            sub={lead.area || (lead.zip_code ? `ZIP ${lead.zip_code}` : "Who we're quoting")}
+            sub={isOpen("contact", contactDefault)
+              ? (lead.area || (lead.zip_code ? `ZIP ${lead.zip_code}` : "Who we're quoting"))
+              : ([lead.contact_phone, lead.address].filter(Boolean).join(" · ") || "Who we're quoting")}
             accent={ACCENT.ink}
+            collapsed={!isOpen("contact", contactDefault)}
+            onToggle={() => toggle("contact", contactDefault)}
             right={(
                   <div className="flex gap-1.5 flex-wrap justify-end">
                     <Button variant="outline" size="sm" onClick={async () => {
@@ -1664,25 +1692,6 @@ export default function LeadDetail() {
                     <span className="text-[10px] text-muted-foreground italic ml-auto hidden sm:inline">Default = Ad. Update if this came from a different channel.</span>
                   </div>
                 </>
-
-              {/* Payment Links (Phase 2, 2026-06-08). Unified controls for the
-                  $250 deposit + full job invoice. Replaces the standalone
-                  DepositCard above the tabs and the Generate-Invoice button
-                  strip that used to live here. Deposit always shows; Full
-                  Invoice prompts admin to schedule first if no job exists. */}
-              <div className="pt-3 border-t space-y-2">
-                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                  <CircleDollarSign className="h-3.5 w-3.5 text-emerald-600" /> Payment links
-                </p>
-                <DepositRow
-                  lead={lead}
-                  onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
-                />
-                <FullInvoiceRow
-                  job={latestScheduledJob}
-                  onGenerate={() => setInvoiceModalOpen(true)}
-                />
-              </div>
           </Panel>
 
           {/* The "Satellite view" card is archived (2026-10-09, Alan: "it's
@@ -1707,6 +1716,8 @@ export default function LeadDetail() {
           <div id="est-measure" className="scroll-mt-4">
             <SatelliteMeasureCard
               leadId={lead.id}
+              collapsed={!isOpen("measure", inputsDefault)}
+              onToggle={() => toggle("measure", inputsDefault)}
               lat={lead.lat || 0}
               lng={lead.lng || 0}
               address={lead.address || ""}
@@ -1728,8 +1739,13 @@ export default function LeadDetail() {
             className="scroll-mt-4"
             icon={Calculator}
             title="Estimator input"
-            sub="What the three prices are built from"
+            sub={isOpen("inputs", inputsDefault)
+              ? "What the three prices are built from"
+              : [linearFeet ? `${linearFeet} ft` : "No feet yet", fenceHeight, fenceAge]
+                  .filter((v) => v && v !== "Didn't answer").join(" · ")}
             accent={ACCENT.cedar}
+            collapsed={!isOpen("inputs", inputsDefault)}
+            onToggle={() => toggle("inputs", inputsDefault)}
             bodyClassName="space-y-4 p-3.5"
           >
               {/* The customer's timeline: their answer, read-only. */}
@@ -1953,64 +1969,9 @@ export default function LeadDetail() {
             <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="hidden lg:flex" />
           )}
 
-          {/* Estimate switcher — only renders when there are multiple estimates
-              on this lead. Each one is a revision: the scope changed, or the
-              first was wrong, so a fresh estimate is started from the last
-              one's inputs (Alan, 2026-10-09: it's "basically a new estimate
-              because you're adjusting the scope of work for the customer"). */}
-          {sortedEstimates.length > 1 && (
-            <Card className="gap-0 py-0">
-              <div className="p-3.5">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Estimates on this lead</p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs"
-                    onClick={handleCreateNewEstimate}
-                    disabled={creatingNewEstimate}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    {creatingNewEstimate ? "Starting…" : "New estimate"}
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {sortedEstimates.map((e, i) => {
-                    const isSel = e.id === estimate?.id;
-                    const num = sortedEstimates.length - i;
-                    const sigPrice = e.tiers?.signature || 0;
-                    return (
-                      <button
-                        key={e.id}
-                        onClick={() => setSelectedEstimateId(e.id)}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
-                          isSel
-                            ? "bg-gradient-to-br from-blue-600 to-indigo-700 text-white border-transparent shadow-sm"
-                            : "border-border hover:bg-muted/50"
-                        }`}
-                        title={e.label || `Estimate #${num}`}
-                      >
-                        <span className="font-semibold">#{num}</span>
-                        {e.label && <span className="ml-1">· {e.label.length > 18 ? e.label.slice(0, 18) + "…" : e.label}</span>}
-                        {!e.label && sigPrice > 0 && (
-                          <span className="ml-1 opacity-80 tabular-nums">· {formatCurrency(sigPrice)}</span>
-                        )}
-                        <span className={`ml-1 text-[9px] uppercase tracking-wide ${
-                          isSel ? "opacity-90" : e.status === "sent" ? "text-emerald-600" : e.status === "pending" ? "text-amber-600" : "text-muted-foreground"
-                        }`}>
-                          {e.status === "sent" ? "Sent" : e.status === "pending" ? "Pending" : e.status}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* "New estimate" — also available when there's only one estimate
-              (or none). Shown as a small action above the tier prices card. */}
-          {sortedEstimates.length <= 1 && lead?.estimates && (
+          {/* "New estimate" with no estimate to hang it on yet. With one, the
+              button sits in the Estimate card's header. */}
+          {!estimate && lead?.estimates && (
             <div className="flex justify-end">
               <Button
                 size="sm"
@@ -2044,7 +2005,55 @@ export default function LeadDetail() {
               sub="Three packages, one fence"
               accent={ACCENT.gold}
               bodyClassName="space-y-2 p-3.5"
+              right={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={handleCreateNewEstimate}
+                  disabled={creatingNewEstimate}
+                  title="Start a fresh estimate from this one's inputs — for when the scope changed or the first one was off. The sent one stays in the history."
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  {creatingNewEstimate ? "Starting…" : "New estimate"}
+                </Button>
+              }
             >
+                {/* Every estimate on this lead, newest first. Each is a
+                    revision: the scope changed, or the first was off. */}
+                {sortedEstimates.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5 pb-1">
+                    {sortedEstimates.map((e, i) => {
+                      const isSel = e.id === estimate?.id;
+                      const num = sortedEstimates.length - i;
+                      const sigPrice = e.tiers?.signature || 0;
+                      return (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => setSelectedEstimateId(e.id)}
+                          className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
+                            isSel
+                              ? "bg-gradient-to-br from-stone-800 to-ink text-gold-light border-transparent shadow-sm"
+                              : "border-border hover:bg-muted/50"
+                          }`}
+                          title={e.label || `Estimate #${num}`}
+                        >
+                          <span className="font-semibold">#{num}</span>
+                          {e.label && <span className="ml-1">· {e.label.length > 18 ? e.label.slice(0, 18) + "…" : e.label}</span>}
+                          {!e.label && sigPrice > 0 && (
+                            <span className="ml-1 opacity-80 tabular-nums">· {formatCurrency(sigPrice)}</span>
+                          )}
+                          <span className={`ml-1 text-[9px] uppercase tracking-wide ${
+                            isSel ? "opacity-90" : e.status === "sent" ? "text-emerald-600" : e.status === "pending" ? "text-amber-600" : "text-muted-foreground"
+                          }`}>
+                            {e.status === "sent" ? "Sent" : e.status === "pending" ? "Pending" : e.status}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {(["essential", "signature", "legacy"] as const).map((tier) => (
                   <TierCard key={tier} tier={tier} price={estimate.tiers[tier] || 0} />
                 ))}
@@ -2360,8 +2369,36 @@ export default function LeadDetail() {
           {/* All scheduled visits for this customer (clean/stain/finish-up) —
               add, edit, and reschedule each; shows invite vs internal. */}
           <div id="est-visits" className="scroll-mt-4">
-            <ScheduledVisitsCard lead={lead} />
+            <ScheduledVisitsCard
+              lead={lead}
+              collapsed={!isOpen("visits", visitsDefault)}
+              onToggle={() => toggle("visits", visitsDefault)}
+            />
           </div>
+
+          {/* The $250 deposit and the full invoice. Lived inside the Contact
+              card until 2026-10-09; it's money after the win, so it sits
+              with the visits and stays folded until there's a job. */}
+          <Panel
+            id="est-payments"
+            className="scroll-mt-4"
+            icon={CircleDollarSign}
+            title="Payment links"
+            sub="The $250 deposit, then the full invoice"
+            accent={ACCENT.emerald}
+            collapsed={!isOpen("payments", paymentsDefault)}
+            onToggle={() => toggle("payments", paymentsDefault)}
+            bodyClassName="space-y-2 p-3.5"
+          >
+            <DepositRow
+              lead={lead}
+              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
+            />
+            <FullInvoiceRow
+              job={latestScheduledJob}
+              onGenerate={() => setInvoiceModalOpen(true)}
+            />
+          </Panel>
 
           {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
               data all kept: 3 submissions ever, none from a real customer, and
@@ -2372,14 +2409,16 @@ export default function LeadDetail() {
               Desktop keeps it full-width below the grid (rendered there when
               !isMobile). Only one instance mounts, so no double fetch. */}
           {isMobile && (
-            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}>
+            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}
+                   collapsed={!isOpen("hitlist", false)} onToggle={() => toggle("hitlist", false)}>
               <DailyTaskList leadId={lead.id} />
             </Panel>
           )}
 
-          {/* Meta info */}
-          <Card className="gap-0 py-0">
-            <div className="grid grid-cols-2 gap-1.5 p-2">
+          {/* The small facts, folded (Alan, 2026-10-09). */}
+          <Panel icon={Compass} title="Details" sub={`Came in ${formatDate(lead.created_at)}`} accent={ACCENT.slate}
+                 collapsed={!isOpen("details", false)} onToggle={() => toggle("details", false)} bodyClassName="p-2">
+            <div className="grid grid-cols-2 gap-1.5">
               <Fact icon={Calendar} label="Created">{formatDate(lead.created_at)}</Fact>
               <Fact icon={MapPin} label="ZIP">{lead.zip_code || "—"}</Fact>
               <Fact icon={Paintbrush} label="Service">{lead.service_type}</Fact>
@@ -2390,7 +2429,7 @@ export default function LeadDetail() {
                 </>
               )}
             </div>
-          </Card>
+          </Panel>
 
           {/* Estimate history — every estimate sent to this customer with
               freeform local label + input snapshot. Hides itself when the
@@ -2430,7 +2469,8 @@ export default function LeadDetail() {
               the dashboard queue, mirrored here. Desktop position; on phones
               it's rendered up under "Send a custom PDF" instead. */}
           {!isMobile && (
-            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}>
+            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}
+                   collapsed={!isOpen("hitlist", false)} onToggle={() => toggle("hitlist", false)}>
               <DailyTaskList leadId={lead.id} />
             </Panel>
           )}

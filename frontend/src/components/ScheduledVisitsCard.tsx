@@ -9,7 +9,12 @@ import { Calendar, Plus, Send, BellOff, Pencil } from "lucide-react";
 /** Every scheduled visit for one customer (a sale is often several — a clean
  *  day, a stain day, maybe a finish-up). Lists them with their label +
  *  invite/internal status, lets you edit/reschedule each, and add another. */
-export default function ScheduledVisitsCard({ lead }: { lead: Lead }) {
+export default function ScheduledVisitsCard({ lead, collapsed, onToggle }: {
+  lead: Lead;
+  /** Folded by the page before the estimate goes out; a tap opens it. */
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [modal, setModal] = useState<{ mode: "create" | "edit"; job: ScheduledJob | null } | null>(null);
 
@@ -41,6 +46,8 @@ export default function ScheduledVisitsCard({ lead }: { lead: Lead }) {
       title="Scheduled visits"
       sub={jobs.length > 0 ? `${jobs.length} on the calendar` : "A sale is often several visits"}
       accent={ACCENT.amber}
+      collapsed={collapsed}
+      onToggle={onToggle}
       right={
         <Button size="sm" variant="outline" onClick={() => setModal({ mode: "create", job: null })}>
           <Plus className="h-3.5 w-3.5 mr-1" /> Add a visit
