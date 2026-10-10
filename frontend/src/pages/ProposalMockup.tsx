@@ -111,14 +111,41 @@ const LEGACY_SWATCHES: { name: string; hex: string }[] = [
   { name: "Plymouth Red", hex: "#5E2A2A" }, { name: "Classic Mahogany", hex: "#4B2E22" }, { name: "Darkest Night", hex: "#1E1E1E" },
 ];
 
-// The lenders' own wording, which is what the big retailers show under a
-// price: Klarna and Afterpay say "4 interest-free payments of $X", Affirm
-// says "As low as $X/mo". Pay-in-4 tops out around $2,000 a purchase.
+// The payment line the way PlayStation shows it with Klarna (Alan,
+// 2026-10-10): "From $40/month, or 4 payments at 0% interest with Klarna.
+// Learn more". Nobody at Sony works out the $40: Klarna's messaging returns
+// it from Klarna's real plans for the exact amount, and on the real page
+// Stripe's Payment Method Messaging Element does the same for us. Here it
+// is estimated the way Klarna does: the lowest rate over the longest plan
+// (7.99% APR over 24 months), rounded up to the dollar. Pay in 4 tops out
+// around $2,000 a purchase.
 const PAY_IN_4_MAX = 2000;
-function payLine(total: number): { text: string; lender: "klarna" | "affirm" } {
-  if (total <= PAY_IN_4_MAX) return { text: `4 interest-free payments of ${formatCurrency(total / 4)}`, lender: "klarna" };
-  return { text: `As low as ${formatCurrency(total / 12)}/mo`, lender: "affirm" };
+const KLARNA_LOW_APR = 0.0799;
+const KLARNA_LONGEST_MONTHS = 24;
+function monthlyFrom(total: number): number {
+  const r = KLARNA_LOW_APR / 12;
+  return Math.ceil((total * r) / (1 - Math.pow(1 + r, -KLARNA_LONGEST_MONTHS)));
 }
+function payLine(total: number): { text: string; lender: "klarna" } {
+  const from = `From $${monthlyFrom(total)}/month`;
+  if (total <= PAY_IN_4_MAX) return { text: `${from}, or 4 payments of ${formatCurrency(total / 4)} at 0% interest`, lender: "klarna" };
+  return { text: from, lender: "klarna" };
+}
+
+// Klarna's FAQ, rewritten for a fence (PlayStation's is the model, Alan,
+// 2026-10-10). Numbers are Klarna's own published US terms; the real page
+// links to Klarna's terms for the current ones.
+const KLARNA_FAQ: [string, string][] = [
+  ["What is Klarna?", "A way to pay for your fence over time. Split it into 4 interest-free payments, or pick a monthly plan. Klarna pays us in full; you pay Klarna. See every payment in the Klarna app."],
+  ["How do I use it here?", "Tap \"See my options\" on this proposal, choose Klarna at checkout, pick 4 payments or monthly, and enter a debit or credit card. That's it. Your dates get booked the same as paying the deposit."],
+  ["What do I need?", "A US-issued debit or credit card, to be 18 or older, a phone that gets texts, and a US home address."],
+  ["How do the 4 payments work?", "The first payment comes off your card today at checkout. The other three come off automatically 14, 28 and 42 days later. No interest. Klarna emails you the schedule, and may ask some customers for a larger first payment."],
+  ["Is there a fee for 4 payments?", "No fee when you pay on schedule. If a payment doesn't go through, Klarna tries again; if it still fails, a late fee of up to $7 plus the missed amount is added to the next payment."],
+  ["Will Klarna check my credit?", "For 4 payments, Klarna may do a soft check. It doesn't affect your credit score and doesn't show as a hard inquiry."],
+  ["What are the monthly plans?", "For jobs of $200 and up. Apply at checkout and get an instant decision; applying is a soft check with no effect on your credit. Rates run from 7.99% to 29.99% APR, a down payment may be required, and late payments may be reported to the credit bureaus. No application, late or early-payoff fees. Plans are issued by WebBank, member FDIC."],
+  ["What if something changes on the job?", "The $250 deposit is not refundable once your dates are set. If any amount is refunded, Klarna updates your balance on its own; allow 8 to 10 business days for money to reach your card."],
+  ["Is this a Sterling loan?", "No. Klarna is the lender and Sterling Fence Staining is paid in full when you check out. Your agreement, statements and privacy are with Klarna, not with us."],
+];
 
 const GOLD = "#C9972F";
 
@@ -135,6 +162,7 @@ export default function ProposalMockup() {
   const [colorAsk, setColorAsk] = useState("");
   const [colorSent, setColorSent] = useState(false);
   const [terms, setTerms] = useState(false);
+  const [klarnaFaq, setKlarnaFaq] = useState(false);
   const [postType, setPostType] = useState(POSTS[0].key);
 
   const chosen = PACKAGES.find((p) => p.key === pkg) || null;
@@ -328,7 +356,7 @@ export default function ProposalMockup() {
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
                           : <img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} />}
-                        or {line.text}
+                        or {line.text} with Klarna. <LearnMore onClick={() => setKlarnaFaq(true)} dark />
                       </p>
                     </div>
                     <button type="button" onClick={() => choose(show.key)}
@@ -387,7 +415,7 @@ export default function ProposalMockup() {
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
                           : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
-                        {line.text}
+                        {line.text} with Klarna. <LearnMore onClick={() => setKlarnaFaq(true)} />
                       </p>
                       <ul className="mt-3 flex-1 space-y-1.5">
                         {p.lines.map((l) => (
@@ -568,8 +596,8 @@ export default function ProposalMockup() {
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
               <div className="mt-2 space-y-2">
-                <PayOption lender="klarna" text={`4 interest-free payments of ${formatCurrency((total || PACKAGES[1].price) / 4)}`} note="One every 2 weeks. No interest." dim={(total || PACKAGES[1].price) > PAY_IN_4_MAX} />
-                <PayOption lender="affirm" text={`As low as ${formatCurrency((total || PACKAGES[1].price) / 12)}/mo`} note="3 to 36 months. Rate shown before you agree." />
+                <PayOption lender="klarna" text={`${payLine(total || PACKAGES[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setKlarnaFaq(true)} />
+                <PayOption lender="affirm" text="Affirm monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." />
               </div>
               <button type="button" className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
                 See my options
@@ -597,7 +625,7 @@ export default function ProposalMockup() {
                 <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="mt-0.5 text-[11px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
-                  or {pay.text} {pay.lender === "klarna" ? "with Klarna" : "with Affirm"}
+                  or {pay.text} with Klarna
                 </button>
               </div>
               <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
@@ -615,6 +643,33 @@ export default function ProposalMockup() {
         <button type="button" onClick={() => setBigPhoto(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
           <img src={bigPhoto} alt="" className="max-h-full max-w-full rounded-2xl shadow-2xl" />
         </button>
+      ) : null}
+
+      {/* Klarna, explained the way PlayStation explains it, for a fence. */}
+      {klarnaFaq ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setKlarnaFaq(false)}>
+          <div className="flex max-h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-5 pt-5">
+              <span className="flex h-8 w-20 items-center justify-center rounded-md bg-[#FFB3C7] text-[15px] font-black tracking-tight text-black">Klarna.</span>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Pay over time</p>
+                <h3 className="font-heading text-xl font-bold leading-tight">How Klarna works here</h3>
+              </div>
+            </div>
+            <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-2">
+              {KLARNA_FAQ.map(([q, a]) => (
+                <div key={q} className="rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
+                  <p className="text-sm font-bold leading-snug">{q}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-[#15130F]/80">{a}</p>
+                </div>
+              ))}
+              <p className="px-1 text-[11px] leading-snug text-[#15130F]/55">Klarna's current terms, privacy policy and customer service are on klarna.com and in the Klarna app. They are Klarna's, not Sterling Fence Staining's.</p>
+            </div>
+            <div className="p-5 pt-3">
+              <button type="button" onClick={() => setKlarnaFaq(false)} className="h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {/* The terms, in plain words (Alan, 2026-10-10). */}
@@ -665,7 +720,15 @@ function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; 
 /** A lender's line the way the lender writes it, with its mark. Klarna's
  *  pink pill and Affirm's wordmark are stand-ins until the real badges are
  *  pulled from Stripe's messaging element. */
-function PayOption({ lender, text, note, dim }: { lender: "klarna" | "affirm"; text: string; note: string; dim?: boolean }) {
+function LearnMore({ onClick, dark }: { onClick: () => void; dark?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} className={cn("font-bold underline underline-offset-2", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>
+      Learn more
+    </button>
+  );
+}
+
+function PayOption({ lender, text, note, dim, learn }: { lender: "klarna" | "affirm"; text: string; note: string; dim?: boolean; learn?: () => void }) {
   return (
     <div className={cn("flex items-center gap-3 rounded-xl bg-[#F8F3E7] px-3 py-2", dim && "opacity-50")}>
       {lender === "klarna"
@@ -673,7 +736,7 @@ function PayOption({ lender, text, note, dim }: { lender: "klarna" | "affirm"; t
         : <span className="flex h-7 w-16 shrink-0 items-center justify-center rounded-md bg-[#15130F]"><img src="/affirm-white.png" alt="Affirm" className="h-4 w-auto" draggable={false} /></span>}
       <div className="min-w-0">
         <p className="text-sm font-bold leading-tight">{text}</p>
-        <p className="text-[11px] text-[#15130F]/60">{dim ? "Over the pay-in-4 limit for this amount." : note}</p>
+        <p className="text-[11px] text-[#15130F]/60">{dim ? "Over the pay-in-4 limit for this amount." : note}{learn ? <> <LearnMore onClick={learn} /></> : null}</p>
       </div>
     </div>
   );

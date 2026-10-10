@@ -379,6 +379,23 @@ image, real reviews, the Legacy and remaining Signature photos.
   imperfections; Sun and water protection as Good / Better / Best), and
   three Pick buttons. Tapping a photo or a button picks; the picked column
   lights up. At full width, three full cards.
+- **The payment line, PlayStation's way** (Alan, 2026-10-10, from
+  direct.playstation.com: "From $40/month, or 4 payments at 0% interest
+  with Klarna. Learn more"). Adopted everywhere a price shows. The monthly
+  figure is not our math: Klarna's messaging returns it from Klarna's real
+  plans for the exact amount, and on the real page Stripe's Payment Method
+  Messaging Element does the same. The mockup estimates it the way Klarna
+  does, lowest rate over the longest plan (7.99% APR, 24 months), rounded
+  up: $1,450.80 → "From $66/month, or 4 payments of $362.70 at 0% interest
+  with Klarna." Above $2,000 only the monthly figure shows.
+- **"Learn more" opens Sterling's own Klarna FAQ**, rewritten from
+  PlayStation's Klarna page for a fence job: what Klarna is, how to use it
+  here, what you need, how the 4 payments run (today, then 14, 28 and 42
+  days), fees (none on time; up to $7 late), the soft credit check,
+  monthly plans ($200 and up, 7.99% to 29.99% APR, WebBank), what happens
+  if something changes on the job, and that Klarna is the lender, not
+  Sterling. Nine questions, plain words. The numbers are Klarna's own
+  published US terms; the real page links to Klarna's current terms.
 - **Phone packages, third pass** (Alan, 2026-10-10: "make the three
   packages look most appealing for how somebody would look at them on
   their phone… holy shit, this company knows exactly what they're doing").
@@ -480,6 +497,10 @@ image, real reviews, the Legacy and remaining Signature photos.
 
 ## Decisions to make
 
+- **Invoicing: QuickBooks or Stripe?** See "How Stripe ties it together"
+  below. Keep QuickBooks invoices for the balance, or send a Stripe
+  invoice and sync QuickBooks from it.
+
 - **Retire GoHighLevel's automations?** Alan (2026-10-09): "take out
   GoHighLevel's automations altogether and just use AI to automate this…
   have all our automations internally." The dashboard already owns the
@@ -488,6 +509,39 @@ image, real reviews, the Legacy and remaining Signature photos.
   remaining piece. Treat as its own phase after the proposal launches, with
   the proposal's events (opened, package picked, stain picked, deposit paid)
   as its inputs.
+
+## How Stripe ties it together (proposed 2026-10-10, for Alan to decide)
+
+Alan: "be thinking about how we're going to integrate Stripe into this so
+that everything can be seamless, even the invoicing of our company."
+
+- **One Stripe customer per lead**, with the lead id in the metadata, so
+  every payment lands on the right customer on the dashboard.
+- **The deposit:** a Stripe Checkout Session for $250 (card, Apple Pay,
+  Google Pay). The `checkout.session.completed` webhook marks the deposit
+  paid, books the dates, and fires today's payment-received pipeline so
+  QuickBooks gets the deposit the way it does now.
+- **Pay over time:** a Checkout Session for the whole job with Klarna and
+  Affirm switched on. Klarna or Affirm pays Sterling in full; the same
+  webhook marks both the deposit and the balance paid.
+- **The payment line under every price:** Stripe's Payment Method
+  Messaging Element, which prints Klarna's "From $X/month, or 4 payments…"
+  for the exact amount and handles eligibility. "Learn more" opens the FAQ
+  sheet above (or Klarna's own).
+- **The balance on completion. Two doors; Alan picks.**
+  1. Keep QuickBooks invoicing as today (QuickBooks Payments, the
+     customer pays the QuickBooks invoice).
+  2. Move the balance to a Stripe Invoice: the crew marks the job done,
+     the customer gets one text with a hosted Stripe invoice (card, bank
+     transfer, and the pay-later options if Stripe allows them on
+     invoices, to verify), the `invoice.paid` webhook closes the job, and
+     QuickBooks stays the books through Stripe's QuickBooks Online sync
+     (or our own posting, as now). One look for the customer from proposal
+     to final payment, and Klarna on the balance too.
+  The trade-offs to weigh: card fees (Stripe 2.9% + 30¢ versus QuickBooks
+  Payments), the accountant's workflow, and that every money change today
+  has to be made in both the webhook and the 3 AM reconcile (see the
+  payments plan).
 
 ## Decisions already made
 
