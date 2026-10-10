@@ -38,6 +38,9 @@ const PACKAGES: {
 }[] = [
   {
     key: "essential", name: "Essential Seal", short: "Essential", tag: "Entry", lasts: "1–2 yrs",
+    // The PDF's own photos, pulled out of the file: the clear pine fence
+    // for Essential, the lighter and darker cedar pair for Signature, the
+    // orange and the dark planks for Legacy (Alan, 2026-10-10).
     photos: ["/proposal-mockup/pkg-essential.jpg"],
     best: "Newer fences in good shape",
     lines: [
@@ -48,7 +51,7 @@ const PACKAGES: {
   },
   {
     key: "signature", name: "Signature Finish", short: "Signature", tag: "Semi-transparent", lasts: "2–4 yrs",
-    photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], captions: ["Lighter", "Darker"], popular: true,
+    photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], popular: true,
     best: "Weathered fences you still want to see the grain on",
     lines: [
       { icon: Leaf, text: "Enhances the natural wood grain" },
@@ -58,7 +61,7 @@ const PACKAGES: {
   },
   {
     key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Premium", lasts: "4–7 yrs",
-    photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"], captions: ["Lighter", "Darker"],
+    photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"],
     best: "Older fences that need full coverage",
     lines: [
       { icon: Shield, text: "Solid color protection" },
