@@ -197,9 +197,11 @@ function monthlyFrom(total: number): number {
   return Math.ceil((total * r) / (1 - Math.pow(1 + r, -KLARNA_LONGEST_MONTHS)));
 }
 function payLine(total: number): { text: string; lender: "klarna" } {
+  // PlayStation's exact shape: "From $40/month, or 4 payments at 0%
+  // interest with Klarna". The per-payment amount is not in the headline.
   const from = `From $${monthlyFrom(total)}/month`;
-  if (total <= PAY_IN_4_MAX) return { text: `${from}, or 4 payments of ${formatCurrency(total / 4)} at 0% interest`, lender: "klarna" };
-  return { text: from, lender: "klarna" };
+  if (total <= PAY_IN_4_MAX) return { text: `${from}, or 4 payments at 0% interest with Klarna`, lender: "klarna" };
+  return { text: `${from} with Klarna`, lender: "klarna" };
 }
 
 // Klarna's FAQ, rewritten for a fence (PlayStation's is the model, Alan,
@@ -505,7 +507,7 @@ export default function ProposalMockup() {
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
                           : <img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} />}
-                        or {line.text} with Klarna. <LearnMore onClick={() => setPayFaq("klarna")} dark />
+                        {line.text} <LearnMore onClick={() => setPayFaq("klarna")} dark />
                       </p>
                     </div>
                     <button type="button" onClick={() => choose(show.key)}
@@ -566,7 +568,7 @@ export default function ProposalMockup() {
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
                           : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
-                        {line.text} with Klarna. <LearnMore onClick={() => setPayFaq("klarna")} />
+                        {line.text} <LearnMore onClick={() => setPayFaq("klarna")} />
                       </p>
                       <ul className="mt-3 flex-1 space-y-1.5">
                         {p.lines.map((l) => (
@@ -805,7 +807,7 @@ export default function ProposalMockup() {
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
               <p className="mt-1 text-xs text-[#15130F]/65">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
               <div className="mt-2 space-y-2">
-                <PayOption lender="klarna" text={`${payLine(total || packages[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
+                <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
                 <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
               </div>
               <button type="button" onClick={() => setCheckout("full")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
@@ -834,7 +836,7 @@ export default function ProposalMockup() {
                 <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="mt-0.5 text-[11px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
-                  or {pay.text} with Klarna
+                  {pay.text}
                 </button>
               </div>
               <button type="button" onClick={() => setCheckout("deposit")}
@@ -1053,7 +1055,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                       ) : null}
                       {on && m.key === "klarna" ? (
                         <div className="px-3 pb-3 text-xs leading-relaxed text-[#15130F]/75">
-                          <p className="font-semibold text-[#15130F]">{line.text} with Klarna.</p>
+                          <p className="font-semibold text-[#15130F]">{line.text}.</p>
                           <p>You'll finish on Klarna's page: pick 4 payments or a monthly plan, and Klarna checks you in a minute. No effect on your credit score to check.</p>
                         </div>
                       ) : null}
