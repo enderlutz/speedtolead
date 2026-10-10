@@ -336,12 +336,15 @@ export default function ProposalMockup() {
                     const shown = show.key === p.key;
                     return (
                       <button key={p.key} type="button" onClick={() => choose(p.key)}
-                        className={cn("relative aspect-[3/4.4] overflow-hidden rounded-2xl text-left shadow-lg transition active:scale-[0.97]",
+                        className={cn("relative flex flex-col overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-lg transition active:scale-[0.97]",
                           on ? "ring-4 ring-[#C9972F]" : shown ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
-                        <div className={cn("absolute inset-0 grid gap-px bg-[#15130F]", p.photos.length > 1 && "grid-rows-2")}>
-                          {p.photos.map((src) => <img key={src} src={src} alt="" className="h-full w-full object-cover" draggable={false} />)}
+                        {/* The photos, with nothing written on them. Two stack
+                            so both finishes show (Alan, 2026-10-10). */}
+                        <div className={cn("grid w-full gap-px", p.photos.length > 1 && "grid-rows-2")}>
+                          {p.photos.map((src) => (
+                            <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[72px]" : "h-[145px]")} draggable={false} />
+                          ))}
                         </div>
-                        <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#15130F] via-[#15130F]/75 to-transparent" />
                         {p.popular ? (
                           <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
                             <Star className="mr-0.5 inline h-2.5 w-2.5 fill-current" />Popular
@@ -350,7 +353,7 @@ export default function ProposalMockup() {
                         {on ? (
                           <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                         ) : null}
-                        <div className="absolute inset-x-0 bottom-0 p-2 text-white">
+                        <div className="w-full px-2 pb-2 pt-1.5 text-white">
                           <p className="text-[8px] font-bold uppercase tracking-[0.15em]" style={{ color: "#E3BE63" }}>{p.tag}</p>
                           <p className="font-heading text-[15px] font-bold leading-tight">{p.short}</p>
                           <p className="mt-0.5 text-[13px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
