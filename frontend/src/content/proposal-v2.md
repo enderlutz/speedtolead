@@ -333,6 +333,44 @@ changes only that page. It follows the brief above:
 Not in it yet: the deposit and financing checkout (Stripe), a real scope
 image, real reviews, the Legacy and remaining Signature photos.
 
+**Second pass (Alan, 2026-10-10), all done in the mockup:**
+
+- **Packages side by side**, three across on the phone too, so the
+  colours fit below without a long scroll. "I think we have definitely
+  advanced into a good direction."
+- **Two photos** on Signature and on Legacy (the PDF's own: Legacy orange
+  and dark; Signature's two from Alan's mockup). Essential keeps one.
+- **Repairs:** no "rot board / cap" questions. Posts are three lines by
+  fence height: 6 ft fence $225, 7 ft fence $255, 8 ft fence $350, same
+  prices as before.
+- **Colours open to everyone**, package picked or not: two tabs,
+  Signature (photos) and Legacy (swatches), compact. Picking a colour
+  picks its package, with a line saying so. A "Don't see your color? Tell
+  us what you have in mind" box, because some customers want a colour
+  that isn't on the chart and we help them find it.
+- **Paying:** a "How would you like to pay?" step with two cards, Reserve
+  my dates ($250 today, the rest when done) and Pay over time (Klarna's
+  four payments, Affirm's monthly), both going to the same Stripe
+  checkout where the customer picks the lender. The sticky bar keeps the
+  total, the pay-over-time line and the $250 button.
+- **Wording checked against the lenders' own rules** (Klarna's US
+  promotion rules, Afterpay's and Affirm's messaging guides): Klarna's
+  approved line is exactly "4 interest-free payments of $X"; Afterpay's
+  is "or 4 payments of $X with Afterpay"; Affirm shows an estimated
+  monthly figure, "As low as $X/mo". The mockup uses those words. For the
+  build: Stripe's **Payment Method Messaging Element** renders these lines
+  itself, with the right lender, amount and eligibility, so the real page
+  should use it instead of hand-written text.
+- **No scope drawing → say the size.** "About 280 ft of fence" plus the
+  sides list. Not the gallons: "that's a little overkill." Personal, not
+  salesy, very simple.
+- **The warranty terms, in plain words**, behind the Terms button: peeling
+  or cracking from our application, we come back and touch it up for a
+  year; damage from anything else (the lawn guy, a replaced board, the
+  customer) is on them, and we give them the exact stain name so they can
+  buy it at the nearest store. "7+ years hands-on experience staining wood
+  fences." Two coats, and we keep stain off the black hinges and hardware.
+
 ## The three phases (draft until the questions are answered)
 
 ### Phase 1 — Design and plan
