@@ -447,8 +447,10 @@ export default function ProposalMockup() {
                     const shown = show.key === p.key;
                     return (
                       <button key={p.key} type="button" onClick={() => choose(p.key)}
-                        className={cn("relative flex flex-col overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-lg transition active:scale-[0.97]",
-                          on ? "ring-4 ring-[#C9972F]" : shown ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
+                        className={cn("relative flex flex-col overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-lg transition duration-200 active:scale-[0.97]",
+                          on ? "z-10 scale-[1.04] ring-4 ring-[#C9972F] shadow-2xl shadow-[#C9972F]/40"
+                            : pkg ? "opacity-55 saturate-50 ring-1 ring-[#15130F]/10"
+                            : shown ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
                         {/* The photos, with nothing written on them. Two stack
                             so both finishes show (Alan, 2026-10-10). */}
                         <div className={cn("grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[3px] bg-[#C9972F]")}>
@@ -464,11 +466,11 @@ export default function ProposalMockup() {
                         {on ? (
                           <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                         ) : null}
-                        <div className="w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-1.5 text-white">
-                          <p className="text-[8px] font-bold uppercase tracking-[0.15em]" style={{ color: "#E3BE63" }}>{p.tag}</p>
+                        <div className={cn("w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-1.5", on ? "bg-[#C9972F] text-[#15130F]" : "text-white")}>
+                          <p className="text-[8px] font-bold uppercase tracking-[0.15em]" style={{ color: on ? "#15130F" : "#E3BE63" }}>{on ? "✓ Your pick" : p.tag}</p>
                           <p className="font-heading text-[15px] font-bold leading-tight">{p.short}</p>
                           <p className="mt-0.5 text-[13px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
-                          <p className="text-[8px] text-white/70">Lasts {p.lasts}</p>
+                          <p className={cn("text-[8px]", on ? "text-[#15130F]/70" : "text-white/70")}>Lasts {p.lasts}</p>
                         </div>
                       </button>
                     );
@@ -481,7 +483,9 @@ export default function ProposalMockup() {
                       <h3 className="font-heading text-2xl font-bold leading-tight">{show.name}</h3>
                       <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{show.tag} · Lasts {show.lasts}</p>
                     </div>
-                    {!chosen ? <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[10px] font-bold ring-1 ring-[#C9972F]/50">Most popular</span> : null}
+                    {chosen
+                      ? <span className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold text-[#15130F]" style={{ background: GOLD }}>✓ Your pick</span>
+                      : <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[10px] font-bold ring-1 ring-[#C9972F]/50">Most popular</span>}
                   </div>
                   <div className="p-4 pt-3">
                     <div className="rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
@@ -520,8 +524,10 @@ export default function ProposalMockup() {
                 const on = pkg === p.key;
                 const line = payLine(p.price);
                 return (
-                  <div key={p.key} className={cn("flex flex-col overflow-hidden rounded-2xl bg-white shadow-md transition",
-                    on ? "ring-4 ring-[#C9972F]" : p.popular ? "ring-2 ring-[#C9972F]/70" : "ring-1 ring-[#15130F]/10")}>
+                  <div key={p.key} className={cn("flex flex-col overflow-hidden rounded-2xl bg-white shadow-md transition duration-200",
+                    on ? "scale-[1.02] ring-4 ring-[#C9972F] shadow-2xl shadow-[#C9972F]/30"
+                      : pkg ? "opacity-60 saturate-50 ring-1 ring-[#15130F]/10"
+                      : p.popular ? "ring-2 ring-[#C9972F]/70" : "ring-1 ring-[#15130F]/10")}>
                     <div className="relative">
                       <div className={cn("grid gap-0.5", p.photos.length > 1 && "grid-cols-2")}>
                         {p.photos.map((src, i) => (
