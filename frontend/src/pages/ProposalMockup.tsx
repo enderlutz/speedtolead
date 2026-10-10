@@ -304,7 +304,7 @@ export default function ProposalMockup() {
   const [withScope, setWithScope] = useState(true);
   const [pkg, setPkg] = useState<PkgKey | null>(null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
-  const [colorOpen, setColorOpen] = useState<{ name: string; src: string; finish: string } | null>(null);
+  const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [colorAsk, setColorAsk] = useState("");
@@ -337,6 +337,7 @@ export default function ProposalMockup() {
 
   return (
     <div className="min-h-full bg-stone-200/70 pb-10">
+      <style>{SHINE_CSS}</style>
       {/* Staff bar. Never part of the customer's page. */}
       <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-ink px-3 py-2 text-ivory shadow-md">
         <Link to="/new-proposal" className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
@@ -379,7 +380,7 @@ export default function ProposalMockup() {
           <div className="absolute inset-0 bg-gradient-to-t from-[#15130F] via-[#15130F]/40 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-4 text-white">
             <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
-            <h1 className="font-heading text-3xl font-bold leading-tight">Hi {customer.name.split(" ")[0]}, here's your fence plan.</h1>
+            <h1 className="font-heading text-3xl font-bold leading-tight">Hi {customer.name.split(" ")[0]}, here's your fence restoration plan.</h1>
           </div>
         </section>
         <section className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-[#15130F]/10 px-4 py-3 text-sm">
@@ -606,18 +607,49 @@ export default function ProposalMockup() {
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
           <SectionTitle kicker="Step 3" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
-          <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
-            {([["signature", `Signature · ${SIGNATURE_PHOTOS.length}`], ["legacy", `Legacy · ${LEGACY_PHOTOS.length}`]] as const).map(([k, label]) => (
-              <button key={k} type="button" onClick={() => setPalette(k)}
-                className={cn("h-11 rounded-lg text-[15px] font-bold transition", palette === k ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F]/75")}>
-                {label}
-              </button>
-            ))}
+          {/* The two tabs are the two packages, not two words: the package's
+              own photo behind the name, the first few colours fanned out, and
+              the one that's open shines (Alan, 2026-10-10: "give it a little
+              more branding… a little twinkle"). */}
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            {(["signature", "legacy"] as const).map((k) => {
+              const on = palette === k;
+              const p = packages.find((x) => x.key === k)!;
+              const colors = k === "signature" ? SIGNATURE_PHOTOS : LEGACY_PHOTOS;
+              return (
+                <button key={k} type="button" onClick={() => setPalette(k)} aria-pressed={on}
+                  className={cn("relative h-[76px] overflow-hidden rounded-2xl text-left transition duration-300",
+                    on ? "scale-[1.02] text-white shadow-xl shadow-[#C9972F]/30 ring-2 ring-[#C9972F]" : "bg-white text-[#15130F] ring-1 ring-[#15130F]/10 active:scale-[0.98]")}>
+                  {on ? (
+                    <>
+                      <img src={p.photos[0]} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+                      <div className="absolute inset-0 bg-gradient-to-r from-[#15130F] via-[#15130F]/85 to-[#15130F]/45" />
+                      <span className="mock-shine" aria-hidden />
+                      <Sparkles className="mock-twinkle absolute right-2 top-2 h-5 w-5" style={{ color: "#E3BE63" }} aria-hidden />
+                    </>
+                  ) : null}
+                  <span className="relative flex h-full flex-col justify-center px-3">
+                    <span className="flex items-center gap-2">
+                      <span className="flex shrink-0 -space-x-2">
+                        {colors.slice(0, 3).map((c) => (
+                          <img key={c.name} src={c.src} alt="" loading="lazy" draggable={false}
+                            className={cn("h-7 w-7 rounded-full object-cover ring-2", on ? "ring-[#15130F]" : "ring-white")} />
+                        ))}
+                      </span>
+                      <span className={cn("font-heading text-[17px] font-bold leading-tight", on && "text-[#E3BE63]")}>{p.short}</span>
+                    </span>
+                    <span className={cn("mt-1 text-[12px] font-semibold", on ? "text-white/90" : "text-[#15130F]/75")}>
+                      {colors.length} colors · {k === "signature" ? "see the grain" : "solid color"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <div className="grid grid-cols-2 gap-2">
             {(palette === "signature" ? SIGNATURE_PHOTOS : LEGACY_PHOTOS).map((c) => (
               <button key={c.name} type="button"
-                onClick={() => setColorOpen({ name: c.name, src: "full" in c ? (c as { full: string }).full : c.src, finish: palette === "signature" ? "Signature · semi-transparent" : "Legacy · solid color" })}
+                onClick={() => setColorOpen({ name: c.name, src: c.src, full: "full" in c ? (c as { full: string }).full : undefined, finish: palette === "signature" ? "Signature · semi-transparent" : "Legacy · solid color" })}
                 className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-md ring-1 ring-[#15130F]/10 transition active:scale-[0.98]">
                 <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
                 <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
@@ -757,7 +789,7 @@ export default function ProposalMockup() {
         {/* How to pay: the deposit, or the whole job over time. Both go to
             the same Stripe checkout; Klarna and Affirm are picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `${chosen.name}${repairs ? " plus repairs" : ""}: ${formatCurrency(total)}` : "Pick a package first and your numbers fill in."} />
+          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your investment: ${formatCurrency(total)} · ${chosen.name}${repairs ? " plus repairs" : ""}` : "Pick a package first and your numbers fill in."} />
           {/* The 20% off ends with the month and the price goes back up. Booking
               now locks it even if the job happens later; paying over time is
               how someone does that without the cash today (Alan, 2026-10-10). */}
@@ -803,7 +835,7 @@ export default function ProposalMockup() {
           {chosen ? (
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm text-white/85">{chosen.name}{repairs ? " · repairs" : ""}</p>
+                <p className="truncate text-sm text-white/85"><span className="font-bold" style={{ color: "#E3BE63" }}>Your investment</span> · {chosen.short}{repairs ? " + repairs" : ""}</p>
                 <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="mt-0.5 text-[13px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
@@ -825,7 +857,7 @@ export default function ProposalMockup() {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 sm:items-center sm:p-4" onClick={() => setColorOpen(null)}>
           <div className="w-full max-w-md overflow-hidden rounded-t-3xl bg-white text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
-              <img src={colorOpen.src} alt={colorOpen.name} className="max-h-[52vh] w-full object-cover" draggable={false} />
+              <ColorPhoto key={colorOpen.name} name={colorOpen.name} src={colorOpen.src} full={colorOpen.full} />
               <button type="button" onClick={() => setColorOpen(null)} aria-label="Close"
                 className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white ring-2 ring-[#C9972F]/70">✕</button>
             </div>
@@ -924,6 +956,35 @@ export default function ProposalMockup() {
 }
 
 // ── Pieces ─────────────────────────────────────────────────────────────
+
+// The colour sheet shows the small photo the grid already loaded, so it
+// opens at once, and the big one fades in over it when it arrives. Alan
+// (2026-10-10): the Legacy colours "take a minute… they need to show up
+// with the photo automatically." The big Legacy photos are 400–600 KB each
+// off the photo storage; the thumbnails are 30 KB and already on the page.
+function ColorPhoto({ name, src, full }: { name: string; src: string; full?: string }) {
+  const [ready, setReady] = useState(false);
+  return (
+    <div className="relative h-[52vh] max-h-[52vh] w-full bg-[#15130F]">
+      <img src={src} alt={name} className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+      {full ? (
+        <img src={full} alt="" onLoad={() => setReady(true)} draggable={false}
+          className={cn("absolute inset-0 h-full w-full object-cover transition-opacity duration-500", ready ? "opacity-100" : "opacity-0")} />
+      ) : null}
+    </div>
+  );
+}
+
+// A sweep of light across the open palette tab and a twinkling spark on it.
+// Both stop for people who asked their phone for less motion.
+const SHINE_CSS = `
+@keyframes mock-shine { 0% { transform: translateX(-160%) skewX(-20deg); } 55%, 100% { transform: translateX(260%) skewX(-20deg); } }
+@keyframes mock-twinkle { 0%, 100% { opacity: .55; transform: scale(.85) rotate(-8deg); } 50% { opacity: 1; transform: scale(1.2) rotate(10deg); } }
+.mock-shine { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.mock-shine::after { content: ""; position: absolute; top: -30%; bottom: -30%; left: 0; width: 45%; background: linear-gradient(90deg, transparent, rgba(255, 236, 190, .45), transparent); animation: mock-shine 3.2s ease-in-out infinite; }
+.mock-twinkle { animation: mock-twinkle 1.8s ease-in-out infinite; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) { .mock-shine::after, .mock-twinkle { animation: none; } }
+`;
 
 function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; sub?: string }) {
   return (

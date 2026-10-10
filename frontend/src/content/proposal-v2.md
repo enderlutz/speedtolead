@@ -690,3 +690,16 @@ words, one thing to do per screen.
 
 - 2026-10-09 — Worktree and branch created. This file created with the
   questions and the draft phases. The New Proposal tab added to the sidebar.
+- 2026-10-10 — The mockup took the day's direction: packages side by side
+  on one screen with both photos, the picked one lit; repairs with
+  drawings and 6/7/8 ft posts; the colours as a tap-to-read gallery
+  (Legacy from Fence Photos); every price line sold the PlayStation way;
+  two payment doors with Stripe Checkout screens; the FAQ from the most
+  asked customer questions; the whole thing dressed in one real estimate.
+- 2026-10-10 (evening) — From Alan's voice note: the two colour tabs now
+  carry the package (its photo behind the name, three colours fanned out,
+  a shine and a spark on the open one); the colour sheet opens on the
+  thumbnail already on the page and the big photo fades in over it, so
+  Legacy colours no longer "take a minute"; the greeting reads "here's
+  your fence restoration plan"; the price at the bottom and on the pay
+  step is labelled "Your investment".
