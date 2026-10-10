@@ -152,6 +152,84 @@ Answer in chat, by number. Each has a recommendation so "yes" is enough.
     new one? *Recommend: no mass re-send; only on request, through "New
     estimate".*
 
+## Design brief — Alan on today's proposal (2026-10-09)
+
+Alan walked through the current PDF proposal page by page. What he said:
+
+- **It's good as a PDF.** The new one gets the interactive feel without
+  becoming salesy. "I don't want to make it too salesy."
+- **Keep on the cover:** the customer's name, the property address, the
+  date, the proposal number, and the Sterling logo.
+- **The scope drawing is optional.** When we have it, it goes on the
+  proposal and the "sides of fence included" list is not needed, because
+  the drawing shows the sides. When we don't have it, nothing shows in its
+  place and the sides list appears instead, as today. "The visual is just
+  going to be a hundred times better for the customer."
+- **Keep the package photos exactly as they are:** the Essential photo,
+  the Signature photo, and the two Legacy photos.
+- **Keep the 20% off and the same pricing guide.** The wording is fine for
+  now; revisit later.
+- **Add:** "two coats of stain with each application"; the one-year
+  workmanship warranty; a link to the terms and conditions.
+- **Details page:** Alan will send what goes there.
+- **Financing:** today's "or as low as $35.27/mo for 36 mo." is not what
+  customers want. "Nobody ever goes with a 36 month. They always want to
+  break it down into three or four payments." The plan is Klarna's split
+  in 4, shown the way the big retailers show it. (See C9 for the limits
+  to verify.)
+
+  What the texts say (read 2026-10-09, every inbound text on file):
+  about 20 customers have raised money terms unprompted. They ask "do you
+  offer financing?", "do you set up a payment plan?", "half down and the
+  remainder in 2 weeks?", "if I can pay it monthly", and "send the Affirm
+  link". Nobody has ever mentioned 36 months. Two customers paid through
+  Affirm, one asked what the interest would be, and one left because
+  "it's not in the budget" after talking to a spouse. The ask is for a
+  split, not a long loan.
+- Alan is sending a newer mockup he started, for direction. Then the first
+  mockup gets built from all of this and iterated.
+
+### What today's proposal contains (so nothing gets lost)
+
+1. Cover: logo; Prepared for; Property address; Prepared by; Date;
+   Proposal #; phone, email, website; "Fence Restoration Proposal" with the
+   family photo; "Proposal includes: scope of work · pricing · finish
+   options".
+2. Packages: Essential Seal (Entry), Signature Finish (Most popular),
+   Legacy Finish (Premium), each with a photo, two or three lines, the
+   list price struck through, the 20% off price, and the monthly figure.
+3. Details: Professional fence preparation (complimentary cleaning;
+   removes grey weathering, dirt and mildew; ideal surface for stain;
+   maximises durability); Our proven process and guarantee (everything
+   included; professional cleaning; premium stain; labour and cleanup;
+   1,500+ fences restored; 7+ years); Neighborhood special, save 10% more
+   when a neighbour books within 7 days.
+4. Colour charts: Signature (transparent and semi-transparent) and Legacy
+   (solid). Essential is clear coat only.
+5. The web wrapper around the PDF: "Sides of fence included in the price"
+   list, "Pay over time with Affirm", a call button, and a footer
+   "Sterling Fence Staining · Cypress, TX".
+
+### Today's colour chart (names as printed on the PDF)
+
+A starting list for the stain library. Alan and Olga add the real photos
+in the tab; names can be corrected there.
+
+- **Essential Seal:** clear coat only, no colours.
+- **Signature Finish, lighter tones (transparent):** Honey Gold, Cedar
+  Naturaltone, Redwood Naturaltone, Canyon Brown.
+- **Signature Finish, darker tones (semi-transparent):** Rusticana, Redwood
+  Naturaltone, Cedar Naturaltone, Simply Cedar, Badlands Red, Quiet
+  Chamois, Ferret, Monticello Tan, Potato Skin (printed "Patato Skin"),
+  October Brown, Mixed Nuts, Hot Chocolate, Pinebark, Chocolate Chips,
+  Found Fossil, Cottage Gray.
+- **Legacy Finish, solid colour:** White Out, Simply Cedar, Pinebark,
+  Chocolate Chips, Darkest Night, Toasted Armado, Silver Mine, Galapagos
+  Grey, Creamy Glen, Coral Beach, Snowstorm, Heartland's, Ghosted Sand,
+  Carlsbad Dawn (printed "Carlbad Dawn"), Saddlebag Tan, Quiet Chamois,
+  Parisian Gray, Smoked Leather, October Brown, Classic Mahogany, Badlands
+  Red, Rusticana, Potato Skin, Plymouth Red.
+
 ## The three phases (draft until the questions are answered)
 
 ### Phase 1 — Design and plan
