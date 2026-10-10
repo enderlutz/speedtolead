@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   Download, FileText, MapPin, Calendar, Hash, UserRound, Leaf, Home, Smartphone, Monitor,
-  Users, Lightbulb, ArrowLeft, Eye, Expand, MessageSquare, CreditCard, Lock, ChevronDown,
+  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -171,6 +171,30 @@ const LENDER_COMPARE: [string, string, string][] = [
   ["Who lends", "Klarna / WebBank", "Affirm's partner banks"],
 ];
 
+// A few words on each colour, read when a customer taps one (the
+// competitor's page does this well, Alan, 2026-10-10). First draft; Alan
+// edits from here.
+const COLOR_NOTES: Record<string, string> = {
+  "Redwood Naturaltone": "Warm red-brown that lets the grain show through. The classic cedar-fence look.",
+  "Cedar Naturaltone": "Honey cedar, light and natural. Brightens a backyard and hides very little.",
+  "Pecan": "Golden brown with a touch of red. Rich without going dark.",
+  "Redwood": "Deeper and redder than Naturaltone. Bold on a sunny lot.",
+  "Cottage Gray": "Soft grey that still shows the wood. Calm and modern, and it hides weathering well.",
+  "Monticello Tan": "A quiet taupe. Sits well with brick and stone, and stays cool-looking in the sun.",
+  "Dark Walnut": "Deep brown, close to black in the shade. Dramatic, and it hides a lot.",
+  "Chocolate Chips": "Dark chocolate brown. Even colour on boards that have seen some weather.",
+  "Simply Cedar": "Solid cedar orange-brown. Full coverage that looks like new wood.",
+  "Pine Bark": "Medium brown, even and matte. Hides patched and replaced boards.",
+  "October Brown": "Dark brown with a hint of grey. Low-key, goes with any house.",
+  "Potato Skin": "Earthy red-brown. Warm against a green lawn.",
+  "Chocolate Chip": "Rich dark brown. Our most popular solid.",
+  "Classic Mahogany": "Deep red-brown with some polish to it. Great against white brick.",
+  "Plymouth Red": "Barn red. Stands out, and covers everything underneath.",
+  "Galapagos Grey": "Mid grey, modern. Cools down a bright yard.",
+  "Silver Mine": "Pale grey, almost driftwood. Light and clean.",
+  "Darkest Night": "Near-black. Makes greenery pop; the boldest look we do.",
+};
+
 // The questions customers actually text us most, once price, sides, colour,
 // paying and the warranty are answered by the page itself (read 2026-10-10
 // from every inbound text on file). Answers are drafts for Alan to confirm.
@@ -280,11 +304,9 @@ export default function ProposalMockup() {
   const [withScope, setWithScope] = useState(true);
   const [pkg, setPkg] = useState<PkgKey | null>(null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
-  const [stain, setStain] = useState<string | null>(null);
-  const [switched, setSwitched] = useState<string | null>(null);
+  const [colorOpen, setColorOpen] = useState<{ name: string; src: string; finish: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [bigPhoto, setBigPhoto] = useState<string | null>(null);
   const [colorAsk, setColorAsk] = useState("");
   const [colorSent, setColorSent] = useState(false);
   const [terms, setTerms] = useState(false);
@@ -310,20 +332,7 @@ export default function ProposalMockup() {
 
   const choose = (key: PkgKey) => {
     setPkg(key);
-    setSwitched(null);
-    if (key === "essential") setStain(null);
-    else setPalette(key);
-  };
-  // Picking a colour picks its package too, so the colours are open to
-  // everyone (Alan, 2026-10-10) and the price still follows the choice.
-  const pickColor = (name: string, from: "signature" | "legacy") => {
-    setStain(name);
-    if (pkg !== from) {
-      setPkg(from);
-      setSwitched(`${name} is a ${from === "signature" ? "Signature" : "Legacy"} color, so that's your package now.`);
-    } else {
-      setSwitched(null);
-    }
+    if (key !== "essential") setPalette(key);
   };
 
   return (
@@ -589,72 +598,33 @@ export default function ProposalMockup() {
           <p className="mt-3 text-center text-sm text-[#15130F]/75">Choose based on the condition of your wood and the look you want.</p>
         </section>
 
-        {/* Colours: always on show, in two tabs, so nobody has to pick a
-            package to browse (Alan, 2026-10-10). */}
+        {/* Colours: a gallery to look at, not a decision to make here. Tap
+            one and it opens big with a few words about it; the choice gets
+            made with us on the phone (Alan, 2026-10-10, after a competitor's
+            page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 3" title="Pick your color" sub="Essential is a clear coat. Signature and Legacy come in these." />
+          <SectionTitle kicker="Step 3" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
           <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
-            {([["signature", `Signature · ${SIGNATURE_PHOTOS.length} photos`], ["legacy", `Legacy · ${LEGACY_PHOTOS.length} photos`]] as const).map(([k, label]) => (
+            {([["signature", `Signature · ${SIGNATURE_PHOTOS.length}`], ["legacy", `Legacy · ${LEGACY_PHOTOS.length}`]] as const).map(([k, label]) => (
               <button key={k} type="button" onClick={() => setPalette(k)}
-                className={cn("h-9 rounded-lg text-sm font-bold transition", palette === k ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F]/70")}>
+                className={cn("h-11 rounded-lg text-[15px] font-bold transition", palette === k ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F]/75")}>
                 {label}
               </button>
             ))}
           </div>
-          {palette === "signature" ? (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                {SIGNATURE_PHOTOS.map((c) => {
-                  const on = stain === c.name;
-                  return (
-                    <div key={c.name} className={cn("relative overflow-hidden rounded-xl bg-white shadow-sm transition", on ? "ring-[3px] ring-[#C9972F]" : "ring-1 ring-[#15130F]/10")}>
-                      <button type="button" onClick={() => pickColor(c.name, "signature")} className="block w-full text-left">
-                        <img src={c.src} alt={c.name} className="h-24 w-full object-cover" draggable={false} />
-                        <span className="flex items-center justify-between gap-1 px-2 py-2">
-                          <span className="text-[12px] font-bold leading-tight">{c.name}</span>
-                          {on ? <Check className="h-3 w-3 shrink-0" style={{ color: "#8C6224" }} /> : null}
-                        </span>
-                      </button>
-                      <button type="button" onClick={() => setBigPhoto(c.src)} aria-label={`See ${c.name} bigger`}
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md bg-black/50 text-white">
-                        <Expand className="h-3 w-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[13px] text-[#15130F]/75">Real fences we stained. Tap the corner to see one bigger. More colors as photos are added.</p>
-            </>
-          ) : (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                {LEGACY_PHOTOS.map((c) => {
-                  const on = stain === c.name;
-                  return (
-                    <div key={c.name} className={cn("relative overflow-hidden rounded-xl bg-white shadow-sm transition", on ? "ring-[3px] ring-[#C9972F]" : "ring-1 ring-[#15130F]/10")}>
-                      <button type="button" onClick={() => pickColor(c.name, "legacy")} className="block w-full text-left">
-                        <img src={c.src} alt={c.name} className="h-24 w-full object-cover" loading="lazy" draggable={false} />
-                        <span className="flex items-center justify-between gap-1 px-2 py-2">
-                          <span className="text-[12px] font-bold leading-tight">{c.name}</span>
-                          {on ? <Check className="h-3 w-3 shrink-0" style={{ color: "#8C6224" }} /> : null}
-                        </span>
-                      </button>
-                      <button type="button" onClick={() => setBigPhoto(c.full)} aria-label={`See ${c.name} bigger`}
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md bg-black/50 text-white">
-                        <Expand className="h-3 w-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[13px] text-[#15130F]/75">Solid colors on real fences we stained. Tap the corner to see one bigger. {LEGACY_NO_PHOTO.join(" and ")}: photos coming.</p>
-            </>
-          )}
-          {stain ? (
-            <p className="mt-3 rounded-xl bg-[#15130F] px-3 py-2 text-[15px] font-semibold text-[#E3BE63]">
-              <Check className="mr-1 inline h-4 w-4" /> {stain} it is. {switched || "You can change this any time."}
-            </p>
-          ) : null}
+          <div className="grid grid-cols-2 gap-2">
+            {(palette === "signature" ? SIGNATURE_PHOTOS : LEGACY_PHOTOS).map((c) => (
+              <button key={c.name} type="button"
+                onClick={() => setColorOpen({ name: c.name, src: "full" in c ? (c as { full: string }).full : c.src, finish: palette === "signature" ? "Signature · semi-transparent" : "Legacy · solid color" })}
+                className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-md ring-1 ring-[#15130F]/10 transition active:scale-[0.98]">
+                <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[13px] text-[#15130F]/75">
+            {palette === "signature" ? "Real fences we stained. More colors as photos are added." : `Real fences we stained. ${LEGACY_NO_PHOTO.join(" and ")}: photos coming.`}
+          </p>
 
           {/* The colour they want isn't here. */}
           <div className="mt-4 rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
@@ -831,7 +801,7 @@ export default function ProposalMockup() {
           {chosen ? (
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm text-white/85">{chosen.name}{stain ? ` · ${stain}` : ""}{repairs ? " · repairs" : ""}</p>
+                <p className="truncate text-sm text-white/85">{chosen.name}{repairs ? " · repairs" : ""}</p>
                 <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="mt-0.5 text-[13px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
@@ -849,10 +819,23 @@ export default function ProposalMockup() {
         </div>
       </div>
 
-      {bigPhoto ? (
-        <button type="button" onClick={() => setBigPhoto(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
-          <img src={bigPhoto} alt="" className="max-h-full max-w-full rounded-2xl shadow-2xl" />
-        </button>
+      {colorOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 sm:items-center sm:p-4" onClick={() => setColorOpen(null)}>
+          <div className="w-full max-w-md overflow-hidden rounded-t-3xl bg-white text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="relative">
+              <img src={colorOpen.src} alt={colorOpen.name} className="max-h-[52vh] w-full object-cover" draggable={false} />
+              <button type="button" onClick={() => setColorOpen(null)} aria-label="Close"
+                className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white ring-2 ring-[#C9972F]/70">✕</button>
+            </div>
+            <div className="p-5">
+              <h3 className="font-heading text-3xl font-bold leading-tight">{colorOpen.name}</h3>
+              <p className="mt-1 text-[12px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{colorOpen.finish}</p>
+              <p className="mt-3 text-[17px] leading-relaxed text-[#15130F]/85">{COLOR_NOTES[colorOpen.name] || "A real fence we stained in this color."}</p>
+              <p className="mt-4 rounded-xl bg-[#F8F3E7] px-3 py-2.5 text-[15px] text-[#15130F]/80">Like it? Tell us when we talk. We'll make sure it suits your wood.</p>
+              <button type="button" onClick={() => setColorOpen(null)} className="mt-4 h-12 w-full rounded-xl text-[17px] font-bold text-[#15130F]" style={{ background: GOLD }}>Back to the colors</button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {/* Pay over time, explained the way PlayStation explains Klarna, for
@@ -867,20 +850,20 @@ export default function ProposalMockup() {
                 <h3 className="font-heading text-xl font-bold leading-tight">Two ways to spread it out</h3>
                 <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
                   <button type="button" onClick={() => setPayFaq("klarna")}
-                    className={cn("flex h-10 items-center justify-center rounded-lg text-[15px] font-black transition", payFaq === "klarna" ? "bg-[#FFB3C7] text-black" : "text-[#15130F]/75")}>Klarna.</button>
+                    className={cn("flex h-11 items-center justify-center rounded-lg text-[15px] font-black transition", payFaq === "klarna" ? "bg-[#FFB3C7] text-black" : "text-[#15130F]/75")}>Klarna.</button>
                   <button type="button" onClick={() => setPayFaq("affirm")}
-                    className={cn("flex h-10 items-center justify-center rounded-lg transition", payFaq === "affirm" ? "bg-[#15130F]" : "opacity-50")}>
+                    className={cn("flex h-11 items-center justify-center rounded-lg transition", payFaq === "affirm" ? "bg-[#15130F]" : "opacity-50")}>
                     <img src="/affirm-white.png" alt="Affirm" className={cn("h-4 w-auto", payFaq !== "affirm" && "invert")} draggable={false} />
                   </button>
                 </div>
               </div>
               <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-2">
                 <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
-                  <div className="grid grid-cols-[1.2fr_1fr_1fr] bg-[#15130F] px-3 py-1.5 text-[12px] font-bold uppercase tracking-wider text-white/80">
+                  <div className="grid grid-cols-[1.2fr_1fr_1fr] bg-[#15130F] px-3 py-1.5 text-[12px] font-bold uppercase tracking-wider text-white/85">
                     <span>Compare</span><span className={cn(payFaq === "klarna" && "text-[#E3BE63]")}>Klarna</span><span className={cn(payFaq === "affirm" && "text-[#E3BE63]")}>Affirm</span>
                   </div>
                   {LENDER_COMPARE.map(([label, k, a]) => (
-                    <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 border-t border-[#15130F]/5 px-3 py-1.5 text-[13px] leading-snug">
+                    <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 border-t border-[#15130F]/5 px-3 py-2 text-[13px] leading-snug">
                       <span className="font-bold">{label}</span>
                       <span className={cn(payFaq === "klarna" ? "font-semibold" : "text-[#15130F]/75")}>{k}</span>
                       <span className={cn(payFaq === "affirm" ? "font-semibold" : "text-[#15130F]/75")}>{a}</span>
@@ -890,7 +873,7 @@ export default function ProposalMockup() {
                 {faq.map(([q, a]) => (
                   <div key={q} className="rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
                     <p className="text-[15px] font-bold leading-snug">{q}</p>
-                    <p className="mt-1 text-[15px] leading-relaxed text-[#15130F]/80">{a}</p>
+                    <p className="mt-1 text-[15px] leading-relaxed text-[#15130F]/85">{a}</p>
                   </div>
                 ))}
                 <p className="px-1 text-[13px] leading-snug text-[#15130F]/75">
@@ -900,7 +883,7 @@ export default function ProposalMockup() {
                 </p>
               </div>
               <div className="p-5 pt-3">
-                <button type="button" onClick={() => setPayFaq(null)} className="h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
+                <button type="button" onClick={() => setPayFaq(null)} className="h-12 w-full rounded-xl text-[17px] font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
               </div>
             </div>
           </div>
