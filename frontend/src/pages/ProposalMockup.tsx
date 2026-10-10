@@ -109,9 +109,9 @@ const PICKETS = [
   { key: "cedar8", label: "8 ft cedar", price: 16 },
 ];
 const PARTS = [
-  { key: "rotboard", label: "Rot board", price: 50 },
-  { key: "cap", label: "Cap", price: 85 },
-  { key: "rail", label: "2x4 rail", price: 75 },
+  { key: "rotboard", label: "Rot board", what: "The board along the ground", price: 50 },
+  { key: "cap", label: "Cap", what: "The board along the top", price: 85 },
+  { key: "rail", label: "2x4 rail", what: "The boards the pickets nail to", price: 75 },
 ];
 const POSTS = [
   { key: "post6", label: "6 ft fence", price: 225 },
@@ -360,7 +360,7 @@ export default function ProposalMockup() {
         {/* Top bar */}
         <div className="flex items-center justify-between gap-3 bg-[#15130F] px-4 py-3">
           <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-8 w-auto" draggable={false} />
-          <a href="tel:+13465897877" className="inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-bold text-[#15130F] shadow-md" style={{ background: GOLD }}>
+          <a href="tel:+13465897877" className="inline-flex h-10 items-center gap-2 rounded-full px-4 text-[15px] font-bold text-[#15130F] shadow-md" style={{ background: GOLD }}>
             <Phone className="h-4 w-4" /> Call or text
           </a>
         </div>
@@ -370,11 +370,11 @@ export default function ProposalMockup() {
           <img src="/proposal-mockup/hero-family.jpg" alt="" className="h-60 w-full object-cover" draggable={false} />
           <div className="absolute inset-0 bg-gradient-to-t from-[#15130F] via-[#15130F]/40 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-4 text-white">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
+            <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
             <h1 className="font-heading text-3xl font-bold leading-tight">Hi {customer.name.split(" ")[0]}, here's your fence plan.</h1>
           </div>
         </section>
-        <section className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-[#15130F]/10 px-4 py-3 text-xs">
+        <section className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-[#15130F]/10 px-4 py-3 text-sm">
           <Fact icon={UserRound} label="Prepared for">{customer.name}</Fact>
           <Fact icon={Calendar} label="Date">{customer.date}</Fact>
           <Fact icon={MapPin} label="Property" wide>{customer.address}</Fact>
@@ -394,7 +394,7 @@ export default function ProposalMockup() {
               ) : <ScopeDrawing />}
               {/* The real drawing carries its own colour key (Alan,
                   2026-10-10), so the chips only explain the stand-in. */}
-              <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+              <div className="mt-3 flex flex-wrap gap-2 text-sm font-semibold">
                 {!live?.scopeUrl ? (
                   <>
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-blue-600" /> Blue = inside face</span>
@@ -403,19 +403,19 @@ export default function ProposalMockup() {
                 ) : null}
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#15130F] px-3 py-1.5 text-[#E3BE63]">About {customer.feet} ft</span>
               </div>
-              <p className="mt-2 text-sm text-[#15130F]/70">This is what we'd stain. Not right? Tap Call or text at the top.</p>
+              <p className="mt-2 text-[15px] text-[#15130F]/70">This is what we'd stain. Not right? Tap Call or text at the top.</p>
             </>
           ) : (
             // No drawing for this customer: the size and the sides, in words.
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="font-heading text-2xl font-bold leading-tight">About {customer.feet} ft of fence</p>
-              <p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-[#8C6224]">Sides included in the price</p>
+              <p className="mt-1 text-[13px] font-bold uppercase tracking-wider text-[#8C6224]">Sides included in the price</p>
               <ul className="mt-1.5 space-y-1.5">
                 {customer.sides.map((s) => (
                   <li key={s} className="flex items-center gap-2 text-base font-semibold"><Check className="h-4 w-4" style={{ color: GOLD }} /> {s}</li>
                 ))}
               </ul>
-              <p className="mt-2 text-sm text-[#15130F]/70">Not right? Tap Call or text at the top.</p>
+              <p className="mt-2 text-[15px] text-[#15130F]/70">Not right? Tap Call or text at the top.</p>
             </div>
           )}
         </section>
@@ -429,7 +429,7 @@ export default function ProposalMockup() {
           <div className="px-1">
             <SectionTitle kicker="Step 2" title="Pick your package" sub="Same expert service. Three levels of protection." />
           </div>
-          <p className="mb-3 flex items-center gap-2 rounded-xl bg-[#F8F3E7] px-3 py-2 text-xs font-semibold ring-1 ring-[#C9972F]/40">
+          <p className="mb-3 flex items-center gap-2 rounded-xl bg-[#F8F3E7] px-3 py-2 text-sm font-semibold ring-1 ring-[#C9972F]/40">
             <Shield className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
             Every package: two coats of stain and a 1-year workmanship warranty.
           </p>
@@ -461,7 +461,7 @@ export default function ProposalMockup() {
                           ))}
                         </div>
                         {p.popular ? (
-                          <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
+                          <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
                             <Star className="mr-0.5 inline h-2.5 w-2.5 fill-current" />Popular
                           </span>
                         ) : null}
@@ -469,10 +469,10 @@ export default function ProposalMockup() {
                           <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                         ) : null}
                         <div className={cn("w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-1.5", on ? "bg-[#C9972F] text-[#15130F]" : "text-white")}>
-                          <p className="text-[8px] font-bold uppercase tracking-[0.15em]" style={{ color: on ? "#15130F" : "#E3BE63" }}>{on ? "✓ Your pick" : p.tag}</p>
-                          <p className="font-heading text-[15px] font-bold leading-tight">{p.short}</p>
-                          <p className="mt-0.5 text-[13px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
-                          <p className={cn("text-[8px]", on ? "text-[#15130F]/70" : "text-white/70")}>Lasts {p.lasts}</p>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{ color: on ? "#15130F" : "#E3BE63" }}>{on ? "✓ Your pick" : p.tag}</p>
+                          <p className="font-heading text-[17px] font-bold leading-tight">{p.short}</p>
+                          <p className="mt-0.5 text-[15px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
+                          <p className={cn("text-[11px]", on ? "text-[#15130F]/70" : "text-white/85")}>Lasts {p.lasts}</p>
                         </div>
                       </button>
                     );
@@ -483,29 +483,29 @@ export default function ProposalMockup() {
                   <div className="flex items-start justify-between gap-2 px-4 pt-4">
                     <div className="min-w-0">
                       <h3 className="font-heading text-2xl font-bold leading-tight">{show.name}</h3>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{show.tag} · Lasts {show.lasts}</p>
+                      <p className="text-[12px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{show.tag} · Lasts {show.lasts}</p>
                     </div>
                     {chosen
-                      ? <span className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold text-[#15130F]" style={{ background: GOLD }}>✓ Your pick</span>
-                      : <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[10px] font-bold ring-1 ring-[#C9972F]/50">Most popular</span>}
+                      ? <span className="shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold text-[#15130F]" style={{ background: GOLD }}>✓ Your pick</span>
+                      : <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[12px] font-bold ring-1 ring-[#C9972F]/50">Most popular</span>}
                   </div>
                   <div className="p-4 pt-3">
                     <div className="rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
-                      <p className="text-sm font-semibold leading-snug">{show.best}</p>
+                      <p className="text-[12px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
+                      <p className="text-[15px] font-semibold leading-snug">{show.best}</p>
                     </div>
                     <ul className="mt-3 space-y-1.5">
                       {show.lines.map((l) => {
                         const Icon = l.icon;
-                        return <li key={l.text} className="flex items-center gap-2 text-sm font-medium"><Icon className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>;
+                        return <li key={l.text} className="flex items-center gap-2 text-[15px] font-medium"><Icon className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>;
                       })}
                     </ul>
                     <div className="mt-3 rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
-                      <p className="text-[10px] text-white/60"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span> · ends {customer.goodThrough}</p>
+                      <p className="text-[12px] text-white/85"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span> · ends {customer.goodThrough}</p>
                       <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(show.price)}</p>
-                      <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#E3BE63" }}>
+                      <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: "#E3BE63" }}>
                         {line.lender === "klarna"
-                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
+                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
                           : <img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} />}
                         {line.text} <LearnMore onClick={() => setPayFaq("klarna")} dark />
                       </p>
@@ -536,14 +536,14 @@ export default function ProposalMockup() {
                           <div key={src} className="relative">
                             <img src={src} alt="" className="h-40 w-full object-cover" draggable={false} />
                             {p.captions?.[i] ? (
-                              <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
+                              <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
                             ) : null}
                           </div>
                         ))}
                       </div>
-                      <span className="absolute left-2 top-2 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow">20% off</span>
+                      <span className="absolute left-2 top-2 rounded-full bg-red-600 px-2 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white shadow">20% off</span>
                       {p.popular ? (
-                        <span className="absolute right-2 top-2 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
+                        <span className="absolute right-2 top-2 rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
                           <Star className="mr-1 inline h-3 w-3 fill-current" />Most popular
                         </span>
                       ) : null}
@@ -552,27 +552,27 @@ export default function ProposalMockup() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="font-heading text-2xl font-bold leading-tight">{p.name}</h3>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{p.tag}</p>
+                          <p className="text-[12px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{p.tag}</p>
                         </div>
-                        <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[10px] font-bold ring-1 ring-[#C9972F]/50">Lasts {p.lasts}</span>
+                        <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[12px] font-bold ring-1 ring-[#C9972F]/50">Lasts {p.lasts}</span>
                       </div>
                       <div className="mt-3 rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
-                        <p className="text-sm font-semibold leading-snug">{p.best}</p>
+                        <p className="text-[12px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
+                        <p className="text-[15px] font-semibold leading-snug">{p.best}</p>
                       </div>
                       <div className="mt-3 flex items-baseline gap-2">
                         <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(p.price)}</p>
-                        <s className="text-sm text-[#15130F]/50">{formatCurrency(p.regular)}</s>
+                        <s className="text-[15px] text-[#15130F]/70">{formatCurrency(p.regular)}</s>
                       </div>
-                      <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-[#15130F]/75">
+                      <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-[#15130F]/75">
                         {line.lender === "klarna"
-                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
+                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
                           : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
                         {line.text} <LearnMore onClick={() => setPayFaq("klarna")} />
                       </p>
                       <ul className="mt-3 flex-1 space-y-1.5">
                         {p.lines.map((l) => (
-                          <li key={l.text} className="flex items-start gap-2 text-sm"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>
+                          <li key={l.text} className="flex items-start gap-2 text-[15px]"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>
                         ))}
                       </ul>
                       <button type="button" onClick={() => choose(p.key)}
@@ -587,7 +587,7 @@ export default function ProposalMockup() {
               })}
             </div>
           )}
-          <p className="mt-3 text-center text-xs text-[#15130F]/60">Choose based on the condition of your wood and the look you want.</p>
+          <p className="mt-3 text-center text-sm text-[#15130F]/75">Choose based on the condition of your wood and the look you want.</p>
         </section>
 
         {/* Colours: always on show, in two tabs, so nobody has to pick a
@@ -597,22 +597,22 @@ export default function ProposalMockup() {
           <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
             {([["signature", `Signature · ${SIGNATURE_PHOTOS.length} photos`], ["legacy", `Legacy · ${LEGACY_PHOTOS.length} photos`]] as const).map(([k, label]) => (
               <button key={k} type="button" onClick={() => setPalette(k)}
-                className={cn("h-9 rounded-lg text-xs font-bold transition", palette === k ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F]/70")}>
+                className={cn("h-9 rounded-lg text-sm font-bold transition", palette === k ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F]/70")}>
                 {label}
               </button>
             ))}
           </div>
           {palette === "signature" ? (
             <>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-3 gap-2">
                 {SIGNATURE_PHOTOS.map((c) => {
                   const on = stain === c.name;
                   return (
                     <div key={c.name} className={cn("relative overflow-hidden rounded-xl bg-white shadow-sm transition", on ? "ring-[3px] ring-[#C9972F]" : "ring-1 ring-[#15130F]/10")}>
                       <button type="button" onClick={() => pickColor(c.name, "signature")} className="block w-full text-left">
-                        <img src={c.src} alt={c.name} className="h-16 w-full object-cover" draggable={false} />
-                        <span className="flex items-center justify-between gap-0.5 px-1.5 py-1">
-                          <span className="text-[9px] font-bold leading-tight">{c.name}</span>
+                        <img src={c.src} alt={c.name} className="h-24 w-full object-cover" draggable={false} />
+                        <span className="flex items-center justify-between gap-1 px-2 py-2">
+                          <span className="text-[12px] font-bold leading-tight">{c.name}</span>
                           {on ? <Check className="h-3 w-3 shrink-0" style={{ color: "#8C6224" }} /> : null}
                         </span>
                       </button>
@@ -624,19 +624,19 @@ export default function ProposalMockup() {
                   );
                 })}
               </div>
-              <p className="mt-2 text-[11px] text-[#15130F]/60">Real fences we stained. Tap the corner to see one bigger. More colors as photos are added.</p>
+              <p className="mt-2 text-[13px] text-[#15130F]/75">Real fences we stained. Tap the corner to see one bigger. More colors as photos are added.</p>
             </>
           ) : (
             <>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-3 gap-2">
                 {LEGACY_PHOTOS.map((c) => {
                   const on = stain === c.name;
                   return (
                     <div key={c.name} className={cn("relative overflow-hidden rounded-xl bg-white shadow-sm transition", on ? "ring-[3px] ring-[#C9972F]" : "ring-1 ring-[#15130F]/10")}>
                       <button type="button" onClick={() => pickColor(c.name, "legacy")} className="block w-full text-left">
-                        <img src={c.src} alt={c.name} className="h-16 w-full object-cover" loading="lazy" draggable={false} />
-                        <span className="flex items-center justify-between gap-0.5 px-1.5 py-1">
-                          <span className="text-[9px] font-bold leading-tight">{c.name}</span>
+                        <img src={c.src} alt={c.name} className="h-24 w-full object-cover" loading="lazy" draggable={false} />
+                        <span className="flex items-center justify-between gap-1 px-2 py-2">
+                          <span className="text-[12px] font-bold leading-tight">{c.name}</span>
                           {on ? <Check className="h-3 w-3 shrink-0" style={{ color: "#8C6224" }} /> : null}
                         </span>
                       </button>
@@ -648,26 +648,26 @@ export default function ProposalMockup() {
                   );
                 })}
               </div>
-              <p className="mt-2 text-[11px] text-[#15130F]/60">Solid colors on real fences we stained. Tap the corner to see one bigger. {LEGACY_NO_PHOTO.join(" and ")}: photos coming.</p>
+              <p className="mt-2 text-[13px] text-[#15130F]/75">Solid colors on real fences we stained. Tap the corner to see one bigger. {LEGACY_NO_PHOTO.join(" and ")}: photos coming.</p>
             </>
           )}
           {stain ? (
-            <p className="mt-3 rounded-xl bg-[#15130F] px-3 py-2 text-sm font-semibold text-[#E3BE63]">
+            <p className="mt-3 rounded-xl bg-[#15130F] px-3 py-2 text-[15px] font-semibold text-[#E3BE63]">
               <Check className="mr-1 inline h-4 w-4" /> {stain} it is. {switched || "You can change this any time."}
             </p>
           ) : null}
 
           {/* The colour they want isn't here. */}
           <div className="mt-4 rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
-            <p className="flex items-center gap-2 text-sm font-bold"><MessageSquare className="h-4 w-4" style={{ color: "#8C6224" }} /> Don't see your color?</p>
-            <p className="mt-0.5 text-xs text-[#15130F]/65">Tell us what you have in mind and we'll find it for you.</p>
+            <p className="flex items-center gap-2 text-[15px] font-bold"><MessageSquare className="h-4 w-4" style={{ color: "#8C6224" }} /> Don't see your color?</p>
+            <p className="mt-0.5 text-sm text-[#15130F]/75">Tell us what you have in mind and we'll find it for you.</p>
             {colorSent ? (
-              <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800"><Check className="mr-1 inline h-4 w-4" /> Got it. We'll text you some options.</p>
+              <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[15px] font-semibold text-emerald-800"><Check className="mr-1 inline h-4 w-4" /> Got it. We'll text you some options.</p>
             ) : (
               <div className="mt-2 flex gap-2">
                 <input value={colorAsk} onChange={(e) => setColorAsk(e.target.value)} placeholder="A gray-brown like my neighbor's…"
-                  className="h-11 min-w-0 flex-1 rounded-xl border border-[#15130F]/15 bg-[#F8F3E7] px-3 text-sm" />
-                <button type="button" onClick={() => colorAsk.trim() && setColorSent(true)} className="h-11 rounded-xl px-4 text-sm font-bold text-[#15130F]" style={{ background: GOLD }}>Send</button>
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-[#15130F]/15 bg-[#F8F3E7] px-3 text-[15px]" />
+                <button type="button" onClick={() => colorAsk.trim() && setColorSent(true)} className="h-11 rounded-xl px-4 text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}>Send</button>
               </div>
             )}
           </div>
@@ -677,18 +677,18 @@ export default function ProposalMockup() {
         <section className="bg-white px-4 py-6">
           <SectionTitle kicker="Optional" title="Anything need replacing?" sub="Count it up. We bring the wood." />
           <div className="space-y-2.5">
-            <Counter label="Pickets" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+            <Counter label="Pickets" what="The upright boards" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
               <Chips options={PICKETS} value={picketType} onChange={setPicketType} />
             </Counter>
             {PARTS.map((part) => (
-              <Counter key={part.key} label={part.label} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+              <Counter key={part.key} label={part.label} what={part.what} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
-            <Counter label="Post replacement" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
+            <Counter label="Post replacement" what="The 4x4s set in the ground" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <Chips options={POSTS} value={postType} onChange={setPostType} />
             </Counter>
           </div>
           <div className="mt-3 flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
-            <span className="flex items-center gap-2 text-sm font-semibold"><Hammer className="h-4 w-4" style={{ color: "#E3BE63" }} /> Repairs</span>
+            <span className="flex items-center gap-2 text-[15px] font-semibold"><Hammer className="h-4 w-4" style={{ color: "#E3BE63" }} /> Repairs</span>
             <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : "$0"}</span>
           </div>
         </section>
@@ -715,7 +715,7 @@ export default function ProposalMockup() {
             <Users className="mt-0.5 h-6 w-6 shrink-0" style={{ color: "#E3BE63" }} />
             <div>
               <p className="font-heading text-lg font-bold leading-tight">Know a neighbor who needs it too?</p>
-              <p className="mt-1 text-sm text-white/85">You both get an extra $100 off. No deadline. Just tell us.</p>
+              <p className="mt-1 text-[15px] text-white/85">You both get an extra $100 off. No deadline. Just tell us.</p>
             </div>
           </div>
         </section>
@@ -730,13 +730,13 @@ export default function ProposalMockup() {
               return (
                 <div key={q} className={cn(i > 0 && "border-t border-[#15130F]/10")}>
                   <button type="button" onClick={() => setFaqOpen(open ? null : i)} aria-expanded={open}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left">
-                    <span className="flex-1 text-sm font-bold leading-snug">{q}</span>
+                    className="flex w-full items-center gap-3 px-4 py-4 text-left">
+                    <span className="flex-1 text-[17px] font-bold leading-snug">{q}</span>
                     <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition", open ? "bg-[#15130F] text-[#E3BE63]" : "bg-[#F8F3E7] text-[#8C6224]")}>
                       {open ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                     </span>
                   </button>
-                  {open ? <p className="px-4 pb-4 text-sm leading-relaxed text-[#15130F]/80">{a}</p> : null}
+                  {open ? <p className="px-4 pb-4 text-[15px] leading-relaxed text-[#15130F]/80">{a}</p> : null}
                 </div>
               );
             })}
@@ -749,12 +749,12 @@ export default function ProposalMockup() {
         <section className="bg-white px-4 py-6">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Google reviews</p>
+              <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Google reviews</p>
               <div className="flex items-baseline gap-2">
                 <span className="font-heading text-4xl font-bold leading-none">5.0</span>
                 <span className="flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-4 w-4 fill-current" style={{ color: GOLD }} />)}</span>
               </div>
-              <p className="mt-0.5 text-xs text-[#15130F]/60">Rated by homeowners around Houston</p>
+              <p className="mt-0.5 text-sm text-[#15130F]/75">Rated by homeowners around Houston</p>
             </div>
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F8F3E7] font-heading text-2xl font-bold ring-1 ring-[#15130F]/10" aria-hidden>G</span>
           </div>
@@ -766,19 +766,19 @@ export default function ProposalMockup() {
             ].map(([initial, who, where, text]) => (
               <blockquote key={text} className={cn("rounded-2xl bg-[#F8F3E7] p-3 ring-1 ring-[#15130F]/10", phone && "w-[82%] shrink-0 snap-start")}>
                 <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold text-[#15130F]" style={{ background: GOLD }}>{initial}</span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}>{initial}</span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold leading-tight">{who}</p>
-                    <p className="text-[11px] text-[#15130F]/55">{where} · 2 weeks ago</p>
+                    <p className="truncate text-[15px] font-bold leading-tight">{who}</p>
+                    <p className="text-[13px] text-[#15130F]/75">{where} · 2 weeks ago</p>
                   </div>
                 </div>
                 <p className="mt-1.5 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
-                <p className="mt-1.5 text-sm leading-relaxed">{text}</p>
+                <p className="mt-1.5 text-[15px] leading-relaxed">{text}</p>
               </blockquote>
             ))}
           </div>
           <a href="https://maps.app.goo.gl/xR56n81cjxNwt7R78" target="_blank" rel="noopener noreferrer"
-            className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold ring-1 ring-[#15130F]/15">
+            className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15">
             See all our reviews on Google
           </a>
         </section>
@@ -792,20 +792,20 @@ export default function ProposalMockup() {
               how someone does that without the cash today (Alan, 2026-10-10). */}
           <div className="mb-3 flex items-start gap-2.5 rounded-xl bg-[#F8F3E7] px-3 py-2.5 ring-1 ring-[#C9972F]/50">
             <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
-            <p className="text-xs leading-snug"><span className="font-bold">Your 20% off ends {customer.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>
+            <p className="text-sm leading-snug"><span className="font-bold">Your 20% off ends {customer.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>
           </div>
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my dates</p>
-              <p className="mt-1 text-sm text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest, {chosen ? formatCurrency(Math.max(0, total - 250)) : "the balance"}, is due when the job is done and you're happy.</p>
+              <p className="mt-1 text-[15px] text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest, {chosen ? formatCurrency(Math.max(0, total - 250)) : "the balance"}, is due when the job is done and you're happy.</p>
               <button type="button" onClick={() => setCheckout("deposit")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
                 <CreditCard className="h-5 w-5" /> Reserve my spot · $250
               </button>
-              <p className="mt-2 text-center text-[10px] text-white/55">Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set.</p>
+              <p className="mt-2 text-center text-[12px] text-white/85">Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
-              <p className="mt-1 text-xs text-[#15130F]/65">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
+              <p className="mt-1 text-sm text-[#15130F]/75">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
               <div className="mt-2 space-y-2">
                 <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
                 <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
@@ -813,7 +813,7 @@ export default function ProposalMockup() {
               <button type="button" onClick={() => setCheckout("full")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
                 See my options
               </button>
-              <p className="mt-2 text-center text-[10px] text-[#15130F]/55">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
+              <p className="mt-2 text-center text-[12px] text-[#15130F]/75">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
             </div>
           </div>
         </section>
@@ -821,10 +821,10 @@ export default function ProposalMockup() {
         {/* Footer links */}
         <section className="px-4 pb-28">
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold ring-1 ring-[#15130F]/15"><Download className="h-4 w-4" /> Save as PDF</button>
-            <button type="button" onClick={() => setTerms(true)} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-4 w-4" /> Terms</button>
+            <button type="button" className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15"><Download className="h-4 w-4" /> Save as PDF</button>
+            <button type="button" onClick={() => setTerms(true)} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-4 w-4" /> Terms</button>
           </div>
-          <p className="mt-4 text-center text-xs text-[#15130F]/55">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
+          <p className="mt-4 text-center text-sm text-[#15130F]/75">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
         </section>
 
         {/* Sticky bottom: the one thing to do. */}
@@ -832,20 +832,20 @@ export default function ProposalMockup() {
           {chosen ? (
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-xs text-white/70">{chosen.name}{stain ? ` · ${stain}` : ""}{repairs ? " · repairs" : ""}</p>
+                <p className="truncate text-sm text-white/85">{chosen.name}{stain ? ` · ${stain}` : ""}{repairs ? " · repairs" : ""}</p>
                 <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  className="mt-0.5 text-[11px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
+                  className="mt-0.5 text-[13px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
                   {pay.text}
                 </button>
               </div>
               <button type="button" onClick={() => setCheckout("deposit")}
-                className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
+                className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-4 text-[15px] font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
                 <Home className="h-4 w-4" /> Reserve · $250
               </button>
             </div>
           ) : (
-            <p className="py-2 text-center text-sm font-semibold text-white/85">Pick a package or a color to see your total.</p>
+            <p className="py-2 text-center text-[15px] font-semibold text-white/85">Pick a package or a color to see your total.</p>
           )}
         </div>
       </div>
@@ -864,11 +864,11 @@ export default function ProposalMockup() {
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setPayFaq(null)}>
             <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
               <div className="px-5 pt-5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Pay over time</p>
+                <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Pay over time</p>
                 <h3 className="font-heading text-xl font-bold leading-tight">Two ways to spread it out</h3>
                 <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
                   <button type="button" onClick={() => setPayFaq("klarna")}
-                    className={cn("flex h-10 items-center justify-center rounded-lg text-sm font-black transition", payFaq === "klarna" ? "bg-[#FFB3C7] text-black" : "text-[#15130F]/60")}>Klarna.</button>
+                    className={cn("flex h-10 items-center justify-center rounded-lg text-[15px] font-black transition", payFaq === "klarna" ? "bg-[#FFB3C7] text-black" : "text-[#15130F]/75")}>Klarna.</button>
                   <button type="button" onClick={() => setPayFaq("affirm")}
                     className={cn("flex h-10 items-center justify-center rounded-lg transition", payFaq === "affirm" ? "bg-[#15130F]" : "opacity-50")}>
                     <img src="/affirm-white.png" alt="Affirm" className={cn("h-4 w-auto", payFaq !== "affirm" && "invert")} draggable={false} />
@@ -877,24 +877,24 @@ export default function ProposalMockup() {
               </div>
               <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-2">
                 <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
-                  <div className="grid grid-cols-[1.2fr_1fr_1fr] bg-[#15130F] px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white/80">
+                  <div className="grid grid-cols-[1.2fr_1fr_1fr] bg-[#15130F] px-3 py-1.5 text-[12px] font-bold uppercase tracking-wider text-white/80">
                     <span>Compare</span><span className={cn(payFaq === "klarna" && "text-[#E3BE63]")}>Klarna</span><span className={cn(payFaq === "affirm" && "text-[#E3BE63]")}>Affirm</span>
                   </div>
                   {LENDER_COMPARE.map(([label, k, a]) => (
-                    <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 border-t border-[#15130F]/5 px-3 py-1.5 text-[11px] leading-snug">
+                    <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 border-t border-[#15130F]/5 px-3 py-1.5 text-[13px] leading-snug">
                       <span className="font-bold">{label}</span>
-                      <span className={cn(payFaq === "klarna" ? "font-semibold" : "text-[#15130F]/60")}>{k}</span>
-                      <span className={cn(payFaq === "affirm" ? "font-semibold" : "text-[#15130F]/60")}>{a}</span>
+                      <span className={cn(payFaq === "klarna" ? "font-semibold" : "text-[#15130F]/75")}>{k}</span>
+                      <span className={cn(payFaq === "affirm" ? "font-semibold" : "text-[#15130F]/75")}>{a}</span>
                     </div>
                   ))}
                 </div>
                 {faq.map(([q, a]) => (
                   <div key={q} className="rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
-                    <p className="text-sm font-bold leading-snug">{q}</p>
-                    <p className="mt-1 text-sm leading-relaxed text-[#15130F]/80">{a}</p>
+                    <p className="text-[15px] font-bold leading-snug">{q}</p>
+                    <p className="mt-1 text-[15px] leading-relaxed text-[#15130F]/80">{a}</p>
                   </div>
                 ))}
-                <p className="px-1 text-[11px] leading-snug text-[#15130F]/55">
+                <p className="px-1 text-[13px] leading-snug text-[#15130F]/75">
                   {payFaq === "klarna"
                     ? "Klarna's current terms, privacy policy and customer service are on klarna.com and in the Klarna app. They are Klarna's, not Sterling Fence Staining's."
                     : "Affirm's current terms, lending partners and customer service are on affirm.com and in the Affirm app. They are Affirm's, not Sterling Fence Staining's."}
@@ -922,9 +922,9 @@ export default function ProposalMockup() {
       {terms ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setTerms(false)}>
           <div className="w-full max-w-md rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
             <h3 className="font-heading text-2xl font-bold leading-tight">1-year workmanship warranty</h3>
-            <div className="mt-3 space-y-3 text-sm leading-relaxed">
+            <div className="mt-3 space-y-3 text-[15px] leading-relaxed">
               <p><span className="font-bold">What we cover.</span> If the stain peels or cracks because of how we applied it, we come back and touch it up. Free, for one year from the day we finish.</p>
               <p><span className="font-bold">What we don't.</span> Damage from anything other than our work: a mower or trimmer hitting the fence, a board you replaced, scrapes, pets, sprinklers, a neighbor's project. That part is on you.</p>
               <p><span className="font-bold">We still help.</span> If something like that happens, we'll tell you the exact stain name so you can pick it up at the store nearest you and touch it up to match.</p>
@@ -944,9 +944,9 @@ export default function ProposalMockup() {
 function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; sub?: string }) {
   return (
     <div className="mb-3">
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">{kicker}</p>
+      <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">{kicker}</p>
       <h2 className="font-heading text-2xl font-bold leading-tight">{title}</h2>
-      {sub ? <p className="mt-0.5 text-sm text-[#15130F]/65">{sub}</p> : null}
+      {sub ? <p className="mt-0.5 text-[15px] text-[#15130F]/75">{sub}</p> : null}
     </div>
   );
 }
@@ -956,8 +956,8 @@ function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; 
     <div className={cn("flex items-start gap-2", wide && "col-span-2")}>
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "#8C6224" }} />
       <div className="min-w-0">
-        <p className="text-[9px] font-bold uppercase tracking-wider text-[#15130F]/55">{label}</p>
-        <p className="truncate text-sm font-semibold">{children}</p>
+        <p className="text-[12px] font-bold uppercase tracking-wider text-[#15130F]/75">{label}</p>
+        <p className="truncate text-[15px] font-semibold">{children}</p>
       </div>
     </div>
   );
@@ -992,8 +992,8 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
           <div className="flex flex-col items-center px-6 py-10 text-center">
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-8 w-8" /></span>
             <h3 className="mt-4 font-heading text-2xl font-bold">{mode === "deposit" ? "You're booked." : "Paid in full."}</h3>
-            <p className="mt-1 text-sm text-[#15130F]/70">{mode === "deposit" ? `${formatCurrency(250)} paid. The rest, ${formatCurrency(balance)}, is due when the job is done and you're happy.` : `${formatCurrency(total)} paid through ${method === "affirm" ? "Affirm" : method === "klarna" ? "Klarna" : "your card"}.`} We'll text you your dates.</p>
-            <p className="mt-4 rounded-xl bg-[#F8F3E7] px-3 py-2 text-[11px] text-[#15130F]/60">Stub. The screen after a payment is Alan's post-payment flow, coming separately.</p>
+            <p className="mt-1 text-[15px] text-[#15130F]/70">{mode === "deposit" ? `${formatCurrency(250)} paid. The rest, ${formatCurrency(balance)}, is due when the job is done and you're happy.` : `${formatCurrency(total)} paid through ${method === "affirm" ? "Affirm" : method === "klarna" ? "Klarna" : "your card"}.`} We'll text you your dates.</p>
+            <p className="mt-4 rounded-xl bg-[#F8F3E7] px-3 py-2 text-[13px] text-[#15130F]/75">Stub. The screen after a payment is Alan's post-payment flow, coming separately.</p>
             <button type="button" onClick={onClose} className="mt-5 h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Back to the proposal</button>
           </div>
         ) : (
@@ -1001,21 +1001,21 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
             {/* Stripe's header: back, the merchant, the amount. */}
             <div className="bg-[#15130F] px-5 pb-5 pt-4 text-white">
               <div className="flex items-center justify-between">
-                <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-xs text-white/70"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
-                <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-950">Mockup</span>
+                <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-white/85"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
+                <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">Mockup</span>
               </div>
               <div className="mt-3 flex items-center gap-3">
                 <img src="/sterling-logo-dark.png" alt="" className="h-7 w-auto" draggable={false} />
               </div>
-              <p className="mt-3 text-xs text-white/70">{mode === "deposit" ? "Deposit to reserve your dates" : `Pay Sterling Fence Staining`}</p>
+              <p className="mt-3 text-sm text-white/85">{mode === "deposit" ? "Deposit to reserve your dates" : `Pay Sterling Fence Staining`}</p>
               <p className="font-heading text-4xl font-bold leading-none">{formatCurrency(amount)}</p>
-              <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
+              <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-sm">
                 <div className="flex justify-between"><span className="text-white/80">{pkgName}</span><span>{formatCurrency(total - repairs)}</span></div>
                 {repairs ? <div className="flex justify-between"><span className="text-white/80">Repairs</span><span>{formatCurrency(repairs)}</span></div> : null}
                 {mode === "deposit" ? (
                   <>
                     <div className="flex justify-between font-semibold"><span>Deposit today</span><span>{formatCurrency(250)}</span></div>
-                    <div className="flex justify-between text-white/60"><span>Due when the job is done</span><span>{formatCurrency(balance)}</span></div>
+                    <div className="flex justify-between text-white/85"><span>Due when the job is done</span><span>{formatCurrency(balance)}</span></div>
                   </>
                 ) : (
                   <div className="flex justify-between font-semibold"><span>Total due today</span><span>{formatCurrency(total)}</span></div>
@@ -1026,10 +1026,10 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {/* Express checkout, the way Stripe places it. */}
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-sm font-semibold text-white"> Pay</button>
-                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-sm font-semibold text-white"><span className="mr-1 font-bold">G</span> Pay</button>
+                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-[15px] font-semibold text-white"> Pay</button>
+                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-[15px] font-semibold text-white"><span className="mr-1 font-bold">G</span> Pay</button>
               </div>
-              <div className="my-4 flex items-center gap-3 text-[11px] text-[#15130F]/50"><span className="h-px flex-1 bg-[#15130F]/10" />Or pay another way<span className="h-px flex-1 bg-[#15130F]/10" /></div>
+              <div className="my-4 flex items-center gap-3 text-[13px] text-[#15130F]/70"><span className="h-px flex-1 bg-[#15130F]/10" />Or pay another way<span className="h-px flex-1 bg-[#15130F]/10" /></div>
 
               {/* The payment method list: Stripe's accordion. */}
               <div className="overflow-hidden rounded-xl border border-[#15130F]/15">
@@ -1040,10 +1040,10 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                       <button type="button" onClick={() => setMethod(m.key)} className="flex w-full items-center gap-3 px-3 py-3 text-left">
                         <span className={cn("flex h-4 w-4 items-center justify-center rounded-full border", on ? "border-[#15130F] bg-[#15130F]" : "border-[#15130F]/40")}>{on ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}</span>
                         {m.key === "card" ? <CreditCard className="h-4 w-4 text-[#15130F]/70" />
-                          : m.key === "klarna" ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
+                          : m.key === "klarna" ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
                           : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="" className="h-2.5 w-auto" draggable={false} /></span>}
-                        <span className="flex-1 text-sm font-semibold">{m.label}</span>
-                        {m.key !== "card" ? <span className="text-[10px] text-[#15130F]/55">{m.key === "klarna" ? (total <= PAY_IN_4_MAX ? "4 payments or monthly" : "Monthly") : "Monthly or 4 payments"}</span> : null}
+                        <span className="flex-1 text-[15px] font-semibold">{m.label}</span>
+                        {m.key !== "card" ? <span className="text-[12px] text-[#15130F]/75">{m.key === "klarna" ? (total <= PAY_IN_4_MAX ? "4 payments or monthly" : "Monthly") : "Monthly or 4 payments"}</span> : null}
                       </button>
                       {on && m.key === "card" ? (
                         <div className="space-y-2 px-3 pb-3">
@@ -1054,13 +1054,13 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                         </div>
                       ) : null}
                       {on && m.key === "klarna" ? (
-                        <div className="px-3 pb-3 text-xs leading-relaxed text-[#15130F]/75">
+                        <div className="px-3 pb-3 text-sm leading-relaxed text-[#15130F]/75">
                           <p className="font-semibold text-[#15130F]">{line.text}.</p>
                           <p>You'll finish on Klarna's page: pick 4 payments or a monthly plan, and Klarna checks you in a minute. No effect on your credit score to check.</p>
                         </div>
                       ) : null}
                       {on && m.key === "affirm" ? (
-                        <div className="px-3 pb-3 text-xs leading-relaxed text-[#15130F]/75">
+                        <div className="px-3 pb-3 text-sm leading-relaxed text-[#15130F]/75">
                           <p className="font-semibold text-[#15130F]">As low as {formatCurrency(monthlyFrom(total))}/mo with Affirm.</p>
                           <p>You'll finish on Affirm's page: see your plans and the exact rate before you agree. Checking doesn't affect your credit score.</p>
                         </div>
@@ -1074,9 +1074,9 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                 <Lock className="h-4 w-4" /> {payLabel}
               </button>
               {mode === "deposit" ? (
-                <p className="mt-2 text-center text-[11px] text-[#15130F]/55">The deposit is not refundable once your dates are set.</p>
+                <p className="mt-2 text-center text-[13px] text-[#15130F]/75">The deposit is not refundable once your dates are set.</p>
               ) : null}
-              <p className="mt-4 flex items-center justify-center gap-2 text-[10px] text-[#15130F]/45">
+              <p className="mt-4 flex items-center justify-center gap-2 text-[12px] text-[#15130F]/65">
                 <Lock className="h-3 w-3" /> Powered by <span className="font-bold">stripe</span> · Terms · Privacy
               </p>
             </div>
@@ -1091,9 +1091,9 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
 function Fake({ label, value, right }: { label: string; value: string; right?: string }) {
   return (
     <label className="block">
-      <span className="text-[11px] font-semibold text-[#15130F]/70">{label}</span>
-      <span className="mt-0.5 flex h-10 items-center justify-between rounded-lg border border-[#15130F]/20 bg-white px-3 text-sm text-[#15130F]/40">
-        <span>{value}</span>{right ? <span className="text-[9px] font-bold tracking-wider text-[#15130F]/35">{right}</span> : <ChevronDown className="hidden" />}
+      <span className="text-[13px] font-semibold text-[#15130F]/70">{label}</span>
+      <span className="mt-0.5 flex h-10 items-center justify-between rounded-lg border border-[#15130F]/20 bg-white px-3 text-[15px] text-[#15130F]/40">
+        <span>{value}</span>{right ? <span className="text-[12px] font-bold tracking-wider text-[#15130F]/35">{right}</span> : <ChevronDown className="hidden" />}
       </span>
     </label>
   );
@@ -1111,11 +1111,11 @@ function PayOption({ lender, text, note, dim, learn }: { lender: "klarna" | "aff
   return (
     <div className={cn("flex items-center gap-3 rounded-xl bg-[#F8F3E7] px-3 py-2", dim && "opacity-50")}>
       {lender === "klarna"
-        ? <span className="flex h-7 w-16 shrink-0 items-center justify-center rounded-md bg-[#FFB3C7] text-[13px] font-black tracking-tight text-black">Klarna.</span>
+        ? <span className="flex h-7 w-16 shrink-0 items-center justify-center rounded-md bg-[#FFB3C7] text-[15px] font-black tracking-tight text-black">Klarna.</span>
         : <span className="flex h-7 w-16 shrink-0 items-center justify-center rounded-md bg-[#15130F]"><img src="/affirm-white.png" alt="Affirm" className="h-4 w-auto" draggable={false} /></span>}
       <div className="min-w-0">
-        <p className="text-sm font-bold leading-tight">{text}</p>
-        <p className="text-[11px] text-[#15130F]/60">{dim ? "Over the pay-in-4 limit for this amount." : note}{learn ? <> <LearnMore onClick={learn} /></> : null}</p>
+        <p className="text-[15px] font-bold leading-tight">{text}</p>
+        <p className="text-[13px] text-[#15130F]/75">{dim ? "Over the pay-in-4 limit for this amount." : note}{learn ? <> <LearnMore onClick={learn} /></> : null}</p>
       </div>
     </div>
   );
@@ -1132,9 +1132,9 @@ function Chips({ options, value, onChange }: {
         const on = o.key === value;
         return (
           <button key={o.key} type="button" onClick={() => onChange(o.key)} aria-pressed={on}
-            className={cn("rounded-lg px-2 py-1 text-[11px] font-semibold leading-tight transition",
+            className={cn("rounded-lg px-3 py-2 text-[15px] font-semibold leading-tight transition",
               on ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/75 ring-1 ring-[#15130F]/15")}>
-            {o.label} <span className={cn("ml-0.5", on ? "text-white/70" : "text-[#15130F]/45")}>{formatCurrency(o.price).replace(".00", "")}</span>
+            {o.label} <span className={cn("ml-0.5", on ? "text-white/85" : "text-[#15130F]/65")}>{formatCurrency(o.price).replace(".00", "")}</span>
           </button>
         );
       })}
@@ -1142,21 +1142,22 @@ function Chips({ options, value, onChange }: {
   );
 }
 
-function Counter({ label, price, n, onChange, art, children }: {
-  label: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
+function Counter({ label, what, price, n, onChange, art, children }: {
+  label: string; what?: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl bg-[#F8F3E7] px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-2xl bg-[#F8F3E7] px-3 py-3">
       {art ? <div className="shrink-0 overflow-hidden rounded-xl bg-white ring-1 ring-[#15130F]/10">{art}</div> : null}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold">{label}</p>
-        <p className="text-[11px] text-[#15130F]/60">{formatCurrency(price)} each</p>
+        <p className="text-base font-bold leading-tight">{label}</p>
+        {what ? <p className="text-[15px] leading-snug text-[#15130F]/75">{what}</p> : null}
+        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price)} each</p>
         {children ? <div className="mt-1">{children}</div> : null}
       </div>
       <div className="flex items-center gap-1">
-        <button type="button" onClick={() => onChange(-1)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white ring-1 ring-[#15130F]/15 active:scale-95" aria-label={`One less ${label}`}><Minus className="h-4 w-4" /></button>
-        <span className="w-8 text-center font-heading text-xl font-bold tabular-nums">{n}</span>
-        <button type="button" onClick={() => onChange(1)} className="flex h-10 w-10 items-center justify-center rounded-xl text-[#15130F] active:scale-95" style={{ background: GOLD }} aria-label={`One more ${label}`}><Plus className="h-4 w-4" /></button>
+        <button type="button" onClick={() => onChange(-1)} className="flex h-12 w-12 items-center justify-center rounded-xl bg-white ring-1 ring-[#15130F]/20 active:scale-95" aria-label={`One less ${label}`}><Minus className="h-5 w-5" /></button>
+        <span className="w-9 text-center font-heading text-2xl font-bold tabular-nums">{n}</span>
+        <button type="button" onClick={() => onChange(1)} className="flex h-12 w-12 items-center justify-center rounded-xl text-[#15130F] active:scale-95" style={{ background: GOLD }} aria-label={`One more ${label}`}><Plus className="h-5 w-5" /></button>
       </div>
     </div>
   );
@@ -1170,7 +1171,7 @@ function List({ title, icon: Icon, items }: { title: string; icon: React.Element
         {items.map(([head, body]) => (
           <li key={head} className="flex items-start gap-2">
             <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#15130F]" style={{ background: GOLD }}><Check className="h-3 w-3" /></span>
-            <span><span className="text-sm font-bold">{head}</span><br /><span className="text-xs text-[#15130F]/65">{body}</span></span>
+            <span><span className="text-[15px] font-bold">{head}</span><br /><span className="text-sm text-[#15130F]/75">{body}</span></span>
           </li>
         ))}
       </ul>
@@ -1185,22 +1186,22 @@ type FencePartKey = "picket" | "rotboard" | "cap" | "rail" | "post";
  *  or a cap is before they count them (Alan, 2026-10-10). */
 function FencePart({ part }: { part: FencePartKey }) {
   const wood = "#D9C2A3", edge = "#A98A63";
-  const hot = (k: FencePartKey) => (part === k ? { fill: GOLD, stroke: "#8C6224" } : { fill: wood, stroke: edge });
+  const hot = (k: FencePartKey) => (part === k ? { fill: GOLD, stroke: "#15130F", strokeWidth: 2 } : { fill: wood, stroke: edge, strokeWidth: 1 });
   const pickets = [15, 22, 29, 36, 43, 50, 57, 64];
-  const picketLayer = pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket")} strokeWidth="1" />);
-  const railLayer = [14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="5" rx="0.5" {...hot("rail")} strokeWidth="1" />);
+  const picketLayer = pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket")} />);
+  const railLayer = [14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="5" rx="0.5" {...hot("rail")} />);
   // From the street the pickets hide the rails. The rail view is the back
   // of the fence, where the three rails run across the pickets.
   const fromBack = part === "rail";
   return (
-    <svg viewBox="0 0 82 62" width="64" height="48" role="img" aria-label={part}>
+    <svg viewBox="0 0 82 62" width="96" height="72" role="img" aria-label={part}>
       <rect x="0" y="57" width="82" height="5" fill="#6b8f4e" />
-      <rect x="6" y="6" width="7" height="52" rx="1" {...hot("post")} strokeWidth="1" />
-      <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post")} strokeWidth="1" />
+      <rect x="6" y="6" width="7" height="52" rx="1" {...hot("post")} />
+      <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post")} />
       {fromBack ? <>{picketLayer}{railLayer}</> : <>{railLayer}{picketLayer}</>}
-      <rect x="13" y="50" width="56" height="6" {...hot("rotboard")} strokeWidth="1" />
-      <rect x="4" y="5" width="74" height="5" rx="1" {...hot("cap")} strokeWidth="1" />
-      {fromBack ? <text x="41" y="3.5" textAnchor="middle" fontSize="4.5" fontWeight="700" fill="#8C6224">BACK OF FENCE</text> : null}
+      <rect x="13" y="50" width="56" height="6" {...hot("rotboard")} />
+      <rect x="4" y="5" width="74" height="5" rx="1" {...hot("cap")} />
+      {fromBack ? <text x="41" y="3.5" textAnchor="middle" fontSize="5.5" fontWeight="800" fill="#15130F">BACK OF FENCE</text> : null}
     </svg>
   );
 }
