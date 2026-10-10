@@ -390,9 +390,15 @@ export default function ProposalMockup() {
                   <img src={live.scopeUrl} alt="Scope of work" className="block w-full" draggable={false} />
                 </div>
               ) : <ScopeDrawing />}
+              {/* The real drawing carries its own colour key (Alan,
+                  2026-10-10), so the chips only explain the stand-in. */}
               <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-blue-600" /> Blue = inside face</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-red-600" /> Red = both faces</span>
+                {!live?.scopeUrl ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-blue-600" /> Blue = inside face</span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-red-600" /> Red = both faces</span>
+                  </>
+                ) : null}
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#15130F] px-3 py-1.5 text-[#E3BE63]">About {customer.feet} ft</span>
               </div>
               <p className="mt-2 text-sm text-[#15130F]/70">This is what we'd stain. Not right? Tap Call or text at the top.</p>
