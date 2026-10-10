@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   Download, FileText, MapPin, Calendar, Hash, UserRound, Leaf, Home, Smartphone, Monitor,
-  Users, Lightbulb, ArrowLeft, Eye, Expand, MessageSquare, CreditCard,
+  Users, Lightbulb, ArrowLeft, Eye, Expand, MessageSquare, CreditCard, Lock, ChevronDown,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -280,6 +280,9 @@ export default function ProposalMockup() {
   const [colorSent, setColorSent] = useState(false);
   const [terms, setTerms] = useState(false);
   const [faqOpen, setFaqOpen] = useState<number | null>(null);
+  // The Stripe Checkout page, as the customer sees it: the deposit, or the
+  // whole job with Klarna and Affirm on it (Alan, 2026-10-10).
+  const [checkout, setCheckout] = useState<null | "deposit" | "full">(null);
   const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
   const [postType, setPostType] = useState(POSTS[0].key);
 
@@ -773,7 +776,7 @@ export default function ProposalMockup() {
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my dates</p>
               <p className="mt-1 text-sm text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest, {chosen ? formatCurrency(Math.max(0, total - 250)) : "the balance"}, is due when the job is done and you're happy.</p>
-              <button type="button" className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
+              <button type="button" onClick={() => setCheckout("deposit")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
                 <CreditCard className="h-5 w-5" /> Reserve my spot · $250
               </button>
               <p className="mt-2 text-center text-[10px] text-white/55">Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set.</p>
@@ -785,7 +788,7 @@ export default function ProposalMockup() {
                 <PayOption lender="klarna" text={`${payLine(total || packages[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
                 <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
               </div>
-              <button type="button" className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
+              <button type="button" onClick={() => setCheckout("full")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
                 See my options
               </button>
               <p className="mt-2 text-center text-[10px] text-[#15130F]/55">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
@@ -814,7 +817,7 @@ export default function ProposalMockup() {
                   or {pay.text} with Klarna
                 </button>
               </div>
-              <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              <button type="button" onClick={() => setCheckout("deposit")}
                 className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
                 <Home className="h-4 w-4" /> Reserve · $250
               </button>
@@ -883,6 +886,16 @@ export default function ProposalMockup() {
         );
       })() : null}
 
+      {checkout ? (
+        <CheckoutMock
+          mode={checkout}
+          pkgName={chosen?.name || packages[1].name}
+          total={total || packages[1].price}
+          repairs={repairs}
+          onClose={() => setCheckout(null)}
+        />
+      ) : null}
+
       {/* The terms, in plain words (Alan, 2026-10-10). */}
       {terms ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setTerms(false)}>
@@ -931,6 +944,139 @@ function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; 
 /** A lender's line the way the lender writes it, with its mark. Klarna's
  *  pink pill and Affirm's wordmark are stand-ins until the real badges are
  *  pulled from Stripe's messaging element. */
+/** Stripe Checkout on a phone, with Sterling's branding, as the customer
+ *  will really see it. Two jobs: the $250 deposit (card, Apple Pay, Google
+ *  Pay), or the whole job with Klarna and Affirm on it. The real page is
+ *  Stripe's; this is its shape. What comes after a payment is a stub
+ *  until Alan's post-payment flow arrives. */
+function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
+  mode: "deposit" | "full"; pkgName: string; total: number; repairs: number; onClose: () => void;
+}) {
+  type Method = "card" | "klarna" | "affirm";
+  const [method, setMethod] = useState<Method>("card");
+  const [paid, setPaid] = useState(false);
+  const amount = mode === "deposit" ? 250 : total;
+  const balance = Math.max(0, total - 250);
+  const line = payLine(total);
+  const methods: { key: Method; label: string }[] = mode === "deposit"
+    ? [{ key: "card", label: "Card" }]
+    : [{ key: "card", label: "Card" }, { key: "klarna", label: "Klarna" }, { key: "affirm", label: "Affirm" }];
+  const payLabel = method === "klarna" ? "Continue to Klarna" : method === "affirm" ? "Continue to Affirm" : `Pay ${formatCurrency(amount)}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[94vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        {paid ? (
+          <div className="flex flex-col items-center px-6 py-10 text-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-8 w-8" /></span>
+            <h3 className="mt-4 font-heading text-2xl font-bold">{mode === "deposit" ? "You're booked." : "Paid in full."}</h3>
+            <p className="mt-1 text-sm text-[#15130F]/70">{mode === "deposit" ? `${formatCurrency(250)} paid. The rest, ${formatCurrency(balance)}, is due when the job is done and you're happy.` : `${formatCurrency(total)} paid through ${method === "affirm" ? "Affirm" : method === "klarna" ? "Klarna" : "your card"}.`} We'll text you your dates.</p>
+            <p className="mt-4 rounded-xl bg-[#F8F3E7] px-3 py-2 text-[11px] text-[#15130F]/60">Stub. The screen after a payment is Alan's post-payment flow, coming separately.</p>
+            <button type="button" onClick={onClose} className="mt-5 h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Back to the proposal</button>
+          </div>
+        ) : (
+          <>
+            {/* Stripe's header: back, the merchant, the amount. */}
+            <div className="bg-[#15130F] px-5 pb-5 pt-4 text-white">
+              <div className="flex items-center justify-between">
+                <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-xs text-white/70"><ArrowLeft className="h-3.5 w-3.5" /> Back</button>
+                <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-950">Mockup</span>
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <img src="/sterling-logo-dark.png" alt="" className="h-7 w-auto" draggable={false} />
+              </div>
+              <p className="mt-3 text-xs text-white/70">{mode === "deposit" ? "Deposit to reserve your dates" : `Pay Sterling Fence Staining`}</p>
+              <p className="font-heading text-4xl font-bold leading-none">{formatCurrency(amount)}</p>
+              <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
+                <div className="flex justify-between"><span className="text-white/80">{pkgName}</span><span>{formatCurrency(total - repairs)}</span></div>
+                {repairs ? <div className="flex justify-between"><span className="text-white/80">Repairs</span><span>{formatCurrency(repairs)}</span></div> : null}
+                {mode === "deposit" ? (
+                  <>
+                    <div className="flex justify-between font-semibold"><span>Deposit today</span><span>{formatCurrency(250)}</span></div>
+                    <div className="flex justify-between text-white/60"><span>Due when the job is done</span><span>{formatCurrency(balance)}</span></div>
+                  </>
+                ) : (
+                  <div className="flex justify-between font-semibold"><span>Total due today</span><span>{formatCurrency(total)}</span></div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {/* Express checkout, the way Stripe places it. */}
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-sm font-semibold text-white"> Pay</button>
+                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-sm font-semibold text-white"><span className="mr-1 font-bold">G</span> Pay</button>
+              </div>
+              <div className="my-4 flex items-center gap-3 text-[11px] text-[#15130F]/50"><span className="h-px flex-1 bg-[#15130F]/10" />Or pay another way<span className="h-px flex-1 bg-[#15130F]/10" /></div>
+
+              {/* The payment method list: Stripe's accordion. */}
+              <div className="overflow-hidden rounded-xl border border-[#15130F]/15">
+                {methods.map((m) => {
+                  const on = method === m.key;
+                  return (
+                    <div key={m.key} className={cn("border-b border-[#15130F]/10 last:border-b-0", on && "bg-[#F8F3E7]/60")}>
+                      <button type="button" onClick={() => setMethod(m.key)} className="flex w-full items-center gap-3 px-3 py-3 text-left">
+                        <span className={cn("flex h-4 w-4 items-center justify-center rounded-full border", on ? "border-[#15130F] bg-[#15130F]" : "border-[#15130F]/40")}>{on ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}</span>
+                        {m.key === "card" ? <CreditCard className="h-4 w-4 text-[#15130F]/70" />
+                          : m.key === "klarna" ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
+                          : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="" className="h-2.5 w-auto" draggable={false} /></span>}
+                        <span className="flex-1 text-sm font-semibold">{m.label}</span>
+                        {m.key !== "card" ? <span className="text-[10px] text-[#15130F]/55">{m.key === "klarna" ? (total <= PAY_IN_4_MAX ? "4 payments or monthly" : "Monthly") : "Monthly or 4 payments"}</span> : null}
+                      </button>
+                      {on && m.key === "card" ? (
+                        <div className="space-y-2 px-3 pb-3">
+                          <Fake label="Card number" value="1234 1234 1234 1234" right="VISA · MC · AMEX" />
+                          <div className="grid grid-cols-2 gap-2"><Fake label="Expiration" value="MM / YY" /><Fake label="CVC" value="123" /></div>
+                          <Fake label="Name on card" value="Jordan Miller" />
+                          <Fake label="ZIP" value="77429" />
+                        </div>
+                      ) : null}
+                      {on && m.key === "klarna" ? (
+                        <div className="px-3 pb-3 text-xs leading-relaxed text-[#15130F]/75">
+                          <p className="font-semibold text-[#15130F]">{line.text} with Klarna.</p>
+                          <p>You'll finish on Klarna's page: pick 4 payments or a monthly plan, and Klarna checks you in a minute. No effect on your credit score to check.</p>
+                        </div>
+                      ) : null}
+                      {on && m.key === "affirm" ? (
+                        <div className="px-3 pb-3 text-xs leading-relaxed text-[#15130F]/75">
+                          <p className="font-semibold text-[#15130F]">As low as {formatCurrency(monthlyFrom(total))}/mo with Affirm.</p>
+                          <p>You'll finish on Affirm's page: see your plans and the exact rate before you agree. Checking doesn't affect your credit score.</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button type="button" onClick={() => setPaid(true)} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>
+                <Lock className="h-4 w-4" /> {payLabel}
+              </button>
+              {mode === "deposit" ? (
+                <p className="mt-2 text-center text-[11px] text-[#15130F]/55">The deposit is not refundable once your dates are set.</p>
+              ) : null}
+              <p className="mt-4 flex items-center justify-center gap-2 text-[10px] text-[#15130F]/45">
+                <Lock className="h-3 w-3" /> Powered by <span className="font-bold">stripe</span> · Terms · Privacy
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A field as Stripe draws one, filled with placeholder text. */
+function Fake({ label, value, right }: { label: string; value: string; right?: string }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-semibold text-[#15130F]/70">{label}</span>
+      <span className="mt-0.5 flex h-10 items-center justify-between rounded-lg border border-[#15130F]/20 bg-white px-3 text-sm text-[#15130F]/40">
+        <span>{value}</span>{right ? <span className="text-[9px] font-bold tracking-wider text-[#15130F]/35">{right}</span> : <ChevronDown className="hidden" />}
+      </span>
+    </label>
+  );
+}
+
 function LearnMore({ onClick, dark }: { onClick: () => void; dark?: boolean }) {
   return (
     <button type="button" onClick={onClick} className={cn("font-bold underline underline-offset-2", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>

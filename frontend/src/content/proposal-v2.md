@@ -413,6 +413,24 @@ image, real reviews, the Legacy and remaining Signature photos.
   phone. It is now the Darkest Night fence from Fence Photos, and a thin
   gold seam separates the two photos and the band under them. To confirm
   with Alan: keep the real fence, or go back to the PDF's texture.
+- **The checkout screens, in the mockup** (Alan, 2026-10-10: "what the
+  page should look like when they click Reserve my spot, and the one for
+  See my options"). Both open a Stripe Checkout page drawn the way Stripe
+  draws it on a phone, in Sterling's branding (dark header with the logo,
+  the amount, the line items; Apple Pay and Google Pay up top; then the
+  payment-method list; a gold Pay button; "Powered by Stripe"). The
+  deposit page: $250 today, the balance shown as due on completion, card
+  only below the wallets, the non-refundable line under the button. The
+  pay-over-time page: the whole job, with Card, Klarna and Affirm in the
+  list; Klarna's row shows its "4 payments or monthly" line and Affirm's
+  its "as low as" line, and the button becomes "Continue to Klarna /
+  Affirm", since the customer finishes on the lender's page. The real
+  pages are Stripe's hosted Checkout with branding set in the Stripe
+  dashboard (logo, colours); nothing here is custom-built. After a
+  payment: a stub ("You're booked" / "Paid in full") until Alan's
+  post-payment flow arrives. Alan: the $250 "sets the tone for the job";
+  the balance payment after the job is where the Google review and the
+  referral ask live. His flow is coming.
 - **A small FAQ, from what customers actually ask** (Alan, 2026-10-10:
   "the twenty most asked questions… implement three or four"). Read every
   inbound text with a question mark: 1,023 texts from 458 customers. By
