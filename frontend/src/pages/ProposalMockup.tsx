@@ -99,17 +99,23 @@ const SIGNATURE_PHOTOS = [
   { name: "Dark Walnut", src: "/proposal-mockup/stain-dark-walnut.jpg" },
   { name: "Chocolate Chips", src: "/proposal-mockup/stain-chocolate-chips.jpg" },
 ];
-// Legacy solid colours as swatches until their photos are loaded.
-const LEGACY_SWATCHES: { name: string; hex: string }[] = [
-  { name: "White Out", hex: "#F3F1EC" }, { name: "Snowstorm", hex: "#F2EBDD" }, { name: "Creamy Glen", hex: "#CFCFC7" },
-  { name: "Coral Beach", hex: "#E4CBB2" }, { name: "Ghosted Sand", hex: "#D2C6B5" }, { name: "Carlsbad Dawn", hex: "#D9C39E" },
-  { name: "Saddlebag Tan", hex: "#B99A74" }, { name: "Quiet Chamois", hex: "#A89A82" }, { name: "Heartland's", hex: "#B6AEA2" },
-  { name: "Silver Mine", hex: "#B9B9B6" }, { name: "Parisian Gray", hex: "#8C8C88" }, { name: "Galapagos Grey", hex: "#6E6E6B" },
-  { name: "Smoked Leather", hex: "#8A8072" }, { name: "Toasted Armado", hex: "#9C6B5E" }, { name: "Simply Cedar", hex: "#A6713F" },
-  { name: "Pinebark", hex: "#6E4A2C" }, { name: "Chocolate Chips", hex: "#5A4232" }, { name: "October Brown", hex: "#5C5349" },
-  { name: "Potato Skin", hex: "#5B4634" }, { name: "Rusticana", hex: "#8D4A3A" }, { name: "Badlands Red", hex: "#6E2F28" },
-  { name: "Plymouth Red", hex: "#5E2A2A" }, { name: "Classic Mahogany", hex: "#4B2E22" }, { name: "Darkest Night", hex: "#1E1E1E" },
+// Legacy solid colours: the best photo of each from the dashboard's Fence
+// Photos (Valspar solid line), one per colour, as Alan picked the rule
+// (2026-10-10). Served straight from the photo storage. Cedar Naturaltone
+// and Midnight Gray have no photo yet.
+const LEGACY_PHOTOS: { name: string; src: string; full: string }[] = [
+  { name: "Simply Cedar", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/905d3a02-4ae0-4984-8207-01c738cfd216/b83d4972-fd3f-4196-bdea-b3f0a7270898_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/905d3a02-4ae0-4984-8207-01c738cfd216/b83d4972-fd3f-4196-bdea-b3f0a7270898.jpg" },
+  { name: "Pine Bark", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/35fd7c95-2407-4bb8-ab12-c530ce523f02/cf591159-dadc-4bf8-bfce-e96984b906e8_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/35fd7c95-2407-4bb8-ab12-c530ce523f02/cf591159-dadc-4bf8-bfce-e96984b906e8.jpg" },
+  { name: "October Brown", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/bb52bae5-9222-42b1-bd6a-2aa01cf4e22a/8231b4c2-0f42-459a-b568-631b81d2e1b4_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/bb52bae5-9222-42b1-bd6a-2aa01cf4e22a/8231b4c2-0f42-459a-b568-631b81d2e1b4.jpg" },
+  { name: "Potato Skin", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/44a9bc64-990d-4a80-841f-f4fc2d29c3de/d70e843f-5584-4d9d-96bc-87b0b1ada5cc_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/44a9bc64-990d-4a80-841f-f4fc2d29c3de/d70e843f-5584-4d9d-96bc-87b0b1ada5cc.jpg" },
+  { name: "Chocolate Chip", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/ad73d243-da98-4448-8158-646f436f0070/3a3a2501-207a-4c97-be2e-1fda6dba0bc3_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/ad73d243-da98-4448-8158-646f436f0070/3a3a2501-207a-4c97-be2e-1fda6dba0bc3.jpg" },
+  { name: "Classic Mahogany", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/931bd8c6-919e-4647-8713-a60dd4359dd1/6248216e-0fc9-434e-80ae-8e7e18107b5e_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/931bd8c6-919e-4647-8713-a60dd4359dd1/6248216e-0fc9-434e-80ae-8e7e18107b5e.jpg" },
+  { name: "Plymouth Red", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/52bade40-fa6c-4821-a089-1d0d1c0f7323/45f024e1-5090-4130-bfc0-23074708e99d_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/52bade40-fa6c-4821-a089-1d0d1c0f7323/45f024e1-5090-4130-bfc0-23074708e99d.jpg" },
+  { name: "Galapagos Grey", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/573f331f-c1b8-4aa5-b301-c6ca83300c8f/bcc20eac-8ae7-418f-a333-da5613a3e06d_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/573f331f-c1b8-4aa5-b301-c6ca83300c8f/bcc20eac-8ae7-418f-a333-da5613a3e06d.jpg" },
+  { name: "Silver Mine", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/0ad80f7d-f86e-4ace-9f18-466daf8efbe6/cf7043e7-45cc-4b04-8538-1aada511ca11_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/0ad80f7d-f86e-4ace-9f18-466daf8efbe6/cf7043e7-45cc-4b04-8538-1aada511ca11.jpg" },
+  { name: "Darkest Night", src: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/3fdbff10-04d9-44a1-b878-f51f3e0ae197/49241180-35a4-48f5-91a9-52fa7c664ab9_thumb.jpg", full: "https://mlqaszopfpujfnjhnduz.supabase.co/storage/v1/object/public/fence-photos/3fdbff10-04d9-44a1-b878-f51f3e0ae197/49241180-35a4-48f5-91a9-52fa7c664ab9.jpg" },
 ];
+const LEGACY_NO_PHOTO = ["Cedar Naturaltone", "Midnight Gray"];
 
 // The payment line the way PlayStation shows it with Klarna (Alan,
 // 2026-10-10): "From $40/month, or 4 payments at 0% interest with Klarna.
@@ -442,7 +448,7 @@ export default function ProposalMockup() {
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
           <SectionTitle kicker="Step 3" title="Pick your color" sub="Essential is a clear coat. Signature and Legacy come in these." />
           <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
-            {([["signature", `Signature · ${SIGNATURE_PHOTOS.length} photos`], ["legacy", `Legacy · ${LEGACY_SWATCHES.length} colors`]] as const).map(([k, label]) => (
+            {([["signature", `Signature · ${SIGNATURE_PHOTOS.length} photos`], ["legacy", `Legacy · ${LEGACY_PHOTOS.length} photos`]] as const).map(([k, label]) => (
               <button key={k} type="button" onClick={() => setPalette(k)}
                 className={cn("h-9 rounded-lg text-xs font-bold transition", palette === k ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F]/70")}>
                 {label}
@@ -475,19 +481,27 @@ export default function ProposalMockup() {
             </>
           ) : (
             <>
-              <div className="grid grid-cols-6 gap-1.5">
-                {LEGACY_SWATCHES.map((c) => {
+              <div className="grid grid-cols-4 gap-1.5">
+                {LEGACY_PHOTOS.map((c) => {
                   const on = stain === c.name;
                   return (
-                    <button key={c.name} type="button" onClick={() => pickColor(c.name, "legacy")}
-                      className={cn("rounded-lg bg-white p-1 text-left shadow-sm transition", on ? "ring-[3px] ring-[#C9972F]" : "ring-1 ring-[#15130F]/10")}>
-                      <span className="block h-9 w-full rounded-md ring-1 ring-black/10" style={{ background: c.hex }} />
-                      <span className="mt-0.5 block text-[8px] font-semibold leading-tight">{c.name}</span>
-                    </button>
+                    <div key={c.name} className={cn("relative overflow-hidden rounded-xl bg-white shadow-sm transition", on ? "ring-[3px] ring-[#C9972F]" : "ring-1 ring-[#15130F]/10")}>
+                      <button type="button" onClick={() => pickColor(c.name, "legacy")} className="block w-full text-left">
+                        <img src={c.src} alt={c.name} className="h-16 w-full object-cover" loading="lazy" draggable={false} />
+                        <span className="flex items-center justify-between gap-0.5 px-1.5 py-1">
+                          <span className="text-[9px] font-bold leading-tight">{c.name}</span>
+                          {on ? <Check className="h-3 w-3 shrink-0" style={{ color: "#8C6224" }} /> : null}
+                        </span>
+                      </button>
+                      <button type="button" onClick={() => setBigPhoto(c.full)} aria-label={`See ${c.name} bigger`}
+                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md bg-black/50 text-white">
+                        <Expand className="h-3 w-3" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
-              <p className="mt-2 text-[11px] text-[#15130F]/60">Solid colors. Photos of real fences are coming for each one.</p>
+              <p className="mt-2 text-[11px] text-[#15130F]/60">Solid colors on real fences we stained. Tap the corner to see one bigger. {LEGACY_NO_PHOTO.join(" and ")}: photos coming.</p>
             </>
           )}
           {stain ? (

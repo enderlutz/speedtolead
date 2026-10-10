@@ -396,6 +396,16 @@ image, real reviews, the Legacy and remaining Signature photos.
   if something changes on the job, and that Klarna is the lender, not
   Sterling. Nine questions, plain words. The numbers are Klarna's own
   published US terms; the real page links to Klarna's current terms.
+- **Legacy colours are real photos now** (Alan, 2026-10-10: "go to our
+  solid Valspar line on the fence photos… bring the best photo out of
+  there, one per colour, and delete the swatches"). Ten colours from the
+  dashboard's Fence Photos, Valspar solid line, served straight from the
+  photo storage: Simply Cedar, Pine Bark, October Brown, Potato Skin,
+  Chocolate Chip, Classic Mahogany, Plymouth Red, Galapagos Grey, Silver
+  Mine, Darkest Night. Picked for a clean fence, good light, nobody and
+  nothing in the frame, no watermark. Two Valspar solids have no photo
+  yet: Cedar Naturaltone and Midnight Gray. The 24-colour chart from the
+  PDF stays in the notes above for the photo library.
 - **Phone packages, third pass** (Alan, 2026-10-10: "make the three
   packages look most appealing for how somebody would look at them on
   their phone… holy shit, this company knows exactly what they're doing").
