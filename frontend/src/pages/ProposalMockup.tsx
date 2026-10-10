@@ -117,6 +117,28 @@ const LEGACY_PHOTOS: { name: string; src: string; full: string }[] = [
 ];
 const LEGACY_NO_PHOTO = ["Cedar Naturaltone", "Midnight Gray"];
 
+// Affirm, the other door at checkout, in the same plain words. Numbers are
+// Affirm's own published US terms; the real page links to affirm.com.
+const AFFIRM_FAQ: [string, string][] = [
+  ["What is Affirm?", "A way to pay for your fence over time. Smaller amounts can be split into 4 interest-free payments; bigger ones get a monthly plan. Affirm pays us in full; you pay Affirm. Manage it in the Affirm app."],
+  ["How do I use it here?", "Tap \"See my options\", choose Affirm at checkout, and answer a few questions. You see your plans and the exact rate before you agree to anything."],
+  ["What do I need?", "To be 18 or older, a US mobile number, and a US address. Affirm may ask for the last four digits of your Social Security number to check eligibility."],
+  ["Does checking affect my credit?", "No. Seeing your options is a soft check with no effect on your credit score. If you take a monthly plan, Affirm may report it to the credit bureaus, which can help or hurt your score depending on how you pay."],
+  ["What are the plans?", "4 interest-free payments on smaller amounts, or monthly plans from 3 to 36 months. Rates run from 0% to 36% APR based on your credit, and some plans are 0% APR. A down payment may be required."],
+  ["Are there fees?", "No late fees, no prepayment fees, no hidden fees. What you see at checkout is what you pay, and paying early never costs extra."],
+  ["What if something changes on the job?", "You paid the whole job through Affirm. If the job ends up costing more, the extra is a separate payment when the work is done. If it ends up costing less, we refund the difference through Affirm and your loan is adjusted."],
+  ["Is this a Sterling loan?", "No. Affirm's lending partners (listed at affirm.com/lenders) are the lenders, and Sterling Fence Staining is paid in full at checkout. Your agreement, statements and privacy are with Affirm."],
+];
+
+// The two side by side, so people can read and compare (Alan, 2026-10-10).
+const LENDER_COMPARE: [string, string, string][] = [
+  ["4 interest-free payments", "Yes, every 2 weeks", "Yes, every 2 weeks"],
+  ["Monthly plans", "6 to 24 months, from 7.99% APR", "3 to 36 months, 0% to 36% APR"],
+  ["Checking affects credit?", "No (soft check)", "No (soft check)"],
+  ["Late fees", "Up to $7 on 4 payments; none on monthly", "None, ever"],
+  ["Who lends", "Klarna / WebBank", "Affirm's partner banks"],
+];
+
 // The payment line the way PlayStation shows it with Klarna (Alan,
 // 2026-10-10): "From $40/month, or 4 payments at 0% interest with Klarna.
 // Learn more". Nobody at Sony works out the $40: Klarna's messaging returns
@@ -149,7 +171,7 @@ const KLARNA_FAQ: [string, string][] = [
   ["Is there a fee for 4 payments?", "No fee when you pay on schedule. If a payment doesn't go through, Klarna tries again; if it still fails, a late fee of up to $7 plus the missed amount is added to the next payment."],
   ["Will Klarna check my credit?", "For 4 payments, Klarna may do a soft check. It doesn't affect your credit score and doesn't show as a hard inquiry."],
   ["What are the monthly plans?", "For jobs of $200 and up. Apply at checkout and get an instant decision; applying is a soft check with no effect on your credit. Rates run from 7.99% to 29.99% APR, a down payment may be required, and late payments may be reported to the credit bureaus. No application, late or early-payoff fees. Plans are issued by WebBank, member FDIC."],
-  ["What if something changes on the job?", "The $250 deposit is not refundable once your dates are set. If any amount is refunded, Klarna updates your balance on its own; allow 8 to 10 business days for money to reach your card."],
+  ["What if something changes on the job?", "You paid the whole job through Klarna, so there's no deposit to think about. If the job ends up costing more (say, boards we find rotten on the day), the extra is a separate payment when the work is done. If it ends up costing less, we refund the difference through Klarna and Klarna lowers what you owe on its own; allow 8 to 10 business days."],
   ["Is this a Sterling loan?", "No. Klarna is the lender and Sterling Fence Staining is paid in full when you check out. Your agreement, statements and privacy are with Klarna, not with us."],
 ];
 
@@ -168,7 +190,7 @@ export default function ProposalMockup() {
   const [colorAsk, setColorAsk] = useState("");
   const [colorSent, setColorSent] = useState(false);
   const [terms, setTerms] = useState(false);
-  const [klarnaFaq, setKlarnaFaq] = useState(false);
+  const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
   const [postType, setPostType] = useState(POSTS[0].key);
 
   const chosen = PACKAGES.find((p) => p.key === pkg) || null;
@@ -362,7 +384,7 @@ export default function ProposalMockup() {
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
                           : <img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} />}
-                        or {line.text} with Klarna. <LearnMore onClick={() => setKlarnaFaq(true)} dark />
+                        or {line.text} with Klarna. <LearnMore onClick={() => setPayFaq("klarna")} dark />
                       </p>
                     </div>
                     <button type="button" onClick={() => choose(show.key)}
@@ -421,7 +443,7 @@ export default function ProposalMockup() {
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
                           : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
-                        {line.text} with Klarna. <LearnMore onClick={() => setKlarnaFaq(true)} />
+                        {line.text} with Klarna. <LearnMore onClick={() => setPayFaq("klarna")} />
                       </p>
                       <ul className="mt-3 flex-1 space-y-1.5">
                         {p.lines.map((l) => (
@@ -610,8 +632,8 @@ export default function ProposalMockup() {
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
               <div className="mt-2 space-y-2">
-                <PayOption lender="klarna" text={`${payLine(total || PACKAGES[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setKlarnaFaq(true)} />
-                <PayOption lender="affirm" text="Affirm monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." />
+                <PayOption lender="klarna" text={`${payLine(total || PACKAGES[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
+                <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
               </div>
               <button type="button" className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
                 See my options
@@ -659,32 +681,57 @@ export default function ProposalMockup() {
         </button>
       ) : null}
 
-      {/* Klarna, explained the way PlayStation explains it, for a fence. */}
-      {klarnaFaq ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setKlarnaFaq(false)}>
-          <div className="flex max-h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 px-5 pt-5">
-              <span className="flex h-8 w-20 items-center justify-center rounded-md bg-[#FFB3C7] text-[15px] font-black tracking-tight text-black">Klarna.</span>
-              <div>
+      {/* Pay over time, explained the way PlayStation explains Klarna, for
+          both lenders, with the two side by side at the top. */}
+      {payFaq ? (() => {
+        const faq = payFaq === "klarna" ? KLARNA_FAQ : AFFIRM_FAQ;
+        return (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setPayFaq(null)}>
+            <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+              <div className="px-5 pt-5">
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Pay over time</p>
-                <h3 className="font-heading text-xl font-bold leading-tight">How Klarna works here</h3>
+                <h3 className="font-heading text-xl font-bold leading-tight">Two ways to spread it out</h3>
+                <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
+                  <button type="button" onClick={() => setPayFaq("klarna")}
+                    className={cn("flex h-10 items-center justify-center rounded-lg text-sm font-black transition", payFaq === "klarna" ? "bg-[#FFB3C7] text-black" : "text-[#15130F]/60")}>Klarna.</button>
+                  <button type="button" onClick={() => setPayFaq("affirm")}
+                    className={cn("flex h-10 items-center justify-center rounded-lg transition", payFaq === "affirm" ? "bg-[#15130F]" : "opacity-50")}>
+                    <img src="/affirm-white.png" alt="Affirm" className={cn("h-4 w-auto", payFaq !== "affirm" && "invert")} draggable={false} />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-2">
+                <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
+                  <div className="grid grid-cols-[1.2fr_1fr_1fr] bg-[#15130F] px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-white/80">
+                    <span>Compare</span><span className={cn(payFaq === "klarna" && "text-[#E3BE63]")}>Klarna</span><span className={cn(payFaq === "affirm" && "text-[#E3BE63]")}>Affirm</span>
+                  </div>
+                  {LENDER_COMPARE.map(([label, k, a]) => (
+                    <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 border-t border-[#15130F]/5 px-3 py-1.5 text-[11px] leading-snug">
+                      <span className="font-bold">{label}</span>
+                      <span className={cn(payFaq === "klarna" ? "font-semibold" : "text-[#15130F]/60")}>{k}</span>
+                      <span className={cn(payFaq === "affirm" ? "font-semibold" : "text-[#15130F]/60")}>{a}</span>
+                    </div>
+                  ))}
+                </div>
+                {faq.map(([q, a]) => (
+                  <div key={q} className="rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
+                    <p className="text-sm font-bold leading-snug">{q}</p>
+                    <p className="mt-1 text-sm leading-relaxed text-[#15130F]/80">{a}</p>
+                  </div>
+                ))}
+                <p className="px-1 text-[11px] leading-snug text-[#15130F]/55">
+                  {payFaq === "klarna"
+                    ? "Klarna's current terms, privacy policy and customer service are on klarna.com and in the Klarna app. They are Klarna's, not Sterling Fence Staining's."
+                    : "Affirm's current terms, lending partners and customer service are on affirm.com and in the Affirm app. They are Affirm's, not Sterling Fence Staining's."}
+                </p>
+              </div>
+              <div className="p-5 pt-3">
+                <button type="button" onClick={() => setPayFaq(null)} className="h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
               </div>
             </div>
-            <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-2">
-              {KLARNA_FAQ.map(([q, a]) => (
-                <div key={q} className="rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
-                  <p className="text-sm font-bold leading-snug">{q}</p>
-                  <p className="mt-1 text-sm leading-relaxed text-[#15130F]/80">{a}</p>
-                </div>
-              ))}
-              <p className="px-1 text-[11px] leading-snug text-[#15130F]/55">Klarna's current terms, privacy policy and customer service are on klarna.com and in the Klarna app. They are Klarna's, not Sterling Fence Staining's.</p>
-            </div>
-            <div className="p-5 pt-3">
-              <button type="button" onClick={() => setKlarnaFaq(false)} className="h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
-            </div>
           </div>
-        </div>
-      ) : null}
+        );
+      })() : null}
 
       {/* The terms, in plain words (Alan, 2026-10-10). */}
       {terms ? (

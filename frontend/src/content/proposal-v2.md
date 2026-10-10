@@ -396,6 +396,21 @@ image, real reviews, the Legacy and remaining Signature photos.
   if something changes on the job, and that Klarna is the lender, not
   Sterling. Nine questions, plain words. The numbers are Klarna's own
   published US terms; the real page links to Klarna's current terms.
+- **Klarna and Affirm, each with a Learn more, side by side** (Alan,
+  2026-10-10). The Klarna answer about "what if something changes on the
+  job" no longer mentions the $250 deposit: a customer who paid through
+  Klarna never paid one. It now says: more on the day is a separate
+  payment at completion; less is refunded through Klarna, which lowers
+  what they owe. Affirm has its own FAQ in the same words (4 payments on
+  smaller amounts, monthly 3 to 36 months, 0% to 36% APR, no late fees,
+  soft check, Affirm's partner banks lend), and one sheet holds both with
+  a compare table at the top: 4 payments, monthly plans, credit check,
+  late fees, who lends. Every Learn more opens that sheet on the lender
+  tapped.
+- **Open for Alan:** if a customer who paid the whole job through Klarna
+  or Affirm cancels after the dates are set, does the $250 booking rule
+  still apply (kept back from the refund)? One rule for everyone is the
+  simplest to explain. Not written anywhere yet.
 - **Legacy colours are real photos now** (Alan, 2026-10-10: "go to our
   solid Valspar line on the fence photos… bring the best photo out of
   there, one per colour, and delete the swatches"). Ten colours from the
