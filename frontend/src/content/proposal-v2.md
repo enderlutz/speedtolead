@@ -662,6 +662,16 @@ that everything can be seamless, even the invoicing of our company."
 - Follow-up sequences never re-enrol a customer (`has_ever_been_enrolled`);
   only relevant if the proposal triggers a sequence.
 
+## Readability rule for the customer's page (Alan, 2026-10-10)
+
+"We want it to be old-person proof." Applied to the mockup and binding
+for the real page: no text under 12px; body text 15px; prices big; muted
+text no lighter than 75% ink; every tap target at least 44px; three
+colour tiles to a row so the names read; the repair drawings big, with
+thick lines, the part lit in gold with a dark edge, and a plain-words
+caption under each ("the board along the ground"). Pictures first, few
+words, one thing to do per screen.
+
 ## Working agreement
 
 - Code lives in the worktree `/Users/alanjoshuabonner/speedtolead-proposal`
