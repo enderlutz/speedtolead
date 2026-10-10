@@ -189,7 +189,6 @@ const FAQ: [string, string][] = [
 // is estimated the way Klarna does: the lowest rate over the longest plan
 // (7.99% APR over 24 months), rounded up to the dollar. Pay in 4 tops out
 // around $2,000 a purchase.
-const PAY_IN_4_MAX = 2000;
 const KLARNA_LOW_APR = 0.0799;
 const KLARNA_LONGEST_MONTHS = 24;
 function monthlyFrom(total: number): number {
@@ -197,11 +196,11 @@ function monthlyFrom(total: number): number {
   return Math.ceil((total * r) / (1 - Math.pow(1 + r, -KLARNA_LONGEST_MONTHS)));
 }
 function payLine(total: number): { text: string; lender: "klarna" } {
-  // PlayStation's exact shape: "From $40/month, or 4 payments at 0%
-  // interest with Klarna". The per-payment amount is not in the headline.
-  const from = `From $${monthlyFrom(total)}/month`;
-  if (total <= PAY_IN_4_MAX) return { text: `${from}, or 4 payments at 0% interest with Klarna`, lender: "klarna" };
-  return { text: `${from} with Klarna`, lender: "klarna" };
+  // PlayStation's exact shape, every time: "From $40/month, or 4 payments
+  // at 0% interest with Klarna". Both halves always show (Alan,
+  // 2026-10-10); on the real page Stripe's messaging element decides what
+  // the customer qualifies for at that amount.
+  return { text: `From $${monthlyFrom(total)}/month, or 4 payments at 0% interest with Klarna`, lender: "klarna" };
 }
 
 // Klarna's FAQ, rewritten for a fence (PlayStation's is the model, Alan,
@@ -1043,7 +1042,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                           : m.key === "klarna" ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
                           : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="" className="h-2.5 w-auto" draggable={false} /></span>}
                         <span className="flex-1 text-[15px] font-semibold">{m.label}</span>
-                        {m.key !== "card" ? <span className="text-[12px] text-[#15130F]/75">{m.key === "klarna" ? (total <= PAY_IN_4_MAX ? "4 payments or monthly" : "Monthly") : "Monthly or 4 payments"}</span> : null}
+                        {m.key !== "card" ? <span className="text-[12px] text-[#15130F]/75">{m.key === "klarna" ? "4 payments or monthly" : "Monthly or 4 payments"}</span> : null}
                       </button>
                       {on && m.key === "card" ? (
                         <div className="space-y-2 px-3 pb-3">
