@@ -9,7 +9,7 @@
 //
 // Written at a fifth-grade reading level on purpose: pictures first, few
 // words, one thing to do per screen (Alan, 2026-10-09).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
@@ -33,12 +33,13 @@ const CUSTOMER = {
 
 type PkgKey = "essential" | "signature" | "legacy";
 const PACKAGES: {
-  key: PkgKey; name: string; short: string; tag: string; lasts: string; photos: string[];
-  lines: { icon: React.ElementType; text: string }[]; regular: number; price: number; popular?: boolean;
+  key: PkgKey; name: string; short: string; tag: string; lasts: string; photos: string[]; captions?: string[];
+  best: string; lines: { icon: React.ElementType; text: string }[]; regular: number; price: number; popular?: boolean;
 }[] = [
   {
     key: "essential", name: "Essential Seal", short: "Essential", tag: "Entry", lasts: "1–2 yrs",
     photos: ["/proposal-mockup/pkg-essential.jpg"],
+    best: "Newer fences in good shape",
     lines: [
       { icon: Droplets, text: "Clear protection" },
       { icon: Sparkles, text: "Refreshes newer fences" },
@@ -47,7 +48,8 @@ const PACKAGES: {
   },
   {
     key: "signature", name: "Signature Finish", short: "Signature", tag: "Semi-transparent", lasts: "2–4 yrs",
-    photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], popular: true,
+    photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], captions: ["Lighter", "Darker"], popular: true,
+    best: "Weathered fences you still want to see the grain on",
     lines: [
       { icon: Leaf, text: "Natural finish, shows the wood grain" },
       { icon: Paintbrush, text: "Adds color and protection" },
@@ -56,7 +58,8 @@ const PACKAGES: {
   },
   {
     key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Premium", lasts: "4–7 yrs",
-    photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"],
+    photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"], captions: ["Lighter", "Darker"],
+    best: "Older fences that need full coverage",
     lines: [
       { icon: Shield, text: "Solid stain, bold finish" },
       { icon: Droplets, text: "Hides imperfections and aging" },
@@ -131,6 +134,28 @@ export default function ProposalMockup() {
   const [colorAsk, setColorAsk] = useState("");
   const [colorSent, setColorSent] = useState(false);
   const [terms, setTerms] = useState(false);
+  // The package row on a phone: one card at a time, swiped, starting on
+  // Signature with its neighbours peeking in.
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [rowIdx, setRowIdx] = useState(1);
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || !phone) return;
+    const card = row.children[1] as HTMLElement | undefined;
+    if (card) row.scrollTo({ left: card.offsetLeft - (row.clientWidth - card.clientWidth) / 2 });
+  }, [phone]);
+  const onRowScroll = () => {
+    const row = rowRef.current;
+    if (!row) return;
+    const cards = Array.from(row.children) as HTMLElement[];
+    const mid = row.scrollLeft + row.clientWidth / 2;
+    let best = 0, dist = Infinity;
+    cards.forEach((c, i) => {
+      const d = Math.abs(c.offsetLeft + c.clientWidth / 2 - mid);
+      if (d < dist) { dist = d; best = i; }
+    });
+    setRowIdx(best);
+  };
 
   const chosen = PACKAGES.find((p) => p.key === pkg) || null;
   const repairs = useMemo(() => {
@@ -242,74 +267,101 @@ export default function ProposalMockup() {
           )}
         </section>
 
-        {/* Packages: three across, on a phone too (Alan, 2026-10-10: "next
-            to each other", so the colours fit below without a long scroll). */}
-        <section className="bg-white px-3 py-6 sm:px-4">
-          <div className="px-1">
+        {/* Packages. Each card carries everything about its package — name,
+            who it's for, price, what's in it, a button — the way a pricing
+            page does (Alan, 2026-10-10, after a competitor's page: "you can
+            still read the information about each package"). On a phone the
+            three cards sit in a row you swipe, one in view with the next
+            peeking in; at full width they are three columns. */}
+        <section className="bg-white py-6">
+          <div className="px-4">
             <SectionTitle kicker="Step 2" title="Pick your package" sub="Same expert service. Three levels of protection." />
+            <p className="mb-3 flex items-center gap-2 rounded-xl bg-[#F8F3E7] px-3 py-2 text-xs font-semibold ring-1 ring-[#C9972F]/40">
+              <Shield className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
+              Every package: two coats of stain and a 1-year workmanship warranty.
+            </p>
           </div>
-          <p className="mb-3 flex items-center gap-2 rounded-xl bg-[#F8F3E7] px-3 py-2 text-xs font-semibold ring-1 ring-[#C9972F]/40">
-            <Shield className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
-            Every package: two coats of stain and a 1-year workmanship warranty.
-          </p>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div
+            ref={rowRef}
+            onScroll={phone ? onRowScroll : undefined}
+            className={cn(
+              phone
+                ? "flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                : "grid gap-3 px-4 sm:grid-cols-3",
+            )}
+          >
             {PACKAGES.map((p) => {
               const on = pkg === p.key;
               const line = payLine(p.price);
               return (
                 <div key={p.key} className={cn("flex flex-col overflow-hidden rounded-2xl bg-white shadow-md transition",
-                  on ? "ring-4 ring-[#C9972F]" : p.popular ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
+                  phone && "w-[84%] shrink-0 snap-center",
+                  on ? "ring-4 ring-[#C9972F]" : p.popular ? "ring-2 ring-[#C9972F]/70" : "ring-1 ring-[#15130F]/10")}>
                   <div className="relative">
-                    {/* Two photos stack on a phone, sit side by side when wide. */}
-                    <div className={cn("grid gap-0.5", p.photos.length > 1 && (phone ? "grid-rows-2" : "sm:grid-cols-2"))}>
-                      {p.photos.map((src) => (
-                        <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 && phone ? "h-[72px]" : "h-[148px]")} draggable={false} />
+                    <div className={cn("grid gap-0.5", p.photos.length > 1 && "grid-cols-2")}>
+                      {p.photos.map((src, i) => (
+                        <div key={src} className="relative">
+                          <img src={src} alt="" className="h-40 w-full object-cover" draggable={false} />
+                          {p.captions?.[i] ? (
+                            <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">{p.captions[i]}</span>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
+                    <span className="absolute left-2 top-2 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow">20% off</span>
                     {p.popular ? (
-                      <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[#15130F] shadow sm:px-2.5 sm:py-1 sm:text-[10px]" style={{ background: GOLD }}>
-                        <Star className="mr-0.5 inline h-2.5 w-2.5 fill-current" />Popular
+                      <span className="absolute right-2 top-2 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
+                        <Star className="mr-1 inline h-3 w-3 fill-current" />Most popular
                       </span>
                     ) : null}
                   </div>
-                  <div className="flex flex-1 flex-col p-2 sm:p-3">
-                    <p className="text-[8px] font-bold uppercase tracking-[0.15em] text-[#8C6224] sm:text-[10px]">{p.tag}</p>
-                    <h3 className="font-heading text-[13px] font-bold leading-tight sm:text-xl">{p.name}</h3>
-                    <p className="mt-1 inline-flex w-fit items-center rounded-full bg-[#F8F3E7] px-1.5 py-0.5 text-[9px] font-bold ring-1 ring-[#C9972F]/50 sm:text-[10px]">Lasts {p.lasts}</p>
-                    <div className="mt-2 flex-1">
-                      <p className="text-[9px] text-[#15130F]/55 sm:text-[11px]"><s className="text-red-700">{formatCurrency(p.regular)}</s> <span className="font-bold text-emerald-700">20% off</span></p>
-                      <p className="font-heading text-[15px] font-bold leading-none sm:text-2xl">{formatCurrency(p.price)}</p>
-                      <p className="mt-1 text-[9px] font-semibold leading-tight text-[#15130F]/70 sm:text-[11px]">
-                        or {line.text}{line.lender === "klarna" ? " with Klarna" : " with Affirm"}
-                      </p>
+                  <div className="flex flex-1 flex-col p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="font-heading text-2xl font-bold leading-tight">{p.name}</h3>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{p.tag}</p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[10px] font-bold ring-1 ring-[#C9972F]/50">Lasts {p.lasts}</span>
                     </div>
+                    <div className="mt-3 rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
+                      <p className="text-sm font-semibold leading-snug">{p.best}</p>
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(p.price)}</p>
+                      <s className="text-sm text-[#15130F]/50">{formatCurrency(p.regular)}</s>
+                    </div>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-[#15130F]/75">
+                      {line.lender === "klarna"
+                        ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
+                        : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
+                      {line.text}
+                    </p>
+                    <ul className="mt-3 flex-1 space-y-1.5">
+                      {p.lines.map((l) => (
+                        <li key={l.text} className="flex items-start gap-2 text-sm"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>
+                      ))}
+                    </ul>
                     <button type="button" onClick={() => choose(p.key)}
-                      className={cn("mt-2 flex h-9 w-full items-center justify-center gap-1 rounded-xl text-xs font-bold transition active:scale-[0.98] sm:h-11 sm:text-sm",
+                      className={cn("mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
                         on ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
                       style={on ? undefined : { background: GOLD }}>
-                      {on ? <><Check className="h-4 w-4" /> Picked</> : `Pick ${p.short}`}
+                      {on ? <><Check className="h-5 w-5" /> {p.short} picked</> : `Pick ${p.short}`}
                     </button>
                   </div>
                 </div>
               );
             })}
           </div>
-          {/* What the picked one is (or the most popular, until they pick). */}
-          {(() => {
-            const show = chosen || PACKAGES[1];
-            return (
-              <div className="mt-3 rounded-xl bg-[#F8F3E7] px-3 py-2.5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[#8C6224]">{show.name}{chosen ? "" : " · most popular"}</p>
-                <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                  {show.lines.map((l) => {
-                    const Icon = l.icon;
-                    return <li key={l.text} className="flex items-center gap-1.5 text-xs"><Icon className="h-3.5 w-3.5 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>;
-                  })}
-                </ul>
-              </div>
-            );
-          })()}
-          <p className="mt-3 text-center text-xs text-[#15130F]/60">Choose based on the condition of your wood and the look you want.</p>
+          {phone ? (
+            <div className="mt-2 flex items-center justify-center gap-1.5">
+              {PACKAGES.map((p, i) => (
+                <span key={p.key} className={cn("h-1.5 rounded-full transition-all", i === rowIdx ? "w-5 bg-[#15130F]" : "w-1.5 bg-[#15130F]/25")} />
+              ))}
+              <span className="ml-2 text-[10px] font-semibold text-[#15130F]/50">Swipe to compare</span>
+            </div>
+          ) : null}
+          <p className="mt-3 px-4 text-center text-xs text-[#15130F]/60">Choose based on the condition of your wood and the look you want.</p>
         </section>
 
         {/* Colours: always on show, in two tabs, so nobody has to pick a

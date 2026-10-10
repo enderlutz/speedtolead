@@ -361,6 +361,16 @@ image, real reviews, the Legacy and remaining Signature photos.
   build: Stripe's **Payment Method Messaging Element** renders these lines
   itself, with the right lender, amount and eligibility, so the real page
   should use it instead of hand-written text.
+- **Package cards must read in full** (Alan, 2026-10-10, after seeing a
+  competitor's estimate page that copied the three packages: "you can
+  still read the information about each package"). Three squeezed columns
+  on a phone looked "too elongated… not very professional". Now each card
+  has the full layout: photo(s) with a "20% off" badge, one-line name,
+  tag, "Lasts" chip, a "Best for" box, the price with the regular price
+  struck, the lender line with its mark, three bullets, a button. On a
+  phone the three cards are a row you swipe, starting on Signature with
+  the neighbours peeking in and three dots underneath; at full width,
+  three columns.
 - **No scope drawing → say the size.** "About 280 ft of fence" plus the
   sides list. Not the gallons: "that's a little overkill." Personal, not
   salesy, very simple.
