@@ -407,6 +407,11 @@ image, real reviews, the Legacy and remaining Signature photos.
   a compare table at the top: 4 payments, monthly plans, credit check,
   late fees, who lends. Every Learn more opens that sheet on the lender
   tapped.
+- **Extras on the day, decided** (Alan, 2026-10-10): if the job ends up
+  costing more, the customer gets another payment link at the end of the
+  job with everything Stripe offers on it, card, Apple Pay, Google Pay,
+  Klarna, Affirm, and pays the extra however they like. Same link
+  machinery as the balance page. Both FAQs say so.
 - **Open for Alan:** if a customer who paid the whole job through Klarna
   or Affirm cancels after the dates are set, does the $250 booking rule
   still apply (kept back from the refund)? One rule for everyone is the

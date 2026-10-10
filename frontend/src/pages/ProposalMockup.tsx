@@ -126,7 +126,7 @@ const AFFIRM_FAQ: [string, string][] = [
   ["Does checking affect my credit?", "No. Seeing your options is a soft check with no effect on your credit score. If you take a monthly plan, Affirm may report it to the credit bureaus, which can help or hurt your score depending on how you pay."],
   ["What are the plans?", "4 interest-free payments on smaller amounts, or monthly plans from 3 to 36 months. Rates run from 0% to 36% APR based on your credit, and some plans are 0% APR. A down payment may be required."],
   ["Are there fees?", "No late fees, no prepayment fees, no hidden fees. What you see at checkout is what you pay, and paying early never costs extra."],
-  ["What if something changes on the job?", "You paid the whole job through Affirm. If the job ends up costing more, the extra is a separate payment when the work is done. If it ends up costing less, we refund the difference through Affirm and your loan is adjusted."],
+  ["What if something changes on the job?", "You paid the whole job through Affirm. If the job ends up costing more, we text you a payment link for the extra when the work is done, and you pay it any way you like: card, Apple Pay, Klarna or Affirm. If it ends up costing less, we refund the difference through Affirm and your loan is adjusted."],
   ["Is this a Sterling loan?", "No. Affirm's lending partners (listed at affirm.com/lenders) are the lenders, and Sterling Fence Staining is paid in full at checkout. Your agreement, statements and privacy are with Affirm."],
 ];
 
@@ -171,7 +171,7 @@ const KLARNA_FAQ: [string, string][] = [
   ["Is there a fee for 4 payments?", "No fee when you pay on schedule. If a payment doesn't go through, Klarna tries again; if it still fails, a late fee of up to $7 plus the missed amount is added to the next payment."],
   ["Will Klarna check my credit?", "For 4 payments, Klarna may do a soft check. It doesn't affect your credit score and doesn't show as a hard inquiry."],
   ["What are the monthly plans?", "For jobs of $200 and up. Apply at checkout and get an instant decision; applying is a soft check with no effect on your credit. Rates run from 7.99% to 29.99% APR, a down payment may be required, and late payments may be reported to the credit bureaus. No application, late or early-payoff fees. Plans are issued by WebBank, member FDIC."],
-  ["What if something changes on the job?", "You paid the whole job through Klarna, so there's no deposit to think about. If the job ends up costing more (say, boards we find rotten on the day), the extra is a separate payment when the work is done. If it ends up costing less, we refund the difference through Klarna and Klarna lowers what you owe on its own; allow 8 to 10 business days."],
+  ["What if something changes on the job?", "You paid the whole job through Klarna, so there's no deposit to think about. If the job ends up costing more (say, boards we find rotten on the day), we text you a payment link for the extra when the work is done, and you pay it any way you like: card, Apple Pay, Klarna or Affirm. If it ends up costing less, we refund the difference through Klarna and Klarna lowers what you owe on its own; allow 8 to 10 business days."],
   ["Is this a Sterling loan?", "No. Klarna is the lender and Sterling Fence Staining is paid in full when you check out. Your agreement, statements and privacy are with Klarna, not with us."],
 ];
 
