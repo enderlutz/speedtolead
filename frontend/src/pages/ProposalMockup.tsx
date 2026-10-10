@@ -42,7 +42,7 @@ const PACKAGES: {
     best: "Newer fences in good shape",
     lines: [
       { icon: Droplets, text: "Clear protection" },
-      { icon: Sparkles, text: "Refreshes newer fences" },
+      { icon: Sparkles, text: "Refreshes your fence" },
     ],
     regular: 1580, price: 1263.60,
   },
@@ -51,8 +51,8 @@ const PACKAGES: {
     photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], captions: ["Lighter", "Darker"], popular: true,
     best: "Weathered fences you still want to see the grain on",
     lines: [
-      { icon: Leaf, text: "Natural finish, shows the wood grain" },
-      { icon: Paintbrush, text: "Adds color and protection" },
+      { icon: Leaf, text: "Enhances the natural wood grain" },
+      { icon: Paintbrush, text: "Balances protection and beauty" },
     ],
     regular: 1814, price: 1450.80,
   },
@@ -61,21 +61,11 @@ const PACKAGES: {
     photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"], captions: ["Lighter", "Darker"],
     best: "Older fences that need full coverage",
     lines: [
-      { icon: Shield, text: "Solid stain, bold finish" },
-      { icon: Droplets, text: "Hides imperfections and aging" },
+      { icon: Shield, text: "Solid color protection" },
       { icon: Sun, text: "Maximum coverage and durability" },
     ],
     regular: 2301, price: 1840.80,
   },
-];
-
-// The compare rows on a phone: a few words per cell, three cells per row.
-const COMPARE: { label: string; cells: [string, string, string] }[] = [
-  { label: "Best for", cells: ["Newer fences", "Weathered, still shows grain", "Older, needs full coverage"] },
-  { label: "Adds color", cells: ["–", "✓", "✓"] },
-  { label: "Shows the wood grain", cells: ["✓", "✓", "–"] },
-  { label: "Hides imperfections", cells: ["–", "–", "✓"] },
-  { label: "Sun and water protection", cells: ["Good", "Better", "Best"] },
 ];
 
 // Repairs, priced from Alan's list (2026-10-09; posts by fence height,
@@ -272,86 +262,86 @@ export default function ProposalMockup() {
             Every package: two coats of stain and a 1-year workmanship warranty.
           </p>
 
-          {phone ? (
-            <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
-              {/* Photos and names */}
-              <div className="grid grid-cols-3 gap-1 p-1">
-                {PACKAGES.map((p) => {
-                  const on = pkg === p.key;
-                  return (
-                    <button key={p.key} type="button" onClick={() => choose(p.key)}
-                      className={cn("relative overflow-hidden rounded-xl text-left transition", on ? "ring-[3px] ring-[#C9972F]" : p.popular ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
-                      <div className={cn("grid gap-px", p.photos.length > 1 && "grid-rows-2")}>
-                        {p.photos.map((src) => (
-                          <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-11" : "h-[90px]")} draggable={false} />
-                        ))}
-                      </div>
-                      {p.popular ? (
-                        <span className="absolute left-1 top-1 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
-                          <Star className="mr-0.5 inline h-2.5 w-2.5 fill-current" />Popular
-                        </span>
-                      ) : null}
-                      <div className="px-1.5 py-1.5">
-                        <p className="font-heading text-[15px] font-bold leading-none">{p.short}</p>
-                        <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-[#8C6224]">{p.name.split(" ")[1]} · {p.tag}</p>
-                      </div>
+          {phone ? (() => {
+            // Three photo tiles, always in view, name and price on each; the
+            // one they tap (Signature until they do) opens in full below.
+            // Pictures first, then words (Alan, 2026-10-10: "make the three
+            // packages look most appealing for somebody on their phone").
+            const show = chosen || PACKAGES[1];
+            const line = payLine(show.price);
+            return (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {PACKAGES.map((p) => {
+                    const on = pkg === p.key;
+                    const shown = show.key === p.key;
+                    return (
+                      <button key={p.key} type="button" onClick={() => choose(p.key)}
+                        className={cn("relative aspect-[3/4.4] overflow-hidden rounded-2xl text-left shadow-lg transition active:scale-[0.97]",
+                          on ? "ring-4 ring-[#C9972F]" : shown ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
+                        <div className={cn("absolute inset-0 grid gap-px bg-[#15130F]", p.photos.length > 1 && "grid-rows-2")}>
+                          {p.photos.map((src) => <img key={src} src={src} alt="" className="h-full w-full object-cover" draggable={false} />)}
+                        </div>
+                        <div className="absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-[#15130F] via-[#15130F]/75 to-transparent" />
+                        {p.popular ? (
+                          <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
+                            <Star className="mr-0.5 inline h-2.5 w-2.5 fill-current" />Popular
+                          </span>
+                        ) : null}
+                        {on ? (
+                          <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
+                        ) : null}
+                        <div className="absolute inset-x-0 bottom-0 p-2 text-white">
+                          <p className="text-[8px] font-bold uppercase tracking-[0.15em]" style={{ color: "#E3BE63" }}>{p.tag}</p>
+                          <p className="font-heading text-[15px] font-bold leading-tight">{p.short}</p>
+                          <p className="mt-0.5 text-[13px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
+                          <p className="text-[8px] text-white/70">Lasts {p.lasts}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div key={show.key} className="mt-3 overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-[#15130F]/10">
+                  <div className="flex items-start justify-between gap-2 px-4 pt-4">
+                    <div className="min-w-0">
+                      <h3 className="font-heading text-2xl font-bold leading-tight">{show.name}</h3>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{show.tag} · Lasts {show.lasts}</p>
+                    </div>
+                    {!chosen ? <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[10px] font-bold ring-1 ring-[#C9972F]/50">Most popular</span> : null}
+                  </div>
+                  <div className="p-4 pt-3">
+                    <div className="rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
+                      <p className="text-sm font-semibold leading-snug">{show.best}</p>
+                    </div>
+                    <ul className="mt-3 space-y-1.5">
+                      {show.lines.map((l) => {
+                        const Icon = l.icon;
+                        return <li key={l.text} className="flex items-center gap-2 text-sm font-medium"><Icon className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>;
+                      })}
+                    </ul>
+                    <div className="mt-3 rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
+                      <p className="text-[10px] text-white/60"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span></p>
+                      <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(show.price)}</p>
+                      <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#E3BE63" }}>
+                        {line.lender === "klarna"
+                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[10px] font-black text-black">Klarna.</span>
+                          : <img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} />}
+                        or {line.text}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => choose(show.key)}
+                      className={cn("mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
+                        chosen ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
+                      style={chosen ? undefined : { background: GOLD }}>
+                      {chosen ? <><Check className="h-5 w-5" /> {show.short} picked</> : `Pick ${show.short}`}
                     </button>
-                  );
-                })}
-              </div>
-
-              {/* Lasts */}
-              <RowLabel>Lasts</RowLabel>
-              <div className="grid grid-cols-3 gap-1 px-1">
-                {PACKAGES.map((p) => <Cell key={p.key} on={pkg === p.key}><span className="text-sm font-bold">{p.lasts}</span></Cell>)}
-              </div>
-
-              {/* Price */}
-              <RowLabel>Price · 20% off</RowLabel>
-              <div className="grid grid-cols-3 gap-1 px-1">
-                {PACKAGES.map((p) => (
-                  <Cell key={p.key} on={pkg === p.key}>
-                    <s className="block text-[10px] text-red-700">{formatCurrency(p.regular)}</s>
-                    <span className="block font-heading text-[17px] font-bold leading-tight">{formatCurrency(p.price)}</span>
-                    <span className="block text-[9px] font-semibold leading-tight text-[#15130F]/65">
-                      {p.price <= PAY_IN_4_MAX ? `or 4 × ${formatCurrency(p.price / 4)}` : `or ${formatCurrency(p.price / 12)}/mo`}
-                    </span>
-                  </Cell>
-                ))}
-              </div>
-
-              {/* The compare rows */}
-              {COMPARE.map((row) => (
-                <div key={row.label}>
-                  <RowLabel>{row.label}</RowLabel>
-                  <div className="grid grid-cols-3 gap-1 px-1">
-                    {row.cells.map((v, i) => (
-                      <Cell key={PACKAGES[i].key} on={pkg === PACKAGES[i].key}>
-                        {v === "✓" ? <Check className="mx-auto h-4 w-4" style={{ color: "#8C6224" }} />
-                          : v === "–" ? <span className="text-[#15130F]/30">–</span>
-                          : <span className="text-[11px] font-semibold leading-tight">{v}</span>}
-                      </Cell>
-                    ))}
                   </div>
                 </div>
-              ))}
-
-              {/* Pick */}
-              <div className="grid grid-cols-3 gap-1 p-1 pt-2">
-                {PACKAGES.map((p) => {
-                  const on = pkg === p.key;
-                  return (
-                    <button key={p.key} type="button" onClick={() => choose(p.key)}
-                      className={cn("flex h-11 items-center justify-center gap-1 rounded-xl text-sm font-bold transition active:scale-[0.98]",
-                        on ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
-                      style={on ? undefined : { background: GOLD }}>
-                      {on ? <><Check className="h-4 w-4" /> Picked</> : "Pick"}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
+              </>
+            );
+          })() : (
             <div className="grid gap-3 sm:grid-cols-3">
               {PACKAGES.map((p) => {
                 const on = pkg === p.key;
@@ -656,18 +646,6 @@ function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; s
       <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">{kicker}</p>
       <h2 className="font-heading text-2xl font-bold leading-tight">{title}</h2>
       {sub ? <p className="mt-0.5 text-sm text-[#15130F]/65">{sub}</p> : null}
-    </div>
-  );
-}
-
-function RowLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mt-1.5 px-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{children}</p>;
-}
-
-function Cell({ on, children }: { on: boolean; children: React.ReactNode }) {
-  return (
-    <div className={cn("flex min-h-9 items-center justify-center rounded-lg px-1 py-1 text-center", on ? "bg-[#C9972F]/15 ring-1 ring-[#C9972F]/60" : "bg-[#F8F3E7]")}>
-      <div>{children}</div>
     </div>
   );
 }

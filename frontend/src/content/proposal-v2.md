@@ -379,6 +379,17 @@ image, real reviews, the Legacy and remaining Signature photos.
   imperfections; Sun and water protection as Good / Better / Best), and
   three Pick buttons. Tapping a photo or a button picks; the picked column
   lights up. At full width, three full cards.
+- **Phone packages, third pass** (Alan, 2026-10-10: "make the three
+  packages look most appealing for how somebody would look at them on
+  their phone… holy shit, this company knows exactly what they're doing").
+  Three tall photo tiles, always in view, each with its name, price and
+  "Lasts" on the photo; the tapped one (Signature until they tap) opens in
+  full right below: Best for, the two lines, the price block with the
+  lender line, and the Pick button. Pictures first, words second. Package
+  lines in Alan's words: Essential "Clear protection · Refreshes your
+  fence"; Signature "Enhances the natural wood grain · Balances protection
+  and beauty"; Legacy "Solid color protection · Maximum coverage and
+  durability".
 - **Posts: one "Post replacement" line** with a 6, 7 or 8 ft fence choice,
   like the pickets, instead of three post lines. Same prices ($225, $255,
   $350).
