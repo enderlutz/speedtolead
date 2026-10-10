@@ -407,6 +407,17 @@ image, real reviews, the Legacy and remaining Signature photos.
   a compare table at the top: 4 payments, monthly plans, credit check,
   late fees, who lends. Every Learn more opens that sheet on the lender
   tapped.
+- **Why financing is on the page at all** (Alan, 2026-10-10): the 20% off
+  ends at the end of the month and the price goes back up. Financing lets
+  a customer lock in the discount now, even if the job happens in a month
+  or two, without having the money today; the price was the reason they
+  were waiting. In the mockup, in one quiet line each, never a countdown:
+  under the price ("20% off · ends October 31"), at the top of the pay
+  step ("Your 20% off ends October 31. Book now and this price is locked,
+  even if we do the job next month. Paying over time means you don't need
+  the money today."), and on the pay-over-time card ("Were you going to
+  do this in a month or two anyway? Lock in today's price and spread the
+  payments."). Wording is Alan's to tune.
 - **Extras on the day, decided** (Alan, 2026-10-10): if the job ends up
   costing more, the customer gets another payment link at the end of the
   job with everything Stripe offers on it, card, Apple Pay, Google Pay,

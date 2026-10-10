@@ -381,7 +381,7 @@ export default function ProposalMockup() {
                       })}
                     </ul>
                     <div className="mt-3 rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
-                      <p className="text-[10px] text-white/60"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span></p>
+                      <p className="text-[10px] text-white/60"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span> · ends {CUSTOMER.goodThrough}</p>
                       <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(show.price)}</p>
                       <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#E3BE63" }}>
                         {line.lender === "klarna"
@@ -623,6 +623,13 @@ export default function ProposalMockup() {
             the same Stripe checkout; Klarna and Affirm are picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
           <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `${chosen.name}${repairs ? " plus repairs" : ""}: ${formatCurrency(total)}` : "Pick a package first and your numbers fill in."} />
+          {/* The 20% off ends with the month and the price goes back up. Booking
+              now locks it even if the job happens later; paying over time is
+              how someone does that without the cash today (Alan, 2026-10-10). */}
+          <div className="mb-3 flex items-start gap-2.5 rounded-xl bg-[#F8F3E7] px-3 py-2.5 ring-1 ring-[#C9972F]/50">
+            <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
+            <p className="text-xs leading-snug"><span className="font-bold">Your 20% off ends {CUSTOMER.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>
+          </div>
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my dates</p>
@@ -634,6 +641,7 @@ export default function ProposalMockup() {
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
+              <p className="mt-1 text-xs text-[#15130F]/65">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
               <div className="mt-2 space-y-2">
                 <PayOption lender="klarna" text={`${payLine(total || PACKAGES[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
                 <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
