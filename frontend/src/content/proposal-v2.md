@@ -33,70 +33,115 @@ written back here.
 
 Answer in chat, by number. Each has a recommendation so "yes" is enough.
 
-### A. Packages and price
+### A. Packages and price — answered 2026-10-09
 
-1. Keep the same three packages and prices from the estimate, all three
-   visible at once, and the customer picks one? *Recommend: yes. In the first
-   version they pick one of three; nothing changes the price live.*
-2. Can the customer add things that change the price (outside sides, a gate,
-   pressure washing), or does that stay with us? *Recommend: not in the first
-   version. An "Ask about adding…" button that texts us instead.*
-3. When they pick a package: locked, changeable, or changeable until the
-   deposit? And what happens: text you and Olga, move the GoHighLevel stage?
-   *Recommend: changeable until the deposit; text you both; the stage moves
-   only when the deposit is paid.*
+1. **Same three packages**, all visible, the customer picks one.
+2. **Add-ons that change the price: repairs only.** A tally section where
+   the customer counts what needs replacing and watches the price build.
+   The customer says once whether the fence has a rot board and a cap; that
+   sets the post price.
 
-### B. Stains and photos
+   | Item | Price |
+   |---|---|
+   | Picket, 6 ft pine treated | $12 |
+   | Picket, 8 ft pine treated | $14 |
+   | Picket, 6 ft cedar | $14 |
+   | Picket, 8 ft cedar | $16 |
+   | Rot board | $50 |
+   | Cap | $85 |
+   | 2x4 rail | $75 |
+   | Post, fence with no rot board and no cap | $225 |
+   | Post, fence with rot board, no cap | $255 |
+   | Post, fence with rot board and cap | $350 |
 
-4. The exact stain list for the picker: product line and colour names. Is it
-   the same list for all three packages?
-5. Do the real photos exist today, and where (Company Cam, phones, Drive)?
-   How many per colour? *Recommend: three to five per colour, your own jobs,
-   tap to enlarge.*
-6. Does the stain choice change the price? Does it flow to the crew's colour
-   plan on the Company Cam tab? *Recommend: no price change; yes, it pre-fills
-   the colour plan.*
+   Still to confirm: the unit for rot board, cap and 2x4 (per piece, or per
+   8 ft section).
+3. **Changeable after picking.** Picking a package takes them straight to
+   the next step (colours, or the deposit) and **texts Alan and Olga the
+   moment it happens**. The GoHighLevel stage: Alan is weighing dropping
+   GoHighLevel's automations altogether and running them internally with
+   AI. Decision parked (see "Decisions to make" below): the proposal is
+   built so every customer action is an event our side owns; GoHighLevel
+   stays the text pipe and the board for now; retiring its workflows is its
+   own phase after launch.
 
-### C. Deposit and financing
+### B. Stains and photos — answered 2026-10-09
 
-7. Is the deposit $250 for every package? Refundable? Does paying it book
-   the job, meaning we then schedule? *Recommend: flat $250, refundable until
-   scheduled, deposit = booked.*
-8. Stripe: is there an account, and under which company, Sterling or A&T?
-   *Recommend: a Sterling account; cards plus Apple Pay.*
-9. Financing: through Stripe's own checkout (Affirm or Klarna inside Stripe)
-   or a separate Affirm account? Minimum job size to show it? *Recommend:
-   Affirm inside Stripe, shown on jobs of $1,000 and up.*
-10. Until Stripe is connected: show "Reserve with a $250 deposit" as a request
-    that texts us with no payment taken, or hide it? *Recommend: show it as a
-    request.*
+4. **Different colours for each package.** Alan has the names. The list is
+   not typed in here: the stain library is built as a screen in this New
+   Proposal tab, "add photo, name it, next", so Alan and Olga load the
+   colours themselves, one photo at a time. About 10 to 15 colours per
+   package.
+5. **The real photos exist**: some in Alan's camera roll, some in Olga's,
+   some already in the dashboard's stain photos. One to three photos per
+   colour, depending on the colour. Tap to enlarge.
+6. **Colour choice sets the price through the package**: Essential colours
+   at the Essential price, Signature in the middle, Legacy the most
+   expensive. Assumed until Alan says otherwise: no extra charge between
+   colours inside one package, and the chosen colour pre-fills the crew's
+   colour plan on the Company Cam tab.
 
-### D. The page itself
+   Before building the library, look at the existing Fence Photos
+   (`frontend/src/pages/FencePhotos.tsx`) and Stain Inventory pages: some
+   colour photos and stain names already live there.
 
-11. What stays from today's PDF word for word: warranty, what's included and
-    excluded, prep steps, terms? Anything to drop?
-12. What is personal on the page: their name, address, the scope drawing with
-    the sides, their linear feet? *Recommend: all of it; the scope drawing is
-    the hero image.*
-13. Social proof: Google reviews, before-and-after photos of nearby jobs, a
-    "fences stained near you" count? Which ones?
-14. Does the price expire (14 or 30 days)? The 20% + 10% ad promotion: a
-    countdown or a line? *Recommend: a quiet 30-day expiry; the promotion as a
-    line, no countdown.*
-15. Brand: Sterling only? Does A&T appear anywhere ("sister company")? The
-    dashboard's ivory, ink and gold palette, or something of its own?
+### C. Deposit and financing — 7 to 9 answered 2026-10-09
 
-### E. Sending, tracking and notifications
+7. **Two ways to pay at the end of the proposal:** a **$250 deposit**, with
+   the balance due on completion once the customer is happy, or
+   **financing the job** through Affirm or Klarna. The deposit is
+   **non-refundable**, and paying it **books the job**: it goes on the
+   schedule from there.
+8. **Stripe account exists** (created 2026-10-09 under Sterling Fence
+   Staining, payouts daily to the Sterling checking account). Alan wants
+   **as many ways to pay as possible**: cards, Apple Pay, Google Pay,
+   Affirm, Klarna. A&T will get its own Stripe account under the same login
+   when it needs one; the dashboard picks the account by business.
+9. **Affirm and Klarna inside Stripe.** Alan likes Klarna's pay-in-4 as an
+   offer shown with the prices; still deciding the best offer. To verify
+   in the sandbox before it goes on an ad: Klarna's four-payment plan is
+   usually for smaller purchases (often under about $1,000) and Klarna
+   decides per customer; a typical $2,400 job is more likely offered
+   Affirm's monthly plan. Realistic pitch: "as low as $X a month", with
+   pay-in-4 appearing on smaller jobs.
+10. Open. Explained to Alan as: launch once, with the deposit working on day
+    one (recommended, since Stripe is ready), or launch earlier with a
+    "reserve" button that only texts us.
 
-16. The text that carries the link: same wording and the same Send button as
-    today? One link per estimate, and "New estimate" makes a new link, as
-    now?
-17. What do you want to know back, and who gets told: opened, time on the
-    page, which package they looked at longest, stains tapped, package chosen,
-    deposit paid? *Recommend: log all of it; text you and WhatsApp Olga on
-    first open, package chosen, and deposit paid.*
-18. Still offer a PDF download, for a spouse or an HOA? *Recommend: yes, of
-    the chosen package, built from the same data.*
+### D. The page itself — answered 2026-10-09
+
+11. **Word for word:** a **one-year workmanship warranty**. Lifespan per
+    package: **Essential about 1 to 2 years, Signature 2 to 4, Legacy 4 to
+    7.** Nothing named to drop yet.
+12. **Personal on the page:** their name, their address, the scope drawing
+    with the sides, and their linear feet.
+13. **Social proof:** Google reviews, definitely. Before-and-after photos of
+    nearby jobs: undecided.
+14. **The price expires at the end of the month.** Detail for the build: a
+    proposal sent on the 29th would expire in two days, so propose a rule
+    for late-month sends (for example, the end of the following month).
+    The extra 10% on top of the 20% promotion: **undecided**, left open.
+15. **Sterling only.** A&T appears nowhere. Look and palette: decided in
+    the design pass (see Phase 1).
+
+### E. Sending, tracking and notifications — answered 2026-10-09
+
+16. **Same wording, same Send button as today.** One link per customer:
+    **"New estimate" updates the proposal at the same link** instead of
+    making a new one, so the customer always sees the latest version where
+    they already looked. If they want two or three prices for different
+    scopes, they sit side by side in that one proposal. (A change from
+    today, where each new estimate makes a new link and the old one keeps
+    working; old links sent before launch stay as they are.)
+17. **Everything is tracked and both Alan and Olga are told:** opened, time
+    on the page, which package they looked at longest, stains tapped,
+    package chosen, deposit paid. As written up: moments (first open,
+    package chosen, stain chosen, deposit paid) are texted to Alan and sent
+    to Olga on WhatsApp; the running numbers (time on page, longest-viewed
+    package, stain taps) show on the lead page and in the daily summary.
+    Alan to say if he wants those texted too.
+18. **Yes:** a PDF download, or a way to share the proposal with someone
+    else (spouse, HOA).
 
 ### F. Review and launch
 
@@ -112,6 +157,9 @@ Answer in chat, by number. Each has a recommendation so "yes" is enough.
 ### Phase 1 — Design and plan
 
 - Answer the questions above; the answers get written into this file.
+- Alan walks through screenshots of the mockups he has already tried and of
+  today's proposal: what he likes, what he doesn't. That is the design
+  brief for the first mockup.
 - Gather the stain list and the real photos.
 - A clickable mock of the page on a preview link, reviewed on Alan's phone.
 - Exit: Alan signs off on the design.
@@ -178,6 +226,17 @@ Answer in chat, by number. Each has a recommendation so "yes" is enough.
   `#E3BE63`, bronze `#8C6224`, cedar, walnut; headings in Playfair. The
   proposal must bypass the dashboard theme so dark mode cannot change it;
   `frontend/src/pages/VideoEstimate.tsx` does this on purpose.
+
+## Decisions to make
+
+- **Retire GoHighLevel's automations?** Alan (2026-10-09): "take out
+  GoHighLevel's automations altogether and just use AI to automate this…
+  have all our automations internally." The dashboard already owns the
+  follow-up engine, the objection scanner and the sending; GoHighLevel's
+  workflows (intake text, estimate-sent follow-ups, stage moves) are the
+  remaining piece. Treat as its own phase after the proposal launches, with
+  the proposal's events (opened, package picked, stain picked, deposit paid)
+  as its inputs.
 
 ## Decisions already made
 
