@@ -1751,6 +1751,16 @@ export const api = {
       `/api/leads/${leadId}/fence-scope/revise`, { method: "POST" }),
   fenceScopeVersionImageUrl: (leadId: string, versionId: string) =>
     `${BASE}/api/leads/${leadId}/fence-scope/versions/${versionId}/image`,
+  /** The sent scope image as an object URL (caller revokes), fetched with
+   *  auth so it can sit in an <img> on a staff page. Null when missing. */
+  fetchFenceScopeVersionBlobUrl: async (leadId: string, versionId: string): Promise<string | null> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/fence-scope/versions/${versionId}/image`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
   deleteFenceScopeAi: (leadId: string) =>
     request<{ deleted: boolean }>(`/api/leads/${leadId}/fence-scope/ai`, { method: "DELETE" }),
 

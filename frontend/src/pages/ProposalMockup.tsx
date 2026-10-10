@@ -9,7 +9,7 @@
 //
 // Written at a fifth-grade reading level on purpose: pictures first, few
 // words, one thing to do per screen (Alan, 2026-10-09).
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
@@ -17,6 +17,34 @@ import {
   Users, Lightbulb, ArrowLeft, Eye, Expand, MessageSquare, CreditCard,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { FENCE_SIDES } from "@/lib/fenceSides";
+
+// A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
+// of work, her address, the linear foot… pretend she's a mock-up
+// customer"). Only the id lives here: the name, address, feet, prices and
+// the sent scope drawing are read through the logged-in API, so nothing
+// about her ships in this file, and nothing is ever sent to her.
+const LIVE_LEAD_ID = "f7fd4ad8-fde8-4f50-a4a2-2bfc0fff2922";
+
+type Live = {
+  name: string; address: string; feet: number; sides: string[];
+  tiers: Record<PkgKey, number> | null; scopeUrl: string | null; sentOn: string;
+};
+
+/** "Inside facing sides" / "Outside facing: front" from the estimator's side list. */
+function sidesInWords(sides: string[]): string[] {
+  const out: string[] = [];
+  const ins = FENCE_SIDES.Inside.filter((n) => sides.includes(n));
+  const outs = FENCE_SIDES.Outside.filter((n) => sides.includes(n));
+  if (ins.length === FENCE_SIDES.Inside.length) out.push("Inside facing sides");
+  else if (ins.length) out.push(`Inside facing: ${ins.map((n) => n.replace("Inside ", "").toLowerCase()).join(", ")}`);
+  if (outs.length === FENCE_SIDES.Outside.length) out.push("Outside facing sides");
+  else if (outs.length) out.push(`Outside facing: ${outs.map((n) => n.replace("Outside ", "").toLowerCase()).join(", ")}`);
+  return out.length ? out : ["Inside facing sides"];
+}
+
+type PkgKey = "essential" | "signature" | "legacy";
 
 // ── Sample data ────────────────────────────────────────────────────────
 // A made-up customer. Never a real one: this page ships inside the
@@ -31,7 +59,6 @@ const CUSTOMER = {
   feet: 280,
 };
 
-type PkgKey = "essential" | "signature" | "legacy";
 const PACKAGES: {
   key: PkgKey; name: string; short: string; tag: string; lasts: string; photos: string[]; captions?: string[];
   best: string; lines: { icon: React.ElementType; text: string }[]; regular: number; price: number; popular?: boolean;
@@ -193,6 +220,53 @@ const KLARNA_FAQ: [string, string][] = [
 const GOLD = "#C9972F";
 
 export default function ProposalMockup() {
+  const [live, setLive] = useState<Live | null>(null);
+  useEffect(() => {
+    let url: string | null = null;
+    (async () => {
+      try {
+        const lead = await api.getLead(LIVE_LEAD_ID);
+        const ests = [...(lead.estimates || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+        const est = ests.find((e) => e.status === "sent") || ests[0];
+        const t = est?.tiers as Record<string, number> | undefined;
+        const fd = (lead.form_data || {}) as Record<string, unknown>;
+        const rawSides = fd.fence_sides;
+        const sides = Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : [];
+        let scopeUrl: string | null = null;
+        try {
+          const versions = await api.getFenceScopeVersions(LIVE_LEAD_ID);
+          const v = [...versions].filter((x) => x.has_image && x.sent_at)
+            .sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""))[0];
+          if (v) { url = await api.fetchFenceScopeVersionBlobUrl(LIVE_LEAD_ID, v.id); scopeUrl = url; }
+        } catch { /* no drawing: the sides list shows instead */ }
+        setLive({
+          name: lead.contact_name || "",
+          address: lead.address || "",
+          feet: Number(fd.linear_feet) || 0,
+          sides: sidesInWords(sides),
+          tiers: t && t.essential && t.signature && t.legacy ? { essential: t.essential, signature: t.signature, legacy: t.legacy } : null,
+          scopeUrl,
+          sentOn: est?.sent_at || lead.created_at || "",
+        });
+      } catch { /* the sample customer stays */ }
+    })();
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, []);
+
+  const customer = useMemo(() => live ? {
+    ...CUSTOMER,
+    name: live.name || CUSTOMER.name,
+    address: live.address || CUSTOMER.address,
+    feet: live.feet || CUSTOMER.feet,
+    sides: live.sides,
+    date: live.sentOn ? new Date(live.sentOn).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : CUSTOMER.date,
+  } : CUSTOMER, [live]);
+  // Her prices are the 20%-off prices on her estimate; the regular price is
+  // what they were before the discount.
+  const packages = useMemo(() => PACKAGES.map((p) => live?.tiers
+    ? { ...p, price: live.tiers[p.key], regular: Math.round(live.tiers[p.key] / 0.8) }
+    : p), [live]);
+
   const [phone, setPhone] = useState(true);
   const [withScope, setWithScope] = useState(true);
   const [pkg, setPkg] = useState<PkgKey | null>(null);
@@ -209,7 +283,7 @@ export default function ProposalMockup() {
   const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
   const [postType, setPostType] = useState(POSTS[0].key);
 
-  const chosen = PACKAGES.find((p) => p.key === pkg) || null;
+  const chosen = packages.find((p) => p.key === pkg) || null;
   const repairs = useMemo(() => {
     const picket = PICKETS.find((p) => p.key === picketType)!;
     const post = POSTS.find((p) => p.key === postType)!;
@@ -218,7 +292,7 @@ export default function ProposalMockup() {
     return total;
   }, [counts, picketType, postType]);
   const total = (chosen?.price || 0) + repairs;
-  const pay = payLine(total || PACKAGES[1].price);
+  const pay = payLine(total || packages[1].price);
   const bump = (key: string, by: number) =>
     setCounts((c) => ({ ...c, [key]: Math.max(0, (c[key] || 0) + by) }));
 
@@ -249,6 +323,9 @@ export default function ProposalMockup() {
         </Link>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-200 ring-1 ring-rose-400/40">
           <Lightbulb className="h-3 w-3" /> Mockup · nothing here is sent to anyone
+        </span>
+        <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-ivory/80">
+          {live ? `Dressed in ${live.name}'s real estimate` : "Sample customer"}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
           <button type="button" onClick={() => setWithScope((v) => !v)}
@@ -281,15 +358,15 @@ export default function ProposalMockup() {
           <div className="absolute inset-0 bg-gradient-to-t from-[#15130F] via-[#15130F]/40 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 p-4 text-white">
             <p className="text-[11px] font-bold uppercase tracking-[0.2em]" style={{ color: "#E3BE63" }}>Fence restoration proposal</p>
-            <h1 className="font-heading text-3xl font-bold leading-tight">Hi {CUSTOMER.name.split(" ")[0]}, here's your fence plan.</h1>
+            <h1 className="font-heading text-3xl font-bold leading-tight">Hi {customer.name.split(" ")[0]}, here's your fence plan.</h1>
           </div>
         </section>
         <section className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-[#15130F]/10 px-4 py-3 text-xs">
-          <Fact icon={UserRound} label="Prepared for">{CUSTOMER.name}</Fact>
-          <Fact icon={Calendar} label="Date">{CUSTOMER.date}</Fact>
-          <Fact icon={MapPin} label="Property" wide>{CUSTOMER.address}</Fact>
-          <Fact icon={Hash} label="Proposal #">{CUSTOMER.number}</Fact>
-          <Fact icon={Eye} label="Price good through">{CUSTOMER.goodThrough}</Fact>
+          <Fact icon={UserRound} label="Prepared for">{customer.name}</Fact>
+          <Fact icon={Calendar} label="Date">{customer.date}</Fact>
+          <Fact icon={MapPin} label="Property" wide>{customer.address}</Fact>
+          <Fact icon={Hash} label="Proposal #">{customer.number}</Fact>
+          <Fact icon={Eye} label="Price good through">{customer.goodThrough}</Fact>
         </section>
 
         {/* Your fence: the scope drawing when we have one, the sides list when we don't. */}
@@ -297,21 +374,25 @@ export default function ProposalMockup() {
           <SectionTitle kicker="Step 1" title="Your fence" />
           {withScope ? (
             <>
-              <ScopeDrawing />
+              {live?.scopeUrl ? (
+                <div className="overflow-hidden rounded-2xl ring-1 ring-[#15130F]/10">
+                  <img src={live.scopeUrl} alt="Scope of work" className="block w-full" draggable={false} />
+                </div>
+              ) : <ScopeDrawing />}
               <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-blue-600" /> Blue = inside face</span>
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-red-600" /> Red = both faces</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#15130F] px-3 py-1.5 text-[#E3BE63]">About {CUSTOMER.feet} ft</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#15130F] px-3 py-1.5 text-[#E3BE63]">About {customer.feet} ft</span>
               </div>
               <p className="mt-2 text-sm text-[#15130F]/70">This is what we'd stain. Not right? Tap Call or text at the top.</p>
             </>
           ) : (
             // No drawing for this customer: the size and the sides, in words.
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
-              <p className="font-heading text-2xl font-bold leading-tight">About {CUSTOMER.feet} ft of fence</p>
+              <p className="font-heading text-2xl font-bold leading-tight">About {customer.feet} ft of fence</p>
               <p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-[#8C6224]">Sides included in the price</p>
               <ul className="mt-1.5 space-y-1.5">
-                {CUSTOMER.sides.map((s) => (
+                {customer.sides.map((s) => (
                   <li key={s} className="flex items-center gap-2 text-base font-semibold"><Check className="h-4 w-4" style={{ color: GOLD }} /> {s}</li>
                 ))}
               </ul>
@@ -339,12 +420,12 @@ export default function ProposalMockup() {
             // one they tap (Signature until they do) opens in full below.
             // Pictures first, then words (Alan, 2026-10-10: "make the three
             // packages look most appealing for somebody on their phone").
-            const show = chosen || PACKAGES[1];
+            const show = chosen || packages[1];
             const line = payLine(show.price);
             return (
               <>
                 <div className="grid grid-cols-3 gap-2">
-                  {PACKAGES.map((p) => {
+                  {packages.map((p) => {
                     const on = pkg === p.key;
                     const shown = show.key === p.key;
                     return (
@@ -397,7 +478,7 @@ export default function ProposalMockup() {
                       })}
                     </ul>
                     <div className="mt-3 rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
-                      <p className="text-[10px] text-white/60"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span> · ends {CUSTOMER.goodThrough}</p>
+                      <p className="text-[10px] text-white/60"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span> · ends {customer.goodThrough}</p>
                       <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(show.price)}</p>
                       <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: "#E3BE63" }}>
                         {line.lender === "klarna"
@@ -418,7 +499,7 @@ export default function ProposalMockup() {
             );
           })() : (
             <div className="grid gap-3 sm:grid-cols-3">
-              {PACKAGES.map((p) => {
+              {packages.map((p) => {
                 const on = pkg === p.key;
                 const line = payLine(p.price);
                 return (
@@ -686,7 +767,7 @@ export default function ProposalMockup() {
               how someone does that without the cash today (Alan, 2026-10-10). */}
           <div className="mb-3 flex items-start gap-2.5 rounded-xl bg-[#F8F3E7] px-3 py-2.5 ring-1 ring-[#C9972F]/50">
             <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
-            <p className="text-xs leading-snug"><span className="font-bold">Your 20% off ends {CUSTOMER.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>
+            <p className="text-xs leading-snug"><span className="font-bold">Your 20% off ends {customer.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>
           </div>
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
@@ -701,7 +782,7 @@ export default function ProposalMockup() {
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
               <p className="mt-1 text-xs text-[#15130F]/65">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
               <div className="mt-2 space-y-2">
-                <PayOption lender="klarna" text={`${payLine(total || PACKAGES[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
+                <PayOption lender="klarna" text={`${payLine(total || packages[1].price).text} with Klarna`} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
                 <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
               </div>
               <button type="button" className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
@@ -813,7 +894,7 @@ export default function ProposalMockup() {
               <p><span className="font-bold">What we don't.</span> Damage from anything other than our work: a mower or trimmer hitting the fence, a board you replaced, scrapes, pets, sprinklers, a neighbor's project. That part is on you.</p>
               <p><span className="font-bold">We still help.</span> If something like that happens, we'll tell you the exact stain name so you can pick it up at the store nearest you and touch it up to match.</p>
               <p><span className="font-bold">The deposit.</span> $250 books your dates and is not refundable once they're set. The rest is due when the job is done and you're happy.</p>
-              <p><span className="font-bold">This price</span> is good through {CUSTOMER.goodThrough}.</p>
+              <p><span className="font-bold">This price</span> is good through {customer.goodThrough}.</p>
             </div>
             <button type="button" onClick={() => setTerms(false)} className="mt-4 h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
           </div>
