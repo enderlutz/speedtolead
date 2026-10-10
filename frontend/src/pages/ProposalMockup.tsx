@@ -234,7 +234,7 @@ export default function ProposalMockup() {
         const sides = Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : [];
         let scopeUrl: string | null = null;
         try {
-          const versions = await api.getFenceScopeVersions(LIVE_LEAD_ID);
+          const { versions } = await api.getFenceScopeVersions(LIVE_LEAD_ID);
           const v = [...versions].filter((x) => x.has_image && x.sent_at)
             .sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""))[0];
           if (v) { url = await api.fetchFenceScopeVersionBlobUrl(LIVE_LEAD_ID, v.id); scopeUrl = url; }
