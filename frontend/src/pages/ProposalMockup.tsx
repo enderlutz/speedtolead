@@ -234,10 +234,18 @@ export default function ProposalMockup() {
         const sides = Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : [];
         let scopeUrl: string | null = null;
         try {
-          const { versions } = await api.getFenceScopeVersions(LIVE_LEAD_ID);
-          const v = [...versions].filter((x) => x.has_image && x.sent_at)
-            .sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""))[0];
-          if (v) { url = await api.fetchFenceScopeVersionBlobUrl(LIVE_LEAD_ID, v.id); scopeUrl = url; }
+          // The drawing that was texted is the lead's active scope until it
+          // is revised; only then does it move into the versions list.
+          const { versions, active_sent_at } = await api.getFenceScopeVersions(LIVE_LEAD_ID);
+          if (active_sent_at) {
+            url = await api.fetchFenceScopeExportBlobUrl(LIVE_LEAD_ID);
+          }
+          if (!url) {
+            const v = [...versions].filter((x) => x.has_image && x.sent_at)
+              .sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""))[0];
+            if (v) url = await api.fetchFenceScopeVersionBlobUrl(LIVE_LEAD_ID, v.id);
+          }
+          scopeUrl = url;
         } catch { /* no drawing: the sides list shows instead */ }
         setLive({
           name: lead.contact_name || "",
