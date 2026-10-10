@@ -407,6 +407,12 @@ image, real reviews, the Legacy and remaining Signature photos.
   a compare table at the top: 4 payments, monthly plans, credit check,
   late fees, who lends. Every Learn more opens that sheet on the lender
   tapped.
+- **Legacy's tile** (Alan, 2026-10-10: Essential and Signature "look
+  perfect", Legacy needed work). The PDF's second Legacy image is a
+  near-black wood texture that disappeared into the tile's dark band on a
+  phone. It is now the Darkest Night fence from Fence Photos, and a thin
+  gold seam separates the two photos and the band under them. To confirm
+  with Alan: keep the real fence, or go back to the PDF's texture.
 - **Why financing is on the page at all** (Alan, 2026-10-10): the 20% off
   ends at the end of the month and the price goes back up. Financing lets
   a customer lock in the discount now, even if the job happens in a month

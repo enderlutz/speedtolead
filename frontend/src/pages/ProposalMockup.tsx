@@ -40,7 +40,9 @@ const PACKAGES: {
     key: "essential", name: "Essential Seal", short: "Essential", tag: "Entry", lasts: "1–2 yrs",
     // The PDF's own photos, pulled out of the file: the clear pine fence
     // for Essential, the lighter and darker cedar pair for Signature, the
-    // orange and the dark planks for Legacy (Alan, 2026-10-10).
+    // orange for Legacy (Alan, 2026-10-10). Legacy's second half in the PDF
+    // is a near-black wood texture that vanished into the tile's band on a
+    // phone, so it is the Darkest Night fence from Fence Photos instead.
     photos: ["/proposal-mockup/pkg-essential.jpg"],
     best: "Newer fences in good shape",
     lines: [
@@ -340,9 +342,9 @@ export default function ProposalMockup() {
                           on ? "ring-4 ring-[#C9972F]" : shown ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
                         {/* The photos, with nothing written on them. Two stack
                             so both finishes show (Alan, 2026-10-10). */}
-                        <div className={cn("grid w-full gap-px", p.photos.length > 1 && "grid-rows-2")}>
+                        <div className={cn("grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[3px] bg-[#C9972F]")}>
                           {p.photos.map((src) => (
-                            <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[72px]" : "h-[145px]")} draggable={false} />
+                            <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[71px]" : "h-[145px]")} draggable={false} />
                           ))}
                         </div>
                         {p.popular ? (
@@ -353,7 +355,7 @@ export default function ProposalMockup() {
                         {on ? (
                           <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                         ) : null}
-                        <div className="w-full px-2 pb-2 pt-1.5 text-white">
+                        <div className="w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-1.5 text-white">
                           <p className="text-[8px] font-bold uppercase tracking-[0.15em]" style={{ color: "#E3BE63" }}>{p.tag}</p>
                           <p className="font-heading text-[15px] font-bold leading-tight">{p.short}</p>
                           <p className="mt-0.5 text-[13px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
