@@ -371,6 +371,17 @@ image, real reviews, the Legacy and remaining Signature photos.
   phone the three cards are a row you swipe, starting on Signature with
   the neighbours peeking in and three dots underneath; at full width,
   three columns.
+- **All three packages on one screen, no scrolling** (Alan, 2026-10-10:
+  "they should be able to see all of them on one page"). On a phone the
+  packages are a compare grid: the three photos and names across the top,
+  then rows that line up (Lasts; Price with the regular price struck and
+  "or 4 × $X"; Best for; Adds color; Shows the wood grain; Hides
+  imperfections; Sun and water protection as Good / Better / Best), and
+  three Pick buttons. Tapping a photo or a button picks; the picked column
+  lights up. At full width, three full cards.
+- **Posts: one "Post replacement" line** with a 6, 7 or 8 ft fence choice,
+  like the pickets, instead of three post lines. Same prices ($225, $255,
+  $350).
 - **No scope drawing → say the size.** "About 280 ft of fence" plus the
   sides list. Not the gallons: "that's a little overkill." Personal, not
   salesy, very simple.
