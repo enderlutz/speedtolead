@@ -413,6 +413,21 @@ image, real reviews, the Legacy and remaining Signature photos.
   phone. It is now the Darkest Night fence from Fence Photos, and a thin
   gold seam separates the two photos and the band under them. To confirm
   with Alan: keep the real fence, or go back to the PDF's texture.
+- **A small FAQ, from what customers actually ask** (Alan, 2026-10-10:
+  "the twenty most asked questions… implement three or four"). Read every
+  inbound text with a question mark: 1,023 texts from 458 customers. By
+  customers asking: price 162; when can you come 66; which sides, gates,
+  what's included 65; colour 62; repairs 48; how to pay 41; the neighbor's
+  side and overspray 40; how long it lasts and the warranty 38; cleaning
+  first 32; how long the job takes 23; HOA approval 23; what product 22;
+  rain 14; pets and plants 15. Price, sides, colour, paying and the
+  warranty are answered by the page itself, so the FAQ takes the next
+  four: the neighbor's side and overspray; how long it takes; will I know
+  the repair price first; does my HOA need to approve the colour. Folded
+  until tapped, between What you get and the reviews. **The answers are
+  drafts; Alan confirms the facts** (how the other side is shielded; two
+  visits, clean then stain; repairs found on the day are priced before
+  touched; HOA colour approval).
 - **Why financing is on the page at all** (Alan, 2026-10-10): the 20% off
   ends at the end of the month and the price goes back up. Financing lets
   a customer lock in the discount now, even if the job happens in a month

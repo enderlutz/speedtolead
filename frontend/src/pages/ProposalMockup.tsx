@@ -144,6 +144,16 @@ const LENDER_COMPARE: [string, string, string][] = [
   ["Who lends", "Klarna / WebBank", "Affirm's partner banks"],
 ];
 
+// The questions customers actually text us most, once price, sides, colour,
+// paying and the warranty are answered by the page itself (read 2026-10-10
+// from every inbound text on file). Answers are drafts for Alan to confirm.
+const FAQ: [string, string][] = [
+  ["What about stain on my neighbor's side, or through the gaps?", "We shield the other side and work board by board at the gaps. If any stain gets through, we clean it up before we leave. If your neighbor wants their side done too, tell us: you both get $100 off."],
+  ["How long does it take?", "Two visits. Day one we clean the fence and let it dry. A day or two later we stain it, which takes most of a day. We text you the day before each visit."],
+  ["Will I know the repair price before you start?", "Yes. Anything you count above is priced on this page before you book. If we find something else on the day, like a rotten post, we show you the price and you say yes or no before we touch it."],
+  ["Does my HOA need to approve the color?", "Some do. Tell us your HOA and we'll send the exact stain name and color for their approval, or match their approved list if they have one."],
+];
+
 // The payment line the way PlayStation shows it with Klarna (Alan,
 // 2026-10-10): "From $40/month, or 4 payments at 0% interest with Klarna.
 // Learn more". Nobody at Sony works out the $40: Klarna's messaging returns
@@ -195,6 +205,7 @@ export default function ProposalMockup() {
   const [colorAsk, setColorAsk] = useState("");
   const [colorSent, setColorSent] = useState(false);
   const [terms, setTerms] = useState(false);
+  const [faqOpen, setFaqOpen] = useState<number | null>(null);
   const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
   const [postType, setPostType] = useState(POSTS[0].key);
 
@@ -600,6 +611,29 @@ export default function ProposalMockup() {
               <p className="font-heading text-lg font-bold leading-tight">Know a neighbor who needs it too?</p>
               <p className="mt-1 text-sm text-white/85">You both get an extra $100 off. No deadline. Just tell us.</p>
             </div>
+          </div>
+        </section>
+
+        {/* The four questions people ask most, folded until tapped, so the
+            page stays short (Alan, 2026-10-10). */}
+        <section className="px-4 pb-6">
+          <SectionTitle kicker="Good to know" title="Questions people ask" />
+          <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
+            {FAQ.map(([q, a], i) => {
+              const open = faqOpen === i;
+              return (
+                <div key={q} className={cn(i > 0 && "border-t border-[#15130F]/10")}>
+                  <button type="button" onClick={() => setFaqOpen(open ? null : i)} aria-expanded={open}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left">
+                    <span className="flex-1 text-sm font-bold leading-snug">{q}</span>
+                    <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition", open ? "bg-[#15130F] text-[#E3BE63]" : "bg-[#F8F3E7] text-[#8C6224]")}>
+                      {open ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                    </span>
+                  </button>
+                  {open ? <p className="px-4 pb-4 text-sm leading-relaxed text-[#15130F]/80">{a}</p> : null}
+                </div>
+              );
+            })}
           </div>
         </section>
 
