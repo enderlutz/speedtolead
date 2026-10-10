@@ -497,9 +497,10 @@ image, real reviews, the Legacy and remaining Signature photos.
 
 ## Decisions to make
 
-- **Invoicing: QuickBooks or Stripe?** See "How Stripe ties it together"
-  below. Keep QuickBooks invoices for the balance, or send a Stripe
-  invoice and sync QuickBooks from it.
+- **Invoicing: QuickBooks or Stripe?** Decided 2026-10-10 by the payment
+  decision below: the balance page has to offer Klarna and Affirm, which a
+  QuickBooks invoice cannot, so the balance goes through Stripe and
+  QuickBooks stays the books through a sync. Fragne to confirm the sync.
 
 - **Retire GoHighLevel's automations?** Alan (2026-10-09): "take out
   GoHighLevel's automations altogether and just use AI to automate this…
@@ -510,7 +511,27 @@ image, real reviews, the Legacy and remaining Signature photos.
   the proposal's events (opened, package picked, stain picked, deposit paid)
   as its inputs.
 
-## How Stripe ties it together (proposed 2026-10-10, for Alan to decide)
+## The payment decision (Alan, 2026-10-10: "sounds good, make it happen")
+
+Two doors on the proposal, and every way to pay again on the balance page.
+
+1. **Reserve my dates** — $250 today, the rest when the job is done and
+   the customer is happy. The big gold button; what most people tap.
+2. **Pay over time** — Klarna or Affirm approves them, they pay the
+   lender, Sterling is paid in full at checkout, before the job.
+3. **The balance page at completion** offers the same ways to pay as the
+   proposal: card, Apple Pay, Google Pay, Klarna, Affirm. A customer who
+   paid $250 up front can finance the remainder there. No third button on
+   the proposal: that's where "deposit now, finance the rest" lives.
+
+Why: a third choice makes the customer think about money twice before
+they've picked a colour; the balance is a smaller number, so more jobs fit
+under Klarna's pay-in-4 ceiling (a $1,840 Legacy job: $1,590 after the
+deposit); and the pay-later fee is paid only on the part that is financed.
+Known trade-off of door 2: the customer is charged before any work is
+done, which is why door 1 stays first.
+
+## How Stripe ties it together (proposed 2026-10-10)
 
 Alan: "be thinking about how we're going to integrate Stripe into this so
 that everything can be seamless, even the invoicing of our company."
