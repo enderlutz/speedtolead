@@ -64,12 +64,11 @@ const PACKAGES: {
   best: string; lines: { icon: React.ElementType; text: string }[]; regular: number; price: number; popular?: boolean;
 }[] = [
   {
-    key: "essential", name: "Essential Seal", short: "Essential", tag: "Entry", lasts: "1–2 yrs",
+    key: "essential", name: "Essential Seal", short: "Essential", tag: "Clear coat", lasts: "1–2 yrs",
     // The PDF's own photos, pulled out of the file: the clear pine fence
     // for Essential, the lighter and darker cedar pair for Signature, the
-    // orange for Legacy (Alan, 2026-10-10). Legacy's second half in the PDF
-    // is a near-black wood texture that vanished into the tile's band on a
-    // phone, so it is the Darkest Night fence from Fence Photos instead.
+    // orange and dark brown pair for Legacy that Alan sent on 2026-10-10,
+    // split down the middle so the two stack like Signature's.
     photos: ["/proposal-mockup/pkg-essential.jpg"],
     best: "Newer fences in good shape",
     lines: [
@@ -89,7 +88,7 @@ const PACKAGES: {
     regular: 1814, price: 1450.80,
   },
   {
-    key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Premium", lasts: "4–7 yrs",
+    key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Solid color", lasts: "4–7 yrs",
     photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"],
     best: "Older fences that need full coverage",
     lines: [
@@ -485,11 +484,17 @@ export default function ProposalMockup({ preview = false }: { preview?: boolean 
                         {on ? (
                           <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                         ) : null}
-                        <div className={cn("w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-1.5", on ? "bg-[#C9972F] text-[#15130F]" : "text-white")}>
-                          <p className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{ color: on ? "#15130F" : "#E3BE63" }}>{on ? "✓ Your pick" : p.tag}</p>
-                          <p className="font-heading text-[17px] font-bold leading-tight">{p.short}</p>
-                          <p className="mt-0.5 text-[15px] font-bold tabular-nums">{formatCurrency(p.price)}</p>
-                          <p className={cn("text-[11px]", on ? "text-[#15130F]/70" : "text-white/85")}>Lasts {p.lasts}</p>
+                        {/* The same four rows on every tile, each a fixed
+                            height, so the three names sit on one line across
+                            the page and so do the prices. Name first, in gold
+                            and the brand face, then the finish, the price, how
+                            long it lasts (Alan, 2026-10-10: the names felt
+                            dull and "need to be perfectly aligned"). */}
+                        <div className={cn("w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-2", on ? "bg-[#C9972F] text-[#15130F]" : "text-white")}>
+                          <p className="h-[22px] font-heading text-[18px] font-bold leading-[22px] tracking-wide" style={{ color: on ? "#15130F" : "#E3BE63" }}>{p.short}</p>
+                          <p className={cn("h-[30px] text-[12px] font-bold uppercase leading-[15px] tracking-[0.05em]", on ? "text-[#15130F]/80" : "text-white/90")}>{p.tag}</p>
+                          <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums">{formatCurrency(p.price)}</p>
+                          <p className={cn("h-[16px] text-[12px] leading-[16px]", on ? "text-[#15130F]/75" : "text-white/85")}>Lasts {p.lasts}</p>
                         </div>
                       </button>
                     );
