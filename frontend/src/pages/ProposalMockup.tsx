@@ -560,15 +560,15 @@ export default function ProposalMockup() {
         <section className="bg-white px-4 py-6">
           <SectionTitle kicker="Optional" title="Anything need replacing?" sub="Count it up. We bring the wood." />
           <div className="space-y-2.5">
-            <Counter label="Pickets" price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+            <Counter label="Pickets" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
               <select value={picketType} onChange={(e) => setPicketType(e.target.value)} className="h-8 rounded-lg border border-[#15130F]/15 bg-white px-2 text-xs font-semibold">
                 {PICKETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
               </select>
             </Counter>
             {PARTS.map((part) => (
-              <Counter key={part.key} label={part.label} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+              <Counter key={part.key} label={part.label} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
-            <Counter label="Post replacement" price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
+            <Counter label="Post replacement" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <select value={postType} onChange={(e) => setPostType(e.target.value)} className="h-8 rounded-lg border border-[#15130F]/15 bg-white px-2 text-xs font-semibold">
                 {POSTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
               </select>
@@ -819,11 +819,12 @@ function PayOption({ lender, text, note, dim, learn }: { lender: "klarna" | "aff
   );
 }
 
-function Counter({ label, price, n, onChange, children }: {
-  label: string; price: number; n: number; onChange: (delta: number) => void; children?: React.ReactNode;
+function Counter({ label, price, n, onChange, art, children }: {
+  label: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-[#F8F3E7] px-3 py-2.5">
+      {art ? <div className="shrink-0 overflow-hidden rounded-xl bg-white ring-1 ring-[#15130F]/10">{art}</div> : null}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-bold">{label}</p>
         <p className="text-[11px] text-[#15130F]/60">{formatCurrency(price)} each</p>
@@ -851,6 +852,33 @@ function List({ title, icon: Icon, items }: { title: string; icon: React.Element
         ))}
       </ul>
     </div>
+  );
+}
+
+type FencePartKey = "picket" | "rotboard" | "cap" | "rail" | "post";
+
+/** One section of fence, drawn the same way every time, with the part
+ *  being counted lit up in gold, so a customer can see what a rot board
+ *  or a cap is before they count them (Alan, 2026-10-10). */
+function FencePart({ part }: { part: FencePartKey }) {
+  const wood = "#D9C2A3", edge = "#A98A63";
+  const hot = (k: FencePartKey) => (part === k ? { fill: GOLD, stroke: "#8C6224" } : { fill: wood, stroke: edge });
+  const pickets = [15, 22, 29, 36, 43, 50, 57, 64];
+  return (
+    <svg viewBox="0 0 82 62" width="64" height="48" role="img" aria-label={part}>
+      <rect x="0" y="57" width="82" height="5" fill="#6b8f4e" />
+      {/* posts */}
+      <rect x="6" y="6" width="7" height="52" rx="1" {...hot("post")} strokeWidth="1" />
+      <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post")} strokeWidth="1" />
+      {/* rails */}
+      {[14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="4" {...hot("rail")} strokeWidth="1" />)}
+      {/* pickets */}
+      {pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket")} strokeWidth="1" />)}
+      {/* rot board along the bottom */}
+      <rect x="13" y="50" width="56" height="6" {...hot("rotboard")} strokeWidth="1" />
+      {/* cap along the top */}
+      <rect x="4" y="5" width="74" height="5" rx="1" {...hot("cap")} strokeWidth="1" />
+    </svg>
   );
 }
 
