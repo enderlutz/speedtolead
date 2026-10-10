@@ -57,6 +57,7 @@ import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
 import ProposalProject from "@/pages/ProposalProject";
 import ProposalMockup from "@/pages/ProposalMockup";
+import ProposalPreview from "@/pages/ProposalPreview";
 import MapTab from "@/map/MapTab";
 import FenceScopeEditorPage from "@/pages/FenceScopeEditor";
 import Eula from "@/pages/Eula";
@@ -155,6 +156,7 @@ function AppLayout() {
     location.pathname.startsWith("/capture/") ||
     location.pathname.startsWith("/v/") ||
     location.pathname.startsWith("/crew-app/") ||
+    location.pathname.startsWith("/preview/") ||
     location.pathname.startsWith("/legal/");
 
   // Brick division: keep the user on brick-safe pages so no fence data is ever
@@ -172,6 +174,7 @@ function AppLayout() {
         <Route path="/approve/:token" element={<QuickApprove />} />
         <Route path="/capture/:token" element={<ExteriorCapture />} />
         <Route path="/v/:token" element={<VideoEstimate />} />
+        <Route path="/preview/proposal/:token" element={<ProposalPreview />} />
         <Route path="/legal/eula" element={<Eula />} />
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
       </Routes>

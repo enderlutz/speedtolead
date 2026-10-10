@@ -244,9 +244,13 @@ const KLARNA_FAQ: [string, string][] = [
 
 const GOLD = "#C9972F";
 
-export default function ProposalMockup() {
+// `preview` is the no-login copy at /preview/proposal/<token>: sample
+// customer only, no staff bar, no phone frame on a phone, and no call to
+// the API (an unauthenticated call would bounce the page to the login).
+export default function ProposalMockup({ preview = false }: { preview?: boolean } = {}) {
   const [live, setLive] = useState<Live | null>(null);
   useEffect(() => {
+    if (preview) return;
     let url: string | null = null;
     (async () => {
       try {
@@ -284,7 +288,7 @@ export default function ProposalMockup() {
       } catch { /* the sample customer stays */ }
     })();
     return () => { if (url) URL.revokeObjectURL(url); };
-  }, []);
+  }, [preview]);
 
   const customer = useMemo(() => live ? {
     ...CUSTOMER,
@@ -336,10 +340,10 @@ export default function ProposalMockup() {
   };
 
   return (
-    <div className="min-h-full bg-stone-200/70 pb-10">
+    <div className={cn("min-h-full pb-10", preview ? "bg-[#F8F3E7] sm:bg-stone-200/70" : "bg-stone-200/70")}>
       <style>{SHINE_CSS}</style>
       {/* Staff bar. Never part of the customer's page. */}
-      <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-ink px-3 py-2 text-ivory shadow-md">
+      {preview ? null : <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-ink px-3 py-2 text-ivory shadow-md">
         <Link to="/new-proposal" className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
           <ArrowLeft className="h-3.5 w-3.5" /> Notes
         </Link>
@@ -360,12 +364,14 @@ export default function ProposalMockup() {
             {phone ? "Phone" : "Full"}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* The customer's page. Explicit colours so the dashboard's dark mode
-          can never change it. */}
-      <div className={cn("mx-auto mt-4 overflow-hidden bg-[#F8F3E7] text-[#15130F] shadow-2xl shadow-black/30",
-        phone ? "max-w-[430px] rounded-[2rem] ring-8 ring-stone-800" : "max-w-3xl rounded-2xl")}>
+          can never change it. On the preview link a real phone gets the page
+          edge to edge; the drawn phone frame only shows on a bigger screen. */}
+      <div className={cn("mx-auto bg-[#F8F3E7] text-[#15130F]",
+        preview ? "max-w-[430px] sm:mt-4 sm:overflow-hidden sm:rounded-[2rem] sm:shadow-2xl sm:shadow-black/30 sm:ring-8 sm:ring-stone-800"
+          : cn("mt-4 overflow-hidden shadow-2xl shadow-black/30", phone ? "max-w-[430px] rounded-[2rem] ring-8 ring-stone-800" : "max-w-3xl rounded-2xl"))}>
         {/* Top bar */}
         <div className="flex items-center justify-between gap-3 bg-[#15130F] px-4 py-3">
           <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-8 w-auto" draggable={false} />
@@ -831,7 +837,7 @@ export default function ProposalMockup() {
         </section>
 
         {/* Sticky bottom: the one thing to do. */}
-        <div className={cn("sticky bottom-0 z-20 border-t border-[#C9972F]/40 bg-[#15130F] p-3 text-white", phone && "rounded-b-[1.6rem]")}>
+        <div className={cn("sticky bottom-0 z-20 border-t border-[#C9972F]/40 bg-[#15130F] p-3 text-white", phone && (preview ? "sm:rounded-b-[1.6rem]" : "rounded-b-[1.6rem]"))}>
           {chosen ? (
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
