@@ -938,3 +938,10 @@ and the Sterling domain before anything is texted to a customer.
   off payments and answers, the job-done trigger behind a switch. Fragne
   flipped PROPOSAL_BASE_URL to the Sterling domain tonight; the next send
   will show it.
+- 2026-10-10 (late) — Fragne set PROPOSAL_BASE_URL to two addresses with a
+  comma and the link came out broken. The variable now reads as a list:
+  first address for Sterling (fence), second for A&T (brick), all of them
+  allowed origins. New links are the short form `/p/<token>`; `/proposal/`
+  still opens every link ever sent. Alan wants a shorter domain than
+  estimate.sterlingfencetx.com: Fragne adds it in Vercel and puts it first
+  in the variable; no code change.

@@ -64,7 +64,9 @@ def _now() -> str:
 
 
 def _base() -> str:
-    return (get_settings().proposal_base_url or "").rstrip("/")
+    # Sterling's address: the Stripe account is Sterling's.
+    from config import proposal_base
+    return proposal_base()
 
 
 def configured() -> bool:

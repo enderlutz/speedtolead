@@ -25,8 +25,10 @@ def _lead(db):
 
 
 def _settings(monkeypatch, key="sk_test_x", webhook="whsec_x"):
-    monkeypatch.setattr(sp, "get_settings", lambda: SimpleNamespace(
-        stripe_secret_key=key, stripe_webhook_secret=webhook, proposal_base_url="https://estimate.test/"))
+    import config
+    ns = SimpleNamespace(stripe_secret_key=key, stripe_webhook_secret=webhook, proposal_base_url="https://estimate.test/")
+    monkeypatch.setattr(sp, "get_settings", lambda: ns)
+    monkeypatch.setattr(config, "get_settings", lambda: ns)  # the link base reads config directly
 
 
 def test_a_deposit_link_defaults_to_250_and_is_open(db, monkeypatch):

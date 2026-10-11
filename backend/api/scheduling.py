@@ -379,8 +379,8 @@ def _customer_invite_description(job: ScheduledJob, db) -> str:
                   .first())
         if prop and prop.token:
             try:
-                base = get_settings().proposal_base_url.rstrip("/")
-                proposal_url = f"{base}/proposal/{prop.token}"
+                from config import proposal_link
+                proposal_url = proposal_link(prop.token, lead.division)
             except Exception:
                 proposal_url = ""
 
@@ -988,7 +988,8 @@ def list_proposal_links(lead_id: str, user: dict = Depends(require_staff)):
     db = get_db()
     try:
         try:
-            base = get_settings().proposal_base_url.rstrip("/")
+            from config import proposal_base
+            base = proposal_base()
         except Exception:
             base = ""
         rows = (db.query(Proposal)
@@ -1001,7 +1002,7 @@ def list_proposal_links(lead_id: str, user: dict = Depends(require_staff)):
                 continue
             out.append({
                 "id": p.id,
-                "url": f"{base}/proposal/{p.token}" if base else "",
+                "url": f"{base}/p/{p.token}" if base else "",
                 "status": p.status or "sent",
                 "view_count": p.view_count or 0,
                 "last_viewed_at": p.last_viewed_at,

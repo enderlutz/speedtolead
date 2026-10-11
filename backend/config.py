@@ -225,3 +225,34 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
+
+
+# ── Where customer links live ─────────────────────────────────────────────
+# PROPOSAL_BASE_URL may hold more than one address, comma separated. The
+# first is Sterling's (the fence division); the second, if there is one, is
+# A&T's (brick). Fragne set it to two on 2026-10-10 and the code pasted the
+# whole string into the link. Every address listed is also an allowed
+# origin for the API (main.py). Links already in customers' texts are
+# literal and never depend on this.
+
+def proposal_bases() -> list[str]:
+    raw = get_settings().proposal_base_url or ""
+    out = []
+    for part in raw.replace(";", ",").split(","):
+        p = part.strip().rstrip("/")
+        if p and p not in out:
+            out.append(p)
+    return out or ["http://localhost:5173"]
+
+
+def proposal_base(division: str | None = None) -> str:
+    bases = proposal_bases()
+    if (division or "").lower() == "brick" and len(bases) > 1:
+        return bases[1]
+    return bases[0]
+
+
+def proposal_link(token: str, division: str | None = None) -> str:
+    """The short form, /p/<token>. The app serves /proposal/<token> too, so
+    every link ever sent still opens."""
+    return f"{proposal_base(division)}/p/{token}"

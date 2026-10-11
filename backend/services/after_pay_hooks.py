@@ -39,7 +39,8 @@ def _now() -> str:
 
 
 def _base() -> str:
-    return (get_settings().proposal_base_url or "").rstrip("/")
+    from config import proposal_base
+    return proposal_base()
 
 
 def pay_url(token: str) -> str:

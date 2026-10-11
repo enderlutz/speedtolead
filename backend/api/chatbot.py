@@ -87,7 +87,8 @@ def _send_nudge(lead_id: str, proposal_token: str):
 
         settings = get_settings()
         first_name = (lead.contact_name or "").split()[0] if lead.contact_name else "there"
-        proposal_link = f"{settings.proposal_base_url}/proposal/{proposal_token}"
+        from config import proposal_link as _plink
+        proposal_link = _plink(proposal_token, getattr(lead, "division", None))
         nudge_msg = f"Hi {first_name}, Amy has an update on your proposal: {proposal_link}"
 
         sent = send_sms(lead.ghl_contact_id, nudge_msg, lead.ghl_location_id)

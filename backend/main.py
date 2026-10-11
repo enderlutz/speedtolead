@@ -629,8 +629,11 @@ origins = [
     "https://admin.atpressurewash.com",
     "https://proposal.atpressurewash.com",
 ]
-# Add frontend/proposal URLs from env
-for extra in [_settings.frontend_url, _settings.proposal_base_url]:
+# Add frontend/proposal URLs from env. PROPOSAL_BASE_URL may list several
+# addresses, comma separated (config.proposal_bases).
+from config import proposal_bases as _proposal_bases  # noqa: E402
+for extra in [_settings.frontend_url, *_proposal_bases()]:
+    extra = (extra or "").strip().rstrip("/")
     if extra and extra not in origins:
         origins.append(extra)
 # Add any extra configured origins (skip wildcard)

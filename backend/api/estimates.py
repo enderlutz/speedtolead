@@ -19,7 +19,7 @@ from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, gen
 from services.template_cache import get_template as get_cached_template
 from services.ghl import send_sms, send_email, add_contact_note, add_contact_tag, update_opportunity_stage
 from services import supabase_storage
-from config import get_settings as _get_settings
+from config import get_settings as _get_settings, proposal_link
 
 
 def _upload_page_to_storage(token: str, page_num: int, jpeg_data: bytes) -> str:
@@ -923,7 +923,7 @@ def _approve_estimate_background(
         proposal.pdf_page_count = page_count
         db.commit()
 
-        proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+        proposal_url = proposal_link(token, lead.division)
         tiers_dict = est.to_dict()["tiers"]
         sig_price = tiers_dict.get("signature", 0)
 
@@ -1187,7 +1187,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
         except Exception:
             pass
 
-        proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+        proposal_url = proposal_link(token, lead.division)
 
         # Capture only primitives + IDs — the background task opens its
         # own DB session and reloads everything fresh.
@@ -1308,7 +1308,7 @@ async def send_custom_proposal(lead_id: str, file: UploadFile = File(...), brick
         except Exception:
             pass
 
-        proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+        proposal_url = proposal_link(token, lead.division)
 
         # Customer SMS — identical copy to a generated estimate.
         sms_sent = False
@@ -1405,7 +1405,7 @@ def list_custom_proposals(lead_id: str):
                 "page_count": prop.pdf_page_count or 0,
                 "header_variant": prop.header_variant or "",
                 "status": prop.status,
-                "proposal_url": f"{settings.proposal_base_url}/proposal/{prop.token}",
+                "proposal_url": proposal_link(prop.token, lead.division),
             }
             for prop, est in rows
         ]}
@@ -1797,7 +1797,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = D
             _mark_lead_estimate_sent(lead)
             lead.updated_at = now
 
-            proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+            proposal_url = proposal_link(token, lead.division)
 
             # Resolve channels. At least one must be on.
             send_sms_flag = bool(body.send_sms)
@@ -1869,7 +1869,7 @@ def save_estimate_pdf(estimate_id: str, body: SavePdfBody, user: dict | None = D
         db.commit()
 
         result = est.to_dict()
-        result["proposal_url"] = f"{settings.proposal_base_url}/proposal/{token}" if body.send else None
+        result["proposal_url"] = proposal_link(token, lead.division) if body.send else None
         result["proposal_token"] = token
         return result
 

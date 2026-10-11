@@ -18,7 +18,10 @@ def ghl_log(monkeypatch):
     monkeypatch.setattr(hooks.ghl, "add_contact_tag", lambda cid, tag, loc=None: log.append(("tag", cid, tag)) or True)
     monkeypatch.setattr(hooks.ghl, "add_contact_note", lambda cid, body, loc=None: log.append(("note", cid, body)) or "n1")
     monkeypatch.setattr(hooks.ghl, "send_sms", lambda cid, msg, loc=None, attachments=None: log.append(("sms", cid, msg)) or True)
-    monkeypatch.setattr(hooks, "get_settings", lambda: SimpleNamespace(owner_ghl_contact_id="alan-contact", proposal_base_url="https://estimate.test/"))
+    import config
+    ns = SimpleNamespace(owner_ghl_contact_id="alan-contact", proposal_base_url="https://estimate.test/")
+    monkeypatch.setattr(hooks, "get_settings", lambda: ns)
+    monkeypatch.setattr(config, "get_settings", lambda: ns)  # the link base reads config directly
     return log
 
 

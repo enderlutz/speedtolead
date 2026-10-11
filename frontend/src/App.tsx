@@ -154,6 +154,7 @@ function AppLayout() {
   const isPublic =
     location.pathname === "/login" ||
     location.pathname.startsWith("/proposal/") ||
+    location.pathname.startsWith("/p/") ||
     location.pathname.startsWith("/approve/") ||
     location.pathname.startsWith("/capture/") ||
     location.pathname.startsWith("/v/") ||
@@ -174,6 +175,7 @@ function AppLayout() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalView />} />
+        <Route path="/p/:token" element={<ProposalView />} />
         <Route path="/crew-app/:token" element={<CrewToday />} />
         <Route path="/approve/:token" element={<QuickApprove />} />
         <Route path="/capture/:token" element={<ExteriorCapture />} />
