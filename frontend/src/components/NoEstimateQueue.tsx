@@ -31,10 +31,13 @@ export function NoEstimateQueue() {
   const [total, setTotal] = useState(0);
   const [oldestFirst, setOldestFirst] = useState(false);
   const [showSteps, setShowSteps] = useState(true);
+  // Days back by when they last filled the form; 0 = everyone ever.
+  const [days, setDays] = useState(14);
+  const [loadedAt, setLoadedAt] = useState(0);
 
   const load = useCallback(() => {
     api.listContacts({ estimate: "not_sent", limit: 500 })
-      .then((p) => { setRows(p.contacts); setTotal(p.total); })
+      .then((p) => { setRows(p.contacts); setTotal(p.total); setLoadedAt(Date.now()); })
       .catch(() => setRows([]));
   }, []);
   useEffect(() => {
@@ -47,9 +50,12 @@ export function NoEstimateQueue() {
 
   const sorted = useMemo(() => {
     const r = [...(rows || [])];
+    const cutoff = days && loadedAt ? loadedAt - days * 864e5 : 0;
+    const inWindow = r.filter((c) => !cutoff || new Date(c.last_intake_at || c.date_added || 0).getTime() >= cutoff);
+    r.length = 0; r.push(...inWindow);
     r.sort((a, b) => (a.last_intake_at || a.date_added || "").localeCompare(b.last_intake_at || b.date_added || ""));
     return oldestFirst ? r : r.reverse();
-  }, [rows, oldestFirst]);
+  }, [rows, oldestFirst, days, loadedAt]);
 
   return (
     <div className="overflow-hidden rounded-2xl border-2 border-amber-300 bg-card shadow-sm">
@@ -57,9 +63,17 @@ export function NoEstimateQueue() {
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20"><ClipboardList className="h-5 w-5" /></div>
         <div className="min-w-0 flex-1">
           <p className="text-lg font-bold leading-tight">
-            {rows === null ? "Loading…" : `${total} ${total === 1 ? "person needs" : "people need"} an estimate today`}
+            {rows === null ? "Loading…" : `${sorted.length} ${sorted.length === 1 ? "person needs" : "people need"} an estimate`}
           </p>
-          <p className="text-xs text-white/90">Every lead priced by the end of the day. Newest at the top.</p>
+          <p className="text-xs text-white/90">Every lead priced by the end of the day. {days ? `Form fills from the last ${days} days` : `All ${total} ever`}.</p>
+        </div>
+        <div className="flex rounded-lg bg-white/20 p-0.5 text-xs font-semibold">
+          {[7, 14, 30, 0].map((d) => (
+            <button key={d} type="button" onClick={() => setDays(d)}
+              className={cn("h-7 rounded-md px-2", days === d ? "bg-white text-orange-700" : "hover:bg-white/20")}>
+              {d ? `${d}d` : "All"}
+            </button>
+          ))}
         </div>
         <button type="button" onClick={() => setOldestFirst((v) => !v)}
           className="inline-flex h-8 items-center gap-1 rounded-lg bg-white/20 px-2.5 text-xs font-semibold hover:bg-white/30">

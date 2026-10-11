@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { api, type KPIs, type Lead, type PendingEstimate, type ActivityEvent, type CorrectionRequest, getCurrentUser } from "@/lib/api";
+import { api, type KPIs, type PendingEstimate, type ActivityEvent, type CorrectionRequest, type ContactRow, getCurrentUser } from "@/lib/api";
 import { formatCurrency, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +34,7 @@ const FILTER_KEY = "at_dashboard_pipeline_filter";
 
 export default function Dashboard() {
   const [kpis, setKpis] = useState<KPIs | null>(null);
-  const [recentLeads, setRecentLeads] = useState<Lead[]>([]);
+  const [recentFills, setRecentFills] = useState<ContactRow[]>([]);
   const [pending, setPending] = useState<PendingEstimate[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [notifCount, setNotifCount] = useState(0);
@@ -55,9 +55,9 @@ export default function Dashboard() {
 
   const refreshAll = useCallback(() => {
     const apiFilter = filter === "all" ? undefined : filter;
-    const leadsParams = filter === "all" ? undefined : { pipeline_version: filter };
     api.getKPIs(apiFilter).then(setKpis).catch(console.error);
-    api.getLeads(leadsParams).then((leads) => setRecentLeads(leads.slice(0, 8))).catch(console.error);
+    // Most recent form fills: someone who comes back is a new lead again (Alan, 2026-10-11).
+    api.listContacts({ sort: "intake", limit: 10 }).then((p) => setRecentFills(p.contacts)).catch(console.error);
     api.getPendingAction(apiFilter).then(setPending).catch(console.error);
     api.getRecentActivity(10, apiFilter).then(setActivity).catch(console.error);
     api.getNotificationCount().then((d) => setNotifCount(d.count)).catch(console.error);
@@ -345,29 +345,33 @@ export default function Dashboard() {
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-2 px-5 pt-5">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Recent Leads</CardTitle>
-            <Link to="/leads" className="text-xs text-primary hover:underline font-medium">View all</Link>
+            <CardTitle className="text-sm font-semibold">Most recent form fills</CardTitle>
+            <Link to="/contacts" className="text-xs text-primary hover:underline font-medium">View all</Link>
           </div>
         </CardHeader>
         <CardContent className="px-5 pb-5">
-          {recentLeads.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">No leads yet</p>
+          {recentFills.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">No form fills yet</p>
           ) : (
             <div className="space-y-0.5">
-              {recentLeads.map((lead) => (
+              {recentFills.map((c) => (
                 <Link
-                  key={lead.id}
-                  to={`/leads/${lead.id}`}
+                  key={c.id}
+                  to={c.lead_id ? `/leads/${c.lead_id}` : `/contacts?q=${encodeURIComponent(c.phone || c.name || "")}`}
                   className="flex flex-col sm:flex-row sm:items-center justify-between px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors gap-1 group"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{lead.contact_name || "Unknown"}</p>
-                    <p className="text-xs text-muted-foreground truncate">{lead.address || "No address"}</p>
+                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                      {c.name || c.phone || "Unknown"}
+                      {c.intake_count > 1 ? <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">came back ×{c.intake_count}</span> : null}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">{c.address || "No address"}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="outline" className="text-[10px] py-0">{lead.location_label}</Badge>
-                    <Badge className={`text-[10px] border ${PRIORITY_CLS[lead.priority] || PRIORITY_CLS.MEDIUM}`}>{lead.priority}</Badge>
-                    <span className="text-[10px] text-muted-foreground w-14 text-right">{timeAgo(lead.created_at)}</span>
+                    {c.estimate_sent
+                      ? <Badge variant="secondary" className="text-[10px] py-0">estimate sent</Badge>
+                      : <Badge variant="outline" className="text-[10px] py-0 border-amber-400 text-amber-700">needs estimate</Badge>}
+                    <span className="text-[10px] text-muted-foreground w-14 text-right">{timeAgo(c.last_intake_at || c.date_added)}</span>
                   </div>
                 </Link>
               ))}

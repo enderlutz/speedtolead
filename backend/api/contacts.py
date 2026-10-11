@@ -224,6 +224,18 @@ def list_contacts(
         }
         floor = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
+        # The estimate filter runs on the whole matching set, before the
+        # count and the page (2026-10-11: the total used to be every contact
+        # and the filter only trimmed the page, so the Dashboard said 2,068).
+        if estimate in ("sent", "not_sent"):
+            all_leads = [h.lead_id for h in heads if h.lead_id]
+            sent_all = _sent_since_intake(db, all_leads) if all_leads else set()
+            if all_leads:
+                sent_all |= _scheduled_send_state(db, all_leads)[0]
+            want = estimate == "sent"
+            heads = [h for h in heads if bool(h.lead_id and h.lead_id in sent_all) == want]
+            total = len(heads)
+
         def key(h):
             v = came_in_by_contact[h.id] if sort == "intake" else (h.date_added or "")
             return _dt(v) or floor
@@ -326,14 +338,7 @@ def list_contacts(
             d["stage"] = stage
             out.append(d)
 
-        # Filtering on estimate status is applied after the page is built,
-        # because "sent" is derived from two other tables rather than stored
-        # on the contact. Callers who need exact paging on it should use the
-        # counts from /contacts/stats.
-        if estimate == "sent":
-            out = [c for c in out if c["estimate_sent"]]
-        elif estimate == "not_sent":
-            out = [c for c in out if not c["estimate_sent"]]
+        # (The estimate filter already ran on the whole set above.)
 
         return {"total": total, "limit": limit, "offset": offset, "contacts": out}
     finally:
