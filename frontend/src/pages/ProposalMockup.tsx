@@ -89,7 +89,9 @@ const PACKAGES: {
   },
   {
     key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Solid color", lasts: "4–7 yrs",
-    photos: ["/proposal-mockup/pkg-legacy-a.jpg", "/proposal-mockup/pkg-legacy-b.jpg"],
+    // New file names on purpose: a phone that cached the old, zoomed-in
+    // Legacy photos under the old names keeps showing them otherwise.
+    photos: ["/proposal-mockup/pkg-legacy-wide-a.jpg", "/proposal-mockup/pkg-legacy-wide-b.jpg"],
     best: "Older fences that need full coverage",
     lines: [
       { icon: Shield, text: "Solid color protection" },
