@@ -724,8 +724,9 @@ Referral comes before the review, so nobody leaves for Google first.
    review is never tied to the referral reward.
 5. **Anything else we can help with?** Chips: house wash, driveway and
    concrete, window cleaning, roof washing, gutter cleaning, sprinkler
-   repair, landscaping, fence repair / boards, other. Finish. (The "when
-   should we check back on your fence" question is out on purpose.)
+   repair, landscaping, other. Finish. (The "when should we check back on
+   your fence" question is out on purpose. Fence repairs came off the list
+   on 2026-10-10: once the fence is stained it's usually too late.)
 6. **Enjoy the fence.** The touch-up stain is in the garage. Phone. "OK to
    feature my comment?" only if they wrote one.
 
@@ -810,22 +811,46 @@ checkout, all three methods, as already decided.
 
 ### Decisions for Alan before this goes live
 
-- The look. The mockup uses the proposal's ink, gold and ivory so these
-  screens match the page the customer just came from. The spec's forest
-  green and cedar is a different brand. Pick one.
+- ~~The look.~~ Decided 2026-10-10: black and gold, the proposal's own
+  look, not the prototype's green and cedar.
 - The referral domain: `sterlingfencestaining.com/r/{CODE}` in the spec;
-  the proposal is planned for `estimate.sterlingfencetx.com`. Which is
-  Sterling's?
+  the proposal is planned for `estimate.sterlingfencetx.com`. Alan
+  doesn't know yet and asked to be walked through how referral links
+  work; the explanation is in the chat of 2026-10-10 and the short
+  version is under "How a referral link works" below.
 - The phone on the Done screens is Sterling's, 346-589-7877. The email.
 - Sprinklers: "the day before, the day of, the day after" is a guess.
-- The $100 for a financed customer: refund or credit.
+- The $100 for a financed customer: Alan leans refund through Stripe
+  (2026-10-10). A partial refund on the Klarna or Affirm payment goes back
+  to the lender, who shrinks the customer's remaining payments; the
+  customer sees it on their lender app, not from us, so the text that
+  announces it has to say so.
 - Flow B's $100 to the referrer: capped at once, like Flow A?
-- Keep "Fence repair / boards" and "Other" in the services list?
+- ~~Keep "Fence repair / boards"?~~ Removed 2026-10-10. "Other" stays.
 - Referral codes: first name plus a number in the mockup. Real ones are
   unique and stored, and a booking through `/r/{CODE}` tags the new lead
   with who sent it.
 - Cancellation after financing: still open from earlier.
 - The live GHL tag, pipeline and stage names.
+
+### How a referral link works
+
+Each customer gets a code, stored on their lead (`SARAH14` is the shape;
+real ones are made unique by the backend). Their link is our domain plus
+`/r/` plus the code. When a friend opens it, the page sets a cookie with
+the code, shows the $100 offer and a short form that creates a lead in
+GHL tagged with the referrer's lead id. When that friend's job is paid in
+full, the referrer's $100 fires: off their balance if they still owe one,
+or as a Stripe refund if they paid up front. Which domain hosts `/r/` is
+only a DNS choice: any domain Sterling owns, pointed at the dashboard's
+Vercel project, works, and the shorter the better for a text message.
+
+### The friend's preview link (2026-10-10)
+
+`/preview/proposal/<token>` is public and shows one real estimate, by
+Alan's decision ("approve the public endpoint"). The token is in
+`backend/api/proposal_preview.py`; delete it there once the friend has
+looked, and the link dies.
 
 ### What "by tomorrow" can mean
 

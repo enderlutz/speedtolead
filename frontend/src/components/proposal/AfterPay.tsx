@@ -28,9 +28,9 @@ const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 // Already the review link the dashboard texts customers (api/customer_upsell.py).
 const REVIEW_URL = "https://maps.app.goo.gl/xR56n81cjxNwt7R78";
-// Alan's list in the spec. Whether "Fence repair / boards" and "Other" stay
-// is an open question in the notes.
-const SERVICES = ["House wash", "Driveway & concrete", "Window cleaning", "Roof washing", "Gutter cleaning", "Sprinkler repair", "Landscaping", "Fence repair / boards", "Other"];
+// Alan's list in the spec, minus fence repairs: "if we've already stained
+// their fence it's too late now, usually" (2026-10-10).
+const SERVICES = ["House wash", "Driveway & concrete", "Window cleaning", "Roof washing", "Gutter cleaning", "Sprinkler repair", "Landscaping", "Other"];
 const PREP: [string, string][] = [
   ["You don't have to be home", "We photograph and film the whole job. You can see the work even if you're away."],
   ["Water and power", "An outside spigot and one outlet is all we need."],

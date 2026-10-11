@@ -64,3 +64,16 @@ export function sideChips(sides: string[]): { label: string; group: SideGroup | 
   });
   return out;
 }
+
+/** "Inside facing sides" / "Outside facing: front" from the estimator's side list,
+ * the way the customer's proposal says it. */
+export function sidesInWords(sides: string[]): string[] {
+  const out: string[] = [];
+  const ins = FENCE_SIDES.Inside.filter((n) => sides.includes(n));
+  const outs = FENCE_SIDES.Outside.filter((n) => sides.includes(n));
+  if (ins.length === FENCE_SIDES.Inside.length) out.push("Inside facing sides");
+  else if (ins.length) out.push(`Inside facing: ${ins.map((n) => n.replace("Inside ", "").toLowerCase()).join(", ")}`);
+  if (outs.length === FENCE_SIDES.Outside.length) out.push("Outside facing sides");
+  else if (outs.length) out.push(`Outside facing: ${outs.map((n) => n.replace("Outside ", "").toLowerCase()).join(", ")}`);
+  return out.length ? out : ["Inside facing sides"];
+}

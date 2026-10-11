@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { FENCE_SIDES } from "@/lib/fenceSides";
+import { sidesInWords } from "@/lib/fenceSides";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 
 // A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
@@ -28,22 +28,10 @@ import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/Af
 // about her ships in this file, and nothing is ever sent to her.
 const LIVE_LEAD_ID = "f7fd4ad8-fde8-4f50-a4a2-2bfc0fff2922";
 
-type Live = {
+export type Live = {
   name: string; address: string; feet: number; sides: string[];
   tiers: Record<PkgKey, number> | null; scopeUrl: string | null; sentOn: string;
 };
-
-/** "Inside facing sides" / "Outside facing: front" from the estimator's side list. */
-function sidesInWords(sides: string[]): string[] {
-  const out: string[] = [];
-  const ins = FENCE_SIDES.Inside.filter((n) => sides.includes(n));
-  const outs = FENCE_SIDES.Outside.filter((n) => sides.includes(n));
-  if (ins.length === FENCE_SIDES.Inside.length) out.push("Inside facing sides");
-  else if (ins.length) out.push(`Inside facing: ${ins.map((n) => n.replace("Inside ", "").toLowerCase()).join(", ")}`);
-  if (outs.length === FENCE_SIDES.Outside.length) out.push("Outside facing sides");
-  else if (outs.length) out.push(`Outside facing: ${outs.map((n) => n.replace("Outside ", "").toLowerCase()).join(", ")}`);
-  return out.length ? out : ["Inside facing sides"];
-}
 
 type PkgKey = "essential" | "signature" | "legacy";
 
@@ -251,8 +239,10 @@ const GOLD = "#C9972F";
 // `preview` is the no-login copy at /preview/proposal/<token>: sample
 // customer only, no staff bar, no phone frame on a phone, and no call to
 // the API (an unauthenticated call would bounce the page to the login).
-export default function ProposalMockup({ preview = false }: { preview?: boolean } = {}) {
-  const [live, setLive] = useState<Live | null>(null);
+// `dressed` is the lead the no-login preview page already fetched through
+// the public endpoint; with it the page never calls the logged-in API.
+export default function ProposalMockup({ preview = false, dressed }: { preview?: boolean; dressed?: Live } = {}) {
+  const [live, setLive] = useState<Live | null>(dressed ?? null);
   useEffect(() => {
     if (preview) return;
     let url: string | null = null;
@@ -309,7 +299,7 @@ export default function ProposalMockup({ preview = false }: { preview?: boolean 
     : p), [live]);
 
   const [phone, setPhone] = useState(true);
-  const [withScope, setWithScope] = useState(true);
+  const [withScope, setWithScope] = useState(preview ? !!dressed?.scopeUrl : true);
   const [pkg, setPkg] = useState<PkgKey | null>(null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string } | null>(null);
