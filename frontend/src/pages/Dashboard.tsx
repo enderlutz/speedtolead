@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Flame, ArrowRight, Zap, CheckCircle2, AlertCircle, HardHat, Sparkles, PartyPopper } from "lucide-react";
+import { Users, Send, TrendingUp, DollarSign, Clock, Target, Bell, Zap, CheckCircle2, AlertCircle, HardHat, Sparkles, PartyPopper } from "lucide-react";
 import { useSSE } from "@/hooks/useSSE";
 import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound";
 import WrappedModal from "@/components/WrappedModal";
@@ -114,7 +114,6 @@ export default function Dashboard() {
     }
   }, [refreshAll]));
 
-  const hotLeads = pending.filter((p) => p.priority === "HOT");
   const greenReady = pending.filter((p) => p.approval_status === "green");
   const redReview = pending.filter((p) => p.approval_status === "red");
 
@@ -223,24 +222,6 @@ export default function Dashboard() {
       )}
 
       {/* HOT leads banner */}
-      {hotLeads.length > 0 && (
-        <div className="rounded-xl bg-gradient-to-r from-red-500 to-orange-500 p-4 text-white shadow-lg shadow-red-500/20">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-              <Flame className="h-5 w-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm">{hotLeads.length} HOT lead{hotLeads.length > 1 ? "s" : ""} need attention!</p>
-              <p className="text-xs text-white/80 truncate">{hotLeads.map((h) => h.contact_name).join(", ")}</p>
-            </div>
-            <Link to="/leads">
-              <Button size="sm" className="bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm">
-                View <ArrowRight className="h-3 w-3 ml-1" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">

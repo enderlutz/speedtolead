@@ -1,8 +1,8 @@
 // The first thing on the Dashboard: everyone who hasn't had an estimate
 // since they last came in. Alan (2026-10-11): "the goal is for every lead to
 // have an estimate by the end of the day… the first thing all the teams
-// see." Same list as Contacts filtered to "never sent", oldest first so the
-// longest wait gets worked first, with the attack order printed above it.
+// see." Same list as Contacts filtered to "never sent", newest first (Alan's
+// call), with the attack order printed above it.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ClipboardList, MapPin, MessageSquare, Phone, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react";
@@ -29,7 +29,7 @@ function waited(iso: string): { label: string; days: number } {
 export function NoEstimateQueue() {
   const [rows, setRows] = useState<ContactRow[] | null>(null);
   const [total, setTotal] = useState(0);
-  const [oldestFirst, setOldestFirst] = useState(true);
+  const [oldestFirst, setOldestFirst] = useState(false);
   const [showSteps, setShowSteps] = useState(true);
 
   const load = useCallback(() => {
@@ -59,7 +59,7 @@ export function NoEstimateQueue() {
           <p className="text-lg font-bold leading-tight">
             {rows === null ? "Loading…" : `${total} ${total === 1 ? "person needs" : "people need"} an estimate today`}
           </p>
-          <p className="text-xs text-white/90">Every lead priced by the end of the day. Oldest wait at the top.</p>
+          <p className="text-xs text-white/90">Every lead priced by the end of the day. Newest at the top.</p>
         </div>
         <button type="button" onClick={() => setOldestFirst((v) => !v)}
           className="inline-flex h-8 items-center gap-1 rounded-lg bg-white/20 px-2.5 text-xs font-semibold hover:bg-white/30">
