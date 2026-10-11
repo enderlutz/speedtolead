@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Search, Phone, Mail, MessageSquare, Ban, ChevronRight, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { api, getCurrentUser, type ContactRow, type ContactStats } from "@/lib/api";
@@ -159,7 +159,9 @@ export default function Contacts() {
   const [offset, setOffset] = useState(saved.offset || 0);
   const [stats, setStats] = useState<ContactStats | null>(null);
   const [q, setQ] = useState(saved.q || "");
-  const [search, setSearch] = useState(saved.search || "");
+  // ?q= from the Dashboard queue wins over the remembered search.
+  const [urlParams] = useSearchParams();
+  const [search, setSearch] = useState(urlParams.get("q") || saved.search || "");
   const [estimate, setEstimate] = useState<EstimateFilter>(saved.estimate || "all");
   const [sort, setSort] = useState<SortKey>(saved.sort || "intake");
   const restored = useRef(false);

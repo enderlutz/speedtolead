@@ -14,6 +14,7 @@ import { playNewLeadSound, playUrgentSound } from "@/hooks/useNotificationSound"
 import WrappedModal from "@/components/WrappedModal";
 import RecentPaymentsCard from "@/components/RecentPaymentsCard";
 import PendingDepositsCard from "@/components/PendingDepositsCard";
+import { NoEstimateQueue } from "@/components/NoEstimateQueue";
 
 const PRIORITY_CLS: Record<string, string> = {
   HOT: "bg-red-500/10 text-red-600 border-red-200",
@@ -162,6 +163,9 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Everyone without an estimate, first thing on the page (Alan, 2026-10-11). */}
+      <NoEstimateQueue />
 
       {/* Wrapped is owner-only — both triggers (auto-popup + preview buttons)
           already gate on isAdmin, but the mount checks it too in case any
