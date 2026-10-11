@@ -1,6 +1,6 @@
 """The estimate texts to Alan (2026-10-11).
 
-One text a day at 8 PM Central replaces the per-lead "No estimate sent for
+One text a day at 3 PM Central replaces the per-lead "No estimate sent for
 X after 24h" alert, which fired for 526 different contacts in a month,
 outreach companies and spam callers included. It counts customers still
 waiting on a price since their last form fill: all of them, the last two
@@ -55,7 +55,7 @@ def daily_message(c: dict) -> str:
     if c["total"] == 0:
         return f"Everyone has an estimate. Nice work.\n{dashboard_link()}"
     return (
-        f"Still need an estimate tonight:\n"
+        f"Still need an estimate today:\n"
         f"Last 24 hours: {c['day']}\n"
         f"Last 2 weeks: {c['two_weeks']}\n"
         f"All time: {c['total']}\n\n"

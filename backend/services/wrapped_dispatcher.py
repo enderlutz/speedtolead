@@ -87,9 +87,10 @@ def run_wrapped_dispatcher():
     frontend_url = (settings.frontend_url or "").rstrip("/")
     dashboard_link = f"{frontend_url}/" if frontend_url else "the dashboard"
 
-    # Daily, 8 PM Central: how many still need an estimate (replaces the
-    # per-lead 24h alert; services/estimate_digest.py).
-    if 20 <= hour <= 21:
+    # Daily, 3 PM Central: how many still need an estimate, early enough to
+    # clear the list before close (Alan, 2026-10-11; he owns the number).
+    # Replaces the per-lead 24h alert; services/estimate_digest.py.
+    if 15 <= hour <= 16:
         period_key = f"estimate_digest:daily:{today.isoformat()}"
         if not _already_sent(period_key):
             try:
