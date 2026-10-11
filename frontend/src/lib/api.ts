@@ -1334,7 +1334,7 @@ export const api = {
   // Stripe pay links (backend api/stripe_pay.py). Staff only; the customer
   // pages at /pay and /after use raw fetch so a 401 can't bounce them here.
   listPayLinks: (leadId: string) => request<PayLinksResponse>(`/api/leads/${leadId}/pay-links`),
-  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string }) =>
+  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
@@ -5555,6 +5555,8 @@ export interface PayLinkEntry {
   status: "open" | "paid" | "void"; url: string; after_url: string; created_by: string;
   created_at: string; sent_at: string | null; paid_at: string | null;
   answers: Record<string, unknown>; answered_at: string | null;
+  /** Deposit: the package sold and the job total the sale is booked at. */
+  job_tier: string; job_total: number | null;
 }
 export interface CustomerPaymentEntry {
   id: string; lead_id: string; pay_link_token: string | null; kind: string; amount: number; currency: string;

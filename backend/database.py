@@ -3943,6 +3943,11 @@ class PayLink(Base):
     paid_at = Column(Text, nullable=True)
     answers = Column(Text, default="{}")                # the after screens, saved per tap
     answered_at = Column(Text, nullable=True)
+    # The sale a deposit books (Alan, 2026-10-11): the package and the job
+    # total. Paid deposit = a won job at this price; the final payment then
+    # records what was really collected.
+    job_tier = Column(Text, nullable=True)
+    job_total_cents = Column(Integer, nullable=True)
 
 
 class CustomerPayment(Base):
@@ -4007,6 +4012,13 @@ def init_db():
 def _run_migrations():
     """Idempotent ALTER TABLE migrations for columns added after initial schema."""
     inspector = inspect(_engine)
+    if inspector.has_table("pay_links"):
+        pl = {c["name"] for c in inspector.get_columns("pay_links")}
+        with _engine.begin() as conn:
+            if "job_tier" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN job_tier TEXT"))
+            if "job_total_cents" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN job_total_cents INTEGER"))
     existing = {c["name"] for c in inspector.get_columns("leads")}
 
     if "pipeline_version" not in existing:

@@ -205,11 +205,106 @@ def on_answer(lead_id: str, field: str, value, answers: dict | None = None) -> N
         db.close()
 
 
+# ── The books: the sale at the deposit, the real number at the end ────────
+
+def _latest_estimate(db, lead_id: str):
+    from database import Estimate
+    ests = db.query(Estimate).filter(Estimate.lead_id == lead_id).all()
+    ests.sort(key=lambda e: e.created_at or "", reverse=True)
+    return (next((e for e in ests if e.status == "closed"), None)
+            or next((e for e in ests if e.status == "sent"), None)
+            or (ests[0] if ests else None))
+
+
+def tier_price(db, lead_id: str, tier: str) -> float | None:
+    est = _latest_estimate(db, lead_id)
+    if not est:
+        return None
+    try:
+        v = float((est.to_dict().get("tiers") or {}).get(tier) or 0)
+    except (TypeError, ValueError):
+        return None
+    return v or None
+
+
+def record_sale(token: str) -> None:
+    """A paid deposit (or a whole job paid up front) is a won job: the
+    estimate closes at the package and total on the link, the lead is
+    closed, and any job card without a price gets this one."""
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link or not link.job_total_cents:
+            return
+        total = link.job_total_cents / 100
+        est = _latest_estimate(db, link.lead_id)
+        if est and est.status != "closed":
+            est.status = "closed"
+            est.closed_tier = link.job_tier or "custom"
+            est.closed_price = total
+            est.closed_at = _now()
+            est.closed_notes = ((est.closed_notes or "") + f"\nSold at {money(total)} ({link.job_tier or 'custom'}), {link.kind} paid on Stripe.").strip()
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        if lead:
+            lead.status = "closed"
+            lead.updated_at = _now()
+        for job in db.query(ScheduledJob).filter(ScheduledJob.lead_id == link.lead_id).all():
+            if not float(job.closed_price or 0):
+                job.closed_price = total
+        db.commit()
+        log_event(link.lead_id, "sale_recorded", f"{link.job_tier or 'custom'} {money(total)} from the {link.kind}")
+    finally:
+        db.close()
+
+
+def record_collected(lead_id: str) -> None:
+    """After the final payment: what was really collected, all payments
+    together (a QuickBooks deposit included), on the job and the estimate."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            return
+        pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead_id).all()
+        total = sum(p.amount_cents or 0 for p in pays) / 100
+        if lead.deposit_status == "paid" and not any(p.kind == "deposit" for p in pays):
+            total += float(lead.deposit_amount or 0)
+        now = _now()
+        jobs = db.query(ScheduledJob).filter(ScheduledJob.lead_id == lead_id).all()
+        jobs.sort(key=lambda j: j.created_at or "", reverse=True)
+        if jobs:
+            j = jobs[0]
+            j.amount_collected = total
+            j.payment_status = "paid"
+            j.payment_method = "stripe"
+            j.paid_at = now
+        est = _latest_estimate(db, lead_id)
+        if est:
+            sold = float(est.closed_price or 0)
+            if est.status != "closed":
+                est.status = "closed"
+                est.closed_at = now
+                est.closed_tier = est.closed_tier or "custom"
+            est.closed_price = total
+            if sold and abs(sold - total) >= 0.5:
+                est.closed_notes = ((est.closed_notes or "") + f"\nCollected {money(total)} in the end (sold at {money(sold)}).").strip()
+        lead.status = "closed"
+        lead.updated_at = now
+        db.commit()
+        log_event(lead_id, "collected_recorded", f"{money(total)} collected in total")
+    finally:
+        db.close()
+
+
 # ── The crew marks the job done ───────────────────────────────────────────
 
 def amount_owed(db, lead: Lead, job: ScheduledJob) -> float | None:
-    """The job price less everything paid. None when the job has no price."""
+    """The job price less everything paid. None when the job has no price.
+    The price is the job card's, or the sale recorded at the deposit."""
     price = float(job.closed_price or 0)
+    if price <= 0:
+        est = _latest_estimate(db, lead.id)
+        price = float(est.closed_price or 0) if est and est.status == "closed" else 0
     if price <= 0:
         return None
     pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead.id).all()

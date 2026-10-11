@@ -102,6 +102,8 @@ def link_dict(link: PayLink) -> dict:
         "paid_at": link.paid_at,
         "answers": _loads(link.answers),
         "answered_at": link.answered_at,
+        "job_tier": link.job_tier or "",
+        "job_total": round((link.job_total_cents or 0) / 100, 2) if link.job_total_cents else None,
     }
 
 
@@ -128,6 +130,10 @@ class CreateLinkBody(BaseModel):
     kind: str
     amount: float | None = None
     description: str = ""
+    # Deposit only: the package sold and the job total. The total defaults
+    # to that package's price on the estimate we sent.
+    tier: str | None = None
+    job_total: float | None = None
 
 
 @router.post("/leads/{lead_id}/pay-links")
@@ -148,12 +154,26 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             cents = int(round((body.amount or 0) * 100))
         if kind != "done" and cents <= 0:
             raise HTTPException(status_code=400, detail="An amount is needed for this kind of link")
+        job_tier, job_total_cents = None, None
+        if kind in ("deposit", "full"):
+            job_tier = (body.tier or "").strip().lower() or None
+            if kind == "deposit" and job_tier not in ("essential", "signature", "legacy", "custom"):
+                raise HTTPException(status_code=400, detail="Pick the package they're buying, so the sale gets recorded")
+            total = body.job_total
+            if total is None and job_tier and job_tier != "custom":
+                total = hooks.tier_price(db, lead_id, job_tier)
+            if kind == "full":
+                total = total or cents / 100
+            if kind == "deposit" and not total:
+                raise HTTPException(status_code=400, detail="Type the job total; there's no sent estimate price for that package")
+            job_total_cents = int(round(total * 100)) if total else None
         now = _now()
         link = PayLink(
             token=secrets.token_urlsafe(20), lead_id=lead_id, kind=kind, amount_cents=cents,
             description=(body.description or "").strip(), status="paid" if kind == "done" else "open",
             created_by=user.get("name") or user.get("sub") or "", created_at=now,
             paid_at=now if kind == "done" else None, answers="{}",
+            job_tier=job_tier, job_total_cents=job_total_cents,
         )
         db.add(link)
         db.commit()
@@ -419,6 +439,13 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
             lead.deposit_paid_method = f"stripe:{method or 'card'}"
     db.commit()
     log_event(link.lead_id, "stripe_payment_received", f"{link.kind} {amount / 100:.2f} {method or ''}".strip())
+    try:
+        if link.kind in ("deposit", "full"):
+            hooks.record_sale(link.token)
+        if link.kind in ("balance", "full", "extra"):
+            hooks.record_collected(link.lead_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("sale bookkeeping failed for %s: %s", link.token, e)
     try:
         hooks.on_paid(link.lead_id, link.kind, amount / 100, method)
     except Exception as e:  # noqa: BLE001 - the payment is booked; the hooks are extra

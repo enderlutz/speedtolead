@@ -34,7 +34,7 @@ def _settings(monkeypatch, key="sk_test_x", webhook="whsec_x"):
 def test_a_deposit_link_defaults_to_250_and_is_open(db, monkeypatch):
     _settings(monkeypatch)
     lead = _lead(db)
-    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     assert out["amount"] == 250 and out["status"] == "open"
     assert out["url"] == f"https://estimate.test/pay/{out['token']}"
     info = sp.pay_info(out["token"])
@@ -54,13 +54,13 @@ def test_a_done_link_is_paid_at_birth_and_other_kinds_need_an_amount(db, monkeyp
     with pytest.raises(HTTPException):
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="tip", amount=5), STAFF)
     with pytest.raises(HTTPException):
-        sp.create_pay_link("no-such-lead", sp.CreateLinkBody(kind="deposit"), STAFF)
+        sp.create_pay_link("no-such-lead", sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
 
 
 def test_without_a_key_the_session_is_a_clear_503(db, monkeypatch):
     _settings(monkeypatch, key="")
     lead = _lead(db)
-    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     assert sp.pay_info(out["token"])["configured"] is False
     with pytest.raises(HTTPException) as e:
         sp.start_session(out["token"])
@@ -77,7 +77,7 @@ def test_a_session_carries_the_link_and_the_deposit_is_card_only(db, monkeypatch
         return SimpleNamespace(id=f"cs_{len(seen)}", url=f"https://stripe.test/cs_{len(seen)}")
     monkeypatch.setattr(sp.stripe.checkout.Session, "create", fake_create)
 
-    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     out = sp.start_session(dep["token"])
     assert out == {"url": "https://stripe.test/cs_1", "paid": False}
     p = seen[0]
@@ -109,7 +109,7 @@ def test_a_paid_session_is_booked_once_and_flags_the_deposit(db, monkeypatch):
     assert link.status == "paid" and link.paid_at
     assert db.get(Lead, lead.id).deposit_status in ("", None)  # a balance isn't the deposit
 
-    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     dlink = db.query(PayLink).filter(PayLink.token == dep["token"]).first()
     sp._record_paid(db, dlink, {"id": "cs_10", "amount_total": 25000, "currency": "usd", "payment_intent": None,
                                 "payment_status": "paid", "metadata": {"pay_link": dep["token"]}}, event_id="evt_3")
@@ -122,7 +122,7 @@ def test_a_paid_session_is_booked_once_and_flags_the_deposit(db, monkeypatch):
 def test_answers_save_only_on_a_paid_link(db, monkeypatch):
     _settings(monkeypatch, key="")
     lead = _lead(db)
-    open_link = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
+    open_link = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     with pytest.raises(HTTPException) as e:
         sp.save_answer(open_link["token"], sp.AnswerBody(field="score", value=9), BackgroundTasks())
     assert e.value.status_code == 402
@@ -141,7 +141,7 @@ def test_the_after_page_books_the_session_when_the_webhook_is_late(db, monkeypat
     _settings(monkeypatch)
     from database import CustomerPayment
     lead = _lead(db)
-    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
     monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: SimpleNamespace(
         id=sid, payment_status="paid", metadata={"pay_link": dep["token"]}, amount_total=25000, currency="usd", payment_intent=None))
     out = sp.after_info(dep["token"], s="cs_late")

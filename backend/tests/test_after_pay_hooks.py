@@ -161,3 +161,64 @@ def test_job_done_without_a_price_does_nothing(db, ghl_log):
     hooks.set_auto_balance(db, True)
     assert hooks.on_job_complete(job.id) == {"skipped": "no price on the job"}
     assert db.query(PayLink).count() == 0 and ghl_log == []
+
+
+def _estimate(db, lead, tiers, status="sent"):
+    import json
+    from database import Estimate
+    e = Estimate(id=str(uuid.uuid4()), lead_id=lead.id, status=status, tiers=json.dumps(tiers), created_at="2026-10-09T00:00:00")
+    db.add(e)
+    db.commit()
+    return e
+
+
+def test_a_paid_deposit_books_the_sale_and_the_final_books_the_real_number(db, ghl_log, monkeypatch):
+    from api import stripe_pay as sp
+    from database import Estimate, Lead, ScheduledJob
+    monkeypatch.setattr(sp, "configured", lambda: False)
+    lead = _lead(db)
+    est = _estimate(db, lead, {"essential": 1200, "signature": 1450.8, "legacy": 1840.8})
+    staff = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
+
+    with pytest.raises(sp.HTTPException):
+        sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), staff)  # no package
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="signature"), staff)
+    assert dep["job_tier"] == "signature" and dep["job_total"] == 1450.8
+
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == dep["token"]).first()
+    sp._record_paid(db, link, {"id": "cs_dep", "amount_total": 25000, "currency": "usd", "payment_intent": None,
+                               "payment_status": "paid", "metadata": {"pay_link": dep["token"]}}, event_id="e1")
+    db.expire_all()
+    e = db.get(Estimate, est.id)
+    assert e.status == "closed" and e.closed_tier == "signature" and e.closed_price == 1450.8
+    assert db.get(Lead, lead.id).status == "closed"
+
+    # The job: no price typed on it, so the balance comes from the sale.
+    job = ScheduledJob(id=str(uuid.uuid4()), lead_id=lead.id, customer_name="Pat Customer", address="1 Main St",
+                       job_date="2026-10-12", status="in_progress", closed_price=0)
+    db.add(job)
+    db.commit()
+    hooks.set_auto_balance(db, True)
+    out = hooks.on_job_complete(job.id)
+    assert out["kind"] == "balance"
+    bal = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
+    assert bal.amount_cents == 120080  # 1450.80 - 250
+
+    # Extra boards on the day: they paid 1,300 instead of 1,200.80.
+    sp._record_paid(db, bal, {"id": "cs_bal", "amount_total": 130000, "currency": "usd", "payment_intent": None,
+                              "payment_status": "paid", "metadata": {"pay_link": bal.token}}, event_id="e2")
+    db.expire_all()
+    e = db.get(Estimate, est.id)
+    j = db.get(ScheduledJob, job.id)
+    assert e.closed_price == 1550 and "sold at $1,450.80" in e.closed_notes
+    assert float(j.amount_collected) == 1550 and j.payment_status == "paid"
+
+
+def test_a_custom_deposit_needs_a_total(db, ghl_log):
+    from api import stripe_pay as sp
+    lead = _lead(db)
+    staff = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
+    with pytest.raises(sp.HTTPException):
+        sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom"), staff)
+    ok = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=2100), staff)
+    assert ok["job_total"] == 2100
