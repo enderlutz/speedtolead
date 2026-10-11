@@ -57,7 +57,7 @@ export default function Dashboard() {
     const apiFilter = filter === "all" ? undefined : filter;
     api.getKPIs(apiFilter).then(setKpis).catch(console.error);
     // Most recent form fills: someone who comes back is a new lead again (Alan, 2026-10-11).
-    api.listContacts({ sort: "intake", limit: 10 }).then((p) => setRecentFills(p.contacts)).catch(console.error);
+    api.listContacts({ sort: "intake", customers_only: true, limit: 10 }).then((p) => setRecentFills(p.contacts)).catch(console.error);
     api.getPendingAction(apiFilter).then(setPending).catch(console.error);
     api.getRecentActivity(10, apiFilter).then(setActivity).catch(console.error);
     api.getNotificationCount().then((d) => setNotifCount(d.count)).catch(console.error);

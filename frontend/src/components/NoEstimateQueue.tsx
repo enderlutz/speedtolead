@@ -36,7 +36,7 @@ export function NoEstimateQueue() {
   const [loadedAt, setLoadedAt] = useState(0);
 
   const load = useCallback(() => {
-    api.listContacts({ estimate: "not_sent", limit: 500 })
+    api.listContacts({ estimate: "not_sent", customers_only: true, limit: 500 })
       .then((p) => { setRows(p.contacts); setTotal(p.total); setLoadedAt(Date.now()); })
       .catch(() => setRows([]));
   }, []);

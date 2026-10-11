@@ -163,11 +163,30 @@ def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
             if not intakes.get(lid) or sent >= intakes[lid]}
 
 
+# The fence companies texted in the June 2026 outreach blast (looking for
+# companies to work with). Imported in one go: 235 contacts added between
+# 10:00 and 11:00 UTC on 2026-06-12, no source, no tags. Not customers, never
+# from an ad; they don't belong on the "needs an estimate" list (Alan,
+# 2026-10-11). Every real customer added that day carries an ad source.
+OUTREACH_FROM = "2026-06-12T10:00"
+OUTREACH_TO = "2026-06-12T11:00"
+
+
+def outreach_filter():
+    from sqlalchemy import and_
+    return and_(
+        Contact.date_added >= OUTREACH_FROM, Contact.date_added < OUTREACH_TO,
+        func.coalesce(Contact.source, "") == "",
+        func.coalesce(Contact.tags_json, "[]") == "[]",
+    )
+
+
 @router.get("/contacts")
 def list_contacts(
     q: str | None = Query(None, description="name, phone or email substring"),
     estimate: str | None = Query(None, description="sent | not_sent"),
     has_lead: bool | None = Query(None),
+    customers_only: bool = Query(False, description="leave out the fence-company outreach batch"),
     sort: str = Query("intake", description="intake — newest form fill first | added — GHL's own order"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -203,6 +222,9 @@ def list_contacts(
             if digits:
                 clauses.append(Contact.phone_key.like(f"%{digits[-10:]}%"))
             query = query.filter(or_(*clauses))
+
+        if customers_only:
+            query = query.filter(~outreach_filter())
 
         if has_lead is True:
             query = query.filter(Contact.lead_id.isnot(None))

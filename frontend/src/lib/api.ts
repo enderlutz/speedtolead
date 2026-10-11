@@ -3468,6 +3468,8 @@ export const api = {
     request<{ ok: boolean; lead_archived: boolean }>(`/api/contacts/${contactRowId}`, { method: "DELETE" }),
   listContacts: (params: {
     q?: string; estimate?: "sent" | "not_sent"; has_lead?: boolean;
+    /** Leave out the June 2026 fence-company outreach batch. */
+    customers_only?: boolean;
     /** intake — newest form fill first (default) | added — GHL's own order */
     sort?: "intake" | "added";
     limit?: number; offset?: number;
@@ -3477,6 +3479,7 @@ export const api = {
     if (params.estimate) qs.set("estimate", params.estimate);
     if (params.sort) qs.set("sort", params.sort);
     if (params.has_lead !== undefined) qs.set("has_lead", String(params.has_lead));
+    if (params.customers_only) qs.set("customers_only", "true");
     qs.set("limit", String(params.limit ?? 100));
     qs.set("offset", String(params.offset ?? 0));
     return request<ContactPage>(`/api/contacts?${qs.toString()}`);

@@ -335,3 +335,23 @@ def test_a_stop_reply_in_ghl_is_an_opt_out_and_a_bounce_is_not(db, fake_ghl):
     assert leads[rows["c-stop"].lead_id].do_not_contact is True
     assert leads[rows["c-dead"].lead_id].do_not_contact is False
     assert leads[rows["c-fine"].lead_id].do_not_contact is False
+
+
+def test_customers_only_leaves_out_the_june_outreach_batch(db):
+    import uuid as _u
+    from database import Contact
+    from api import contacts as api_contacts
+    rows = [
+        ("the woodlands fence pros", "2026-06-12T10:45:03.561Z", "", "[]"),
+        ("Akif Ahmad", "2026-06-12T11:10:28.303Z", "Facebook", '["ad from premium 1"]'),
+        ("Real Customer", "2026-10-10T12:00:00.000Z", "", "[]"),
+    ]
+    for name, added, src, tags in rows:
+        db.add(Contact(id=str(_u.uuid4()), ghl_contact_id=str(_u.uuid4()), name=name, date_added=added, source=src, tags_json=tags))
+    db.commit()
+    user = {"sub": "alanbonner", "role": "admin"}
+    everyone = api_contacts.list_contacts(q=None, estimate=None, has_lead=None, customers_only=False, sort="intake", limit=100, offset=0, user=user)
+    customers = api_contacts.list_contacts(q=None, estimate=None, has_lead=None, customers_only=True, sort="intake", limit=100, offset=0, user=user)
+    assert everyone["total"] == 3
+    assert customers["total"] == 2
+    assert {c["name"] for c in customers["contacts"]} == {"Akif Ahmad", "Real Customer"}
