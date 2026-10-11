@@ -19,6 +19,7 @@ import {
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { FENCE_SIDES } from "@/lib/fenceSides";
+import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 
 // A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
 // of work, her address, the linear foot… pretend she's a mock-up
@@ -320,7 +321,11 @@ export default function ProposalMockup({ preview = false }: { preview?: boolean 
   const [faqOpen, setFaqOpen] = useState<number | null>(null);
   // The Stripe Checkout page, as the customer sees it: the deposit, or the
   // whole job with Klarna and Affirm on it (Alan, 2026-10-10).
-  const [checkout, setCheckout] = useState<null | "deposit" | "full">(null);
+  const [checkout, setCheckout] = useState<null | PayFlow>(null);
+  // The screens after a payment (Alan's spec, 2026-10-10). "balance" is the
+  // link texted after the job; paidUpFront is the financed customer who
+  // owes nothing then and only gets the after-the-job screens.
+  const [afterPay, setAfterPay] = useState<null | { flow: PayFlow; method: PayMethod; paidUpFront?: boolean }>(null);
   const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
   const [postType, setPostType] = useState(POSTS[0].key);
 
@@ -366,6 +371,11 @@ export default function ProposalMockup({ preview = false }: { preview?: boolean 
             {phone ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
             {phone ? "Phone" : "Full"}
           </button>
+          <span className="ml-1 text-[11px] text-ivory/60">After the job:</span>
+          <button type="button" onClick={() => setCheckout("balance")} title="The text with the balance link, after the crew marks the job done"
+            className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Balance link</button>
+          <button type="button" onClick={() => setAfterPay({ flow: "balance", method: "klarna", paidUpFront: true })} title="A customer who paid the whole job up front through Klarna or Affirm owes nothing after the job and gets these screens by text"
+            className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Paid up front</button>
         </div>
       </div>}
 
@@ -946,6 +956,22 @@ export default function ProposalMockup({ preview = false }: { preview?: boolean 
           total={total || packages[1].price}
           repairs={repairs}
           onClose={() => setCheckout(null)}
+          onPaid={(method) => { const flow = checkout; setCheckout(null); setAfterPay({ flow, method }); }}
+        />
+      ) : null}
+      {afterPay ? (
+        <AfterPay
+          flow={afterPay.flow}
+          method={afterPay.method}
+          paidUpFront={afterPay.paidUpFront}
+          firstName={customer.name.split(" ")[0]}
+          address={customer.address}
+          pkgName={chosen?.name || packages[1].name}
+          feet={withScope ? customer.feet : 0}
+          total={total || packages[1].price}
+          repairs={repairs}
+          staff={!preview}
+          onClose={() => setAfterPay(null)}
         />
       ) : null}
 
@@ -1031,15 +1057,14 @@ function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; 
  *  Pay), or the whole job with Klarna and Affirm on it. The real page is
  *  Stripe's; this is its shape. What comes after a payment is a stub
  *  until Alan's post-payment flow arrives. */
-function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
-  mode: "deposit" | "full"; pkgName: string; total: number; repairs: number; onClose: () => void;
+function CheckoutMock({ mode, pkgName, total, repairs, onClose, onPaid }: {
+  mode: PayFlow; pkgName: string; total: number; repairs: number; onClose: () => void; onPaid: (method: PayMethod) => void;
 }) {
-  type Method = "card" | "klarna" | "affirm";
+  type Method = PayMethod;
   const [method, setMethod] = useState<Method>("card");
-  const [paid, setPaid] = useState(false);
-  const amount = mode === "deposit" ? 250 : total;
   const balance = Math.max(0, total - 250);
-  const line = payLine(total);
+  const amount = mode === "deposit" ? 250 : mode === "balance" ? balance : total;
+  const line = payLine(amount);
   const methods: { key: Method; label: string }[] = mode === "deposit"
     ? [{ key: "card", label: "Card" }]
     : [{ key: "card", label: "Card" }, { key: "klarna", label: "Klarna" }, { key: "affirm", label: "Affirm" }];
@@ -1048,16 +1073,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4" onClick={onClose}>
       <div className="flex max-h-[94vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
-        {paid ? (
-          <div className="flex flex-col items-center px-6 py-10 text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-8 w-8" /></span>
-            <h3 className="mt-4 font-heading text-2xl font-bold">{mode === "deposit" ? "You're booked." : "Paid in full."}</h3>
-            <p className="mt-1 text-[15px] text-[#15130F]/70">{mode === "deposit" ? `${formatCurrency(250)} paid. The rest, ${formatCurrency(balance)}, is due when the job is done and you're happy.` : `${formatCurrency(total)} paid through ${method === "affirm" ? "Affirm" : method === "klarna" ? "Klarna" : "your card"}.`} We'll text you your dates.</p>
-            <p className="mt-4 rounded-xl bg-[#F8F3E7] px-3 py-2 text-[13px] text-[#15130F]/75">Stub. The screen after a payment is Alan's post-payment flow, coming separately.</p>
-            <button type="button" onClick={onClose} className="mt-5 h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Back to the proposal</button>
-          </div>
-        ) : (
-          <>
+        <>
             {/* Stripe's header: back, the merchant, the amount. */}
             <div className="bg-[#15130F] px-5 pb-5 pt-4 text-white">
               <div className="flex items-center justify-between">
@@ -1067,7 +1083,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
               <div className="mt-3 flex items-center gap-3">
                 <img src="/sterling-logo-dark.png" alt="" className="h-7 w-auto" draggable={false} />
               </div>
-              <p className="mt-3 text-sm text-white/85">{mode === "deposit" ? "Deposit to reserve your dates" : `Pay Sterling Fence Staining`}</p>
+              <p className="mt-3 text-sm text-white/85">{mode === "deposit" ? "Deposit to reserve your dates" : mode === "balance" ? "Your balance. The job is done." : `Pay Sterling Fence Staining`}</p>
               <p className="font-heading text-4xl font-bold leading-none">{formatCurrency(amount)}</p>
               <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-sm">
                 <div className="flex justify-between"><span className="text-white/80">{pkgName}</span><span>{formatCurrency(total - repairs)}</span></div>
@@ -1076,6 +1092,11 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                   <>
                     <div className="flex justify-between font-semibold"><span>Deposit today</span><span>{formatCurrency(250)}</span></div>
                     <div className="flex justify-between text-white/85"><span>Due when the job is done</span><span>{formatCurrency(balance)}</span></div>
+                  </>
+                ) : mode === "balance" ? (
+                  <>
+                    <div className="flex justify-between text-white/85"><span>Deposit paid</span><span>− {formatCurrency(250)}</span></div>
+                    <div className="flex justify-between font-semibold"><span>Due today</span><span>{formatCurrency(balance)}</span></div>
                   </>
                 ) : (
                   <div className="flex justify-between font-semibold"><span>Total due today</span><span>{formatCurrency(total)}</span></div>
@@ -1086,8 +1107,8 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {/* Express checkout, the way Stripe places it. */}
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-[15px] font-semibold text-white"> Pay</button>
-                <button type="button" onClick={() => setPaid(true)} className="flex h-11 items-center justify-center rounded-lg bg-black text-[15px] font-semibold text-white"><span className="mr-1 font-bold">G</span> Pay</button>
+                <button type="button" onClick={() => onPaid("card")} className="flex h-11 items-center justify-center rounded-lg bg-black text-[15px] font-semibold text-white"> Pay</button>
+                <button type="button" onClick={() => onPaid("card")} className="flex h-11 items-center justify-center rounded-lg bg-black text-[15px] font-semibold text-white"><span className="mr-1 font-bold">G</span> Pay</button>
               </div>
               <div className="my-4 flex items-center gap-3 text-[13px] text-[#15130F]/70"><span className="h-px flex-1 bg-[#15130F]/10" />Or pay another way<span className="h-px flex-1 bg-[#15130F]/10" /></div>
 
@@ -1121,7 +1142,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                       ) : null}
                       {on && m.key === "affirm" ? (
                         <div className="px-3 pb-3 text-sm leading-relaxed text-[#15130F]/75">
-                          <p className="font-semibold text-[#15130F]">As low as {formatCurrency(monthlyFrom(total))}/mo with Affirm.</p>
+                          <p className="font-semibold text-[#15130F]">As low as {formatCurrency(monthlyFrom(amount))}/mo with Affirm.</p>
                           <p>You'll finish on Affirm's page: see your plans and the exact rate before you agree. Checking doesn't affect your credit score.</p>
                         </div>
                       ) : null}
@@ -1130,7 +1151,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
                 })}
               </div>
 
-              <button type="button" onClick={() => setPaid(true)} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>
+              <button type="button" onClick={() => onPaid(method)} className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>
                 <Lock className="h-4 w-4" /> {payLabel}
               </button>
               {mode === "deposit" ? (
@@ -1141,7 +1162,6 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose }: {
               </p>
             </div>
           </>
-        )}
       </div>
     </div>
   );

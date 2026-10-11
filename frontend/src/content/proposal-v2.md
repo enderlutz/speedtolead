@@ -686,6 +686,155 @@ words, one thing to do per screen.
 - No customer names or phone numbers in this file: it ships inside the
   dashboard.
 
+## After the payment (Alan's spec and prototype, 2026-10-10)
+
+Alan built a clickable prototype of the screens after a payment, with a
+build spec, and said: not word for word, this is the idea; financing is
+not in it and working that in is ours; the goal is this plus the
+invoicing live by 2026-10-11, on Stripe. The mockup now runs both flows
+after its fake Stripe checkout, in the proposal's own look.
+
+### Flow A, after the $250 deposit (job not done, so no survey)
+
+1. **Locked in.** "You're locked in, {first name}. Your spot on our
+   schedule is yours. We'll text your start date within 24 hours." Card:
+   deposit paid, package, address, due after the job. View receipt.
+2. **Five things before we show up.** You don't have to be home; water and
+   power; clear the fence line; sprinklers off the day before, of and
+   after; pets inside on job days. Got it.
+3. **Your neighbors' fences are aging too.** $100 off for you / $100 off
+   for your friend. Text a friend (Messages opens with the text written),
+   Copy link, Share. The link in plain text. "Your $100 off applies once."
+   No countdown, no time limit, no percentage.
+4. **Done.** "That's it. We'll take it from here." Phone number.
+
+### Flow B, after the final payment (job done)
+
+Referral comes before the review, so nobody leaves for Google first.
+
+1. **Paid in full. Thank you, {first name}.** Receipt card. (The
+   before/after slider is parked until job photos exist.)
+2. **How did we do?** 0 to 10, saves on tap, can be changed. Optional
+   "Anything we could do better?"
+3. **Know someone whose fence needs this?** $100 off for them / $100 to
+   you when their job is done. Same three share buttons.
+4. **Would you share your experience on Google?** One button, identical
+   for every score, skipped scores included; never hidden or moved. A
+   score of 0 to 6 also shows "Want Alan to call you personally?" The
+   review is never tied to the referral reward.
+5. **Anything else we can help with?** Chips: house wash, driveway and
+   concrete, window cleaning, roof washing, gutter cleaning, sprinkler
+   repair, landscaping, fence repair / boards, other. Finish. (The "when
+   should we check back on your fence" question is out on purpose.)
+6. **Enjoy the fence.** The touch-up stain is in the garage. Phone. "OK to
+   feature my comment?" only if they wrote one.
+
+Rules for both: one idea per screen; Skip on every screen but the
+confirmations; progress bar on top; every answer saved the moment it is
+tapped, not at the end; nothing from QuickBooks where the customer looks.
+
+### Where Klarna and Affirm fit
+
+| What they paid | How | Screens | What is left |
+|---|---|---|---|
+| $250 deposit | card, Apple Pay, Google Pay | Flow A | the balance after the job, by card or Klarna or Affirm |
+| the whole job, up front | Klarna or Affirm. Stripe pays us in full; the customer repays the lender | Flow A, "Paid in full through Klarna", "Nothing more is due to us" | nothing. The balance link never goes out |
+| the whole job, up front | card | Flow A, "Paid in full" | nothing |
+| the balance, after the job | card or Klarna or Affirm | Flow B | nothing |
+
+The catch: Flow B is "after the final payment", and a financed customer
+makes no final payment. So Flow B fires on **job done with a zero
+balance**, not on a payment. For a card customer paying at the end the two
+happen at once. For a financed customer, the crew marking the job complete
+sends the text with the Flow B link. The mockup's staff bar has both
+entries ("Balance link" and "Paid up front").
+
+The $100 referral credit comes "off the balance", which works for deposit
+customers. A financed customer has no balance, so theirs comes back as a
+partial refund through Stripe (the lender adjusts their plan) or a credit
+on the next job. Alan's call.
+
+More work after the job (extra repairs): a separate balance link, same
+checkout, all three methods, as already decided.
+
+### How Stripe runs it (the real build)
+
+- Every link is a token page on our side, `/pay/{token}`, never a raw
+  Stripe URL. Opening it creates a fresh Checkout Session (sessions expire
+  in 24 hours; a texted link cannot). `client_reference_id` is the lead id;
+  metadata carries lead id, kind (deposit, full, balance, extra), package
+  and amount.
+- Payment methods on the session: card and wallets always; Klarna and
+  Affirm on full and balance, never on the $250 deposit. Stripe shows the
+  lender's own messaging at checkout.
+- Truth is the webhook (`checkout.session.completed`, idempotent on the
+  event id), never the redirect. The webhook writes a `customer_payments`
+  row (lead id, kind, amount, method, Stripe ids), fires the GHL tags, and
+  mints the after-pay token. The success URL is `/after/{token}`: Flow A
+  or B by kind.
+- Every tap on the after-pay screens posts to `/after/{token}/answer`:
+  score, comment, review_clicked, callback_requested, referral_shared
+  (how), prep_acknowledged, services_interested, feature_permission,
+  skipped. Saved on tap. Public pages use raw `fetch`, never the
+  dashboard's API client, which bounces a 401 to the staff login.
+- Job done: the crew's "complete" in the dashboard. Balance owed: text the
+  balance link. Balance zero: text the Flow B link.
+- QuickBooks stays the books. The webhook marks (or creates and marks) the
+  QuickBooks invoice paid with the lead id in the memo, through the
+  existing QuickBooks client. The customer never sees QuickBooks.
+- Refunds, the $100 credit and payouts run through Stripe. The daily
+  payout to Sterling checking is already set.
+- GHL automations, placeholder names to map to the live ones:
+  `deposit_paid` (Scheduling stage, task "text the start date in 24h"),
+  `paid_in_full_upfront`, `prep_confirmed`, `referral_shared`,
+  `paid_in_full` (Complete stage), `nps_promoter` / `nps_passive` /
+  `nps_detractor` (text Alan on a detractor), `review_link_clicked`, task
+  "Alan calls the customer", one lead per service chip,
+  `testimonial_permission`. A comment becomes a note on the contact.
+
+### Data captured
+
+| Field | Flow | Values |
+|---|---|---|
+| payment | A, B | amount, kind, method, Stripe payment id |
+| receipt_viewed | A | yes/no |
+| prep_acknowledged | A | yes/no |
+| referral_shared | A, B | any of text, copy link, share sheet |
+| score | B | 0 to 10, or empty |
+| comment | B | free text |
+| review_clicked | B | yes/no |
+| callback_requested | B | yes/no |
+| services_interested | B | list, plus the text for Other |
+| feature_permission | B | yes/no |
+| skipped_screens | A, B | list of screen names |
+
+### Decisions for Alan before this goes live
+
+- The look. The mockup uses the proposal's ink, gold and ivory so these
+  screens match the page the customer just came from. The spec's forest
+  green and cedar is a different brand. Pick one.
+- The referral domain: `sterlingfencestaining.com/r/{CODE}` in the spec;
+  the proposal is planned for `estimate.sterlingfencetx.com`. Which is
+  Sterling's?
+- The phone on the Done screens is Sterling's, 346-589-7877. The email.
+- Sprinklers: "the day before, the day of, the day after" is a guess.
+- The $100 for a financed customer: refund or credit.
+- Flow B's $100 to the referrer: capped at once, like Flow A?
+- Keep "Fence repair / boards" and "Other" in the services list?
+- Referral codes: first name plus a number in the mockup. Real ones are
+  unique and stored, and a booking through `/r/{CODE}` tags the new lead
+  with who sent it.
+- Cancellation after financing: still open from earlier.
+- The live GHL tag, pipeline and stage names.
+
+### What "by tomorrow" can mean
+
+Real by 2026-10-11, in Stripe test mode, behind the launch gate: the token
+pay page with Checkout Sessions, the webhook and the ledger, the after-pay
+pages and the answer endpoint, the job-done texts, the QuickBooks
+mark-paid. From Alan: a $1 test payment on his phone, the decisions above,
+and the Sterling domain before anything is texted to a customer.
+
 ## Log
 
 - 2026-10-09 — Worktree and branch created. This file created with the
@@ -703,3 +852,7 @@ words, one thing to do per screen.
   Legacy colours no longer "take a minute"; the greeting reads "here's
   your fence restoration plan"; the price at the bottom and on the pay
   step is labelled "Your investment".
+- 2026-10-10 (night) — Alan's post-payment spec and prototype came in. Both
+  flows run in the mockup after the fake checkout, with the four financing
+  cases and a "what fires" strip for staff. The Stripe plan and the open
+  decisions are written up above.
