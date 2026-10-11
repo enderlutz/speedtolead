@@ -5,8 +5,9 @@
 // call), with the attack order printed above it.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ClipboardList, MapPin, MessageSquare, Phone, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react";
-import { api, type ContactRow } from "@/lib/api";
+import { toast } from "sonner";
+import { ClipboardList, MapPin, MessageSquare, Phone, ChevronDown, ChevronUp, ArrowUpDown, Trash2 } from "lucide-react";
+import { api, getCurrentUser, type ContactRow } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const STEPS: { t: string; d: string }[] = [
@@ -47,6 +48,27 @@ export function NoEstimateQueue() {
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
   }, [load]);
+
+  // Spam calls and randoms GHL turned into contacts: same delete as the
+  // Contacts page (GHL first, lead archived here), same DELETE prompt.
+  const isAdmin = getCurrentUser()?.role === "admin";
+  const remove = async (c: ContactRow) => {
+    const who = c.name || c.phone || "this contact";
+    const typed = window.prompt(
+      `Delete ${who} in GoHighLevel AND on the dashboard?\n\n` +
+      `GHL deletes their conversations and opportunity with them. That can't be undone there. ` +
+      `Here the lead is archived, so its estimates and history are kept.\n\nType DELETE to confirm.`,
+    );
+    if ((typed || "").trim().toUpperCase() !== "DELETE") return;
+    try {
+      await api.deleteContact(c.id);
+      setRows((prev) => (prev || []).filter((x) => x.id !== c.id));
+      setTotal((t) => Math.max(0, t - 1));
+      toast.success(`${who} deleted in GHL and archived here`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't delete");
+    }
+  };
 
   const sorted = useMemo(() => {
     const r = [...(rows || [])];
@@ -134,6 +156,13 @@ export function NoEstimateQueue() {
                     title="Waiting since they last came in">
                     {w.label}
                   </span>
+                  {isAdmin ? (
+                    <button type="button" title="Delete this contact in GHL and here"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void remove(c); }}
+                      className="shrink-0 rounded-md p-1.5 opacity-40 transition hover:bg-red-50 hover:text-red-600 hover:opacity-100">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
                 </Link>
               </li>
             );
