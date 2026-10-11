@@ -121,17 +121,9 @@ def detect_and_record_delays(db) -> int:
             detected_at=_now(),
             created_at=_now(),
         )
-        # SMS Alan
-        if settings.owner_ghl_contact_id:
-            msg = (
-                f"⏰ No estimate sent for {lead.contact_name or 'Unknown'} after 24h. "
-                f"Open the dashboard — Olga will be prompted for a reason."
-            )
-            try:
-                if ghl.send_sms(settings.owner_ghl_contact_id, msg):
-                    delay.alan_notified_at = _now()
-            except Exception as e:
-                logger.warning(f"24h alert SMS to Alan failed: {e}")
+        # No text per lead any more (Alan, 2026-10-11): one 8 PM digest with
+        # the counts instead (services/estimate_digest.py). The delay row and
+        # the dashboard prompt stay.
         db.add(delay)
         new_count += 1
     if new_count:
@@ -248,9 +240,9 @@ def set_delay_reason(lead_id: str, body: ReasonBody, user: dict = Depends(requir
         d.reason_added_by = user.get("name", "")
         db.commit()
 
-        # SMS Alan with the reason
+        # The reason used to be texted to Alan too; it lives on the lead now.
         settings = get_settings()
-        if settings.owner_ghl_contact_id:
+        if False and settings.owner_ghl_contact_id:
             lead = db.query(Lead).filter(Lead.id == lead_id).first()
             name = (lead.contact_name if lead else "Unknown") or "Unknown"
             display_reason = body.reason_code.replace("_", " ").title()

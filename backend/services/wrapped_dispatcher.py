@@ -87,6 +87,19 @@ def run_wrapped_dispatcher():
     frontend_url = (settings.frontend_url or "").rstrip("/")
     dashboard_link = f"{frontend_url}/" if frontend_url else "the dashboard"
 
+    # Daily, 8 PM Central: how many still need an estimate (replaces the
+    # per-lead 24h alert; services/estimate_digest.py).
+    if 20 <= hour <= 21:
+        period_key = f"estimate_digest:daily:{today.isoformat()}"
+        if not _already_sent(period_key):
+            try:
+                from services.estimate_digest import counts, daily_message
+                ok = send_sms(settings.owner_ghl_contact_id, daily_message(counts()))
+                if ok:
+                    _record_sent(period_key, settings.owner_ghl_contact_id, "daily estimate digest")
+            except Exception as e:
+                logger.warning(f"Daily estimate digest failed: {e}")
+
     # Weekly: Saturdays, 9 AM Central window (so 8–10 covers DST drift)
     if weekday == 5 and 8 <= hour <= 10:
         period_key = f"wrapped_sms:weekly:{today.isoformat()}"

@@ -27,6 +27,16 @@ def run_weekly_reminder():
     if not settings.owner_ghl_contact_id:
         return
 
+    # Until the real weekly numbers are tracked (sales up/down, close rate,
+    # CAC), the weekly text is just who still needs a price (Alan, 2026-10-11).
+    try:
+        from services.estimate_digest import counts, weekly_message
+        send_sms(settings.owner_ghl_contact_id, weekly_message(counts()))
+    except Exception as e:
+        logger.error(f"Weekly estimate count failed: {e}")
+    cleanup_stale_pdf_data()
+    return
+
     db = get_db()
     try:
         # Count unclosed sent estimates
