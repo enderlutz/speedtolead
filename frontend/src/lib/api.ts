@@ -1337,6 +1337,10 @@ export const api = {
   createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
+  sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
+  getStripeSettings: () => request<StripeSettings>(`/api/stripe/settings`),
+  updateStripeSettings: (body: { auto_balance_link: boolean }) =>
+    request<StripeSettings>(`/api/stripe/settings`, { method: "PUT", body: JSON.stringify(body) }),
   updateColumn: (id: string, kanban_column: string) =>
     request<Lead>(`/api/leads/${id}/column`, {
       method: "PUT",
@@ -5556,3 +5560,4 @@ export interface CustomerPaymentEntry {
 export interface PayLinksResponse {
   links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
 }
+export interface StripeSettings { auto_balance_link: boolean; configured: boolean }

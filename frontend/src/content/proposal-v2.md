@@ -879,9 +879,27 @@ Live on the next deploy, inert until the keys are in Railway:
 - Eight backend tests cover links, sessions, the webhook's signature and
   retries, and the answers.
 
-Not yet: texting the link from the card (copy and paste for now), the GHL
-tags and tasks off the answers, the QuickBooks mark-paid, the job-done
-trigger, and the referral engine.
+Also in, later the same night (`services/after_pay_hooks.py`):
+
+- **Text** on the card sends the link through GHL with a message written
+  for its kind, refuses a do-not-contact lead or one with no phone, and
+  stamps "texted" on the link. `POST /api/pay-links/{token}/send`.
+- **Off a payment:** tag `deposit_paid`, `paid_in_full_upfront`,
+  `extra_paid` or `paid_in_full`; a note on the contact; a text to Alan.
+- **Off each tap:** `prep_confirmed`, `referral_shared`, `nps_promoter` /
+  `nps_passive` / `nps_detractor` (a text to Alan on a detractor), the
+  comment as a note, `review_link_clicked`, `callback_requested` (a text
+  to Alan), `wants_<service>` tags plus a note and a text to Alan,
+  `testimonial_permission`. A changed score adds the new band's tag; the
+  old one stays (GHL tag removal isn't wired).
+- **Job done:** when the crew marks a job complete and the switch on the
+  card is on (`stripe_auto_balance_link`, off by default), the balance
+  link is made for the price less everything paid (a QuickBooks deposit
+  counts) and texted; nothing owed makes the all-paid link instead. Never
+  a second open link for the same lead. No price on the job: nothing.
+
+Not yet: the QuickBooks mark-paid, one lead per service chip (today it's a
+tag, a note and a text to Alan), and the referral engine.
 
 ### What "by tomorrow" can mean
 
@@ -916,3 +934,7 @@ and the Sterling domain before anything is texted to a customer.
   sessions, the webhook, the ledger, the customer pay page and the real
   after-payment pages, plus the Stripe links card on the lead page. All
   inert until the keys are in Railway.
+- 2026-10-10 (later) — The hooks: Text on the card, tags, notes and alerts
+  off payments and answers, the job-done trigger behind a switch. Fragne
+  flipped PROPOSAL_BASE_URL to the Sterling domain tonight; the next send
+  will show it.

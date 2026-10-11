@@ -2154,6 +2154,13 @@ def complete_scheduled_job(job_id: str, user: dict = Depends(get_current_user)):
             })
         except Exception as e:
             logger.warning(f"job_completed event publish failed: {e}")
+        # The balance link, or the all-paid link, texted on its own when the
+        # Stripe switch is on (services/after_pay_hooks.py).
+        try:
+            from services.after_pay_hooks import on_job_complete
+            on_job_complete(j.id)
+        except Exception as e:
+            logger.warning(f"after-pay job-complete hook failed: {e}")
 
         return j.to_dict(role=user.get("role", "admin"))
     finally:

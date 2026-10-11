@@ -7,7 +7,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest  # noqa: E402
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import BackgroundTasks, FastAPI, HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import stripe_pay as sp  # noqa: E402
@@ -122,13 +122,13 @@ def test_answers_save_only_on_a_paid_link(db, monkeypatch):
     lead = _lead(db)
     open_link = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit"), STAFF)
     with pytest.raises(HTTPException) as e:
-        sp.save_answer(open_link["token"], sp.AnswerBody(field="score", value=9))
+        sp.save_answer(open_link["token"], sp.AnswerBody(field="score", value=9), BackgroundTasks())
     assert e.value.status_code == 402
     done = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="done"), STAFF)
-    assert sp.save_answer(done["token"], sp.AnswerBody(field="score", value=9))["answers"] == {"score": 9}
-    sp.save_answer(done["token"], sp.AnswerBody(field="services_interested", value=["House wash"]))
+    assert sp.save_answer(done["token"], sp.AnswerBody(field="score", value=9), BackgroundTasks())["answers"] == {"score": 9}
+    sp.save_answer(done["token"], sp.AnswerBody(field="services_interested", value=["House wash"]), BackgroundTasks())
     with pytest.raises(HTTPException) as e:
-        sp.save_answer(done["token"], sp.AnswerBody(field="password", value="x"))
+        sp.save_answer(done["token"], sp.AnswerBody(field="password", value="x"), BackgroundTasks())
     assert e.value.status_code == 400
     after = sp.after_info(done["token"])
     assert after["paid"] is True and after["flow"] == "B" and after["answers"] == {"score": 9, "services_interested": ["House wash"]}

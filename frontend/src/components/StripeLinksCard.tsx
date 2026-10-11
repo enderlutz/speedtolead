@@ -2,12 +2,14 @@
 // The deposit, the balance after the job, extra work, or "job done" for a
 // customer who paid up front and only gets the after-the-job screens. The
 // link is what gets texted; paying happens on Stripe; the webhook marks it
-// paid here. (Alan's post-payment spec, 2026-10-10.) Sending the text from
-// this card is the next step; until then, Copy and paste it into the thread.
+// paid here. Text sends the link through GHL with the message written for
+// its kind; it refuses a do-not-contact lead. The switch at the bottom lets
+// the crew's "job complete" text the balance link on its own.
+// (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, CheckCircle2, Loader2 } from "lucide-react";
-import { api, type PayLinkEntry, type PayLinkKind, type PayLinksResponse } from "@/lib/api";
+import { Copy, Ban, CreditCard, CheckCircle2, Loader2, MessageSquare } from "lucide-react";
+import { api, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
@@ -21,9 +23,12 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
   const [data, setData] = useState<PayLinksResponse | null>(null);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState<PayLinkKind | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
+  const [settings, setSettings] = useState<StripeSettings | null>(null);
 
   const load = useCallback(() => {
     api.listPayLinks(leadId).then(setData).catch(() => setData(null));
+    api.getStripeSettings().then(setSettings).catch(() => setSettings(null));
   }, [leadId]);
   useEffect(() => { load(); }, [load]);
 
@@ -44,6 +49,16 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
   const copy = async (link: PayLinkEntry) => {
     try { await navigator.clipboard.writeText(link.url); toast.success("Link copied. Paste it into the text."); }
     catch { toast.message(link.url); }
+  };
+  const text = async (link: PayLinkEntry) => {
+    setSending(link.token);
+    try { await api.sendPayLink(link.token); toast.success("Texted to the customer"); load(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
+    finally { setSending(null); }
+  };
+  const flipAuto = async (on: boolean) => {
+    try { setSettings(await api.updateStripeSettings({ auto_balance_link: on })); toast.success(on ? "The balance link will text itself when a job is marked complete" : "Automatic balance link is off"); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't change that"); }
   };
   const voidLink = async (link: PayLinkEntry) => {
     try { await api.voidPayLink(link.token); toast.success("Link voided"); load(); }
@@ -79,13 +94,24 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               </span>
               <span className="font-semibold">{l.label}</span>
               <span className="tabular-nums">{l.kind === "done" ? "" : formatCurrency(l.amount)}</span>
-              <span className="ml-auto text-muted-foreground">{l.paid_at ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
+              <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
+              {l.status === "open" || l.kind === "done" ? (
+                <button type="button" onClick={() => text(l)} disabled={sending === l.token} className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60" title="Text the link to the customer">
+                  {sending === l.token ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} {l.sent_at ? "Text again" : "Text"}
+                </button>
+              ) : null}
               <button type="button" onClick={() => copy(l)} className="rounded-md p-1 hover:bg-background" title="Copy the link"><Copy className="h-3.5 w-3.5" /></button>
               {l.status === "open" ? <button type="button" onClick={() => voidLink(l)} className="rounded-md p-1 hover:bg-background" title="Void this link"><Ban className="h-3.5 w-3.5" /></button> : null}
             </li>
           ))}
         </ul>
+      ) : null}
+      {settings ? (
+        <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg bg-muted/40 px-2 py-1.5 text-xs">
+          <input type="checkbox" checked={settings.auto_balance_link} onChange={(e) => flipAuto(e.target.checked)} className="mt-0.5 h-3.5 w-3.5 accent-emerald-600" />
+          <span><b>Text the balance link by itself</b> when the crew marks a job complete (or the all-paid link when nothing is owed). Applies to every job, not just this one.</span>
+        </label>
       ) : null}
     </div>
   );

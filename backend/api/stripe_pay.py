@@ -30,12 +30,13 @@ import uuid
 from datetime import datetime, timezone
 
 import stripe
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.auth import require_staff
 from config import get_settings
 from database import get_db, Lead, PayLink, CustomerPayment
+from services import after_pay_hooks as hooks
 from services.activity_log import log_event
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,52 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
         db.close()
 
 
+@router.post("/pay-links/{token}/send")
+def send_pay_link(token: str, user: dict = Depends(require_staff)):
+    """Text the link to the customer through GHL, with the message written
+    for its kind. Refuses a do-not-contact lead, or one with no phone."""
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link or link.status == "void":
+            raise HTTPException(status_code=404, detail="Not found")
+        if link.status == "paid" and link.kind != "done":
+            raise HTTPException(status_code=400, detail="This link was already paid")
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        sent, reason = hooks.send_link(db, link, lead)
+        if not sent:
+            raise HTTPException(status_code=400, detail=reason)
+        log_event(link.lead_id, "pay_link_texted_by", user.get("name") or user.get("sub") or "")
+        return link_dict(link)
+    finally:
+        db.close()
+
+
+class StripeSettingsBody(BaseModel):
+    auto_balance_link: bool
+
+
+@router.get("/stripe/settings")
+def get_stripe_settings(user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        return {"auto_balance_link": hooks.auto_balance_on(db), "configured": configured()}
+    finally:
+        db.close()
+
+
+@router.put("/stripe/settings")
+def update_stripe_settings(body: StripeSettingsBody, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        hooks.set_auto_balance(db, body.auto_balance_link)
+        log_event(None, "stripe_settings", f"auto_balance_link={'on' if body.auto_balance_link else 'off'} by {user.get('name') or user.get('sub') or ''}")
+        return {"auto_balance_link": hooks.auto_balance_on(db), "configured": configured()}
+    finally:
+        db.close()
+
+
 @router.post("/pay-links/{token}/void")
 def void_pay_link(token: str, user: dict = Depends(require_staff)):
     del user
@@ -308,7 +355,7 @@ class AnswerBody(BaseModel):
 
 
 @router.post("/pay/{token}/answer")
-def save_answer(token: str, body: AnswerBody):
+def save_answer(token: str, body: AnswerBody, background: BackgroundTasks):
     """Public. One tap on the after screens, saved the moment it happens."""
     field = (body.field or "").strip()
     if field not in ANSWER_FIELDS:
@@ -324,6 +371,8 @@ def save_answer(token: str, body: AnswerBody):
         link.answered_at = _now()
         db.commit()
         log_event(link.lead_id, "after_pay_answer", f"{field}: {json.dumps(body.value)[:200]}")
+        # Tags, notes and alerts after the customer has their answer back.
+        background.add_task(hooks.on_answer, link.lead_id, field, body.value, dict(answers))
         return {"ok": True, "answers": answers}
     finally:
         db.close()
@@ -368,6 +417,10 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
             lead.deposit_paid_method = f"stripe:{method or 'card'}"
     db.commit()
     log_event(link.lead_id, "stripe_payment_received", f"{link.kind} {amount / 100:.2f} {method or ''}".strip())
+    try:
+        hooks.on_paid(link.lead_id, link.kind, amount / 100, method)
+    except Exception as e:  # noqa: BLE001 - the payment is booked; the hooks are extra
+        logger.warning("after-payment hooks failed for %s: %s", link.token, e)
     return row
 
 
