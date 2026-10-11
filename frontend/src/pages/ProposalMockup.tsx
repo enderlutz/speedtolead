@@ -89,9 +89,11 @@ const PACKAGES: {
   },
   {
     key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Solid color", lasts: "4–7 yrs",
-    // New file names on purpose: a phone that cached the old, zoomed-in
-    // Legacy photos under the old names keeps showing them otherwise.
-    photos: ["/proposal-mockup/pkg-legacy-wide-a.jpg", "/proposal-mockup/pkg-legacy-wide-b.jpg"],
+    // The orange is extended with its own panels at the real post spacing
+    // (the next posts fall off the edge); the dark one's boards continue
+    // along the slope of its rail. The ?v= changes whenever the files do,
+    // so a phone that cached an earlier cut loads the new one.
+    photos: ["/proposal-mockup/pkg-legacy-wide-a.jpg?v=3", "/proposal-mockup/pkg-legacy-wide-b.jpg?v=3"],
     best: "Older fences that need full coverage",
     lines: [
       { icon: Shield, text: "Solid color protection" },
