@@ -1708,6 +1708,32 @@ export default function LeadDetail() {
               Uncomment to bring it back. */}
           {/* <CallPrepCard leadId={lead.id} leadName={lead.contact_name} /> */}
 
+          {/* The $250 deposit, the Stripe links and the full invoice. Right
+              under Contact and above Measure so the deposit link is one tap
+              away (Alan, 2026-10-10: "so we can send the $250 deposit
+              quicker"). Still folded until there's a job. */}
+          <Panel
+            id="est-payments"
+            className="scroll-mt-4"
+            icon={CircleDollarSign}
+            title="Payment links"
+            sub="The $250 deposit, then the full invoice"
+            accent={ACCENT.emerald}
+            collapsed={!isOpen("payments", paymentsDefault)}
+            onToggle={() => toggle("payments", paymentsDefault)}
+            bodyClassName="space-y-2 p-3.5"
+          >
+            <DepositRow
+              lead={lead}
+              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
+            />
+            <FullInvoiceRow
+              job={latestScheduledJob}
+              onGenerate={() => setInvoiceModalOpen(true)}
+            />
+            <StripeLinksCard leadId={lead.id} />
+          </Panel>
+
           {/* Measure the property in place. Sits directly above the
               estimator because its output IS the estimator's first input:
               trace the fence, capture, and Linear Feet fills itself. The
@@ -2376,31 +2402,6 @@ export default function LeadDetail() {
               onToggle={() => toggle("visits", visitsDefault)}
             />
           </div>
-
-          {/* The $250 deposit and the full invoice. Lived inside the Contact
-              card until 2026-10-09; it's money after the win, so it sits
-              with the visits and stays folded until there's a job. */}
-          <Panel
-            id="est-payments"
-            className="scroll-mt-4"
-            icon={CircleDollarSign}
-            title="Payment links"
-            sub="The $250 deposit, then the full invoice"
-            accent={ACCENT.emerald}
-            collapsed={!isOpen("payments", paymentsDefault)}
-            onToggle={() => toggle("payments", paymentsDefault)}
-            bodyClassName="space-y-2 p-3.5"
-          >
-            <DepositRow
-              lead={lead}
-              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
-            />
-            <FullInvoiceRow
-              job={latestScheduledJob}
-              onGenerate={() => setInvoiceModalOpen(true)}
-            />
-            <StripeLinksCard leadId={lead.id} />
-          </Panel>
 
           {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
               data all kept: 3 submissions ever, none from a real customer, and
