@@ -852,6 +852,37 @@ Alan's decision ("approve the public endpoint"). The token is in
 `backend/api/proposal_preview.py`; delete it there once the friend has
 looked, and the link dies.
 
+### Built on 2026-10-10 (night): the payment rails, in code
+
+Live on the next deploy, inert until the keys are in Railway:
+
+- **Backend** `api/stripe_pay.py`, tables `pay_links` and `customer_payments`
+  (not `payments`, which is crew payroll). Settings `STRIPE_SECRET_KEY`,
+  `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` in Railway.
+- Staff: `POST /api/leads/{id}/pay-links` (kind deposit, full, balance,
+  extra, done; amount), `GET …/pay-links`, `POST /api/pay-links/{token}/void`.
+  On the lead page, the Payment links panel has a "Stripe links" card:
+  amount, four buttons, copy, void, paid status.
+- Customer: `/pay/{token}` shows the amount and one Pay button, which asks
+  `POST /api/pay/{token}/session` for a fresh Checkout session and goes to
+  Stripe. Deposit is card and wallets only; the rest take whatever is
+  switched on in Stripe (turn Klarna and Affirm on there).
+- Stripe calls `POST /api/stripe/webhook`
+  (`https://speedtolead-production-f980.up.railway.app/api/stripe/webhook`,
+  events `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.async_payment_failed`). It books the payment once per
+  session, marks the link paid and flags the lead's deposit fields.
+- `/after/{token}` runs Flow A or B for real, resumes saved answers, and
+  posts every tap to `POST /api/pay/{token}/answer`. If the webhook is a
+  few seconds behind, `GET /api/pay/{token}/after?s=` checks the session
+  with Stripe and books it the same idempotent way.
+- Eight backend tests cover links, sessions, the webhook's signature and
+  retries, and the answers.
+
+Not yet: texting the link from the card (copy and paste for now), the GHL
+tags and tasks off the answers, the QuickBooks mark-paid, the job-done
+trigger, and the referral engine.
+
 ### What "by tomorrow" can mean
 
 Real by 2026-10-11, in Stripe test mode, behind the launch gate: the token
@@ -881,3 +912,7 @@ and the Sterling domain before anything is texted to a customer.
   flows run in the mockup after the fake checkout, with the four financing
   cases and a "what fires" strip for staff. The Stripe plan and the open
   decisions are written up above.
+- 2026-10-10 (late) — The payment rails built: pay links, Stripe Checkout
+  sessions, the webhook, the ledger, the customer pay page and the real
+  after-payment pages, plus the Stripe links card on the lead page. All
+  inert until the keys are in Railway.

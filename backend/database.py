@@ -3921,6 +3921,51 @@ class ObjectionScan(Base):
     kind = Column(Text, default="live")
 
 
+class PayLink(Base):
+    """A payment link texted to a customer: one token, one amount, one kind.
+    Opening it makes a fresh Stripe Checkout session (sessions expire; the
+    link doesn't). The webhook is the only thing that marks it paid. The
+    token doubles as the key for the after-payment screens and holds their
+    answers. (Alan's post-payment spec, 2026-10-10.)"""
+    __tablename__ = "pay_links"
+    __table_args__ = (Index("idx_pay_links_lead", "lead_id"),)
+
+    token = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False)                 # deposit | full | balance | extra | done
+    amount_cents = Column(Integer, nullable=False, default=0)
+    description = Column(Text, default="")
+    status = Column(Text, default="open", nullable=False)  # open | paid | void
+    stripe_session_id = Column(Text, nullable=True)
+    created_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+    sent_at = Column(Text, nullable=True)
+    paid_at = Column(Text, nullable=True)
+    answers = Column(Text, default="{}")                # the after screens, saved per tap
+    answered_at = Column(Text, nullable=True)
+
+
+class CustomerPayment(Base):
+    """Money a customer paid us through Stripe. Not `payments`: that table
+    is crew payroll. One row per Stripe Checkout session, written by the
+    webhook (or by the after page when the webhook is late), never twice."""
+    __tablename__ = "customer_payments"
+    __table_args__ = (Index("idx_customer_payments_lead", "lead_id"),)
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    pay_link_token = Column(Text, nullable=True)
+    kind = Column(Text, nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    currency = Column(Text, default="usd")
+    method = Column(Text, default="")                   # card | klarna | affirm | ...
+    stripe_session_id = Column(Text, unique=True, nullable=True)
+    stripe_payment_intent_id = Column(Text, nullable=True)
+    stripe_event_id = Column(Text, nullable=True)
+    receipt_url = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+
 def init_db():
     global _engine, _SessionLocal
     settings = get_settings()

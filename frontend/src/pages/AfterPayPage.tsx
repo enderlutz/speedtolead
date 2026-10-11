@@ -1,0 +1,94 @@
+// /after/{token}: where Stripe sends the customer after they pay. It asks the
+// backend whether the link is paid (the backend checks the session itself
+// if the webhook is a few seconds behind), then runs Flow A or Flow B and
+// saves every tap as it happens. (Alan's post-payment spec, 2026-10-10.)
+import { useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
+
+const BASE = import.meta.env.VITE_API_URL || "";
+
+type After = {
+  paid: boolean; kind: string; flow: "A" | "B"; amount: number; method: string; paid_total: number;
+  first_name: string; address: string; answers: Record<string, unknown>;
+};
+
+export default function AfterPayPage() {
+  const { token } = useParams<{ token: string }>();
+  const [params] = useSearchParams();
+  const [after, setAfter] = useState<After | null>(null);
+  const [state, setState] = useState<"checking" | "ready" | "unpaid" | "gone">("checking");
+  const tries = useRef(0);
+
+  useEffect(() => {
+    let alive = true;
+    document.title = "Thank you · Sterling Fence Staining";
+    const s = params.get("s") || "";
+    const check = async () => {
+      try {
+        const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/after${s ? `?s=${encodeURIComponent(s)}` : ""}`);
+        if (r.status === 404) { if (alive) setState("gone"); return; }
+        const data = (await r.json()) as After;
+        if (!alive) return;
+        if (data.paid) { setAfter(data); setState("ready"); return; }
+        tries.current += 1;
+        if (tries.current < 8) setTimeout(check, 1500);
+        else setState("unpaid");
+      } catch {
+        tries.current += 1;
+        if (alive && tries.current < 8) setTimeout(check, 1500);
+        else if (alive) setState("unpaid");
+      }
+    };
+    void check();
+    return () => { alive = false; };
+  }, [token, params]);
+
+  const save = (field: string, value: unknown) => {
+    void fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/answer`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field, value }),
+    }).catch(() => { /* saved on the next tap */ });
+  };
+
+  if (state === "ready" && after) {
+    const flow: PayFlow = after.kind === "deposit" ? "deposit" : after.kind === "balance" || after.kind === "done" ? "balance" : "full";
+    const method: PayMethod = after.method === "klarna" || after.method === "affirm" ? after.method : "card";
+    return (
+      <AfterPay
+        page
+        flow={flow}
+        method={method}
+        paidUpFront={after.kind === "done"}
+        amount={after.amount}
+        firstName={after.first_name || "there"}
+        address={after.address}
+        pkgName=""
+        feet={0}
+        total={after.flow === "B" ? after.paid_total : 0}
+        repairs={0}
+        initial={after.answers}
+        onAnswer={save}
+      />
+    );
+  }
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#F8F3E7] p-6 text-center text-[#15130F]">
+      <div className="max-w-sm">
+        {state === "gone" ? (
+          <>
+            <p className="font-heading text-2xl font-bold">This link isn't active.</p>
+            <p className="mt-2 text-[15px] text-[#15130F]/75">Call or text Sterling Fence Staining at 346-589-7877.</p>
+          </>
+        ) : state === "unpaid" ? (
+          <>
+            <p className="font-heading text-2xl font-bold">We haven't seen your payment yet.</p>
+            <p className="mt-2 text-[15px] text-[#15130F]/75">If you just paid, give it a minute and refresh. If not, your payment link still works.</p>
+            <button type="button" onClick={() => window.location.reload()} className="mt-4 h-12 w-full rounded-xl bg-[#15130F] text-[16px] font-bold text-[#E3BE63]">Check again</button>
+          </>
+        ) : (
+          <p className="text-[17px] font-semibold text-[#15130F]/75">Confirming your payment…</p>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -9,6 +9,7 @@ import { cn, formatCurrency, formatMonthly, formatDate, formatDateTime, timeAgo,
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
+import { StripeLinksCard } from "@/components/StripeLinksCard";
 import { SidesPicker } from "@/components/SidesPicker";
 import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
@@ -2398,6 +2399,7 @@ export default function LeadDetail() {
               job={latestScheduledJob}
               onGenerate={() => setInvoiceModalOpen(true)}
             />
+            <StripeLinksCard leadId={lead.id} />
           </Panel>
 
           {/* FenceScope video estimates — hidden 2026-09-28. Route, API and

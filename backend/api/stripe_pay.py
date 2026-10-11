@@ -1,0 +1,404 @@
+"""Customer payments through Stripe Checkout, and the screens after them.
+
+How it runs (the notes under "How Stripe runs it", 2026-10-10):
+
+- Staff make a pay link on a lead: deposit ($250), full, balance, extra, or
+  done (nothing owed, only the after-the-job screens). The customer gets
+  {proposal_base_url}/pay/{token}.
+- Opening the link calls POST /pay/{token}/session, which creates a fresh
+  Stripe Checkout session and sends the customer to Stripe. Sessions expire
+  in a day; the link never does. Card and wallets always; Klarna and Affirm
+  on everything but the deposit (whatever is switched on in Stripe).
+- Stripe calls POST /stripe/webhook when the session is paid. That writes the
+  customer_payments row, marks the link paid and flags the lead's deposit.
+  Idempotent on the session id, so a retried webhook, or the after-page's
+  own check when the webhook is late, can never book a payment twice.
+- Stripe sends the customer back to /after/{token}. That page asks
+  GET /pay/{token}/after, then saves every tap through
+  POST /pay/{token}/answer the moment it happens.
+
+Without STRIPE_SECRET_KEY the public endpoints say so and nothing runs.
+The tags, tasks and QuickBooks mark-paid hang off _record_paid and
+save_answer; they come in the next step.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import secrets
+import uuid
+from datetime import datetime, timezone
+
+import stripe
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+
+from api.auth import require_staff
+from config import get_settings
+from database import get_db, Lead, PayLink, CustomerPayment
+from services.activity_log import log_event
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+KINDS = ("deposit", "full", "balance", "extra", "done")
+DEPOSIT_CENTS = 25000
+LABELS = {
+    "deposit": "Deposit to reserve your dates",
+    "full": "Fence staining, paid in full",
+    "balance": "Your balance. The job is done.",
+    "extra": "Additional work",
+    "done": "Job complete",
+}
+# What the after-payment screens may save. Anything else is refused.
+ANSWER_FIELDS = {
+    "receipt_viewed", "prep_acknowledged", "referral_shared", "score", "comment",
+    "review_clicked", "callback_requested", "services_interested", "feature_permission",
+    "skipped_screens", "finished",
+}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _base() -> str:
+    return (get_settings().proposal_base_url or "").rstrip("/")
+
+
+def configured() -> bool:
+    return bool((get_settings().stripe_secret_key or "").strip())
+
+
+def _stripe():
+    key = (get_settings().stripe_secret_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=503, detail="Stripe isn't switched on yet (STRIPE_SECRET_KEY).")
+    stripe.api_key = key
+    return stripe
+
+
+def _first_name(lead: Lead) -> str:
+    return (lead.contact_name or "").strip().split(" ")[0] if lead and lead.contact_name else ""
+
+
+def link_dict(link: PayLink) -> dict:
+    return {
+        "token": link.token,
+        "lead_id": link.lead_id,
+        "kind": link.kind,
+        "label": LABELS.get(link.kind, link.kind),
+        "amount": round((link.amount_cents or 0) / 100, 2),
+        "description": link.description or "",
+        "status": link.status,
+        "url": f"{_base()}/pay/{link.token}",
+        "after_url": f"{_base()}/after/{link.token}",
+        "created_by": link.created_by or "",
+        "created_at": link.created_at,
+        "sent_at": link.sent_at,
+        "paid_at": link.paid_at,
+        "answers": _loads(link.answers),
+        "answered_at": link.answered_at,
+    }
+
+
+def payment_dict(p: CustomerPayment) -> dict:
+    return {
+        "id": p.id, "lead_id": p.lead_id, "pay_link_token": p.pay_link_token, "kind": p.kind,
+        "amount": round((p.amount_cents or 0) / 100, 2), "currency": p.currency, "method": p.method or "",
+        "stripe_session_id": p.stripe_session_id, "stripe_payment_intent_id": p.stripe_payment_intent_id,
+        "created_at": p.created_at,
+    }
+
+
+def _loads(text: str | None) -> dict:
+    try:
+        v = json.loads(text or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+# ── Staff: make, list and void links ──────────────────────────────────────
+
+class CreateLinkBody(BaseModel):
+    kind: str
+    amount: float | None = None
+    description: str = ""
+
+
+@router.post("/leads/{lead_id}/pay-links")
+def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(require_staff)):
+    kind = (body.kind or "").strip().lower()
+    if kind not in KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {', '.join(KINDS)}")
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if kind == "deposit":
+            cents = DEPOSIT_CENTS if body.amount is None else int(round(body.amount * 100))
+        elif kind == "done":
+            cents = 0
+        else:
+            cents = int(round((body.amount or 0) * 100))
+        if kind != "done" and cents <= 0:
+            raise HTTPException(status_code=400, detail="An amount is needed for this kind of link")
+        now = _now()
+        link = PayLink(
+            token=secrets.token_urlsafe(20), lead_id=lead_id, kind=kind, amount_cents=cents,
+            description=(body.description or "").strip(), status="paid" if kind == "done" else "open",
+            created_by=user.get("name") or user.get("sub") or "", created_at=now,
+            paid_at=now if kind == "done" else None, answers="{}",
+        )
+        db.add(link)
+        db.commit()
+        log_event(lead_id, "pay_link_created", f"{kind} {cents / 100:.2f} by {link.created_by}")
+        return link_dict(link)
+    finally:
+        db.close()
+
+
+@router.get("/leads/{lead_id}/pay-links")
+def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        links = db.query(PayLink).filter(PayLink.lead_id == lead_id).order_by(PayLink.created_at.desc()).all()
+        pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead_id).order_by(CustomerPayment.created_at.desc()).all()
+        return {
+            "links": [link_dict(x) for x in links],
+            "payments": [payment_dict(p) for p in pays],
+            "paid_total": round(sum(p.amount_cents or 0 for p in pays) / 100, 2),
+            "configured": configured(),
+        }
+    finally:
+        db.close()
+
+
+@router.post("/pay-links/{token}/void")
+def void_pay_link(token: str, user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link:
+            raise HTTPException(status_code=404, detail="Not found")
+        if link.status == "paid":
+            raise HTTPException(status_code=400, detail="This link was paid; it can't be voided")
+        link.status = "void"
+        db.commit()
+        return link_dict(link)
+    finally:
+        db.close()
+
+
+# ── Public: the pay page and the after page ───────────────────────────────
+
+def _live_link(db, token: str) -> PayLink:
+    if not token or len(token) < 16:
+        raise HTTPException(status_code=404, detail="Not found")
+    link = db.query(PayLink).filter(PayLink.token == token).first()
+    if not link or link.status == "void":
+        raise HTTPException(status_code=404, detail="Not found")
+    return link
+
+
+@router.get("/pay/{token}")
+def pay_info(token: str):
+    """Public. What the pay page shows before the customer taps Pay."""
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        return {
+            "kind": link.kind, "label": LABELS.get(link.kind, link.kind),
+            "amount": round((link.amount_cents or 0) / 100, 2), "description": link.description or "",
+            "status": link.status, "first_name": _first_name(lead), "address": (lead.address if lead else "") or "",
+            "configured": configured(),
+        }
+    finally:
+        db.close()
+
+
+@router.post("/pay/{token}/session")
+def start_session(token: str):
+    """Public. A fresh Stripe Checkout session for this link; the customer
+    is sent to Stripe's page. A link already paid goes to its after page."""
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        if link.status == "paid":
+            return {"url": f"{_base()}/after/{link.token}", "paid": True}
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        s = _stripe()
+        params: dict = {
+            "mode": "payment",
+            "line_items": [{
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": int(link.amount_cents),
+                    "product_data": {"name": f"Sterling Fence Staining: {LABELS.get(link.kind, link.kind)}"},
+                },
+            }],
+            "client_reference_id": link.lead_id,
+            "metadata": {"lead_id": link.lead_id, "pay_link": link.token, "kind": link.kind},
+            "payment_intent_data": {"metadata": {"lead_id": link.lead_id, "pay_link": link.token, "kind": link.kind}},
+            "success_url": f"{_base()}/after/{link.token}?s={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{_base()}/pay/{link.token}",
+        }
+        # The deposit is card and wallets only. Everything else takes whatever
+        # is switched on in Stripe, Klarna and Affirm included, and Stripe
+        # hides a lender when the amount is outside its range.
+        if link.kind == "deposit":
+            params["payment_method_types"] = ["card"]
+        if lead and lead.contact_email:
+            params["customer_email"] = lead.contact_email
+        try:
+            session = s.checkout.Session.create(**params)
+        except stripe.StripeError as e:  # type: ignore[attr-defined]
+            logger.warning("Stripe session failed for %s: %s", token, e)
+            raise HTTPException(status_code=502, detail="Stripe couldn't start the payment. Try again in a minute.")
+        link.stripe_session_id = session.id
+        db.commit()
+        return {"url": session.url, "paid": False}
+    finally:
+        db.close()
+
+
+@router.get("/pay/{token}/after")
+def after_info(token: str, s: str | None = None):
+    """Public. Is this link paid, and what do the after screens need. If the
+    webhook hasn't landed yet, ask Stripe about the session the customer
+    just came back from and book it the same idempotent way."""
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        if link.status != "paid" and s and configured():
+            try:
+                session = _stripe().checkout.Session.retrieve(s)
+                if session.payment_status == "paid" and (session.metadata or {}).get("pay_link") == link.token:
+                    _record_paid(db, link, session, event_id=None)
+            except Exception as e:  # noqa: BLE001 - the webhook will still land
+                logger.warning("after-page session check failed for %s: %s", token, e)
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == link.lead_id).all()
+        this = next((p for p in pays if p.pay_link_token == link.token), None)
+        paid_total = sum(p.amount_cents or 0 for p in pays)
+        return {
+            "paid": link.status == "paid",
+            "kind": link.kind,
+            "flow": "B" if link.kind in ("balance", "done") else "A",
+            "amount": round((link.amount_cents or 0) / 100, 2),
+            "method": (this.method if this else "") or "",
+            "paid_total": round(paid_total / 100, 2),
+            "first_name": _first_name(lead),
+            "address": (lead.address if lead else "") or "",
+            "answers": _loads(link.answers),
+        }
+    finally:
+        db.close()
+
+
+class AnswerBody(BaseModel):
+    field: str
+    value: object = None
+
+
+@router.post("/pay/{token}/answer")
+def save_answer(token: str, body: AnswerBody):
+    """Public. One tap on the after screens, saved the moment it happens."""
+    field = (body.field or "").strip()
+    if field not in ANSWER_FIELDS:
+        raise HTTPException(status_code=400, detail="Unknown field")
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        if link.status != "paid":
+            raise HTTPException(status_code=402, detail="Not paid yet")
+        answers = _loads(link.answers)
+        answers[field] = body.value
+        link.answers = json.dumps(answers)
+        link.answered_at = _now()
+        db.commit()
+        log_event(link.lead_id, "after_pay_answer", f"{field}: {json.dumps(body.value)[:200]}")
+        return {"ok": True, "answers": answers}
+    finally:
+        db.close()
+
+
+# ── The webhook: the only thing that marks a link paid ────────────────────
+
+def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPayment:
+    """Book a paid Checkout session once. Safe to call again for the same
+    session: it returns the row already written."""
+    sid = getattr(session, "id", None) or (session.get("id") if isinstance(session, dict) else None)
+    existing = db.query(CustomerPayment).filter(CustomerPayment.stripe_session_id == sid).first() if sid else None
+    if existing:
+        return existing
+    g = (lambda k: getattr(session, k, None)) if not isinstance(session, dict) else session.get
+    amount = int(g("amount_total") or link.amount_cents or 0)
+    pi = g("payment_intent")
+    pi_id = pi if isinstance(pi, str) else (getattr(pi, "id", None) if pi else None)
+    method = ""
+    if pi_id and configured():
+        try:
+            intent = stripe.PaymentIntent.retrieve(pi_id, expand=["payment_method"])
+            pm = getattr(intent, "payment_method", None)
+            method = (getattr(pm, "type", "") or "") if pm else ""
+        except Exception as e:  # noqa: BLE001 - the method is a nicety
+            logger.info("payment method lookup failed for %s: %s", pi_id, e)
+    now = _now()
+    row = CustomerPayment(
+        id=str(uuid.uuid4()), lead_id=link.lead_id, pay_link_token=link.token, kind=link.kind,
+        amount_cents=amount, currency=(g("currency") or "usd"), method=method,
+        stripe_session_id=sid, stripe_payment_intent_id=pi_id, stripe_event_id=event_id, created_at=now,
+    )
+    db.add(row)
+    link.status = "paid"
+    link.paid_at = now
+    if link.kind == "deposit":
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        if lead:
+            lead.deposit_status = "paid"
+            lead.deposit_paid_at = now
+            lead.deposit_amount = amount / 100
+            lead.deposit_paid_method = f"stripe:{method or 'card'}"
+    db.commit()
+    log_event(link.lead_id, "stripe_payment_received", f"{link.kind} {amount / 100:.2f} {method or ''}".strip())
+    return row
+
+
+@router.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    secret = (get_settings().stripe_webhook_secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="STRIPE_WEBHOOK_SECRET isn't set")
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, secret)
+    except Exception:  # noqa: BLE001 - bad signature or body
+        raise HTTPException(status_code=400, detail="Bad signature")
+    kind = event["type"]
+    if kind in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
+        session = event["data"]["object"]
+        if (session.get("payment_status") or "") != "paid":
+            return {"ok": True, "ignored": "not paid yet"}
+        token = (session.get("metadata") or {}).get("pay_link") or ""
+        db = get_db()
+        try:
+            link = db.query(PayLink).filter(PayLink.token == token).first() if token else None
+            if not link:
+                logger.warning("Stripe webhook for an unknown pay link: %s", token)
+                return {"ok": True, "ignored": "unknown link"}
+            _record_paid(db, link, session, event_id=event["id"])
+        finally:
+            db.close()
+    elif kind == "checkout.session.async_payment_failed":
+        session = event["data"]["object"]
+        token = (session.get("metadata") or {}).get("pay_link") or ""
+        log_event((session.get("metadata") or {}).get("lead_id"), "stripe_payment_failed", f"{token}: lender declined")
+    return {"ok": True}

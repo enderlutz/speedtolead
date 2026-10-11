@@ -1330,6 +1330,13 @@ export const api = {
     return request<Lead[]>(`/api/leads?${params.toString()}`);
   },
   getLead: (id: string) => request<LeadDetail>(`/api/leads/${id}`),
+
+  // Stripe pay links (backend api/stripe_pay.py). Staff only; the customer
+  // pages at /pay and /after use raw fetch so a 401 can't bounce them here.
+  listPayLinks: (leadId: string) => request<PayLinksResponse>(`/api/leads/${leadId}/pay-links`),
+  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string }) =>
+    request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
+  voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   updateColumn: (id: string, kanban_column: string) =>
     request<Lead>(`/api/leads/${id}/column`, {
       method: "PUT",
@@ -5532,4 +5539,20 @@ export interface SopRun {
   required_total: number;
   required_completed: number;
   completion_pct: number;
+}
+
+// ── Stripe pay links ─────────────────────────────────────────────────────
+export type PayLinkKind = "deposit" | "full" | "balance" | "extra" | "done";
+export interface PayLinkEntry {
+  token: string; lead_id: string; kind: PayLinkKind; label: string; amount: number; description: string;
+  status: "open" | "paid" | "void"; url: string; after_url: string; created_by: string;
+  created_at: string; sent_at: string | null; paid_at: string | null;
+  answers: Record<string, unknown>; answered_at: string | null;
+}
+export interface CustomerPaymentEntry {
+  id: string; lead_id: string; pay_link_token: string | null; kind: string; amount: number; currency: string;
+  method: string; stripe_session_id: string | null; stripe_payment_intent_id: string | null; created_at: string;
+}
+export interface PayLinksResponse {
+  links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
 }

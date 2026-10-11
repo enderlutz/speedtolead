@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     proposal_base_url: str = "http://localhost:5173"
 
+    # Stripe (Sterling's account). Test keys first, live after the $1 test.
+    # Set in Railway, never in a file. The webhook secret comes from the
+    # endpoint registered in Stripe for /api/stripe/webhook.
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+
     # Google Maps
     # Server key — geocoding lead addresses (server-side only).
     google_maps_api_key: str = ""

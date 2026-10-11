@@ -21,3 +21,4 @@ pillow-heif>=0.16.0
 # fails the boot if it is missing rather than letting the app serve UTC
 # dates as if they were Houston dates.
 tzdata>=2024.1
+stripe==16.0.0
