@@ -84,6 +84,7 @@ def test_only_an_interactive_proposal_is_served(db, quiet):
     assert out["number"] == f"SF-{datetime.now(timezone.utc).year}-04500"
     assert out["tiers"]["signature"] == 1200.0
     assert out["regular"]["signature"] == 1500.0
+    assert out["price_days"] == 30
     assert out["expired"] is False
     assert out["reserved"] is None and out["open_link"] is None
 

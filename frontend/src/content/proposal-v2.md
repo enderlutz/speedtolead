@@ -1064,3 +1064,13 @@ zoviz.com luxury brand colour study.
   and sit in Deposits pending on the Dashboard with the QuickBooks ones.
   Not yet: the final-total step at job done, the QuickBooks feed, Stripe's
   real financing messaging on the page, a lead's email from Checkout.
+- 2026-10-12 — Three edits from Alan before going back to Stripe. (1) The
+  price window says the number of days and the date everywhere: "Price
+  good for 30 days · Through November 9" in the facts strip, the pay
+  banner and the terms; the days come from the backend (`price_days`), so
+  a 15-day test later is one constant. (2) The repair drawings light up
+  ONE picket, ONE rail and ONE post instead of all of them: eight gold
+  pickets made it look like $12 bought all eight. Prices now read "$12 per
+  picket", "$75 per rail". (3) The warranty in the terms sheet is rewritten
+  in first-grader words, with the new line: damage we didn't cause isn't
+  covered, we'll still come fix it, but we give a price for the trip first.

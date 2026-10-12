@@ -130,6 +130,7 @@ def state(db, p: Proposal, lead: Lead, ests: list[Estimate]) -> dict:
         "token": p.token,
         "number": number_for(p),
         "good_through": good_through(p).isoformat(),
+        "price_days": PRICE_DAYS,
         "expired": expired(p),
         "regular": {k: regular_price(v) for k, v in tiers.items()} if tiers else None,
         "reserved": {

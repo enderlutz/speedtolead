@@ -23,7 +23,7 @@ type Payload = {
   tiers: { essential: number; signature: number; legacy: number } | null;
   regular: { essential: number; signature: number; legacy: number } | null;
   sent_on: string; has_scope: boolean; token: string; number: string;
-  good_through: string; expired: boolean;
+  good_through: string; price_days: number; expired: boolean;
   reserved: { kind: string; tier: string; paid_at: string | null; after_url: string } | null;
   open_link: { kind: string; tier: string; url: string } | null;
 };
@@ -53,7 +53,7 @@ export default function ProposalLive() {
           live: {
             name: p.name, address: p.address, feet: p.feet, sides: sidesInWords(p.sides), tiers: p.tiers,
             scopeUrl: p.has_scope ? `${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/scope` : null,
-            sentOn: p.sent_on, number: p.number, goodThrough: p.good_through, expired: p.expired, regular: p.regular,
+            sentOn: p.sent_on, number: p.number, goodThrough: p.good_through, priceDays: p.price_days, expired: p.expired, regular: p.regular,
             reserved: p.reserved ? { kind: p.reserved.kind, tier: p.reserved.tier as PkgKey, afterUrl: p.reserved.after_url } : null,
           },
         });

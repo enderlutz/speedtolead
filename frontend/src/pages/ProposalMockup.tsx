@@ -34,7 +34,7 @@ export type Live = {
   // The real page only: the proposal number, when the quoted price ends,
   // whether it has, the regular (pre-discount) prices, and whether this job
   // is already reserved (a paid deposit or a financed job).
-  number?: string; goodThrough?: string; expired?: boolean;
+  number?: string; goodThrough?: string; priceDays?: number; expired?: boolean;
   regular?: Record<PkgKey, number> | null;
   reserved?: { kind: string; tier: PkgKey | ""; afterUrl: string } | null;
 };
@@ -53,7 +53,8 @@ const CUSTOMER = {
   address: "12345 Cypress Creek Dr, Cypress, TX 77429",
   date: "October 10, 2026",
   number: "SF-2026-05481",
-  goodThrough: "October 31",
+  goodThrough: "November 9",
+  priceDays: 30,
   sides: ["Inside facing sides", "Outside facing: front"],
   feet: 280,
 };
@@ -170,9 +171,9 @@ const PICKETS = [
   { key: "cedar", label: "Cedar", price: 14 },
 ];
 const PARTS = [
-  { key: "rotboard", label: "Rot board", what: "The board along the ground", price: 50 },
-  { key: "cap", label: "Cap", what: "The board along the top", price: 85 },
-  { key: "rail", label: "2x4 rail", what: "The boards the pickets nail to", price: 75 },
+  { key: "rotboard", label: "Rot board", what: "The board along the ground", unit: "board", price: 50 },
+  { key: "cap", label: "Cap", what: "The board along the top", unit: "cap", price: 85 },
+  { key: "rail", label: "2x4 rail", what: "The boards the pickets nail to", unit: "rail", price: 75 },
 ];
 const POSTS = [
   { key: "post6", label: "6 ft fence", price: 225 },
@@ -362,6 +363,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
     date: live.sentOn ? new Date(live.sentOn).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : CUSTOMER.date,
     number: live.number || CUSTOMER.number,
     goodThrough: live.goodThrough ? new Date(live.goodThrough).toLocaleDateString("en-US", { month: "long", day: "numeric" }) : CUSTOMER.goodThrough,
+    priceDays: live.priceDays || CUSTOMER.priceDays,
   } : CUSTOMER, [live]);
   // Her prices are the 20%-off prices on her estimate; the regular price is
   // what they were before the discount. Once the quoted price has ended the
@@ -498,7 +500,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           <Fact icon={Calendar} label="Date">{customer.date}</Fact>
           <Fact icon={MapPin} label="Property" wide>{customer.address}</Fact>
           <Fact icon={Hash} label="Proposal #">{customer.number}</Fact>
-          <Fact icon={Eye} label={expired ? "Quoted price ended" : "Price good through"}>{customer.goodThrough}</Fact>
+          <Fact icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
         </section>
         {expired && !reserved ? (
           <section className="flex items-start gap-2.5 bg-[#15130F] px-4 py-3 text-white">
@@ -812,13 +814,13 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
         <section className="bg-white px-4 py-6">
           <SectionTitle kicker="Optional" title="Anything need replacing?" sub="Count it up. We bring the wood." />
           <div className="space-y-2.5">
-            <Counter label="Pickets" what="The upright boards" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+            <Counter label="Pickets" what="The upright boards" unit="picket" art={<FencePart part="picket" />} price={PICKETS.find((p) => p.key === picketType)!.price} n={counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
               <Chips options={PICKETS} value={picketType} onChange={setPicketType} />
             </Counter>
             {PARTS.map((part) => (
-              <Counter key={part.key} label={part.label} what={part.what} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+              <Counter key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
-            <Counter label="Post replacement" what="The 4x4s set in the ground" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
+            <Counter label="Post replacement" what="The 4x4s set in the ground" unit="post" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <Chips options={POSTS} value={postType} onChange={setPostType} />
             </Counter>
           </div>
@@ -929,7 +931,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
             {expired
               ? <p className="text-sm leading-snug"><span className="font-bold">Your quoted price ended {customer.goodThrough}.</span> These are our regular prices. Call or text us with any questions.</p>
-              : <p className="text-sm leading-snug"><span className="font-bold">Your 20% off ends {customer.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>}
+              : <p className="text-sm leading-snug"><span className="font-bold">Your price is good for {customer.priceDays} days, through {customer.goodThrough}.</span> Book by then and it's locked, even if we do the job next month. Paying over time means you don't need the money today.</p>}
           </div>
           {doorError ? <p className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-700 ring-1 ring-rose-200">{doorError}</p> : null}
           {reserved ? (
@@ -1096,15 +1098,17 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
       {/* The terms, in plain words (Alan, 2026-10-10). */}
       {terms ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setTerms(false)}>
-          <div className="w-full max-w-md rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
             <h3 className="font-heading text-2xl font-bold leading-tight">1-year workmanship warranty</h3>
             <div className="mt-3 space-y-3 text-[15px] leading-relaxed">
-              <p><span className="font-bold">What we cover.</span> If the stain peels or cracks because of how we applied it, we come back and touch it up. Free, for one year from the day we finish.</p>
-              <p><span className="font-bold">What we don't.</span> Damage from anything other than our work: a mower or trimmer hitting the fence, a board you replaced, scrapes, pets, sprinklers, a neighbor's project. That part is on you.</p>
-              <p><span className="font-bold">We still help.</span> If something like that happens, we'll tell you the exact stain name so you can pick it up at the store nearest you and touch it up to match.</p>
-              <p><span className="font-bold">The deposit.</span> $250 books your dates and is not refundable once they're set. The rest is due when the job is done and you're happy.</p>
-              <p><span className="font-bold">This price</span> is good through {customer.goodThrough}.</p>
+              <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we put it on, we come back and fix it. Free. For one year from the day we finish.</p>
+              <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
+              <p><span className="font-bold">Want us to fix that anyway?</span> We can. We give you a price for the trip first, and you say yes or no. Or we tell you the exact stain name, so you can touch it up yourself.</p>
+              <p><span className="font-bold">The deposit.</span> $250 reserves your spot and isn't refundable. Move your date any time. The rest is due when the job is done and you're happy.</p>
+              {expired
+                ? <p><span className="font-bold">Your price</span> was good for {customer.priceDays} days, through {customer.goodThrough}. That has ended, so our regular prices apply.</p>
+                : <p><span className="font-bold">Your price</span> is good for {customer.priceDays} days, through {customer.goodThrough}. After that, our regular prices apply.</p>}
             </div>
             <button type="button" onClick={() => setTerms(false)} className="mt-4 h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
           </div>
@@ -1340,8 +1344,8 @@ function Chips({ options, value, onChange }: {
   );
 }
 
-function Counter({ label, what, price, n, onChange, art, children }: {
-  label: string; what?: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
+function Counter({ label, what, unit, price, n, onChange, art, children }: {
+  label: string; what?: string; unit: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-[#F8F3E7] px-3 py-3">
@@ -1349,7 +1353,7 @@ function Counter({ label, what, price, n, onChange, art, children }: {
       <div className="min-w-0 flex-1">
         <p className="text-base font-bold leading-tight">{label}</p>
         {what ? <p className="text-[15px] leading-snug text-[#15130F]/75">{what}</p> : null}
-        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price)} each</p>
+        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price).replace(".00", "")} per {unit}</p>
         {children ? <div className="mt-1">{children}</div> : null}
       </div>
       <div className="flex items-center gap-1">
@@ -1381,13 +1385,15 @@ type FencePartKey = "picket" | "rotboard" | "cap" | "rail" | "post";
 
 /** One section of fence, drawn the same way every time, with the part
  *  being counted lit up in gold, so a customer can see what a rot board
- *  or a cap is before they count them (Alan, 2026-10-10). */
+ *  or a cap is before they count them (Alan, 2026-10-10). Only ONE of the
+ *  part lights up: eight gold pickets made it look like $12 bought all
+ *  eight (Alan, 2026-10-12). */
 function FencePart({ part }: { part: FencePartKey }) {
   const wood = "#D9C2A3", edge = "#A98A63";
-  const hot = (k: FencePartKey) => (part === k ? { fill: GOLD, stroke: "#15130F", strokeWidth: 2 } : { fill: wood, stroke: edge, strokeWidth: 1 });
+  const hot = (k: FencePartKey, one = true) => (part === k && one ? { fill: GOLD, stroke: "#15130F", strokeWidth: 2 } : { fill: wood, stroke: edge, strokeWidth: 1 });
   const pickets = [15, 22, 29, 36, 43, 50, 57, 64];
-  const picketLayer = pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket")} />);
-  const railLayer = [14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="5" rx="0.5" {...hot("rail")} />);
+  const picketLayer = pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket", x === 36)} />);
+  const railLayer = [14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="5" rx="0.5" {...hot("rail", y === 30)} />);
   // From the street the pickets hide the rails. The rail view is the back
   // of the fence, where the three rails run across the pickets.
   const fromBack = part === "rail";
@@ -1395,7 +1401,7 @@ function FencePart({ part }: { part: FencePartKey }) {
     <svg viewBox="0 0 82 62" width="96" height="72" role="img" aria-label={part}>
       <rect x="0" y="57" width="82" height="5" fill="#6b8f4e" />
       <rect x="6" y="6" width="7" height="52" rx="1" {...hot("post")} />
-      <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post")} />
+      <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post", false)} />
       {fromBack ? <>{picketLayer}{railLayer}</> : <>{railLayer}{picketLayer}</>}
       <rect x="13" y="50" width="56" height="6" {...hot("rotboard")} />
       <rect x="4" y="5" width="74" height="5" rx="1" {...hot("cap")} />
