@@ -73,6 +73,21 @@ def configured() -> bool:
     return bool((get_settings().stripe_secret_key or "").strip())
 
 
+def _field(obj, key: str, default=None):
+    """One way to read a Stripe object, a plain dict (the tests, a webhook
+    body) or nothing. stripe-python 16's objects are not dicts: `.get` on
+    a Session raises, which is what crashed every webhook delivery and the
+    after page's check on Alan's $1 test (2026-10-12)."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    try:
+        return obj[key]
+    except (KeyError, TypeError, IndexError):
+        return getattr(obj, key, default)
+
+
 def _stripe():
     key = (get_settings().stripe_secret_key or "").strip()
     if not key:
@@ -357,7 +372,7 @@ def after_info(token: str, s: str | None = None):
         if link.status != "paid" and s and configured():
             try:
                 session = _stripe().checkout.Session.retrieve(s)
-                if session.payment_status == "paid" and (session.metadata or {}).get("pay_link") == link.token:
+                if _field(session, "payment_status") == "paid" and _field(_field(session, "metadata"), "pay_link") == link.token:
                     _record_paid(db, link, session, event_id=None)
             except Exception as e:  # noqa: BLE001 - the webhook will still land
                 logger.warning("after-page session check failed for %s: %s", token, e)
@@ -414,14 +429,14 @@ def save_answer(token: str, body: AnswerBody, background: BackgroundTasks):
 def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPayment:
     """Book a paid Checkout session once. Safe to call again for the same
     session: it returns the row already written."""
-    sid = getattr(session, "id", None) or (session.get("id") if isinstance(session, dict) else None)
+    sid = _field(session, "id")
     existing = db.query(CustomerPayment).filter(CustomerPayment.stripe_session_id == sid).first() if sid else None
     if existing:
         return existing
-    g = (lambda k: getattr(session, k, None)) if not isinstance(session, dict) else session.get
+    g = lambda k: _field(session, k)  # noqa: E731
     amount = int(g("amount_total") or link.amount_cents or 0)
     pi = g("payment_intent")
-    pi_id = pi if isinstance(pi, str) else (getattr(pi, "id", None) if pi else None)
+    pi_id = pi if isinstance(pi, str) else (_field(pi, "id") if pi else None)
     method = ""
     if pi_id and configured():
         try:
@@ -472,15 +487,15 @@ METHOD_NAMES = ("card", "apple_pay", "google_pay", "link", "klarna", "affirm", "
 
 
 def _session_info(session, token: str) -> dict:
-    g = (lambda k: getattr(session, k, None)) if not isinstance(session, dict) else session.get
-    meta = g("metadata") or {}
+    g = lambda k: _field(session, k)  # noqa: E731
+    meta = g("metadata")
     return {
         "session_id": g("id"),
         "payment_status": g("payment_status") or "",
         "status": g("status") or "",
         "amount": round(int(g("amount_total") or 0) / 100, 2),
         "livemode": bool(g("livemode")),
-        "matches": (meta.get("pay_link") if hasattr(meta, "get") else None) == token,
+        "matches": _field(meta, "pay_link") == token,
     }
 
 
@@ -565,16 +580,16 @@ def stripe_health(user: dict = Depends(require_staff)):
         out["errors"].append(f"Payment methods: {e}")
     try:
         for ev in s.Event.list(limit=10, types=list(OUR_EVENTS)).data:
-            obj = ev.data.object if hasattr(ev, "data") else {}
-            g = (lambda k: getattr(obj, k, None)) if not isinstance(obj, dict) else obj.get
-            meta = g("metadata") or {}
+            obj = _field(_field(ev, "data"), "object")
+            g = lambda k: _field(obj, k)  # noqa: E731
+            meta = g("metadata")
             out["events"].append({
-                "id": ev.id,
-                "type": ev.type,
-                "created": datetime.fromtimestamp(int(ev.created), tz=timezone.utc).isoformat(),
-                "pending_webhooks": int(getattr(ev, "pending_webhooks", 0) or 0),
-                "livemode": bool(getattr(ev, "livemode", False)),
-                "pay_link": meta.get("pay_link") if hasattr(meta, "get") else None,
+                "id": _field(ev, "id"),
+                "type": _field(ev, "type"),
+                "created": datetime.fromtimestamp(int(_field(ev, "created") or 0), tz=timezone.utc).isoformat(),
+                "pending_webhooks": int(_field(ev, "pending_webhooks") or 0),
+                "livemode": bool(_field(ev, "livemode")),
+                "pay_link": _field(meta, "pay_link"),
                 "payment_status": g("payment_status") or "",
                 "amount": round(int(g("amount_total") or 0) / 100, 2),
             })
@@ -595,23 +610,24 @@ async def stripe_webhook(request: Request):
         event = stripe.Webhook.construct_event(payload, sig, secret)
     except Exception:  # noqa: BLE001 - bad signature or body
         raise HTTPException(status_code=400, detail="Bad signature")
-    kind = event["type"]
+    kind = _field(event, "type")
     if kind in ("checkout.session.completed", "checkout.session.async_payment_succeeded"):
-        session = event["data"]["object"]
-        if (session.get("payment_status") or "") != "paid":
+        session = _field(_field(event, "data"), "object")
+        if (_field(session, "payment_status") or "") != "paid":
             return {"ok": True, "ignored": "not paid yet"}
-        token = (session.get("metadata") or {}).get("pay_link") or ""
+        token = _field(_field(session, "metadata"), "pay_link") or ""
         db = get_db()
         try:
             link = db.query(PayLink).filter(PayLink.token == token).first() if token else None
             if not link:
                 logger.warning("Stripe webhook for an unknown pay link: %s", token)
                 return {"ok": True, "ignored": "unknown link"}
-            _record_paid(db, link, session, event_id=event["id"])
+            _record_paid(db, link, session, event_id=_field(event, "id"))
         finally:
             db.close()
     elif kind == "checkout.session.async_payment_failed":
-        session = event["data"]["object"]
-        token = (session.get("metadata") or {}).get("pay_link") or ""
-        log_event((session.get("metadata") or {}).get("lead_id"), "stripe_payment_failed", f"{token}: lender declined")
+        session = _field(_field(event, "data"), "object")
+        meta = _field(session, "metadata")
+        token = _field(meta, "pay_link") or ""
+        log_event(_field(meta, "lead_id"), "stripe_payment_failed", f"{token}: lender declined")
     return {"ok": True}

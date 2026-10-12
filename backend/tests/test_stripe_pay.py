@@ -15,6 +15,17 @@ from api import stripe_pay as sp  # noqa: E402
 STAFF = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
 
 
+# Real stripe-python objects, not dicts or namespaces: the library's objects
+# are not dicts, and faking them as dicts hid the crash on every live
+# webhook delivery (2026-10-12).
+def _session(**kw):
+    return sp.stripe.checkout.Session.construct_from({"object": "checkout.session", **kw}, "sk_test_x")
+
+
+def _event(d: dict):
+    return sp.stripe.Event.construct_from(d, "sk_test_x")
+
+
 def _lead(db):
     from database import Lead
     lead = Lead(id=str(uuid.uuid4()), contact_name="Test Customer", address="1 Main St",
@@ -142,7 +153,7 @@ def test_the_after_page_books_the_session_when_the_webhook_is_late(db, monkeypat
     from database import CustomerPayment
     lead = _lead(db)
     dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
-    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: SimpleNamespace(
+    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: _session(
         id=sid, payment_status="paid", metadata={"pay_link": dep["token"]}, amount_total=25000, currency="usd", payment_intent=None))
     out = sp.after_info(dep["token"], s="cs_late")
     assert out["paid"] is True and out["flow"] == "A" and out["first_name"] == "Test"
@@ -169,7 +180,7 @@ def test_the_webhook_checks_the_signature_and_books_the_payment(db, monkeypatch)
     event = {"id": "evt_77", "type": "checkout.session.completed", "data": {"object": {
         "id": "cs_77", "amount_total": 90000, "currency": "usd", "payment_intent": "pi_77",
         "payment_status": "paid", "metadata": {"pay_link": bal["token"], "lead_id": lead.id}}}}
-    monkeypatch.setattr(sp.stripe.Webhook, "construct_event", lambda payload, sig, secret: event)
+    monkeypatch.setattr(sp.stripe.Webhook, "construct_event", lambda payload, sig, secret: _event(event))
     r = client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "ok"})
     assert r.status_code == 200 and r.json() == {"ok": True}
     r = client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "ok"})  # Stripe retries
@@ -178,7 +189,7 @@ def test_the_webhook_checks_the_signature_and_books_the_payment(db, monkeypatch)
     assert sp.pay_info(bal["token"])["status"] == "paid"
 
     unknown = dict(event, data={"object": dict(event["data"]["object"], metadata={"pay_link": "nobody"})})
-    monkeypatch.setattr(sp.stripe.Webhook, "construct_event", lambda payload, sig, secret: unknown)
+    monkeypatch.setattr(sp.stripe.Webhook, "construct_event", lambda payload, sig, secret: _event(unknown))
     assert client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "ok"}).json()["ignored"] == "unknown link"
 
 
@@ -200,9 +211,9 @@ def test_check_with_stripe_books_a_paid_session_and_repeats_stripes_error(db, mo
     out = sp.check_pay_link(extra["token"], STAFF)
     assert out["error"].startswith("Stripe said: You do not have permission") and out["link"]["status"] == "open"
     # Stripe says paid: booked, same row the webhook would write.
-    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: SimpleNamespace(
+    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: _session(
         id=sid, payment_status="paid", status="complete", livemode=True, metadata={"pay_link": extra["token"]},
-        amount_total=100, currency="usd", payment_intent=None))
+        amount_total=100, currency="usd", payment_intent="pi_1"))
     out = sp.check_pay_link(extra["token"], STAFF)
     assert out["error"] is None and out["stripe"]["payment_status"] == "paid" and out["stripe"]["matches"] is True
     assert out["link"]["status"] == "paid"
@@ -212,7 +223,7 @@ def test_check_with_stripe_books_a_paid_session_and_repeats_stripes_error(db, mo
     row = db.query(PayLink).filter(PayLink.token == other["token"]).first()
     row.stripe_session_id = "cs_2"
     db.commit()
-    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: SimpleNamespace(
+    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: _session(
         id=sid, payment_status="paid", status="complete", livemode=True, metadata={"pay_link": "someone-else"},
         amount_total=200, currency="usd", payment_intent=None))
     out = sp.check_pay_link(other["token"], STAFF)
@@ -233,8 +244,8 @@ def test_stripe_health_reports_our_webhook_the_methods_and_the_events(db, monkey
                           klarna=SimpleNamespace(available=True, display_preference=pref_on),
                           affirm=SimpleNamespace(available=True, display_preference=pref_off))
     monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "list", lambda **kw: SimpleNamespace(data=[cfg]))
-    ev = SimpleNamespace(id="evt_1", type="checkout.session.completed", created=1760000000, pending_webhooks=1, livemode=True,
-                         data=SimpleNamespace(object={"metadata": {"pay_link": "tok"}, "payment_status": "paid", "amount_total": 100}))
+    ev = _event({"id": "evt_1", "object": "event", "type": "checkout.session.completed", "created": 1760000000, "pending_webhooks": 1, "livemode": True,
+                 "data": {"object": {"object": "checkout.session", "metadata": {"pay_link": "tok"}, "payment_status": "paid", "amount_total": 100}}})
     monkeypatch.setattr(sp.stripe.Event, "list", lambda **kw: SimpleNamespace(data=[ev]))
     out = sp.stripe_health(STAFF)
     assert out["configured"] is True and out["webhook_ok"] is True and out["errors"] == []
