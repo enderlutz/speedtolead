@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   Download, FileText, MapPin, Calendar, Hash, UserRound, Leaf, Home, Smartphone, Monitor,
-  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown,
+  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -91,6 +91,66 @@ const PACKAGES: {
     regular: 2301, price: 1840.80,
   },
 ];
+
+// The three tiers wear three different coats, the way the printed proposal
+// does: Essential on light clear wood, Signature in gold, Legacy in black
+// inside a gold frame. Same rows, same sizes on all three so the names and
+// prices still line up; the colours and the badge are what tell them apart
+// (Alan, 2026-10-11: "the legacy needs to seem really premium, the signature
+// very popular, the essential the very minimum you'd at least get").
+const SKINS: Record<PkgKey, {
+  badge: string; icon: "leaf" | "star" | "gem";
+  card: React.CSSProperties; ring: string; onRing: string; frame?: boolean;
+  name: string; text: string; muted: string; price: string; rule: string; accent: string;
+  badgeStyle: React.CSSProperties; priceBox: React.CSSProperties; offChip: React.CSSProperties;
+}> = {
+  essential: {
+    badge: "Entry", icon: "leaf",
+    card: { background: "linear-gradient(180deg, #FBF6EA 0%, #EDE1C7 100%)" },
+    ring: "ring-[#C9B38A]/80", onRing: "ring-[#C9972F] shadow-[#C9972F]/40",
+    name: "#2F5137", text: "#15130F", muted: "#5B5243", price: "#2F5137", rule: "#C9B38A", accent: "#2F5137",
+    badgeStyle: { background: "#E6EEE2", color: "#2F5137", boxShadow: "inset 0 0 0 1px #9DB59A" },
+    priceBox: { background: "#FFFDF8", boxShadow: "inset 0 0 0 1px #C9B38A", color: "#15130F" },
+    offChip: { background: "#2F5137", color: "#FFFFFF" },
+  },
+  signature: {
+    badge: "Most popular", icon: "star",
+    card: { background: "linear-gradient(165deg, #F3DC8F 0%, #D9AF48 45%, #B9872C 100%)" },
+    ring: "ring-[#8C6224]/50", onRing: "ring-[#15130F] shadow-[#C9972F]/50",
+    name: "#3B2A12", text: "#2A1E0E", muted: "#5A4120", price: "#3B2A12", rule: "#8C6224", accent: "#8C6224",
+    badgeStyle: { background: "#4A3415", color: "#F3DC8F" },
+    priceBox: { background: "#FFF8E6", boxShadow: "inset 0 0 0 1px #B9872C", color: "#2A1E0E" },
+    offChip: { background: "#4A3415", color: "#F3DC8F" },
+  },
+  legacy: {
+    badge: "Premium", icon: "gem", frame: true,
+    card: { background: "linear-gradient(180deg, #1E1B16 0%, #0B0A08 100%)" },
+    ring: "ring-[#C9972F]/60", onRing: "ring-[#C9972F] shadow-[#C9972F]/50",
+    name: "#E3BE63", text: "#FFFFFF", muted: "rgba(255,255,255,.82)", price: "#E3BE63", rule: "#C9972F", accent: "#8C6224",
+    badgeStyle: { background: "linear-gradient(90deg, #F3DC8F, #C9972F)", color: "#15130F" },
+    priceBox: { background: "#15130F", boxShadow: "inset 0 0 0 1px #C9972F", color: "#FFFFFF" },
+    offChip: { background: "#E3BE63", color: "#15130F" },
+  },
+};
+
+/** The tier's badge: Entry, Most popular, Premium. On a small tile the
+ *  middle one shortens to "Popular" so it fits. */
+function TierBadge({ pkg, small, className }: { pkg: PkgKey; small?: boolean; className?: string }) {
+  const s = SKINS[pkg];
+  const Icon = s.icon === "leaf" ? Leaf : s.icon === "star" ? Star : Gem;
+  return (
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-full font-bold uppercase tracking-wider shadow", small ? "px-1.5 py-0.5 text-[12px]" : "px-2.5 py-1 text-[12px]", className)} style={s.badgeStyle}>
+      <Icon className={cn(small ? "h-2.5 w-2.5" : "h-3 w-3", s.icon === "star" && "fill-current")} />
+      {small && pkg === "signature" ? "Popular" : s.badge}
+    </span>
+  );
+}
+
+/** The thin gold line inside the Legacy card's edge, the printed proposal's
+ *  double frame. Sits above the photos, catches no taps. */
+function GoldFrame({ inset = 3 }: { inset?: number }) {
+  return <span className="pointer-events-none absolute z-10 rounded-[13px] ring-1 ring-[#C9972F]/75" style={{ inset }} />;
+}
 
 // Repairs, priced from Alan's list (2026-10-09; posts by fence height,
 // 2026-10-10).
@@ -461,59 +521,61 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
             // packages look most appealing for somebody on their phone").
             const show = chosen || packages[1];
             const line = payLine(show.price);
+            const sk = SKINS[show.key];
             return (
               <>
                 <div className="grid grid-cols-3 gap-2">
                   {packages.map((p) => {
                     const on = pkg === p.key;
                     const shown = show.key === p.key;
+                    const s = SKINS[p.key];
                     return (
                       <button key={p.key} type="button" onClick={() => choose(p.key)}
-                        className={cn("relative flex flex-col overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-lg transition duration-200 active:scale-[0.97]",
-                          on ? "z-10 scale-[1.04] ring-4 ring-[#C9972F] shadow-2xl shadow-[#C9972F]/40"
-                            : pkg ? "opacity-55 saturate-50 ring-1 ring-[#15130F]/10"
-                            : shown ? "ring-2 ring-[#C9972F]/60" : "ring-1 ring-[#15130F]/10")}>
+                        className={cn("relative flex flex-col overflow-hidden rounded-2xl text-left shadow-lg transition duration-200 active:scale-[0.97]",
+                          on ? cn("z-10 scale-[1.04] ring-4 shadow-2xl", s.onRing)
+                            : pkg ? cn("opacity-55 saturate-50 ring-1", s.ring)
+                            : shown ? cn("ring-2", s.ring) : cn("ring-1", s.ring))}
+                        style={s.card}>
+                        {s.frame ? <GoldFrame /> : null}
                         {/* The photos, with nothing written on them. Two stack
                             so both finishes show (Alan, 2026-10-10). */}
-                        <div className={cn("grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[3px] bg-[#C9972F]")}>
+                        <div className={cn("grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[3px]")} style={{ background: s.rule }}>
                           {p.photos.map((src) => (
                             <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[71px]" : "h-[145px]")} draggable={false} />
                           ))}
                         </div>
-                        {p.popular ? (
-                          <span className="absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
-                            <Star className="mr-0.5 inline h-2.5 w-2.5 fill-current" />Popular
-                          </span>
-                        ) : null}
+                        <TierBadge pkg={p.key} small className="absolute left-1.5 top-1.5 z-20" />
                         {on ? (
-                          <span className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
+                          <span className="absolute right-1.5 top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
                         ) : null}
                         {/* The same four rows on every tile, each a fixed
                             height, so the three names sit on one line across
-                            the page and so do the prices. Name first, in gold
-                            and the brand face, then the finish, the price, how
-                            long it lasts (Alan, 2026-10-10: the names felt
-                            dull and "need to be perfectly aligned"). */}
-                        <div className={cn("w-full border-t-[3px] border-[#C9972F] px-2 pb-2 pt-2", on ? "bg-[#C9972F] text-[#15130F]" : "text-white")}>
-                          <p className="h-[22px] font-heading text-[18px] font-bold leading-[22px] tracking-wide" style={{ color: on ? "#15130F" : "#E3BE63" }}>{p.short}</p>
-                          <p className={cn("h-[30px] text-[12px] font-bold uppercase leading-[15px] tracking-[0.05em]", on ? "text-[#15130F]/80" : "text-white/90")}>{p.tag}</p>
-                          <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums">{formatCurrency(p.price)}</p>
-                          <p className={cn("h-[16px] text-[12px] leading-[16px]", on ? "text-[#15130F]/75" : "text-white/85")}>Lasts {p.lasts}</p>
+                            the page and so do the prices. Name first, in the
+                            tier's colour and the brand face, then the finish,
+                            the price, how long it lasts (Alan, 2026-10-10: the
+                            names felt dull and "need to be perfectly aligned"). */}
+                        <div className="w-full border-t-[3px] px-2 pb-2 pt-2" style={{ borderColor: s.rule, color: s.text }}>
+                          <p className="h-[22px] font-heading text-[18px] font-bold leading-[22px] tracking-wide" style={{ color: s.name }}>{p.short}</p>
+                          <p className="h-[30px] text-[12px] font-bold uppercase leading-[15px] tracking-[0.05em]" style={{ color: s.muted }}>{p.tag}</p>
+                          <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                          <p className="h-[16px] text-[12px] leading-[16px]" style={{ color: s.muted }}>Lasts {p.lasts}</p>
                         </div>
                       </button>
                     );
                   })}
                 </div>
 
-                <div key={show.key} className="mt-3 overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-[#15130F]/10">
-                  <div className="flex items-start justify-between gap-2 px-4 pt-4">
+                <div key={show.key} className={cn("mt-3 overflow-hidden rounded-2xl bg-white shadow-md ring-1", sk.ring)}>
+                  {/* The open package's header wears its tier's coat. */}
+                  <div className="relative flex items-start justify-between gap-2 px-4 py-3" style={sk.card}>
+                    {sk.frame ? <GoldFrame /> : null}
                     <div className="min-w-0">
-                      <h3 className="font-heading text-2xl font-bold leading-tight">{show.name}</h3>
-                      <p className="text-[12px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{show.tag} · Lasts {show.lasts}</p>
+                      <h3 className="font-heading text-2xl font-bold leading-tight" style={{ color: sk.name }}>{show.name}</h3>
+                      <p className="text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: sk.muted }}>{show.tag} · Lasts {show.lasts}</p>
                     </div>
                     {chosen
-                      ? <span className="shrink-0 rounded-full px-2.5 py-1 text-[12px] font-bold text-[#15130F]" style={{ background: GOLD }}>✓ Your pick</span>
-                      : <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[12px] font-bold ring-1 ring-[#C9972F]/50">Most popular</span>}
+                      ? <span className="shrink-0 rounded-full bg-[#15130F] px-2.5 py-1 text-[12px] font-bold text-[#E3BE63] ring-1 ring-[#C9972F]">✓ Your pick</span>
+                      : <TierBadge pkg={show.key} className="shrink-0" />}
                   </div>
                   <div className="p-4 pt-3">
                     <div className="rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
@@ -523,17 +585,21 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
                     <ul className="mt-3 space-y-1.5">
                       {show.lines.map((l) => {
                         const Icon = l.icon;
-                        return <li key={l.text} className="flex items-center gap-2 text-[15px] font-medium"><Icon className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>;
+                        return <li key={l.text} className="flex items-center gap-2 text-[15px] font-medium"><Icon className="h-4 w-4 shrink-0" style={{ color: sk.accent }} />{l.text}</li>;
                       })}
                     </ul>
-                    <div className="mt-3 rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
-                      <p className="text-[12px] text-white/85"><s>{formatCurrency(show.regular)}</s> <span className="ml-1 font-bold text-emerald-300">20% off</span> · ends {customer.goodThrough}</p>
-                      <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(show.price)}</p>
-                      <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold" style={{ color: "#E3BE63" }}>
+                    <div className="mt-3 rounded-xl px-3 py-2.5" style={sk.priceBox}>
+                      <p className="flex items-center gap-1.5 text-[12px]">
+                        <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={sk.offChip}>20% off</span>
+                        <s className="opacity-75">{formatCurrency(show.regular)}</s>
+                        <span className="opacity-75">· ends {customer.goodThrough}</span>
+                      </p>
+                      <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}</p>
+                      <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold">
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
-                          : <img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} />}
-                        {line.text} <LearnMore onClick={() => setPayFaq("klarna")} dark />
+                          : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
+                        {line.text} <LearnMore onClick={() => setPayFaq("klarna")} dark={show.key === "legacy"} />
                       </p>
                     </div>
                     <button type="button" onClick={() => choose(show.key)}
@@ -551,13 +617,22 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
               {packages.map((p) => {
                 const on = pkg === p.key;
                 const line = payLine(p.price);
+                const s = SKINS[p.key];
                 return (
-                  <div key={p.key} className={cn("flex flex-col overflow-hidden rounded-2xl bg-white shadow-md transition duration-200",
-                    on ? "scale-[1.02] ring-4 ring-[#C9972F] shadow-2xl shadow-[#C9972F]/30"
-                      : pkg ? "opacity-60 saturate-50 ring-1 ring-[#15130F]/10"
-                      : p.popular ? "ring-2 ring-[#C9972F]/70" : "ring-1 ring-[#15130F]/10")}>
-                    <div className="relative">
-                      <div className={cn("grid gap-0.5", p.photos.length > 1 && "grid-cols-2")}>
+                  <div key={p.key} className={cn("relative flex flex-col overflow-hidden rounded-2xl shadow-md transition duration-200",
+                    on ? cn("scale-[1.02] ring-4 shadow-2xl", s.onRing)
+                      : pkg ? cn("opacity-60 saturate-50 ring-1", s.ring)
+                      : cn(p.popular ? "ring-2" : "ring-1", s.ring))}
+                    style={{ ...s.card, color: s.text }}>
+                    {s.frame ? <GoldFrame inset={4} /> : null}
+                    {/* Name and badge first, the way the printed proposal
+                        heads each column. */}
+                    <div className="px-4 pb-3 pt-4 text-center">
+                      <h3 className="font-heading text-[26px] font-bold leading-tight" style={{ color: s.name }}>{p.name}</h3>
+                      <div className="mt-1.5 flex justify-center"><TierBadge pkg={p.key} /></div>
+                    </div>
+                    <div className="relative px-3">
+                      <div className={cn("grid gap-0.5 overflow-hidden rounded-lg", p.photos.length > 1 && "grid-cols-2")} style={{ background: s.rule }}>
                         {p.photos.map((src, i) => (
                           <div key={src} className="relative">
                             <img src={src} alt="" className="h-40 w-full object-cover" draggable={false} />
@@ -567,43 +642,34 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
                           </div>
                         ))}
                       </div>
-                      <span className="absolute left-2 top-2 rounded-full bg-red-600 px-2 py-0.5 text-[12px] font-bold uppercase tracking-wider text-white shadow">20% off</span>
-                      {p.popular ? (
-                        <span className="absolute right-2 top-2 rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wider text-[#15130F] shadow" style={{ background: GOLD }}>
-                          <Star className="mr-1 inline h-3 w-3 fill-current" />Most popular
-                        </span>
-                      ) : null}
                     </div>
                     <div className="flex flex-1 flex-col p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="font-heading text-2xl font-bold leading-tight">{p.name}</h3>
-                          <p className="text-[12px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{p.tag}</p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-[#F8F3E7] px-2 py-1 text-[12px] font-bold ring-1 ring-[#C9972F]/50">Lasts {p.lasts}</span>
-                      </div>
-                      <div className="mt-3 rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
+                      <p className="text-center text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: s.muted }}>{p.tag} · Lasts {p.lasts}</p>
+                      <ul className="mt-3 flex-1 space-y-1.5">
+                        {p.lines.map((l) => (
+                          <li key={l.text} className="flex items-start gap-2 text-[15px] font-medium"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
+                        ))}
+                      </ul>
+                      <div className="mt-3 rounded-xl bg-[#FBF7EE] px-3 py-2 text-[#15130F] ring-1 ring-[#C9972F]/30">
                         <p className="text-[12px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
                         <p className="text-[15px] font-semibold leading-snug">{p.best}</p>
                       </div>
-                      <div className="mt-3 flex items-baseline gap-2">
-                        <p className="font-heading text-3xl font-bold leading-none">{formatCurrency(p.price)}</p>
-                        <s className="text-[15px] text-[#15130F]/70">{formatCurrency(p.regular)}</s>
+                      <div className="mt-3 rounded-xl px-3 py-2.5 text-center" style={s.priceBox}>
+                        <p className="flex items-center justify-center gap-1.5 text-[12px]">
+                          <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={s.offChip}>20% off</span>
+                          <s className="text-[15px] opacity-75">{formatCurrency(p.regular)}</s>
+                        </p>
+                        <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm font-semibold">
+                          {line.lender === "klarna"
+                            ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
+                            : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
+                          {line.text} <LearnMore onClick={() => setPayFaq("klarna")} dark={p.key === "legacy"} />
+                        </p>
                       </div>
-                      <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-[#15130F]/75">
-                        {line.lender === "klarna"
-                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
-                          : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
-                        {line.text} <LearnMore onClick={() => setPayFaq("klarna")} />
-                      </p>
-                      <ul className="mt-3 flex-1 space-y-1.5">
-                        {p.lines.map((l) => (
-                          <li key={l.text} className="flex items-start gap-2 text-[15px]"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />{l.text}</li>
-                        ))}
-                      </ul>
                       <button type="button" onClick={() => choose(p.key)}
                         className={cn("mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
-                          on ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
+                          on ? "bg-[#15130F] text-[#E3BE63] ring-1 ring-[#C9972F]" : "text-[#15130F] shadow-md")}
                         style={on ? undefined : { background: GOLD }}>
                         {on ? <><Check className="h-5 w-5" /> {p.short} picked</> : `Pick ${p.short}`}
                       </button>

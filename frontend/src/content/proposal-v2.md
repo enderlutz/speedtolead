@@ -909,6 +909,51 @@ pages and the answer endpoint, the job-done texts, the QuickBooks
 mark-paid. From Alan: a $1 test payment on his phone, the decisions above,
 and the Sterling domain before anything is texted to a customer.
 
+## Why three tiers, and why they wear three coats (research, 2026-10-11)
+
+Alan (2026-10-11): the three packages had the same fonts and colours, so a
+customer couldn't tell what they were getting. "The legacy needs to seem
+really premium, the signature very popular, and the essential the very
+minimum you'd at least get." What the big companies do, and why:
+
+- **Why a Best exists.** It is the anchor. Next to it the middle looks like
+  the sensible choice, and a slice of customers who would have bought the
+  middle trade up. Rafi Mohammed's HBR work ("The Good-Better-Best Approach
+  to Pricing", 2018) calls the top tier the offensive play (margin and
+  trade-ups), the bottom tier the defensive play (keeps the price shopper
+  from leaving for a cheaper outfit), and the middle the behavioural play
+  (the Goldilocks choice: the decision stops being "buy or not" and becomes
+  "which one").
+- **The numbers.** Pricing-page benchmarks put the highlighted middle tier
+  at about 58% of buyers on three-tier pages; a "most popular" badge alone
+  lifts conversion about 11%, visual prominence alone about 14%, the two
+  together about 21%. A top tier priced as the anchor lifts the middle's
+  take-rate roughly 18%. Three tiers decide in about 47 seconds; five or
+  more take over a minute and a quarter. Rafi's guardrails: Good no more
+  than ~25% under Better, Best no more than ~50% over Better, no more than
+  four things different between neighbours, every higher tier keeps all of
+  the lower one. Ours: Essential sits 14% under Signature, Legacy 28% over.
+  Inside the band.
+- **How they dress it.** Premium is always the darkest, richest coat with
+  a metal: Amex Gold then Platinum then the black Centurion, Apple's "Pro"
+  in black titanium, Uber Black, Delta Silver/Gold/Platinum/Diamond. Dark
+  tones read as scarcity and stability, a metallic as craftsmanship, and
+  fewer colours as higher value (80%+ of luxury identities use gold, navy,
+  burgundy or onyx). The middle tier gets the warm, bright highlight and
+  the badge. The entry tier is plain and light: present, honest, not
+  dressed up.
+- **What we did with it.** Essential on light clear wood with a sage
+  "Entry" badge, the name in green. Signature in gold with a dark-brown
+  "Most popular" ribbon. Legacy in black inside a thin gold frame with a
+  gold "Premium" badge and a gold price. Same rows and sizes on all three,
+  so the names and prices still line up; only the coat changes. Same on the
+  three-column desktop cards, with the name and badge heading each column
+  like the printed proposal.
+
+Sources: hbr.org/2018/09/the-good-better-best-approach-to-pricing;
+visionary-marketing.co.uk pricing-page conversion benchmarks (2026);
+zoviz.com luxury brand colour study.
+
 ## Log
 
 - 2026-10-09 — Worktree and branch created. This file created with the
@@ -945,3 +990,8 @@ and the Sterling domain before anything is texted to a customer.
   still opens every link ever sent. Alan wants a shorter domain than
   estimate.sterlingfencetx.com: Fragne adds it in Vercel and puts it first
   in the variable; no code change.
+- 2026-10-11 — The three packages wear three coats: Essential on clear wood
+  with a green name and "Entry" badge, Signature in gold with "Most
+  popular", Legacy in black inside a gold frame with "Premium". Rows and
+  sizes unchanged so everything still lines up. The good-better-best
+  research is written up above.
