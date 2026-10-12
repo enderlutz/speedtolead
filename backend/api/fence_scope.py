@@ -540,21 +540,43 @@ def colors_used(lead) -> list[str]:
     return [c for c in COLOR_ORDER if c in present]
 
 
+def _when(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        d = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
 def previously_estimated(db, lead) -> bool:
-    """Whether this customer has already had an estimate sent.
+    """Whether this customer has already had an estimate sent THIS visit.
 
     Decides which message is offered first. Not a hard gate — the estimate
     could have gone out by phone, or the record could predate the dashboard —
     so it only sets the default and can be overridden.
+
+    A customer who fills the form again starts over (services/intake.py), so
+    an estimate sent, or a proposal opened, before their latest fill belongs
+    to the previous visit: the scope goes out with the new-lead wording, not
+    "we quoted you a while back" (Alan, 2026-10-12).
     """
-    if (lead.proposal_view_count or 0) > 0 or lead.proposal_viewed_at:
+    from services.followup_status import cycle_sends
+
+    intake, sends = cycle_sends(db, lead)
+    if sends:
         return True
-    return (
-        db.query(Estimate)
-        .filter(Estimate.lead_id == lead.id, Estimate.status == "sent")
-        .first()
-        is not None
-    )
+    viewed = _when(lead.proposal_viewed_at)
+    if viewed is not None:
+        return intake is None or viewed >= intake
+    if intake is None:
+        # Nothing to measure a visit from: an old view count, or an estimate
+        # marked sent without a time, is the only word we have.
+        return (lead.proposal_view_count or 0) > 0 or (
+            db.query(Estimate).filter(Estimate.lead_id == lead.id, Estimate.status == "sent").first() is not None
+        )
+    return False
 
 
 def returning_scope_message(contact_name: str, address: str, colors: list[str] | None = None) -> str:

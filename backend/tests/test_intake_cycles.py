@@ -170,3 +170,28 @@ def test_contacts_put_the_newest_form_fill_first_and_say_sent_only_since_it(db):
     assert [c["name"] for c in _list(sort="added")] == ["Kevin", "Allque"]
     _sent(db, back, REFILL + timedelta(hours=16))
     assert _list()[0]["estimate_sent"] is True
+
+
+def test_the_scope_text_treats_a_refill_as_a_new_lead(db):
+    """Alan, 2026-10-12: a customer who fills the form again after an
+    estimate "needs to pretend it's a new lead", so the scope goes out with
+    the new-lead wording, not "we put together an estimate a while back"."""
+    from api.fence_scope import previously_estimated
+    lead = _lead(db)
+    _card(db, lead, T0 + timedelta(minutes=1))
+    assert previously_estimated(db, lead) is False
+    _sent(db, lead, T0 + timedelta(days=1))
+    assert previously_estimated(db, lead) is True
+    lead.proposal_viewed_at = (T0 + timedelta(days=2)).isoformat()
+    db.commit()
+    assert previously_estimated(db, lead) is True
+    _card(db, lead, REFILL)                       # fills the form again in October
+    assert previously_estimated(db, lead) is False
+    _sent(db, lead, REFILL + timedelta(hours=2))  # quoted again this visit
+    assert previously_estimated(db, lead) is True
+    # A record with no form-fill cards at all keeps the old rule.
+    old = _lead(db, name="Old Record")
+    assert previously_estimated(db, old) is False
+    old.proposal_view_count = 2
+    db.commit()
+    assert previously_estimated(db, old) is True
