@@ -43,10 +43,8 @@ Answer in chat, by number. Each has a recommendation so "yes" is enough.
 
    | Item | Price |
    |---|---|
-   | Picket, 6 ft pine treated | $12 |
-   | Picket, 8 ft pine treated | $14 |
-   | Picket, 6 ft cedar | $14 |
-   | Picket, 8 ft cedar | $16 |
+   | Picket, pine (any height) | $12 |
+   | Picket, cedar (any height) | $14 |
    | Rot board | $50 |
    | Cap | $85 |
    | 2x4 rail | $75 |
@@ -995,3 +993,7 @@ zoviz.com luxury brand colour study.
   popular", Legacy in black inside a gold frame with "Premium". Rows and
   sizes unchanged so everything still lines up. The good-better-best
   research is written up above.
+
+- 2026-10-11 — Pickets simplified to pine $12 and cedar $14, no height
+  choice ("the height makes people a little bit more confused, it adds too
+  much variability"). Posts keep 6, 7 and 8 ft.

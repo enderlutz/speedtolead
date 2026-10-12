@@ -153,12 +153,11 @@ function GoldFrame({ inset = 3 }: { inset?: number }) {
 }
 
 // Repairs, priced from Alan's list (2026-10-09; posts by fence height,
-// 2026-10-10).
+// 2026-10-10). Pickets are just pine or cedar, one price each: the height
+// "adds too much variability" and confused people (Alan, 2026-10-11).
 const PICKETS = [
-  { key: "pine6", label: "6 ft pine", price: 12 },
-  { key: "pine8", label: "8 ft pine", price: 14 },
-  { key: "cedar6", label: "6 ft cedar", price: 14 },
-  { key: "cedar8", label: "8 ft cedar", price: 16 },
+  { key: "pine", label: "Pine", price: 12 },
+  { key: "cedar", label: "Cedar", price: 14 },
 ];
 const PARTS = [
   { key: "rotboard", label: "Rot board", what: "The board along the ground", price: 50 },
