@@ -57,6 +57,7 @@ import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
 import ProposalProject from "@/pages/ProposalProject";
 import ProposalMockup from "@/pages/ProposalMockup";
+import CardoneFollowUps from "@/pages/CardoneFollowUps";
 import ProposalPreview from "@/pages/ProposalPreview";
 import ProposalLive from "@/pages/ProposalLive";
 import PayLink from "@/pages/PayLink";
@@ -240,6 +241,7 @@ function AppLayout() {
               <Route path="/pricing" element={<RequireView view="pricing"><Pricing /></RequireView>} />
               <Route path="/new-proposal" element={<StaffOnly><ProposalProject /></StaffOnly>} />
               <Route path="/new-proposal/mockup" element={<StaffOnly><ProposalMockup /></StaffOnly>} />
+              <Route path="/cardone" element={<StaffOnly><CardoneFollowUps /></StaffOnly>} />
               <Route path="/ai-fence" element={<StaffOnly><AiFenceEstimation /></StaffOnly>} />
               <Route path="/settings" element={<RequireView view="settings"><Settings /></RequireView>} />
               <Route path="/agents" element={<RequireView view="agents"><Agents /></RequireView>} />
