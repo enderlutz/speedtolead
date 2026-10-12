@@ -3601,6 +3601,9 @@ export interface ContactRow {
   /** Queued but still unsent well past its send time: the worker is stalled
    *  and this customer is NOT getting a price until someone looks. */
   estimate_send_overdue: boolean;
+  /** Where they are in the journey and what to do next, measured from their
+   *  latest form fill (services/next_step.py). Null for a contact with no lead. */
+  next_step: { key: string; stage: string; next: string; tone: "hot" | "warm" | "cold" | "off" } | null;
   message_count: number;
   inbound_count: number;
   /** Calls where we actually spoke to someone — a recording whose transcript

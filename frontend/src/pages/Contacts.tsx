@@ -399,6 +399,7 @@ export default function Contacts() {
               <th className="text-left font-medium px-3 py-2">Phone</th>
               <th className="text-left font-medium px-3 py-2">Came in</th>
               <th className="text-left font-medium px-3 py-2">Estimate</th>
+              <th className="text-left font-medium px-3 py-2">Next step</th>
               <th className="text-left font-medium px-3 py-2">History</th>
               <th className="text-left font-medium px-3 py-2">Stage</th>
               <th className="text-left font-medium px-3 py-2">Where from</th>
@@ -494,6 +495,22 @@ export default function Contacts() {
                     >
                       {c.intake_count > 1 ? "none since they came back" : "never sent"}
                     </Badge>
+                  )}
+                </td>
+                {/* Where they are and what to do next, in words (Alan,
+                    2026-10-12). Hot = act now, warm = soon, cold = waiting. */}
+                <td className="px-3 py-2">
+                  {c.next_step ? (
+                    <div className="min-w-[150px]">
+                      <div className={`text-sm font-semibold leading-tight ${
+                        c.next_step.tone === "hot" ? "text-rose-700" : c.next_step.tone === "warm" ? "text-amber-700"
+                        : c.next_step.tone === "off" ? "text-muted-foreground line-through" : "text-foreground"}`}>
+                        {c.next_step.next}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">{c.next_step.stage}</div>
+                    </div>
+                  ) : (
+                    <span className="text-xs italic text-muted-foreground/70">no lead</span>
                   )}
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">

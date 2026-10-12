@@ -134,13 +134,10 @@ def _stops(db, lead_ids: list[str] | None) -> tuple[set[str], set[str]]:
     return {r[0] for r in stops_q.distinct().all()}, {r[0] for r in dnc_q.all()}
 
 
-def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
-    """Leads whose latest estimate send came AFTER the customer last filled
-    the form. A customer who came back is a new lead again (Alan,
-    2026-10-09): an estimate from months ago doesn't count as sent for this
-    visit. `lead_ids=None` means every lead (for the stats)."""
-    from services.intake import last_intakes
-
+def _last_send_times(db, lead_ids: list[str] | None) -> dict[str, datetime]:
+    """lead_id -> when its latest estimate went out, from the log event or,
+    belt and braces, the outbound text carrying the proposal link.
+    `lead_ids=None` means every lead."""
     log = db.query(AutomationLog.lead_id, func.max(AutomationLog.created_at)) \
         .filter(AutomationLog.event_type.in_(SENT_EVENTS), AutomationLog.lead_id.isnot(None))
     # Belt and braces: an estimate texted before the log event existed
@@ -150,7 +147,7 @@ def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
                 Message.lead_id.isnot(None))
     if lead_ids is not None:
         if not lead_ids:
-            return set()
+            return {}
         log = log.filter(AutomationLog.lead_id.in_(lead_ids))
         msgs = msgs.filter(Message.lead_id.in_(lead_ids))
     last_send: dict[str, datetime] = {}
@@ -158,6 +155,19 @@ def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
         d = _dt(t)
         if d and (lid not in last_send or d > last_send[lid]):
             last_send[lid] = d
+    return last_send
+
+
+def _sent_since_intake(db, lead_ids: list[str] | None) -> set[str]:
+    """Leads whose latest estimate send came AFTER the customer last filled
+    the form. A customer who came back is a new lead again (Alan,
+    2026-10-09): an estimate from months ago doesn't count as sent for this
+    visit. `lead_ids=None` means every lead (for the stats)."""
+    from services.intake import last_intakes
+
+    last_send = _last_send_times(db, lead_ids)
+    if lead_ids is not None and not lead_ids:
+        return set()
     intakes = {lid: _dt(t) for lid, t in last_intakes(db, lead_ids).items()}
     return {lid for lid, sent in last_send.items()
             if not intakes.get(lid) or sent >= intakes[lid]}
@@ -280,6 +290,7 @@ def list_contacts(
         refills: dict[str, int] = {}
         stops: set[str] = set()
         dnc: set[str] = set()
+        steps: dict[str, dict] = {}
 
         if lead_ids:
             # The pipeline still matters — it just no longer decides whether
@@ -323,6 +334,10 @@ def list_contacts(
             talked_counts, voicemail_counts, attempt_counts = _call_tallies(db, lead_ids)
             scheduled, overdue = _scheduled_send_state(db, lead_ids)
             sent |= scheduled
+            # Where each one is and what to do next (services/next_step.py).
+            from services.next_step import next_steps
+            steps = next_steps(db, lead_ids, last_send=_last_send_times(db, lead_ids),
+                               scheduled=scheduled, overdue=overdue, stopped=stops | dnc)
 
         out = []
         for r in rows:
@@ -358,6 +373,7 @@ def list_contacts(
             # nobody ever made an opportunity card for them.
             d["pipeline"] = "" if ver == "contact" else ver
             d["stage"] = stage
+            d["next_step"] = steps.get(lid) if lid else None
             out.append(d)
 
         # (The estimate filter already ran on the whole set above.)
