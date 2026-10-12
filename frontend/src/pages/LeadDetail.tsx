@@ -7,6 +7,7 @@ import CallScriptPanel from "@/components/CallScriptPanel";
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { cn, formatCurrency, formatMonthly, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
+const ACCENT_INTERACTIVE = ACCENT.amber;
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
@@ -594,6 +595,24 @@ export default function LeadDetail() {
   // Default to also emailing the estimate — VA can uncheck. Only actually
   // sends when the lead has an email (see the checked= guard on the box).
   const [alsoEmail, setAlsoEmail] = useState(true);
+  // The interactive page or the PDF. Starts from this lead's latest
+  // proposal (the switch on the Payment links panel), else the Settings
+  // default, so what the chip shows is what Send Now will do.
+  const [interactive, setInteractive] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!lead?.id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const live = await api.getProposalLive(lead.id);
+        if (!alive) return;
+        if (live.proposal) { setInteractive(!!live.proposal.interactive); return; }
+        const d = await api.getProposalInteractiveDefault();
+        if (alive) setInteractive(!!d.on);
+      } catch { if (alive) setInteractive(false); }
+    })();
+    return () => { alive = false; };
+  }, [lead?.id]);
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -952,6 +971,7 @@ export default function LeadDetail() {
         sendSms,
         alsoEmail: alsoEmail && !!lead?.contact_email,
         applyTag,
+        interactive: interactive ?? undefined,
       });
       const data = await api.getLead(id!);
       setLead(data);
@@ -2207,6 +2227,21 @@ export default function LeadDetail() {
                 </div>
               )}
 
+              <Field label="Send as">
+                <div className="flex flex-wrap gap-1.5">
+                  {/* The interactive page: three packages, Reserve $250,
+                      financing, a 30-day price. Off = the PDF. */}
+                  <ToggleChip
+                    on={interactive === true}
+                    onClick={() => setInteractive((v) => !v)}
+                    icon={Sparkles}
+                    accent={ACCENT_INTERACTIVE}
+                    title={interactive ? "Sends the interactive proposal page (Reserve $250, financing, 30-day price)" : "Sends the PDF proposal"}
+                  >
+                    {interactive ? "Interactive page" : "PDF"}
+                  </ToggleChip>
+                </div>
+              </Field>
               <Field label="Send via">
                 <div className="flex flex-wrap gap-1.5">
                   <ToggleChip

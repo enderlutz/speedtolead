@@ -12,7 +12,7 @@ from api.auth import get_current_user_optional, require_staff
 from fastapi.responses import Response
 from pydantic import BaseModel
 from database import get_db, Estimate, Lead, PdfTemplate, Proposal, ProposalPage, SmsQueue, EstimateCorrectionRequest
-from api.settings import get_promotion_markup_percent
+from api.settings import get_promotion_markup_percent, interactive_by_default
 from services.notifications import notify_estimate_sent, notify_new_lead_red, notify_custom_proposal_sent
 from services.estimator import tier_of_line, tiers_from_breakdown
 from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages, generate_preview_pages
@@ -345,6 +345,31 @@ class ApproveBody(BaseModel):
     # tag-driven GHL workflows (P1 Sterling Estimate Sent, P04-REPLY,
     # etc). Default True preserves the historical send behavior.
     apply_tag: bool = True
+    # The interactive page (/p/<token>) or the PDF. None = carry the lead's
+    # last choice forward, else the Settings default (see _proposal_version_for).
+    interactive: bool | None = None
+
+
+def _proposal_version_for(db, lead, requested: bool | None) -> str:
+    """"interactive" or "pdf" for a proposal about to go out.
+
+    Asked for outright on the send; else whatever this lead's latest
+    proposal is (the per-lead switch on the Payment links panel carries
+    forward); else the Settings default, Sterling only. Alan (2026-10-12)
+    flipped the switch, pressed Send now and got the PDF: the switch only
+    reached the proposal that already existed.
+    """
+    if (lead.division or "").lower() == "brick":
+        return "pdf"   # A&T untouched (Alan, 2026-10-11)
+    if requested is not None:
+        return "interactive" if requested else "pdf"
+    latest = (db.query(Proposal.proposal_version).filter(Proposal.lead_id == lead.id)
+              .order_by(Proposal.created_at.desc()).first())
+    if latest is not None and (latest[0] or "") == "interactive":
+        return "interactive"
+    if interactive_by_default(db):
+        return "interactive"
+    return "pdf"
 
 
 class PreviewBody(BaseModel):
@@ -1172,7 +1197,7 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
             estimate_id=estimate_id,
             lead_id=lead.id,
             status="sent",
-            proposal_version="pdf",
+            proposal_version=_proposal_version_for(db, lead, body.interactive if body else None),
             proposal_seq=_next_proposal_seq(db),
             pdf_data=None,
             pdf_page_count=0,

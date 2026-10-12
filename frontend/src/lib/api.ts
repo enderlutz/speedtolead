@@ -1428,8 +1428,11 @@ export const api = {
     const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
     return request<PendingEstimate[]>(`/api/estimates/pending-action${qs}`);
   },
-  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean; applyTag?: boolean }) => {
+  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean; applyTag?: boolean; interactive?: boolean }) => {
     const body: Record<string, unknown> = {};
+    // The interactive page or the PDF. Left out, the backend carries the
+    // lead's last choice forward, else the Settings default.
+    if (opts && typeof opts.interactive === "boolean") body.interactive = opts.interactive;
     if (opts?.scheduledSendAt) body.scheduled_send_at = opts.scheduledSendAt;
     if (opts?.alsoEmail) body.also_email = true;
     // Only include send_sms when caller wants to flip it off — backend
@@ -1961,6 +1964,10 @@ export const api = {
     }),
   // Promotion / slashed-price control. Markup % applied on top of the
   // actual tier price to render the strikethrough "original" on proposals.
+  /** Settings: do new Sterling proposals go out as the interactive page? */
+  getProposalInteractiveDefault: () => request<{ on: boolean }>(`/api/settings/proposal-interactive`),
+  setProposalInteractiveDefault: (on: boolean) =>
+    request<{ on: boolean }>(`/api/settings/proposal-interactive`, { method: "PUT", body: JSON.stringify({ on }) }),
   getPromotionMarkup: () =>
     request<{ markup_percent: number }>("/api/settings/promotion"),
   setPromotionMarkup: (markup_percent: number) =>

@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from database import get_db, PricingConfig, GhlFieldMapping, SystemConfig
 from services.ghl import get_pipelines, get_custom_fields
 from config import get_settings
+from api.auth import get_current_user, require_admin
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -170,6 +171,49 @@ def update_promotion(body: PromotionUpdate):
     try:
         SystemConfig.set(db, PROMOTION_MARKUP_KEY, f"{body.markup_percent:g}")
         return {"markup_percent": body.markup_percent}
+    finally:
+        db.close()
+
+
+# --- Interactive proposal by default (Sterling) ---
+
+# "on" means every new Sterling proposal goes out as the interactive page
+# (/p/<token>: the three packages, Reserve $250, financing) instead of the
+# PDF. Off, the per-lead switch on the Payment links panel still works and
+# carries forward to that lead's next send. The brick division never
+# changes (Alan, 2026-10-11: "don't do anything with the A&Ts right now").
+INTERACTIVE_DEFAULT_KEY = "proposal_interactive_default"
+
+
+def interactive_by_default(db) -> bool:
+    return (SystemConfig.get(db, INTERACTIVE_DEFAULT_KEY, "") or "").strip().lower() in ("on", "1", "true", "yes")
+
+
+@router.get("/settings/proposal-interactive")
+def get_proposal_interactive(user: dict = Depends(get_current_user)):
+    del user
+    db = get_db()
+    try:
+        return {"on": interactive_by_default(db)}
+    finally:
+        db.close()
+
+
+class ProposalInteractiveUpdate(BaseModel):
+    on: bool
+
+
+@router.put("/settings/proposal-interactive")
+def update_proposal_interactive(body: ProposalInteractiveUpdate, user: dict = Depends(require_admin)):
+    db = get_db()
+    try:
+        SystemConfig.set(db, INTERACTIVE_DEFAULT_KEY, "on" if body.on else "off")
+        try:
+            from services.activity_log import log_event
+            log_event(None, "proposal_interactive_default", f"{'on' if body.on else 'off'} by {user.get('name') or user.get('sub') or ''}")
+        except Exception:  # noqa: BLE001 - the setting is saved either way
+            pass
+        return {"on": body.on}
     finally:
         db.close()
 
