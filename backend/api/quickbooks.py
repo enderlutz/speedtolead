@@ -1094,7 +1094,13 @@ def list_pending_deposits(user: dict = Depends(require_staff)):
             "amount": float(r.deposit_amount or 0),
             "sent_at": r.deposit_invoice_sent_at,
             "payment_link": r.deposit_payment_link or "",
+            "source": "quickbooks",
         } for r in rows]
+        # Stripe deposit links inside their 7 days sit on the same list
+        # (Alan, 2026-10-11: "a section of deposits pending").
+        from services.after_pay_hooks import pending_deposit_rows
+        deposits += pending_deposit_rows(db)
+        deposits.sort(key=lambda d: d.get("sent_at") or "")
         return {
             "count": len(deposits),
             "total": sum(d["amount"] for d in deposits),

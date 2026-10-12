@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, timeAgo } from "@/lib/utils";
 import { useSSE } from "@/hooks/useSSE";
-import { Clock, ExternalLink, Loader2, CheckCircle2 } from "lucide-react";
+import { Clock, ExternalLink, Loader2, CheckCircle2, Copy } from "lucide-react";
+import { toast } from "sonner";
 
 // Deposits Unpaid — leads whose $250 deposit invoice was sent but hasn't been
 // paid yet. Gives Alan a single glance at outstanding deposits (money owed to
@@ -59,7 +60,7 @@ export default function PendingDepositsCard() {
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <Clock className="h-4 w-4 text-amber-600" />
-            Deposits Unpaid
+            Deposits pending
           </CardTitle>
           {deposits.length > 0 && (
             <Badge className="bg-amber-600 text-white text-xs">
@@ -84,7 +85,7 @@ export default function PendingDepositsCard() {
               const days = daysSince(d.sent_at);
               const aging = days !== null && days >= AGING_DAYS;
               return (
-                <li key={d.lead_id}>
+                <li key={`${d.source || "quickbooks"}-${d.token || d.lead_id}`}>
                   <Link
                     to={`/leads/${d.lead_id}`}
                     className="flex items-center gap-3 py-2 hover:bg-amber-100/40 rounded px-1 transition-colors"
@@ -94,6 +95,13 @@ export default function PendingDepositsCard() {
                         <span className="font-medium text-sm truncate">
                           {d.contact_name || "(no name)"}
                         </span>
+                        {d.source === "stripe" ? (
+                          <Badge className="bg-violet-100 text-violet-700 text-[10px] h-4 px-1.5">
+                            Stripe{d.tier ? ` · ${d.tier}` : ""}{typeof d.days_left === "number" ? ` · ${d.days_left}d left` : ""}
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-stone-100 text-stone-600 text-[10px] h-4 px-1.5">QuickBooks</Badge>
+                        )}
                         {aging && (
                           <Badge className="bg-red-100 text-red-700 text-[10px] h-4 px-1.5">
                             {days}d waiting
@@ -101,9 +109,17 @@ export default function PendingDepositsCard() {
                         )}
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        {d.sent_at ? `sent ${timeAgo(d.sent_at)}` : "sent —"}
+                        {d.sent_at ? `${d.created_by === "customer" ? "opened on the proposal" : "sent"} ${timeAgo(d.sent_at)}` : "sent —"}
+                        {d.job_total ? ` · job ${formatCurrency(d.job_total)}` : ""}
                       </div>
                     </div>
+                    {d.source === "stripe" && d.payment_link ? (
+                      <button type="button" title="Copy the pay link"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigator.clipboard.writeText(d.payment_link).then(() => toast.success("Pay link copied")).catch(() => toast.error("Couldn't copy")); }}
+                        className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-amber-100 hover:text-foreground">
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                     <div className="text-sm font-semibold text-amber-700 shrink-0">
                       {formatCurrency(d.amount)}
                     </div>

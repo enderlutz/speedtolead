@@ -58,6 +58,7 @@ import Internal from "@/pages/Internal";
 import ProposalProject from "@/pages/ProposalProject";
 import ProposalMockup from "@/pages/ProposalMockup";
 import ProposalPreview from "@/pages/ProposalPreview";
+import ProposalLive from "@/pages/ProposalLive";
 import PayLink from "@/pages/PayLink";
 import AfterPayPage from "@/pages/AfterPayPage";
 import MapTab from "@/map/MapTab";
@@ -175,7 +176,7 @@ function AppLayout() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalView />} />
-        <Route path="/p/:token" element={<ProposalView />} />
+        <Route path="/p/:token" element={<ProposalLive />} />
         <Route path="/crew-app/:token" element={<CrewToday />} />
         <Route path="/approve/:token" element={<QuickApprove />} />
         <Route path="/capture/:token" element={<ExteriorCapture />} />

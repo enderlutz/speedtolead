@@ -455,6 +455,9 @@ class Proposal(Base):
     last_viewed_at = Column(Text, nullable=True)
     view_count = Column(Integer, default=0)
     created_at = Column(Text, default="")
+    # The interactive proposal's quoted price ends 30 days after the send
+    # unless the office extended it, per customer, to this ISO date.
+    extended_until = Column(Text, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -4019,6 +4022,11 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN job_tier TEXT"))
             if "job_total_cents" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN job_total_cents INTEGER"))
+    if inspector.has_table("proposals"):
+        pr = {c["name"] for c in inspector.get_columns("proposals")}
+        if "extended_until" not in pr:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE proposals ADD COLUMN extended_until TEXT"))
     existing = {c["name"] for c in inspector.get_columns("leads")}
 
     if "pipeline_version" not in existing:

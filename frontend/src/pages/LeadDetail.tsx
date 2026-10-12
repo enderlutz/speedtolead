@@ -10,6 +10,7 @@ import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
 import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
+import { ProposalLiveSwitch } from "@/components/ProposalLiveSwitch";
 import { SidesPicker } from "@/components/SidesPicker";
 import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
@@ -1723,6 +1724,7 @@ export default function LeadDetail() {
             onToggle={() => toggle("payments", paymentsDefault)}
             bodyClassName="space-y-2 p-3.5"
           >
+            <ProposalLiveSwitch leadId={lead.id} />
             <DepositRow
               lead={lead}
               onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}

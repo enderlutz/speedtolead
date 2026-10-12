@@ -24,6 +24,8 @@ export default function PayLink() {
   const [info, setInfo] = useState<Info | "loading" | "gone">("loading");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // A deposit link lives 7 days; the API says so with a 410 and a sentence.
+  const [goneWhy, setGoneWhy] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -31,7 +33,13 @@ export default function PayLink() {
     (async () => {
       try {
         const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}`);
-        if (!r.ok) throw new Error(String(r.status));
+        if (!r.ok) {
+          if (r.status === 410) {
+            const why = (await r.json().catch(() => ({}))) as { detail?: string };
+            if (alive) setGoneWhy(why.detail || "");
+          }
+          throw new Error(String(r.status));
+        }
         const data = (await r.json()) as Info;
         if (!alive) return;
         if (data.status === "paid") {
@@ -64,8 +72,8 @@ export default function PayLink() {
   if (info === "gone") {
     return (
       <Shell>
-        <h1 className="font-heading text-3xl font-bold leading-tight">This link isn't active.</h1>
-        <p className="mt-2 text-[17px] text-[#15130F]/80">If you were expecting to pay, call or text us and we'll send a fresh one.</p>
+        <h1 className="font-heading text-3xl font-bold leading-tight">{goneWhy ? "This link has expired." : "This link isn't active."}</h1>
+        <p className="mt-2 text-[17px] text-[#15130F]/80">{goneWhy || "If you were expecting to pay, call or text us and we'll send a fresh one."}</p>
         <Contact />
       </Shell>
     );

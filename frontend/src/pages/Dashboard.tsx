@@ -166,6 +166,14 @@ export default function Dashboard() {
       {/* Everyone without an estimate, first thing on the page (Alan, 2026-10-11). */}
       <NoEstimateQueue />
 
+      {/* Deposits pending (QuickBooks invoices and 7-day Stripe links) and
+          the money that landed: the daily who-to-call, right under the
+          estimate list (Alan, 2026-10-11). */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+        <PendingDepositsCard />
+        <RecentPaymentsCard />
+      </div>
+
       {/* Wrapped is owner-only — both triggers (auto-popup + preview buttons)
           already gate on isAdmin, but the mount checks it too in case any
           future code path sets wrappedOpen. */}
@@ -250,16 +258,6 @@ export default function Dashboard() {
             <p className="text-[10px] text-muted-foreground mt-1">{kpis?.goal_progress_pct ?? 0}% complete</p>
           </CardContent>
         </Card>
-      </div>
-
-      {/* W2 (2026-06-08) — Live payment activity. Subscribes to the
-          payment_received + deposit_paid SSE events so the feed updates
-          the instant the QB webhook fires. Today's running tally lives
-          in the badge so the moment-by-moment "money is flowing in"
-          signal is always visible. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-        <RecentPaymentsCard />
-        <PendingDepositsCard />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">

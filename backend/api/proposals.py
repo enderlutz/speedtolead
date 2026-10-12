@@ -123,6 +123,67 @@ def _pricing_includes_bullets(form_data: dict) -> list[str]:
     return bullets
 
 
+def track_view(db, proposal, lead, request: Request, preview: bool = False) -> bool:
+    """Count a customer view of a proposal: bots, link previewers, logged-in
+    staff and ?preview=1 never count. The first real view flips the status,
+    logs it, publishes the event and texts Alan. Shared by the PDF page and
+    the interactive one. Returns True when the view counted."""
+    # Decide whether this view should count
+    ua = request.headers.get("user-agent", "")
+    is_bot = _is_bot_view(ua)
+    is_internal = _is_internal_user(request)
+    is_preview_param = bool(preview)
+    skip_tracking = is_bot or is_internal or is_preview_param
+
+    if not skip_tracking:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        proposal.view_count = (proposal.view_count or 0) + 1
+        proposal.last_viewed_at = now_iso
+        lead.proposal_view_count = proposal.view_count
+        lead.proposal_last_viewed_at = now_iso
+
+        # First-view side effects: status flip, badge, SSE event, activity log
+        if proposal.status == "sent":
+            proposal.status = "viewed"
+            proposal.first_viewed_at = now_iso
+            lead.proposal_viewed_at = now_iso
+            log_event(lead.id, "proposal_viewed", f"Customer opened proposal {proposal.token}")
+            publish("proposal_viewed", {
+                "lead_id": lead.id,
+                "contact_name": lead.contact_name,
+                "token": proposal.token,
+            })
+
+            # 🔥 Intent signal — fire SMS to Alan the second a customer
+            # opens their proposal. Highest-conversion moment in the
+            # funnel: customer just looked, attention is captured, the
+            # 90-second window after this is when a call closes hardest.
+            # Idempotent by construction — only inside the
+            # status == "sent" branch, which transitions once per
+            # proposal. Best-effort: SMS failure must not roll back
+            # the view tracking, so try/except.
+            try:
+                _settings = get_settings()
+                alan_id = (_settings.owner_ghl_contact_id or "").strip()
+                if alan_id:
+                    customer = (lead.contact_name or "Unknown lead").strip()
+                    lead_url = f"{_settings.frontend_url.rstrip('/')}/leads/{lead.id}"
+                    msg = (
+                        f"🔥 {customer} just opened their proposal — "
+                        f"best window to call.\n{lead_url}"
+                    )
+                    send_sms(alan_id, msg, location_id=lead.ghl_location_id)
+            except Exception as e:
+                logger.warning(f"proposal_viewed SMS to owner failed (non-fatal): {e}")
+
+        db.commit()
+    else:
+        # Log skipped views once with the reason — useful for debugging
+        reason = "bot" if is_bot else ("internal" if is_internal else "preview-param")
+        logger.debug(f"Proposal {proposal.token} view skipped ({reason}): UA={ua[:80]}")
+    return not skip_tracking
+
+
 @router.get("/proposal/{token}")
 def get_proposal(token: str, request: Request, preview: int = Query(0)):
     """Public endpoint: get proposal data for customer view.
@@ -140,59 +201,7 @@ def get_proposal(token: str, request: Request, preview: int = Query(0)):
         if not est or not lead:
             raise HTTPException(status_code=404, detail="Proposal data incomplete")
 
-        # Decide whether this view should count
-        ua = request.headers.get("user-agent", "")
-        is_bot = _is_bot_view(ua)
-        is_internal = _is_internal_user(request)
-        is_preview_param = preview == 1
-        skip_tracking = is_bot or is_internal or is_preview_param
-
-        if not skip_tracking:
-            now_iso = datetime.now(timezone.utc).isoformat()
-            proposal.view_count = (proposal.view_count or 0) + 1
-            proposal.last_viewed_at = now_iso
-            lead.proposal_view_count = proposal.view_count
-            lead.proposal_last_viewed_at = now_iso
-
-            # First-view side effects: status flip, badge, SSE event, activity log
-            if proposal.status == "sent":
-                proposal.status = "viewed"
-                proposal.first_viewed_at = now_iso
-                lead.proposal_viewed_at = now_iso
-                log_event(lead.id, "proposal_viewed", f"Customer opened proposal {token}")
-                publish("proposal_viewed", {
-                    "lead_id": lead.id,
-                    "contact_name": lead.contact_name,
-                    "token": token,
-                })
-
-                # 🔥 Intent signal — fire SMS to Alan the second a customer
-                # opens their proposal. Highest-conversion moment in the
-                # funnel: customer just looked, attention is captured, the
-                # 90-second window after this is when a call closes hardest.
-                # Idempotent by construction — only inside the
-                # status == "sent" branch, which transitions once per
-                # proposal. Best-effort: SMS failure must not roll back
-                # the view tracking, so try/except.
-                try:
-                    _settings = get_settings()
-                    alan_id = (_settings.owner_ghl_contact_id or "").strip()
-                    if alan_id:
-                        customer = (lead.contact_name or "Unknown lead").strip()
-                        lead_url = f"{_settings.frontend_url.rstrip('/')}/leads/{lead.id}"
-                        msg = (
-                            f"🔥 {customer} just opened their proposal — "
-                            f"best window to call.\n{lead_url}"
-                        )
-                        send_sms(alan_id, msg, location_id=lead.ghl_location_id)
-                except Exception as e:
-                    logger.warning(f"proposal_viewed SMS to owner failed (non-fatal): {e}")
-
-            db.commit()
-        else:
-            # Log skipped views once with the reason — useful for debugging
-            reason = "bot" if is_bot else ("internal" if is_internal else "preview-param")
-            logger.debug(f"Proposal {token} view skipped ({reason}): UA={ua[:80]}")
+        track_view(db, proposal, lead, request, preview == 1)
 
         # Customer's correction-request history (so they can see what they've asked for)
         correction_requests = (

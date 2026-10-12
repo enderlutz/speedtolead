@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from config import get_settings
 from database import get_db, Lead, PayLink, CustomerPayment, ScheduledJob, SystemConfig
@@ -49,6 +49,66 @@ def pay_url(token: str) -> str:
 
 def after_url(token: str) -> str:
     return f"{_base()}/after/{token}"
+
+
+# A deposit link lives 7 days. After that it is void, not overdue: "if they
+# don't pay the seven day link… it just deletes" (Alan, 2026-10-11). Until
+# then it sits in the Deposits pending list.
+DEPOSIT_LINK_DAYS = 7
+
+
+def _parse_iso(iso: str | None) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def deposit_expires_at(link: PayLink) -> str | None:
+    if link.kind != "deposit":
+        return None
+    created = _parse_iso(link.created_at)
+    return (created + timedelta(days=DEPOSIT_LINK_DAYS)).isoformat() if created else None
+
+
+def deposit_link_expired(link: PayLink, now: datetime | None = None) -> bool:
+    if link.kind != "deposit" or link.status != "open":
+        return False
+    created = _parse_iso(link.created_at)
+    return bool(created) and (now or datetime.now(timezone.utc)) > created + timedelta(days=DEPOSIT_LINK_DAYS)
+
+
+def pending_deposit_rows(db) -> list[dict]:
+    """Open Stripe deposit links still inside their 7 days, with the lead,
+    for the Dashboard's Deposits pending list. Oldest first."""
+    now = datetime.now(timezone.utc)
+    links = (db.query(PayLink).filter(PayLink.kind == "deposit", PayLink.status == "open")
+             .order_by(PayLink.created_at.asc()).all())
+    rows = []
+    for link in links:
+        if deposit_link_expired(link, now):
+            continue
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        created = _parse_iso(link.created_at) or now
+        left = (created + timedelta(days=DEPOSIT_LINK_DAYS) - now).total_seconds() / 86400
+        rows.append({
+            "lead_id": link.lead_id,
+            "contact_name": (lead.contact_name if lead else "") or "",
+            "contact_phone": (lead.contact_phone if lead else "") or "",
+            "amount": round((link.amount_cents or 0) / 100, 2),
+            "sent_at": link.sent_at or link.created_at,
+            "payment_link": pay_url(link.token),
+            "source": "stripe",
+            "token": link.token,
+            "tier": link.job_tier or "",
+            "job_total": round((link.job_total_cents or 0) / 100, 2) if link.job_total_cents else None,
+            "days_left": max(0, int(left)),
+            "created_by": link.created_by or "",
+        })
+    return rows
 
 
 def money(amount: float) -> str:

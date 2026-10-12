@@ -1341,6 +1341,12 @@ export const api = {
   getStripeSettings: () => request<StripeSettings>(`/api/stripe/settings`),
   updateStripeSettings: (body: { auto_balance_link: boolean }) =>
     request<StripeSettings>(`/api/stripe/settings`, { method: "PUT", body: JSON.stringify(body) }),
+  // The interactive proposal: per-lead switch (admin), the price window, the extension.
+  getProposalLive: (leadId: string) => request<ProposalLiveState>(`/api/leads/${leadId}/proposal/live`),
+  setProposalInteractive: (leadId: string, on: boolean) =>
+    request<ProposalLiveState>(`/api/leads/${leadId}/proposal/interactive`, { method: "POST", body: JSON.stringify({ on }) }),
+  extendProposalPrice: (leadId: string, days = 7) =>
+    request<ProposalLiveState>(`/api/leads/${leadId}/proposal/extend`, { method: "POST", body: JSON.stringify({ days }) }),
   updateColumn: (id: string, kanban_column: string) =>
     request<Lead>(`/api/leads/${id}/column`, {
       method: "PUT",
@@ -4986,6 +4992,9 @@ export interface PendingDeposit {
   /** ISO timestamp the invoice was sent, or null. */
   sent_at: string | null;
   payment_link: string;
+  /** "quickbooks" (the deposit invoice) or "stripe" (a 7-day deposit link). */
+  source?: "quickbooks" | "stripe";
+  token?: string; tier?: string; job_total?: number | null; days_left?: number; created_by?: string;
 }
 
 export interface OutstandingJob {
@@ -5566,3 +5575,12 @@ export interface PayLinksResponse {
   links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
+
+/** The lead page's view of its latest proposal as the interactive page. */
+export interface ProposalLiveState {
+  proposal: {
+    token: string; interactive: boolean; url: string; number: string; created_at: string;
+    good_through: string; expired: boolean; extended_until: string | null;
+    view_count: number; last_viewed_at: string | null;
+  } | null;
+}

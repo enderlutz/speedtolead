@@ -104,6 +104,8 @@ def link_dict(link: PayLink) -> dict:
         "answered_at": link.answered_at,
         "job_tier": link.job_tier or "",
         "job_total": round((link.job_total_cents or 0) / 100, 2) if link.job_total_cents else None,
+        "expires_at": hooks.deposit_expires_at(link),
+        "expired": hooks.deposit_link_expired(link),
     }
 
 
@@ -271,6 +273,12 @@ def _live_link(db, token: str) -> PayLink:
     link = db.query(PayLink).filter(PayLink.token == token).first()
     if not link or link.status == "void":
         raise HTTPException(status_code=404, detail="Not found")
+    if hooks.deposit_link_expired(link):
+        # Seven days and it's gone, not overdue (Alan, 2026-10-11).
+        link.status = "void"
+        db.commit()
+        log_event(link.lead_id, "pay_link_expired", f"deposit {link.token}")
+        raise HTTPException(status_code=410, detail="This link expired after 7 days. Text us at 346-589-7877 and we'll send a fresh one.")
     return link
 
 

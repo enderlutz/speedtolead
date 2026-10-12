@@ -952,6 +952,57 @@ Sources: hbr.org/2018/09/the-good-better-best-approach-to-pricing;
 visionary-marketing.co.uk pricing-page conversion benchmarks (2026);
 zoviz.com luxury brand colour study.
 
+## Payment rules Alan settled on 2026-10-11 (evening)
+
+- **Two doors after the package pick.** "Reserve my spot, $250" (card or
+  wallet) or "Finance it, $0 today" (Affirm or Klarna for the full proposal
+  price). Financed customers skip the deposit: Affirm approves them on the
+  proposal, before the crew goes, and pays Sterling in full. Nothing is
+  financed after the work is done.
+- **The office** is Alan and Olga (Olga is "Amy" to customers). Only they
+  confirm a final total, price an extra, and click the balance link. The
+  balance link stays a human click: "I don't want an AI bot sending
+  invoices yet."
+- **Final total** is usually the proposal price. It changes when the
+  package changes (an HOA forcing Legacy down to Signature) or extras are
+  added. A paid deposit freezes that customer's proposal price list for the
+  whole job, whatever the date.
+- **Extras**: approved on site, paid at the end. The cleaner marks broken
+  pickets in red and puts the count and wood in the crew app, no price.
+  The office texts "20 pine pickets, $240, tap to approve". The tap adds it
+  to the job total; one balance link at the end carries everything. Nobody
+  on the crew says a price.
+- **$250 is non-refundable**, said plainly on the proposal, and the date
+  can be moved any time. Alan refunds by hand in Stripe when it's the
+  decent thing to do; no exceptions written down.
+- **Deposit links die at 7 days.** Not overdue, gone. Until then they sit
+  in a "Deposits pending" list on the Dashboard (the daily who-to-call) and
+  on the money page. A new send makes a new link.
+- **Nothing reaches QuickBooks until money lands.** One invoice per job,
+  numbered with the proposal number, created on the deposit with the
+  package line, updated to the final total, each payment applied. The
+  accountant is to be asked whether QuickBooks' own sequence matters.
+  QuickBooks' $250 deposit button stays until Alan says otherwise.
+- **Sales tax**: none on the customer's invoice. Residential repair at a
+  lump-sum price is not taxable in Texas; Sterling pays tax on stain and
+  pickets at purchase. "Tax included" stays. Commercial and HOA common
+  fences are taxable on the whole charge. Alan to confirm with the
+  accountant.
+- **Klarna and Affirm both on**, standard offers (no 0% promos, which cost
+  the merchant roughly double).
+- **Email**: the address Stripe collects at Checkout is saved to the lead
+  and GHL; if it differs from the one on file it becomes a second email,
+  not a replacement.
+- **Receipts**: Stripe's emailed receipt on, plus our text and the
+  after-payment page; the dashboard shows the invoice and receipts itself.
+- **No "start date within 24 hours" promise** on the you're-in page.
+- **No date-change button yet**; scheduling is not designed. No unpaid
+  balance chasing yet; when it comes, email first, text later, built as an
+  automation.
+- **Sterling only.** A&T untouched.
+- **Open**: what replaces the never-ending "20% off". Alan: "we haven't
+  changed our prices in six months… some people are catching on."
+
 ## Log
 
 - 2026-10-09 — Worktree and branch created. This file created with the
@@ -997,3 +1048,19 @@ zoviz.com luxury brand colour study.
 - 2026-10-11 — Pickets simplified to pine $12 and cedar $14, no height
   choice ("the height makes people a little bit more confused, it adds too
   much variability"). Posts keep 6, 7 and 8 ft.
+- 2026-10-11 (evening) — Stripe live keys went into Railway (webhook
+  confirmed answering). Alan settled the payment rules above.
+- 2026-10-11 (night) — The real proposal page, first piece. `/p/<token>`
+  asks for the interactive version and falls back to the PDF for every
+  proposal not switched to it (`proposal_version = "interactive"`, flipped
+  per lead by an admin from the Payment links panel). The two doors are
+  real: Reserve makes the $250 deposit link for the package picked and
+  sends them to Stripe; "See my options" makes the full-price link Klarna
+  and Affirm show on. The pick is logged, noted on the contact and texted
+  to Alan. The quoted price ends 30 days after the send: the page then
+  shows the regular prices with a banner and still lets them reserve; a
+  come-back view texts Alan once a day; "Extend quoted price 7 days" on the
+  lead page. Deposit links void themselves at 7 days (410 on the pay page)
+  and sit in Deposits pending on the Dashboard with the QuickBooks ones.
+  Not yet: the final-total step at job done, the QuickBooks feed, Stripe's
+  real financing messaging on the page, a lead's email from Checkout.

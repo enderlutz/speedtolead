@@ -31,9 +31,19 @@ const LIVE_LEAD_ID = "f7fd4ad8-fde8-4f50-a4a2-2bfc0fff2922";
 export type Live = {
   name: string; address: string; feet: number; sides: string[];
   tiers: Record<PkgKey, number> | null; scopeUrl: string | null; sentOn: string;
+  // The real page only: the proposal number, when the quoted price ends,
+  // whether it has, the regular (pre-discount) prices, and whether this job
+  // is already reserved (a paid deposit or a financed job).
+  number?: string; goodThrough?: string; expired?: boolean;
+  regular?: Record<PkgKey, number> | null;
+  reserved?: { kind: string; tier: PkgKey | ""; afterUrl: string } | null;
 };
 
-type PkgKey = "essential" | "signature" | "legacy";
+export type PkgKey = "essential" | "signature" | "legacy";
+
+/** The two doors on the real page. Each returns the pay page to send the
+ *  customer to; the mockup's fake checkout is used when these are absent. */
+export type Doors = { reserve: (tier: PkgKey) => Promise<string>; finance: (tier: PkgKey) => Promise<string> };
 
 // ── Sample data ────────────────────────────────────────────────────────
 // A made-up customer. Never a real one: this page ships inside the
@@ -300,7 +310,7 @@ const GOLD = "#C9972F";
 // the API (an unauthenticated call would bounce the page to the login).
 // `dressed` is the lead the no-login preview page already fetched through
 // the public endpoint; with it the page never calls the logged-in API.
-export default function ProposalMockup({ preview = false, dressed }: { preview?: boolean; dressed?: Live } = {}) {
+export default function ProposalMockup({ preview = false, dressed, doors }: { preview?: boolean; dressed?: Live; doors?: Doors } = {}) {
   const [live, setLive] = useState<Live | null>(dressed ?? null);
   useEffect(() => {
     if (preview) return;
@@ -350,16 +360,25 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
     feet: live.feet || CUSTOMER.feet,
     sides: live.sides,
     date: live.sentOn ? new Date(live.sentOn).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : CUSTOMER.date,
+    number: live.number || CUSTOMER.number,
+    goodThrough: live.goodThrough ? new Date(live.goodThrough).toLocaleDateString("en-US", { month: "long", day: "numeric" }) : CUSTOMER.goodThrough,
   } : CUSTOMER, [live]);
   // Her prices are the 20%-off prices on her estimate; the regular price is
-  // what they were before the discount.
-  const packages = useMemo(() => PACKAGES.map((p) => live?.tiers
-    ? { ...p, price: live.tiers[p.key], regular: Math.round(live.tiers[p.key] / 0.8) }
-    : p), [live]);
+  // what they were before the discount. Once the quoted price has ended the
+  // regular prices are the prices, and nothing is crossed out (the deadline
+  // is real, Alan, 2026-10-11).
+  const expired = !!live?.expired;
+  const discount = !expired;
+  const packages = useMemo(() => PACKAGES.map((p) => {
+    if (!live?.tiers) return p;
+    const regular = live.regular?.[p.key] ?? Math.round(live.tiers[p.key] / 0.8);
+    return live.expired ? { ...p, price: regular, regular } : { ...p, price: live.tiers[p.key], regular };
+  }), [live]);
+  const reserved = live?.reserved ?? null;
 
   const [phone, setPhone] = useState(true);
   const [withScope, setWithScope] = useState(preview ? !!dressed?.scopeUrl : true);
-  const [pkg, setPkg] = useState<PkgKey | null>(null);
+  const [pkg, setPkg] = useState<PkgKey | null>(dressed?.reserved?.tier || null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
@@ -394,6 +413,29 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
   const choose = (key: PkgKey) => {
     setPkg(key);
     if (key !== "essential") setPalette(key);
+  };
+
+  // The two doors. On the real page they make the pay link for the package
+  // picked and send the customer to it; the mockup opens its fake checkout.
+  const [doorBusy, setDoorBusy] = useState<null | "reserve" | "finance">(null);
+  const [doorError, setDoorError] = useState("");
+  const openDoor = async (which: "reserve" | "finance") => {
+    if (reserved?.afterUrl) { window.location.assign(reserved.afterUrl); return; }
+    if (!doors) { setCheckout(which === "reserve" ? "deposit" : "full"); return; }
+    if (!chosen) {
+      setDoorError("Pick a package first.");
+      document.getElementById("mock-packages")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (doorBusy) return;
+    setDoorBusy(which);
+    setDoorError("");
+    try {
+      window.location.assign(await doors[which](chosen.key));
+    } catch (e) {
+      setDoorError(e instanceof Error ? e.message : "Couldn't open the payment page. Call or text us.");
+      setDoorBusy(null);
+    }
   };
 
   return (
@@ -456,8 +498,14 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
           <Fact icon={Calendar} label="Date">{customer.date}</Fact>
           <Fact icon={MapPin} label="Property" wide>{customer.address}</Fact>
           <Fact icon={Hash} label="Proposal #">{customer.number}</Fact>
-          <Fact icon={Eye} label="Price good through">{customer.goodThrough}</Fact>
+          <Fact icon={Eye} label={expired ? "Quoted price ended" : "Price good through"}>{customer.goodThrough}</Fact>
         </section>
+        {expired && !reserved ? (
+          <section className="flex items-start gap-2.5 bg-[#15130F] px-4 py-3 text-white">
+            <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#E3BE63" }} />
+            <p className="text-[15px] leading-snug"><span className="font-bold" style={{ color: "#E3BE63" }}>Your quoted price ended {customer.goodThrough}.</span> Our regular pricing is below. Call or text us with any questions.</p>
+          </section>
+        ) : null}
 
         {/* Your fence: the scope drawing when we have one, the sides list when we don't. */}
         <section className="px-4 py-5">
@@ -504,7 +552,7 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
             the top, then short rows that line up — lasts, price, best for,
             what you get — and three Pick buttons. At full width, three cards
             that each carry the whole story, the way a pricing page does. */}
-        <section className="bg-white px-3 py-6 sm:px-4">
+        <section id="mock-packages" className="scroll-mt-14 bg-white px-3 py-6 sm:px-4">
           <div className="px-1">
             <SectionTitle kicker="Step 2" title="Pick your package" sub="Same expert service. Three levels of protection." />
           </div>
@@ -588,11 +636,13 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
                       })}
                     </ul>
                     <div className="mt-3 rounded-xl px-3 py-2.5" style={sk.priceBox}>
-                      <p className="flex items-center gap-1.5 text-[12px]">
-                        <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={sk.offChip}>20% off</span>
-                        <s className="opacity-75">{formatCurrency(show.regular)}</s>
-                        <span className="opacity-75">· ends {customer.goodThrough}</span>
-                      </p>
+                      {discount ? (
+                        <p className="flex items-center gap-1.5 text-[12px]">
+                          <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={sk.offChip}>20% off</span>
+                          <s className="opacity-75">{formatCurrency(show.regular)}</s>
+                          <span className="opacity-75">· ends {customer.goodThrough}</span>
+                        </p>
+                      ) : <p className="text-[12px] opacity-75">Regular price</p>}
                       <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}</p>
                       <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold">
                         {line.lender === "klarna"
@@ -654,10 +704,12 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
                         <p className="text-[15px] font-semibold leading-snug">{p.best}</p>
                       </div>
                       <div className="mt-3 rounded-xl px-3 py-2.5 text-center" style={s.priceBox}>
-                        <p className="flex items-center justify-center gap-1.5 text-[12px]">
-                          <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={s.offChip}>20% off</span>
-                          <s className="text-[15px] opacity-75">{formatCurrency(p.regular)}</s>
-                        </p>
+                        {discount ? (
+                          <p className="flex items-center justify-center gap-1.5 text-[12px]">
+                            <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={s.offChip}>20% off</span>
+                            <s className="text-[15px] opacity-75">{formatCurrency(p.regular)}</s>
+                          </p>
+                        ) : <p className="text-[12px] opacity-75">Regular price</p>}
                         <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
                         <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm font-semibold">
                           {line.lender === "klarna"
@@ -875,16 +927,26 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
               how someone does that without the cash today (Alan, 2026-10-10). */}
           <div className="mb-3 flex items-start gap-2.5 rounded-xl bg-[#F8F3E7] px-3 py-2.5 ring-1 ring-[#C9972F]/50">
             <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
-            <p className="text-sm leading-snug"><span className="font-bold">Your 20% off ends {customer.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>
+            {expired
+              ? <p className="text-sm leading-snug"><span className="font-bold">Your quoted price ended {customer.goodThrough}.</span> These are our regular prices. Call or text us with any questions.</p>
+              : <p className="text-sm leading-snug"><span className="font-bold">Your 20% off ends {customer.goodThrough}.</span> Book now and this price is locked, even if we do the job next month. Paying over time means you don't need the money today.</p>}
           </div>
+          {doorError ? <p className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-700 ring-1 ring-rose-200">{doorError}</p> : null}
+          {reserved ? (
+            <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
+              <p className="flex items-center gap-2 font-heading text-lg font-bold"><Check className="h-5 w-5" style={{ color: "#E3BE63" }} /> You're reserved</p>
+              <p className="mt-1 text-[15px] text-white/80">{reserved.kind === "full" ? "Your job is paid in full." : "Your $250 deposit is in."} {reserved.tier ? `${packages.find((p) => p.key === reserved.tier)?.name || ""} it is.` : ""} We'll be in touch about your dates.</p>
+              <a href={reserved.afterUrl} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>What happens next</a>
+            </div>
+          ) : (
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my dates</p>
               <p className="mt-1 text-[15px] text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest, {chosen ? formatCurrency(Math.max(0, total - 250)) : "the balance"}, is due when the job is done and you're happy.</p>
-              <button type="button" onClick={() => setCheckout("deposit")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
-                <CreditCard className="h-5 w-5" /> Reserve my spot · $250
+              <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
+                <CreditCard className="h-5 w-5" /> {doorBusy === "reserve" ? "Opening your payment page…" : "Reserve my spot · $250"}
               </button>
-              <p className="mt-2 text-center text-[12px] text-white/85">Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set.</p>
+              <p className="mt-2 text-center text-[12px] text-white/85">Card, Apple Pay or Google Pay. The $250 reserves your spot and isn't refundable. Move your date any time.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
@@ -893,12 +955,13 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
                 <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
                 <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
               </div>
-              <button type="button" onClick={() => setCheckout("full")} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98]">
-                See my options
+              <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98] disabled:opacity-70">
+                {doorBusy === "finance" ? "Opening your options…" : "See my options"}
               </button>
               <p className="mt-2 text-center text-[12px] text-[#15130F]/75">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
             </div>
           </div>
+          )}
         </section>
 
         {/* Footer links */}
@@ -922,9 +985,9 @@ export default function ProposalMockup({ preview = false, dressed }: { preview?:
                   {pay.text}
                 </button>
               </div>
-              <button type="button" onClick={() => setCheckout("deposit")}
-                className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-4 text-[15px] font-bold text-[#15130F] shadow-lg active:scale-[0.98]" style={{ background: GOLD }}>
-                <Home className="h-4 w-4" /> Reserve · $250
+              <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null}
+                className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-4 text-[15px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
+                <Home className="h-4 w-4" /> {reserved ? "What's next" : "Reserve · $250"}
               </button>
             </div>
           ) : (
