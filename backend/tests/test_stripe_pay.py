@@ -258,3 +258,20 @@ def test_stripe_health_reports_our_webhook_the_methods_and_the_events(db, monkey
     monkeypatch.setattr(sp.stripe.WebhookEndpoint, "list", boom)
     out = sp.stripe_health(STAFF)
     assert out["webhook_ok"] is False and out["errors"] == ["Webhooks: no permission"]
+
+
+def test_one_deposit_link_per_customer_and_extra_work_gets_the_job_done_screens(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    first = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="signature", job_total=1500), STAFF)
+    again = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="legacy", job_total=1900), STAFF)
+    assert again["token"] == first["token"]          # the same link, whichever side made it
+    assert again["job_tier"] == "legacy" and again["job_total"] == 1900
+    assert len(sp.list_pay_links(lead.id, STAFF)["links"]) == 1
+    sp.void_pay_link(first["token"], STAFF)
+    fresh = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    assert fresh["token"] != first["token"]           # a voided link is not reused
+    # Extra work is paid at the end of the job: the job-done screens.
+    extra = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", amount=40), STAFF)
+    assert sp.after_info(extra["token"])["flow"] == "B"
+    assert sp.after_info(fresh["token"])["flow"] == "A"

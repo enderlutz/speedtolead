@@ -51,7 +51,9 @@ export default function AfterPayPage() {
   };
 
   if (state === "ready" && after) {
-    const flow: PayFlow = after.kind === "deposit" ? "deposit" : after.kind === "balance" || after.kind === "done" ? "balance" : "full";
+    // The backend decides which screens a payment gets: B is the job-done set
+    // (balance, job done, extra work paid at the end), A is before the job.
+    const flow: PayFlow = after.flow === "B" ? "balance" : after.kind === "deposit" ? "deposit" : "full";
     const method: PayMethod = after.method === "klarna" || after.method === "affirm" ? after.method : "card";
     return (
       <AfterPay

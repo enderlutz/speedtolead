@@ -186,6 +186,23 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
                 raise HTTPException(status_code=400, detail="Type the job total; there's no sent estimate price for that package")
             job_total_cents = int(round(total * 100)) if total else None
         now = _now()
+        if kind == "deposit":
+            # One deposit link per customer. The proposal's Reserve button and
+            # this one must hand out the same link, so a customer closed on the
+            # phone pays the link the proposal would have shown (Alan,
+            # 2026-10-12). The package and total follow the latest word.
+            open_link = (db.query(PayLink)
+                         .filter(PayLink.lead_id == lead_id, PayLink.kind == "deposit", PayLink.status == "open")
+                         .order_by(PayLink.created_at.desc()).first())
+            if open_link is not None and not hooks.deposit_link_expired(open_link):
+                open_link.amount_cents = cents
+                open_link.job_tier = job_tier
+                open_link.job_total_cents = job_total_cents
+                if (body.description or "").strip():
+                    open_link.description = body.description.strip()
+                db.commit()
+                log_event(lead_id, "pay_link_reused", f"deposit {cents / 100:.2f} as {job_tier} by {user.get('name') or user.get('sub') or ''}")
+                return link_dict(open_link)
         link = PayLink(
             token=secrets.token_urlsafe(20), lead_id=lead_id, kind=kind, amount_cents=cents,
             description=(body.description or "").strip(), status="paid" if kind == "done" else "open",
@@ -383,7 +400,9 @@ def after_info(token: str, s: str | None = None):
         return {
             "paid": link.status == "paid",
             "kind": link.kind,
-            "flow": "B" if link.kind in ("balance", "done") else "A",
+            # Extra work is approved on site and paid at the end (Alan, 2026-10-11),
+            # so it gets the job-done screens, not "five things before we show up".
+            "flow": "B" if link.kind in ("balance", "done", "extra") else "A",
             "amount": round((link.amount_cents or 0) / 100, 2),
             "method": (this.method if this else "") or "",
             "paid_total": round(paid_total / 100, 2),
