@@ -180,3 +180,70 @@ def test_the_webhook_checks_the_signature_and_books_the_payment(db, monkeypatch)
     unknown = dict(event, data={"object": dict(event["data"]["object"], metadata={"pay_link": "nobody"})})
     monkeypatch.setattr(sp.stripe.Webhook, "construct_event", lambda payload, sig, secret: unknown)
     assert client.post("/api/stripe/webhook", content=b"{}", headers={"stripe-signature": "ok"}).json()["ignored"] == "unknown link"
+
+
+def test_check_with_stripe_books_a_paid_session_and_repeats_stripes_error(db, monkeypatch):
+    _settings(monkeypatch)
+    from database import CustomerPayment, PayLink
+    lead = _lead(db)
+    extra = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", amount=1), STAFF)
+    # Nobody opened it: nothing to ask Stripe about.
+    out = sp.check_pay_link(extra["token"], STAFF)
+    assert out["stripe"] is None and "opened" in out["error"]
+    row = db.query(PayLink).filter(PayLink.token == extra["token"]).first()
+    row.stripe_session_id = "cs_1"
+    db.commit()
+    # Stripe refuses (a key without the permission, say): the message comes back as is.
+    def boom(sid):
+        raise RuntimeError("You do not have permission")
+    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", boom)
+    out = sp.check_pay_link(extra["token"], STAFF)
+    assert out["error"].startswith("Stripe said: You do not have permission") and out["link"]["status"] == "open"
+    # Stripe says paid: booked, same row the webhook would write.
+    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: SimpleNamespace(
+        id=sid, payment_status="paid", status="complete", livemode=True, metadata={"pay_link": extra["token"]},
+        amount_total=100, currency="usd", payment_intent=None))
+    out = sp.check_pay_link(extra["token"], STAFF)
+    assert out["error"] is None and out["stripe"]["payment_status"] == "paid" and out["stripe"]["matches"] is True
+    assert out["link"]["status"] == "paid"
+    assert db.query(CustomerPayment).filter(CustomerPayment.stripe_session_id == "cs_1").count() == 1
+    # Paid, but for some other link: refused, nothing booked twice.
+    other = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", amount=2), STAFF)
+    row = db.query(PayLink).filter(PayLink.token == other["token"]).first()
+    row.stripe_session_id = "cs_2"
+    db.commit()
+    monkeypatch.setattr(sp.stripe.checkout.Session, "retrieve", lambda sid: SimpleNamespace(
+        id=sid, payment_status="paid", status="complete", livemode=True, metadata={"pay_link": "someone-else"},
+        amount_total=200, currency="usd", payment_intent=None))
+    out = sp.check_pay_link(other["token"], STAFF)
+    assert "different link" in out["error"] and out["link"]["status"] == "open"
+    assert db.query(CustomerPayment).count() == 1
+
+
+def test_stripe_health_reports_our_webhook_the_methods_and_the_events(db, monkeypatch):
+    _settings(monkeypatch)
+    endpoints = SimpleNamespace(data=[
+        SimpleNamespace(url="https://api.test/api/stripe/webhook", status="enabled", livemode=True, api_version="2026-09-30.endive",
+                        enabled_events=["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed"]),
+        SimpleNamespace(url="https://old.test/hook", status="disabled", livemode=False, api_version=None, enabled_events=["*"]),
+    ])
+    monkeypatch.setattr(sp.stripe.WebhookEndpoint, "list", lambda **kw: endpoints)
+    pref_on, pref_off = SimpleNamespace(value="on"), SimpleNamespace(value="off")
+    cfg = SimpleNamespace(is_default=True, card=SimpleNamespace(available=True, display_preference=pref_on),
+                          klarna=SimpleNamespace(available=True, display_preference=pref_on),
+                          affirm=SimpleNamespace(available=True, display_preference=pref_off))
+    monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "list", lambda **kw: SimpleNamespace(data=[cfg]))
+    ev = SimpleNamespace(id="evt_1", type="checkout.session.completed", created=1760000000, pending_webhooks=1, livemode=True,
+                         data=SimpleNamespace(object={"metadata": {"pay_link": "tok"}, "payment_status": "paid", "amount_total": 100}))
+    monkeypatch.setattr(sp.stripe.Event, "list", lambda **kw: SimpleNamespace(data=[ev]))
+    out = sp.stripe_health(STAFF)
+    assert out["configured"] is True and out["webhook_ok"] is True and out["errors"] == []
+    assert [w["ours"] for w in out["webhooks"]] == [True, False]
+    assert {m["name"]: m["on"] for m in out["methods"]} == {"card": True, "klarna": True, "affirm": False}
+    assert out["events"][0]["pending_webhooks"] == 1 and out["events"][0]["pay_link"] == "tok" and out["events"][0]["amount"] == 1.0
+    # A broken call is reported, not raised.
+    def boom(**kw):
+        raise RuntimeError("no permission")
+    monkeypatch.setattr(sp.stripe.WebhookEndpoint, "list", boom)
+    out = sp.stripe_health(STAFF)
+    assert out["webhook_ok"] is False and out["errors"] == ["Webhooks: no permission"]

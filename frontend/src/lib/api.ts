@@ -1339,6 +1339,10 @@ export const api = {
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
   getStripeSettings: () => request<StripeSettings>(`/api/stripe/settings`),
+  /** Ask Stripe about a link's last Checkout session; books it if paid. */
+  checkPayLink: (token: string) => request<PayLinkCheck>(`/api/pay-links/${token}/check`, { method: "POST" }),
+  /** The webhook destinations, payment methods and last Checkout events Stripe reports. */
+  getStripeHealth: () => request<StripeHealth>(`/api/stripe/health`),
   updateStripeSettings: (body: { auto_balance_link: boolean }) =>
     request<StripeSettings>(`/api/stripe/settings`, { method: "PUT", body: JSON.stringify(body) }),
   // The interactive proposal: per-lead switch (admin), the price window, the extension.
@@ -5566,6 +5570,21 @@ export interface PayLinkEntry {
   answers: Record<string, unknown>; answered_at: string | null;
   /** Deposit: the package sold and the job total the sale is booked at. */
   job_tier: string; job_total: number | null;
+  /** Someone opened the pay page, so Stripe holds a Checkout session for it. */
+  opened: boolean;
+}
+export interface PayLinkCheck {
+  link: PayLinkEntry;
+  stripe: { session_id: string; payment_status: string; status: string; amount: number; livemode: boolean; matches: boolean } | null;
+  error: string | null;
+}
+export interface StripeHealth {
+  configured: boolean;
+  webhook_ok: boolean;
+  webhooks: { url: string; status: string; livemode: boolean; api_version: string | null; events: string[]; ours: boolean; events_ok: boolean }[];
+  methods: { name: string; available: boolean; on: boolean }[];
+  events: { id: string; type: string; created: string; pending_webhooks: number; livemode: boolean; pay_link: string | null; payment_status: string; amount: number }[];
+  errors: string[];
 }
 export interface CustomerPaymentEntry {
   id: string; lead_id: string; pay_link_token: string | null; kind: string; amount: number; currency: string;

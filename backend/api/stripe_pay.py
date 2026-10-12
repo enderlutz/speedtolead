@@ -106,6 +106,7 @@ def link_dict(link: PayLink) -> dict:
         "job_total": round((link.job_total_cents or 0) / 100, 2) if link.job_total_cents else None,
         "expires_at": hooks.deposit_expires_at(link),
         "expired": hooks.deposit_link_expired(link),
+        "opened": bool(link.stripe_session_id),
     }
 
 
@@ -459,6 +460,128 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
     except Exception as e:  # noqa: BLE001 - the payment is booked; the hooks are extra
         logger.warning("after-payment hooks failed for %s: %s", link.token, e)
     return row
+
+
+# ── Staff: ask Stripe directly ────────────────────────────────────────────
+# Alan's $1 test (2026-10-12) paid on Stripe and sat "open" here: the webhook
+# never landed and the after page's quiet check failed without saying why.
+# These two say why, in Stripe's words, on the lead page.
+
+OUR_EVENTS = ("checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed")
+METHOD_NAMES = ("card", "apple_pay", "google_pay", "link", "klarna", "affirm", "afterpay_clearpay", "cashapp", "us_bank_account")
+
+
+def _session_info(session, token: str) -> dict:
+    g = (lambda k: getattr(session, k, None)) if not isinstance(session, dict) else session.get
+    meta = g("metadata") or {}
+    return {
+        "session_id": g("id"),
+        "payment_status": g("payment_status") or "",
+        "status": g("status") or "",
+        "amount": round(int(g("amount_total") or 0) / 100, 2),
+        "livemode": bool(g("livemode")),
+        "matches": (meta.get("pay_link") if hasattr(meta, "get") else None) == token,
+    }
+
+
+@router.post("/pay-links/{token}/check")
+def check_pay_link(token: str, user: dict = Depends(require_staff)):
+    """Staff. Ask Stripe about this link's last Checkout session and book it
+    if it's paid. The webhook normally does this; when it hasn't, this says
+    what Stripe sees instead of "give it a minute"."""
+    del user
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link:
+            raise HTTPException(status_code=404, detail="Not found")
+        if not configured():
+            return {"link": link_dict(link), "stripe": None, "error": "STRIPE_SECRET_KEY isn't set in Railway."}
+        if not link.stripe_session_id:
+            return {"link": link_dict(link), "stripe": None, "error": "Nobody has opened this link yet, so Stripe has nothing to check."}
+        try:
+            session = _stripe().checkout.Session.retrieve(link.stripe_session_id)
+        except Exception as e:  # noqa: BLE001 - the whole point is to show this
+            logger.warning("Stripe check failed for %s: %s", token, e)
+            return {"link": link_dict(link), "stripe": None, "error": f"Stripe said: {e}"}
+        info = _session_info(session, token)
+        error = None
+        if info["payment_status"] == "paid" and info["matches"] and link.status != "paid":
+            try:
+                _record_paid(db, link, session, event_id=None)
+                log_event(link.lead_id, "stripe_payment_booked_by_check", f"{link.kind} {info['amount']:.2f}")
+            except Exception as e:  # noqa: BLE001
+                logger.exception("booking a paid session failed for %s", token)
+                db.rollback()
+                error = f"Stripe says it's paid, but booking it here failed: {e}"
+        elif info["payment_status"] == "paid" and not info["matches"]:
+            error = "Stripe has a paid session, but it was made for a different link."
+        return {"link": link_dict(link), "stripe": info, "error": error}
+    finally:
+        db.close()
+
+
+@router.get("/stripe/health")
+def stripe_health(user: dict = Depends(require_staff)):
+    """Staff. What Stripe says about our setup: the webhook destinations it
+    will call, the payment methods switched on, and the last few Checkout
+    events, so a payment that never showed up can be traced without opening
+    Railway."""
+    del user
+    if not configured():
+        return {"configured": False, "webhooks": [], "methods": [], "events": [], "errors": ["STRIPE_SECRET_KEY isn't set in Railway."], "webhook_ok": False}
+    s = _stripe()
+    out: dict = {"configured": True, "webhooks": [], "methods": [], "events": [], "errors": []}
+    try:
+        for ep in s.WebhookEndpoint.list(limit=20).data:
+            events = list(getattr(ep, "enabled_events", None) or [])
+            url = getattr(ep, "url", "") or ""
+            out["webhooks"].append({
+                "url": url,
+                "status": getattr(ep, "status", "") or "",
+                "livemode": bool(getattr(ep, "livemode", False)),
+                "api_version": getattr(ep, "api_version", None),
+                "events": events,
+                "ours": url.rstrip("/").endswith("/api/stripe/webhook"),
+                "events_ok": "*" in events or all(e in events for e in OUR_EVENTS[:2]),
+            })
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"Webhooks: {e}")
+    try:
+        cfgs = s.PaymentMethodConfiguration.list(limit=10).data
+        cfg = next((c for c in cfgs if getattr(c, "is_default", False)), cfgs[0] if cfgs else None)
+        if cfg is not None:
+            for name in METHOD_NAMES:
+                m = getattr(cfg, name, None)
+                if m is None:
+                    continue
+                pref = getattr(m, "display_preference", None)
+                out["methods"].append({
+                    "name": name,
+                    "available": bool(getattr(m, "available", False)),
+                    "on": (getattr(pref, "value", "") or "") == "on",
+                })
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"Payment methods: {e}")
+    try:
+        for ev in s.Event.list(limit=10, types=list(OUR_EVENTS)).data:
+            obj = ev.data.object if hasattr(ev, "data") else {}
+            g = (lambda k: getattr(obj, k, None)) if not isinstance(obj, dict) else obj.get
+            meta = g("metadata") or {}
+            out["events"].append({
+                "id": ev.id,
+                "type": ev.type,
+                "created": datetime.fromtimestamp(int(ev.created), tz=timezone.utc).isoformat(),
+                "pending_webhooks": int(getattr(ev, "pending_webhooks", 0) or 0),
+                "livemode": bool(getattr(ev, "livemode", False)),
+                "pay_link": meta.get("pay_link") if hasattr(meta, "get") else None,
+                "payment_status": g("payment_status") or "",
+                "amount": round(int(g("amount_total") or 0) / 100, 2),
+            })
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"Events: {e}")
+    out["webhook_ok"] = any(w["ours"] and w["livemode"] and w["status"] == "enabled" and w["events_ok"] for w in out["webhooks"])
+    return out
 
 
 @router.post("/stripe/webhook")
