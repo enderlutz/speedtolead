@@ -15,7 +15,7 @@ import { createPortal } from "react-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   FileText, MapPin, Calendar, UserRound, Leaf, Home, Smartphone, Monitor,
-  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight, Share2, Link2,
+  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight, Share2, Link2, Wrench,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -1361,6 +1361,8 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <div className="mt-3 space-y-4 text-[17px] leading-relaxed">
               <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we applied it, we come back and fix it. Free. For one year from the day we finish.</p>
               <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
+              <p><span className="font-bold">Loose boards.</span> We screw a few loose boards back in for free. That can be pickets, rails, caps or the board along the bottom. If a lot of the fence is loose, a board needs replacing, or a post leans, that costs extra. We tell you the price first.</p>
+              <p><span className="font-bold">The top of the cap.</span> No cap on your fence? We stain the tops of the pickets, because that's where water gets in. Have a cap (the flat board along the top)? We stain the sides of the cap, but not the top that faces the sky. The cap is there to protect your pickets. Staining its top means a ladder all the way around the fence and a lot more stain, so it is extra. Just ask and we will give you a price.</p>
               <p><span className="font-bold">Something else damaged it?</span> If the damage was not caused by our work, like a mower, a sprinkler, a storm or a pet, it is not free. But we will still come fix it. We tell you the price first. You say yes or no. No surprises.</p>
               <p><span className="font-bold">Sprinklers hitting your fence?</span> Sprinkler water leaves stains and wears the stain out faster. We have our own sprinkler team. We will check your sprinklers for free. Then we give you a fair price to aim them away from the fence.</p>
               <p><span className="font-bold">A complimentary touch-up can.</span> When we finish, we leave you a can of your exact stain, free, as our thank-you on top of everything else. A small scrape becomes a two-minute fix. The stain's name is on the label. Need more? Buy it by that name, or ask us.</p>
@@ -1630,6 +1632,7 @@ const STEPS: { icon: React.ElementType; day?: string; head: string; body: string
   { icon: Droplets, day: "Day 1", head: "Full prep wash", body: "Mold, mildew, dirt and gray weathering come off first." },
   { icon: Sun, day: "Day 2", head: "Premium stain", body: "Top-quality stain made for Texas sun." },
   { icon: Paintbrush, head: "Two coats", body: "With attention to boards, edges and details." },
+  { icon: Wrench, head: "Loose boards screwed back in", body: "A few loose pickets, rails, caps or bottom boards? We screw them back in. No charge." },
   { icon: Shield, head: "Hardware stays clean", body: "We keep stain off your black hinges and latches." },
   { icon: Sparkles, head: "Clean jobsite", body: "Labor and cleanup included." },
 ];
