@@ -598,21 +598,40 @@ export default function LeadDetail() {
   // The interactive page or the PDF. Starts from this lead's latest
   // proposal (the switch on the Payment links panel), else the Settings
   // default, so what the chip shows is what Send Now will do.
+  // Two things, kept apart on purpose. `interactiveNow` is what Send Now
+  // will do if nobody touches the chip: the backend's own rule, read here
+  // only to label the chip. `interactive` is a tap on the chip, and ONLY a
+  // tap is sent, as an outright choice. The first version sent the loaded
+  // value outright, so flipping the switch on the Payment links panel and
+  // pressing Send Now still sent the PDF (Alan, 2026-10-12).
   const [interactive, setInteractive] = useState<boolean | null>(null);
+  const [interactiveNow, setInteractiveNow] = useState<boolean | null>(null);
   useEffect(() => {
     if (!lead?.id) return;
     let alive = true;
+    setInteractive(null);
     (async () => {
       try {
         const live = await api.getProposalLive(lead.id);
         if (!alive) return;
-        if (live.proposal) { setInteractive(!!live.proposal.interactive); return; }
+        if (live.proposal) { setInteractiveNow(!!live.proposal.interactive); return; }
         const d = await api.getProposalInteractiveDefault();
-        if (alive) setInteractive(!!d.on);
-      } catch { if (alive) setInteractive(false); }
+        if (alive) setInteractiveNow(!!d.on);
+      } catch { if (alive) setInteractiveNow(false); }
     })();
     return () => { alive = false; };
   }, [lead?.id]);
+  // The switch on the Payment links panel announces its flips; the chip
+  // follows and any earlier tap on it is forgotten, so the switch wins.
+  useEffect(() => {
+    const onFlip = (e: Event) => {
+      const d = (e as CustomEvent<{ leadId: string; interactive: boolean }>).detail;
+      if (d?.leadId === lead?.id) { setInteractiveNow(!!d.interactive); setInteractive(null); }
+    };
+    window.addEventListener("proposal-live-changed", onFlip);
+    return () => window.removeEventListener("proposal-live-changed", onFlip);
+  }, [lead?.id]);
+  const sendInteractive = interactive ?? interactiveNow;
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -2232,13 +2251,13 @@ export default function LeadDetail() {
                   {/* The interactive page: three packages, Reserve $250,
                       financing, a 30-day price. Off = the PDF. */}
                   <ToggleChip
-                    on={interactive === true}
-                    onClick={() => setInteractive((v) => !v)}
+                    on={sendInteractive === true}
+                    onClick={() => setInteractive(!(sendInteractive ?? false))}
                     icon={Sparkles}
                     accent={ACCENT_INTERACTIVE}
-                    title={interactive ? "Sends the interactive proposal page (Reserve $250, financing, 30-day price)" : "Sends the PDF proposal"}
+                    title={sendInteractive ? "Sends the interactive proposal page (Reserve $250, financing, 30-day price)" : "Sends the PDF proposal"}
                   >
-                    {interactive ? "Interactive page" : "PDF"}
+                    {sendInteractive === null ? "…" : sendInteractive ? "Interactive page" : "PDF"}
                   </ToggleChip>
                 </div>
               </Field>

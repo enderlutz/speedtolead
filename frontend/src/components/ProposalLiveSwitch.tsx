@@ -31,7 +31,10 @@ export function ProposalLiveSwitch({ leadId }: { leadId: string }) {
   const flip = async () => {
     setBusy(true);
     try {
-      setState(await api.setProposalInteractive(leadId, !p.interactive));
+      const next = await api.setProposalInteractive(leadId, !p.interactive);
+      setState(next);
+      // Tell the Send as chip on this page, so Send Now does what the switch says.
+      window.dispatchEvent(new CustomEvent("proposal-live-changed", { detail: { leadId, interactive: !!next.proposal?.interactive } }));
       toast.success(p.interactive ? "Back to the PDF proposal" : "Their link now opens the interactive proposal");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't switch");
