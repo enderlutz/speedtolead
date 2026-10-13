@@ -177,22 +177,21 @@ function ShareCard({ onShared }: { onShared?: (how: ShareHow) => void }) {
     window.setTimeout(() => setCopied(null), 4000);
   };
   return (
-    <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
-      <p className="flex items-center gap-2 font-heading text-xl font-bold leading-tight"><Users className="h-6 w-6 shrink-0" style={{ color: "#8C6224" }} /> Want a second opinion?</p>
-      <p className="mt-1 text-[15px] leading-snug text-[#15130F]/80">Send this to your wife, husband, or whoever helps you decide.</p>
-      <a href={smsHref(`${SHARE_TEXT}\n${url}`)} onClick={() => onShared?.("text")}
-        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[16px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
-        <MessageSquare className="h-5 w-5" /> Text it to someone
-      </a>
-      <div className={cn("mt-2 grid gap-2", canShare ? "grid-cols-2" : "grid-cols-1")}>
+    <div>
+      <p className="text-center text-[16px] font-semibold text-[#15130F]/80">Send this to someone</p>
+      <div className={cn("mt-2 grid gap-2", canShare ? "grid-cols-3" : "grid-cols-2")}>
+        <a href={smsHref(`${SHARE_TEXT}\n${url}`)} onClick={() => onShared?.("text")}
+          className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-white text-[15px] font-semibold text-[#15130F] ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+          <MessageSquare className="h-5 w-5" /> Text it
+        </a>
         {canShare ? (
           <button type="button" onClick={() => void share()}
-            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+            className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
             <Share2 className="h-5 w-5" /> Share
           </button>
         ) : null}
         <button type="button" onClick={() => void copy()}
-          className="flex h-12 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+          className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
           {copied === "ok" ? <><Check className="h-5 w-5" /> Copied</> : <><Link2 className="h-5 w-5" /> Copy link</>}
         </button>
       </div>
@@ -967,7 +966,6 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             </div>
           )}
           <p className="mt-3 text-center text-sm text-[#15130F]/75">Choose based on the condition of your wood and the look you want.</p>
-          <div className="mt-4"><ShareCard onShared={doors?.shared} /></div>
         </section>
 
         {/* Colours: a gallery to look at, not a decision to make here. Tap
@@ -1223,7 +1221,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
 
         {/* Footer links */}
         <section className="px-4 pb-28">
-          <div className="mb-3"><ShareCard onShared={doors?.shared} /></div>
+          <div className="mb-5"><ShareCard onShared={doors?.shared} /></div>
           <button type="button" onClick={() => setTerms(true)} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-white text-[16px] font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-5 w-5" /> Terms</button>
           <p className="mt-4 text-center text-[15px] text-[#15130F]/75">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
           <p className="mt-1 text-center text-[13px] text-[#15130F]/60">Proposal {customer.number}</p>
