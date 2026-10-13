@@ -135,6 +135,7 @@ def link_dict(link: PayLink) -> dict:
         "opened": bool(link.stripe_session_id),
         "items": link_items(link),
         "credit": round((link.credit_cents or 0) / 100, 2),
+        "financing": link.kind != "deposit" and not link.no_financing,
     }
 
 
@@ -192,6 +193,8 @@ class CreateLinkBody(BaseModel):
     # paid (usually the $250 deposit). The amount is the lines minus that.
     items: list["InvoiceItem"] | None = None
     credit: float | None = None
+    # False keeps Klarna off this link's checkout (it costs Alan ~3%).
+    financing: bool = True
 
 
 class InvoiceItem(BaseModel):
@@ -290,6 +293,7 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             paid_at=now if kind == "done" else None, answers="{}",
             job_tier=job_tier, job_total_cents=job_total_cents,
             items=items_json, credit_cents=credit_cents,
+            no_financing=None if body.financing or kind == "deposit" else 1,
         )
         db.add(link)
         db.commit()
@@ -520,6 +524,7 @@ def pay_info(token: str):
             "configured": configured(),
             "name": ((lead.contact_name or "").strip() if lead else ""),
             "invoice_number": _invoice_number(db, link.lead_id), "date": link.created_at or "",
+            "financing": link.kind != "deposit" and not link.no_financing,
         }
     finally:
         db.close()
@@ -594,7 +599,9 @@ def start_session(token: str):
         # The deposit is card and wallets only. Everything else takes whatever
         # is switched on in Stripe, Klarna and Affirm included, and Stripe
         # hides a lender when the amount is outside its range.
-        if link.kind == "deposit":
+        # The deposit never takes Klarna; any other link can have it switched
+        # off. Both use the same no-lender configuration.
+        if link.kind == "deposit" or link.no_financing:
             pmc = _deposit_config(s)
             if pmc:
                 params["payment_method_configuration"] = pmc

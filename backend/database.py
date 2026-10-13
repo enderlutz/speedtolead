@@ -3955,6 +3955,9 @@ class PayLink(Base):
     # plus what was already paid, so the customer sees each line and the credit.
     items = Column(Text, nullable=True)
     credit_cents = Column(Integer, nullable=True)
+    # 1 = Klarna switched off for this link (Alan, 2026-10-13: Klarna costs
+    # him ~3% on a final invoice nobody asked to finance). NULL = allowed.
+    no_financing = Column(Integer, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4055,6 +4058,8 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN items TEXT"))
             if "credit_cents" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN credit_cents INTEGER"))
+            if "no_financing" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
     if inspector.has_table("proposals"):
         pr = {c["name"] for c in inspector.get_columns("proposals")}
         if "extended_until" not in pr:

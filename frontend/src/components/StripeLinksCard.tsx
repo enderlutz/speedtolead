@@ -146,6 +146,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               <span className="tabular-nums">{l.kind === "done" ? "" : formatCurrency(l.amount)}</span>
               {l.job_total ? <span className="text-muted-foreground">· {l.job_tier} sale {formatCurrency(l.job_total)}</span> : null}
               {l.items?.length ? <span className="truncate text-muted-foreground" title={l.items.map((i) => `${i.name} ${formatCurrency(i.amount)}`).join("\n")}>· {l.items.length} lines{l.credit ? `, less ${formatCurrency(l.credit)} paid` : ""}</span> : null}
+              {l.kind !== "deposit" && l.financing === false ? <span className="shrink-0 rounded bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">No Klarna</span> : null}
               <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
               {l.status === "open" || l.kind === "done" ? (
@@ -189,6 +190,8 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
   // A discount on the whole invoice: null until "Discount on the total" is tapped.
   const [whole, setWhole] = useState<{ label: string; amount: string } | null>(null);
   const [credit, setCredit] = useState("");
+  // Klarna costs ~3%; Alan turns it off when nobody asked to finance.
+  const [klarna, setKlarna] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<InvoiceLine[]>([]);
   useEffect(() => {
@@ -240,9 +243,9 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
     const items = buildItems();
     setBusy(true);
     try {
-      const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined });
+      const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna });
       await onMade(link);
-      setRows([blankRow()]); setWhole(null); setCredit(""); setOpen(false);
+      setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't make the invoice");
     } finally {
@@ -351,6 +354,13 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
           <dd className={cn("text-xl font-bold tabular-nums", due < 0 && "text-rose-600")}>{formatCurrency(Math.max(0, due))}</dd>
         </div>
       </dl>
+      <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-border px-3 py-2 text-sm">
+        <span>
+          <span className="font-semibold">Offer Klarna</span>
+          <span className="block text-xs text-muted-foreground">{klarna ? "They can pay over time. Klarna takes about 3% from you." : "Off: card, Apple Pay, Google Pay, bank account and Cash App only."}</span>
+        </span>
+        <input type="checkbox" checked={klarna} onChange={(e) => setKlarna(e.target.checked)} className="h-5 w-5 shrink-0 accent-emerald-600" />
+      </label>
       <div className="flex justify-end gap-1.5 border-t border-border bg-muted/40 px-3 py-2">
         <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-md px-3 text-sm font-semibold hover:bg-background">Cancel</button>
         <button type="button" onClick={() => setPreview(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted">
@@ -370,7 +380,7 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
             <InvoiceDoc info={{
               kind: "balance", label: "Balance", amount: Math.max(0, due), description: "", status: "open",
               first_name: (billTo?.name || "").split(" ")[0], address: billTo?.address || "", configured: true,
-              items: buildItems(), credit: paid, name: billTo?.name || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(),
+              items: buildItems(), credit: paid, financing: klarna, name: billTo?.name || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(),
             }} />
             <div className="mt-4 flex h-14 w-full items-center justify-center rounded-xl text-[18px] font-bold text-[#15130F] opacity-90" style={{ background: "#C9972F" }}>
               Pay {formatCurrency(Math.max(0, due))}

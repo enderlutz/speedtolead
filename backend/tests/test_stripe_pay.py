@@ -399,3 +399,20 @@ def test_a_discount_on_one_line_and_one_on_the_total(db, monkeypatch):
     assert whole["amount"] == 1088 and sp.pay_info(whole["token"])["items"][1]["total_discount"] is True
     with pytest.raises(HTTPException):
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="X", amount=50, discount=60)]), STAFF)
+
+
+def test_klarna_can_be_switched_off_on_an_invoice(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen = {}
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create", lambda **k: seen.update(k) or SimpleNamespace(id="cs_1", url="https://stripe.test/c"))
+    items = [sp.InvoiceItem(name="Signature Finish", amount=1188)]
+    off = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items, financing=False), STAFF)
+    assert off["financing"] is False and sp.pay_info(off["token"])["financing"] is False
+    sp.start_session(off["token"])
+    assert seen["payment_method_configuration"] == "pmc_deposit"
+    seen.clear()
+    on = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items), STAFF)
+    assert on["financing"] is True
+    sp.start_session(on["token"])
+    assert "payment_method_configuration" not in seen
