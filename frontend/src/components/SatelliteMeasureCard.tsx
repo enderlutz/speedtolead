@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
-  ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair, ExternalLink } from "lucide-react";
+  ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair, ExternalLink, LocateFixed } from "lucide-react";
 
 /**
  * Measure and capture a property without leaving the page.
@@ -227,13 +227,20 @@ function TouchSlider({
   min: number; max: number; value: number; onChange: (v: number) => void; label: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const down = useRef(false);
-  const set = (clientX: number) => {
+  // Relative, not absolute: the value moves by how far the finger travels
+  // from where it pressed. A press on its own changes nothing, so a thumb
+  // aimed at the button under the map that grazed the track's far left no
+  // longer throws the zoom to the bottom of the range (Alan, 2026-10-12:
+  // "as soon as I clicked add point it zoomed out super far").
+  const drag = useRef<{ id: number; x0: number; v0: number } | null>(null);
+  const move = (e: React.PointerEvent) => {
+    const d = drag.current;
     const r = ref.current?.getBoundingClientRect();
-    if (!r || !r.width) return;
-    const t = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    onChange(min + t * (max - min));
+    if (!d || d.id !== e.pointerId || !r || !r.width) return;
+    const dv = ((e.clientX - d.x0) / r.width) * (max - min);
+    onChange(Math.max(min, Math.min(max, d.v0 + dv)));
   };
+  const stop = (e: React.PointerEvent) => { if (drag.current?.id === e.pointerId) drag.current = null; };
   const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
   return (
     <div
@@ -245,13 +252,14 @@ function TouchSlider({
       aria-valuenow={Math.round(value * 100) / 100}
       className="relative h-8 min-w-0 flex-1 cursor-pointer touch-none select-none"
       onPointerDown={(e) => {
-        down.current = true;
+        if (!e.isPrimary || drag.current) return;
         try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
-        set(e.clientX);
+        drag.current = { id: e.pointerId, x0: e.clientX, v0: value };
       }}
-      onPointerMove={(e) => { if (down.current) set(e.clientX); }}
-      onPointerUp={() => { down.current = false; }}
-      onPointerCancel={() => { down.current = false; }}
+      onPointerMove={move}
+      onPointerUp={stop}
+      onPointerCancel={stop}
+      onLostPointerCapture={stop}
     >
       <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/25" />
       <div className="absolute left-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-gradient-to-r from-bronze to-gold-light" style={{ width: `${pct}%` }} />
@@ -468,6 +476,16 @@ export default function SatelliteMeasureCard({
     setRot(r);
   }, []);
 
+  /** Back on the house, north up, at the opening zoom — the way out of any
+   *  glitch in one tap, without losing the trace (Alan, 2026-10-12). */
+  function goHome() {
+    const map = mapRef.current;
+    if (!map) return;
+    if (pin) map.setCenter(pin);
+    setRotation(0);
+    setZoomFine(DEFAULT_ZOOM);
+  }
+
   /** North up, whole zoom: how every property opens. */
   const resetView = useCallback(() => {
     viewRef.current = { rot: 0, frac: 0 };
@@ -528,17 +546,34 @@ export default function SatelliteMeasureCard({
   // moved less than 4px; anything else pans. Two fingers zoom by their
   // distance and turn by their angle.
   const gestureRef = useRef<{
-    pts: Map<number, { x: number; y: number }>;
+    pts: Map<number, { x: number; y: number; t: number }>;
     down: { x: number; y: number } | null;
     moved: boolean;
     pinch: { dist: number; angle: number; zf: number; rot: number; mid: { x: number; y: number } } | null;
   }>({ pts: new Map(), down: null, moved: false, pinch: null });
+  // A finger whose lift the phone never reported (it happens on iOS) would
+  // sit in `pts` forever and turn every later touch into a two-finger
+  // pinch, with the zoom lurching about as the one real finger moved.
+  // Anything unseen for this long is a ghost.
+  const GHOST_MS = 1500;
+  // Two "fingers" closer than this are one finger reported twice: pan, never
+  // zoom, or the ratio between two tiny distances flings the zoom.
+  const PINCH_MIN_PX = 24;
+
+  function forgetPointer(id: number) {
+    const g = gestureRef.current;
+    g.pts.delete(id);
+    if (g.pts.size === 0) { g.pinch = null; g.moved = false; g.down = null; }
+    else if (g.pts.size === 1) { g.pinch = null; g.moved = true; }
+  }
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (status !== "ready") return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* fine without */ }
     const g = gestureRef.current;
-    g.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const now = performance.now();
+    for (const [id, p] of g.pts) if (now - p.t > GHOST_MS) g.pts.delete(id);
+    g.pts.set(e.pointerId, { x: e.clientX, y: e.clientY, t: now });
     if (g.pts.size === 1) {
       g.down = { x: e.clientX, y: e.clientY };
       g.moved = false;
@@ -553,6 +588,11 @@ export default function SatelliteMeasureCard({
         mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
       };
       g.moved = true;
+    } else {
+      // A third finger is nobody's gesture: start over on the next touch.
+      g.pts.clear();
+      g.pinch = null;
+      g.moved = true;
     }
   }
 
@@ -560,15 +600,20 @@ export default function SatelliteMeasureCard({
     const g = gestureRef.current;
     const prev = g.pts.get(e.pointerId);
     if (!prev) return;
-    const cur = { x: e.clientX, y: e.clientY };
+    const cur = { x: e.clientX, y: e.clientY, t: performance.now() };
     g.pts.set(e.pointerId, cur);
     if (g.pts.size >= 2 && g.pinch) {
       const [a, b] = [...g.pts.values()];
       const dist = Math.hypot(b.x - a.x, b.y - a.y);
       const angle = Math.atan2(b.y - a.y, b.x - a.x);
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      setZoomFine(g.pinch.zf + Math.log2(Math.max(0.05, dist / Math.max(1, g.pinch.dist))));
-      setRotation(g.pinch.rot + ((angle - g.pinch.angle) * 180) / Math.PI);
+      if (g.pinch.dist >= PINCH_MIN_PX && dist >= PINCH_MIN_PX) {
+        // At most one zoom level per gesture frame: a jump bigger than that
+        // is a bad reading, not a hand.
+        const step = Math.max(-1, Math.min(1, Math.log2(dist / g.pinch.dist)));
+        setZoomFine(g.pinch.zf + step);
+        setRotation(g.pinch.rot + ((angle - g.pinch.angle) * 180) / Math.PI);
+      }
       panByScreen(mid.x - g.pinch.mid.x, mid.y - g.pinch.mid.y);
       g.pinch.mid = mid;
       return;
@@ -583,24 +628,18 @@ export default function SatelliteMeasureCard({
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     const g = gestureRef.current;
     if (!g.pts.has(e.pointerId)) return;
-    g.pts.delete(e.pointerId);
-    if (g.pts.size === 0) {
-      // A tap adds a point — with a mouse or a pen. Under a finger it was
-      // adding points by accident (a flick to scroll, a brush of the
-      // thumb), and a fingertip hides the corner it is meant to hit; on a
-      // phone the point goes where the crosshair is, via the button below.
-      if (!g.moved && e.type === "pointerup" && e.pointerType !== "touch") {
-        const p = pointFromFrame(e.clientX, e.clientY);
-        if (p) addPoint(p);
-      }
-      g.pinch = null;
-      g.moved = false;
-      g.down = null;
-    } else if (g.pts.size === 1) {
-      // Lifting one finger of a pinch must not drop a point.
-      g.pinch = null;
-      g.moved = true;
+    const wasAlone = g.pts.size === 1;
+    // A tap adds a point — with a mouse or a pen. Under a finger it was
+    // adding points by accident (a flick to scroll, a brush of the
+    // thumb), and a fingertip hides the corner it is meant to hit; on a
+    // phone the point goes where the crosshair is, via the button below.
+    if (wasAlone && !g.moved && e.type === "pointerup" && e.pointerType !== "touch") {
+      const p = pointFromFrame(e.clientX, e.clientY);
+      if (p) addPoint(p);
     }
+    // Lifting one finger of a pinch must not drop a point: forgetPointer
+    // leaves `moved` set while a finger remains.
+    forgetPointer(e.pointerId);
   }
 
   // Wheel zooms by fractions; with shift held it turns the view. Registered
@@ -1195,6 +1234,7 @@ export default function SatelliteMeasureCard({
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            onLostPointerCapture={(e) => forgetPointer(e.pointerId)}
           >
             {preview ? (
               <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
@@ -1276,6 +1316,10 @@ export default function SatelliteMeasureCard({
               which is either too close or too far for a scope photo. Scroll
               or pinch for the same thing. */}
           <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 rounded-lg bg-black/60 px-2 py-1 text-white backdrop-blur-sm">
+            <button type="button" onClick={goHome} title="Back to the house, north up, at the opening zoom"
+              className={`flex ${IS_TOUCH ? "h-10 w-10" : "h-8 w-8"} shrink-0 items-center justify-center rounded-md hover:bg-white/15`}>
+              <LocateFixed className="h-4 w-4" />
+            </button>
             <button type="button" onClick={() => setZoomFine(zf - ZOOM_STEP)} title="Zoom out a little"
               className={`flex ${IS_TOUCH ? "h-10 w-10" : "h-8 w-8"} shrink-0 items-center justify-center rounded-md hover:bg-white/15`}>
               <ZoomOut className="h-4 w-4" />
