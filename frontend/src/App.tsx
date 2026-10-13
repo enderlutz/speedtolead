@@ -39,6 +39,8 @@ import MySchedule from "@/pages/MySchedule";
 import Estimator from "@/pages/Estimator";
 import EstimatorDay from "@/pages/EstimatorDay";
 import CallListPanel from "@/components/CallListPanel";
+
+const CALL_LIST_ON = false;
 import WrappedAutoPop from "@/components/WrappedAutoPop";
 import TrainingBorder from "@/components/training/TrainingBorder";
 import CallBar from "@/components/training/CallBar";
@@ -251,7 +253,9 @@ function AppLayout() {
             </Routes>
           </main>
         </div>
-        {showCallList && <CallListPanel />}
+        {/* Archived 2026-10-13: the floating Call List button sat on top of
+            everything on a phone (Alan). Flip CALL_LIST_ON to bring it back. */}
+        {CALL_LIST_ON && showCallList && <CallListPanel />}
         {/* Saturday / last-of-month CEO digest. Mounted at AppLayout so
             it fires on any page, not just Dashboard. Admin-only inside. */}
         <WrappedAutoPop />

@@ -45,7 +45,9 @@ export default function ProposalLive() {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch(`${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/live`);
+        // The dashboard opens this with ?preview=1 so staff never count as a view.
+        const preview = new URLSearchParams(window.location.search).get("preview") === "1" ? "?preview=1" : "";
+        const r = await fetch(`${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/live${preview}`);
         if (!r.ok) throw new Error(String(r.status));
         const p = (await r.json()) as Payload;
         if (!alive) return;

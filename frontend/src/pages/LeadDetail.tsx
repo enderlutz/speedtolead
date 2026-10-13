@@ -4,6 +4,8 @@ import { useNow } from "@/hooks/useNow";
 import { api, canSeeRevenue, getCurrentUser, type LeadDetail as LeadDetailType, type EstimateDetail, type MessageEntry, type BreakdownItem, type CallRecordingEntry, type ScheduledJob, type LeadSource, type CallDispositionEntry, type CallDispositionOutcome, type LeadObjectionEntry, type NearbyJob, type QuickbooksInvoice, LEAD_SOURCE_OPTIONS } from "@/lib/api";
 import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
+
+const CALL_SCRIPT_ON = false;
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { cn, formatCurrency, formatMonthly, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
@@ -843,6 +845,18 @@ export default function LeadDetail() {
     }
     return sortedEstimates.find((e) => e.status === "pending") || sortedEstimates[0];
   }, [sortedEstimates, selectedEstimateId]);
+  // The proposal they were sent, for the "Estimate sent" card's View button.
+  const [liveProposal, setLiveProposal] = useState<{ interactive: boolean; url: string } | null>(null);
+  useEffect(() => {
+    if (!lead?.id || estimate?.status !== "sent") return;
+    let alive = true;
+    const load = () => api.getProposalLive(lead.id)
+      .then((r) => { if (alive) setLiveProposal(r.proposal ? { interactive: r.proposal.interactive, url: r.proposal.url } : null); })
+      .catch(() => { if (alive) setLiveProposal(null); });
+    load();
+    window.addEventListener("proposal-live-changed", load);
+    return () => { alive = false; window.removeEventListener("proposal-live-changed", load); };
+  }, [lead?.id, estimate?.status, estimate?.id]);
 
   // Repopulate form fields when the user switches to a different estimate
   // (so the inputs match what's actually in that estimate). The initial-load
@@ -1375,7 +1389,8 @@ export default function LeadDetail() {
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 max-w-5xl">
       {/* Sticky call script panel — auto-fills from this lead. Persistent
           open/closed state so the VA's choice survives navigation. */}
-      <CallScriptPanel lead={lead} estimate={estimate} />
+      {/* Archived 2026-10-13 with the Call List: in the way on a phone (Alan). */}
+      {CALL_SCRIPT_ON ? <CallScriptPanel lead={lead} estimate={estimate} /> : null}
 
       {/* Header — always visible above the Estimate / Call tabs so Alan never
           loses sight of "who am I looking at" when flipping between them. */}
@@ -2421,9 +2436,11 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="relative mt-3 flex gap-2">
-                <a href={api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer" className="flex-1">
+                {/* What the customer got: the interactive page when it's on, else
+                    the PDF. ?preview=1 so opening it here isn't their view. */}
+                <a href={liveProposal?.interactive ? `${liveProposal.url}?preview=1` : api.getEstimatePdfUrl(estimate.id)} target="_blank" rel="noopener noreferrer" className="flex-1">
                   <Button variant="outline" className="h-10 w-full rounded-xl border-white/40 bg-white/10 text-white hover:bg-white/20 hover:text-white">
-                    <FileText className="h-4 w-4 mr-2" /> View PDF
+                    <FileText className="h-4 w-4 mr-2" /> {liveProposal?.interactive ? "View proposal" : "View PDF"}
                   </Button>
                 </a>
                 <Button

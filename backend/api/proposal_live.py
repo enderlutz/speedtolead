@@ -155,7 +155,7 @@ def _came_back(p: Proposal, now: datetime) -> bool:
 # ── Public: the page ──────────────────────────────────────────────────────
 
 @router.get("/public/proposal/{token}/live")
-def get_live(token: str, request: Request):
+def get_live(token: str, request: Request, preview: int = 0):
     """Public. The interactive proposal behind this token. Counts the view
     the same way the PDF page does (bots and staff skipped); a view after
     the price ended texts Alan once a day: that customer came back."""
@@ -168,7 +168,8 @@ def get_live(token: str, request: Request):
         ests = db.query(Estimate).filter(Estimate.lead_id == lead.id).all()
         now = _now()
         reopen = expired(p, now) and _came_back(p, now) and _paid_link(db, lead.id) is None
-        counted = track_view(db, p, lead, request)
+        # ?preview=1 is the dashboard's "View proposal": staff, never a view.
+        counted = track_view(db, p, lead, request, preview == 1)
         if counted and reopen:
             _expired_reopen_alert(lead, p, preview_payload(lead, ests))
         return state(db, p, lead, ests)
