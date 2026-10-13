@@ -942,23 +942,49 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           </div>
         </section>
 
-        {/* What you get */}
-        <section className="px-4 py-6">
-          <SectionTitle kicker="Every job" title="What you get" />
-          <div className={cn("grid gap-3", !phone && "sm:grid-cols-2")}>
-            <List title="We prep it right" icon={Leaf} items={[
-              ["Full prep wash", "Mold, mildew, dirt and gray weathering come off first."],
-              ["Premium stain", "Professional-grade, picked for Texas sun."],
-              ["Two coats", "With attention to boards, edges and details."],
-              ["Hardware stays clean", "We keep stain off your black hinges and latches."],
-              ["Clean jobsite", "Labor and cleanup included."],
-            ]} />
-            <List title="Why people pick us" icon={Shield} items={[
-              ["1-year workmanship warranty", "If our work peels or cracks, we come back and fix it."],
-              [`${ratingText} on Google`, "We pride ourselves on being the best."],
-              ["1,500+ fences restored", "Across the Houston area."],
-              ["7+ years", "Hands-on experience staining wood fences."],
-            ]} />
+        {/* Two chapters of the story, made to look different on purpose
+            (Alan, 2026-10-12: "they look too similar… you're taking them
+            through a story"). First what we do to the fence, as a path
+            through the two days, light and warm. */}
+        <section className="px-4 pt-6 pb-4">
+          <SectionTitle kicker="Step by step" title="What you get" sub="Two days, start to finish." />
+          <ol className="rounded-3xl bg-[#F8F3E7] p-4 ring-1 ring-[#15130F]/10">
+            {STEPS.map((st, i) => (
+              <li key={st.head} className="relative flex gap-3 pb-4 last:pb-0">
+                {i < STEPS.length - 1 ? <span className="absolute left-[21px] top-12 bottom-1 w-[3px] rounded-full" style={{ background: "#E3BE63" }} aria-hidden /> : null}
+                <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-2" style={{ color: "#8C6224", ["--tw-ring-color" as string]: GOLD }}>
+                  <st.icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  {st.day ? <span className="mb-1 inline-block rounded-full bg-[#15130F] px-2.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-[#E3BE63]">{st.day}</span> : null}
+                  <p className="text-[17px] font-bold leading-tight">{st.head}</p>
+                  <p className="mt-0.5 text-[15px] leading-snug text-[#15130F]/75">{st.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {/* Then why us: a dark band of big gold numbers, read in a glance. */}
+        <section className="px-4 pb-6">
+          <div className="rounded-3xl bg-[#15130F] p-4 text-white">
+            <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#E3BE63]">Why us</p>
+            <h2 className="font-heading text-2xl font-bold leading-tight">Why people pick us</h2>
+            <div className={cn("mt-3 grid grid-cols-2 gap-2", !phone && "sm:grid-cols-4")}>
+              {[
+                { big: "1 year", head: "Workmanship warranty", body: "If our work peels or cracks, we come back and fix it." },
+                { big: ratingText, head: "On Google", body: "We pride ourselves on being the best.", stars: true },
+                { big: "1,500+", head: "Fences restored", body: "Across the Houston area." },
+                { big: "7+ years", head: "Staining fences", body: "Hands-on, every job." },
+              ].map((f) => (
+                <div key={f.head} className="rounded-2xl bg-white/[0.06] p-3 ring-1 ring-white/10">
+                  <p className="font-heading text-[30px] font-bold leading-none tabular-nums" style={{ color: "#E3BE63" }}>{f.big}</p>
+                  {f.stars ? <p className="mt-1 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: "#E3BE63" }} />)}</p> : null}
+                  <p className="mt-1.5 text-[15px] font-bold leading-tight">{f.head}</p>
+                  <p className="mt-0.5 text-[13px] leading-snug text-white/75">{f.body}</p>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="mt-3 flex items-start gap-3 rounded-2xl bg-emerald-800 p-4 text-white">
             <Users className="mt-0.5 h-6 w-6 shrink-0" style={{ color: "#E3BE63" }} />
@@ -1472,21 +1498,14 @@ function Counter({ label, what, unit, price, n, onChange, art, children }: {
   );
 }
 
-function List({ title, icon: Icon, items }: { title: string; icon: React.ElementType; items: [string, string][] }) {
-  return (
-    <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
-      <p className="mb-2 flex items-center gap-2 font-heading text-lg font-bold"><Icon className="h-5 w-5" style={{ color: "#8C6224" }} /> {title}</p>
-      <ul className="space-y-2">
-        {items.map(([head, body]) => (
-          <li key={head} className="flex items-start gap-2">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#15130F]" style={{ background: GOLD }}><Check className="h-3 w-3" /></span>
-            <span><span className="text-[15px] font-bold">{head}</span><br /><span className="text-sm text-[#15130F]/75">{body}</span></span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+/** What happens to the fence, in order, for the "What you get" path. */
+const STEPS: { icon: React.ElementType; day?: string; head: string; body: string }[] = [
+  { icon: Droplets, day: "Day 1", head: "Full prep wash", body: "Mold, mildew, dirt and gray weathering come off first." },
+  { icon: Sun, day: "Day 2", head: "Premium stain", body: "Professional-grade, picked for Texas sun." },
+  { icon: Paintbrush, head: "Two coats", body: "With attention to boards, edges and details." },
+  { icon: Shield, head: "Hardware stays clean", body: "We keep stain off your black hinges and latches." },
+  { icon: Sparkles, head: "Clean jobsite", body: "Labor and cleanup included." },
+];
 
 type FencePartKey = "picket" | "rotboard" | "cap" | "rail" | "post";
 
