@@ -8,8 +8,8 @@
 // (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, CheckCircle2, Loader2, MessageSquare, RefreshCw, Stethoscope, X } from "lucide-react";
-import { api, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeHealth, type StripeSettings } from "@/lib/api";
+import { Copy, Ban, CreditCard, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Stethoscope, Trash2, X } from "lucide-react";
+import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
@@ -132,6 +132,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
           </button>
         ))}
       </div>
+      <InvoiceBuilder leadId={leadId} onMade={async (l) => { await copy(l); load(); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
           {data.links.map((l) => (
@@ -143,6 +144,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               <span className="font-semibold">{l.label}</span>
               <span className="tabular-nums">{l.kind === "done" ? "" : formatCurrency(l.amount)}</span>
               {l.job_total ? <span className="text-muted-foreground">· {l.job_tier} sale {formatCurrency(l.job_total)}</span> : null}
+              {l.items?.length ? <span className="truncate text-muted-foreground" title={l.items.map((i) => `${i.name} ${formatCurrency(i.amount)}`).join("\n")}>· {l.items.length} lines{l.credit ? `, less ${formatCurrency(l.credit)} paid` : ""}</span> : null}
               <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
               {l.status === "open" || l.kind === "done" ? (
@@ -167,6 +169,68 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
           <span><b>Text the balance link by itself</b> when the crew marks a job complete (or the all-paid link when nothing is owed). Applies to every job, not just this one.</span>
         </label>
       ) : null}
+    </div>
+  );
+}
+
+// An itemized invoice (Alan, 2026-10-13): each line with a short note, less
+// what they already paid. Becomes a balance link; the pay page and Stripe's
+// checkout list the lines.
+function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLinkEntry) => void | Promise<void> }) {
+  const blank = (): InvoiceLine & { key: number } => ({ key: Math.random(), name: "", description: "", amount: 0 });
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState([blank()]);
+  const [credit, setCredit] = useState("");
+  const [busy, setBusy] = useState(false);
+  const total = lines.reduce((t, l) => t + (Number(l.amount) || 0), 0);
+  const paid = Number(credit) || 0;
+  const set = (k: number, patch: Partial<InvoiceLine>) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...patch } : l)));
+  const make = async () => {
+    const items = lines.filter((l) => l.name.trim() || l.amount).map(({ name, description, amount }) => ({ name: name.trim(), description: description.trim(), amount: Number(amount) }));
+    if (!items.length || items.some((i) => !i.name || !(i.amount > 0))) { toast.error("Every line needs a name and a price"); return; }
+    setBusy(true);
+    try {
+      const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined });
+      await onMade(link);
+      setLines([blank()]); setCredit(""); setOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't make the invoice");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mt-1.5 inline-flex h-9 items-center gap-1.5 rounded-lg bg-muted px-2.5 text-xs font-semibold hover:bg-muted/70">
+        <ReceiptText className="h-3.5 w-3.5" /> Itemized invoice
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-1.5 rounded-lg bg-muted/40 p-2.5">
+      <p className="text-xs font-semibold">Itemized invoice</p>
+      {lines.map((l) => (
+        <div key={l.key} className="grid grid-cols-[1fr_6rem_auto] gap-1.5">
+          <input value={l.name} onChange={(e) => set(l.key, { name: e.target.value })} placeholder="Item (e.g. House wash)" className="h-9 rounded-lg border border-border bg-background px-2 text-sm" />
+          <input value={l.amount || ""} onChange={(e) => set(l.key, { amount: Number(e.target.value) || 0 })} inputMode="decimal" placeholder="Price" className="h-9 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" />
+          <button type="button" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : ls))} className="rounded-md p-1 hover:bg-background" aria-label="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>
+          <input value={l.description} onChange={(e) => set(l.key, { description: e.target.value })} placeholder="Description (optional)" className="col-span-2 h-8 rounded-lg border border-border bg-background px-2 text-xs" />
+        </div>
+      ))}
+      <button type="button" onClick={() => setLines((ls) => [...ls, blank()])} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold hover:bg-background"><Plus className="h-3.5 w-3.5" /> Add line</button>
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-1.5 text-xs">
+        <span>Lines <b className="tabular-nums">{formatCurrency(total)}</b></span>
+        <label className="flex items-center gap-1">Already paid
+          <input value={credit} onChange={(e) => setCredit(e.target.value)} inputMode="decimal" placeholder="0" className="h-8 w-20 rounded-md border border-border bg-background px-1.5 tabular-nums" />
+        </label>
+        <span>Due <b className="tabular-nums">{formatCurrency(Math.max(0, total - paid))}</b></span>
+        <span className="ml-auto flex gap-1.5">
+          <button type="button" onClick={() => setOpen(false)} className="h-8 rounded-md px-2 font-semibold hover:bg-background">Cancel</button>
+          <button type="button" onClick={make} disabled={busy} className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-2.5 font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Make invoice link
+          </button>
+        </span>
+      </div>
     </div>
   );
 }

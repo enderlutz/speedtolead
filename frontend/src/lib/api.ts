@@ -1334,7 +1334,7 @@ export const api = {
   // Stripe pay links (backend api/stripe_pay.py). Staff only; the customer
   // pages at /pay and /after use raw fetch so a 401 can't bounce them here.
   listPayLinks: (leadId: string) => request<PayLinksResponse>(`/api/leads/${leadId}/pay-links`),
-  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number }) =>
+  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
@@ -5594,7 +5594,10 @@ export interface PayLinkEntry {
   job_tier: string; job_total: number | null;
   /** Someone opened the pay page, so Stripe holds a Checkout session for it. */
   opened: boolean;
+  /** An itemized invoice: each line, and what they'd already paid. */
+  items: InvoiceLine[]; credit: number;
 }
+export interface InvoiceLine { name: string; description: string; amount: number }
 export interface PayLinkCheck {
   link: PayLinkEntry;
   stripe: { session_id: string; payment_status: string; status: string; amount: number; livemode: boolean; matches: boolean } | null;

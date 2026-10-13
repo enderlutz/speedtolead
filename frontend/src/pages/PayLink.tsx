@@ -18,6 +18,7 @@ const PHONE = "346-589-7877";
 type Info = {
   kind: string; label: string; amount: number; description: string; status: string;
   first_name: string; address: string; configured: boolean;
+  items?: { name: string; description: string; amount: number }[]; credit?: number;
 };
 
 export default function PayLink() {
@@ -95,6 +96,20 @@ export default function PayLink() {
         <p className="font-heading text-5xl font-bold leading-none tabular-nums">{formatCurrency(info.amount)}</p>
         {info.address ? <p className="mt-3 text-[15px] text-[#15130F]/80">{info.address}</p> : null}
         {info.description ? <p className="mt-1 text-[15px] text-[#15130F]/80">{info.description}</p> : null}
+        {info.items?.length ? (
+          <dl className="mt-3 space-y-2 border-t border-[#15130F]/10 pt-3 text-[15px]">
+            {info.items.map((i, n) => (
+              <div key={n} className="flex justify-between gap-3">
+                <div><dt className="font-semibold">{i.name}</dt>{i.description ? <dd className="text-[14px] text-[#15130F]/75">{i.description}</dd> : null}</div>
+                <dd className="shrink-0 tabular-nums">{formatCurrency(i.amount)}</dd>
+              </div>
+            ))}
+            {info.credit ? (
+              <div className="flex justify-between gap-3 text-[#15130F]/80"><dt>Already paid</dt><dd className="tabular-nums">− {formatCurrency(info.credit)}</dd></div>
+            ) : null}
+            <div className="flex justify-between gap-3 border-t border-[#15130F]/10 pt-2 font-bold"><dt>Due today</dt><dd className="tabular-nums">{formatCurrency(info.amount)}</dd></div>
+          </dl>
+        ) : null}
       </div>
       {info.configured ? (
         <>

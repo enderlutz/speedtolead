@@ -123,7 +123,20 @@ def link_dict(link: PayLink) -> dict:
         "expires_at": hooks.deposit_expires_at(link),
         "expired": hooks.deposit_link_expired(link),
         "opened": bool(link.stripe_session_id),
+        "items": link_items(link),
+        "credit": round((link.credit_cents or 0) / 100, 2),
     }
+
+
+def link_items(link: PayLink) -> list[dict]:
+    try:
+        v = json.loads(link.items or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [
+        {"name": str(i.get("name") or ""), "description": str(i.get("description") or ""), "amount": round(int(i.get("amount_cents") or 0) / 100, 2)}
+        for i in v if isinstance(i, dict)
+    ] if isinstance(v, list) else []
 
 
 def payment_dict(p: CustomerPayment) -> dict:
@@ -153,6 +166,19 @@ class CreateLinkBody(BaseModel):
     # to that package's price on the estimate we sent.
     tier: str | None = None
     job_total: float | None = None
+    # An itemized invoice: each line the customer sees, and what they already
+    # paid (usually the $250 deposit). The amount is the lines minus that.
+    items: list["InvoiceItem"] | None = None
+    credit: float | None = None
+
+
+class InvoiceItem(BaseModel):
+    name: str
+    description: str = ""
+    amount: float
+
+
+CreateLinkBody.model_rebuild()
 
 
 @router.post("/leads/{lead_id}/pay-links")
@@ -165,6 +191,23 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        items_json, credit_cents = None, None
+        if body.items:
+            if kind not in ("balance", "extra", "full"):
+                raise HTTPException(status_code=400, detail="Line items go on a balance, extra-work or paid-in-full link")
+            lines = []
+            for it in body.items[:25]:
+                name = (it.name or "").strip()
+                c = int(round((it.amount or 0) * 100))
+                if not name or c <= 0:
+                    raise HTTPException(status_code=400, detail="Every line needs a name and a price above $0")
+                lines.append({"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c})
+            credit_cents = max(0, int(round((body.credit or 0) * 100)))
+            items_total = sum(i["amount_cents"] for i in lines)
+            if credit_cents >= items_total:
+                raise HTTPException(status_code=400, detail="What they already paid covers the whole invoice")
+            items_json = json.dumps(lines)
+            body.amount = (items_total - credit_cents) / 100
         if kind == "deposit":
             cents = DEPOSIT_CENTS if body.amount is None else int(round(body.amount * 100))
         elif kind == "done":
@@ -210,6 +253,7 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             created_by=user.get("name") or user.get("sub") or "", created_at=now,
             paid_at=now if kind == "done" else None, answers="{}",
             job_tier=job_tier, job_total_cents=job_total_cents,
+            items=items_json, credit_cents=credit_cents,
         )
         db.add(link)
         db.commit()
@@ -377,6 +421,7 @@ def pay_info(token: str):
             "kind": link.kind, "label": LABELS.get(link.kind, link.kind),
             "amount": round((link.amount_cents or 0) / 100, 2), "description": link.description or "",
             "status": link.status, "first_name": _first_name(lead), "address": (lead.address if lead else "") or "",
+            "items": link_items(link), "credit": round((link.credit_cents or 0) / 100, 2),
             "configured": configured(),
         }
     finally:
@@ -394,16 +439,34 @@ def start_session(token: str):
             return {"url": f"{_base()}/after/{link.token}", "paid": True}
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         s = _stripe()
-        params: dict = {
-            "mode": "payment",
-            "line_items": [{
+        items = link_items(link)
+        if items and not link.credit_cents:
+            # Each line on Stripe's page and receipt, as on our pay page.
+            line_items = [{
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": int(round(i["amount"] * 100)),
+                    "product_data": {"name": i["name"], **({"description": i["description"]} if i["description"] else {})},
+                },
+            } for i in items]
+        else:
+            # Stripe has no minus line for a deposit already paid, so one line
+            # carries the balance and spells out what it's made of.
+            what = "; ".join(f"{i['name']} ${i['amount']:,.2f}" for i in items)
+            if items and link.credit_cents:
+                what += f"; less ${link.credit_cents / 100:,.2f} already paid"
+            line_items = [{
                 "quantity": 1,
                 "price_data": {
                     "currency": "usd",
                     "unit_amount": int(link.amount_cents),
-                    "product_data": {"name": f"Sterling Fence Staining: {LABELS.get(link.kind, link.kind)}"},
+                    "product_data": {"name": f"Sterling Fence Staining: {LABELS.get(link.kind, link.kind)}", **({"description": what[:500]} if what else {})},
                 },
-            }],
+            }]
+        params: dict = {
+            "mode": "payment",
+            "line_items": line_items,
             "client_reference_id": link.lead_id,
             "metadata": {"lead_id": link.lead_id, "pay_link": link.token, "kind": link.kind},
             "payment_intent_data": {"metadata": {"lead_id": link.lead_id, "pay_link": link.token, "kind": link.kind}},

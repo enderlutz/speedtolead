@@ -3951,6 +3951,10 @@ class PayLink(Base):
     # records what was really collected.
     job_tier = Column(Text, nullable=True)
     job_total_cents = Column(Integer, nullable=True)
+    # An itemized invoice (Alan, 2026-10-13): [{name, description, amount_cents}]
+    # plus what was already paid, so the customer sees each line and the credit.
+    items = Column(Text, nullable=True)
+    credit_cents = Column(Integer, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4047,6 +4051,10 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN job_tier TEXT"))
             if "job_total_cents" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN job_total_cents INTEGER"))
+            if "items" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN items TEXT"))
+            if "credit_cents" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN credit_cents INTEGER"))
     if inspector.has_table("proposals"):
         pr = {c["name"] for c in inspector.get_columns("proposals")}
         if "extended_until" not in pr:

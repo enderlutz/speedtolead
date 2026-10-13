@@ -301,3 +301,42 @@ def test_one_deposit_link_per_customer_and_extra_work_gets_the_job_done_screens(
     extra = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", amount=40), STAFF)
     assert sp.after_info(extra["token"])["flow"] == "B"
     assert sp.after_info(fresh["token"])["flow"] == "A"
+
+
+def test_an_itemized_invoice_lists_every_line_and_takes_off_what_was_paid(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen = []
+
+    def fake_create(**params):
+        seen.append(params)
+        return SimpleNamespace(id=f"cs_{len(seen)}", url=f"https://stripe.test/cs_{len(seen)}")
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create", fake_create)
+    items = [
+        sp.InvoiceItem(name="Signature Finish", description="Chocolate Chips", amount=1188),
+        sp.InvoiceItem(name="House wash", description="Left and right side of the house", amount=225),
+        sp.InvoiceItem(name="Driveway cleaning", description="Includes the walkways and the porch", amount=225),
+        sp.InvoiceItem(name="Post replacement", description="2 posts replaced", amount=410),
+    ]
+
+    # Nothing paid yet: four lines on Stripe, the total is their sum.
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items), STAFF)
+    assert out["amount"] == 2048.0 and [i["name"] for i in out["items"]][0] == "Signature Finish"
+    sp.start_session(out["token"])
+    assert [li["price_data"]["unit_amount"] for li in seen[0]["line_items"]] == [118800, 22500, 22500, 41000]
+    assert seen[0]["line_items"][1]["price_data"]["product_data"]["description"] == "Left and right side of the house"
+
+    # $250 deposit paid: the link is the rest, and Stripe gets one line that spells it out.
+    out2 = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items, credit=250), STAFF)
+    assert out2["amount"] == 1798.0 and out2["credit"] == 250.0
+    assert sp.pay_info(out2["token"])["items"][3]["amount"] == 410.0
+    sp.start_session(out2["token"])
+    li = seen[1]["line_items"]
+    assert len(li) == 1 and li[0]["price_data"]["unit_amount"] == 179800
+    assert "less $250.00 already paid" in li[0]["price_data"]["product_data"]["description"]
+
+    # A line without a price, or a credit that covers everything, is refused.
+    with pytest.raises(HTTPException):
+        sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="x", amount=0)]), STAFF)
+    with pytest.raises(HTTPException):
+        sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items, credit=5000), STAFF)
