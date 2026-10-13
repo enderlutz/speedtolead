@@ -71,6 +71,18 @@ export default function GoogleReviewsCard() {
       setBusy(false);
     }
   };
+  const loadSeed = async () => {
+    setBusy(true);
+    try {
+      const s = await api.importReviewSeed();
+      toast.success(`Loaded the pulled reviews: ${s.five_star} five-star of ${s.total}`);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't load them");
+    } finally {
+      setBusy(false);
+    }
+  };
   const flip = async (id: string, hidden: boolean) => {
     try { await api.hideReview(id, hidden); load(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't change that"); }
@@ -88,7 +100,7 @@ export default function GoogleReviewsCard() {
             feed is approved. The numbers up top are set by hand too. */}
         <div className="space-y-2 rounded-lg border p-3">
           <p className="text-sm font-semibold">Add reviews by hand</p>
-          <p className="text-xs text-muted-foreground">One review per block, a blank line between. First line: name | stars | when Google says. Then the words.</p>
+          <p className="text-xs text-muted-foreground">One review per block, a blank line between. First line: name | stars | when Google says. Then the words. Optional lines "avatar: link" for their profile picture and "photo: link" for each photo they attached.</p>
           <textarea
             value={paste} onChange={(e) => setPaste(e.target.value)} rows={7}
             placeholder={"Matt Shivers | 5 | 7 weeks ago\nAwesome crew to work with and very pleased with the result! Definitely recommend!\n\nMichael Parr | 5 | 7 weeks ago\nMy fence has never looked better!"}
@@ -114,9 +126,16 @@ export default function GoogleReviewsCard() {
               {data.summary.fetched_at ? <span className="text-muted-foreground"> · pulled {new Date(data.summary.fetched_at).toLocaleString()}</span> : null}
             </span>
           ) : <span className="text-muted-foreground">Nothing pulled yet.</span>}
-          <Button size="sm" variant="outline" onClick={refresh} disabled={busy || !data?.configured} className="ml-auto">
-            {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />} Pull now
-          </Button>
+          <span className="ml-auto flex items-center gap-2">
+            {data?.seed_available ? (
+              <Button size="sm" variant="outline" onClick={loadSeed} disabled={busy} title="The reviews read off the listing with a browser on Oct 12, with profile pictures and photos">
+                Load the pulled reviews
+              </Button>
+            ) : null}
+            <Button size="sm" variant="outline" onClick={refresh} disabled={busy || !data?.configured}>
+              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />} Pull now
+            </Button>
+          </span>
         </div>
         <p className="text-xs text-muted-foreground">The proposal shows five-star reviews with words, newest first, and the five-star count. Anything under five stars stays off on its own. Hide one here to take it off the page.</p>
         {rows.length ? (

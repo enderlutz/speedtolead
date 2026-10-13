@@ -1,5 +1,6 @@
 """Google reviews on the proposal: pulled in pages, five-star only on the
 page, the four-star one off (Alan, 2026-10-12)."""
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,10 +87,13 @@ def test_reviews_pasted_by_hand_show_up_with_the_counts_set_by_hand(db):
 Awesome crew to work with and very pleased with the result! Definitely recommend!
 
 Michael Parr | 5 stars | 7 weeks ago
+avatar: https://lh3/a.jpg
+photo: https://lh3/p1.jpg
 My fence has never looked better!
 You won't be disappointed
 
 Second paragraph of the same review.
+photo: https://lh3/p2.jpg
 
 Some Critic | 4 | a year ago
 Fine."""
@@ -99,6 +103,8 @@ Fine."""
     assert [r["author"] for r in pub["reviews"]] == ["Matt Shivers", "Michael Parr"]
     assert pub["reviews"][1]["text"] == "My fence has never looked better! You won't be disappointed\n\nSecond paragraph of the same review."
     assert pub["reviews"][0]["when"] == "7 weeks ago" and pub["reviews"][0]["date"]
+    assert pub["reviews"][1]["photo"] == "https://lh3/a.jpg" and pub["reviews"][1]["photos"] == ["https://lh3/p1.jpg", "https://lh3/p2.jpg"]
+    assert pub["reviews"][0]["photos"] == []
     out = reviews_api.set_summary(reviews_api.SummaryBody(rating=5.0, total=41, five_star=40), ADMIN)
     assert out["five_star"] == 40 and out["total"] == 41
     pub = gr.public_reviews(db)
@@ -107,3 +113,20 @@ Fine."""
     with pytest.raises(Exception):
         reviews_api.add_manual_reviews(reviews_api.ManualBody(text="   "), ADMIN)
     assert gr._when_to_iso("a month ago") and gr._when_to_iso("last week") == ""
+
+
+def test_the_pulled_set_loads_once_into_an_empty_table(db, monkeypatch, tmp_path):
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps({"summary": {"rating": 5.0, "total": 40, "five_star": 39}, "reviews": [
+        {"id": "abc", "author": "Doug Becker", "rating": 5, "when": "a month ago", "text": "Great experience!",
+         "avatar": "https://lh3/a.png", "photos": ["https://lh3/p.jpg"]},
+        {"id": "def", "author": "Henry", "rating": 4, "when": "a month ago", "text": "Happy."},
+    ]}), encoding="utf-8")
+    monkeypatch.setattr(gr, "SEED_PATH", seed)
+    out = gr.seed_if_empty(db)
+    assert out["five_star"] == 39 and out["total"] == 40
+    pub = gr.public_reviews(db)
+    assert [r["author"] for r in pub["reviews"]] == ["Doug Becker"] and pub["reviews"][0]["photos"] == ["https://lh3/p.jpg"]
+    assert gr.seed_if_empty(db) is None                      # not empty any more: left alone
+    assert reviews_api.import_seed(ADMIN)["five_star"] == 39  # loading again changes nothing
+    assert db.query(GoogleReview).count() == 2

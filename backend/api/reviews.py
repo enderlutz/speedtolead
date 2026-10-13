@@ -32,7 +32,7 @@ def list_reviews(user: dict = Depends(require_staff)):
     db = get_db()
     try:
         rows = db.query(GoogleReview).order_by(GoogleReview.reviewed_at.desc(), GoogleReview.fetched_at.desc()).all()
-        return {"configured": gr.configured(), "summary": gr.summary(db), "reviews": [gr.review_dict(r) for r in rows]}
+        return {"configured": gr.configured(), "seed_available": gr.seed_available(), "summary": gr.summary(db), "reviews": [gr.review_dict(r) for r in rows]}
     finally:
         db.close()
 
@@ -105,6 +105,21 @@ def set_summary(body: SummaryBody, user: dict = Depends(require_admin)):
     try:
         out = gr.set_manual_summary(db, body.rating, body.total, body.five_star)
         log_event(None, "google_reviews_summary_set", f"{out} by {user.get('name') or user.get('sub') or ''}")
+        return out
+    finally:
+        db.close()
+
+
+@router.post("/reviews/import-seed")
+def import_seed(user: dict = Depends(require_admin)):
+    """The reviews pulled off the listing on 2026-10-12, loaded again."""
+    db = get_db()
+    try:
+        try:
+            out = gr.import_seed(db)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=str(e))
+        log_event(None, "google_reviews_seed_loaded", f"by {user.get('name') or user.get('sub') or ''}")
         return out
     finally:
         db.close()

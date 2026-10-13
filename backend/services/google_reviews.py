@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import pathlib
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -137,11 +138,19 @@ def summary(db) -> dict:
         return {"rating": None, "total": 0, "five_star": 0, "fetched_at": None}
 
 
+def _photos(r: GoogleReview) -> list[str]:
+    try:
+        v = json.loads(r.photos or "[]")
+        return [str(x) for x in v if x] if isinstance(v, list) else []
+    except ValueError:
+        return []
+
+
 def review_dict(r: GoogleReview) -> dict:
     return {
         "id": r.id, "author": r.author or "", "photo": r.author_photo or "", "rating": int(r.rating or 0),
         "text": r.text or "", "when": r.relative or "", "date": r.reviewed_at or "", "link": r.link or "",
-        "hidden": bool(r.hidden),
+        "photos": _photos(r), "hidden": bool(r.hidden),
     }
 
 
@@ -168,6 +177,9 @@ def public_reviews(db) -> dict:
 #   Awesome crew to work with and very pleased with the result!
 #
 # The first line is name | stars | when Google says; the rest is the words.
+# Optional lines "avatar: <url>" and "photo: <url>" carry their profile
+# picture and the photos they attached (Alan, 2026-10-12: "put that
+# profile picture there, because it's a real person").
 
 _AGO = re.compile(r"(?:(\d+)|an?)\s+(day|week|month|year)s?\s+ago", re.I)
 
@@ -194,7 +206,10 @@ def parse_manual(text: str) -> list[dict]:
         if not lines:
             continue
         if "|" not in lines[0] and out:
-            out[-1]["text"] = (out[-1]["text"] + "\n\n" + " ".join(lines)).strip()
+            extra = [ln for ln in lines if not ln.lower().startswith(("avatar:", "photo:"))]
+            out[-1]["photos"] += [ln.split(":", 1)[1].strip() for ln in lines if ln.lower().startswith("photo:")]
+            if extra:
+                out[-1]["text"] = (out[-1]["text"] + "\n\n" + " ".join(extra)).strip()
             continue
         head = [p.strip() for p in lines[0].split("|")]
         name = head[0]
@@ -206,8 +221,19 @@ def parse_manual(text: str) -> list[dict]:
             if digits:
                 rating = max(1, min(5, int(digits[0])))
         relative = head[2] if len(head) > 2 else ""
-        body = " ".join(lines[1:]).strip()
-        out.append({"author": name, "rating": rating, "relative": relative, "text": body})
+        avatar, photos, words = "", [], []
+        for ln in lines[1:]:
+            low = ln.lower()
+            if low.startswith("avatar:"):
+                avatar = ln.split(":", 1)[1].strip()
+            elif low.startswith("photo:"):
+                u = ln.split(":", 1)[1].strip()
+                if u:
+                    photos.append(u)
+            else:
+                words.append(ln)
+        out.append({"author": name, "rating": rating, "relative": relative, "text": " ".join(words).strip(),
+                    "avatar": avatar, "photos": photos})
     return out
 
 
@@ -228,6 +254,10 @@ def add_manual(db, text: str) -> int:
         row.rating = r["rating"]
         row.relative = r["relative"]
         row.text = r["text"]
+        if r.get("avatar"):
+            row.author_photo = r["avatar"]
+        if r.get("photos"):
+            row.photos = json.dumps(r["photos"])
         # Reviews of the same age keep the order they were pasted in.
         row.reviewed_at = _when_to_iso(r["relative"], stamp - timedelta(seconds=i))
         row.fetched_at = now
@@ -252,3 +282,52 @@ def set_manual_summary(db, rating: float | None, total: int | None, five_star: i
     }
     SystemConfig.set(db, SUMMARY_KEY, json.dumps(out))
     return out
+
+
+# ── The pulled set ─────────────────────────────────────────────────────────
+# Read off the listing with a real browser on 2026-10-12 (names, stars,
+# words, profile pictures, attached photos) and kept at
+# backend/data/google_reviews_seed.json. Loaded into an empty table on
+# startup and from Settings → "Load the pulled reviews", upserted by id so
+# running it again changes nothing. Google's own feed replaces it once the
+# Business Profile API request is approved.
+SEED_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "google_reviews_seed.json"
+
+
+def seed_available() -> bool:
+    return SEED_PATH.exists()
+
+
+def import_seed(db) -> dict:
+    """Upsert the pulled reviews and set the counts from the file."""
+    if not SEED_PATH.exists():
+        raise RuntimeError("No pulled reviews on file.")
+    doc = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    now = _now()
+    added = 0
+    for r in doc.get("reviews", []):
+        rid = "google-" + str(r.get("id") or hashlib.sha1(f"{r.get('author')}|{r.get('text')}".encode()).hexdigest()[:20])
+        row = db.query(GoogleReview).filter(GoogleReview.id == rid).first()
+        if row is None:
+            row = GoogleReview(id=rid, hidden=False)
+            db.add(row)
+            added += 1
+        row.author = (r.get("author") or "").strip()
+        row.author_photo = (r.get("avatar") or "").strip()
+        row.rating = int(r.get("rating") or 0)
+        row.text = (r.get("text") or "").strip()
+        row.relative = (r.get("when") or "").strip()
+        row.reviewed_at = (r.get("date") or "") or _when_to_iso(r.get("when") or "")
+        row.link = (r.get("link") or "").strip()
+        row.photos = json.dumps([p for p in (r.get("photos") or []) if p])
+        row.fetched_at = now
+    db.commit()
+    s = doc.get("summary") or {}
+    return set_manual_summary(db, s.get("rating"), s.get("total"), s.get("five_star"))
+
+
+def seed_if_empty(db) -> dict | None:
+    """On startup: a table with nothing in it gets the pulled set."""
+    if not SEED_PATH.exists() or db.query(GoogleReview).count() > 0:
+        return None
+    return import_seed(db)

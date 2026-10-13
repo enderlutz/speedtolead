@@ -3967,6 +3967,7 @@ class GoogleReview(Base):
     relative = Column(Text, default="")                 # "2 months ago", as Google says it
     reviewed_at = Column(Text, default="")              # ISO, when Google gives it
     link = Column(Text, default="")
+    photos = Column(Text, default="[]")                 # JSON list of the photos they attached
     hidden = Column(Boolean, default=False, nullable=False)
     fetched_at = Column(Text, default="")
 
@@ -4033,6 +4034,12 @@ def init_db():
 def _run_migrations():
     """Idempotent ALTER TABLE migrations for columns added after initial schema."""
     inspector = inspect(_engine)
+    if inspector.has_table("google_reviews"):
+        grc = {c["name"] for c in inspector.get_columns("google_reviews")}
+        if "photos" not in grc:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE google_reviews ADD COLUMN photos TEXT DEFAULT '[]'"))
+            logger.info("Migration: added google_reviews.photos")
     if inspector.has_table("pay_links"):
         pl = {c["name"] for c in inspector.get_columns("pay_links")}
         with _engine.begin() as conn:

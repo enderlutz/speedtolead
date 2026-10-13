@@ -316,10 +316,24 @@ async def _map_geocode_loop():
 
 async def _google_reviews_loop():
     """Nightly: pull the Google reviews the proposal shows, around 4am
-    Central, only when a SerpAPI key is set (services/google_reviews.py)."""
+    Central, only when a SerpAPI key is set (services/google_reviews.py).
+    First, an empty table gets the set pulled off the listing by hand."""
     from services import google_reviews as gr
 
-    await asyncio.sleep(420)
+    await asyncio.sleep(90)
+    try:
+        def _seed():
+            db = get_db()
+            try:
+                return gr.seed_if_empty(db)
+            finally:
+                db.close()
+        seeded = await asyncio.to_thread(_seed)
+        if seeded:
+            logger.info(f"[GOOGLE REVIEWS] loaded the pulled set — {seeded}")
+    except Exception as e:
+        logger.error(f"Google reviews seed error: {e}")
+    await asyncio.sleep(330)
     while True:
         try:
             cst_now = clock.now_ct()

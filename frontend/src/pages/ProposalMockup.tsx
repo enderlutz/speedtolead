@@ -44,7 +44,7 @@ export type PkgKey = "essential" | "signature" | "legacy";
 /** The real Google reviews, from /api/public/reviews: five-star with
  *  words, newest first, plus the counts. Null until fetched; sample cards
  *  show until then and when there are none. */
-type Reviews = { rating: number | null; total: number; five_star: number; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string }[] };
+type Reviews = { rating: number | null; total: number; five_star: number; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string; photos?: string[] }[] };
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
 function Avatar({ name, photo }: { name: string; photo: string }) {
@@ -57,9 +57,10 @@ function Avatar({ name, photo }: { name: string; photo: string }) {
 
 /** One review card. Long ones are clamped and open on a tap: the page is
  *  read on a phone, and one wall of text would hide the others. */
-function ReviewCard({ author, photo, text, when, phone }: { author: string; photo: string; text: string; when: string; phone: boolean }) {
+function ReviewCard({ author, photo, text, when, photos, phone }: { author: string; photo: string; text: string; when: string; photos?: string[]; phone: boolean }) {
   const [open, setOpen] = useState(false);
   const long = text.length > 220;
+  const pics = (photos || []).slice(0, 3);
   return (
     <blockquote onClick={() => long && setOpen((v) => !v)} className={cn("rounded-2xl bg-[#F8F3E7] p-3 ring-1 ring-[#15130F]/10", phone && "w-[82%] shrink-0 snap-start", long && "cursor-pointer")}>
       <div className="flex items-center gap-2">
@@ -70,8 +71,18 @@ function ReviewCard({ author, photo, text, when, phone }: { author: string; phot
         </div>
       </div>
       <p className="mt-1.5 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
-      <p className={cn("mt-1.5 text-[15px] leading-relaxed", long && !open && "line-clamp-6")}>{text}</p>
+      <p className={cn("mt-1.5 whitespace-pre-line text-[15px] leading-relaxed", long && !open && "line-clamp-6")}>{text}</p>
       {long ? <p className="mt-1 text-[13px] font-bold text-[#8C6224]">{open ? "Less" : "Read more"}</p> : null}
+      {/* The photos they attached: their own fence, their own yard. */}
+      {pics.length ? (
+        <div className={cn("mt-2 grid gap-1.5", pics.length === 1 ? "grid-cols-1" : pics.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+          {pics.map((src) => (
+            <a key={src} href={src} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block overflow-hidden rounded-lg ring-1 ring-[#15130F]/10">
+              <img src={src} alt="" loading="lazy" className={cn("w-full object-cover", pics.length === 1 ? "aspect-[4/3]" : "aspect-square")} draggable={false} />
+            </a>
+          ))}
+        </div>
+      ) : null}
     </blockquote>
   );
 }
@@ -944,7 +955,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
               real ones are pulled (Settings → Google reviews). */}
           <div className={cn(phone ? "-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "grid gap-3 sm:grid-cols-3")}>
             {realReviews ? realReviews.reviews.map((r) => (
-              <ReviewCard key={r.id} author={r.author} photo={r.photo} text={r.text} when={r.when} phone={phone} />
+              <ReviewCard key={r.id} author={r.author} photo={r.photo} text={r.text} when={r.when} photos={r.photos} phone={phone} />
             )) : [
               ["Sample customer", "Cypress · 2 weeks ago", "Fence looks brand new. Crew was on time, kept the hinges clean and tidied up after. Sample text until real reviews are pulled in."],
               ["Sample customer", "Katy · 2 weeks ago", "Picked Signature in Cedar Naturaltone and it came out exactly like the photo on the proposal. Sample text."],

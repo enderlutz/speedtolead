@@ -1973,6 +1973,8 @@ export const api = {
   /** Reviews typed in from the listing: one block each, "name | stars | when" then the words. */
   addManualReviews: (text: string) =>
     request<{ added: number; parsed: number; summary: ReviewsSummary }>(`/api/reviews/manual`, { method: "POST", body: JSON.stringify({ text }) }),
+  /** The reviews pulled off the listing with a browser on 2026-10-12, loaded again. */
+  importReviewSeed: () => request<ReviewsSummary>(`/api/reviews/import-seed`, { method: "POST" }),
   setReviewsSummary: (body: { rating?: number | null; total?: number | null; five_star?: number | null }) =>
     request<ReviewsSummary>(`/api/reviews/summary`, { method: "POST", body: JSON.stringify(body) }),
   getProposalInteractiveDefault: () => request<{ on: boolean }>(`/api/settings/proposal-interactive`),
@@ -5616,10 +5618,10 @@ export interface PayLinksResponse {
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 
 export interface GoogleReviewRow {
-  id: string; author: string; photo: string; rating: number; text: string; when: string; date: string; link: string; hidden: boolean;
+  id: string; author: string; photo: string; rating: number; text: string; when: string; date: string; link: string; photos: string[]; hidden: boolean;
 }
 export interface ReviewsSummary { rating: number | null; total: number; five_star: number; fetched_at: string | null }
-export interface ReviewsAdmin { configured: boolean; summary: ReviewsSummary; reviews: GoogleReviewRow[] }
+export interface ReviewsAdmin { configured: boolean; seed_available?: boolean; summary: ReviewsSummary; reviews: GoogleReviewRow[] }
 
 /** The lead page's view of its latest proposal as the interactive page. */
 export interface ProposalLiveState {
