@@ -11,10 +11,11 @@
 // words, one thing to do per screen (Alan, 2026-10-09).
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   Download, FileText, MapPin, Calendar, Hash, UserRound, Leaf, Home, Smartphone, Monitor,
-  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem,
+  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -42,8 +43,9 @@ export type Live = {
 export type PkgKey = "essential" | "signature" | "legacy";
 
 /** The real Google reviews, from /api/public/reviews: five-star with
- *  words, newest first, plus the counts. Null until fetched; sample cards
- *  show until then and when there are none. */
+ *  words, newest first. The counts come along but the page no longer
+ *  prints them (Alan, 2026-10-12: "remove the number of reviews"). Null
+ *  until fetched; sample cards show until then and when there are none. */
 type Reviews = { rating: number | null; total: number; five_star: number; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string; photos?: string[] }[] };
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -55,10 +57,63 @@ function Avatar({ name, photo }: { name: string; photo: string }) {
     : <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}>{initial}</span>;
 }
 
+/** The grid shows a small copy of each photo; the pop-up gets the big one.
+ *  Google's image URLs take a size suffix. */
+const thumb = (src: string) => src.replace(/=(w\d+-h\d+(-p)?|s\d+)-k-no$/, "=w480-h360-p-k-no");
+
+/** A customer's photo in a pop-up over the page: not the whole screen,
+ *  a big X and a Close button, and a tap outside closes it too (Alan,
+ *  2026-10-12: "really easy to get in and out"). Rendered on the body so
+ *  nothing around the card can clip or shift it. */
+function PhotoModal({ photos, index, onClose, onIndex }: { photos: string[]; index: number; onClose: () => void; onIndex: (i: number) => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowRight" && index < photos.length - 1) onIndex(index + 1);
+      if (e.key === "ArrowLeft" && index > 0) onIndex(index - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [index, photos.length, onClose, onIndex]);
+  const many = photos.length > 1;
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="Customer photo" onClick={(e) => { e.stopPropagation(); onClose(); }}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#15130F]/80 p-4">
+      <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-[560px] overflow-hidden rounded-2xl bg-[#F8F3E7] shadow-2xl ring-1 ring-white/20">
+        <img src={photos[index]} alt="" className="block max-h-[65vh] w-full bg-[#15130F] object-contain" draggable={false} />
+        <button type="button" onClick={onClose} aria-label="Close"
+          className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[#15130F] shadow-lg ring-1 ring-[#15130F]/15">
+          <X className="h-6 w-6" />
+        </button>
+        <div className="flex items-center gap-2 px-3 py-2">
+          {many ? (
+            <>
+              <button type="button" onClick={() => onIndex(index - 1)} disabled={index === 0} aria-label="Previous photo"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white ring-1 ring-[#15130F]/15 disabled:opacity-30">
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <span className="text-[15px] font-semibold tabular-nums">{index + 1} of {photos.length}</span>
+              <button type="button" onClick={() => onIndex(index + 1)} disabled={index === photos.length - 1} aria-label="Next photo"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white ring-1 ring-[#15130F]/15 disabled:opacity-30">
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            </>
+          ) : <span className="text-[15px] text-[#15130F]/75">Their fence, their photo.</span>}
+          <button type="button" onClick={onClose} className="ml-auto flex h-11 items-center rounded-full bg-[#15130F] px-5 text-[15px] font-bold text-[#E3BE63]">Close</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** One review card. Long ones are clamped and open on a tap: the page is
  *  read on a phone, and one wall of text would hide the others. */
 function ReviewCard({ author, photo, text, when, photos, phone }: { author: string; photo: string; text: string; when: string; photos?: string[]; phone: boolean }) {
   const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState<number | null>(null);
   const long = text.length > 220;
   const pics = (photos || []).slice(0, 3);
   return (
@@ -76,13 +131,15 @@ function ReviewCard({ author, photo, text, when, photos, phone }: { author: stri
       {/* The photos they attached: their own fence, their own yard. */}
       {pics.length ? (
         <div className={cn("mt-2 grid gap-1.5", pics.length === 1 ? "grid-cols-1" : pics.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
-          {pics.map((src) => (
-            <a key={src} href={src} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block overflow-hidden rounded-lg ring-1 ring-[#15130F]/10">
-              <img src={src} alt="" loading="lazy" className={cn("w-full object-cover", pics.length === 1 ? "aspect-[4/3]" : "aspect-square")} draggable={false} />
-            </a>
+          {pics.map((src, i) => (
+            <button key={src} type="button" onClick={(e) => { e.stopPropagation(); setShown(i); }} aria-label="See the photo bigger"
+              className="block w-full overflow-hidden rounded-lg ring-1 ring-[#15130F]/10">
+              <img src={thumb(src)} alt="" loading="lazy" className={cn("w-full object-cover", pics.length === 1 ? "aspect-[4/3]" : "aspect-square")} draggable={false} />
+            </button>
           ))}
         </div>
       ) : null}
+      {shown !== null ? <PhotoModal photos={pics} index={shown} onClose={() => setShown(null)} onIndex={setShown} /> : null}
     </blockquote>
   );
 }
@@ -898,7 +955,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             ]} />
             <List title="Why people pick us" icon={Shield} items={[
               ["1-year workmanship warranty", "If our work peels or cracks, we come back and fix it."],
-              [`${ratingText} on Google`, realReviews ? `${realReviews.five_star} five-star reviews from homeowners.` : "Trusted by homeowners who want it done right."],
+              [`${ratingText} on Google`, "We pride ourselves on being the best."],
               ["1,500+ fences restored", "Across the Houston area."],
               ["7+ years", "Hands-on experience staining wood fences."],
             ]} />
@@ -946,7 +1003,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                 <span className="font-heading text-4xl font-bold leading-none">{ratingText}</span>
                 <span className="flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-4 w-4 fill-current" style={{ color: GOLD }} />)}</span>
               </div>
-              <p className="mt-0.5 text-sm text-[#15130F]/75">{realReviews ? `${realReviews.five_star} five-star reviews from homeowners around Houston` : "Rated by homeowners around Houston"}</p>
+              <p className="mt-0.5 text-sm text-[#15130F]/75">We pride ourselves on being the best.</p>
             </div>
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F8F3E7] font-heading text-2xl font-bold ring-1 ring-[#15130F]/10" aria-hidden>G</span>
           </div>

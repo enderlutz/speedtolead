@@ -298,8 +298,13 @@ def seed_available() -> bool:
     return SEED_PATH.exists()
 
 
+SEED_STAMP_KEY = "google_reviews_seed_stamp"
+
+
 def import_seed(db) -> dict:
-    """Upsert the pulled reviews and set the counts from the file."""
+    """Upsert the pulled reviews and set the counts from the file. A
+    review that names ids it `replaces` (a typed-in copy, say) removes
+    those rows so the same words never show twice."""
     if not SEED_PATH.exists():
         raise RuntimeError("No pulled reviews on file.")
     doc = json.loads(SEED_PATH.read_text(encoding="utf-8"))
@@ -307,6 +312,8 @@ def import_seed(db) -> dict:
     added = 0
     for r in doc.get("reviews", []):
         rid = "google-" + str(r.get("id") or hashlib.sha1(f"{r.get('author')}|{r.get('text')}".encode()).hexdigest()[:20])
+        for old in r.get("replaces") or []:
+            db.query(GoogleReview).filter(GoogleReview.id == "google-" + str(old)).delete()
         row = db.query(GoogleReview).filter(GoogleReview.id == rid).first()
         if row is None:
             row = GoogleReview(id=rid, hidden=False)
@@ -322,6 +329,7 @@ def import_seed(db) -> dict:
         row.photos = json.dumps([p for p in (r.get("photos") or []) if p])
         row.fetched_at = now
     db.commit()
+    SystemConfig.set(db, SEED_STAMP_KEY, str(doc.get("pulled_at") or ""))
     s = doc.get("summary") or {}
     return set_manual_summary(db, s.get("rating"), s.get("total"), s.get("five_star"))
 
@@ -329,5 +337,17 @@ def import_seed(db) -> dict:
 def seed_if_empty(db) -> dict | None:
     """On startup: a table with nothing in it gets the pulled set."""
     if not SEED_PATH.exists() or db.query(GoogleReview).count() > 0:
+        return None
+    return import_seed(db)
+
+
+def seed_if_changed(db) -> dict | None:
+    """On startup: load the pulled set when the table is empty or the
+    file's `pulled_at` is not the one loaded last, so a fresh pull that
+    ships with the code lands without anyone pressing a button."""
+    if not SEED_PATH.exists():
+        return None
+    stamp = str(json.loads(SEED_PATH.read_text(encoding="utf-8")).get("pulled_at") or "")
+    if db.query(GoogleReview).count() > 0 and (SystemConfig.get(db, SEED_STAMP_KEY, "") or "") == stamp:
         return None
     return import_seed(db)

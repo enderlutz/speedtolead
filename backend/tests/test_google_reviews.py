@@ -130,3 +130,24 @@ def test_the_pulled_set_loads_once_into_an_empty_table(db, monkeypatch, tmp_path
     assert gr.seed_if_empty(db) is None                      # not empty any more: left alone
     assert reviews_api.import_seed(ADMIN)["five_star"] == 39  # loading again changes nothing
     assert db.query(GoogleReview).count() == 2
+
+
+def test_a_changed_pull_lands_on_startup_and_replaces_the_typed_copy(db, monkeypatch, tmp_path):
+    seed = tmp_path / "seed.json"
+    doc = {"pulled_at": "2026-10-12T20:00:00Z", "summary": {"rating": 5.0, "total": 40, "five_star": 39}, "reviews": [
+        {"id": "typed-sonali", "author": "Sonali Joshi", "rating": 5, "when": "20 weeks ago", "text": "Exceeded our expectations."},
+    ]}
+    seed.write_text(json.dumps(doc), encoding="utf-8")
+    monkeypatch.setattr(gr, "SEED_PATH", seed)
+    assert gr.seed_if_changed(db)["five_star"] == 39          # empty table: loads
+    assert gr.seed_if_changed(db) is None                     # same file: left alone
+    # The real review turns up with her picture and photos; the typed copy goes.
+    doc["pulled_at"] = "2026-10-13T20:00:00Z"
+    doc["reviews"] = [{"id": "real123", "author": "Sonali Joshi", "rating": 5, "when": "5 months ago", "text": "Exceeded our expectations.",
+                       "avatar": "https://lh3/s.png", "photos": ["https://lh3/f1.jpg"], "replaces": ["typed-sonali"]}]
+    seed.write_text(json.dumps(doc), encoding="utf-8")
+    assert gr.seed_if_changed(db)["five_star"] == 39
+    rows = db.query(GoogleReview).all()
+    assert [r.id for r in rows] == ["google-real123"] and rows[0].author_photo == "https://lh3/s.png"
+    assert gr.public_reviews(db)["reviews"][0]["photos"] == ["https://lh3/f1.jpg"]
+    assert gr.seed_if_changed(db) is None
