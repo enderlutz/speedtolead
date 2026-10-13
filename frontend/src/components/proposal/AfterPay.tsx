@@ -31,15 +31,19 @@ const REVIEW_URL = "https://maps.app.goo.gl/xR56n81cjxNwt7R78";
 // Alan's list in the spec, minus fence repairs: "if we've already stained
 // their fence it's too late now, usually" (2026-10-10).
 const SERVICES = ["House wash", "Driveway & concrete", "Window cleaning", "Roof washing", "Gutter cleaning", "Sprinkler repair", "Landscaping", "Other"];
-const PREP: [string, string][] = [
-  ["You don't have to be home", "We photograph and film the whole job. You can see the work even if you're away."],
-  ["Water and power", "An outside spigot and one outlet is all we need."],
+// What to know before we come, fun but plain (Alan, 2026-10-13). He'd
+// rather the customer be home: the crew does a better job with someone to
+// walk the fence with at the end. But plenty never are, and that's fine.
+const PREP: [string, string, string][] = [
+  ["🏡", "Home on job day? Even better.", "If you're home when we finish, we'll walk the fence with you so nothing gets missed. Can't be home? No problem. We photograph the whole job and send you the photos."],
+  ["🔓", "Gates unlocked, water and power on", "Leave the gates unlocked. An outside spigot and one outlet is all we need."],
   // Moving things is part of the job: about a third of our customers are
   // older and hired us because they can't (Alan, 2026-10-13). Ask only
   // for the easy things, and say plainly the crew does the rest.
-  ["Things near the fence", "We move what's in the way and put it back. If you'd like, move small things like pots or chairs. No need to lift anything heavy."],
-  ["Sprinklers off", "The day before, the day of, and the day after. The stain needs to cure dry."],
-  ["Pets inside on job days", "Gates will be open while we work."],
+  ["🪴", "Things near the fence", "We move what's in the way and put it back. If you'd like, move small things like pots or chairs. No need to lift anything heavy."],
+  ["💦", "Sprinklers off", "The day before, the day of, and the day after. The stain needs to dry."],
+  ["🐶", "Pets inside on job days", "Gates will be open while we work."],
+  ["🌧️", "Rain in the forecast?", "We move your day and let you know. Stain only goes on a dry fence."],
 ];
 
 type Screen = "locked" | "prep" | "neighbor" | "doneA" | "paid" | "score" | "referral" | "review" | "next" | "doneB";
@@ -69,7 +73,6 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   const init = initial || {};
   const savedServices = Array.isArray(init.services_interested) ? (init.services_interested as string[]) : [];
   const [step, setStep] = useState(0);
-  const [receipt, setReceipt] = useState(init.receipt_viewed === true);
   const [prep, setPrep] = useState(init.prep_acknowledged === true);
   const [share, setShare] = useState({ text: false, copy: false, share: false });
   const [sheet, setSheet] = useState(false);
@@ -133,7 +136,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   const fires: string[] = [];
   if (flow !== "balance" || !paidUpFront) fires.push(`Stripe: payment succeeded ${formatCurrency(flow === "deposit" ? 250 : flow === "full" ? total : balance)}${lender ? ` through ${lender}` : ""}`, "QuickBooks: invoice marked paid (books only, customer never sees it)");
   if (flow !== "balance") {
-    fires.push(financed ? "GHL tag: paid_in_full_upfront (balance link never goes out)" : flow === "full" ? "GHL tag: paid_in_full_upfront" : "GHL tag: deposit_paid", "GHL pipeline: moved to Scheduling", "Task: text the start date within 24h");
+    fires.push(financed ? "GHL tag: paid_in_full_upfront (balance link never goes out)" : flow === "full" ? "GHL tag: paid_in_full_upfront" : "GHL tag: deposit_paid", "GHL pipeline: moved to Scheduling", "Task: call to set the start day (text if no answer)");
     if (prep) fires.push("GHL tag: prep_confirmed");
     if (sharedHow) fires.push("GHL tag: referral_shared", `Referral: watch ${code}, each friend who books gets $100 off`, financed ? `Rule: ${firstName}'s $100 comes back as a refund, once (decision open)` : `Rule: first booking takes $100 off ${firstName}'s balance, once only`);
   } else {
@@ -193,8 +196,9 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
       body = (
         <>
           {tick}
-          <h2 className="font-heading text-3xl font-bold leading-tight">You're locked in, {firstName}.</h2>
-          <p className="text-[17px]">Your spot on our schedule is yours. We'll text your start date within 24 hours.</p>
+          <h2 className="font-heading text-3xl font-bold leading-tight">You're on the schedule, {firstName}! 🎉</h2>
+          <p className="text-[17px]">Your backyard is about to look brand new. We'll call you shortly to pick your start day. If we miss you, we'll text.</p>
+          <p className="text-[15px] text-[#15130F]/80">First we clean the fence if it needs it. Then, once it's dry, we stain it.</p>
           <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
             <dl className="space-y-2 text-[15px]">
               {financed ? (
@@ -217,9 +221,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
                   {financed ? <p className="mt-1 text-[13px] text-[#15130F]/75">Your payments go to {lender}. They'll remind you before each one. Nothing more is due to us.</p> : null}
                 </div>
               )}
-              {receipt ? <Row k="Receipt" v={`#SFS-20418 · ${lender || "Visa 4242"}`} /> : null}
             </dl>
-            {!receipt ? <button type="button" onClick={() => { setReceipt(true); answer("receipt_viewed", true); }} className="mt-2 text-[15px] font-bold underline underline-offset-2" style={{ color: "#8C6224" }}>View receipt</button> : null}
           </div>
         </>
       );
@@ -228,11 +230,11 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
     case "prep":
       body = (
         <>
-          <h2 className="font-heading text-3xl font-bold leading-tight">Five things before we show up.</h2>
+          <h2 className="font-heading text-3xl font-bold leading-tight">Before we show up 👋</h2>
           <ol className="space-y-2">
-            {PREP.map(([t, d], i) => (
+            {PREP.map(([icon, t, d]) => (
               <li key={t} className="flex gap-3 rounded-2xl bg-white p-3.5 ring-1 ring-[#15130F]/10">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#15130F] font-heading text-[17px] font-bold text-[#E3BE63]">{i + 1}</span>
+                <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#F8F3E7] text-[22px] ring-1 ring-[#C9972F]/40">{icon}</span>
                 <div><p className="text-[16px] font-bold leading-snug">{t}</p><p className="mt-0.5 text-[14px] leading-snug text-[#15130F]/75">{d}</p></div>
               </li>
             ))}
@@ -258,7 +260,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
         <>
           {tick}
           <h2 className="font-heading text-3xl font-bold leading-tight">That's it. We'll take it from here.</h2>
-          <p className="text-[17px]">Watch for a text from us with your start date. If anything changes on your end, just reply to it.</p>
+          <p className="text-[17px]">We'll call you shortly to pick your start day. If we miss you, we'll text. Anything changes on your end? Just reply to our text.</p>
           {contact}
           <p className="text-[14px] text-[#15130F]/75">You can close this page.</p>
         </>

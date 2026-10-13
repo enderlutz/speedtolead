@@ -222,7 +222,7 @@ def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
         how = {"klarna": " through Klarna", "affirm": " through Affirm"}.get(method or "", "")
         _note(lead, f"Paid {money(amount)}{how} on Stripe ({kind}).")
         name = (lead.contact_name if lead else "") or "A customer"
-        alert_alan(f"Stripe: {name} paid {money(amount)}{how} ({kind}).")
+        alert_alan(f"✅ Stripe: {name} paid {money(amount)}{how} ({kind}).")
     finally:
         db.close()
 
