@@ -98,25 +98,24 @@ function CallTally({
     }
   };
 
+  // One short line: the table has to fit a laptop without sideways
+  // scrolling (Alan, 2026-10-12), and each number keeps its tooltip.
   return (
-    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
       <span title="Calls that connected and left us a recording">
         <span className="tabular-nums font-medium text-foreground">{talked}</span>
         <span className="text-muted-foreground"> talked</span>
       </span>
       {voicemails > 0 ? (
-        <span
-          className="text-muted-foreground"
-          title="Rang out to voicemail and we left a message. Audio exists, which is why this used to be counted as a conversation."
-        >
-          <span className="tabular-nums">{voicemails}</span> voicemail
+        <span className="text-muted-foreground" title="Rang out to voicemail and we left a message">
+          · <span className="tabular-nums">{voicemails}</span> vm
         </span>
       ) : null}
       <span className="text-muted-foreground" title="Dialled and nobody picked up — no answer, busy, or an instant hangup">
-        <span className="tabular-nums">{noAnswer}</span> no answer
+        · <span className="tabular-nums">{noAnswer}</span> no answer
       </span>
       <span className="text-muted-foreground/80" title="Every dial, answered or not">
-        <span className="tabular-nums">{dials}</span> total
+        · <span className="tabular-nums">{dials}</span> dials
       </span>
       {row.lead_id ? (
         <button
@@ -490,19 +489,17 @@ export default function Contacts() {
       </div>
 
       <div className="hidden overflow-x-auto rounded-lg border md:block">
-        <table className="w-full text-sm min-w-[980px]">
+        <table className="w-full text-sm">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="text-left font-medium px-3 py-2 w-10">#</th>
-              <th className="text-left font-medium px-3 py-2">Name</th>
+              <th className="text-left font-medium px-2 py-2 w-8">#</th>
+              <th className="text-left font-medium px-3 py-2">Customer</th>
               <th className="text-left font-medium px-3 py-2">Phone</th>
-              <th className="text-left font-medium px-3 py-2">Came in</th>
               <th className="text-left font-medium px-3 py-2">Estimate</th>
               <th className="text-left font-medium px-3 py-2">Next step</th>
               <th className="text-left font-medium px-3 py-2">History</th>
-              <th className="text-left font-medium px-3 py-2">Stage</th>
-              <th className="text-left font-medium px-3 py-2">Where from</th>
-              <th className="w-16" />
+              <th className="hidden text-left font-medium px-3 py-2 xl:table-cell">Stage</th>
+              <th className="w-12" />
             </tr>
           </thead>
           <tbody>
@@ -513,7 +510,7 @@ export default function Contacts() {
                 onClick={() => c.lead_id && openLead(c.lead_id)}
                 className={`border-t transition-colors duration-700 hover:bg-muted/30 ${c.lead_id ? "cursor-pointer" : ""} ${flash && flash === c.lead_id ? "bg-amber-100" : ""}`}
               >
-                <td className="px-3 py-2 text-muted-foreground tabular-nums">{offset + i + 1}</td>
+                <td className="px-2 py-2 text-xs text-muted-foreground tabular-nums">{offset + i + 1}</td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{c.name || "(no name)"}</span>
@@ -530,9 +527,18 @@ export default function Contacts() {
                       </Badge>
                     ) : null}
                   </div>
-                  {c.address ? (
-                    <div className="text-xs text-muted-foreground">{c.address}</div>
-                  ) : null}
+                  <div className="text-xs text-muted-foreground">
+                    {c.address ? <span>{c.address} · </span> : null}
+                    <span title={`Last came in ${fmtDate(c.last_intake_at || c.date_added)}`}>came in {fmtDate(c.last_intake_at || c.date_added)}</span>
+                    {c.intake_count > 1 ? (
+                      <span
+                        className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold text-bronze"
+                        title={`First came in ${fmtDate(c.date_added)}. Filled the form ${c.intake_count} times — this is a new lead again.`}
+                      >
+                        <RotateCcw className="h-2.5 w-2.5" /> came back ×{c.intake_count}
+                      </span>
+                    ) : null}
+                  </div>
                 </td>
                 {/* stopPropagation so tapping a number dials instead of
                     navigating away from the list. */}
@@ -545,53 +551,36 @@ export default function Contacts() {
                     <span className="text-muted-foreground">no phone</span>
                   )}
                   {c.email ? (
-                    <div className="text-xs text-muted-foreground inline-flex items-center gap-1 mt-0.5">
-                      <Mail className="h-3 w-3" />{c.email}
-                    </div>
-                  ) : null}
-                </td>
-                {/* When they last came in. A second fill is a new lead again,
-                    so it says so — and keeps the first date in the tooltip. */}
-                <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                  {fmtDate(c.last_intake_at || c.date_added)}
-                  {c.intake_count > 1 ? (
-                    <div
-                      className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold text-bronze"
-                      title={`First came in ${fmtDate(c.date_added)}. Filled the form ${c.intake_count} times — this is a new lead again.`}
-                    >
-                      <RotateCcw className="h-2.5 w-2.5" /> came back ×{c.intake_count}
+                    <div className="mt-0.5 hidden items-center gap-1 text-xs text-muted-foreground 2xl:flex" title={c.email}>
+                      <Mail className="h-3 w-3 shrink-0" /><span className="max-w-[180px] truncate">{c.email}</span>
                     </div>
                   ) : null}
                 </td>
                 <td className="px-3 py-2"><EstimateBadge c={c} /></td>
                 <td className="px-3 py-2"><NextStep s={c.next_step} /></td>
-                <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                  <span className="inline-flex items-center gap-1 mr-3" title={`${c.inbound_count} from them`}>
-                    <MessageSquare className="h-3 w-3" />{c.message_count}
-                    {c.inbound_count > 0 ? (
-                      <span className="text-foreground font-medium">({c.inbound_count} in)</span>
-                    ) : null}
-                  </span>
-                  {/* Talked / No answer / Total dials. Three numbers because
-                      they answer different questions: a recording means we
-                      actually spoke, a dial with no recording is a voicemail
-                      or a ring-out, and that is half of all dialling. */}
-                  <CallTally row={c} onRefreshed={patchRow} />
+                <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
+                  <div className="inline-flex items-center gap-1" title={`${c.inbound_count} from them`}>
+                    <MessageSquare className="h-3 w-3" />{c.message_count} texts
+                    {c.inbound_count > 0 ? <span className="font-medium text-foreground">({c.inbound_count} in)</span> : null}
+                  </div>
+                  {/* Talked / no answer / dials: a recording means we actually
+                      spoke, a dial with no recording is a voicemail or a
+                      ring-out, and that is half of all dialling. */}
+                  <div className="mt-0.5"><CallTally row={c} onRefreshed={patchRow} /></div>
                 </td>
                 {/* The pipeline is an attribute of the contact now, not the
-                    reason they exist. Blank = nobody made a card for them. */}
-                <td className="px-3 py-2 text-xs text-muted-foreground">
+                    reason they exist. Blank = nobody made a card for them.
+                    Where they came from sits under it; both only on a wide
+                    screen so a laptop shows the whole row at once. */}
+                <td className="hidden px-3 py-2 text-xs text-muted-foreground xl:table-cell">
                   {c.stage ? (
-                    <span>{c.stage}</span>
+                    <div className="max-w-[160px] truncate" title={c.stage}>{c.stage}</div>
                   ) : (
-                    <span className="italic text-muted-foreground/70">not on a board</span>
+                    <div className="italic text-muted-foreground/70">not on a board</div>
                   )}
-                </td>
-                <td className="px-3 py-2 text-xs text-muted-foreground">
-                  {c.source || "—"}
-                  {c.tags.length ? (
-                    <div className="mt-0.5">{c.tags.slice(0, 2).join(", ")}</div>
-                  ) : null}
+                  <div className="max-w-[160px] truncate text-muted-foreground/80" title={[c.source, ...c.tags].filter(Boolean).join(" · ")}>
+                    {c.source || "—"}{c.tags.length ? ` · ${c.tags.slice(0, 2).join(", ")}` : ""}
+                  </div>
                 </td>
                 <td className="px-2 py-2 text-muted-foreground">
                   <div className="flex items-center justify-end gap-1">
