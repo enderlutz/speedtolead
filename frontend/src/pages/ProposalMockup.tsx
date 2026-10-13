@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
-  Download, FileText, MapPin, Calendar, UserRound, Leaf, Home, Smartphone, Monitor,
+  FileText, MapPin, Calendar, UserRound, Leaf, Home, Smartphone, Monitor,
   Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -1110,10 +1110,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
 
         {/* Footer links */}
         <section className="px-4 pb-28">
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15"><Download className="h-4 w-4" /> Save as PDF</button>
-            <button type="button" onClick={() => setTerms(true)} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-4 w-4" /> Terms</button>
-          </div>
+          <button type="button" onClick={() => setTerms(true)} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-white text-[16px] font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-5 w-5" /> Terms</button>
           <p className="mt-4 text-center text-[15px] text-[#15130F]/75">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
           <p className="mt-1 text-center text-[13px] text-[#15130F]/60">Proposal {customer.number}</p>
         </section>
