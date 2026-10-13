@@ -378,7 +378,17 @@ def start_session(token: str):
         if lead and lead.contact_email:
             params["customer_email"] = lead.contact_email
         try:
-            session = s.checkout.Session.create(**params)
+            try:
+                session = s.checkout.Session.create(**params)
+            except stripe.InvalidRequestError as e:  # type: ignore[attr-defined]
+                # The terms line must never be what stops a payment: if Stripe
+                # refuses it, open checkout without it (the pay page and the
+                # proposal still show the agreement line).
+                if "custom_text" not in str(e):
+                    raise
+                logger.warning("Stripe refused the terms line for %s, paying without it: %s", token, e)
+                params.pop("custom_text", None)
+                session = s.checkout.Session.create(**params)
         except stripe.StripeError as e:  # type: ignore[attr-defined]
             logger.warning("Stripe session failed for %s: %s", token, e)
             raise HTTPException(status_code=502, detail="Stripe couldn't start the payment. Try again in a minute.")

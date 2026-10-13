@@ -107,6 +107,23 @@ def test_a_session_carries_the_link_and_the_deposit_is_card_only(db, monkeypatch
     assert seen[1]["line_items"][0]["price_data"]["unit_amount"] == 150000
 
 
+def test_a_refused_terms_line_never_blocks_the_payment(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen = []
+
+    def fake_create(**params):
+        seen.append(dict(params))
+        if "custom_text" in params:
+            raise sp.stripe.InvalidRequestError("Received unknown parameter: custom_text[submit]", "custom_text")
+        return SimpleNamespace(id="cs_ok", url="https://stripe.test/cs_ok")
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create", fake_create)
+
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    assert sp.start_session(dep["token"])["url"] == "https://stripe.test/cs_ok"
+    assert len(seen) == 2 and "custom_text" not in seen[1]
+
+
 def test_a_paid_session_is_booked_once_and_flags_the_deposit(db, monkeypatch):
     _settings(monkeypatch, key="")  # no key: no PaymentIntent lookup, method stays blank
     from database import CustomerPayment, Lead, PayLink
