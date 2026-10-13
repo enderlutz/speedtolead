@@ -373,3 +373,29 @@ def test_an_invoice_carries_the_job_number(db, monkeypatch):
     out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="Signature Finish", amount=1188)]), STAFF)
     info = sp.pay_info(out["token"])
     assert info["invoice_number"] == "SF-2026-05256" and info["name"] == "Test Customer" and info["date"]
+
+
+def test_a_discount_on_one_line_and_one_on_the_total(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    items = [sp.InvoiceItem(name="Signature Finish", amount=1188, discount=38, discount_label="Package discount"),
+             sp.InvoiceItem(name="House wash", description="Left and right side", amount=225),
+             sp.InvoiceItem(name="Driveway", amount=225),
+             sp.InvoiceItem(name="Post replacement", description="2 posts", amount=410)]
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items), STAFF)
+    assert out["amount"] == 2010
+    sig = sp.pay_info(out["token"])["items"][0]
+    assert sig["discount"] == 38 and sig["discount_label"] == "Package discount" and not sig["total_discount"]
+
+    seen = {}
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create", lambda **k: seen.update(k) or SimpleNamespace(id="cs_1", url="https://stripe.test/c"))
+    sp.start_session(out["token"])
+    first = seen["line_items"][0]["price_data"]
+    assert first["unit_amount"] == 115000 and "less $38.00 package discount" in first["product_data"]["description"]
+    assert sum(li["price_data"]["unit_amount"] for li in seen["line_items"]) == 201000
+
+    whole = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[
+        sp.InvoiceItem(name="Signature Finish", amount=1188), sp.InvoiceItem(name="Discount", amount=-100)]), STAFF)
+    assert whole["amount"] == 1088 and sp.pay_info(whole["token"])["items"][1]["total_discount"] is True
+    with pytest.raises(HTTPException):
+        sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="X", amount=50, discount=60)]), STAFF)

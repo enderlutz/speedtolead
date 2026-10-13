@@ -5601,7 +5601,7 @@ export interface PayLinkEntry {
   /** An itemized invoice: each line, and what they'd already paid. */
   items: InvoiceLine[]; credit: number;
 }
-export interface InvoiceLine { name: string; description: string; amount: number }
+export interface InvoiceLine { name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean }
 export interface PayLinkCheck {
   link: PayLinkEntry;
   stripe: { session_id: string; payment_status: string; status: string; amount: number; livemode: boolean; matches: boolean } | null;

@@ -139,14 +139,26 @@ def link_dict(link: PayLink) -> dict:
 
 
 def link_items(link: PayLink) -> list[dict]:
+    """The invoice's lines as the customer sees them. A line can carry its own
+    discount ("Package discount -$38" under Signature Finish); a minus line
+    with no parent is a discount on the whole invoice (`total_discount`)."""
     try:
         v = json.loads(link.items or "[]")
     except (TypeError, ValueError):
         return []
-    return [
-        {"name": str(i.get("name") or ""), "description": str(i.get("description") or ""), "amount": round(int(i.get("amount_cents") or 0) / 100, 2)}
-        for i in v if isinstance(i, dict)
-    ] if isinstance(v, list) else []
+    out = []
+    for i in v if isinstance(v, list) else []:
+        if not isinstance(i, dict):
+            continue
+        cents = int(i.get("amount_cents") or 0)
+        out.append({
+            "name": str(i.get("name") or ""), "description": str(i.get("description") or ""),
+            "amount": round(cents / 100, 2),
+            "discount": round(int(i.get("discount_cents") or 0) / 100, 2),
+            "discount_label": str(i.get("discount_label") or ""),
+            "total_discount": cents < 0,
+        })
+    return out
 
 
 def payment_dict(p: CustomerPayment) -> dict:
@@ -185,7 +197,11 @@ class CreateLinkBody(BaseModel):
 class InvoiceItem(BaseModel):
     name: str
     description: str = ""
+    # A minus amount is a discount on the whole invoice.
     amount: float
+    # Money off this line only, as a positive number, and what to call it.
+    discount: float = 0
+    discount_label: str = ""
 
 
 CreateLinkBody.model_rebuild()
@@ -212,9 +228,16 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
                 # A minus line is a discount ("Package discount -$38").
                 if not name or c == 0:
                     raise HTTPException(status_code=400, detail="Every line needs a name and a price")
-                lines.append({"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c})
+                line = {"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c}
+                d = int(round((it.discount or 0) * 100))
+                if d:
+                    if c < 0 or d < 0 or d >= c:
+                        raise HTTPException(status_code=400, detail=f"The discount on {name} has to be less than its price")
+                    line["discount_cents"] = d
+                    line["discount_label"] = (it.discount_label or "").strip()[:80] or "Discount"
+                lines.append(line)
             credit_cents = max(0, int(round((body.credit or 0) * 100)))
-            items_total = sum(i["amount_cents"] for i in lines)
+            items_total = sum(i["amount_cents"] - i.get("discount_cents", 0) for i in lines)
             if items_total <= 0:
                 raise HTTPException(status_code=400, detail="The discounts cover the whole invoice")
             if credit_cents >= items_total:
@@ -511,19 +534,28 @@ def start_session(token: str):
         s = _stripe()
         items = link_items(link)
         if items and not link.credit_cents and all(i["amount"] > 0 for i in items):
-            # Each line on Stripe's page and receipt, as on our pay page.
+            # Each line on Stripe's page and receipt, as on our pay page. A
+            # line's own discount comes off its price and is spelled out.
+            def _desc(i: dict) -> str:
+                bits = [i["description"]] if i["description"] else []
+                if i["discount"]:
+                    bits.append(f"${i['amount']:,.2f} less ${i['discount']:,.2f} {i['discount_label'].lower() or 'discount'}")
+                return " · ".join(bits)[:500]
             line_items = [{
                 "quantity": 1,
                 "price_data": {
                     "currency": "usd",
-                    "unit_amount": int(round(i["amount"] * 100)),
-                    "product_data": {"name": i["name"], **({"description": i["description"]} if i["description"] else {})},
+                    "unit_amount": int(round((i["amount"] - i["discount"]) * 100)),
+                    "product_data": {"name": i["name"], **({"description": _desc(i)} if _desc(i) else {})},
                 },
             } for i in items]
         else:
             # Stripe has no minus line for a deposit already paid, so one line
             # carries the balance and spells out what it's made of.
-            what = "; ".join(f"{i['name']} {'-' if i['amount'] < 0 else ''}${abs(i['amount']):,.2f}" for i in items)
+            what = "; ".join(
+                f"{i['name']} {'-' if i['amount'] < 0 else ''}${abs(i['amount']):,.2f}"
+                + (f" less ${i['discount']:,.2f} {i['discount_label'].lower()}" if i["discount"] else "")
+                for i in items)
             if items and link.credit_cents:
                 what += f"; less ${link.credit_cents / 100:,.2f} already paid"
             line_items = [{

@@ -176,22 +176,36 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
 // An itemized invoice (Alan, 2026-10-13): each line with a short note, less
 // what they already paid. Becomes a balance link; the pay page and Stripe's
 // checkout list the lines.
+type Row = { key: number; name: string; description: string; amount: string; discount: string | null; discountLabel: string };
+
+const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
+const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", amount: "", discount: null, discountLabel: "" });
+
 function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLinkEntry) => void | Promise<void> }) {
-  const blank = (): InvoiceLine & { key: number } => ({ key: Math.random(), name: "", description: "", amount: 0 });
   const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState([blank()]);
+  const [rows, setRows] = useState<Row[]>([blankRow()]);
+  // A discount on the whole invoice: null until "Discount on the total" is tapped.
+  const [whole, setWhole] = useState<{ label: string; amount: string } | null>(null);
   const [credit, setCredit] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<InvoiceLine[]>([]);
   useEffect(() => {
     if (open) api.listSavedLines().then(setSaved).catch(() => {});
   }, [open]);
-  const isSaved = (l: InvoiceLine) => saved.some((s) => s.name.toLowerCase() === l.name.trim().toLowerCase() && s.amount === Number(l.amount) && s.description === l.description.trim());
-  const saveLine = async (l: InvoiceLine) => {
-    if (!l.name.trim() || !l.amount) { toast.error("Give the line a name and a price first"); return; }
+
+  const subtotal = rows.reduce((t, r) => t + num(r.amount), 0);
+  const lineOff = rows.reduce((t, r) => t + (r.discount !== null ? num(r.discount) : 0), 0);
+  const wholeOff = whole ? num(whole.amount) : 0;
+  const paid = num(credit);
+  const due = subtotal - lineOff - wholeOff - paid;
+
+  const set = (k: number, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === k ? { ...r, ...patch } : r)));
+  const isSaved = (r: Row) => saved.some((s) => s.name.toLowerCase() === r.name.trim().toLowerCase() && s.amount === num(r.amount) && s.description === r.description.trim());
+  const saveLine = async (r: Row) => {
+    if (!r.name.trim() || !num(r.amount)) { toast.error("Give the line a name and a price first"); return; }
     try {
-      setSaved(await api.saveLine({ name: l.name.trim(), description: l.description.trim(), amount: Number(l.amount) }));
-      toast.success(`Saved "${l.name.trim()}" for next time`);
+      setSaved(await api.saveLine({ name: r.name.trim(), description: r.description.trim(), amount: num(r.amount) }));
+      toast.success(`Saved "${r.name.trim()}" for next time`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save the line");
     }
@@ -200,28 +214,36 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
     try { setSaved(await api.deleteSavedLine(name)); } catch { toast.error("Couldn't remove it"); }
   };
   // A saved chip fills the first empty line, or adds a new one.
-  const addSaved = (s: InvoiceLine) => setLines((ls) => {
-    const fresh = { key: Math.random(), name: s.name, description: s.description, amount: s.amount };
-    const i = ls.findIndex((l) => !l.name.trim() && !l.amount);
-    return i >= 0 ? ls.map((l, j) => (j === i ? fresh : l)) : [...ls, fresh];
+  const addSaved = (s: InvoiceLine) => setRows((rs) => {
+    const fresh = { ...blankRow(), name: s.name, description: s.description, amount: String(s.amount) };
+    const i = rs.findIndex((r) => !r.name.trim() && !num(r.amount));
+    return i >= 0 ? rs.map((r, j) => (j === i ? fresh : r)) : [...rs, fresh];
   });
-  const total = lines.reduce((t, l) => t + (Number(l.amount) || 0), 0);
-  const paid = Number(credit) || 0;
-  const set = (k: number, patch: Partial<InvoiceLine>) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...patch } : l)));
+
   const make = async () => {
-    const items = lines.filter((l) => l.name.trim() || l.amount).map(({ name, description, amount }) => ({ name: name.trim(), description: description.trim(), amount: Number(amount) }));
-    if (!items.length || items.some((i) => !i.name || !i.amount)) { toast.error("Every line needs a name and a price"); return; }
+    const used = rows.filter((r) => r.name.trim() || num(r.amount));
+    if (!used.length || used.some((r) => !r.name.trim() || num(r.amount) <= 0)) { toast.error("Every line needs a name and a price"); return; }
+    const bad = used.find((r) => r.discount !== null && (num(r.discount) <= 0 || num(r.discount) >= num(r.amount)));
+    if (bad) { toast.error(`The discount on ${bad.name.trim()} needs an amount less than its price`); return; }
+    if (whole && wholeOff <= 0) { toast.error("Type the discount on the total, or remove it"); return; }
+    if (due <= 0) { toast.error("The discounts and payments cover the whole invoice"); return; }
+    const items: InvoiceLine[] = used.map((r) => ({
+      name: r.name.trim(), description: r.description.trim(), amount: num(r.amount),
+      ...(r.discount !== null ? { discount: num(r.discount), discount_label: r.discountLabel.trim() || "Discount" } : {}),
+    }));
+    if (whole) items.push({ name: whole.label.trim() || "Discount", description: "", amount: -wholeOff });
     setBusy(true);
     try {
       const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined });
       await onMade(link);
-      setLines([blank()]); setCredit(""); setOpen(false);
+      setRows([blankRow()]); setWhole(null); setCredit(""); setOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't make the invoice");
     } finally {
       setBusy(false);
     }
   };
+
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)} className="mt-1.5 inline-flex h-9 items-center gap-1.5 rounded-lg bg-muted px-2.5 text-xs font-semibold hover:bg-muted/70">
@@ -229,45 +251,105 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
       </button>
     );
   }
+  const money = (n: number) => (n < 0 ? `− ${formatCurrency(-n)}` : formatCurrency(n));
+  const field = "rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-border focus:border-primary focus:bg-background";
   return (
-    <div className="mt-2 space-y-1.5 rounded-lg bg-muted/40 p-2.5">
-      <p className="text-xs font-semibold">Itemized invoice</p>
+    <div className="mt-2 overflow-hidden rounded-xl border border-border bg-background shadow-sm">
+      <div className="flex items-center justify-between bg-foreground px-3 py-2 text-background">
+        <span className="text-xs font-bold uppercase tracking-[0.18em]">Invoice</span>
+        <button type="button" onClick={() => setOpen(false)} className="rounded p-1 hover:bg-background/15" aria-label="Close"><X className="h-4 w-4" /></button>
+      </div>
+
       {saved.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {saved.map((s) => (
-            <span key={s.name} className="inline-flex h-9 items-center rounded-full border border-border bg-background text-xs">
-              <button type="button" onClick={() => addSaved(s)} className="h-full rounded-l-full pl-3 pr-1.5 font-semibold hover:bg-muted" title={s.description || undefined}>
-                + {s.name} <span className="tabular-nums text-muted-foreground">{s.amount < 0 ? `− ${formatCurrency(-s.amount)}` : formatCurrency(s.amount)}</span>
-              </button>
-              <button type="button" onClick={() => forget(s.name)} className="h-full rounded-r-full px-2 text-muted-foreground hover:bg-muted" aria-label={`Remove saved line ${s.name}`}><X className="h-3 w-3" /></button>
-            </span>
-          ))}
+        <div className="border-b border-border px-3 py-2">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Quick add</p>
+          <div className="flex flex-wrap gap-1.5">
+            {saved.map((s) => (
+              <span key={s.name} className="inline-flex h-8 items-center rounded-full border border-border bg-muted/50 text-xs">
+                <button type="button" onClick={() => addSaved(s)} className="h-full rounded-l-full pl-2.5 pr-1 font-medium hover:bg-muted" title={s.description || undefined}>
+                  + {s.name} <span className="tabular-nums text-muted-foreground">{money(s.amount)}</span>
+                </button>
+                <button type="button" onClick={() => forget(s.name)} className="h-full rounded-r-full px-1.5 text-muted-foreground hover:bg-muted" aria-label={`Remove saved line ${s.name}`}><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
         </div>
       )}
-      {lines.map((l) => (
-        <div key={l.key} className="grid grid-cols-[1fr_6rem_auto_auto] gap-1.5">
-          <input value={l.name} onChange={(e) => set(l.key, { name: e.target.value })} placeholder="Item (e.g. House wash, or Package discount)" className="h-9 rounded-lg border border-border bg-background px-2 text-sm" />
-          <input value={l.amount || ""} onChange={(e) => set(l.key, { amount: Number(e.target.value) || 0 })} inputMode="text" placeholder="Price" title="Type a minus for a discount, like -38" className="h-9 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" />
-          <button type="button" onClick={() => saveLine(l)} className="rounded-md p-1 hover:bg-background" aria-label="Save this line for next time" title="Save this line for next time">
-            <Star className={cn("h-3.5 w-3.5", isSaved(l) && "fill-amber-400 text-amber-500")} />
-          </button>
-          <button type="button" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : ls))} className="rounded-md p-1 hover:bg-background" aria-label="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>
-          <input value={l.description} onChange={(e) => set(l.key, { description: e.target.value })} placeholder="Description (optional)" className="col-span-2 h-8 rounded-lg border border-border bg-background px-2 text-xs" />
+
+      <div className="grid grid-cols-[1fr_7rem_3.5rem] bg-muted/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>Item</span><span className="text-right">Amount</span><span />
+      </div>
+      <ul className="divide-y divide-border">
+        {rows.map((r) => (
+          <li key={r.key} className="px-3 py-2">
+            <div className="grid grid-cols-[1fr_7rem_3.5rem] items-center gap-1">
+              <input value={r.name} onChange={(e) => set(r.key, { name: e.target.value })} placeholder="Item name" className={cn(field, "h-8 text-sm font-semibold")} />
+              <div className="flex h-8 items-center rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
+                <span className="text-sm text-muted-foreground">$</span>
+                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" className="w-full bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
+              </div>
+              <span className="flex justify-end">
+                <button type="button" onClick={() => saveLine(r)} className="rounded-md p-1 hover:bg-muted" aria-label="Save this line for next time" title="Save this line for next time">
+                  <Star className={cn("h-3.5 w-3.5", isSaved(r) ? "fill-amber-400 text-amber-500" : "text-muted-foreground")} />
+                </button>
+                <button type="button" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.key !== r.key) : [blankRow()]))} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>
+              </span>
+            </div>
+            <input value={r.description} onChange={(e) => set(r.key, { description: e.target.value })} placeholder="Note the customer sees (optional)" className={cn(field, "mt-0.5 h-7 w-[calc(100%-10.5rem)] text-xs text-muted-foreground")} />
+            {r.discount !== null ? (
+              <div className="mt-1 grid grid-cols-[1fr_7rem_3.5rem] items-center gap-1 rounded-md bg-emerald-50 py-1 pl-1 dark:bg-emerald-950/40">
+                <input value={r.discountLabel} onChange={(e) => set(r.key, { discountLabel: e.target.value })} placeholder="Discount name (e.g. Package discount)" className={cn(field, "h-7 text-xs font-medium text-emerald-800 dark:text-emerald-300")} />
+                <div className="flex h-7 items-center rounded-md border border-emerald-300 bg-background px-1.5 dark:border-emerald-800">
+                  <span className="text-xs font-semibold text-emerald-700">−$</span>
+                  <input value={r.discount} onChange={(e) => set(r.key, { discount: e.target.value })} inputMode="decimal" placeholder="0.00" autoFocus className="w-full bg-transparent text-right text-xs font-semibold tabular-nums text-emerald-800 outline-none dark:text-emerald-300" />
+                </div>
+                <span className="flex justify-end">
+                  <button type="button" onClick={() => set(r.key, { discount: null, discountLabel: "" })} className="rounded-md p-1 text-muted-foreground hover:bg-background" aria-label="Remove discount"><X className="h-3.5 w-3.5" /></button>
+                </span>
+              </div>
+            ) : (
+              <button type="button" onClick={() => set(r.key, { discount: "", discountLabel: "Package discount" })} className="mt-0.5 px-1.5 text-[11px] font-semibold text-emerald-700 hover:underline">+ Discount on this line</button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-1 border-t border-border px-2 py-1.5">
+        <button type="button" onClick={() => setRows((rs) => [...rs, blankRow()])} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold hover:bg-muted"><Plus className="h-3.5 w-3.5" /> Add line</button>
+        {!whole && (
+          <button type="button" onClick={() => setWhole({ label: "Discount", amount: "" })} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold text-emerald-700 hover:bg-muted"><Plus className="h-3.5 w-3.5" /> Discount on the total</button>
+        )}
+      </div>
+
+      <dl className="ml-auto space-y-1 border-t-2 border-border px-3 py-2 text-sm sm:w-80">
+        <div className="flex justify-between"><dt className="text-muted-foreground">Subtotal</dt><dd className="tabular-nums">{formatCurrency(subtotal)}</dd></div>
+        {lineOff > 0 && <div className="flex justify-between text-emerald-700"><dt>Line discounts</dt><dd className="tabular-nums">{money(-lineOff)}</dd></div>}
+        {whole && (
+          <div className="flex items-center justify-between gap-2 text-emerald-700">
+            <input value={whole.label} onChange={(e) => setWhole({ ...whole, label: e.target.value })} className={cn(field, "h-7 min-w-0 flex-1 text-sm")} aria-label="Name of the discount on the total" />
+            <span className="flex h-7 w-24 items-center rounded-md border border-emerald-300 bg-background px-1.5 dark:border-emerald-800">
+              <span className="text-xs font-semibold">−$</span>
+              <input value={whole.amount} onChange={(e) => setWhole({ ...whole, amount: e.target.value })} inputMode="decimal" placeholder="0.00" autoFocus className="w-full bg-transparent text-right text-sm tabular-nums outline-none" />
+            </span>
+            <button type="button" onClick={() => setWhole(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Remove discount on the total"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <dt className="text-muted-foreground">Already paid</dt>
+          <span className="flex h-7 w-24 items-center rounded-md border border-border bg-background px-1.5">
+            <span className="text-xs text-muted-foreground">−$</span>
+            <input value={credit} onChange={(e) => setCredit(e.target.value)} inputMode="decimal" placeholder="0.00" className="w-full bg-transparent text-right text-sm tabular-nums outline-none" />
+          </span>
         </div>
-      ))}
-      <button type="button" onClick={() => setLines((ls) => [...ls, blank()])} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold hover:bg-background"><Plus className="h-3.5 w-3.5" /> Add line</button>
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-1.5 text-xs">
-        <span>Lines <b className="tabular-nums">{formatCurrency(total)}</b></span>
-        <label className="flex items-center gap-1">Already paid
-          <input value={credit} onChange={(e) => setCredit(e.target.value)} inputMode="decimal" placeholder="0" className="h-8 w-20 rounded-md border border-border bg-background px-1.5 tabular-nums" />
-        </label>
-        <span>Due <b className="tabular-nums">{formatCurrency(Math.max(0, total - paid))}</b></span>
-        <span className="ml-auto flex gap-1.5">
-          <button type="button" onClick={() => setOpen(false)} className="h-8 rounded-md px-2 font-semibold hover:bg-background">Cancel</button>
-          <button type="button" onClick={make} disabled={busy} className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-2.5 font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
-            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Make invoice link
-          </button>
-        </span>
+        <div className="flex items-baseline justify-between border-t border-border pt-1.5">
+          <dt className="font-bold">Total due</dt>
+          <dd className={cn("text-xl font-bold tabular-nums", due < 0 && "text-rose-600")}>{formatCurrency(Math.max(0, due))}</dd>
+        </div>
+      </dl>
+      <div className="flex justify-end gap-1.5 border-t border-border bg-muted/40 px-3 py-2">
+        <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-md px-3 text-sm font-semibold hover:bg-background">Cancel</button>
+        <button type="button" onClick={make} disabled={busy} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ReceiptText className="h-3.5 w-3.5" />} Make invoice link
+        </button>
       </div>
     </div>
   );
