@@ -59,6 +59,7 @@ import ProposalProject from "@/pages/ProposalProject";
 import ProposalMockup from "@/pages/ProposalMockup";
 import CardoneFollowUps from "@/pages/CardoneFollowUps";
 import ProposalPreview from "@/pages/ProposalPreview";
+import TermsPage from "@/pages/TermsPage";
 import ProposalLive from "@/pages/ProposalLive";
 import PayLink from "@/pages/PayLink";
 import AfterPayPage from "@/pages/AfterPayPage";
@@ -187,6 +188,7 @@ function AppLayout() {
         <Route path="/after/:token" element={<AfterPayPage />} />
         <Route path="/legal/eula" element={<Eula />} />
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+        <Route path="/legal/terms" element={<TermsPage />} />
       </Routes>
     );
   }

@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
+import { TermsBody } from "@/components/proposal/TermsBody";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   FileText, MapPin, Calendar, UserRound, Leaf, Home, Smartphone, Monitor,
@@ -1207,6 +1208,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                 <CreditCard className="h-5 w-5" /> {doorBusy === "reserve" ? "Opening your payment page…" : "Reserve my spot · $250"}
               </button>
               <p className="mt-3 text-center text-[15px] leading-snug text-white">Card, Apple Pay or Google Pay. <span className="font-bold">The $250 is not refundable.</span> You can move your date any time.</p>
+              <p className="mt-2 text-center text-[15px] leading-snug text-white/85">By reserving, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold underline underline-offset-2" style={{ color: "#E3BE63" }}>Terms</button>.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
@@ -1219,6 +1221,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                 {doorBusy === "finance" ? "Opening your options…" : "See my options"}
               </button>
               <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">{AFFIRM_ON ? "Pick Klarna or Affirm on the next screen." : "Pick Klarna on the next screen."} Checking takes a minute and doesn't affect your credit score.</p>
+              <p className="mt-1 text-center text-[15px] leading-snug text-[#15130F]/80">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
             </div>
           </div>
           )}
@@ -1359,15 +1362,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
             <h3 className="font-heading text-2xl font-bold leading-tight">1-year warranty on our work</h3>
             <div className="mt-3 space-y-4 text-[17px] leading-relaxed">
-              <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we applied it, we come back and fix it. Free. For one year from the day we finish.</p>
-              <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
-              <p><span className="font-bold">Loose boards.</span> We screw a few loose boards back in for free. That can be pickets, rails, caps or the board along the bottom. If a lot of the fence is loose, a board needs replacing, or a post leans, that costs extra. We tell you the price first.</p>
-              <p><span className="font-bold">The top of the cap.</span> No cap on your fence? We stain the tops of the pickets, because that's where water gets in. Have a cap (the flat board along the top)? We stain the sides of the cap, but not the top that faces the sky. The cap is there to protect your pickets. Staining its top means a ladder all the way around the fence and a lot more stain, so it is extra. Just ask and we will give you a price.</p>
-              <p><span className="font-bold">Something else damaged it?</span> If the damage was not caused by our work, like a mower, a sprinkler, a storm or a pet, it is not free. But we will still come fix it. We tell you the price first. You say yes or no. No surprises.</p>
-              <p><span className="font-bold">Sprinklers hitting your fence?</span> Sprinkler water leaves stains and wears the stain out faster. We have our own sprinkler team. We will check your sprinklers for free. Then we give you a fair price to aim them away from the fence.</p>
-              <p><span className="font-bold">A complimentary touch-up can.</span> When we finish, we leave you a can of your exact stain, free, as our thank-you on top of everything else. A small scrape becomes a two-minute fix. The stain's name is on the label. Need more? Buy it by that name, or ask us.</p>
-              <p><span className="font-bold">* Why we give a range.</span> The years on each package are what we usually see, not a promise. How long a stain lasts depends on things no one controls. How much sun the fence gets matters most, because south and west sides fade first. So do rain, Houston humidity, sprinklers that hit the fence, shade and mildew, the age of the wood, and storms like hail and hurricanes. Two fences on the same street can wear differently. Our written promise is the 1-year warranty above. After that, we're glad to come back and restain at our regular price.</p>
-              <p><span className="font-bold">The deposit.</span> $250 reserves your spot and isn't refundable. Move your date any time. The rest is due when the job is done and you're happy.</p>
+              <TermsBody />
               {expired
                 ? <p><span className="font-bold">Your price</span> was good for {customer.priceDays} days, through {customer.goodThrough}. That has ended, so our regular prices apply.</p>
                 : <p><span className="font-bold">Your price</span> is good for {customer.priceDays} days, through {customer.goodThrough}. After that, our regular prices apply.</p>}

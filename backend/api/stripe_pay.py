@@ -298,6 +298,11 @@ def void_pay_link(token: str, user: dict = Depends(require_staff)):
         db.close()
 
 
+
+# Which wording of the terms a payment agreed to. Matches TERMS_VERSION in
+# frontend/src/components/proposal/TermsBody.tsx; bump both together.
+TERMS_VERSION = "2026-10-13"
+
 # ── Public: the pay page and the after page ───────────────────────────────
 
 def _live_link(db, token: str) -> PayLink:
@@ -359,6 +364,12 @@ def start_session(token: str):
             "success_url": f"{_base()}/after/{link.token}?s={{CHECKOUT_SESSION_ID}}",
             "cancel_url": f"{_base()}/pay/{link.token}",
         }
+        # Paying means agreeing to the terms (Alan, 2026-10-13): Stripe shows
+        # the line under its Pay button, and the session keeps which version
+        # the customer agreed to.
+        params["custom_text"] = {"submit": {"message": f"By paying, you agree to Sterling Fence Staining's [Terms]({_base()}/legal/terms)."}}
+        params["metadata"]["terms_version"] = TERMS_VERSION
+        params["payment_intent_data"]["metadata"]["terms_version"] = TERMS_VERSION
         # The deposit is card and wallets only. Everything else takes whatever
         # is switched on in Stripe, Klarna and Affirm included, and Stripe
         # hides a lender when the amount is outside its range.

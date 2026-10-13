@@ -103,6 +103,7 @@ export default function PayLink() {
           <p className="mt-2 text-center text-[14px] text-[#15130F]/75">
             {deposit ? "Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set." : "Card, Apple Pay, Google Pay, or pay over time with Klarna. You pick on the next screen."}
           </p>
+          <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</a>.</p>
           {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-800">{error}</p> : null}
           <p className="mt-6 flex items-center justify-center gap-2 text-[13px] text-[#15130F]/65"><Lock className="h-3.5 w-3.5" /> Secure checkout by Stripe</p>
         </>

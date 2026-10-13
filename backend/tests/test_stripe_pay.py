@@ -97,6 +97,9 @@ def test_a_session_carries_the_link_and_the_deposit_is_card_only(db, monkeypatch
     assert p["line_items"][0]["price_data"]["unit_amount"] == 25000
     assert p["success_url"] == f"https://estimate.test/after/{dep['token']}?s={{CHECKOUT_SESSION_ID}}"
     assert p["customer_email"] == "t@example.com"
+    # Paying means agreeing to the terms, and the session keeps which version.
+    assert "https://estimate.test/legal/terms" in p["custom_text"]["submit"]["message"]
+    assert p["metadata"]["terms_version"] == sp.TERMS_VERSION == p["payment_intent_data"]["metadata"]["terms_version"]
 
     bal = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=1500), STAFF)
     sp.start_session(bal["token"])
