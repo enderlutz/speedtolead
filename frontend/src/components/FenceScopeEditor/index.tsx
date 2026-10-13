@@ -17,12 +17,20 @@ import { orientImage } from "./orient";
 import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
+import { pointAt } from "./snap";
 import SendScopeDialog from "./SendScopeDialog";
 import ScopeVersions from "./ScopeVersions";
 import StepStrip from "./StepStrip";
 import { sendBlockedReason } from "./steps";
 import Dock from "./Dock";
-import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB } from "./constants";
+import { EXPORT_WIDTH, DEFAULT_PHOTO_ASPECT, MAX_SOURCE_IMAGE_MB, BLUE, GREEN, RED } from "./constants";
+
+// Fingers, not a cursor: the pen draws through a fixed crosshair and an Add
+// point button, the way Google Maps measures (Alan, 2026-10-12: "it kind of
+// shows you where the dot's going to go"). Checked once; it doesn't change.
+const COARSE_POINTER =
+  typeof window !== "undefined" && typeof window.matchMedia === "function" &&
+  window.matchMedia("(pointer: coarse)").matches;
 
 interface Props {
   leadId: string;
@@ -352,6 +360,18 @@ export default function FenceScopeEditor({ leadId }: Props) {
   // with the most room would refuse to pan until you'd zoomed much further in.
   const pageSize = useMemo(() => ({ width: page.width, height: page.height }), [page.width, page.height]);
   const view = useCanvasView(pageSize, pageSize);
+
+  // Phone: while a pen is down the crosshair sits in the middle of the
+  // page; the photo is panned under it and Add point drops the point there.
+  const crosshair = COARSE_POINTER && scope.mode !== "select"
+    ? { x: (page.width / 2 - view.pan.x) / view.zoom, y: (page.height / 2 - view.pan.y) / view.zoom }
+    : null;
+  const penHex = scope.mode === "green" ? GREEN : scope.mode === "red" ? RED : BLUE;
+  const addPointAtCrosshair = () => {
+    if (!crosshair) return;
+    const p = pointAt(scope, crosshair.x, crosshair.y, page.body, view.zoom);
+    if (p) scope.addDrawingPoint(p);
+  };
 
   // A scope can only be sent once the photo has been made presentable, the
   // fence has been marked, and somebody has actually looked at the result.
@@ -716,7 +736,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
           ref={attachContainer}
           className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden bg-[#1c1915] p-2 sm:pb-[76px]"
         >
-          <div className="shadow-2xl shadow-black/60 ring-1 ring-white/10" style={{ width: page.width, height: page.height }}>
+          <div className="relative shadow-2xl shadow-black/60 ring-1 ring-white/10" style={{ width: page.width, height: page.height }}>
             <ScopeCanvas
               scope={scope}
               page={page}
@@ -728,7 +748,15 @@ export default function FenceScopeEditor({ leadId }: Props) {
               activePointIndex={activePointIndex}
               onActivePointChange={setActivePointIndex}
               stageRef={stageRef}
+              crosshair={crosshair}
             />
+            {crosshair ? (
+              <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div className="h-9 w-9 rounded-full border-[3px] shadow-[0_0_0_2px_rgba(0,0,0,0.6)]" style={{ borderColor: penHex }} />
+                <div className="absolute left-1/2 top-1/2 h-0.5 w-14 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+                <div className="absolute left-1/2 top-1/2 h-14 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+              </div>
+            ) : null}
           </div>
 
           {/* Things that need saying, over the top-left of the canvas. They
@@ -789,6 +817,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
               exporting={exporting} onExport={() => void handleExport()}
               hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
               onGenerateAi={() => void handleGenerateAi()} onDiscardAi={() => void handleDiscardAi()}
+              onAddAtCrosshair={COARSE_POINTER ? addPointAtCrosshair : undefined}
             />
             </div>
           </div>
@@ -802,6 +831,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
             exporting={exporting} onExport={() => void handleExport()}
             hasAi={hasAi} aiConfigured={aiConfigured} rendering={rendering}
             onGenerateAi={() => void handleGenerateAi()} onDiscardAi={() => void handleDiscardAi()}
+            onAddAtCrosshair={COARSE_POINTER ? addPointAtCrosshair : undefined}
           />
         </div>
       </div>

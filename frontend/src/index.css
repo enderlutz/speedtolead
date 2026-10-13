@@ -163,6 +163,11 @@
 
 /* Smooth transitions */
 * { -webkit-tap-highlight-color: transparent; }
+/* Phones: a quick double tap on a button must not zoom the whole page. Two
+   fast presses of "Add point" did exactly that, which is the map "zooming
+   out out of nowhere" (Alan, 2026-10-12). Pinch still zooms; only the
+   double-tap shortcut is off. */
+html { touch-action: manipulation; }
 
 @media (hover: none) {
   .hover\:shadow-md:hover { box-shadow: none; }

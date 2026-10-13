@@ -7,7 +7,7 @@ import type { CanvasView, PinchStart } from "./use-canvas-view";
 import type { HeaderTheme } from "./header-theme";
 import { placeArrowsAlongPath, arrowheadPoints, type Pt } from "./arrows";
 import { fitFontSize, titleLetterSpacing, type PageLayout, type Rect as RectBox } from "./layout";
-import { snapToVertex, SNAP_RADIUS_SCREEN } from "./snap";
+import { pointAt } from "./snap";
 import Legend from "./Legend";
 import {
   BLUE, GREEN, RED, LINE_HALO, NODE_FILL, NODE_STROKE, LINE_WIDTH_INNER, LINE_WIDTH_HALO,
@@ -30,6 +30,9 @@ interface Props {
   activePointIndex: number | null;
   onActivePointChange: (i: number | null) => void;
   stageRef?: React.RefObject<Konva.Stage | null>;
+  /** Phone: where the fixed crosshair sits, in stage pixels, while a pen is
+   *  down. A dotted leg runs from the trace's last point to it. */
+  crosshair?: { x: number; y: number } | null;
 }
 
 type BodyRect = RectBox;
@@ -63,12 +66,13 @@ function colorHex(c: FenceColor) {
   if (c === "green") return GREEN;
   return RED;
 }
+
 function flatten(pts: Pt[]) {
   return pts.flatMap((p) => [p.x, p.y]);
 }
 export default function ScopeCanvas({
   scope, page, view, sourceImage, logoImage,
-  headerTheme, address, activePointIndex, onActivePointChange, stageRef,
+  headerTheme, address, activePointIndex, onActivePointChange, stageRef, crosshair,
 }: Props) {
   const { width: pageWidth, height: pageHeight, body: bodyRect } = page;
   const internalStageRef = useRef<Konva.Stage>(null);
@@ -216,11 +220,15 @@ export default function ScopeCanvas({
     if (!stage) return;
     if (pannedRef.current) return; // that was a pan, not a click
     if (drawing) {
+      // Phone: points come from the Add point button under the crosshair,
+      // never from a tap — a fingertip hides the corner it means to hit, and
+      // a brush of the thumb was dropping points nobody meant (Alan,
+      // 2026-10-12). Confirm line finishes the run.
+      if (COARSE_POINTER) return;
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
-      // Tapping the last point again ends the run. Double-click works too, but
-      // a phone has no Enter key and no reliable double-tap, and "tap the end
-      // again" is the one gesture that works everywhere.
+      // Clicking the last point again ends the run. Double-click works too,
+      // but "click the end again" is the one gesture that works everywhere.
       const points = scope.drawingPoints;
       if (points.length >= 2) {
         const last = toPixel(points[points.length - 1], bodyRect);
@@ -229,16 +237,8 @@ export default function ScopeCanvas({
           return;
         }
       }
-      // Clicking near the end of an existing run welds to it exactly, so an
-      // L-shaped fence closes at the corner instead of nearly closing — but
-      // never back onto the point this run just placed (see snapToVertex).
-      const last = points.length ? points[points.length - 1] : null;
-      const corner = snapToVertex(pos.x, pos.y, scope.segments, bodyRect, SNAP_RADIUS_SCREEN / view.zoom, last);
-      const next = corner ?? toNormalized(pos.x, pos.y, bodyRect);
-      // Two taps on the same spot would be stripped at Confirm anyway;
-      // dropping the duplicate here keeps the point count honest.
-      if (last && last.x === next.x && last.y === next.y) return;
-      scope.addDrawingPoint(next);
+      const next = pointAt(scope, pos.x, pos.y, bodyRect, view.zoom);
+      if (next) scope.addDrawingPoint(next);
       return;
     }
     if (e.target === e.currentTarget || e.target.getClassName() === "Image" || e.target.getClassName() === "Rect") {
@@ -454,6 +454,23 @@ export default function ScopeCanvas({
             </Fragment>
           );
         })}
+
+        {/* Phone: the leg the next Add point would draw, from the last point
+            to the crosshair, so the line is seen before it is committed. */}
+        {crosshair && scope.drawingPoints.length > 0 ? (() => {
+          const last = toPixel(scope.drawingPoints[scope.drawingPoints.length - 1], bodyRect);
+          return (
+            <Line
+              points={[last.x, last.y, crosshair.x, crosshair.y]}
+              stroke={colorHex(scope.mode === "select" ? "blue" : scope.mode)}
+              strokeWidth={LINE_WIDTH_INNER}
+              dash={[2, 7]}
+              lineCap="round"
+              opacity={0.9}
+              listening={false}
+            />
+          );
+        })() : null}
 
         {/* In-progress trace preview */}
         {scope.drawingPoints.length > 0 && (

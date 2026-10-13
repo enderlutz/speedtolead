@@ -302,6 +302,10 @@ export default function SatelliteMeasureCard({
   // Bumped on every pan and zoom so the footage labels follow the map.
   const [tick, setTick] = useState(0);
   const [labels, setLabels] = useState<{ key: string; x: number; y: number; text: string }[]>([]);
+  // Phone: the dotted leg from the active run's last point to the crosshair,
+  // and its length, so the line is seen before the point is dropped — the
+  // way Google Maps measures (Alan, 2026-10-12).
+  const [preview, setPreview] = useState<{ x: number; y: number; feet: number; color: string } | null>(null);
   // Typed loosely on purpose: src/types/google-maps.d.ts is a hand-written
   // minimal shim, not @types/google.maps, so Map/Marker aren't fully described.
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -678,10 +682,18 @@ export default function SatelliteMeasureCard({
   // deps, switching between two un-geocoded leads would silently carry the
   // previous property's traced points — and their footage — into the next
   // one's capture.
+  const aimedRef = useRef("");
+  const hasPointsRef = useRef(false);
+  useEffect(() => { hasPointsRef.current = runs.some((r) => r.points.length > 0); }, [runs]);
   useEffect(() => {
     if (status !== "ready" || !mapRef.current) return;
     const g = mapsNS();
     if (!g) return;
+    // The same customer re-aimed (a late geocode, the page refetching the
+    // lead) must not throw away a trace in progress or jump the zoom back
+    // to the start (Alan, 2026-10-12: "it'll just automatically zoom out").
+    if (aimedRef.current === leadId && hasPointsRef.current) return;
+    aimedRef.current = leadId;
     let cancelled = false;
 
     setRuns([{ id: 1, points: [], closed: false }]);
@@ -812,10 +824,10 @@ export default function SatelliteMeasureCard({
   // through the same transform the map div has.
   useEffect(() => {
     const map = mapRef.current, frame = frameRef.current;
-    if (status !== "ready" || !map?.getCenter || !frame) { setLabels([]); return; }
+    if (status !== "ready" || !map?.getCenter || !frame) { setLabels([]); setPreview(null); return; }
     const c = map.getCenter();
     const z = map.getZoom();
-    if (!c || typeof z !== "number") { setLabels([]); return; }
+    if (!c || typeof z !== "number") { setLabels([]); setPreview(null); return; }
     const center = { lat: c.lat(), lng: c.lng() };
     const half = { x: frame.clientWidth / 2, y: frame.clientHeight / 2 };
     const out: { key: string; x: number; y: number; text: string }[] = [];
@@ -831,7 +843,19 @@ export default function SatelliteMeasureCard({
       }
     });
     setLabels(out);
-  }, [runs, status, tick, rot, frac]);
+    const run = runs.find((r) => r.id === activeRun);
+    const last = run && run.points.length ? run.points[run.points.length - 1] : null;
+    if (IS_TOUCH && last) {
+      const u = pixelFromLatLng(center, z, last);
+      const d = rotateOut(u.x, u.y);
+      setPreview({
+        x: half.x + d.x, y: half.y + d.y, feet: haversineFeet(last, center),
+        color: RUN_COLORS[Math.max(0, runs.findIndex((r) => r.id === activeRun)) % RUN_COLORS.length],
+      });
+    } else {
+      setPreview(null);
+    }
+  }, [runs, activeRun, status, tick, rot, frac]);
 
   // Its own effect and its own ref: the run overlays are torn down on every
   // points change, and the pin must survive that.
@@ -1172,6 +1196,12 @@ export default function SatelliteMeasureCard({
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
           >
+            {preview ? (
+              <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+                <line x1={preview.x} y1={preview.y} x2="50%" y2="50%" stroke="rgba(0,0,0,0.65)" strokeWidth="6" strokeLinecap="round" strokeDasharray="1 10" />
+                <line x1={preview.x} y1={preview.y} x2="50%" y2="50%" stroke={preview.color} strokeWidth="3.5" strokeLinecap="round" strokeDasharray="1 10" />
+              </svg>
+            ) : null}
             {labels.map((l) => (
               <span
                 key={l.key}
@@ -1192,6 +1222,11 @@ export default function SatelliteMeasureCard({
                 />
                 <div className="absolute left-1/2 top-1/2 h-0.5 w-12 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
                 <div className="absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+                {preview ? (
+                  <span className="absolute left-8 top-7 whitespace-nowrap rounded-md bg-black/75 px-1.5 py-0.5 text-[13px] font-bold tabular-nums text-white">
+                    {Math.round(preview.feet)} ft
+                  </span>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1263,7 +1298,7 @@ export default function SatelliteMeasureCard({
               disabled={status !== "ready"}
               className="h-12 flex-1 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze text-sm font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60"
             >
-              <Crosshair className="h-4 w-4 mr-2" /> Add point at crosshair
+              <Crosshair className="h-4 w-4 mr-2" /> {preview ? `Add point · ${Math.round(preview.feet)} ft` : "Add point at crosshair"}
             </Button>
             <Button variant="outline" onClick={undoLastPoint} title="Take the last point back" className="h-12 w-12 rounded-xl p-0">
               <Undo2 className="h-4 w-4" />

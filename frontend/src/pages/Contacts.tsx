@@ -151,6 +151,48 @@ function scroller(): HTMLElement | null {
   return document.querySelector("main");
 }
 
+function toneClass(tone: string) {
+  return tone === "hot" ? "text-rose-700" : tone === "warm" ? "text-amber-700"
+    : tone === "off" ? "text-muted-foreground line-through" : "text-foreground";
+}
+
+/** The estimate marker, the same in the table and on the phone cards. A
+ *  scheduled estimate reads as sent straight away — the point of the
+ *  10-minute button is not having to come back in 10 minutes. "overdue" is
+ *  the self-correction: queued, past its time, still sitting there. */
+function EstimateBadge({ c }: { c: ContactRow }) {
+  if (c.estimate_send_overdue) {
+    return (
+      <Badge variant="outline" className="border-red-500 text-red-700"
+        title="Queued but still not sent well past its send time — the SMS worker may be stalled. This customer has no price yet.">
+        send overdue
+      </Badge>
+    );
+  }
+  if (c.estimate_scheduled) {
+    return <Badge variant="outline" className="border-blue-400 text-blue-700" title="Estimate approved and queued — the text goes out shortly">sending</Badge>;
+  }
+  if (c.estimate_sent) return <Badge variant="secondary">sent</Badge>;
+  return (
+    <Badge variant="outline" className="border-amber-400 text-amber-700"
+      title={c.intake_count > 1 ? "They came back and nobody has priced them since" : undefined}>
+      {c.intake_count > 1 ? "none since they came back" : "never sent"}
+    </Badge>
+  );
+}
+
+/** Where they are and what to do next, in words (Alan, 2026-10-12). Hot =
+ *  act now, warm = soon, cold = waiting. */
+function NextStep({ s, big }: { s: ContactRow["next_step"]; big?: boolean }) {
+  if (!s) return <span className="text-xs italic text-muted-foreground/70">no lead</span>;
+  return (
+    <div className={big ? "" : "min-w-[150px]"}>
+      <div className={`${big ? "text-[15px]" : "text-sm"} font-semibold leading-tight ${toneClass(s.tone)}`}>{s.next}</div>
+      <div className="text-[11px] text-muted-foreground">{s.stage}</div>
+    </div>
+  );
+}
+
 export default function Contacts() {
   const navigate = useNavigate();
   const saved = useRef(readView()).current;
@@ -390,7 +432,64 @@ export default function Contacts() {
               (estimate !== "all" ? " (filtered within this page)" : "")}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Phone: one card per customer, readable without scrolling sideways.
+          Alan works this list on walks (2026-10-12: "I close the most deals
+          when I'm on a walk"), so the number is a Call button, the next step
+          is the biggest line, and a tap anywhere else opens the lead. */}
+      <div className="space-y-2 md:hidden">
+        {rows.map((c, i) => (
+          <div
+            key={c.id}
+            data-lead-row={c.lead_id || undefined}
+            onClick={() => c.lead_id && openLead(c.lead_id)}
+            className={`rounded-xl border bg-card p-3 transition-colors duration-700 ${c.lead_id ? "cursor-pointer active:bg-muted/40" : ""} ${flash && flash === c.lead_id ? "bg-amber-100" : ""}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span className="text-xs tabular-nums text-muted-foreground">#{offset + i + 1}</span>
+                  <span className="text-[15px] font-semibold leading-tight">{c.name || "(no name)"}</span>
+                  {c.opted_out ? (
+                    <Badge variant="destructive" className="gap-1"><Ban className="h-3 w-3" /> {c.asked_to_stop ? "told us to stop" : "opted out"}</Badge>
+                  ) : c.texts_bouncing ? (
+                    <Badge variant="outline" className="border-amber-400 text-amber-700">texts bouncing</Badge>
+                  ) : null}
+                  {c.intake_count > 1 ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-gold/20 px-1.5 text-[10px] font-semibold text-bronze">
+                      <RotateCcw className="h-2.5 w-2.5" /> came back ×{c.intake_count}
+                    </span>
+                  ) : null}
+                </div>
+                {c.address ? <div className="truncate text-xs text-muted-foreground">{c.address}</div> : null}
+              </div>
+              {c.phone ? (
+                <a
+                  href={`tel:${c.phone}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-sm font-bold text-white active:scale-95"
+                >
+                  <Phone className="h-4 w-4" /> Call
+                </a>
+              ) : (
+                <span className="shrink-0 text-xs text-muted-foreground">no phone</span>
+              )}
+            </div>
+            <div className="mt-2"><NextStep s={c.next_step} big /></div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <EstimateBadge c={c} />
+              <span>came in {fmtDate(c.last_intake_at || c.date_added)}</span>
+              <span className="inline-flex items-center gap-1" title={`${c.inbound_count} from them`}>
+                <MessageSquare className="h-3 w-3" />{c.message_count}{c.inbound_count > 0 ? ` (${c.inbound_count} in)` : ""}
+              </span>
+              <span>{c.conversation_count} talked · {c.attempt_count} dials</span>
+              {c.phone ? <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{fmtPhone(c.phone)}</span> : null}
+              {c.stage ? <span className="truncate">{c.stage}</span> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border md:block">
         <table className="w-full text-sm min-w-[980px]">
           <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
@@ -464,55 +563,8 @@ export default function Contacts() {
                     </div>
                   ) : null}
                 </td>
-                <td className="px-3 py-2">
-                  {/* A scheduled estimate reads as sent straight away — the
-                      point of the 10-minute button is not having to come back
-                      in 10 minutes. "overdue" is the self-correction: queued,
-                      past its time, still sitting there. */}
-                  {c.estimate_send_overdue ? (
-                    <Badge
-                      variant="outline"
-                      className="border-red-500 text-red-700"
-                      title="Queued but still not sent well past its send time — the SMS worker may be stalled. This customer has no price yet."
-                    >
-                      send overdue
-                    </Badge>
-                  ) : c.estimate_scheduled ? (
-                    <Badge
-                      variant="outline"
-                      className="border-blue-400 text-blue-700"
-                      title="Estimate approved and queued — the text goes out shortly"
-                    >
-                      sending
-                    </Badge>
-                  ) : c.estimate_sent ? (
-                    <Badge variant="secondary">sent</Badge>
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className="border-amber-400 text-amber-700"
-                      title={c.intake_count > 1 ? "They came back and nobody has priced them since" : undefined}
-                    >
-                      {c.intake_count > 1 ? "none since they came back" : "never sent"}
-                    </Badge>
-                  )}
-                </td>
-                {/* Where they are and what to do next, in words (Alan,
-                    2026-10-12). Hot = act now, warm = soon, cold = waiting. */}
-                <td className="px-3 py-2">
-                  {c.next_step ? (
-                    <div className="min-w-[150px]">
-                      <div className={`text-sm font-semibold leading-tight ${
-                        c.next_step.tone === "hot" ? "text-rose-700" : c.next_step.tone === "warm" ? "text-amber-700"
-                        : c.next_step.tone === "off" ? "text-muted-foreground line-through" : "text-foreground"}`}>
-                        {c.next_step.next}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">{c.next_step.stage}</div>
-                    </div>
-                  ) : (
-                    <span className="text-xs italic text-muted-foreground/70">no lead</span>
-                  )}
-                </td>
+                <td className="px-3 py-2"><EstimateBadge c={c} /></td>
+                <td className="px-3 py-2"><NextStep s={c.next_step} /></td>
                 <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
                   <span className="inline-flex items-center gap-1 mr-3" title={`${c.inbound_count} from them`}>
                     <MessageSquare className="h-3 w-3" />{c.message_count}

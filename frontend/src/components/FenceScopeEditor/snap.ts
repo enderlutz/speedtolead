@@ -46,3 +46,25 @@ export function snapToVertex(
   }
   return best;
 }
+
+/** The point a click, or the phone's crosshair, places at stage pixel (x, y):
+ *  welded to a nearby corner of an existing run so an L-shaped fence closes
+ *  at the corner, else normalised to the photo. Null when it would repeat
+ *  the run's last point (see snapToVertex). One function so the canvas's
+ *  click and the dock's Add point land the same way. */
+export function pointAt(
+  scope: { drawingPoints: { x: number; y: number }[]; segments: Parameters<typeof snapToVertex>[2] },
+  x: number, y: number,
+  body: { x: number; y: number; width: number; height: number },
+  zoom: number,
+): { x: number; y: number } | null {
+  const points = scope.drawingPoints;
+  const last = points.length ? points[points.length - 1] : null;
+  const corner = snapToVertex(x, y, scope.segments, body, SNAP_RADIUS_SCREEN / zoom, last);
+  const next = corner ?? {
+    x: Math.min(1, Math.max(0, (x - body.x) / body.width)),
+    y: Math.min(1, Math.max(0, (y - body.y) / body.height)),
+  };
+  if (last && last.x === next.x && last.y === next.y) return null;
+  return next;
+}

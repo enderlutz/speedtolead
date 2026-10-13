@@ -20,7 +20,7 @@
 import {
   MousePointer2, Undo2, Redo2, Trash2, Download, Image as ImageIcon, MoreHorizontal,
   FlipHorizontal2, Plus, Minus, RotateCcw, RotateCw, FlipHorizontal, FlipVertical,
-  Sparkles, Plane, Loader2, X, Check, Keyboard, Undo, ArrowLeftRight,
+  Sparkles, Plane, Loader2, X, Check, Keyboard, Undo, ArrowLeftRight, Crosshair,
 } from "lucide-react";
 import type { FenceColor } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,9 @@ interface Props {
   rendering: boolean;
   onGenerateAi: () => void;
   onDiscardAi: () => void;
+  /** Phone: drop a point where the crosshair is. Present only on touch
+   *  screens; its presence is what puts the dock in crosshair mode. */
+  onAddAtCrosshair?: () => void;
 }
 
 const PENS: { color: FenceColor; label: string; hex: string; key: string; hint: string }[] = [
@@ -67,14 +70,16 @@ const SWATCH: Record<FenceColor, React.ElementType> = {
 };
 
 export default function Dock({
-  scope, activePointIndex, exporting, onExport, hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi,
+  scope, activePointIndex, exporting, onExport, hasAi, aiConfigured, rendering, onGenerateAi, onDiscardAi, onAddAtCrosshair,
 }: Props) {
   const selected = scope.selectedSegment;
   const tracing = scope.drawingPoints.length > 0;
   const penDown = scope.mode !== "select";
 
-  // ---- a run in progress: the only thing that matters is finishing it ----
-  if (tracing) {
+  // ---- a run in progress: the only thing that matters is finishing it.
+  // On a phone the pen itself starts it: the crosshair is up, so the bar
+  // shows Add point from the first point, not the pens. ----
+  if (tracing || (onAddAtCrosshair && penDown)) {
     const n = scope.drawingPoints.length;
     return (
       <Shell>
@@ -82,19 +87,30 @@ export default function Dock({
           <button type="button" onClick={scope.cancelDrawing} className={cn(BTN, IDLE)} title="Throw this run away (Esc)">
             <X className="h-4 w-4" /> Cancel
           </button>
-          <button type="button" onClick={scope.undo} className={cn(BTN, IDLE)} title="Take back the last point (Ctrl/Cmd+Z)">
+          <button type="button" onClick={scope.undo} disabled={n === 0} className={cn(BTN, IDLE)} title="Take back the last point (Ctrl/Cmd+Z)">
             <Undo className="h-4 w-4" /> <span className="hidden sm:inline">Last point</span>
           </button>
           <span className="shrink-0 px-1 text-[11px] text-white/70 tabular-nums">
             {n} point{n === 1 ? "" : "s"}
-            <span className="hidden md:inline"> · tap the last point again to finish</span>
+            {onAddAtCrosshair ? null : <span className="hidden md:inline"> · tap the last point again to finish</span>}
           </span>
-          <div className="flex-1" />
+          {onAddAtCrosshair ? (
+            <button
+              type="button" onClick={onAddAtCrosshair}
+              className={cn(BTN, GOLD, "h-11 flex-1 justify-center px-3 text-sm")}
+              title="Drop a point where the crosshair is"
+            >
+              <Crosshair className="h-4 w-4" /> Add point
+            </button>
+          ) : (
+            <div className="flex-1" />
+          )}
           <button
             type="button" onClick={scope.finishDrawing} disabled={n < 2}
-            className={cn(BTN, GOLD, "px-3.5")} title="Finish this fence line (Enter)"
+            className={cn(BTN, onAddAtCrosshair ? "h-11 bg-emerald-600 text-white hover:bg-emerald-500" : GOLD, "px-3.5")}
+            title="Finish this fence line (Enter)"
           >
-            <Check className="h-4 w-4" /> Confirm line
+            <Check className="h-4 w-4" /> {onAddAtCrosshair ? "Done" : "Confirm line"}
           </button>
         </Group>
       </Shell>
