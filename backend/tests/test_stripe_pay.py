@@ -40,6 +40,10 @@ def _settings(monkeypatch, key="sk_test_x", webhook="whsec_x"):
     ns = SimpleNamespace(stripe_secret_key=key, stripe_webhook_secret=webhook, proposal_base_url="https://estimate.test/")
     monkeypatch.setattr(sp, "get_settings", lambda: ns)
     monkeypatch.setattr(config, "get_settings", lambda: ns)  # the link base reads config directly
+    # The deposit's card-only configuration: none yet, so one is made.
+    monkeypatch.setattr(sp, "_deposit_pmc", None)
+    monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "list", lambda **k: SimpleNamespace(data=[]), raising=False)
+    monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "create", lambda **k: SimpleNamespace(id="pmc_deposit", name=k.get("name")), raising=False)
 
 
 def test_a_deposit_link_defaults_to_250_and_is_open(db, monkeypatch):
@@ -92,7 +96,8 @@ def test_a_session_carries_the_link_and_the_deposit_is_card_only(db, monkeypatch
     out = sp.start_session(dep["token"])
     assert out == {"url": "https://stripe.test/cs_1", "paid": False}
     p = seen[0]
-    assert p["payment_method_types"] == ["card"]
+    assert "payment_method_types" not in p  # Stripe retired it on Checkout
+    assert p["payment_method_configuration"] == "pmc_deposit"
     assert p["metadata"]["pay_link"] == dep["token"] and p["client_reference_id"] == lead.id
     assert p["line_items"][0]["price_data"]["unit_amount"] == 25000
     assert p["success_url"] == f"https://estimate.test/after/{dep['token']}?s={{CHECKOUT_SESSION_ID}}"

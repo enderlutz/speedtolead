@@ -303,6 +303,41 @@ def void_pay_link(token: str, user: dict = Depends(require_staff)):
 # frontend/src/components/proposal/TermsBody.tsx; bump both together.
 TERMS_VERSION = "2026-10-13"
 
+
+# The $250 deposit is card and wallets only, no Klarna. Stripe retired
+# payment_method_types on Checkout (2026-10-13: "no longer supported"), so the
+# deposit uses its own payment method configuration, found by name or made
+# once. If Stripe refuses, the deposit takes the account's normal methods:
+# a customer must always be able to pay.
+DEPOSIT_PMC_NAME = "Sterling deposit: card only"
+DEPOSIT_PMC_OFF = ("klarna", "affirm", "afterpay_clearpay", "zip", "cashapp", "us_bank_account", "amazon_pay", "sunbit")
+_deposit_pmc: str | None = None
+
+
+def _deposit_config(s) -> str | None:
+    global _deposit_pmc
+    if _deposit_pmc:
+        return _deposit_pmc
+    try:
+        for c in s.PaymentMethodConfiguration.list(limit=50).data:
+            if _field(c, "name") == DEPOSIT_PMC_NAME and _field(c, "active") is not False:
+                _deposit_pmc = _field(c, "id")
+                return _deposit_pmc
+        made = s.PaymentMethodConfiguration.create(
+            name=DEPOSIT_PMC_NAME,
+            card={"display_preference": {"preference": "on"}},
+            apple_pay={"display_preference": {"preference": "on"}},
+            google_pay={"display_preference": {"preference": "on"}},
+            **{m: {"display_preference": {"preference": "off"}} for m in DEPOSIT_PMC_OFF},
+        )
+        _deposit_pmc = _field(made, "id")
+        log_event(None, "stripe_deposit_config", f"made {_deposit_pmc}")
+        return _deposit_pmc
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Deposit payment method configuration unavailable: %s", e)
+        log_event(None, "stripe_deposit_config_failed", str(e)[:500])
+        return None
+
 # ── Public: the pay page and the after page ───────────────────────────────
 
 def _live_link(db, token: str) -> PayLink:
@@ -374,7 +409,9 @@ def start_session(token: str):
         # is switched on in Stripe, Klarna and Affirm included, and Stripe
         # hides a lender when the amount is outside its range.
         if link.kind == "deposit":
-            params["payment_method_types"] = ["card"]
+            pmc = _deposit_config(s)
+            if pmc:
+                params["payment_method_configuration"] = pmc
         if lead and lead.contact_email:
             params["customer_email"] = lead.contact_email
         try:
