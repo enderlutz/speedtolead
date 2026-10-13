@@ -8,7 +8,7 @@
 // (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Stethoscope, Trash2, X } from "lucide-react";
+import { Copy, Ban, CreditCard, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -182,6 +182,29 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
   const [lines, setLines] = useState([blank()]);
   const [credit, setCredit] = useState("");
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<InvoiceLine[]>([]);
+  useEffect(() => {
+    if (open) api.listSavedLines().then(setSaved).catch(() => {});
+  }, [open]);
+  const isSaved = (l: InvoiceLine) => saved.some((s) => s.name.toLowerCase() === l.name.trim().toLowerCase() && s.amount === Number(l.amount) && s.description === l.description.trim());
+  const saveLine = async (l: InvoiceLine) => {
+    if (!l.name.trim() || !l.amount) { toast.error("Give the line a name and a price first"); return; }
+    try {
+      setSaved(await api.saveLine({ name: l.name.trim(), description: l.description.trim(), amount: Number(l.amount) }));
+      toast.success(`Saved "${l.name.trim()}" for next time`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save the line");
+    }
+  };
+  const forget = async (name: string) => {
+    try { setSaved(await api.deleteSavedLine(name)); } catch { toast.error("Couldn't remove it"); }
+  };
+  // A saved chip fills the first empty line, or adds a new one.
+  const addSaved = (s: InvoiceLine) => setLines((ls) => {
+    const fresh = { key: Math.random(), name: s.name, description: s.description, amount: s.amount };
+    const i = ls.findIndex((l) => !l.name.trim() && !l.amount);
+    return i >= 0 ? ls.map((l, j) => (j === i ? fresh : l)) : [...ls, fresh];
+  });
   const total = lines.reduce((t, l) => t + (Number(l.amount) || 0), 0);
   const paid = Number(credit) || 0;
   const set = (k: number, patch: Partial<InvoiceLine>) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...patch } : l)));
@@ -209,10 +232,25 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
   return (
     <div className="mt-2 space-y-1.5 rounded-lg bg-muted/40 p-2.5">
       <p className="text-xs font-semibold">Itemized invoice</p>
+      {saved.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {saved.map((s) => (
+            <span key={s.name} className="inline-flex h-9 items-center rounded-full border border-border bg-background text-xs">
+              <button type="button" onClick={() => addSaved(s)} className="h-full rounded-l-full pl-3 pr-1.5 font-semibold hover:bg-muted" title={s.description || undefined}>
+                + {s.name} <span className="tabular-nums text-muted-foreground">{s.amount < 0 ? `− ${formatCurrency(-s.amount)}` : formatCurrency(s.amount)}</span>
+              </button>
+              <button type="button" onClick={() => forget(s.name)} className="h-full rounded-r-full px-2 text-muted-foreground hover:bg-muted" aria-label={`Remove saved line ${s.name}`}><X className="h-3 w-3" /></button>
+            </span>
+          ))}
+        </div>
+      )}
       {lines.map((l) => (
-        <div key={l.key} className="grid grid-cols-[1fr_6rem_auto] gap-1.5">
+        <div key={l.key} className="grid grid-cols-[1fr_6rem_auto_auto] gap-1.5">
           <input value={l.name} onChange={(e) => set(l.key, { name: e.target.value })} placeholder="Item (e.g. House wash, or Package discount)" className="h-9 rounded-lg border border-border bg-background px-2 text-sm" />
           <input value={l.amount || ""} onChange={(e) => set(l.key, { amount: Number(e.target.value) || 0 })} inputMode="text" placeholder="Price" title="Type a minus for a discount, like -38" className="h-9 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" />
+          <button type="button" onClick={() => saveLine(l)} className="rounded-md p-1 hover:bg-background" aria-label="Save this line for next time" title="Save this line for next time">
+            <Star className={cn("h-3.5 w-3.5", isSaved(l) && "fill-amber-400 text-amber-500")} />
+          </button>
           <button type="button" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : ls))} className="rounded-md p-1 hover:bg-background" aria-label="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>
           <input value={l.description} onChange={(e) => set(l.key, { description: e.target.value })} placeholder="Description (optional)" className="col-span-2 h-8 rounded-lg border border-border bg-background px-2 text-xs" />
         </div>

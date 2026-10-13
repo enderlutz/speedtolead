@@ -19,6 +19,7 @@ type Info = {
   kind: string; label: string; amount: number; description: string; status: string;
   first_name: string; address: string; configured: boolean;
   items?: { name: string; description: string; amount: number }[]; credit?: number;
+  name?: string; invoice_number?: string; date?: string;
 };
 
 export default function PayLink() {
@@ -92,9 +93,23 @@ export default function PayLink() {
         {info.first_name ? `Hi ${info.first_name}, ` : ""}{deposit ? "this books your spot." : "here's what's due."}
       </h1>
       <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+        {!deposit && info.invoice_number ? (
+          <div className="mb-3 flex flex-wrap justify-between gap-x-4 gap-y-1 border-b border-[#15130F]/10 pb-3 text-[15px]">
+            <div>
+              <p className="text-[13px] font-bold uppercase tracking-wide text-[#15130F]/65">Invoice</p>
+              <p className="font-bold tabular-nums">{info.invoice_number}</p>
+              {info.date ? <p className="text-[#15130F]/75">{new Date(info.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</p> : null}
+            </div>
+            <div className="text-right">
+              <p className="text-[13px] font-bold uppercase tracking-wide text-[#15130F]/65">Bill to</p>
+              {info.name ? <p className="font-bold capitalize">{info.name.toLowerCase()}</p> : null}
+              {info.address ? <p className="text-[#15130F]/75">{info.address}</p> : null}
+            </div>
+          </div>
+        ) : null}
         <p className="text-[15px] text-[#15130F]/75">{deposit ? "Deposit today" : "Due today"}</p>
         <p className="font-heading text-5xl font-bold leading-none tabular-nums">{formatCurrency(info.amount)}</p>
-        {info.address ? <p className="mt-3 text-[15px] text-[#15130F]/80">{info.address}</p> : null}
+        {info.address && (deposit || !info.invoice_number) ? <p className="mt-3 text-[15px] text-[#15130F]/80">{info.address}</p> : null}
         {info.description ? <p className="mt-1 text-[15px] text-[#15130F]/80">{info.description}</p> : null}
         {info.items?.length ? (
           <dl className="mt-3 space-y-2 border-t border-[#15130F]/10 pt-3 text-[15px]">

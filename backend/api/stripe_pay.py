@@ -36,7 +36,7 @@ from pydantic import BaseModel
 
 from api.auth import require_staff
 from config import get_settings
-from database import get_db, Lead, PayLink, CustomerPayment
+from database import get_db, Lead, PayLink, CustomerPayment, SystemConfig
 from services import after_pay_hooks as hooks
 from services.activity_log import log_event
 
@@ -95,6 +95,16 @@ def _stripe():
         raise HTTPException(status_code=503, detail="Stripe isn't switched on yet (STRIPE_SECRET_KEY).")
     stripe.api_key = key
     return stripe
+
+
+def _invoice_number(db, lead_id: str) -> str:
+    """The job's number: its sent proposal's SF-<year>-<seq>. One number per
+    job, so the deposit, the invoice and QuickBooks all carry the same one."""
+    from database import Proposal
+    from api.estimates import _format_proposal_number
+    p = (db.query(Proposal).filter(Proposal.lead_id == lead_id, Proposal.proposal_seq.isnot(None))
+         .order_by(Proposal.proposal_seq.desc()).first())
+    return _format_proposal_number(p.proposal_seq, p.created_at) if p else ""
 
 
 def _first_name(lead: Lead) -> str:
@@ -329,6 +339,61 @@ def update_stripe_settings(body: StripeSettingsBody, user: dict = Depends(requir
         db.close()
 
 
+# ── Saved invoice lines ───────────────────────────────────────────────────
+# Lines Alan or Olga starred in the invoice builder, offered back as one-tap
+# chips on every lead. One shared list in SystemConfig; a save with a name
+# already on the list replaces that line.
+
+SAVED_LINES_KEY = "invoice_saved_lines"
+SAVED_LINES_MAX = 40
+
+
+def _saved_lines(db) -> list[dict]:
+    try:
+        rows = json.loads(SystemConfig.get(db, SAVED_LINES_KEY, "[]") or "[]")
+    except ValueError:
+        return []
+    return [r for r in rows if isinstance(r, dict) and r.get("name")]
+
+
+@router.get("/stripe/saved-lines")
+def list_saved_lines(user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        return _saved_lines(db)
+    finally:
+        db.close()
+
+
+@router.post("/stripe/saved-lines")
+def save_line(body: InvoiceItem, user: dict = Depends(require_staff)):
+    name = body.name.strip()
+    if not name or not body.amount:
+        raise HTTPException(status_code=400, detail="A saved line needs a name and a price")
+    db = get_db()
+    try:
+        rows = [r for r in _saved_lines(db) if r["name"].lower() != name.lower()]
+        rows.insert(0, {"name": name, "description": body.description.strip(), "amount": round(float(body.amount), 2)})
+        SystemConfig.set(db, SAVED_LINES_KEY, json.dumps(rows[:SAVED_LINES_MAX]))
+        log_event(None, "invoice_line_saved", f"{name} {body.amount} by {user.get('name') or user.get('sub') or ''}")
+        return rows[:SAVED_LINES_MAX]
+    finally:
+        db.close()
+
+
+@router.delete("/stripe/saved-lines")
+def delete_saved_line(name: str, user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        rows = [r for r in _saved_lines(db) if r["name"].lower() != name.strip().lower()]
+        SystemConfig.set(db, SAVED_LINES_KEY, json.dumps(rows))
+        return rows
+    finally:
+        db.close()
+
+
 @router.post("/pay-links/{token}/void")
 def void_pay_link(token: str, user: dict = Depends(require_staff)):
     del user
@@ -426,6 +491,8 @@ def pay_info(token: str):
             "status": link.status, "first_name": _first_name(lead), "address": (lead.address if lead else "") or "",
             "items": link_items(link), "credit": round((link.credit_cents or 0) / 100, 2),
             "configured": configured(),
+            "name": ((lead.contact_name or "").strip() if lead else ""),
+            "invoice_number": _invoice_number(db, link.lead_id), "date": link.created_at or "",
         }
     finally:
         db.close()
@@ -476,6 +543,12 @@ def start_session(token: str):
             "success_url": f"{_base()}/after/{link.token}?s={{CHECKOUT_SESSION_ID}}",
             "cancel_url": f"{_base()}/pay/{link.token}",
         }
+        number = _invoice_number(db, link.lead_id)
+        if number:
+            # On Stripe's receipt and in the dashboard next to the payment.
+            params["metadata"]["invoice_number"] = number
+            params["payment_intent_data"]["metadata"]["invoice_number"] = number
+            params["payment_intent_data"]["description"] = f"Sterling Fence Staining invoice {number}"
         # Paying means agreeing to the terms (Alan, 2026-10-13): Stripe shows
         # the line under its Pay button, and the session keeps which version
         # the customer agreed to.

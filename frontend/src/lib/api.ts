@@ -1343,6 +1343,10 @@ export const api = {
   checkPayLink: (token: string) => request<PayLinkCheck>(`/api/pay-links/${token}/check`, { method: "POST" }),
   /** The webhook destinations, payment methods and last Checkout events Stripe reports. */
   getStripeHealth: () => request<StripeHealth>(`/api/stripe/health`),
+  /** Invoice lines starred for reuse, shared by everyone. */
+  listSavedLines: () => request<InvoiceLine[]>(`/api/stripe/saved-lines`),
+  saveLine: (line: InvoiceLine) => request<InvoiceLine[]>(`/api/stripe/saved-lines`, { method: "POST", body: JSON.stringify(line) }),
+  deleteSavedLine: (name: string) => request<InvoiceLine[]>(`/api/stripe/saved-lines?name=${encodeURIComponent(name)}`, { method: "DELETE" }),
   updateStripeSettings: (body: { auto_balance_link: boolean }) =>
     request<StripeSettings>(`/api/stripe/settings`, { method: "PUT", body: JSON.stringify(body) }),
   // The interactive proposal: per-lead switch (admin), the price window, the extension.

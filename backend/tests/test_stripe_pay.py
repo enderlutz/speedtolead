@@ -349,3 +349,27 @@ def test_an_itemized_invoice_lists_every_line_and_takes_off_what_was_paid(db, mo
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="x", amount=0)]), STAFF)
     with pytest.raises(HTTPException):
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=items, credit=5000), STAFF)
+
+
+def test_saved_invoice_lines_replace_by_name_and_delete(db):
+    assert sp.list_saved_lines(STAFF) == []
+    sp.save_line(sp.InvoiceItem(name="House wash", description="Left and right side", amount=225), STAFF)
+    sp.save_line(sp.InvoiceItem(name="Post replacement", description="per post", amount=205), STAFF)
+    rows = sp.save_line(sp.InvoiceItem(name="house wash ", amount=250), STAFF)
+    assert [(r["name"], r["amount"]) for r in rows] == [("house wash", 250), ("Post replacement", 205)]
+    assert sp.list_saved_lines(STAFF) == rows
+    with pytest.raises(HTTPException):
+        sp.save_line(sp.InvoiceItem(name="  ", amount=10), STAFF)
+    assert [r["name"] for r in sp.delete_saved_line("HOUSE WASH", STAFF)] == ["Post replacement"]
+
+
+def test_an_invoice_carries_the_job_number(db, monkeypatch):
+    from database import Proposal
+    _settings(monkeypatch)
+    lead = _lead(db)
+    db.add(Proposal(id=str(uuid.uuid4()), token="t" + uuid.uuid4().hex, estimate_id="e1", lead_id=lead.id,
+                    proposal_seq=5256, created_at="2026-10-11T15:00:00+00:00"))
+    db.commit()
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="Signature Finish", amount=1188)]), STAFF)
+    info = sp.pay_info(out["token"])
+    assert info["invoice_number"] == "SF-2026-05256" and info["name"] == "Test Customer" and info["date"]
