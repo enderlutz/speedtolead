@@ -187,7 +187,7 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
   const set = (k: number, patch: Partial<InvoiceLine>) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...patch } : l)));
   const make = async () => {
     const items = lines.filter((l) => l.name.trim() || l.amount).map(({ name, description, amount }) => ({ name: name.trim(), description: description.trim(), amount: Number(amount) }));
-    if (!items.length || items.some((i) => !i.name || !(i.amount > 0))) { toast.error("Every line needs a name and a price"); return; }
+    if (!items.length || items.some((i) => !i.name || !i.amount)) { toast.error("Every line needs a name and a price"); return; }
     setBusy(true);
     try {
       const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined });
@@ -211,8 +211,8 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
       <p className="text-xs font-semibold">Itemized invoice</p>
       {lines.map((l) => (
         <div key={l.key} className="grid grid-cols-[1fr_6rem_auto] gap-1.5">
-          <input value={l.name} onChange={(e) => set(l.key, { name: e.target.value })} placeholder="Item (e.g. House wash)" className="h-9 rounded-lg border border-border bg-background px-2 text-sm" />
-          <input value={l.amount || ""} onChange={(e) => set(l.key, { amount: Number(e.target.value) || 0 })} inputMode="decimal" placeholder="Price" className="h-9 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" />
+          <input value={l.name} onChange={(e) => set(l.key, { name: e.target.value })} placeholder="Item (e.g. House wash, or Package discount)" className="h-9 rounded-lg border border-border bg-background px-2 text-sm" />
+          <input value={l.amount || ""} onChange={(e) => set(l.key, { amount: Number(e.target.value) || 0 })} inputMode="text" placeholder="Price" title="Type a minus for a discount, like -38" className="h-9 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" />
           <button type="button" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : ls))} className="rounded-md p-1 hover:bg-background" aria-label="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>
           <input value={l.description} onChange={(e) => set(l.key, { description: e.target.value })} placeholder="Description (optional)" className="col-span-2 h-8 rounded-lg border border-border bg-background px-2 text-xs" />
         </div>

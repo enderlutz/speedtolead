@@ -101,7 +101,7 @@ export default function PayLink() {
             {info.items.map((i, n) => (
               <div key={n} className="flex justify-between gap-3">
                 <div><dt className="font-semibold">{i.name}</dt>{i.description ? <dd className="text-[14px] text-[#15130F]/75">{i.description}</dd> : null}</div>
-                <dd className="shrink-0 tabular-nums">{formatCurrency(i.amount)}</dd>
+                <dd className="shrink-0 tabular-nums">{i.amount < 0 ? `− ${formatCurrency(-i.amount)}` : formatCurrency(i.amount)}</dd>
               </div>
             ))}
             {info.credit ? (

@@ -335,6 +335,15 @@ def test_an_itemized_invoice_lists_every_line_and_takes_off_what_was_paid(db, mo
     assert len(li) == 1 and li[0]["price_data"]["unit_amount"] == 179800
     assert "less $250.00 already paid" in li[0]["price_data"]["product_data"]["description"]
 
+    # A discount line: one spelled-out line on Stripe, which has no minus lines.
+    disc = items[:3] + [sp.InvoiceItem(name="Package discount", amount=-38)] + items[3:]
+    out3 = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=disc), STAFF)
+    assert out3["amount"] == 2010.0
+    sp.start_session(out3["token"])
+    li = seen[2]["line_items"]
+    assert len(li) == 1 and li[0]["price_data"]["unit_amount"] == 201000
+    assert "Package discount -$38.00" in li[0]["price_data"]["product_data"]["description"]
+
     # A line without a price, or a credit that covers everything, is refused.
     with pytest.raises(HTTPException):
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[sp.InvoiceItem(name="x", amount=0)]), STAFF)

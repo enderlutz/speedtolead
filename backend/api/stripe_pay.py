@@ -199,11 +199,14 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             for it in body.items[:25]:
                 name = (it.name or "").strip()
                 c = int(round((it.amount or 0) * 100))
-                if not name or c <= 0:
-                    raise HTTPException(status_code=400, detail="Every line needs a name and a price above $0")
+                # A minus line is a discount ("Package discount -$38").
+                if not name or c == 0:
+                    raise HTTPException(status_code=400, detail="Every line needs a name and a price")
                 lines.append({"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c})
             credit_cents = max(0, int(round((body.credit or 0) * 100)))
             items_total = sum(i["amount_cents"] for i in lines)
+            if items_total <= 0:
+                raise HTTPException(status_code=400, detail="The discounts cover the whole invoice")
             if credit_cents >= items_total:
                 raise HTTPException(status_code=400, detail="What they already paid covers the whole invoice")
             items_json = json.dumps(lines)
@@ -440,7 +443,7 @@ def start_session(token: str):
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         s = _stripe()
         items = link_items(link)
-        if items and not link.credit_cents:
+        if items and not link.credit_cents and all(i["amount"] > 0 for i in items):
             # Each line on Stripe's page and receipt, as on our pay page.
             line_items = [{
                 "quantity": 1,
@@ -453,7 +456,7 @@ def start_session(token: str):
         else:
             # Stripe has no minus line for a deposit already paid, so one line
             # carries the balance and spells out what it's made of.
-            what = "; ".join(f"{i['name']} ${i['amount']:,.2f}" for i in items)
+            what = "; ".join(f"{i['name']} {'-' if i['amount'] < 0 else ''}${abs(i['amount']):,.2f}" for i in items)
             if items and link.credit_cents:
                 what += f"; less ${link.credit_cents / 100:,.2f} already paid"
             line_items = [{
