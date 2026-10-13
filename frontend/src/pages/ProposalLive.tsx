@@ -82,6 +82,9 @@ export default function ProposalLive() {
   return (
     <ProposalMockup
       preview
+      // The dashboard's "View proposal" opens ?preview=1: staff get buttons
+      // to see the after-payment screens. Customers never have the flag.
+      staffPeek={new URLSearchParams(window.location.search).get("preview") === "1"}
       dressed={state.live}
       doors={{
         reserve: (tier) => door(t, "reserve", tier),

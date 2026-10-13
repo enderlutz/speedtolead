@@ -514,7 +514,24 @@ const GOLD = "#C9972F";
 // the API (an unauthenticated call would bounce the page to the login).
 // `dressed` is the lead the no-login preview page already fetched through
 // the public endpoint; with it the page never calls the logged-in API.
-export default function ProposalMockup({ preview = false, dressed, doors }: { preview?: boolean; dressed?: Live; doors?: Doors } = {}) {
+/** One button per after-payment screen set, so staff can see and check
+ *  exactly what a customer gets. Mockup only: nothing is paid or sent. */
+function AfterPayButtons({ open, className }: { open: (v: { flow: PayFlow; method: PayMethod; paidUpFront?: boolean }) => void; className: string }) {
+  return (
+    <>
+      <button type="button" className={className} title="After the $250 deposit: you're on the schedule, what to know before we come"
+        onClick={() => open({ flow: "deposit", method: "card" })}>After deposit</button>
+      <button type="button" className={className} title="Paid the whole job through Klarna: same 'you're booked' screens, nothing more due to us"
+        onClick={() => open({ flow: "full", method: "klarna" })}>After Klarna</button>
+      <button type="button" className={className} title="After the final invoice is paid: thank you, how did we do, review, referral, other services"
+        onClick={() => open({ flow: "balance", method: "card" })}>After final invoice</button>
+      <button type="button" className={className} title="Financed up front, so nothing is owed at the end: the job-done screens come with the receipt"
+        onClick={() => open({ flow: "balance", method: "klarna", paidUpFront: true })}>Financed, job done</button>
+    </>
+  );
+}
+
+export default function ProposalMockup({ preview = false, dressed, doors, staffPeek = false }: { preview?: boolean; dressed?: Live; doors?: Doors; staffPeek?: boolean } = {}) {
   const [live, setLive] = useState<Live | null>(dressed ?? null);
   useEffect(() => {
     if (preview) return;
@@ -678,10 +695,17 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           <span className="ml-1 text-[11px] text-ivory/60">After the job:</span>
           <button type="button" onClick={() => setCheckout("balance")} title="The text with the balance link, after the crew marks the job done"
             className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Balance link</button>
-          <button type="button" onClick={() => setAfterPay({ flow: "balance", method: "klarna", paidUpFront: true })} title="A customer who paid the whole job up front through Klarna or Affirm owes nothing after the job and gets these screens by text"
-            className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">Paid up front</button>
+          <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20" />
         </div>
       </div>}
+
+      {preview && staffPeek ? (
+        <div className="sticky top-0 z-30 flex flex-wrap items-center gap-1.5 bg-[#15130F] px-3 py-2 text-white shadow-md">
+          <span className="text-[12px] font-bold uppercase tracking-wide text-[#E3BE63]">Staff view</span>
+          <span className="text-[12px] text-white/70">See what {dressed?.name?.split(" ")[0] || "they"} get after paying:</span>
+          <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" />
+        </div>
+      ) : null}
 
       {/* The customer's page. Explicit colours so the dashboard's dark mode
           can never change it. On the preview link a real phone gets the page
@@ -1350,7 +1374,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           feet={withScope ? customer.feet : 0}
           total={total || packages[1].price}
           repairs={repairs}
-          staff={!preview}
+          staff={!preview || staffPeek}
           onClose={() => setAfterPay(null)}
         />
       ) : null}

@@ -306,7 +306,11 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
     try:
         links = db.query(PayLink).filter(PayLink.lead_id == lead_id).order_by(PayLink.created_at.desc()).all()
         pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == lead_id).order_by(CustomerPayment.created_at.desc()).all()
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
         return {
+            # What the invoice preview prints at the top, as the customer will see it.
+            "bill_to": {"name": ((lead.contact_name or "").strip() if lead else ""), "address": ((lead.address or "") if lead else ""),
+                        "invoice_number": _invoice_number(db, lead_id)},
             "links": [link_dict(x) for x in links],
             "payments": [payment_dict(p) for p in pays],
             "paid_total": round(sum(p.amount_cents or 0 for p in pays) / 100, 2),

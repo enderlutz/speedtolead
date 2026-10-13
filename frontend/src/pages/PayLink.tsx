@@ -15,9 +15,9 @@ const BASE = import.meta.env.VITE_API_URL || "";
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 
-type InvoiceItem = { name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean };
+export type InvoiceItem = { name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean };
 
-type Info = {
+export type Info = {
   kind: string; label: string; amount: number; description: string; status: string;
   first_name: string; address: string; configured: boolean;
   items?: InvoiceItem[]; credit?: number;
@@ -131,7 +131,7 @@ const minus = (n: number) => `− ${formatCurrency(Math.abs(n))}`;
  *  and date, who it's billed to, the lines, then the totals. A line's own
  *  discount sits right under it in green; a discount on the whole invoice
  *  sits in the totals. */
-function InvoiceDoc({ info }: { info: Info }) {
+export function InvoiceDoc({ info }: { info: Info }) {
   const items = info.items ?? [];
   const lines = items.filter((i) => !i.total_discount);
   const wholeOff = items.filter((i) => i.total_discount);

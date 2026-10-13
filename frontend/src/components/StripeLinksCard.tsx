@@ -8,9 +8,10 @@
 // (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
+import { Copy, Ban, CreditCard, Eye, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
+import { InvoiceDoc } from "@/pages/PayLink";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
   { kind: "deposit", label: "Deposit $250", hint: "Books their dates. Card and wallets only.", needsAmount: false },
@@ -132,7 +133,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
           </button>
         ))}
       </div>
-      <InvoiceBuilder leadId={leadId} onMade={async (l) => { await copy(l); load(); }} />
+      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} onMade={async (l) => { await copy(l); load(); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
           {data.links.map((l) => (
@@ -181,8 +182,9 @@ type Row = { key: number; name: string; description: string; amount: string; dis
 const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
 const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", amount: "", discount: null, discountLabel: "" });
 
-function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLinkEntry) => void | Promise<void> }) {
+function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void> }) {
   const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState(false);
   const [rows, setRows] = useState<Row[]>([blankRow()]);
   // A discount on the whole invoice: null until "Discount on the total" is tapped.
   const [whole, setWhole] = useState<{ label: string; amount: string } | null>(null);
@@ -220,6 +222,14 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
     return i >= 0 ? rs.map((r, j) => (j === i ? fresh : r)) : [...rs, fresh];
   });
 
+  const buildItems = (): InvoiceLine[] => {
+    const items: InvoiceLine[] = rows.filter((r) => r.name.trim() || num(r.amount)).map((r) => ({
+      name: r.name.trim(), description: r.description.trim(), amount: num(r.amount),
+      ...(r.discount !== null ? { discount: num(r.discount), discount_label: r.discountLabel.trim() || "Discount" } : {}),
+    }));
+    if (whole) items.push({ name: whole.label.trim() || "Discount", description: "", amount: -wholeOff, total_discount: true });
+    return items;
+  };
   const make = async () => {
     const used = rows.filter((r) => r.name.trim() || num(r.amount));
     if (!used.length || used.some((r) => !r.name.trim() || num(r.amount) <= 0)) { toast.error("Every line needs a name and a price"); return; }
@@ -227,11 +237,7 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
     if (bad) { toast.error(`The discount on ${bad.name.trim()} needs an amount less than its price`); return; }
     if (whole && wholeOff <= 0) { toast.error("Type the discount on the total, or remove it"); return; }
     if (due <= 0) { toast.error("The discounts and payments cover the whole invoice"); return; }
-    const items: InvoiceLine[] = used.map((r) => ({
-      name: r.name.trim(), description: r.description.trim(), amount: num(r.amount),
-      ...(r.discount !== null ? { discount: num(r.discount), discount_label: r.discountLabel.trim() || "Discount" } : {}),
-    }));
-    if (whole) items.push({ name: whole.label.trim() || "Discount", description: "", amount: -wholeOff });
+    const items = buildItems();
     setBusy(true);
     try {
       const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined });
@@ -285,8 +291,8 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
             <div className="grid grid-cols-[1fr_7rem_3.5rem] items-center gap-1">
               <input value={r.name} onChange={(e) => set(r.key, { name: e.target.value })} placeholder="Item name" className={cn(field, "h-8 text-sm font-semibold")} />
               <div className="flex h-8 items-center rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
-                <span className="text-sm text-muted-foreground">$</span>
-                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" className="w-full bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
+                <span className="shrink-0 text-sm text-muted-foreground">$</span>
+                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" className="min-w-0 w-full bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
               </div>
               <span className="flex justify-end">
                 <button type="button" onClick={() => saveLine(r)} className="rounded-md p-1 hover:bg-muted" aria-label="Save this line for next time" title="Save this line for next time">
@@ -300,8 +306,8 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
               <div className="mt-1 grid grid-cols-[1fr_7rem_3.5rem] items-center gap-1 rounded-md bg-emerald-50 py-1 pl-1 dark:bg-emerald-950/40">
                 <input value={r.discountLabel} onChange={(e) => set(r.key, { discountLabel: e.target.value })} placeholder="Discount name (e.g. Package discount)" className={cn(field, "h-7 text-xs font-medium text-emerald-800 dark:text-emerald-300")} />
                 <div className="flex h-7 items-center rounded-md border border-emerald-300 bg-background px-1.5 dark:border-emerald-800">
-                  <span className="text-xs font-semibold text-emerald-700">−$</span>
-                  <input value={r.discount} onChange={(e) => set(r.key, { discount: e.target.value })} inputMode="decimal" placeholder="0.00" autoFocus className="w-full bg-transparent text-right text-xs font-semibold tabular-nums text-emerald-800 outline-none dark:text-emerald-300" />
+                  <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-emerald-700">−$</span>
+                  <input value={r.discount} onChange={(e) => set(r.key, { discount: e.target.value })} inputMode="decimal" placeholder="0.00" autoFocus className="min-w-0 w-full bg-transparent text-right text-xs font-semibold tabular-nums text-emerald-800 outline-none dark:text-emerald-300" />
                 </div>
                 <span className="flex justify-end">
                   <button type="button" onClick={() => set(r.key, { discount: null, discountLabel: "" })} className="rounded-md p-1 text-muted-foreground hover:bg-background" aria-label="Remove discount"><X className="h-3.5 w-3.5" /></button>
@@ -327,8 +333,8 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
           <div className="flex items-center justify-between gap-2 text-emerald-700">
             <input value={whole.label} onChange={(e) => setWhole({ ...whole, label: e.target.value })} className={cn(field, "h-7 min-w-0 flex-1 text-sm")} aria-label="Name of the discount on the total" />
             <span className="flex h-7 w-24 items-center rounded-md border border-emerald-300 bg-background px-1.5 dark:border-emerald-800">
-              <span className="text-xs font-semibold">−$</span>
-              <input value={whole.amount} onChange={(e) => setWhole({ ...whole, amount: e.target.value })} inputMode="decimal" placeholder="0.00" autoFocus className="w-full bg-transparent text-right text-sm tabular-nums outline-none" />
+              <span className="shrink-0 whitespace-nowrap text-xs font-semibold">−$</span>
+              <input value={whole.amount} onChange={(e) => setWhole({ ...whole, amount: e.target.value })} inputMode="decimal" placeholder="0.00" autoFocus className="min-w-0 w-full bg-transparent text-right text-sm tabular-nums outline-none" />
             </span>
             <button type="button" onClick={() => setWhole(null)} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Remove discount on the total"><X className="h-3.5 w-3.5" /></button>
           </div>
@@ -336,8 +342,8 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
         <div className="flex items-center justify-between gap-2">
           <dt className="text-muted-foreground">Already paid</dt>
           <span className="flex h-7 w-24 items-center rounded-md border border-border bg-background px-1.5">
-            <span className="text-xs text-muted-foreground">−$</span>
-            <input value={credit} onChange={(e) => setCredit(e.target.value)} inputMode="decimal" placeholder="0.00" className="w-full bg-transparent text-right text-sm tabular-nums outline-none" />
+            <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">−$</span>
+            <input value={credit} onChange={(e) => setCredit(e.target.value)} inputMode="decimal" placeholder="0.00" className="min-w-0 w-full bg-transparent text-right text-sm tabular-nums outline-none" />
           </span>
         </div>
         <div className="flex items-baseline justify-between border-t border-border pt-1.5">
@@ -347,10 +353,32 @@ function InvoiceBuilder({ leadId, onMade }: { leadId: string; onMade: (l: PayLin
       </dl>
       <div className="flex justify-end gap-1.5 border-t border-border bg-muted/40 px-3 py-2">
         <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-md px-3 text-sm font-semibold hover:bg-background">Cancel</button>
+        <button type="button" onClick={() => setPreview(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted">
+          <Eye className="h-3.5 w-3.5" /> Preview
+        </button>
         <button type="button" onClick={make} disabled={busy} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ReceiptText className="h-3.5 w-3.5" />} Make invoice link
         </button>
       </div>
+      {preview && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-3 sm:items-center" onClick={() => setPreview(false)}>
+          <div className="w-full max-w-[430px] rounded-2xl bg-[#F8F3E7] p-4 text-[#15130F] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-[12px] font-bold uppercase tracking-[0.18em] text-[#8C6224]">Preview · what the customer sees</p>
+              <button type="button" onClick={() => setPreview(false)} className="rounded-full p-1.5 hover:bg-black/10" aria-label="Close preview"><X className="h-4 w-4" /></button>
+            </div>
+            <InvoiceDoc info={{
+              kind: "balance", label: "Balance", amount: Math.max(0, due), description: "", status: "open",
+              first_name: (billTo?.name || "").split(" ")[0], address: billTo?.address || "", configured: true,
+              items: buildItems(), credit: paid, name: billTo?.name || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(),
+            }} />
+            <div className="mt-4 flex h-14 w-full items-center justify-center rounded-xl text-[18px] font-bold text-[#15130F] opacity-90" style={{ background: "#C9972F" }}>
+              Pay {formatCurrency(Math.max(0, due))}
+            </div>
+            <p className="mt-2 text-center text-[13px] text-[#15130F]/70">Nothing is made or sent until you tap Make invoice link.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5621,6 +5621,7 @@ export interface CustomerPaymentEntry {
 }
 export interface PayLinksResponse {
   links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
+  bill_to?: { name: string; address: string; invoice_number: string };
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 
