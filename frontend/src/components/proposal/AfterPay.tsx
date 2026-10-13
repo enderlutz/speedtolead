@@ -367,7 +367,9 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
         <>
           {tick}
           <h2 className="font-heading text-3xl font-bold leading-tight">Enjoy the fence, {firstName}.</h2>
-          <p className="text-[17px]">Your leftover touch-up stain is in your garage. Shake it well and brush it on if a board ever gets scuffed.</p>
+          {/* No touch-up stain line until leaving a can is a set step on every
+              job (Alan, 2026-10-13). */}
+          <p className="text-[17px]">Thank you so much for your business. We truly value it, and we're glad we got to take care of your fence.</p>
           {contact}
           {comment.trim() ? (
             <label className="flex items-start gap-3 rounded-2xl bg-white p-3.5 text-[15px] ring-1 ring-[#15130F]/10">
