@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Lock, Phone } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { TermsBody } from "@/components/proposal/TermsBody";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 const GOLD = "#C9972F";
@@ -24,6 +25,7 @@ export default function PayLink() {
   const [info, setInfo] = useState<Info | "loading" | "gone">("loading");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [terms, setTerms] = useState(false);
   // A deposit link lives 7 days; the API says so with a 410 and a sentence.
   const [goneWhy, setGoneWhy] = useState("");
 
@@ -103,7 +105,8 @@ export default function PayLink() {
           <p className="mt-2 text-center text-[14px] text-[#15130F]/75">
             {deposit ? "Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set." : "Card, Apple Pay, Google Pay, or pay over time with Klarna. You pick on the next screen."}
           </p>
-          <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</a>.</p>
+          <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
+          {terms ? <TermsSheet onClose={() => setTerms(false)} /> : null}
           {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-800">{error}</p> : null}
           <p className="mt-6 flex items-center justify-center gap-2 text-[13px] text-[#15130F]/65"><Lock className="h-3.5 w-3.5" /> Secure checkout by Stripe</p>
         </>
@@ -112,6 +115,31 @@ export default function PayLink() {
       )}
       <Contact />
     </Shell>
+  );
+}
+
+/** The terms over the pay page, so reading them never leaves checkout. */
+function TermsSheet({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[92vh] w-full max-w-md flex-col rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <div className="overflow-y-auto p-5">
+          <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
+          <h3 className="font-heading text-2xl font-bold leading-tight">Our terms</h3>
+          <div className="mt-3 space-y-4 text-[17px] leading-relaxed"><TermsBody /></div>
+        </div>
+        <div className="border-t border-[#15130F]/10 p-4">
+          <button type="button" onClick={onClose} className="h-12 w-full rounded-xl text-base font-bold text-[#15130F]" style={{ background: GOLD }}>Got it</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
