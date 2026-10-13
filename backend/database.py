@@ -3958,6 +3958,10 @@ class PayLink(Base):
     # 1 = Klarna switched off for this link (Alan, 2026-10-13: Klarna costs
     # him ~3% on a final invoice nobody asked to finance). NULL = allowed.
     no_financing = Column(Integer, nullable=True)
+    # When the customer opened the pay page (bots and staff previews skipped).
+    first_viewed_at = Column(Text, nullable=True)
+    last_viewed_at = Column(Text, nullable=True)
+    view_count = Column(Integer, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4060,6 +4064,9 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN credit_cents INTEGER"))
             if "no_financing" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
+            for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER")):
+                if col not in pl:
+                    conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
     if inspector.has_table("proposals"):
         pr = {c["name"] for c in inspector.get_columns("proposals")}
         if "extended_until" not in pr:

@@ -70,6 +70,7 @@ export default function AfterPayPage() {
         repairs={0}
         initial={after.answers}
         onAnswer={save}
+        receiptUrl={after.kind === "done" ? undefined : `/receipt/${token}`}
       />
     );
   }

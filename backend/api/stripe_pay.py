@@ -136,6 +136,8 @@ def link_dict(link: PayLink) -> dict:
         "items": link_items(link),
         "credit": round((link.credit_cents or 0) / 100, 2),
         "financing": link.kind != "deposit" and not link.no_financing,
+        "first_viewed_at": link.first_viewed_at, "last_viewed_at": link.last_viewed_at,
+        "view_count": link.view_count or 0,
     }
 
 
@@ -510,12 +512,23 @@ def _live_link(db, token: str) -> PayLink:
 
 
 @router.get("/pay/{token}")
-def pay_info(token: str):
-    """Public. What the pay page shows before the customer taps Pay."""
+def pay_info(token: str, request: Request = None, preview: int = 0):
+    """Public. What the pay page shows before the customer taps Pay, and,
+    once paid, what the receipt shows. An open link counts the customer's
+    views; link-preview bots and staff (?preview=1) don't count."""
     db = get_db()
     try:
         link = _live_link(db, token)
+        if request is not None and preview != 1 and link.status == "open":
+            from api.proposals import _is_bot_view
+            if not _is_bot_view(request.headers.get("user-agent", "")):
+                now = datetime.now(timezone.utc).isoformat()
+                link.first_viewed_at = link.first_viewed_at or now
+                link.last_viewed_at = now
+                link.view_count = (link.view_count or 0) + 1
+                db.commit()
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        pay = db.query(CustomerPayment).filter(CustomerPayment.pay_link_token == link.token).first()
         return {
             "kind": link.kind, "label": LABELS.get(link.kind, link.kind),
             "amount": round((link.amount_cents or 0) / 100, 2), "description": link.description or "",
@@ -525,6 +538,7 @@ def pay_info(token: str):
             "name": ((lead.contact_name or "").strip() if lead else ""),
             "invoice_number": _invoice_number(db, link.lead_id), "date": link.created_at or "",
             "financing": link.kind != "deposit" and not link.no_financing,
+            "paid_at": link.paid_at or "", "method": (pay.method if pay else "") or "",
         }
     finally:
         db.close()

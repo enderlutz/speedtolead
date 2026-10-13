@@ -38,7 +38,9 @@ export default function PayLink() {
     document.title = "Pay Sterling Fence Staining";
     (async () => {
       try {
-        const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}`);
+        // Staff open their own links with ?preview=1 so it never counts as the customer's view.
+        const preview = new URLSearchParams(window.location.search).get("preview") === "1" ? "?preview=1" : "";
+        const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}${preview}`);
         if (!r.ok) {
           if (r.status === 410) {
             const why = (await r.json().catch(() => ({}))) as { detail?: string };
@@ -131,7 +133,7 @@ const minus = (n: number) => `− ${formatCurrency(Math.abs(n))}`;
  *  and date, who it's billed to, the lines, then the totals. A line's own
  *  discount sits right under it in green; a discount on the whole invoice
  *  sits in the totals. */
-export function InvoiceDoc({ info }: { info: Info }) {
+export function InvoiceDoc({ info, paid = false }: { info: Info; paid?: boolean }) {
   const items = info.items ?? [];
   const lines = items.filter((i) => !i.total_discount);
   const wholeOff = items.filter((i) => i.total_discount);
@@ -145,7 +147,7 @@ export function InvoiceDoc({ info }: { info: Info }) {
           <p className="text-[13px] font-bold uppercase tracking-[0.18em]" style={{ color: GOLD }}>Sterling</p>
           <p className="text-[13px] text-white/80">Fence Staining · Houston</p>
         </div>
-        <p className="font-heading text-2xl font-bold tracking-wide">INVOICE</p>
+        <p className="font-heading text-2xl font-bold tracking-wide">{paid ? "RECEIPT" : "INVOICE"}</p>
       </div>
       <div className="grid grid-cols-2 gap-3 border-b border-[#15130F]/10 px-4 py-3 text-[15px]">
         <div>
@@ -194,7 +196,7 @@ export function InvoiceDoc({ info }: { info: Info }) {
         {info.credit ? <div className="flex justify-between gap-3"><dt className="text-[#15130F]/75">Already paid</dt><dd className="tabular-nums">{minus(info.credit)}</dd></div> : null}
       </dl>
       <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: "#FBF3DF" }}>
-        <span className="text-[17px] font-bold">Total due</span>
+        <span className="text-[17px] font-bold">{paid ? "Total paid" : "Total due"}</span>
         <span className="font-heading text-3xl font-bold tabular-nums">{money(info.amount)}</span>
       </div>
     </div>

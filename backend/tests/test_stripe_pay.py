@@ -416,3 +416,17 @@ def test_klarna_can_be_switched_off_on_an_invoice(db, monkeypatch):
     assert on["financing"] is True
     sp.start_session(on["token"])
     assert "payment_method_configuration" not in seen
+
+
+def test_the_customer_opening_the_pay_page_is_counted_but_bots_and_staff_are_not(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=100), STAFF)
+    req = lambda ua: SimpleNamespace(headers={"user-agent": ua})  # noqa: E731
+    sp.pay_info(out["token"], req("facebookexternalhit/1.1"))
+    sp.pay_info(out["token"], req("Mozilla/5.0 (iPhone)"), preview=1)
+    assert sp.list_pay_links(lead.id, STAFF)["links"][0]["view_count"] == 0
+    sp.pay_info(out["token"], req("Mozilla/5.0 (iPhone)"))
+    sp.pay_info(out["token"], req("Mozilla/5.0 (iPhone)"))
+    row = sp.list_pay_links(lead.id, STAFF)["links"][0]
+    assert row["view_count"] == 2 and row["first_viewed_at"] and row["last_viewed_at"]

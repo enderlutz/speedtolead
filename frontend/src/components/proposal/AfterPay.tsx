@@ -18,7 +18,7 @@
 // the confirmations, and the Google review button is the same for every
 // score. The review ask is never tied to the referral reward.
 import { useEffect, useState } from "react";
-import { Check, Copy, MessageSquare, Share2, Phone, ExternalLink, ArrowLeft } from "lucide-react";
+import { Check, Copy, MessageSquare, Share2, Phone, ExternalLink, ArrowLeft, ReceiptText } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 
 export type PayFlow = "deposit" | "full" | "balance";
@@ -55,7 +55,7 @@ const NAMES: Record<Screen, string> = {
   paid: "Paid in full", score: "How did we do?", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
 };
 
-export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose }: {
+export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl }: {
   flow: PayFlow; method: PayMethod; paidUpFront?: boolean;
   firstName: string; address: string; pkgName: string; feet: number; total: number; repairs: number;
   /** What was just paid. The mockup derives it from the flow; the real page knows it. */
@@ -68,6 +68,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   /** Called the moment an answer is given. The real page posts it. */
   onAnswer?: (field: string, value: unknown) => void;
   onClose?: () => void;
+  /** The paid receipt (save, share, text). None when nothing was paid here. */
+  receiptUrl?: string;
 }) {
   const screens = flow === "balance" ? FLOW_B : FLOW_A;
   const init = initial || {};
@@ -180,6 +182,14 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
       <a href={`tel:+1${PHONE.replace(/-/g, "")}`} className="mt-1 flex items-center gap-2 font-heading text-2xl font-bold"><Phone className="h-5 w-5" style={{ color: GOLD }} /> {PHONE}</a>
     </div>
   );
+  // On the mockup there's no real receipt yet, so the button just says so.
+  const receipt = paidUpFront ? null : (
+    <a href={receiptUrl || undefined} target={receiptUrl ? "_blank" : undefined} rel="noreferrer"
+      onClick={receiptUrl ? undefined : (e) => { e.preventDefault(); setToast("Their receipt opens here: save, share or text it"); }}
+      className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-white text-[17px] font-bold ring-1 ring-[#15130F]/15">
+      <ReceiptText className="h-5 w-5" style={{ color: GOLD }} /> Your receipt
+    </a>
+  );
   const tick = <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-4 ring-[#C9972F]/50"><Check className="h-8 w-8" /></span>;
 
   let body: React.ReactNode = null;
@@ -261,6 +271,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
           {tick}
           <h2 className="font-heading text-3xl font-bold leading-tight">That's it. We'll take it from here.</h2>
           <p className="text-[17px]">We'll call you shortly to pick your start day. If we miss you, we'll text. Anything changes on your end? Just reply to our text.</p>
+          {receipt}
           {contact}
           <p className="text-[14px] text-[#15130F]/75">You can close this page.</p>
         </>
@@ -370,6 +381,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
           {/* No touch-up stain line until leaving a can is a set step on every
               job (Alan, 2026-10-13). */}
           <p className="text-[17px]">Thank you so much for your business. We truly value it, and we're glad we got to take care of your fence.</p>
+          {receipt}
           {contact}
           {comment.trim() ? (
             <label className="flex items-start gap-3 rounded-2xl bg-white p-3.5 text-[15px] ring-1 ring-[#15130F]/10">

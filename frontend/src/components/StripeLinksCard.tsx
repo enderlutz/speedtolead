@@ -8,7 +8,7 @@
 // (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, Eye, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
+import { Copy, Ban, CreditCard, Eye, ExternalLink, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceDoc } from "@/pages/PayLink";
@@ -147,6 +147,12 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               {l.job_total ? <span className="text-muted-foreground">· {l.job_tier} sale {formatCurrency(l.job_total)}</span> : null}
               {l.items?.length ? <span className="truncate text-muted-foreground" title={l.items.map((i) => `${i.name} ${formatCurrency(i.amount)}`).join("\n")}>· {l.items.length} lines{l.credit ? `, less ${formatCurrency(l.credit)} paid` : ""}</span> : null}
               {l.kind !== "deposit" && l.financing === false ? <span className="shrink-0 rounded bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">No Klarna</span> : null}
+              {l.status === "open" && l.kind !== "done" ? (
+                <span className={cn("shrink-0 rounded px-1.5 text-[10px] font-semibold", l.view_count ? "bg-sky-100 text-sky-800" : "bg-muted text-muted-foreground")}
+                  title={l.first_viewed_at ? `First opened ${new Date(l.first_viewed_at).toLocaleString()}` : undefined}>
+                  {l.view_count ? `Viewed ${l.view_count}× · ${new Date(l.last_viewed_at || "").toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : l.sent_at ? "Not opened yet" : "Not sent"}
+                </span>
+              ) : null}
               <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
               {l.status === "open" || l.kind === "done" ? (
@@ -159,6 +165,8 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
                   {checking === l.token ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Check with Stripe
                 </button>
               ) : null}
+              <a href={l.status === "paid" && l.kind !== "done" ? l.url.replace("/pay/", "/receipt/") : `${l.url}?preview=1`} target="_blank" rel="noreferrer" className="rounded-md p-1 hover:bg-background"
+                title={l.status === "paid" && l.kind !== "done" ? "Open the receipt" : "Open what the customer sees (doesn't count as their view)"}><ExternalLink className="h-3.5 w-3.5" /></a>
               <button type="button" onClick={() => copy(l)} className="rounded-md p-1 hover:bg-background" title="Copy the link"><Copy className="h-3.5 w-3.5" /></button>
               {l.status === "open" ? <button type="button" onClick={() => voidLink(l)} className="rounded-md p-1 hover:bg-background" title="Void this link"><Ban className="h-3.5 w-3.5" /></button> : null}
             </li>

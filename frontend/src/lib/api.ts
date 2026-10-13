@@ -5598,6 +5598,8 @@ export interface PayLinkEntry {
   job_tier: string; job_total: number | null;
   /** Klarna offered at checkout. Always false on a deposit. */
   financing?: boolean;
+  /** The customer opening the pay page; staff previews and bots don't count. */
+  first_viewed_at?: string | null; last_viewed_at?: string | null; view_count?: number;
   /** Someone opened the pay page, so Stripe holds a Checkout session for it. */
   opened: boolean;
   /** An itemized invoice: each line, and what they'd already paid. */
