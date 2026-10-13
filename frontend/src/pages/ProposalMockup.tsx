@@ -1235,11 +1235,11 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
             <h3 className="font-heading text-2xl font-bold leading-tight">1-year workmanship warranty</h3>
-            <div className="mt-3 space-y-3 text-[15px] leading-relaxed">
+            <div className="mt-3 space-y-4 text-[17px] leading-relaxed">
               <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we applied it, we come back and fix it. Free. For one year from the day we finish.</p>
               <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
+              <p><span className="font-bold">Something else damaged it?</span> If the damage was not caused by our work, like a mower, a sprinkler, a storm or a pet, it is not free. But we will still come fix it. We tell you the price first. You say yes or no. No surprises.</p>
               <p><span className="font-bold">A complimentary touch-up can.</span> When we finish, we leave you a can of your exact stain, free, as our thank-you on top of everything else. A small scrape becomes a two-minute fix. The stain's name is on the label. Need more? Buy it by that name, or ask us.</p>
-              <p><span className="font-bold">Want us to fix that anyway?</span> We can. We give you a price for the trip first, and you say yes or no.</p>
               <p><span className="font-bold">* Why we give a range.</span> The years on each package are what we usually see, not a promise. How long a stain lasts depends on things no one controls. How much sun the fence gets matters most, because south and west sides fade first. So do rain, Houston humidity, sprinklers that hit the fence, shade and mildew, the age of the wood, and storms like hail and hurricanes. Two fences on the same street can wear differently. Our written promise is the 1-year workmanship warranty above. After that, we're glad to come back and restain at our regular price.</p>
               <p><span className="font-bold">The deposit.</span> $250 reserves your spot and isn't refundable. Move your date any time. The rest is due when the job is done and you're happy.</p>
               {expired
