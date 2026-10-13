@@ -382,15 +382,17 @@ def start_session(token: str):
                 session = s.checkout.Session.create(**params)
             except stripe.InvalidRequestError as e:  # type: ignore[attr-defined]
                 # The terms line must never be what stops a payment: if Stripe
-                # refuses it, open checkout without it (the pay page and the
-                # proposal still show the agreement line).
-                if "custom_text" not in str(e):
+                # refuses the request, try once more without it (the pay page
+                # and the proposal still show the agreement line).
+                if "custom_text" not in params:
                     raise
-                logger.warning("Stripe refused the terms line for %s, paying without it: %s", token, e)
+                logger.warning("Stripe refused the session for %s, retrying without the terms line: %s", token, e)
+                log_event(link.lead_id, "stripe_session_retry", str(e)[:500])
                 params.pop("custom_text", None)
                 session = s.checkout.Session.create(**params)
         except stripe.StripeError as e:  # type: ignore[attr-defined]
             logger.warning("Stripe session failed for %s: %s", token, e)
+            log_event(link.lead_id, "stripe_session_failed", f"{link.kind} {link.token[:6]}: {str(e)[:500]}")
             raise HTTPException(status_code=502, detail="Stripe couldn't start the payment. Try again in a minute.")
         link.stripe_session_id = session.id
         db.commit()
