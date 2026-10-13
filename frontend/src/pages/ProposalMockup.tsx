@@ -1040,7 +1040,6 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
               </div>
               <p className="mt-0.5 text-sm text-[#15130F]/75">We pride ourselves on being the best.</p>
             </div>
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F8F3E7] font-heading text-2xl font-bold ring-1 ring-[#15130F]/10" aria-hidden>G</span>
           </div>
           {/* Every five-star review, swiped through on a phone, three across
               on a desktop with the rest below. Sample cards only until the
