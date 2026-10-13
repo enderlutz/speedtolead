@@ -719,7 +719,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                           <p className="h-[22px] font-heading text-[18px] font-bold leading-[22px] tracking-wide" style={{ color: s.name }}>{p.short}</p>
                           <p className="h-[30px] text-[12px] font-bold uppercase leading-[15px] tracking-[0.05em]" style={{ color: s.muted }}>{p.tag}</p>
                           <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
-                          <p className="h-[16px] text-[12px] leading-[16px]" style={{ color: s.muted }}>Lasts {p.lasts}</p>
+                          <p className="h-[32px] text-[12px] leading-[16px]" style={{ color: s.muted }}>Usually lasts<br />{p.lasts}*</p>
                         </div>
                       </button>
                     );
@@ -732,7 +732,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                     {sk.frame ? <GoldFrame /> : null}
                     <div className="min-w-0">
                       <h3 className="font-heading text-2xl font-bold leading-tight" style={{ color: sk.name }}>{show.name}</h3>
-                      <p className="text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: sk.muted }}>{show.tag} · Lasts {show.lasts}</p>
+                      <p className="text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: sk.muted }}>{show.tag}<br /><span className="whitespace-nowrap">Usually lasts {show.lasts}*</span></p>
                     </div>
                     {chosen
                       ? <span className="shrink-0 rounded-full bg-[#15130F] px-2.5 py-1 text-[12px] font-bold text-[#E3BE63] ring-1 ring-[#C9972F]">✓ Your pick</span>
@@ -807,7 +807,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                       </div>
                     </div>
                     <div className="flex flex-1 flex-col p-4">
-                      <p className="text-center text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: s.muted }}>{p.tag} · Lasts {p.lasts}</p>
+                      <p className="text-center text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: s.muted }}>{p.tag}<br /><span className="whitespace-nowrap">Usually lasts {p.lasts}*</span></p>
                       <ul className="mt-3 flex-1 space-y-1.5">
                         {p.lines.map((l) => (
                           <li key={l.text} className="flex items-start gap-2 text-[15px] font-medium"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
@@ -1240,6 +1240,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
               <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
               <p><span className="font-bold">A complimentary touch-up can.</span> When we finish, we leave you a can of your exact stain, free, as our thank-you on top of everything else. A small scrape becomes a two-minute fix. The stain's name is on the label. Need more? Buy it by that name, or ask us.</p>
               <p><span className="font-bold">Want us to fix that anyway?</span> We can. We give you a price for the trip first, and you say yes or no.</p>
+              <p><span className="font-bold">* Why we give a range.</span> The years on each package are what we usually see, not a promise. How long a stain lasts depends on things no one controls. How much sun the fence gets matters most, because south and west sides fade first. So do rain, Houston humidity, sprinklers that hit the fence, shade and mildew, the age of the wood, and storms like hail and hurricanes. Two fences on the same street can wear differently. Our written promise is the 1-year workmanship warranty above. After that, we're glad to come back and restain at our regular price.</p>
               <p><span className="font-bold">The deposit.</span> $250 reserves your spot and isn't refundable. Move your date any time. The rest is due when the job is done and you're happy.</p>
               {expired
                 ? <p><span className="font-bold">Your price</span> was good for {customer.priceDays} days, through {customer.goodThrough}. That has ended, so our regular prices apply.</p>
