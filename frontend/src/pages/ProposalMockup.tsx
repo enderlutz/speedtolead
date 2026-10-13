@@ -407,6 +407,11 @@ const LEGACY_PHOTOS: { name: string; src: string; full: string }[] = [
 ];
 const LEGACY_NO_PHOTO = ["Cedar Naturaltone", "Midnight Gray"];
 
+// Affirm is archived: Stripe doesn't support it for this business, so
+// Klarna is the only pay-over-time door (Alan, 2026-10-13). Flip this to
+// bring the Affirm row, help screen and checkout option back.
+const AFFIRM_ON = false;
+
 // Affirm, the other door at checkout, in the same plain words. Numbers are
 // Affirm's own published US terms; the real page links to affirm.com.
 const AFFIRM_FAQ: [string, string][] = [
@@ -497,7 +502,7 @@ const KLARNA_FAQ: [string, string][] = [
   ["Is there a fee for 4 payments?", "No fee when you pay on schedule. If a payment doesn't go through, Klarna tries again; if it still fails, a late fee of up to $7 plus the missed amount is added to the next payment."],
   ["Will Klarna check my credit?", "For 4 payments, Klarna may do a soft check. It doesn't affect your credit score and doesn't show as a hard inquiry."],
   ["What are the monthly plans?", "For jobs of $200 and up. Apply at checkout and get an instant decision; applying is a soft check with no effect on your credit. Rates run from 7.99% to 29.99% APR, a down payment may be required, and late payments may be reported to the credit bureaus. No application, late or early-payoff fees. Plans are issued by WebBank, member FDIC."],
-  ["What if something changes on the job?", "You paid the whole job through Klarna, so there's no deposit to think about. If the job ends up costing more (say, boards we find rotten on the day), we text you a payment link for the extra when the work is done, and you pay it any way you like: card, Apple Pay, Klarna or Affirm. If it ends up costing less, we refund the difference through Klarna and Klarna lowers what you owe on its own; allow 8 to 10 business days."],
+  ["What if something changes on the job?", "You paid the whole job through Klarna, so there's no deposit to think about. If the job ends up costing more (say, boards we find rotten on the day), we text you a payment link for the extra when the work is done, and you pay it any way you like: card, Apple Pay or Klarna. If it ends up costing less, we refund the difference through Klarna and Klarna lowers what you owe on its own; allow 8 to 10 business days."],
   ["Is this a Sterling loan?", "No. Klarna is the lender and Sterling Fence Staining is paid in full when you check out. Your agreement, statements and privacy are with Klarna, not with us."],
 ];
 
@@ -1174,7 +1179,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
         </section>
 
         {/* How to pay: the deposit, or the whole job over time. Both go to
-            the same Stripe checkout; Klarna and Affirm are picked there. */}
+            the same Stripe checkout; Klarna is picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
           <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
           {/* The 20% off ends with the month and the price goes back up. Booking
@@ -1207,13 +1212,13 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
               <p className="mt-1 text-sm text-[#15130F]/75">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
               <div className="mt-2 space-y-2">
-                <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
-                <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Pay a little each month. You see the full cost before you say yes." learn={() => setPayFaq("affirm")} />
+                <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan. You see the full cost before you say yes." learn={() => setPayFaq("klarna")} />
+                {AFFIRM_ON ? <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Pay a little each month. You see the full cost before you say yes." learn={() => setPayFaq("affirm")} /> : null}
               </div>
               <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98] disabled:opacity-70">
                 {doorBusy === "finance" ? "Opening your options…" : "See my options"}
               </button>
-              <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
+              <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">{AFFIRM_ON ? "Pick Klarna or Affirm on the next screen." : "Pick Klarna on the next screen."} Checking takes a minute and doesn't affect your credit score.</p>
             </div>
           </div>
           )}
@@ -1272,24 +1277,24 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
       {/* Pay over time, explained the way PlayStation explains Klarna, for
           both lenders, with the two side by side at the top. */}
       {payFaq ? (() => {
-        const faq = payFaq === "klarna" ? KLARNA_FAQ : AFFIRM_FAQ;
+        const faq = payFaq === "affirm" && AFFIRM_ON ? AFFIRM_FAQ : KLARNA_FAQ;
         return (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setPayFaq(null)}>
             <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
               <div className="px-5 pt-5">
                 <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Pay over time</p>
-                <h3 className="font-heading text-xl font-bold leading-tight">Two ways to spread it out</h3>
-                <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
+                <h3 className="font-heading text-xl font-bold leading-tight">{AFFIRM_ON ? "Two ways to spread it out" : "Spread it out with Klarna"}</h3>
+                {AFFIRM_ON ? <div className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-white p-1 ring-1 ring-[#15130F]/10">
                   <button type="button" onClick={() => setPayFaq("klarna")}
                     className={cn("flex h-11 items-center justify-center rounded-lg text-[15px] font-black transition", payFaq === "klarna" ? "bg-[#FFB3C7] text-black" : "text-[#15130F]/75")}>Klarna.</button>
                   <button type="button" onClick={() => setPayFaq("affirm")}
                     className={cn("flex h-11 items-center justify-center rounded-lg transition", payFaq === "affirm" ? "bg-[#15130F]" : "opacity-50")}>
                     <img src="/affirm-white.png" alt="Affirm" className={cn("h-4 w-auto", payFaq !== "affirm" && "invert")} draggable={false} />
                   </button>
-                </div>
+                </div> : null}
               </div>
               <div className="mt-3 flex-1 space-y-3 overflow-y-auto px-5 pb-2">
-                <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
+                {AFFIRM_ON ? <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
                   <div className="grid grid-cols-[1.2fr_1fr_1fr] bg-[#15130F] px-3 py-1.5 text-[12px] font-bold uppercase tracking-wider text-white/85">
                     <span>Compare</span><span className={cn(payFaq === "klarna" && "text-[#E3BE63]")}>Klarna</span><span className={cn(payFaq === "affirm" && "text-[#E3BE63]")}>Affirm</span>
                   </div>
@@ -1300,7 +1305,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                       <span className={cn(payFaq === "affirm" ? "font-semibold" : "text-[#15130F]/75")}>{a}</span>
                     </div>
                   ))}
-                </div>
+                </div> : null}
                 {faq.map(([q, a]) => (
                   <div key={q} className="rounded-2xl bg-white p-3 ring-1 ring-[#15130F]/10">
                     <p className="text-[15px] font-bold leading-snug">{q}</p>
@@ -1308,7 +1313,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                   </div>
                 ))}
                 <p className="px-1 text-[13px] leading-snug text-[#15130F]/75">
-                  {payFaq === "klarna"
+                  {payFaq !== "affirm" || !AFFIRM_ON
                     ? "Klarna's current terms, privacy policy and customer service are on klarna.com and in the Klarna app. They are Klarna's, not Sterling Fence Staining's."
                     : "Affirm's current terms, lending partners and customer service are on affirm.com and in the Affirm app. They are Affirm's, not Sterling Fence Staining's."}
                 </p>
@@ -1431,7 +1436,7 @@ function Fact({ icon: Icon, label, children, wide }: { icon: React.ElementType; 
  *  pulled from Stripe's messaging element. */
 /** Stripe Checkout on a phone, with Sterling's branding, as the customer
  *  will really see it. Two jobs: the $250 deposit (card, Apple Pay, Google
- *  Pay), or the whole job with Klarna and Affirm on it. The real page is
+ *  Pay), or the whole job with Klarna on it. The real page is
  *  Stripe's; this is its shape. What comes after a payment is a stub
  *  until Alan's post-payment flow arrives. */
 function CheckoutMock({ mode, pkgName, total, repairs, onClose, onPaid }: {
@@ -1444,7 +1449,7 @@ function CheckoutMock({ mode, pkgName, total, repairs, onClose, onPaid }: {
   const line = payLine(amount);
   const methods: { key: Method; label: string }[] = mode === "deposit"
     ? [{ key: "card", label: "Card" }]
-    : [{ key: "card", label: "Card" }, { key: "klarna", label: "Klarna" }, { key: "affirm", label: "Affirm" }];
+    : [{ key: "card", label: "Card" }, { key: "klarna", label: "Klarna" }, ...(AFFIRM_ON ? [{ key: "affirm" as const, label: "Affirm" }] : [])];
   const payLabel = method === "klarna" ? "Continue to Klarna" : method === "affirm" ? "Continue to Affirm" : `Pay ${formatCurrency(amount)}`;
 
   return (

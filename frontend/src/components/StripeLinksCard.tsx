@@ -14,7 +14,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
   { kind: "deposit", label: "Deposit $250", hint: "Books their dates. Card and wallets only.", needsAmount: false },
-  { kind: "balance", label: "Balance", hint: "After the job. Card, Klarna or Affirm.", needsAmount: true },
+  { kind: "balance", label: "Balance", hint: "After the job. Card or Klarna.", needsAmount: true },
   { kind: "extra", label: "Extra work", hint: "More repairs added on the job.", needsAmount: true },
   { kind: "done", label: "Job done, nothing owed", hint: "Paid up front. Sends only the after-job screens.", needsAmount: false },
 ];

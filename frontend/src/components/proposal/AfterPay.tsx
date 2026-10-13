@@ -209,7 +209,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
               {flow === "deposit" ? (
                 <div className="border-t border-[#15130F]/10 pt-2">
                   <Row k="Due after the job" v={total > 0 ? formatCurrency(balance) : "The rest"} bold />
-                  <p className="mt-1 text-[13px] text-[#15130F]/75">Pay it then by card, or split it with Klarna or Affirm.</p>
+                  <p className="mt-1 text-[13px] text-[#15130F]/75">Pay it then by card, or split it with Klarna.</p>
                 </div>
               ) : (
                 <div className="border-t border-[#15130F]/10 pt-2">
