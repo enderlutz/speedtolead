@@ -1207,7 +1207,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
               <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
                 <CreditCard className="h-5 w-5" /> {doorBusy === "reserve" ? "Opening your payment page…" : "Reserve my spot · $250"}
               </button>
-              <p className="mt-3 text-center text-[15px] leading-snug text-white">Card, Apple Pay or Google Pay. <span className="font-bold">The $250 is not refundable.</span> You can move your date any time.</p>
+              <p className="mt-3 text-center text-[15px] leading-snug text-white">Card, Apple Pay, Google Pay, bank account or Cash App. <span className="font-bold">The $250 is not refundable.</span> You can move your date any time.</p>
               <p className="mt-2 text-center text-[15px] leading-snug text-white/85">By reserving, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold underline underline-offset-2" style={{ color: "#E3BE63" }}>Terms</button>.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">

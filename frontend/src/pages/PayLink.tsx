@@ -103,7 +103,7 @@ export default function PayLink() {
             <Lock className="h-5 w-5" /> {busy ? "Opening secure checkout…" : `Pay ${formatCurrency(info.amount)}`}
           </button>
           <p className="mt-2 text-center text-[14px] text-[#15130F]/75">
-            {deposit ? "Card, Apple Pay or Google Pay. The deposit is not refundable once your dates are set." : "Card, Apple Pay, Google Pay, or pay over time with Klarna. You pick on the next screen."}
+            {deposit ? "Card, Apple Pay, Google Pay, bank account or Cash App. The deposit is not refundable once your dates are set." : "Card, Apple Pay, Google Pay, bank account, or pay over time with Klarna. You pick on the next screen."}
           </p>
           <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
           {terms ? <TermsSheet onClose={() => setTerms(false)} /> : null}
