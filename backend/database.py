@@ -3953,6 +3953,24 @@ class PayLink(Base):
     job_total_cents = Column(Integer, nullable=True)
 
 
+class GoogleReview(Base):
+    """One Google review of Sterling, as pulled from the listing. The
+    proposal shows the five-star ones; `hidden` lets the office pull one
+    off the page without deleting what Google said."""
+    __tablename__ = "google_reviews"
+
+    id = Column(Text, primary_key=True)                 # Google's review id
+    author = Column(Text, default="")
+    author_photo = Column(Text, default="")
+    rating = Column(Integer, default=0)
+    text = Column(Text, default="")
+    relative = Column(Text, default="")                 # "2 months ago", as Google says it
+    reviewed_at = Column(Text, default="")              # ISO, when Google gives it
+    link = Column(Text, default="")
+    hidden = Column(Boolean, default=False, nullable=False)
+    fetched_at = Column(Text, default="")
+
+
 class CustomerPayment(Base):
     """Money a customer paid us through Stripe. Not `payments`: that table
     is crew payroll. One row per Stripe Checkout session, written by the

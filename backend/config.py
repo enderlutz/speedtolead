@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     # google_maps_api_key when unset.
     google_maps_browser_key: str = ""
 
+    # Google reviews on the proposal (services/google_reviews.py). Google's
+    # own API hands out five reviews; all of them come through SerpAPI's
+    # Google Maps Reviews engine (free tier covers a nightly pull). Set in
+    # Railway. The place's data_id is found once from the business name and
+    # cached; set it here only to pin a specific listing.
+    serpapi_key: str = ""
+    google_place_data_id: str = ""
+    google_place_query: str = "Sterling Fence Staining Cypress TX"
+
     # GHL Pipeline sync
     ghl_pipeline_id: str = ""
     ghl_pipeline_id_2: str = ""

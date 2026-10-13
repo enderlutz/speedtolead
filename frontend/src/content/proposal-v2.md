@@ -1074,3 +1074,14 @@ zoviz.com luxury brand colour study.
   picket", "$75 per rail". (3) The warranty in the terms sheet is rewritten
   in first-grader words, with the new line: damage we didn't cause isn't
   covered, we'll still come fix it, but we give a price for the trip first.
+- 2026-10-12 (night) — Stripe is real: the $1 test paid, the webhook
+  books on its own, Affirm and Klarna are on. Send Now sends the
+  interactive page when the lead is switched to it (the chip only speaks
+  when tapped); Settings has "Interactive proposal" to make it the
+  default, shipped off. The FAQ answers are Alan's own (spray tips and
+  shields for overspray, two days, repairs only with approval, HOA colour
+  outside and any colour inside). Google reviews: every five-star review
+  with words, newest first, swiped on a phone, with the five-star count;
+  the four-star one stays off. Pulled nightly through SerpAPI once
+  SERPAPI_KEY is in Railway (Settings → Google reviews → Pull now); sample
+  cards until then. Extra work paid at the end gets the job-done screens.

@@ -41,6 +41,41 @@ export type Live = {
 
 export type PkgKey = "essential" | "signature" | "legacy";
 
+/** The real Google reviews, from /api/public/reviews: five-star with
+ *  words, newest first, plus the counts. Null until fetched; sample cards
+ *  show until then and when there are none. */
+type Reviews = { rating: number | null; total: number; five_star: number; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string }[] };
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
+function Avatar({ name, photo }: { name: string; photo: string }) {
+  const [broken, setBroken] = useState(false);
+  const initial = (name.trim()[0] || "G").toUpperCase();
+  return photo && !broken
+    ? <img src={photo} alt="" onError={() => setBroken(true)} className="h-8 w-8 shrink-0 rounded-full object-cover" draggable={false} />
+    : <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}>{initial}</span>;
+}
+
+/** One review card. Long ones are clamped and open on a tap: the page is
+ *  read on a phone, and one wall of text would hide the others. */
+function ReviewCard({ author, photo, text, when, phone }: { author: string; photo: string; text: string; when: string; phone: boolean }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 220;
+  return (
+    <blockquote onClick={() => long && setOpen((v) => !v)} className={cn("rounded-2xl bg-[#F8F3E7] p-3 ring-1 ring-[#15130F]/10", phone && "w-[82%] shrink-0 snap-start", long && "cursor-pointer")}>
+      <div className="flex items-center gap-2">
+        <Avatar name={author} photo={photo} />
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold leading-tight">{author}</p>
+          <p className="text-[13px] text-[#15130F]/75">{when}</p>
+        </div>
+      </div>
+      <p className="mt-1.5 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
+      <p className={cn("mt-1.5 text-[15px] leading-relaxed", long && !open && "line-clamp-6")}>{text}</p>
+      {long ? <p className="mt-1 text-[13px] font-bold text-[#8C6224]">{open ? "Less" : "Read more"}</p> : null}
+    </blockquote>
+  );
+}
+
 /** The two doors on the real page. Each returns the pay page to send the
  *  customer to; the mockup's fake checkout is used when these are absent. */
 export type Doors = { reserve: (tier: PkgKey) => Promise<string>; finance: (tier: PkgKey) => Promise<string> };
@@ -260,11 +295,12 @@ const COLOR_NOTES: Record<string, string> = {
 // The questions customers actually text us most, once price, sides, colour,
 // paying and the warranty are answered by the page itself (read 2026-10-10
 // from every inbound text on file). Answers are drafts for Alan to confirm.
+// Alan's answers, 2026-10-12, in plain words.
 const FAQ: [string, string][] = [
-  ["What about stain on my neighbor's side, or through the gaps?", "We shield the other side and work board by board at the gaps. If any stain gets through, we clean it up before we leave. If your neighbor wants their side done too, tell us: you both get $100 off."],
-  ["How long does it take?", "Two visits. Day one we clean the fence and let it dry. A day or two later we stain it, which takes most of a day. We text you the day before each visit."],
-  ["Will I know the repair price before you start?", "Yes. Anything you count above is priced on this page before you book. If we find something else on the day, like a rotten post, we show you the price and you say yes or no before we touch it."],
-  ["Does my HOA need to approve the color?", "Some do. Tell us your HOA and we'll send the exact stain name and color for their approval, or match their approved list if they have one."],
+  ["What about overspray on my neighbor's side, or through the gaps?", "We use spray tips matched to the stain, so overspray is close to zero. We shield the top of the fence when it's needed. We spray straight onto the boards, not into the gaps, so nothing bleeds through to the neighbor's side. And we put tarps down over anything that needs covering."],
+  ["How long does it take?", "Two days. Day one we clean the fence, if it needs it. Day two we stain it, which takes most of the day. We text you when we're on the way."],
+  ["Will I know the repair price before you start?", "Yes. Anything you count above is priced on this page before you book. If we spot more bad pickets on the day, we mark them and show you, and you say yes or no. We don't do anything without your approval."],
+  ["Does my HOA need to approve the color?", "Some do. Tell us your HOA and we'll send the exact stain name and color for approval, or match their approved list. Most of the time it goes like this: the inside of your fence is any color you like, and any outside faces we stain are matched to your neighborhood's HOA color, so it looks consistent from the street."],
 ];
 
 // The payment line the way PlayStation shows it with Klarna (Alan,
@@ -379,6 +415,14 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
   const reserved = live?.reserved ?? null;
 
   const [phone, setPhone] = useState(true);
+  const [reviews, setReviews] = useState<Reviews | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/public/reviews`).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d) setReviews(d as Reviews); }).catch(() => { /* the sample cards stay */ });
+    return () => { alive = false; };
+  }, []);
+  const realReviews = reviews && reviews.reviews.length > 0 ? reviews : null;
+  const ratingText = realReviews?.rating ? realReviews.rating.toFixed(1) : "5.0";
   const [withScope, setWithScope] = useState(preview ? !!dressed?.scopeUrl : true);
   const [pkg, setPkg] = useState<PkgKey | null>(dressed?.reserved?.tier || null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
@@ -843,7 +887,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             ]} />
             <List title="Why people pick us" icon={Shield} items={[
               ["1-year workmanship warranty", "If our work peels or cracks, we come back and fix it."],
-              ["5.0 on Google", "Trusted by homeowners who want it done right."],
+              [`${ratingText} on Google`, realReviews ? `${realReviews.five_star} five-star reviews from homeowners.` : "Trusted by homeowners who want it done right."],
               ["1,500+ fences restored", "Across the Houston area."],
               ["7+ years", "Hands-on experience staining wood fences."],
             ]} />
@@ -888,30 +932,25 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <div>
               <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">Google reviews</p>
               <div className="flex items-baseline gap-2">
-                <span className="font-heading text-4xl font-bold leading-none">5.0</span>
+                <span className="font-heading text-4xl font-bold leading-none">{ratingText}</span>
                 <span className="flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-4 w-4 fill-current" style={{ color: GOLD }} />)}</span>
               </div>
-              <p className="mt-0.5 text-sm text-[#15130F]/75">Rated by homeowners around Houston</p>
+              <p className="mt-0.5 text-sm text-[#15130F]/75">{realReviews ? `${realReviews.five_star} five-star reviews from homeowners around Houston` : "Rated by homeowners around Houston"}</p>
             </div>
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F8F3E7] font-heading text-2xl font-bold ring-1 ring-[#15130F]/10" aria-hidden>G</span>
           </div>
+          {/* Every five-star review, swiped through on a phone, three across
+              on a desktop with the rest below. Sample cards only until the
+              real ones are pulled (Settings → Google reviews). */}
           <div className={cn(phone ? "-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "grid gap-3 sm:grid-cols-3")}>
-            {[
-              ["M", "Sample customer", "Cypress", "Fence looks brand new. Crew was on time, kept the hinges clean and tidied up after. Sample text until real reviews are pulled in."],
-              ["R", "Sample customer", "Katy", "Picked Signature in Cedar Naturaltone and it came out exactly like the photo on the proposal. Sample text."],
-              ["J", "Sample customer", "Tomball", "Easy to pick a package on my phone and pay the deposit. Two days later it was done. Sample text."],
-            ].map(([initial, who, where, text]) => (
-              <blockquote key={text} className={cn("rounded-2xl bg-[#F8F3E7] p-3 ring-1 ring-[#15130F]/10", phone && "w-[82%] shrink-0 snap-start")}>
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}>{initial}</span>
-                  <div className="min-w-0">
-                    <p className="truncate text-[15px] font-bold leading-tight">{who}</p>
-                    <p className="text-[13px] text-[#15130F]/75">{where} · 2 weeks ago</p>
-                  </div>
-                </div>
-                <p className="mt-1.5 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
-                <p className="mt-1.5 text-[15px] leading-relaxed">{text}</p>
-              </blockquote>
+            {realReviews ? realReviews.reviews.map((r) => (
+              <ReviewCard key={r.id} author={r.author} photo={r.photo} text={r.text} when={r.when} phone={phone} />
+            )) : [
+              ["Sample customer", "Cypress · 2 weeks ago", "Fence looks brand new. Crew was on time, kept the hinges clean and tidied up after. Sample text until real reviews are pulled in."],
+              ["Sample customer", "Katy · 2 weeks ago", "Picked Signature in Cedar Naturaltone and it came out exactly like the photo on the proposal. Sample text."],
+              ["Sample customer", "Tomball · 2 weeks ago", "Easy to pick a package on my phone and pay the deposit. Two days later it was done. Sample text."],
+            ].map(([who, when, text]) => (
+              <ReviewCard key={text} author={who} photo="" text={text} when={when} phone={phone} />
             ))}
           </div>
           <a href="https://maps.app.goo.gl/xR56n81cjxNwt7R78" target="_blank" rel="noopener noreferrer"

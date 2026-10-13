@@ -18,6 +18,7 @@ import CallScriptSettings from "@/components/CallScriptSettings";
 import FollowUpSettingsCard from "@/components/FollowUpSettingsCard";
 import PromotionSettingsCard from "@/components/PromotionSettingsCard";
 import ProposalInteractiveCard from "@/components/ProposalInteractiveCard";
+import GoogleReviewsCard from "@/components/GoogleReviewsCard";
 import PaintingUpsellImportCard from "@/components/PaintingUpsellImportCard";
 import QuickBooksSettingsCard from "@/components/QuickBooksSettingsCard";
 import QBTimeSettingsCard from "@/components/QBTimeSettingsCard";
@@ -254,6 +255,7 @@ export default function Settings() {
           rendered as a strikethrough "original" above each tier on the
           proposal PDF. Set to 0 to disable. */}
       <ProposalInteractiveCard />
+      <GoogleReviewsCard />
       <PromotionSettingsCard />
 
       {/* Painting Upsell — one-shot import from the OLD GHL account's

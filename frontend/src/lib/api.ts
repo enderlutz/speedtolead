@@ -1965,6 +1965,11 @@ export const api = {
   // Promotion / slashed-price control. Markup % applied on top of the
   // actual tier price to render the strikethrough "original" on proposals.
   /** Settings: do new Sterling proposals go out as the interactive page? */
+  /** Google reviews on the proposal (backend api/reviews.py). */
+  listReviews: () => request<ReviewsAdmin>(`/api/reviews`),
+  refreshReviews: () => request<ReviewsSummary>(`/api/reviews/refresh`, { method: "POST" }),
+  hideReview: (id: string, hidden: boolean) =>
+    request<GoogleReviewRow>(`/api/reviews/${id}/hide`, { method: "POST", body: JSON.stringify({ hidden }) }),
   getProposalInteractiveDefault: () => request<{ on: boolean }>(`/api/settings/proposal-interactive`),
   setProposalInteractiveDefault: (on: boolean) =>
     request<{ on: boolean }>(`/api/settings/proposal-interactive`, { method: "PUT", body: JSON.stringify({ on }) }),
@@ -5604,6 +5609,12 @@ export interface PayLinksResponse {
   links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
+
+export interface GoogleReviewRow {
+  id: string; author: string; photo: string; rating: number; text: string; when: string; date: string; link: string; hidden: boolean;
+}
+export interface ReviewsSummary { rating: number | null; total: number; five_star: number; fetched_at: string | null }
+export interface ReviewsAdmin { configured: boolean; summary: ReviewsSummary; reviews: GoogleReviewRow[] }
 
 /** The lead page's view of its latest proposal as the interactive page. */
 export interface ProposalLiveState {
