@@ -304,13 +304,17 @@ def void_pay_link(token: str, user: dict = Depends(require_staff)):
 TERMS_VERSION = "2026-10-13"
 
 
-# The $250 deposit is card and wallets only, no Klarna. Stripe retired
-# payment_method_types on Checkout (2026-10-13: "no longer supported"), so the
-# deposit uses its own payment method configuration, found by name or made
-# once. If Stripe refuses, the deposit takes the account's normal methods:
-# a customer must always be able to pay.
+# The $250 deposit takes every everyday way to pay (card, Apple and Google
+# Pay, Link, bank account, Cash App, Amazon Pay) but no pay-later lender:
+# nobody finances a deposit. Stripe retired payment_method_types on Checkout
+# (2026-10-13: "no longer supported"), so the deposit uses its own payment
+# method configuration, found by name or made once, with its preferences set
+# once per process. A method the account hasn't switched on is skipped, not an
+# error. If Stripe refuses the configuration, the deposit takes the account's
+# normal methods: a customer must always be able to pay.
 DEPOSIT_PMC_NAME = "Sterling deposit: card only"
-DEPOSIT_PMC_OFF = ("klarna", "affirm", "afterpay_clearpay", "zip", "cashapp", "us_bank_account", "amazon_pay", "sunbit")
+DEPOSIT_PMC_ON = ("card", "apple_pay", "google_pay", "link", "us_bank_account", "cashapp", "amazon_pay")
+DEPOSIT_PMC_OFF = ("klarna", "affirm", "afterpay_clearpay", "zip", "sunbit")
 _deposit_pmc: str | None = None
 
 
@@ -319,19 +323,23 @@ def _deposit_config(s) -> str | None:
     if _deposit_pmc:
         return _deposit_pmc
     try:
+        pmc = None
         for c in s.PaymentMethodConfiguration.list(limit=50).data:
             if _field(c, "name") == DEPOSIT_PMC_NAME and _field(c, "active") is not False:
-                _deposit_pmc = _field(c, "id")
-                return _deposit_pmc
-        made = s.PaymentMethodConfiguration.create(
-            name=DEPOSIT_PMC_NAME,
-            card={"display_preference": {"preference": "on"}},
-            apple_pay={"display_preference": {"preference": "on"}},
-            google_pay={"display_preference": {"preference": "on"}},
-            **{m: {"display_preference": {"preference": "off"}} for m in DEPOSIT_PMC_OFF},
-        )
-        _deposit_pmc = _field(made, "id")
-        log_event(None, "stripe_deposit_config", f"made {_deposit_pmc}")
+                pmc = _field(c, "id")
+                break
+        if pmc is None:
+            pmc = _field(s.PaymentMethodConfiguration.create(
+                name=DEPOSIT_PMC_NAME, card={"display_preference": {"preference": "on"}},
+            ), "id")
+            log_event(None, "stripe_deposit_config", f"made {pmc}")
+        for names, pref in ((DEPOSIT_PMC_ON, "on"), (DEPOSIT_PMC_OFF, "off")):
+            for m in names:
+                try:
+                    s.PaymentMethodConfiguration.modify(pmc, **{m: {"display_preference": {"preference": pref}}})
+                except Exception as e:  # noqa: BLE001
+                    logger.info("Deposit config: %s %s skipped: %s", m, pref, e)
+        _deposit_pmc = pmc
         return _deposit_pmc
     except Exception as e:  # noqa: BLE001
         logger.warning("Deposit payment method configuration unavailable: %s", e)
@@ -562,7 +570,7 @@ def _record_paid(db, link: PayLink, session, event_id: str | None) -> CustomerPa
 # These two say why, in Stripe's words, on the lead page.
 
 OUR_EVENTS = ("checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed")
-METHOD_NAMES = ("card", "apple_pay", "google_pay", "link", "klarna", "affirm", "afterpay_clearpay", "cashapp", "us_bank_account")
+METHOD_NAMES = ("card", "apple_pay", "google_pay", "link", "klarna", "affirm", "afterpay_clearpay", "cashapp", "us_bank_account", "amazon_pay")
 
 
 def _session_info(session, token: str) -> dict:

@@ -44,6 +44,7 @@ def _settings(monkeypatch, key="sk_test_x", webhook="whsec_x"):
     monkeypatch.setattr(sp, "_deposit_pmc", None)
     monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "list", lambda **k: SimpleNamespace(data=[]), raising=False)
     monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "create", lambda **k: SimpleNamespace(id="pmc_deposit", name=k.get("name")), raising=False)
+    monkeypatch.setattr(sp.stripe.PaymentMethodConfiguration, "modify", lambda *a, **k: None, raising=False)
 
 
 def test_a_deposit_link_defaults_to_250_and_is_open(db, monkeypatch):
