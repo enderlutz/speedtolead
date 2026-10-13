@@ -89,7 +89,7 @@ const IS_TOUCH =
 
 // A 24px icon button is well under the ~44px a fingertip needs, and these
 // sit in a row next to each other where a miss undoes the wrong thing.
-const TAP_BTN = IS_TOUCH ? "h-9 w-9 p-0" : "h-6 w-6 p-0";
+const TAP_BTN = IS_TOUCH ? "h-11 w-11 p-0" : "h-6 w-6 p-0";
 
 type Pt = { lat: number; lng: number };
 type Run = { id: number; points: Pt[]; closed: boolean };
@@ -1200,7 +1200,7 @@ export default function SatelliteMeasureCard({
               className="pl-8"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={doSearch}>Find</Button>
+          <Button variant="outline" size="sm" className={IS_TOUCH ? "h-11 px-4" : undefined} onClick={doSearch}>Find</Button>
         </div>
 
         {locateNote ? (
@@ -1306,7 +1306,7 @@ export default function SatelliteMeasureCard({
               type="button"
               onClick={() => setRotation(viewRef.current.rot + 180)}
               title="Flip the view around"
-              className="h-7 rounded-md bg-black/60 px-2 text-[10px] font-bold backdrop-blur-sm hover:bg-black/75"
+              className={`${IS_TOUCH ? "h-11 px-3 text-xs" : "h-7 px-2 text-[10px]"} rounded-md bg-black/60 font-bold backdrop-blur-sm hover:bg-black/75`}
             >
               180°
             </button>
@@ -1385,7 +1385,7 @@ export default function SatelliteMeasureCard({
                 </span>
                 {run.points.length >= 3 ? (
                   <Button
-                    size="sm" variant="ghost" className={IS_TOUCH ? "h-9 px-3 text-xs" : "h-6 px-1.5 text-xs"}
+                    size="sm" variant="ghost" className={IS_TOUCH ? "h-11 px-3 text-xs" : "h-6 px-1.5 text-xs"}
                     onClick={(e) => {
                       e.stopPropagation();
                       setRuns((p) => p.map((r) =>
@@ -1423,11 +1423,11 @@ export default function SatelliteMeasureCard({
           })}
 
           <div className="flex items-center gap-2 pt-0.5">
-            <Button variant="outline" size="sm" onClick={addRun}>
+            <Button variant="outline" size="sm" className={IS_TOUCH ? "h-11" : undefined} onClick={addRun}>
               <Plus className="h-4 w-4 mr-1" /> Add measurement
             </Button>
             {anyPoints ? (
-              <Button variant="ghost" size="sm" onClick={resetRuns}>
+              <Button variant="ghost" size="sm" className={IS_TOUCH ? "h-11" : undefined} onClick={resetRuns}>
                 <Trash2 className="h-4 w-4 mr-1" /> Clear all
               </Button>
             ) : null}
@@ -1440,7 +1440,7 @@ export default function SatelliteMeasureCard({
         <Button
           onClick={() => void capture()}
           disabled={capturing || status !== "ready"}
-          className="w-full"
+          className={IS_TOUCH ? "h-12 w-full text-base" : "w-full"}
         >
           {capturing
             ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Capturing…</>
@@ -1518,7 +1518,7 @@ export default function SatelliteMeasureCard({
               <span className="text-sm font-semibold tabular-nums">{jobTotal} ft total</span>
             ) : null}
             <Button
-              variant="outline" size="sm" className="ml-auto h-7 text-xs"
+              variant="outline" size="sm" className={`ml-auto ${IS_TOUCH ? "h-11" : "h-7"} text-xs`}
               onClick={() => uploadRef.current?.click()}
               disabled={uploading}
               title="Google Earth screenshot or a surveyor's PDF, for when the map can't see the house"
