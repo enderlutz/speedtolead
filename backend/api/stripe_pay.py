@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -308,19 +309,21 @@ TERMS_VERSION = "2026-10-13"
 # Pay, Link, bank account, Cash App, Amazon Pay) but no pay-later lender:
 # nobody finances a deposit. Stripe retired payment_method_types on Checkout
 # (2026-10-13: "no longer supported"), so the deposit uses its own payment
-# method configuration, found by name or made once, with its preferences set
-# once per process. A method the account hasn't switched on is skipped, not an
+# method configuration, found by name or made once, with its preferences
+# re-applied every 10 minutes so a method switched on in Stripe shows up. A method the account hasn't switched on is skipped, not an
 # error. If Stripe refuses the configuration, the deposit takes the account's
 # normal methods: a customer must always be able to pay.
 DEPOSIT_PMC_NAME = "Sterling deposit: card only"
 DEPOSIT_PMC_ON = ("card", "apple_pay", "google_pay", "link", "us_bank_account", "cashapp", "amazon_pay")
 DEPOSIT_PMC_OFF = ("klarna", "affirm", "afterpay_clearpay", "zip", "sunbit")
 _deposit_pmc: str | None = None
+_deposit_pmc_at = 0.0
+DEPOSIT_PMC_REFRESH_S = 600
 
 
 def _deposit_config(s) -> str | None:
-    global _deposit_pmc
-    if _deposit_pmc:
+    global _deposit_pmc, _deposit_pmc_at
+    if _deposit_pmc and time.monotonic() - _deposit_pmc_at < DEPOSIT_PMC_REFRESH_S:
         return _deposit_pmc
     try:
         pmc = None
@@ -339,12 +342,12 @@ def _deposit_config(s) -> str | None:
                     s.PaymentMethodConfiguration.modify(pmc, **{m: {"display_preference": {"preference": pref}}})
                 except Exception as e:  # noqa: BLE001
                     logger.info("Deposit config: %s %s skipped: %s", m, pref, e)
-        _deposit_pmc = pmc
+        _deposit_pmc, _deposit_pmc_at = pmc, time.monotonic()
         return _deposit_pmc
     except Exception as e:  # noqa: BLE001
         logger.warning("Deposit payment method configuration unavailable: %s", e)
         log_event(None, "stripe_deposit_config_failed", str(e)[:500])
-        return None
+        return _deposit_pmc
 
 # ── Public: the pay page and the after page ───────────────────────────────
 
