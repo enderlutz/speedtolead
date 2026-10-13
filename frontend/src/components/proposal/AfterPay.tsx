@@ -34,7 +34,10 @@ const SERVICES = ["House wash", "Driveway & concrete", "Window cleaning", "Roof 
 const PREP: [string, string][] = [
   ["You don't have to be home", "We photograph and film the whole job. You can see the work even if you're away."],
   ["Water and power", "An outside spigot and one outlet is all we need."],
-  ["Clear the fence line", "Move anything off the fence that you don't want stained."],
+  // Moving things is part of the job: about a third of our customers are
+  // older and hired us because they can't (Alan, 2026-10-13). Ask only
+  // for the easy things, and say plainly the crew does the rest.
+  ["Things near the fence", "We move what's in the way and put it back. If you'd like, move small things like pots or chairs. No need to lift anything heavy."],
   ["Sprinklers off", "The day before, the day of, and the day after. The stain needs to cure dry."],
   ["Pets inside on job days", "Gates will be open while we work."],
 ];
