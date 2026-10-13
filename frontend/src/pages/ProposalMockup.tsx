@@ -181,7 +181,7 @@ const PACKAGES: {
     regular: 1579.50, price: 1263.60,
   },
   {
-    key: "signature", name: "Signature Finish", short: "Signature", tag: "Semi-transparent", lasts: "2–4 yrs",
+    key: "signature", name: "Signature Finish", short: "Signature", tag: "Semi-transparent", lasts: "3–4 yrs",
     photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], popular: true,
     best: "Weathered fences you still want to see the grain on",
     lines: [
