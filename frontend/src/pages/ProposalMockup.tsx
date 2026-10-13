@@ -178,7 +178,7 @@ const PACKAGES: {
       { icon: Droplets, text: "Clear protection" },
       { icon: Sparkles, text: "Refreshes your fence" },
     ],
-    regular: 1580, price: 1263.60,
+    regular: 1579.50, price: 1263.60,
   },
   {
     key: "signature", name: "Signature Finish", short: "Signature", tag: "Semi-transparent", lasts: "2–4 yrs",
@@ -188,7 +188,7 @@ const PACKAGES: {
       { icon: Leaf, text: "Enhances the natural wood grain" },
       { icon: Paintbrush, text: "Balances protection and beauty" },
     ],
-    regular: 1814, price: 1450.80,
+    regular: 1813.50, price: 1450.80,
   },
   {
     key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Solid color", lasts: "4–7 yrs",
@@ -202,7 +202,7 @@ const PACKAGES: {
       { icon: Shield, text: "Solid color protection" },
       { icon: Sun, text: "Maximum coverage and durability" },
     ],
-    regular: 2301, price: 1840.80,
+    regular: 2301.00, price: 1840.80,
   },
 ];
 
@@ -477,7 +477,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
   const discount = !expired;
   const packages = useMemo(() => PACKAGES.map((p) => {
     if (!live?.tiers) return p;
-    const regular = live.regular?.[p.key] ?? Math.round(live.tiers[p.key] / 0.8);
+    const regular = live.regular?.[p.key] ?? Math.round((live.tiers[p.key] / 0.8) * 100) / 100;
     return live.expired ? { ...p, price: regular, regular } : { ...p, price: live.tiers[p.key], regular };
   }), [live]);
   const reserved = live?.reserved ?? null;
@@ -642,7 +642,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                 ) : null}
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#15130F] px-3 py-1.5 text-[#E3BE63]">About {customer.feet} ft</span>
               </div>
-              <p className="mt-2 text-[15px] text-[#15130F]/70">This is what we'd stain. Not right? Tap Call or text at the top.</p>
+              <p className="mt-2 text-[15px] text-[#15130F]/70">This is what we'd stain. Not correct? Tap Call or text at the top.</p>
             </>
           ) : (
             // No drawing for this customer: just the sides, in words. No
@@ -656,7 +656,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                   <li key={s} className="flex items-center gap-2 text-base font-semibold"><Check className="h-4 w-4" style={{ color: GOLD }} /> {s}</li>
                 ))}
               </ul>
-              <p className="mt-2 text-[15px] text-[#15130F]/70">Not right? Tap Call or text at the top.</p>
+              <p className="mt-2 text-[15px] text-[#15130F]/70">Not correct? Tap Call or text at the top.</p>
             </div>
           )}
         </section>
@@ -757,7 +757,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                           <span className="opacity-75">· ends {customer.goodThrough}</span>
                         </p>
                       ) : <p className="text-[12px] opacity-75">Regular price</p>}
-                      <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}</p>
+                      <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}<span className="ml-1.5 align-middle font-sans text-[13px] font-semibold opacity-80">Tax included</span></p>
                       <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold">
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
@@ -825,6 +825,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                           </p>
                         ) : <p className="text-[12px] opacity-75">Regular price</p>}
                         <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-0.5 text-[13px] font-semibold opacity-80">Tax included</p>
                         <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm font-semibold">
                           {line.lender === "klarna"
                             ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
@@ -1235,9 +1236,10 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
             <h3 className="font-heading text-2xl font-bold leading-tight">1-year workmanship warranty</h3>
             <div className="mt-3 space-y-3 text-[15px] leading-relaxed">
-              <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we put it on, we come back and fix it. Free. For one year from the day we finish.</p>
+              <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we applied it, we come back and fix it. Free. For one year from the day we finish.</p>
               <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
-              <p><span className="font-bold">Want us to fix that anyway?</span> We can. We give you a price for the trip first, and you say yes or no. Or we tell you the exact stain name, so you can touch it up yourself.</p>
+              <p><span className="font-bold">We leave you a can.</span> When we finish, we leave you a small can of touch-up stain for things like that, with the stain's name on it. Need more than the can? Buy more by that name, or ask us.</p>
+              <p><span className="font-bold">Want us to fix that anyway?</span> We can. We give you a price for the trip first, and you say yes or no.</p>
               <p><span className="font-bold">The deposit.</span> $250 reserves your spot and isn't refundable. Move your date any time. The rest is due when the job is done and you're happy.</p>
               {expired
                 ? <p><span className="font-bold">Your price</span> was good for {customer.priceDays} days, through {customer.goodThrough}. That has ended, so our regular prices apply.</p>
