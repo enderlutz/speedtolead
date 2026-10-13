@@ -14,7 +14,7 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
-  Download, FileText, MapPin, Calendar, Hash, UserRound, Leaf, Home, Smartphone, Monitor,
+  Download, FileText, MapPin, Calendar, UserRound, Leaf, Home, Smartphone, Monitor,
   Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -109,6 +109,15 @@ function PhotoModal({ photos, index, onClose, onIndex }: { photos: string[]; ind
   );
 }
 
+/** "14606 wynbourn waw" → "14606 Wynbourn Waw": an address typed all in
+ *  lower case gets capitals; one with any capitals is left as typed. A
+ *  two-letter state stays upper case. */
+function tidyAddress(a: string): string {
+  if (!a || a !== a.toLowerCase()) return a;
+  return a.replace(/\b([a-z])([a-z]*)/g, (_, f: string, r: string) => f.toUpperCase() + r)
+    .replace(/\b(Tx|Ca|Fl|Ny)\b/g, (m) => m.toUpperCase());
+}
+
 /** One review card. Long ones are clamped and open on a tap: the page is
  *  read on a phone, and one wall of text would hide the others. */
 function ReviewCard({ author, photo, text, when, photos, phone }: { author: string; photo: string; text: string; when: string; photos?: string[]; phone: boolean }) {
@@ -127,7 +136,7 @@ function ReviewCard({ author, photo, text, when, photos, phone }: { author: stri
       </div>
       <p className="mt-1.5 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: GOLD }} />)}</p>
       <p className={cn("mt-1.5 whitespace-pre-line text-[15px] leading-relaxed", long && !open && "line-clamp-6")}>{text}</p>
-      {long ? <p className="mt-1 text-[13px] font-bold text-[#8C6224]">{open ? "Less" : "Read more"}</p> : null}
+      {long ? <p className="mt-1 py-2 text-[15px] font-bold text-[#8C6224]">{open ? "Less" : "Read more"}</p> : null}
       {/* The photos they attached: their own fence, their own yard. */}
       {pics.length ? (
         <div className={cn("mt-2 grid gap-1.5", pics.length === 1 ? "grid-cols-1" : pics.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
@@ -167,7 +176,7 @@ const PACKAGES: {
   best: string; lines: { icon: React.ElementType; text: string }[]; regular: number; price: number; popular?: boolean;
 }[] = [
   {
-    key: "essential", name: "Essential Seal", short: "Essential", tag: "Clear coat", lasts: "1–2 yrs",
+    key: "essential", name: "Essential Seal", short: "Essential", tag: "Clear, no color", lasts: "1–2 yrs",
     // The PDF's own photos, pulled out of the file: the clear pine fence
     // for Essential, the lighter and darker cedar pair for Signature, the
     // orange and dark brown pair for Legacy that Alan sent on 2026-10-10,
@@ -181,17 +190,17 @@ const PACKAGES: {
     regular: 1579.50, price: 1263.60,
   },
   {
-    key: "signature", name: "Signature Finish", short: "Signature", tag: "Semi-transparent", lasts: "3–4 yrs",
+    key: "signature", name: "Signature Finish", short: "Signature", tag: "See-through color", lasts: "3–4 yrs",
     photos: ["/proposal-mockup/pkg-signature-a.jpg", "/proposal-mockup/pkg-signature-b.jpg"], popular: true,
     best: "Weathered fences you still want to see the grain on",
     lines: [
-      { icon: Leaf, text: "Enhances the natural wood grain" },
-      { icon: Paintbrush, text: "Balances protection and beauty" },
+      { icon: Leaf, text: "You can still see the wood grain" },
+      { icon: Paintbrush, text: "Good protection, nice look" },
     ],
     regular: 1813.50, price: 1450.80,
   },
   {
-    key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Solid color", lasts: "4–7 yrs",
+    key: "legacy", name: "Legacy Finish", short: "Legacy", tag: "Full color", lasts: "4–7 yrs",
     // The orange is extended with its own panels at the real post spacing
     // (the next posts fall off the edge); the dark one's boards continue
     // along the slope of its rail. The ?v= changes whenever the files do,
@@ -199,8 +208,8 @@ const PACKAGES: {
     photos: ["/proposal-mockup/pkg-legacy-wide-a.jpg?v=3", "/proposal-mockup/pkg-legacy-wide-b.jpg?v=3"],
     best: "Older fences that need full coverage",
     lines: [
-      { icon: Shield, text: "Solid color protection" },
-      { icon: Sun, text: "Maximum coverage and durability" },
+      { icon: Shield, text: "Covers the wood all the way" },
+      { icon: Sun, text: "Our longest-lasting finish" },
     ],
     regular: 2301.00, price: 1840.80,
   },
@@ -276,7 +285,7 @@ const PICKETS = [
 const PARTS = [
   { key: "rotboard", label: "Rot board", what: "The board along the ground", unit: "board", price: 50 },
   { key: "cap", label: "Cap", what: "The board along the top", unit: "cap", price: 85 },
-  { key: "rail", label: "2x4 rail", what: "The boards the pickets nail to", unit: "rail", price: 75 },
+  { key: "rail", label: "Rail", what: "The long boards in back that the pickets nail to", unit: "rail", price: 75 },
 ];
 const POSTS = [
   { key: "post6", label: "6 ft fence", price: 225 },
@@ -593,7 +602,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
         {/* Top bar */}
         <div className="flex items-center justify-between gap-3 bg-[#15130F] px-4 py-3">
           <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-8 w-auto" draggable={false} />
-          <a href="tel:+13465897877" className="inline-flex h-10 items-center gap-2 rounded-full px-4 text-[15px] font-bold text-[#15130F] shadow-md" style={{ background: GOLD }}>
+          <a href="tel:+13465897877" className="inline-flex h-12 items-center gap-2 rounded-full px-5 text-[16px] font-bold text-[#15130F] shadow-md" style={{ background: GOLD }}>
             <Phone className="h-4 w-4" /> Call or text
           </a>
         </div>
@@ -610,8 +619,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
         <section className="grid grid-cols-2 gap-x-3 gap-y-2 border-b border-[#15130F]/10 px-4 py-3 text-sm">
           <Fact icon={UserRound} label="Prepared for">{customer.name}</Fact>
           <Fact icon={Calendar} label="Date">{customer.date}</Fact>
-          <Fact icon={MapPin} label="Property" wide>{customer.address}</Fact>
-          <Fact icon={Hash} label="Proposal #">{customer.number}</Fact>
+          <Fact icon={MapPin} label="Property" wide>{tidyAddress(customer.address)}</Fact>
           <Fact icon={Eye} wide label={expired ? "Quoted price ended" : `Price good for ${customer.priceDays} days`}>{expired ? customer.goodThrough : `Through ${customer.goodThrough}`}</Fact>
         </section>
         {expired && !reserved ? (
@@ -672,7 +680,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           </div>
           <p className="mb-3 flex items-center gap-2 rounded-xl bg-[#F8F3E7] px-3 py-2 text-sm font-semibold ring-1 ring-[#C9972F]/40">
             <Shield className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
-            Every package: two coats of stain and a 1-year workmanship warranty.
+            Every package: two coats of stain and a 1-year warranty on our work.
           </p>
 
           {phone ? (() => {
@@ -717,9 +725,9 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                             names felt dull and "need to be perfectly aligned"). */}
                         <div className="w-full border-t-[3px] px-2 pb-2 pt-2" style={{ borderColor: s.rule, color: s.text }}>
                           <p className="h-[22px] font-heading text-[18px] font-bold leading-[22px] tracking-wide" style={{ color: s.name }}>{p.short}</p>
-                          <p className="h-[30px] text-[12px] font-bold uppercase leading-[15px] tracking-[0.05em]" style={{ color: s.muted }}>{p.tag}</p>
+                          <p className="h-[34px] text-[13px] font-bold uppercase leading-[17px] tracking-[0.03em]" style={{ color: s.muted }}>{p.tag}</p>
                           <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
-                          <p className="h-[32px] text-[12px] leading-[16px]" style={{ color: s.muted }}>Usually lasts<br />{p.lasts}*</p>
+                          <p className="h-[36px] text-[14px] font-semibold leading-[18px]" style={{ color: s.muted }}>Usually lasts<br />{p.lasts}*</p>
                         </div>
                       </button>
                     );
@@ -732,7 +740,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                     {sk.frame ? <GoldFrame /> : null}
                     <div className="min-w-0">
                       <h3 className="font-heading text-2xl font-bold leading-tight" style={{ color: sk.name }}>{show.name}</h3>
-                      <p className="text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: sk.muted }}>{show.tag}<br /><span className="whitespace-nowrap">Usually lasts {show.lasts}*</span></p>
+                      <p className="text-[14px] font-bold uppercase tracking-[0.1em]" style={{ color: sk.muted }}>{show.tag}<br /><span className="whitespace-nowrap">Usually lasts {show.lasts}*</span></p>
                     </div>
                     {chosen
                       ? <span className="shrink-0 rounded-full bg-[#15130F] px-2.5 py-1 text-[12px] font-bold text-[#E3BE63] ring-1 ring-[#C9972F]">✓ Your pick</span>
@@ -751,13 +759,13 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                     </ul>
                     <div className="mt-3 rounded-xl px-3 py-2.5" style={sk.priceBox}>
                       {discount ? (
-                        <p className="flex items-center gap-1.5 text-[12px]">
+                        <p className="flex flex-wrap items-center gap-1.5 text-[15px]">
                           <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={sk.offChip}>20% off</span>
                           <s className="opacity-75">{formatCurrency(show.regular)}</s>
                           <span className="opacity-75">· ends {customer.goodThrough}</span>
                         </p>
                       ) : <p className="text-[12px] opacity-75">Regular price</p>}
-                      <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}<span className="ml-1.5 align-middle font-sans text-[13px] font-semibold opacity-80">Tax included</span></p>
+                      <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}<span className="ml-1.5 align-middle font-sans text-[14px] font-semibold opacity-80">Tax included</span></p>
                       <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold">
                         {line.lender === "klarna"
                           ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
@@ -807,7 +815,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                       </div>
                     </div>
                     <div className="flex flex-1 flex-col p-4">
-                      <p className="text-center text-[12px] font-bold uppercase tracking-[0.15em]" style={{ color: s.muted }}>{p.tag}<br /><span className="whitespace-nowrap">Usually lasts {p.lasts}*</span></p>
+                      <p className="text-center text-[14px] font-bold uppercase tracking-[0.1em]" style={{ color: s.muted }}>{p.tag}<br /><span className="whitespace-nowrap">Usually lasts {p.lasts}*</span></p>
                       <ul className="mt-3 flex-1 space-y-1.5">
                         {p.lines.map((l) => (
                           <li key={l.text} className="flex items-start gap-2 text-[15px] font-medium"><Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
@@ -819,13 +827,13 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                       </div>
                       <div className="mt-3 rounded-xl px-3 py-2.5 text-center" style={s.priceBox}>
                         {discount ? (
-                          <p className="flex items-center justify-center gap-1.5 text-[12px]">
+                          <p className="flex flex-wrap items-center justify-center gap-1.5 text-[15px]">
                             <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={s.offChip}>20% off</span>
                             <s className="text-[15px] opacity-75">{formatCurrency(p.regular)}</s>
                           </p>
                         ) : <p className="text-[12px] opacity-75">Regular price</p>}
                         <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
-                        <p className="mt-0.5 text-[13px] font-semibold opacity-80">Tax included</p>
+                        <p className="mt-0.5 text-[14px] font-semibold opacity-80">Tax included</p>
                         <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm font-semibold">
                           {line.lender === "klarna"
                             ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
@@ -903,7 +911,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
               </button>
             ))}
           </div>
-          <p className="mt-2 text-[13px] text-[#15130F]/75">
+          <p className="mt-2 text-[15px] text-[#15130F]/75">
             {palette === "signature" ? "Real fences we stained. More colors as photos are added." : `Real fences we stained. ${LEGACY_NO_PHOTO.join(" and ")}: photos coming.`}
           </p>
 
@@ -933,7 +941,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             {PARTS.map((part) => (
               <Counter key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />} price={part.price} n={counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
             ))}
-            <Counter label="Post replacement" what="The 4x4s set in the ground" unit="post" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
+            <Counter label="Post replacement" what="The thick posts set in the ground" unit="post" art={<FencePart part="post" />} price={POSTS.find((p) => p.key === postType)!.price} n={counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <Chips options={POSTS} value={postType} onChange={setPostType} />
             </Counter>
           </div>
@@ -973,7 +981,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <h2 className="font-heading text-2xl font-bold leading-tight">Why people pick us</h2>
             <div className={cn("mt-3 grid grid-cols-2 gap-2", !phone && "sm:grid-cols-4")}>
               {[
-                { big: "1 year", head: "Workmanship warranty", body: "If our work peels or cracks, we come back and fix it." },
+                { big: "1 year", head: "Warranty on our work", body: "If our work peels or cracks, we come back and fix it." },
                 { big: ratingText, head: "On Google", body: "We pride ourselves on being the best.", stars: true },
                 { big: "1,500+", head: "Fences restored", body: "Across the Houston area." },
                 { big: "7+ years", head: "Staining fences", body: "Hands-on, every job." },
@@ -982,7 +990,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                   <p className="font-heading text-[30px] font-bold leading-none tabular-nums" style={{ color: "#E3BE63" }}>{f.big}</p>
                   {f.stars ? <p className="mt-1 flex gap-0.5">{[0, 1, 2, 3, 4].map((n) => <Star key={n} className="h-3.5 w-3.5 fill-current" style={{ color: "#E3BE63" }} />)}</p> : null}
                   <p className="mt-1.5 text-[15px] font-bold leading-tight">{f.head}</p>
-                  <p className="mt-0.5 text-[13px] leading-snug text-white/75">{f.body}</p>
+                  <p className="mt-1 text-[15px] leading-snug text-white/85">{f.body}</p>
                 </div>
               ))}
             </div>
@@ -1057,7 +1065,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
         {/* How to pay: the deposit, or the whole job over time. Both go to
             the same Stripe checkout; Klarna and Affirm are picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your investment: ${formatCurrency(total)} · ${chosen.name}${repairs ? " plus repairs" : ""}` : "Pick a package first and your numbers fill in."} />
+          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
           {/* The 20% off ends with the month and the price goes back up. Booking
               now locks it even if the job happens later; paying over time is
               how someone does that without the cash today (Alan, 2026-10-10). */}
@@ -1077,24 +1085,24 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           ) : (
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
-              <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my dates</p>
-              <p className="mt-1 text-[15px] text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest, {chosen ? formatCurrency(Math.max(0, total - 250)) : "the balance"}, is due when the job is done and you're happy.</p>
+              <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my spot</p>
+              <p className="mt-1 text-[15px] text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest{chosen ? ` (${formatCurrency(Math.max(0, total - 250))})` : ""} is due when the job is done and you're happy.</p>
               <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
                 <CreditCard className="h-5 w-5" /> {doorBusy === "reserve" ? "Opening your payment page…" : "Reserve my spot · $250"}
               </button>
-              <p className="mt-2 text-center text-[12px] text-white/85">Card, Apple Pay or Google Pay. The $250 reserves your spot and isn't refundable. Move your date any time.</p>
+              <p className="mt-3 text-center text-[15px] leading-snug text-white">Card, Apple Pay or Google Pay. <span className="font-bold">The $250 is not refundable.</span> You can move your date any time.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Calendar className="h-5 w-5" style={{ color: "#8C6224" }} /> Or pay over time</p>
               <p className="mt-1 text-sm text-[#15130F]/75">Were you going to do this in a month or two anyway? Lock in today's price and spread the payments.</p>
               <div className="mt-2 space-y-2">
                 <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan at checkout." learn={() => setPayFaq("klarna")} />
-                <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Also offered at checkout. 3 to 36 months, the rate shown before you agree." learn={() => setPayFaq("affirm")} />
+                <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Pay a little each month. You see the full cost before you say yes." learn={() => setPayFaq("affirm")} />
               </div>
               <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98] disabled:opacity-70">
                 {doorBusy === "finance" ? "Opening your options…" : "See my options"}
               </button>
-              <p className="mt-2 text-center text-[12px] text-[#15130F]/75">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
+              <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">Pick Klarna or Affirm on the next screen. Checking takes a minute and doesn't affect your credit score.</p>
             </div>
           </div>
           )}
@@ -1106,7 +1114,8 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             <button type="button" className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15"><Download className="h-4 w-4" /> Save as PDF</button>
             <button type="button" onClick={() => setTerms(true)} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-4 w-4" /> Terms</button>
           </div>
-          <p className="mt-4 text-center text-sm text-[#15130F]/75">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
+          <p className="mt-4 text-center text-[15px] text-[#15130F]/75">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
+          <p className="mt-1 text-center text-[13px] text-[#15130F]/60">Proposal {customer.number}</p>
         </section>
 
         {/* Sticky bottom: the one thing to do. */}
@@ -1114,7 +1123,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
           {chosen ? (
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm text-white/85"><span className="font-bold" style={{ color: "#E3BE63" }}>Your investment</span> · {chosen.short}{repairs ? " + repairs" : ""}</p>
+                <p className="truncate text-sm text-white/85"><span className="font-bold" style={{ color: "#E3BE63" }}>Your price</span> · {chosen.short}{repairs ? " + repairs" : ""}</p>
                 <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="mt-0.5 text-[13px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
@@ -1234,14 +1243,14 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setTerms(false)}>
           <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <p className="text-[12px] font-bold uppercase tracking-[0.2em] text-[#8C6224]">The fine print, without the fine print</p>
-            <h3 className="font-heading text-2xl font-bold leading-tight">1-year workmanship warranty</h3>
+            <h3 className="font-heading text-2xl font-bold leading-tight">1-year warranty on our work</h3>
             <div className="mt-3 space-y-4 text-[17px] leading-relaxed">
               <p><span className="font-bold">Our promise.</span> If the stain peels or cracks because of how we applied it, we come back and fix it. Free. For one year from the day we finish.</p>
               <p><span className="font-bold">What it does not cover.</span> Damage we did not cause. A mower or weed eater hits the fence. A sprinkler sprays it every day. A board you swapped out. Pets, scrapes, a neighbor's project. Those are not our work, so the free fix does not cover them.</p>
               <p><span className="font-bold">Something else damaged it?</span> If the damage was not caused by our work, like a mower, a sprinkler, a storm or a pet, it is not free. But we will still come fix it. We tell you the price first. You say yes or no. No surprises.</p>
               <p><span className="font-bold">Sprinklers hitting your fence?</span> Sprinkler water leaves stains and wears the stain out faster. We have our own sprinkler team. We will check your sprinklers for free. Then we give you a fair price to aim them away from the fence.</p>
               <p><span className="font-bold">A complimentary touch-up can.</span> When we finish, we leave you a can of your exact stain, free, as our thank-you on top of everything else. A small scrape becomes a two-minute fix. The stain's name is on the label. Need more? Buy it by that name, or ask us.</p>
-              <p><span className="font-bold">* Why we give a range.</span> The years on each package are what we usually see, not a promise. How long a stain lasts depends on things no one controls. How much sun the fence gets matters most, because south and west sides fade first. So do rain, Houston humidity, sprinklers that hit the fence, shade and mildew, the age of the wood, and storms like hail and hurricanes. Two fences on the same street can wear differently. Our written promise is the 1-year workmanship warranty above. After that, we're glad to come back and restain at our regular price.</p>
+              <p><span className="font-bold">* Why we give a range.</span> The years on each package are what we usually see, not a promise. How long a stain lasts depends on things no one controls. How much sun the fence gets matters most, because south and west sides fade first. So do rain, Houston humidity, sprinklers that hit the fence, shade and mildew, the age of the wood, and storms like hail and hurricanes. Two fences on the same street can wear differently. Our written promise is the 1-year warranty above. After that, we're glad to come back and restain at our regular price.</p>
               <p><span className="font-bold">The deposit.</span> $250 reserves your spot and isn't refundable. Move your date any time. The rest is due when the job is done and you're happy.</p>
               {expired
                 ? <p><span className="font-bold">Your price</span> was good for {customer.priceDays} days, through {customer.goodThrough}. That has ended, so our regular prices apply.</p>
@@ -1440,7 +1449,7 @@ function Fake({ label, value, right }: { label: string; value: string; right?: s
 
 function LearnMore({ onClick, dark }: { onClick: () => void; dark?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className={cn("font-bold underline underline-offset-2", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>
+    <button type="button" onClick={onClick} className={cn("inline-flex min-h-[44px] items-center px-1 font-bold underline underline-offset-2", dark ? "text-[#E3BE63]" : "text-[#8C6224]")}>
       Learn more
     </button>
   );
@@ -1454,7 +1463,7 @@ function PayOption({ lender, text, note, dim, learn }: { lender: "klarna" | "aff
         : <span className="flex h-7 w-16 shrink-0 items-center justify-center rounded-md bg-[#15130F]"><img src="/affirm-white.png" alt="Affirm" className="h-4 w-auto" draggable={false} /></span>}
       <div className="min-w-0">
         <p className="text-[15px] font-bold leading-tight">{text}</p>
-        <p className="text-[13px] text-[#15130F]/75">{dim ? "Over the pay-in-4 limit for this amount." : note}{learn ? <> <LearnMore onClick={learn} /></> : null}</p>
+        <p className="text-[15px] leading-snug text-[#15130F]/80">{dim ? "Over the pay-in-4 limit for this amount." : note}{learn ? <> <LearnMore onClick={learn} /></> : null}</p>
       </div>
     </div>
   );
@@ -1505,7 +1514,7 @@ function Counter({ label, what, unit, price, n, onChange, art, children }: {
 /** What happens to the fence, in order, for the "What you get" path. */
 const STEPS: { icon: React.ElementType; day?: string; head: string; body: string }[] = [
   { icon: Droplets, day: "Day 1", head: "Full prep wash", body: "Mold, mildew, dirt and gray weathering come off first." },
-  { icon: Sun, day: "Day 2", head: "Premium stain", body: "Professional-grade, picked for Texas sun." },
+  { icon: Sun, day: "Day 2", head: "Premium stain", body: "Top-quality stain made for Texas sun." },
   { icon: Paintbrush, head: "Two coats", body: "With attention to boards, edges and details." },
   { icon: Shield, head: "Hardware stays clean", body: "We keep stain off your black hinges and latches." },
   { icon: Sparkles, head: "Clean jobsite", body: "Labor and cleanup included." },
