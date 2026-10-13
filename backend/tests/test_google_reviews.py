@@ -79,3 +79,31 @@ def test_the_office_can_hide_one_and_the_endpoints_say_why_when_the_key_is_missi
     with pytest.raises(Exception) as e:
         reviews_api.refresh_reviews(ADMIN)
     assert "SERPAPI_KEY" in str(e.value.detail)
+
+
+def test_reviews_pasted_by_hand_show_up_with_the_counts_set_by_hand(db):
+    text = """Matt Shivers | 5 | 7 weeks ago
+Awesome crew to work with and very pleased with the result! Definitely recommend!
+
+Michael Parr | 5 stars | 7 weeks ago
+My fence has never looked better!
+You won't be disappointed
+
+Second paragraph of the same review.
+
+Some Critic | 4 | a year ago
+Fine."""
+    assert gr.add_manual(db, text) == 3
+    assert gr.add_manual(db, text) == 0                     # pasted twice: no doubles
+    pub = gr.public_reviews(db)
+    assert [r["author"] for r in pub["reviews"]] == ["Matt Shivers", "Michael Parr"]
+    assert pub["reviews"][1]["text"] == "My fence has never looked better! You won't be disappointed\n\nSecond paragraph of the same review."
+    assert pub["reviews"][0]["when"] == "7 weeks ago" and pub["reviews"][0]["date"]
+    out = reviews_api.set_summary(reviews_api.SummaryBody(rating=5.0, total=41, five_star=40), ADMIN)
+    assert out["five_star"] == 40 and out["total"] == 41
+    pub = gr.public_reviews(db)
+    assert pub["five_star"] == 40 and pub["total"] == 41 and pub["rating"] == 5.0
+    assert reviews_api.add_manual_reviews(reviews_api.ManualBody(text="Only Name"), ADMIN)["parsed"] == 1
+    with pytest.raises(Exception):
+        reviews_api.add_manual_reviews(reviews_api.ManualBody(text="   "), ADMIN)
+    assert gr._when_to_iso("a month ago") and gr._when_to_iso("last week") == ""

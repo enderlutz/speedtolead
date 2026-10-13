@@ -69,3 +69,42 @@ def hide_review(review_id: str, body: HideBody, user: dict = Depends(require_adm
         return gr.review_dict(row)
     finally:
         db.close()
+
+
+class ManualBody(BaseModel):
+    text: str
+
+
+@router.post("/reviews/manual")
+def add_manual_reviews(body: ManualBody, user: dict = Depends(require_admin)):
+    """Reviews typed in from the listing (see services/google_reviews.parse_manual)."""
+    db = get_db()
+    try:
+        parsed = gr.parse_manual(body.text)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="Nothing to add. One review per block: a line with name | stars | when, then the words.")
+        added = gr.add_manual(db, body.text)
+        log_event(None, "google_reviews_added_by_hand", f"{added} new of {len(parsed)} by {user.get('name') or user.get('sub') or ''}")
+        return {"added": added, "parsed": len(parsed), "summary": gr.summary(db)}
+    finally:
+        db.close()
+
+
+class SummaryBody(BaseModel):
+    rating: float | None = None
+    total: int | None = None
+    five_star: int | None = None
+
+
+@router.post("/reviews/summary")
+def set_summary(body: SummaryBody, user: dict = Depends(require_admin)):
+    """The numbers up top, set by hand: rating, how many reviews, how many five-star."""
+    if body.rating is not None and not (1 <= body.rating <= 5):
+        raise HTTPException(status_code=400, detail="Rating is 1 to 5")
+    db = get_db()
+    try:
+        out = gr.set_manual_summary(db, body.rating, body.total, body.five_star)
+        log_event(None, "google_reviews_summary_set", f"{out} by {user.get('name') or user.get('sub') or ''}")
+        return out
+    finally:
+        db.close()

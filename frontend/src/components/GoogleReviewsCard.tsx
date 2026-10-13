@@ -13,8 +13,19 @@ export default function GoogleReviewsCard() {
   const [data, setData] = useState<ReviewsAdmin | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [paste, setPaste] = useState("");
+  const [rating, setRating] = useState("");
+  const [total, setTotal] = useState("");
+  const [fiveStar, setFiveStar] = useState("");
 
-  const load = () => { api.listReviews().then(setData).catch(() => setData(null)); };
+  const load = () => {
+    api.listReviews().then((d) => {
+      setData(d);
+      setRating(d.summary.rating == null ? "" : String(d.summary.rating));
+      setTotal(d.summary.total ? String(d.summary.total) : "");
+      setFiveStar(d.summary.five_star ? String(d.summary.five_star) : "");
+    }).catch(() => setData(null));
+  };
   useEffect(() => { if (isAdmin) load(); }, [isAdmin]);
   if (!isAdmin) return null;
 
@@ -26,6 +37,36 @@ export default function GoogleReviewsCard() {
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't pull the reviews", { duration: 10000 });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addPasted = async () => {
+    if (!paste.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api.addManualReviews(paste);
+      toast.success(`${r.added} new review${r.added === 1 ? "" : "s"} added${r.parsed > r.added ? `, ${r.parsed - r.added} already there` : ""}`);
+      setPaste("");
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't add those", { duration: 8000 });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveCounts = async () => {
+    setBusy(true);
+    try {
+      await api.setReviewsSummary({
+        rating: rating.trim() ? Number(rating) : null,
+        total: total.trim() ? Number(total) : null,
+        five_star: fiveStar.trim() ? Number(fiveStar) : null,
+      });
+      toast.success("Saved. The proposal shows these numbers up top.");
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save");
     } finally {
       setBusy(false);
     }
@@ -43,9 +84,27 @@ export default function GoogleReviewsCard() {
         <CardTitle className="flex items-center gap-2 text-base"><Star className="h-4 w-4 fill-current text-amber-500" /> Google reviews on the proposal</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Typed in from the listing (Alan, 2026-10-12) until Google's own
+            feed is approved. The numbers up top are set by hand too. */}
+        <div className="space-y-2 rounded-lg border p-3">
+          <p className="text-sm font-semibold">Add reviews by hand</p>
+          <p className="text-xs text-muted-foreground">One review per block, a blank line between. First line: name | stars | when Google says. Then the words.</p>
+          <textarea
+            value={paste} onChange={(e) => setPaste(e.target.value)} rows={7}
+            placeholder={"Matt Shivers | 5 | 7 weeks ago\nAwesome crew to work with and very pleased with the result! Definitely recommend!\n\nMichael Parr | 5 | 7 weeks ago\nMy fence has never looked better!"}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
+          />
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs">Rating<br /><input value={rating} onChange={(e) => setRating(e.target.value)} inputMode="decimal" placeholder="5.0" className="h-9 w-16 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" /></label>
+            <label className="text-xs">Reviews on Google<br /><input value={total} onChange={(e) => setTotal(e.target.value)} inputMode="numeric" placeholder="41" className="h-9 w-20 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" /></label>
+            <label className="text-xs">Five-star<br /><input value={fiveStar} onChange={(e) => setFiveStar(e.target.value)} inputMode="numeric" placeholder="40" className="h-9 w-20 rounded-lg border border-border bg-background px-2 text-sm tabular-nums" /></label>
+            <Button size="sm" variant="outline" onClick={saveCounts} disabled={busy}>Save numbers</Button>
+            <Button size="sm" onClick={addPasted} disabled={busy || !paste.trim()} className="ml-auto">Add these reviews</Button>
+          </div>
+        </div>
         {data && !data.configured ? (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
-            No SERPAPI_KEY in Railway yet. Sign up at serpapi.com (the free plan covers a nightly pull), copy the API key, and have Fragne add it as SERPAPI_KEY. Until then the proposal shows sample cards.
+          <p className="text-xs text-muted-foreground">
+            Pull now needs a SERPAPI_KEY in Railway; Google's own feed comes once the Business Profile API request is approved. Until then, paste them above.
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-3 text-sm">

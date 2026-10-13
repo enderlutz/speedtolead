@@ -1970,6 +1970,11 @@ export const api = {
   refreshReviews: () => request<ReviewsSummary>(`/api/reviews/refresh`, { method: "POST" }),
   hideReview: (id: string, hidden: boolean) =>
     request<GoogleReviewRow>(`/api/reviews/${id}/hide`, { method: "POST", body: JSON.stringify({ hidden }) }),
+  /** Reviews typed in from the listing: one block each, "name | stars | when" then the words. */
+  addManualReviews: (text: string) =>
+    request<{ added: number; parsed: number; summary: ReviewsSummary }>(`/api/reviews/manual`, { method: "POST", body: JSON.stringify({ text }) }),
+  setReviewsSummary: (body: { rating?: number | null; total?: number | null; five_star?: number | null }) =>
+    request<ReviewsSummary>(`/api/reviews/summary`, { method: "POST", body: JSON.stringify(body) }),
   getProposalInteractiveDefault: () => request<{ on: boolean }>(`/api/settings/proposal-interactive`),
   setProposalInteractiveDefault: (on: boolean) =>
     request<{ on: boolean }>(`/api/settings/proposal-interactive`, { method: "PUT", body: JSON.stringify({ on }) }),

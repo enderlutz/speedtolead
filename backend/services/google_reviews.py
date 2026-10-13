@@ -12,7 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -117,7 +118,7 @@ def save_summary(db, place_info: dict | None = None, fetched_at: str | None = No
     rating = place_info.get("rating") if place_info else None
     if rating is None and rated:
         rating = round(sum(rated) / len(rated), 1)
-    total = (place_info or {}).get("reviews") or len(rows)
+    total = (place_info or {}).get("reviews") or max(len(rows), int(summary(db).get("total") or 0))
     out = {
         "rating": float(rating) if rating is not None else None,
         "total": int(total or 0),
@@ -156,3 +157,98 @@ def public_reviews(db) -> dict:
     s = summary(db)
     return {"rating": s.get("rating"), "total": s.get("total", 0), "five_star": s.get("five_star", 0),
             "fetched_at": s.get("fetched_at"), "reviews": items}
+
+
+# ── By hand ────────────────────────────────────────────────────────────────
+# Alan (2026-10-12): "What if I just sent you screenshots of the top five
+# Google reviews?" Reviews typed in from the listing, with the counts set
+# by hand, until Google's own feed is approved. One block per review:
+#
+#   Matt Shivers | 5 | 7 weeks ago
+#   Awesome crew to work with and very pleased with the result!
+#
+# The first line is name | stars | when Google says; the rest is the words.
+
+_AGO = re.compile(r"(?:(\d+)|an?)\s+(day|week|month|year)s?\s+ago", re.I)
+
+
+def _when_to_iso(relative: str, now: datetime | None = None) -> str:
+    """"7 weeks ago" -> an ISO date about then, so the list sorts newest
+    first. Empty when the words don't say."""
+    m = _AGO.search(relative or "")
+    if not m:
+        return ""
+    n = int(m.group(1) or 1)
+    unit = m.group(2).lower()
+    days = {"day": 1, "week": 7, "month": 30, "year": 365}[unit] * n
+    return ((now or datetime.now(timezone.utc)) - timedelta(days=days)).isoformat()
+
+
+def parse_manual(text: str) -> list[dict]:
+    """A block whose first line has a "|" starts a review; a block without
+    one continues the review before it, as a new paragraph. Reviews with
+    paragraphs paste in as they read on Google."""
+    out: list[dict] = []
+    for block in re.split(r"\n\s*\n", (text or "").strip()):
+        lines = [ln.strip() for ln in block.strip().splitlines() if ln.strip()]
+        if not lines:
+            continue
+        if "|" not in lines[0] and out:
+            out[-1]["text"] = (out[-1]["text"] + "\n\n" + " ".join(lines)).strip()
+            continue
+        head = [p.strip() for p in lines[0].split("|")]
+        name = head[0]
+        if not name:
+            continue
+        rating = 5
+        if len(head) > 1:
+            digits = re.sub(r"[^0-9]", "", head[1])
+            if digits:
+                rating = max(1, min(5, int(digits[0])))
+        relative = head[2] if len(head) > 2 else ""
+        body = " ".join(lines[1:]).strip()
+        out.append({"author": name, "rating": rating, "relative": relative, "text": body})
+    return out
+
+
+def add_manual(db, text: str) -> int:
+    """Upsert the pasted reviews. Keyed on the name and the words, so
+    pasting the same review twice doesn't double it."""
+    now = _now()
+    stamp = datetime.now(timezone.utc)
+    added = 0
+    for i, r in enumerate(parse_manual(text)):
+        rid = "manual-" + hashlib.sha1(f"{r['author']}|{r['text']}".encode("utf-8")).hexdigest()[:20]
+        row = db.query(GoogleReview).filter(GoogleReview.id == rid).first()
+        if row is None:
+            row = GoogleReview(id=rid, hidden=False)
+            db.add(row)
+            added += 1
+        row.author = r["author"]
+        row.rating = r["rating"]
+        row.relative = r["relative"]
+        row.text = r["text"]
+        # Reviews of the same age keep the order they were pasted in.
+        row.reviewed_at = _when_to_iso(r["relative"], stamp - timedelta(seconds=i))
+        row.fetched_at = now
+    db.commit()
+    s = summary(db)
+    if not s.get("fetched_at"):
+        # Nothing ever pulled: the counts come from what was pasted until
+        # the office sets them.
+        save_summary(db, {"rating": s.get("rating"), "reviews": s.get("total") or None}, now)
+    return added
+
+
+def set_manual_summary(db, rating: float | None, total: int | None, five_star: int | None) -> dict:
+    """The numbers the page shows up top, set by hand: the listing's rating,
+    how many reviews it has, how many are five stars."""
+    s = summary(db)
+    out = {
+        "rating": float(rating) if rating is not None else s.get("rating"),
+        "total": int(total) if total is not None else int(s.get("total") or 0),
+        "five_star": int(five_star) if five_star is not None else int(s.get("five_star") or 0),
+        "fetched_at": s.get("fetched_at") or _now(),
+    }
+    SystemConfig.set(db, SUMMARY_KEY, json.dumps(out))
+    return out
