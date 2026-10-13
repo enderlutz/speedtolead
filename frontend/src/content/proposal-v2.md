@@ -1085,3 +1085,18 @@ zoviz.com luxury brand colour study.
   the four-star one stays off. Pulled nightly through SerpAPI once
   SERPAPI_KEY is in Railway (Settings → Google reviews → Pull now); sample
   cards until then. Extra work paid at the end gets the job-done screens.
+- 2026-10-12 (late) — The reviews are the real ones off the listing: the
+  reviewer's own profile picture and the photos they attached, the
+  four-star one kept but off the page. The review count is gone; the
+  line under the 5.0 says "We pride ourselves on being the best". A
+  tapped photo opens in a pop-up over the page, not the whole screen: a
+  big X, a Close button, a tap outside closes it, arrows when there is
+  more than one. Google shows only ten reviews to anyone not signed in
+  and puts a sign-in box over every sort, filter and search, but a
+  reviewer's own public page is open and shows their review with picture
+  and photos; Michael Parr's came in that way, found through the
+  listing's photo gallery. Sonali Joshi and Matt Shivers are not in the
+  gallery, so their pictures and photos wait on their profile links (or
+  the Business Profile API, case 3-2533000041776). The pulled set ships
+  with the code (`backend/data/google_reviews_seed.json`) and loads into
+  production on startup whenever its stamp changes.
