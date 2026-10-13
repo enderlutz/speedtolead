@@ -273,6 +273,48 @@ def finance(token: str, body: DoorBody, request: Request):
         db.close()
 
 
+# ── Public: they sent it to someone ───────────────────────────────────────
+
+SHARE_HOW = {"text": "by text", "share": "from their phone's share button", "copy": "by copying the link"}
+SHARE_QUIET = timedelta(hours=12)
+
+
+class ShareBody(BaseModel):
+    how: str = ""
+
+
+@router.post("/public/proposal/{token}/shared")
+def shared(token: str, body: ShareBody, request: Request):
+    """Public. The customer sent the proposal on, mostly to a wife or
+    husband (72% of "let me talk to my ___" in calls and texts, counted
+    2026-10-13). Logged every time; the lead gets a note and Alan a text
+    at most once every 12 hours, because a second person looking is the
+    moment to call."""
+    from database import AutomationLog
+    db = get_db()
+    try:
+        p = _live_proposal(db, token)
+        lead = db.query(Lead).filter(Lead.id == p.lead_id).first()
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        how = body.how if body.how in SHARE_HOW else "share"
+        since = (_now() - SHARE_QUIET).isoformat()
+        recent = (db.query(AutomationLog)
+                  .filter(AutomationLog.lead_id == lead.id, AutomationLog.event_type == "proposal_shared",
+                          AutomationLog.created_at >= since)
+                  .first())
+        internal = _is_internal_user(request)
+        log_event(lead.id, "proposal_shared", f"{number_for(p)} {how}{' (staff)' if internal else ''}")
+        if recent is None and not internal:
+            name = (lead.contact_name or "A customer").strip()
+            hooks._note(lead, f"Sent their proposal to someone {SHARE_HOW[how]}.")
+            hooks.alert_alan(f"{name} sent their proposal to someone {SHARE_HOW[how]}. "
+                             f"A second person is looking: good time to call.\n{_lead_url(lead)}")
+        return {"ok": True}
+    finally:
+        db.close()
+
+
 # ── Staff: the switch and the extension, on the lead page ─────────────────
 
 def _lead_state(db, lead: Lead, p: Proposal | None) -> dict:

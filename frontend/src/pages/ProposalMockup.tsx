@@ -15,7 +15,7 @@ import { createPortal } from "react-dom";
 import {
   Phone, Check, Shield, Droplets, Sparkles, Paintbrush, Sun, Star, Hammer, Minus, Plus,
   FileText, MapPin, Calendar, UserRound, Leaf, Home, Smartphone, Monitor,
-  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight,
+  Users, Lightbulb, ArrowLeft, Eye, MessageSquare, CreditCard, Lock, ChevronDown, Gem, X, ChevronLeft, ChevronRight, Share2, Link2,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -118,6 +118,90 @@ function tidyAddress(a: string): string {
     .replace(/\b(Tx|Ca|Fl|Ny)\b/g, (m) => m.toUpperCase());
 }
 
+/** "Let me talk to my wife" is the most common stall: wife or husband is
+ *  72% of every "talk to my ___" in 3,239 calls and 8,157 texts (counted
+ *  2026-10-13). So the page hands them the words and the link. A text
+ *  opens Messages with it written; Share opens the phone's own share
+ *  sheet; Copy is for anything else. iPhone wants "sms:&body=", Android
+ *  and Samsung want "sms:?body="; one form on the wrong phone opens an
+ *  empty text. */
+const SHARE_TEXT = "Sterling Fence Staining sent over a proposal to stain and restore our fence. Take a look and tell me which one you'd pick! Our fence is about to look brand new 😄";
+
+function isApplePhone(): boolean {
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+}
+
+function smsHref(body: string): string {
+  return `sms:${isApplePhone() ? "&" : "?"}body=${encodeURIComponent(body)}`;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Older phones and in-app browsers: the textarea trick still works.
+    try {
+      const t = document.createElement("textarea");
+      t.value = text;
+      t.setAttribute("readonly", "");
+      t.style.position = "fixed";
+      t.style.opacity = "0";
+      document.body.appendChild(t);
+      t.select();
+      t.setSelectionRange(0, text.length);
+      const ok = document.execCommand("copy");
+      document.body.removeChild(t);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function ShareCard({ onShared }: { onShared?: (how: ShareHow) => void }) {
+  const url = typeof window !== "undefined" ? window.location.href.split("#")[0] : "";
+  const [copied, setCopied] = useState<null | "ok" | "fail">(null);
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const share = async () => {
+    try {
+      await navigator.share({ title: "Our fence proposal", text: SHARE_TEXT, url });
+      onShared?.("share");
+    } catch { /* closed the sheet */ }
+  };
+  const copy = async () => {
+    const ok = await copyText(url);
+    setCopied(ok ? "ok" : "fail");
+    if (ok) onShared?.("copy");
+    window.setTimeout(() => setCopied(null), 4000);
+  };
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+      <p className="flex items-center gap-2 font-heading text-xl font-bold leading-tight"><Users className="h-6 w-6 shrink-0" style={{ color: "#8C6224" }} /> Want a second opinion?</p>
+      <p className="mt-1 text-[15px] leading-snug text-[#15130F]/80">Send this to your wife, husband, or whoever helps you decide.</p>
+      <a href={smsHref(`${SHARE_TEXT}\n${url}`)} onClick={() => onShared?.("text")}
+        className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[16px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
+        <MessageSquare className="h-5 w-5" /> Text it to someone
+      </a>
+      <div className={cn("mt-2 grid gap-2", canShare ? "grid-cols-2" : "grid-cols-1")}>
+        {canShare ? (
+          <button type="button" onClick={() => void share()}
+            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+            <Share2 className="h-5 w-5" /> Share
+          </button>
+        ) : null}
+        <button type="button" onClick={() => void copy()}
+          className="flex h-12 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+          {copied === "ok" ? <><Check className="h-5 w-5" /> Copied</> : <><Link2 className="h-5 w-5" /> Copy link</>}
+        </button>
+      </div>
+      {copied === "ok" ? <p className="mt-2 text-center text-[15px] text-[#15130F]/80">Link copied. Paste it anywhere.</p> : null}
+      {copied === "fail" ? <p className="mt-2 break-all text-center text-[15px] text-[#15130F]/80">Press and hold to copy: {url}</p> : null}
+    </div>
+  );
+}
+
 /** One review card. Long ones are clamped and open on a tap: the page is
  *  read on a phone, and one wall of text would hide the others. */
 function ReviewCard({ author, photo, text, when, photos, phone }: { author: string; photo: string; text: string; when: string; photos?: string[]; phone: boolean }) {
@@ -155,7 +239,8 @@ function ReviewCard({ author, photo, text, when, photos, phone }: { author: stri
 
 /** The two doors on the real page. Each returns the pay page to send the
  *  customer to; the mockup's fake checkout is used when these are absent. */
-export type Doors = { reserve: (tier: PkgKey) => Promise<string>; finance: (tier: PkgKey) => Promise<string> };
+export type ShareHow = "text" | "share" | "copy";
+export type Doors = { reserve: (tier: PkgKey) => Promise<string>; finance: (tier: PkgKey) => Promise<string>; shared?: (how: ShareHow) => void };
 
 // ── Sample data ────────────────────────────────────────────────────────
 // A made-up customer. Never a real one: this page ships inside the
@@ -691,8 +776,17 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             const show = chosen || packages[1];
             const line = payLine(show.price);
             const sk = SKINS[show.key];
+            const idx = packages.findIndex((x) => x.key === show.key);
+            const prev = idx > 0 ? packages[idx - 1] : null;
+            const next = idx < packages.length - 1 ? packages[idx + 1] : null;
             return (
               <>
+                {/* Alan's dad read the three tiles as a brochure and never
+                    tapped one (2026-10-13). Say it, in big words. */}
+                <p className="mb-2 flex items-center justify-center gap-2 text-center text-[17px] font-bold">
+                  <span aria-hidden className="text-[22px] leading-none">👇</span>
+                  {chosen ? "Tap another one to compare" : "Tap a package to see what's in it"}
+                </p>
                 <div className="grid grid-cols-3 gap-2">
                   {packages.map((p) => {
                     const on = pkg === p.key;
@@ -702,7 +796,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                       <button key={p.key} type="button" onClick={() => choose(p.key)}
                         className={cn("relative flex flex-col overflow-hidden rounded-2xl text-left shadow-lg transition duration-200 active:scale-[0.97]",
                           on ? cn("z-10 scale-[1.04] ring-4 shadow-2xl", s.onRing)
-                            : pkg ? cn("opacity-55 saturate-50 ring-1", s.ring)
+                            : pkg && !shown ? cn("opacity-55 saturate-50 ring-1", s.ring)
                             : shown ? cn("ring-2", s.ring) : cn("ring-1", s.ring))}
                         style={s.card}>
                         {s.frame ? <GoldFrame /> : null}
@@ -714,9 +808,6 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                           ))}
                         </div>
                         <TierBadge pkg={p.key} small className="absolute left-1.5 top-1.5 z-20" />
-                        {on ? (
-                          <span className="absolute right-1.5 top-1.5 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
-                        ) : null}
                         {/* The same four rows on every tile, each a fixed
                             height, so the three names sit on one line across
                             the page and so do the prices. Name first, in the
@@ -728,6 +819,14 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                           <p className="h-[34px] text-[13px] font-bold uppercase leading-[17px] tracking-[0.03em]" style={{ color: s.muted }}>{p.tag}</p>
                           <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
                           <p className="h-[36px] text-[14px] font-semibold leading-[18px]" style={{ color: s.muted }}>Usually lasts<br />{p.lasts}*</p>
+                          {/* A choice circle, the way paper forms do it: empty
+                              and "Tap to see" until it's the one showing. */}
+                          <p className="mt-1.5 flex h-[26px] items-center gap-1.5 text-[13px] font-bold" style={{ color: s.name }}>
+                            {shown
+                              ? <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-4 w-4" /></span>
+                              : <span className="h-6 w-6 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
+                            {shown ? "Showing" : "Tap to see"}
+                          </p>
                         </div>
                       </button>
                     );
@@ -739,12 +838,11 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                   <div className="relative flex items-start justify-between gap-2 px-4 py-3" style={sk.card}>
                     {sk.frame ? <GoldFrame /> : null}
                     <div className="min-w-0">
+                      <p className="text-[13px] font-bold uppercase tracking-wider" style={{ color: sk.muted }}>{chosen ? "Your pick" : "You're looking at"}</p>
                       <h3 className="font-heading text-2xl font-bold leading-tight" style={{ color: sk.name }}>{show.name}</h3>
                       <p className="text-[14px] font-bold uppercase tracking-[0.1em]" style={{ color: sk.muted }}>{show.tag}<br /><span className="whitespace-nowrap">Usually lasts {show.lasts}*</span></p>
                     </div>
-                    {chosen
-                      ? <span className="shrink-0 rounded-full bg-[#15130F] px-2.5 py-1 text-[12px] font-bold text-[#E3BE63] ring-1 ring-[#C9972F]">✓ Your pick</span>
-                      : <TierBadge pkg={show.key} className="shrink-0" />}
+                    <TierBadge pkg={show.key} className="shrink-0" />
                   </div>
                   <div className="p-4 pt-3">
                     <div className="rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
@@ -777,8 +875,23 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                       className={cn("mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
                         chosen ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
                       style={chosen ? undefined : { background: GOLD }}>
-                      {chosen ? <><Check className="h-5 w-5" /> {show.short} picked</> : `Pick ${show.short}`}
+                      {chosen ? <><Check className="h-5 w-5" /> {show.short} is your pick</> : `I want ${show.short}`}
                     </button>
+                    {/* Flip to the next one without scrolling back up. */}
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {prev ? (
+                        <button type="button" onClick={() => choose(prev.key)}
+                          className="flex h-12 items-center justify-center gap-1 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+                          <ChevronLeft className="h-5 w-5" /> See {prev.short}
+                        </button>
+                      ) : <span />}
+                      {next ? (
+                        <button type="button" onClick={() => choose(next.key)}
+                          className="flex h-12 items-center justify-center gap-1 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
+                          See {next.short} <ChevronRight className="h-5 w-5" />
+                        </button>
+                      ) : <span />}
+                    </div>
                   </div>
                 </div>
               </>
@@ -845,7 +958,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
                         className={cn("mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
                           on ? "bg-[#15130F] text-[#E3BE63] ring-1 ring-[#C9972F]" : "text-[#15130F] shadow-md")}
                         style={on ? undefined : { background: GOLD }}>
-                        {on ? <><Check className="h-5 w-5" /> {p.short} picked</> : `Pick ${p.short}`}
+                        {on ? <><Check className="h-5 w-5" /> {p.short} is your pick</> : `I want ${p.short}`}
                       </button>
                     </div>
                   </div>
@@ -854,6 +967,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
             </div>
           )}
           <p className="mt-3 text-center text-sm text-[#15130F]/75">Choose based on the condition of your wood and the look you want.</p>
+          <div className="mt-4"><ShareCard onShared={doors?.shared} /></div>
         </section>
 
         {/* Colours: a gallery to look at, not a decision to make here. Tap
@@ -1109,6 +1223,7 @@ export default function ProposalMockup({ preview = false, dressed, doors }: { pr
 
         {/* Footer links */}
         <section className="px-4 pb-28">
+          <div className="mb-3"><ShareCard onShared={doors?.shared} /></div>
           <button type="button" onClick={() => setTerms(true)} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-white text-[16px] font-semibold ring-1 ring-[#15130F]/15"><FileText className="h-5 w-5" /> Terms</button>
           <p className="mt-4 text-center text-[15px] text-[#15130F]/75">Sterling Fence Staining · Cypress, TX · 346-589-7877</p>
           <p className="mt-1 text-center text-[13px] text-[#15130F]/60">Proposal {customer.number}</p>

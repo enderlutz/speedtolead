@@ -197,3 +197,19 @@ def test_the_admin_switch_flips_the_latest_proposal(db, quiet):
     pl.switch_interactive(lead.id, pl.SwitchBody(on=False), {"name": "Alan", "role": "admin"})
     with pytest.raises(HTTPException):
         pl.get_live(p.token, _Req())
+
+
+def test_sharing_logs_every_time_and_texts_alan_once_in_12_hours(db, quiet):
+    from database import AutomationLog
+    lead = _lead(db, contact_name="Angel Ramos")
+    p = _proposal(db, lead, _estimate(db, lead))
+    assert pl.shared(p.token, pl.ShareBody(how="text"), _Req()) == {"ok": True}
+    assert pl.shared(p.token, pl.ShareBody(how="copy"), _Req()) == {"ok": True}
+    assert pl.shared(p.token, pl.ShareBody(how="nonsense"), _Req()) == {"ok": True}
+    alan = [m for k, m in quiet if k == "alan"]
+    assert len(alan) == 1 and "Angel Ramos sent their proposal to someone by text" in alan[0]
+    assert len([m for k, m in quiet if k == "note"]) == 1
+    logged = db.query(AutomationLog).filter(AutomationLog.lead_id == lead.id, AutomationLog.event_type == "proposal_shared").all()
+    assert len(logged) == 3 and any("share" in r.detail for r in logged)
+    with pytest.raises(HTTPException):
+        pl.shared("nope", pl.ShareBody(how="text"), _Req())

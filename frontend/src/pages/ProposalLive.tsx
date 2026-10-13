@@ -84,6 +84,11 @@ export default function ProposalLive() {
       doors={{
         reserve: (tier) => door(t, "reserve", tier),
         finance: (tier) => door(t, "finance", tier),
+        // Fire and forget; keepalive so the report survives the jump into
+        // Messages, which can unload the page.
+        shared: (how) => { void fetch(`${BASE}/api/public/proposal/${encodeURIComponent(t)}/shared`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ how }), keepalive: true,
+        }).catch(() => {}); },
       }}
     />
   );
