@@ -6,6 +6,8 @@ import GenerateInvoiceModal from "@/components/GenerateInvoiceModal";
 import CallScriptPanel from "@/components/CallScriptPanel";
 
 const CALL_SCRIPT_ON = false;
+// "Request Alan's Approval" on the send panel, archived 2026-10-14.
+const APPROVAL_REQUEST_ON = false;
 import FollowUpStatusPanel from "@/components/FollowUpStatusPanel";
 import { cn, formatCurrency, formatMonthly, formatDate, formatDateTime, timeAgo, errMessage, errName } from "@/lib/utils";
 import { ACCENT, accentForName, initials, type Accent } from "@/lib/accents";
@@ -954,7 +956,8 @@ export default function LeadDetail() {
     }
   };
 
-  const [showScheduler, setShowScheduler] = useState(false);
+  const [sendWhen, setSendWhen] = useState<"now" | "ten" | "pick">("now");
+  const [withFollowups, setWithFollowups] = useState(true);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("08:00");
   const [showScheduleJob, setShowScheduleJob] = useState(false);
@@ -1001,10 +1004,9 @@ export default function LeadDetail() {
     }
     if (!applyTag) {
       const ok = window.confirm(
-        "Send WITHOUT applying the 'estimate sent' GHL tag?\n\n" +
-        "The customer SMS + proposal will go out normally, but GHL " +
-        "automations (P1 Sterling, P04 reply handler, etc.) won't fire " +
-        "for this send.\n\nProceed?"
+        "Send without follow-ups?\n\n" +
+        "The estimate goes out normally, but no automatic follow-up " +
+        "texts start for this customer.\n\nSend it?"
       );
       if (!ok) return;
     }
@@ -1054,7 +1056,7 @@ export default function LeadDetail() {
         // A call-in lead had no opportunity; the send just made one.
         toast.info("Added to Sterling Leads A — opportunity created at Estimate Sent", { duration: 8000 });
       }
-      setShowScheduler(false);
+      setSendWhen("now");
     } catch (e) {
       toast.error(errMessage(e, "Failed to approve"));
     } finally {
@@ -2229,7 +2231,7 @@ export default function LeadDetail() {
               )}
 
               {/* After-hours warning */}
-              {isAfterHours() && !showScheduler && lead.pipeline_version !== "v1" && (
+              {isAfterHours() && sendWhen !== "pick" && lead.pipeline_version !== "v1" && (
                 <div className="rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-3">
                   <div className="flex items-start gap-2">
                     <Clock className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
@@ -2237,51 +2239,6 @@ export default function LeadDetail() {
                       <p className="text-sm font-medium text-amber-800">It's late — consider scheduling</p>
                       <p className="text-xs text-amber-600 mt-0.5">Customers respond better to messages received between 8-9 AM</p>
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Schedule send UI */}
-              {showScheduler && (
-                <div className="rounded-xl border-2 border-blue-300 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 space-y-3">
-                  <h4 className="text-xs font-semibold text-blue-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Calendar className="h-3.5 w-3.5" /> Schedule Send
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Date">
-                      <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="h-8 text-sm" />
-                    </Field>
-                    <Field label="Time (Houston)">
-                      <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className="h-8 text-sm" />
-                    </Field>
-                  </div>
-                  {/* Weekday derived from the date — the check that catches an
-                      off-by-one before the message goes out. The clock line
-                      spells out both times for anyone working outside Houston,
-                      because the field means Houston time wherever you are. */}
-                  {scheduledDate && (
-                    <p className="text-xs text-blue-800">
-                      {dayHeader(scheduledDate)}
-                      {scheduledTime && <> · {bothClocks(centralToUTC(scheduledDate, scheduledTime))}</>}
-                    </p>
-                  )}
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => {
-                        if (!scheduledDate) { toast.error("Pick a date"); return; }
-                        // Houston wall clock to a real instant. Never hardcode
-                        // the offset here — it's -5 in summer, -6 in winter.
-                        const when = centralToUTC(scheduledDate, scheduledTime);
-                        if (isNaN(when.getTime())) { toast.error("Pick a valid time"); return; }
-                        handleApprove(when.toISOString());
-                      }}
-                      disabled={approving}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-8"
-                    >
-                      <Clock className="h-3.5 w-3.5 mr-1" />
-                      {approving ? "Scheduling..." : "Schedule Send"}
-                    </Button>
-                    <Button variant="outline" onClick={() => setShowScheduler(false)} className="h-8">Cancel</Button>
                   </div>
                 </div>
               )}
@@ -2367,64 +2324,82 @@ export default function LeadDetail() {
                   width and the two timing buttons sit under it as a pair —
                   three in a row ran "Schedule" clean off the screen (Alan,
                   2026-10-09). */}
-              <div className="grid gap-2 sm:flex">
-                {/* The one button the whole page leads to. It glows when the
-                    estimate is cleared to go, and only then. */}
-                <div className="relative sm:flex-1">
-                  {estimate.approval_status === "green" && !approving && lead.pipeline_version !== "v1" && (
-                    <div className="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-gold-light to-gold opacity-50 blur-md" />
+              {/* One choice of when, one switch for the follow-ups, one button
+                  that says exactly what it does (Alan, 2026-10-14: "too many
+                  buttons"). Follow-ups on = the "estimate sent" tag, which
+                  starts the GHL follow-up automations; off = no tag. */}
+              <Field label="When">
+                <div className="grid grid-cols-3 gap-1.5">
+                  {([["now", "Now"], ["ten", `In ${SEND_BUFFER_MINUTES} min`], ["pick", "Pick a time"]] as const).map(([k, label]) => (
+                    <button key={k} type="button"
+                      onClick={() => { setSendWhen(k); if (k === "pick" && !scheduledDate) setScheduledDate(getDefaultScheduleDate()); }}
+                      className={cn("h-10 rounded-xl text-sm font-semibold ring-1 transition",
+                        sendWhen === k ? "bg-ink text-gold-light ring-ink" : "bg-background text-foreground ring-border hover:bg-muted")}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              {sendWhen === "pick" && (
+                <div className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Date">
+                      <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="h-8 text-sm" />
+                    </Field>
+                    <Field label="Time (Houston)">
+                      <Input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} className="h-8 text-sm" />
+                    </Field>
+                  </div>
+                  {/* Weekday derived from the date — the check that catches an
+                      off-by-one before the message goes out. The clock line
+                      spells out both times for anyone working outside Houston,
+                      because the field means Houston time wherever you are. */}
+                  {scheduledDate && (
+                    <p className="text-xs text-blue-800">
+                      {dayHeader(scheduledDate)}
+                      {scheduledTime && <> · {bothClocks(centralToUTC(scheduledDate, scheduledTime))}</>}
+                    </p>
                   )}
-                  <Button
-                    onClick={() => handleApprove()}
-                    disabled={approving || lead.pipeline_version === "v1"}
-                    title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : "Sends the proposal + applies the 'estimate sent' GHL tag (triggers P1 / P04 automations)"}
-                    className="relative h-11 w-full rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze text-sm font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60 hover:from-gold hover:via-gold hover:to-bronze disabled:from-stone-300 disabled:via-stone-300 disabled:to-stone-300 disabled:text-stone-600 disabled:shadow-none disabled:ring-0"
-                  >
-                    <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
-                    {approving ? "Sending..." : "Send Now"}
-                  </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:contents">
-                {/* A deliberate buffer, not a delay for its own sake: an
-                    estimate landing the second a call ends reads as a machine
-                    spitting out a number. Ten minutes reads as someone working
-                    on it. No timezone involved — it's ten minutes from now
-                    wherever the VA is sitting, so there is nothing to get
-                    wrong from Honduras. */}
+              )}
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted/30 p-3">
+                <input type="checkbox" checked={withFollowups} onChange={(e) => setWithFollowups(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-600" />
+                <span className="text-sm">
+                  <span className="font-semibold">Start the follow-up texts</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {withFollowups ? "On: the automatic follow-ups start once it's sent." : "Off: sends the estimate only. No automatic follow-ups."}
+                  </span>
+                </span>
+              </label>
+              <div className="relative">
+                {estimate.approval_status === "green" && !approving && lead.pipeline_version !== "v1" && (
+                  <div className="pointer-events-none absolute -inset-1 animate-pulse rounded-2xl bg-gradient-to-r from-gold-light to-gold opacity-50 blur-md" />
+                )}
                 <Button
-                  variant="outline"
                   onClick={() => {
-                    const when = new Date(Date.now() + SEND_BUFFER_MINUTES * 60_000);
-                    const who = lead.contact_name || "this customer";
-                    const ok = window.confirm(
-                      `Send the estimate to ${who} at ${bothClocks(when)}?\n\n` +
-                      `That's ${SEND_BUFFER_MINUTES} minutes from now. The 'estimate sent' tag ` +
-                      `and the follow-up automations fire once it goes out.`,
-                    );
-                    if (!ok) return;
-                    handleApprove(when.toISOString());
+                    if (sendWhen === "now") { handleApprove(undefined, withFollowups); return; }
+                    if (sendWhen === "ten") {
+                      const when = new Date(Date.now() + SEND_BUFFER_MINUTES * 60_000);
+                      const ok = window.confirm(`Send the estimate to ${lead.contact_name || "this customer"} at ${bothClocks(when)}?\n\nThat's ${SEND_BUFFER_MINUTES} minutes from now.${withFollowups ? " The follow-up texts start once it goes out." : " No follow-ups."}`);
+                      if (ok) handleApprove(when.toISOString(), withFollowups);
+                      return;
+                    }
+                    if (!scheduledDate) { toast.error("Pick a date"); return; }
+                    // Houston wall clock to a real instant; never hardcode the offset.
+                    const when = centralToUTC(scheduledDate, scheduledTime);
+                    if (isNaN(when.getTime())) { toast.error("Pick a valid time"); return; }
+                    handleApprove(when.toISOString(), withFollowups);
                   }}
                   disabled={approving || lead.pipeline_version === "v1"}
-                  title={lead.pipeline_version === "v1"
-                    ? "Export to new pipeline before scheduling"
-                    : `Schedules the estimate ${SEND_BUFFER_MINUTES} minutes out, so it doesn't land the instant the call ends`}
-                  className="h-11 rounded-xl sm:shrink-0"
+                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before sending" : undefined}
+                  className="relative h-auto min-h-14 w-full flex-col gap-0 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze py-2 text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60 hover:from-gold hover:via-gold hover:to-bronze disabled:from-stone-300 disabled:via-stone-300 disabled:to-stone-300 disabled:text-stone-600 disabled:shadow-none disabled:ring-0"
                 >
-                  <Clock className="h-4 w-4 mr-1" /> In {SEND_BUFFER_MINUTES} min
+                  <span className="flex items-center text-base font-bold">
+                    <Send className={`mr-2 h-4 w-4 ${approving ? "animate-spin" : ""}`} />
+                    {approving ? "Sending..." : sendWhen === "now" ? "Send now" : sendWhen === "ten" ? `Send in ${SEND_BUFFER_MINUTES} min` : "Schedule the send"}
+                  </span>
+                  {!approving && <span className="text-xs font-medium opacity-80">{withFollowups ? "with follow-up texts" : "no follow-ups"}</span>}
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setScheduledDate(getDefaultScheduleDate());
-                    setShowScheduler(!showScheduler);
-                  }}
-                  disabled={approving || lead.pipeline_version === "v1"}
-                  title={lead.pipeline_version === "v1" ? "Export to new pipeline before scheduling" : undefined}
-                  className="h-11 rounded-xl sm:shrink-0"
-                >
-                  <Calendar className="h-4 w-4 mr-1" /> Schedule
-                </Button>
-                </div>
               </div>
               {/* Marks that this estimate was done on-site (in person) vs remote.
                   Auto-detected from estimator activity (photos/videos, recordings,
@@ -2453,30 +2428,12 @@ export default function LeadDetail() {
                   </label>
                 );
               })()}
-              {/* Second send path — same proposal + customer SMS, but skips
-                  the "estimate sent" GHL tag so the P1/P04 follow-up
-                  automations don't fire for this send. Confirmation prompt
-                  inside handleApprove guards against accidental clicks. */}
-              <Button
-                variant="outline"
-                onClick={() => handleApprove(undefined, false)}
-                disabled={approving || lead.pipeline_version === "v1"}
-                title="Send the proposal without applying the 'estimate sent' GHL tag (no GHL automation fires)"
-                className="w-full rounded-xl border-amber-300 text-amber-900 hover:bg-amber-50 hover:text-amber-900"
-              >
-                <Send className={`h-4 w-4 mr-2 ${approving ? "animate-spin" : ""}`} />
-                {approving ? "Sending..." : "Send Without Tag (no automation)"}
-              </Button>
-              {estimate.approval_status === "red" && (
-                <>
-                  <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full rounded-xl">
-                    <Shield className={`h-4 w-4 mr-2 ${requestingReview ? "animate-spin" : ""}`} />
-                    {requestingReview ? "Sending..." : "Request Alan's Approval"}
-                  </Button>
-                  <p className="text-xs text-center text-muted-foreground flex items-center justify-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> Needs review before sending
-                  </p>
-                </>
+              {/* "Request Alan's Approval" archived (Alan, 2026-10-14). */}
+              {APPROVAL_REQUEST_ON && estimate.approval_status === "red" && (
+                <Button variant="outline" onClick={handleRequestReview} disabled={requestingReview} className="w-full rounded-xl">
+                  <Shield className={`h-4 w-4 mr-2 ${requestingReview ? "animate-spin" : ""}`} />
+                  {requestingReview ? "Sending..." : "Request Alan's Approval"}
+                </Button>
               )}
             </Panel>
           )}
