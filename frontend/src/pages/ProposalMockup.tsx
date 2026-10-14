@@ -10,7 +10,7 @@
 // Written at a fifth-grade reading level on purpose: pictures first, few
 // words, one thing to do per screen (Alan, 2026-10-09).
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { TermsBody } from "@/components/proposal/TermsBody";
 import {
@@ -539,6 +539,25 @@ function AfterPayButtons({ open, className }: { open: (v: { flow: PayFlow; metho
   );
 }
 
+/** A lead's saved draft options (or, once sent, the frozen ones), each with
+ *  its own drawing, for the staff preview. Blob URLs go into `urls` so the
+ *  caller can revoke them. */
+async function previewOptions(leadId: string, urls: string[]): Promise<LiveOption[] | undefined> {
+  try {
+    const st = await api.listProposalOptions(leadId);
+    const list = st.drafts.length ? st.drafts : st.sent;
+    if (list.length < 2) return undefined;
+    return await Promise.all(list.map(async (o) => {
+      const scopeUrl = o.has_scope ? await api.fetchProposalOptionScopeUrl(leadId, o.id) : null;
+      if (scopeUrl) urls.push(scopeUrl);
+      const regular = o.tiers ? { essential: Math.round((o.tiers.essential / 0.8) * 100) / 100, signature: Math.round((o.tiers.signature / 0.8) * 100) / 100, legacy: Math.round((o.tiers.legacy / 0.8) * 100) / 100 } : null;
+      return { id: o.id, label: o.label, note: o.note, feet: o.feet, sides: sidesInWords(o.sides), tiers: o.tiers, regular, scopeUrl };
+    }));
+  } catch {
+    return undefined;
+  }
+}
+
 export default function ProposalMockup({ preview = false, dressed, doors, staffPeek = false }: { preview?: boolean; dressed?: Live; doors?: Doors; staffPeek?: boolean } = {}) {
   const [base, setLive] = useState<Live | null>(dressed ?? null);
   // Which option she's looking at. A reserved job opens on the option it was
@@ -551,14 +570,22 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
     ...base, feet: option.feet || base.feet, sides: option.sides.length ? option.sides : base.sides,
     tiers: option.tiers, regular: option.regular, scopeUrl: option.scopeUrl,
   } : base), [base, option]);
+  // ?lead=<id>: the lead page's "Edit & preview interactive proposal".
+  // Dressed in that lead's unsent estimate, its current drawing and its
+  // saved options, exactly as the customer would get them on send.
+  const [params] = useSearchParams();
+  const previewLead = preview ? "" : params.get("lead") || "";
   useEffect(() => {
     if (preview) return;
     let url: string | null = null;
+    const optUrls: string[] = [];
+    const leadId = previewLead || LIVE_LEAD_ID;
     (async () => {
       try {
-        const lead = await api.getLead(LIVE_LEAD_ID);
+        const lead = await api.getLead(leadId);
         const ests = [...(lead.estimates || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-        const est = ests.find((e) => e.status === "sent") || ests[0];
+        // Before a send, the newest estimate is what goes out.
+        const est = previewLead ? ests[0] : ests.find((e) => e.status === "sent") || ests[0];
         const t = est?.tiers as Record<string, number> | undefined;
         const fd = (lead.form_data || {}) as Record<string, unknown>;
         const rawSides = fd.fence_sides;
@@ -567,14 +594,15 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         try {
           // The drawing that was texted is the lead's active scope until it
           // is revised; only then does it move into the versions list.
-          const { versions, active_sent_at } = await api.getFenceScopeVersions(LIVE_LEAD_ID);
-          if (active_sent_at) {
-            url = await api.fetchFenceScopeExportBlobUrl(LIVE_LEAD_ID);
+          const { versions, active_sent_at } = await api.getFenceScopeVersions(leadId);
+          // A preview shows the lead's current drawing even before it's texted.
+          if (active_sent_at || previewLead) {
+            url = await api.fetchFenceScopeExportBlobUrl(leadId);
           }
           if (!url) {
             const v = [...versions].filter((x) => x.has_image && x.sent_at)
               .sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""))[0];
-            if (v) url = await api.fetchFenceScopeVersionBlobUrl(LIVE_LEAD_ID, v.id);
+            if (v) url = await api.fetchFenceScopeVersionBlobUrl(leadId, v.id);
           }
           scopeUrl = url;
         } catch { /* no drawing: the sides list shows instead */ }
@@ -586,11 +614,12 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           tiers: t && t.essential && t.signature && t.legacy ? { essential: t.essential, signature: t.signature, legacy: t.legacy } : null,
           scopeUrl,
           sentOn: est?.sent_at || lead.created_at || "",
+          options: previewLead ? await previewOptions(leadId, optUrls) : undefined,
         });
       } catch { /* the sample customer stays */ }
     })();
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [preview]);
+    return () => { if (url) URL.revokeObjectURL(url); optUrls.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [preview, previewLead]);
 
   const customer = useMemo(() => live ? {
     ...CUSTOMER,
@@ -691,11 +720,11 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
       <style>{SHINE_CSS}</style>
       {/* Staff bar. Never part of the customer's page. */}
       {preview ? null : <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-ink px-3 py-2 text-ivory shadow-md">
-        <Link to="/new-proposal" className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
-          <ArrowLeft className="h-3.5 w-3.5" /> Notes
+        <Link to={previewLead ? `/leads/${previewLead}` : "/new-proposal"} className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
+          <ArrowLeft className="h-3.5 w-3.5" /> {previewLead ? "Back to the lead" : "Notes"}
         </Link>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-200 ring-1 ring-rose-400/40">
-          <Lightbulb className="h-3 w-3" /> Mockup · nothing here is sent to anyone
+          <Lightbulb className="h-3 w-3" /> {previewLead ? "Preview · what they get when you send · nothing is sent" : "Mockup · nothing here is sent to anyone"}
         </span>
         <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-ivory/80">
           {live ? `Dressed in ${live.name}'s real estimate` : "Sample customer"}

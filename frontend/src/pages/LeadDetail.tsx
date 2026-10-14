@@ -2180,9 +2180,17 @@ export default function LeadDetail() {
               accent={ACCENT.emerald}
               bodyClassName="space-y-2.5 p-3.5"
             >
-              <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="h-10 w-full rounded-xl">
-                <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
-              </Button>
+              {/* Interactive sends get the interactive page as the preview: her
+                  estimate, drawing and saved options, as she'll see them. */}
+              {sendInteractive ? (
+                <Button variant="outline" onClick={() => navigate(`/new-proposal/mockup?lead=${id}`)} className="h-10 w-full rounded-xl">
+                  <Eye className="h-4 w-4 mr-2" /> Edit & Preview Interactive Proposal
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => navigate(`/leads/${id}/edit-pdf`)} className="h-10 w-full rounded-xl">
+                  <Eye className="h-4 w-4 mr-2" /> Edit & Preview PDF
+                </Button>
+              )}
 
               {/* Pre-estimate call section removed per spec — VAs no longer
                   required to log a pre-call before sending. Backend
