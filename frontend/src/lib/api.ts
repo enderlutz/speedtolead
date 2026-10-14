@@ -1363,7 +1363,7 @@ export const api = {
   getProposalLive: (leadId: string) => request<ProposalLiveState>(`/api/leads/${leadId}/proposal/live`),
   // One proposal, several options: freeze the estimate + drawing as they are now.
   listProposalOptions: (leadId: string) => request<ProposalOptionsState>(`/api/leads/${leadId}/proposal-options`),
-  saveProposalOption: (leadId: string, body: { label: string; note?: string }) =>
+  saveProposalOption: (leadId: string, body: { label: string; note?: string; drawing?: string }) =>
     request<ProposalOptionEntry>(`/api/leads/${leadId}/proposal-options`, { method: "POST", body: JSON.stringify(body) }),
   editProposalOption: (id: string, body: { label: string; note?: string }) =>
     request<ProposalOptionEntry>(`/api/proposal-options/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -1456,8 +1456,10 @@ export const api = {
     const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
     return request<PendingEstimate[]>(`/api/estimates/pending-action${qs}`);
   },
-  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean; applyTag?: boolean; interactive?: boolean }) => {
+  approveEstimate: (id: string, opts?: { scheduledSendAt?: string; alsoEmail?: boolean; sendSms?: boolean; applyTag?: boolean; interactive?: boolean; scopeDrawing?: string }) => {
     const body: Record<string, unknown> = {};
+    // The numbered scope drawing confirmed for this send (interactive freezes it).
+    if (opts?.scopeDrawing) body.scope_drawing = opts.scopeDrawing;
     // The interactive page or the PDF. Left out, the backend carries the
     // lead's last choice forward, else the Settings default.
     if (opts && typeof opts.interactive === "boolean") body.interactive = opts.interactive;
@@ -1797,6 +1799,10 @@ export const api = {
   getFenceScopeVersions: (leadId: string) =>
     request<{ versions: FenceScopeVersion[]; active_version_no: number; active_sent_at: string | null }>(
       `/api/leads/${leadId}/fence-scope/versions`),
+  /** Files the current drawing under its number and opens the next: same photo (markings carried) or a new one. */
+  newFenceScopeDrawing: (leadId: string, newPhoto: boolean) =>
+    request<{ filed_drawing_no: number; editing_drawing_no: number; updated_at: string }>(
+      `/api/leads/${leadId}/fence-scope/new-drawing`, { method: "POST", body: JSON.stringify({ new_photo: newPhoto }) }),
   /** Files the sent scope away and opens a fresh one, reusing the drone render. */
   reviseFenceScope: (leadId: string) =>
     request<{ archived_version_no: number; editing_version_no: number; updated_at: string }>(

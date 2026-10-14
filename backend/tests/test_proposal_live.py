@@ -262,3 +262,79 @@ def test_one_proposal_two_options_each_frozen_with_its_own_drawing(db, quiet):
     assert any(k == "alan" and "(Both sides)" in m for k, m in quiet)
     with pytest.raises(HTTPException):
         pl.reserve(p.token, pl.DoorBody(tier="signature", option_id="nope"), _Req())
+
+
+def test_numbered_drawings_are_picked_per_option_and_sent_proposals_stay_frozen(db, quiet, monkeypatch):
+    from api import fence_scope as fs
+    from database import FenceScopeVersion
+    monkeypatch.setattr(fs, "_announce", lambda *a: None)
+    monkeypatch.setattr(fs, "build_mms_image", lambda b: (b + b"-mms", "image/jpeg"))
+    lead = _lead(db)
+    lead.has_fence_scope_export, lead.fence_scope_export_image = True, b"DRAWING-1"
+    lead.has_fence_scope_ai, lead.fence_scope_ai_image, lead.fence_scope_use_ai = True, b"DRONE-1", True
+    est = _estimate(db, lead, {"essential": 836.28, "signature": 935.64, "legacy": 1142.64})
+
+    # An interactive proposal sent the old way: it reads the live drawing.
+    old = _proposal(db, lead, est)
+    # Drawing 1 is filed; drawing 2 starts from a new photo.
+    r = fs.new_fence_scope_drawing(lead.id, fs.NewDrawingBody(new_photo=True), STAFF)
+    assert r == {**r, "filed_drawing_no": 1, "editing_drawing_no": 2}
+    db.expire_all()
+    v1 = db.query(FenceScopeVersion).filter_by(lead_id=lead.id).one()
+    assert bytes(v1.mms_image) == b"DRAWING-1-mms"
+    from database import Lead
+    lead = db.query(Lead).get(lead.id)
+    assert not lead.has_fence_scope_export and not lead.has_fence_scope_ai and not lead.fence_scope_use_ai
+    # The old proposal was frozen with the drawing it showed.
+    assert bytes(pl.get_live_scope(old.token, option=pl.get_live(old.token, _Req())["options"][0]["id"]).body) == b"DRAWING-1"
+
+    # Drawing 2 gets made; option 1 picks drawing 1, option 2 the current one.
+    lead.has_fence_scope_export, lead.fence_scope_export_image = True, b"DRAWING-2"
+    db.commit()
+    o1 = pl.save_option(lead.id, pl.OptionBody(label="Your side only", drawing=v1.id), STAFF)
+    est.tiers = json.dumps({"essential": 1259.0, "signature": 1457.0, "legacy": 1871.0})
+    db.commit()
+    o2 = pl.save_option(lead.id, pl.OptionBody(label="Both sides", drawing="current"), STAFF)
+    p = _proposal(db, lead, est)
+    assert pl.freeze_on_send(db, lead, est, p.id, "current") == 2
+    db.commit()
+    assert bytes(pl.get_live_scope(p.token, option=o1["id"]).body) == b"DRAWING-1-mms"
+    assert bytes(pl.get_live_scope(p.token, option=o2["id"]).body) == b"DRAWING-2"
+    with pytest.raises(HTTPException):
+        pl.save_option(lead.id, pl.OptionBody(drawing="not-a-drawing"), STAFF)
+
+
+def test_a_plain_interactive_send_freezes_the_confirmed_drawing_and_price(db, quiet, monkeypatch):
+    from api import fence_scope as fs
+    lead = _lead(db)
+    lead.has_fence_scope_export, lead.fence_scope_export_image = True, b"THE-DRAWING"
+    est = _estimate(db, lead)
+    p = _proposal(db, lead, est)
+    assert pl.freeze_on_send(db, lead, est, p.id, "current") == 1
+    db.commit()
+    est.tiers = json.dumps({"essential": 1, "signature": 2, "legacy": 3})
+    lead.fence_scope_export_image = b"CHANGED"
+    db.commit()
+    st = pl.get_live(p.token, _Req())
+    assert st["tiers"]["signature"] == 1200.0 and len(st["options"]) == 1
+    assert bytes(pl.get_live_scope(p.token, option=st["options"][0]["id"]).body) == b"THE-DRAWING"
+    del fs
+
+
+def test_a_new_photo_clears_the_old_drone_view(db, monkeypatch):
+    import asyncio
+    from api import fence_scope as fs
+    from database import Lead
+    monkeypatch.setattr(fs, "_announce", lambda *a: None)
+    lead = _lead(db)
+    lead.has_fence_scope_ai, lead.fence_scope_ai_image, lead.fence_scope_use_ai = True, b"DRONE-OF-PHOTO-1", True
+    db.commit()
+
+    class F:
+        content_type = "image/png"
+        async def read(self):
+            return b"PHOTO-2"
+    asyncio.run(fs.upload_fence_scope_source(lead.id, F(), STAFF))
+    db.expire_all()
+    lead = db.query(Lead).get(lead.id)
+    assert not lead.has_fence_scope_ai and not lead.fence_scope_use_ai and lead.fence_scope_ai_image is None

@@ -15,6 +15,7 @@ import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
 import { ProposalLiveSwitch } from "@/components/ProposalLiveSwitch";
 import { ProposalOptionsCard } from "@/components/ProposalOptionsCard";
+import { ScopeDrawingPicker } from "@/components/ScopeDrawingPicker";
 import { SidesPicker } from "@/components/SidesPicker";
 import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
@@ -635,6 +636,11 @@ export default function LeadDetail() {
     return () => window.removeEventListener("proposal-live-changed", onFlip);
   }, [lead?.id]);
   const sendInteractive = interactive ?? interactiveNow;
+  // The numbered scope drawing confirmed for an interactive send (Alan,
+  // 2026-10-13). Not needed when two or more saved options carry their own.
+  const [scopeDrawing, setScopeDrawing] = useState<string | null>(null);
+  const [optionDrafts, setOptionDrafts] = useState(0);
+  const needsDrawing = sendInteractive === true && optionDrafts < 2;
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -998,9 +1004,15 @@ export default function LeadDetail() {
       );
       if (!ok) return;
     }
+    if (needsDrawing && !scopeDrawing) {
+      toast.error("Confirm which scope drawing goes with this estimate (under Send as).");
+      document.getElementById("send-drawing")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     setApproving(true);
     try {
       const result = await api.approveEstimate(estimate.id, {
+        scopeDrawing: needsDrawing ? scopeDrawing ?? undefined : undefined,
         scheduledSendAt,
         sendSms,
         alsoEmail: alsoEmail && !!lead?.contact_email,
@@ -2285,7 +2297,14 @@ export default function LeadDetail() {
                   </ToggleChip>
                 </div>
               </Field>
-              <ProposalOptionsCard leadId={lead.id} interactive={sendInteractive} />
+              <ProposalOptionsCard leadId={lead.id} interactive={sendInteractive} onDrafts={setOptionDrafts} />
+              {needsDrawing ? (
+                <div id="send-drawing" className={cn("rounded-xl border p-2.5", scopeDrawing ? "border-border bg-muted/30" : "border-amber-300 bg-amber-50 dark:bg-amber-950/30")}>
+                  <p className="mb-1.5 text-sm font-semibold">Which drawing goes with this estimate?</p>
+                  <ScopeDrawingPicker leadId={lead.id} value={scopeDrawing} onChange={setScopeDrawing} />
+                  {scopeDrawing ? <p className="mt-1 text-[11px] text-muted-foreground">Confirmed. It's frozen with these prices when you send.</p> : <p className="mt-1 text-[11px] font-semibold text-amber-800">Tap a drawing to confirm it. The send waits for this.</p>}
+                </div>
+              ) : null}
               <Field label="Send via">
                 <div className="flex flex-wrap gap-1.5">
                   <ToggleChip

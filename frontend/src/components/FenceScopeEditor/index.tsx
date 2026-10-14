@@ -403,6 +403,11 @@ export default function FenceScopeEditor({ leadId }: Props) {
         const img = await loadImageFromBlob(file);
         setSourceImage(img);
         setHasSource(true);
+        // The server dropped the drone view made from the old photo; so do we,
+        // or the old picture keeps showing over the new one.
+        setHasAi(false);
+        setAiImage(null);
+        setUseAi(false);
         toast.success("Screenshot uploaded — now prepare the photo");
       } catch {
         toast.error("Upload failed");
@@ -410,7 +415,7 @@ export default function FenceScopeEditor({ leadId }: Props) {
         setUploading(false);
       }
     },
-    [leadId]
+    [leadId, setUseAi]
   );
 
   // The latest document, readable from callbacks that must stay stable.

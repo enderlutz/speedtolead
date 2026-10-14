@@ -9,12 +9,15 @@ import { toast } from "sonner";
 import { Layers, Loader2, Plus, Trash2, Image as ImageIcon } from "lucide-react";
 import { api, type ProposalOptionsState } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
+import { ScopeDrawingPicker } from "@/components/ScopeDrawingPicker";
 
-export function ProposalOptionsCard({ leadId, interactive }: { leadId: string; interactive: boolean | null }) {
+export function ProposalOptionsCard({ leadId, interactive, onDrafts }: { leadId: string; interactive: boolean | null; onDrafts?: (n: number) => void }) {
   const [state, setState] = useState<ProposalOptionsState | null>(null);
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // Which numbered drawing goes with the option being saved. Must be picked.
+  const [drawing, setDrawing] = useState<string | null>(null);
   const [shown, setShown] = useState<{ id: string; url: string } | null>(null);
 
   const load = useCallback(() => { api.listProposalOptions(leadId).then(setState).catch(() => setState(null)); }, [leadId]);
@@ -22,12 +25,14 @@ export function ProposalOptionsCard({ leadId, interactive }: { leadId: string; i
   useEffect(() => () => { if (shown) URL.revokeObjectURL(shown.url); }, [shown]);
 
   const drafts = state?.drafts ?? [];
+  useEffect(() => { onDrafts?.(state?.drafts.length ?? 0); }, [state, onDrafts]);
   const save = async () => {
     setBusy(true);
     try {
-      const o = await api.saveProposalOption(leadId, { label: label.trim() || `Option ${drafts.length + 1}`, note: note.trim() });
+      if (!drawing) { toast.error("Pick the drawing that goes with this option"); return; }
+      const o = await api.saveProposalOption(leadId, { label: label.trim() || `Option ${drafts.length + 1}`, note: note.trim(), drawing });
       toast.success(`Saved "${o.label}" at Signature ${o.tiers ? formatCurrency(o.tiers.signature) : ""}${o.has_scope ? " with its drawing" : ", no drawing yet"}`);
-      setLabel(""); setNote(""); load();
+      setLabel(""); setNote(""); setDrawing(null); load();
     } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't save the option"); }
     finally { setBusy(false); }
   };
@@ -48,7 +53,7 @@ export function ProposalOptionsCard({ leadId, interactive }: { leadId: string; i
         {drafts.length ? <span className="ml-auto rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-800">{drafts.length} ready</span> : null}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        For a customer who wants more than one price. Set the estimate and drawing for option 1 and save it. Then change the sides, Save &amp; Recalculate, redo the drawing, and save option 2. Each option keeps its own prices and drawing.
+        For a customer who wants more than one price. Set the estimate for option 1, pick its drawing, and save it. Then change the sides, Save &amp; Recalculate, pick the other drawing, and save option 2. Each option keeps its own prices and drawing.
       </p>
 
       {drafts.length > 0 && (
@@ -85,7 +90,9 @@ export function ProposalOptionsCard({ leadId, interactive }: { leadId: string; i
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="One line she sees (optional)"
               className="h-9 min-w-[10rem] flex-1 rounded-md border border-border bg-background px-2 text-sm" />
           </div>
-          <button type="button" onClick={save} disabled={busy}
+          <p className="text-[11px] font-semibold text-muted-foreground">Which drawing goes with option {drafts.length + 1}?</p>
+          <ScopeDrawingPicker leadId={leadId} value={drawing} onChange={setDrawing} />
+          <button type="button" onClick={save} disabled={busy || !drawing}
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-violet-600 px-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Save the current estimate as option {drafts.length + 1}
           </button>

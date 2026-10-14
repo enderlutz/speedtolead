@@ -172,6 +172,13 @@ async def upload_fence_scope_source(
         lead.fence_scope_source_image = data
         lead.has_fence_scope_source = True
         lead.fence_scope_source_mime = file.content_type or "image/png"
+        # The drone render was made from the old photo. Keeping it would show
+        # the old picture over the new one (Alan, 2026-10-13: "I imported
+        # photo two and it just showed me the first photo").
+        lead.fence_scope_ai_image = None
+        lead.has_fence_scope_ai = False
+        lead.fence_scope_ai_meta = ""
+        lead.fence_scope_use_ai = False
         stamp = _touch(lead, user)
         db.commit()
         log_event(lead.id, "fence_scope_source_uploaded", "Aerial screenshot uploaded for fence scope", {})
@@ -747,6 +754,90 @@ def revise_fence_scope(lead_id: str, user: dict = Depends(get_current_user)):
         return {"archived_version_no": next_no, "editing_version_no": next_no + 1, "updated_at": stamp}
     finally:
         db.close()
+
+
+class NewDrawingBody(BaseModel):
+    # True: start from a fresh photo (clears the photo, drone view and
+    # markings). False: same photo, markings carried over to adjust.
+    new_photo: bool = False
+
+
+@router.post("/leads/{lead_id}/fence-scope/new-drawing")
+def new_fence_scope_drawing(lead_id: str, body: NewDrawingBody, user: dict = Depends(get_current_user)):
+    """Files the current drawing under its number and opens the next one
+    (Alan, 2026-10-13: as many scope drawings per customer as needed, each
+    numbered, picked per estimate). Unlike /revise this works whether or not
+    the drawing was texted. Any interactive proposal still showing the
+    lead's live drawing is frozen first, so nothing a customer already has
+    changes under them."""
+    from api.proposal_live import freeze_live_proposals
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        if not lead.has_fence_scope_export:
+            raise HTTPException(status_code=400, detail="Finish this drawing first (mark it and save the scope), then start the next one.")
+        freeze_live_proposals(db, lead)
+        last = (db.query(FenceScopeVersion).filter(FenceScopeVersion.lead_id == lead_id)
+                .order_by(FenceScopeVersion.version_no.desc()).first())
+        next_no = (last.version_no + 1) if last else 1
+        # The carrier-sized copy when it was texted, else the export itself:
+        # a drawing that was never texted still needs its picture.
+        img, mime = lead.fence_scope_mms_image, lead.fence_scope_mms_mime or ""
+        if not img and lead.fence_scope_export_image:
+            try:
+                img, mime = build_mms_image(bytes(lead.fence_scope_export_image))
+            except Exception:  # noqa: BLE001 - keep the full export rather than nothing
+                img, mime = lead.fence_scope_export_image, lead.fence_scope_export_mime or "image/png"
+        stamp = _now()
+        db.add(FenceScopeVersion(
+            id=secrets.token_hex(16), lead_id=lead_id, version_no=next_no,
+            segments_json=lead.fence_scope_segments_json or "", rotation=lead.fence_scope_rotation or 0,
+            mirrored=bool(lead.fence_scope_mirrored), enhanced=bool(lead.fence_scope_enhanced),
+            use_ai=bool(lead.fence_scope_use_ai), mms_image=img, mms_mime=mime,
+            share_token=lead.fence_scope_share_token if lead.fence_scope_sent_at else None,
+            sent_at=lead.fence_scope_sent_at, archived_at=stamp, archived_by=(user or {}).get("sub") or "",
+        ))
+        lead.fence_scope_share_token = secrets.token_urlsafe(20)
+        lead.fence_scope_sent_at = None
+        lead.fence_scope_mms_image = None
+        lead.fence_scope_mms_mime = ""
+        lead.fence_scope_export_image = None
+        lead.has_fence_scope_export = False
+        if body.new_photo:
+            lead.fence_scope_source_image = None
+            lead.has_fence_scope_source = False
+            lead.fence_scope_ai_image = None
+            lead.has_fence_scope_ai = False
+            lead.fence_scope_use_ai = False
+            lead.fence_scope_segments_json = ""
+            lead.fence_scope_rotation = 0
+            lead.fence_scope_mirrored = False
+            lead.fence_scope_enhanced = False
+        stamp = _touch(lead, user)
+        db.commit()
+        log_event(lead_id, "fence_scope_new_drawing",
+                  f"Drawing {next_no} filed; now drawing {next_no + 1}{' from a new photo' if body.new_photo else ''}",
+                  {"version_no": next_no})
+        _announce(lead_id, stamp)
+        return {"filed_drawing_no": next_no, "editing_drawing_no": next_no + 1, "updated_at": stamp}
+    finally:
+        db.close()
+
+
+def drawing_image(db, lead, drawing: str) -> tuple[bytes | None, str]:
+    """A numbered drawing's picture: "current" is the one in the editor
+    (its saved export), anything else a filed drawing's id."""
+    if not drawing or drawing == "current":
+        if lead.has_fence_scope_export and lead.fence_scope_export_image:
+            return bytes(lead.fence_scope_export_image), lead.fence_scope_export_mime or "image/png"
+        return None, ""
+    row = (db.query(FenceScopeVersion)
+           .filter(FenceScopeVersion.id == drawing, FenceScopeVersion.lead_id == lead.id).first())
+    if row is None:
+        raise HTTPException(status_code=404, detail="That drawing isn't on this lead.")
+    return (bytes(row.mms_image), row.mms_mime or "image/jpeg") if row.mms_image else (None, "")
 
 
 @router.get("/fence-scope/shared/{token}")

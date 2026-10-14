@@ -22,6 +22,8 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
   const [state, setState] = useState<FenceScopeState | null>(null);
   const [versions, setVersions] = useState<FenceScopeVersion[]>([]);
   const [activeSentAt, setActiveSentAt] = useState<string | null>(null);
+  const [activeNo, setActiveNo] = useState(1);
+  const [starting, setStarting] = useState(false);
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -45,6 +47,7 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
       const v = await api.getFenceScopeVersions(leadId);
       setVersions(v.versions);
       setActiveSentAt(v.active_sent_at);
+      setActiveNo(v.active_version_no);
     } catch {
       // No history is fine; the card still shows the scope.
     }
@@ -80,6 +83,26 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
     },
     [leadId, refresh]
   );
+
+  // File this drawing under its number and start the next (Alan,
+  // 2026-10-13: one customer, several scopes, each numbered and picked per
+  // estimate). Same photo carries the markings; new photo starts clean.
+  const newDrawing = async (newPhoto: boolean) => {
+    const ok = window.confirm(newPhoto
+      ? `File Drawing ${activeNo} and start Drawing ${activeNo + 1} from a new photo?\n\nDrawing ${activeNo} stays saved and can still be picked for an estimate.`
+      : `File Drawing ${activeNo} and start Drawing ${activeNo + 1} on the same photo?\n\nYour markings carry over so you can change them. Drawing ${activeNo} stays saved.`);
+    if (!ok) return;
+    setStarting(true);
+    try {
+      const r = await api.newFenceScopeDrawing(leadId, newPhoto);
+      toast.success(`Drawing ${r.filed_drawing_no} saved. Now on Drawing ${r.editing_drawing_no}.`);
+      if (newPhoto) { await refresh(); } else { navigate(`/leads/${leadId}/scope`); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't start a new drawing");
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const started = !!state?.has_source;
   const traced = (state?.segments?.length ?? 0) > 0;
@@ -218,12 +241,23 @@ export default function FenceScopeSummaryCard({ leadId }: { leadId: string }) {
               </ol>
             </div>
             <p className="text-xs font-medium text-ink">{status}</p>
-            {versions.length > 0 ? (
-              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <History className="h-3.5 w-3.5 text-bronze" />
-                {versions.length} earlier version{versions.length === 1 ? "" : "s"} sent
-              </p>
-            ) : null}
+            <div className="rounded-xl border border-gold/25 bg-white p-2.5">
+              <p className="text-[11px] font-bold text-ink">Drawing {activeNo} is in the editor</p>
+              {versions.length > 0 ? (
+                <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <History className="h-3.5 w-3.5 text-bronze" />
+                  Saved: {[...versions].sort((a, b) => a.version_no - b.version_no).map((v) => `Drawing ${v.version_no}${v.sent_at ? " (texted)" : ""}`).join(", ")}
+                </p>
+              ) : null}
+              {state?.has_export ? (
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  <button type="button" disabled={starting} onClick={() => newDrawing(false)}
+                    className="h-8 rounded-lg border border-gold/50 bg-ivory text-[11px] font-semibold text-ink hover:bg-gold/15 disabled:opacity-60">+ New drawing, same photo</button>
+                  <button type="button" disabled={starting} onClick={() => newDrawing(true)}
+                    className="h-8 rounded-lg border border-gold/50 bg-ivory text-[11px] font-semibold text-ink hover:bg-gold/15 disabled:opacity-60">+ New drawing, new photo</button>
+                </div>
+              ) : <p className="mt-1 text-[10px] text-muted-foreground">Finish and save this drawing to start another.</p>}
+            </div>
             {state?.updated_at && (
               <p className="text-[11px] text-muted-foreground">
                 Last changed {new Date(state.updated_at).toLocaleDateString()}

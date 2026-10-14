@@ -158,6 +158,65 @@ def attach_draft_options(db, lead_id: str, proposal_id: str) -> int:
     return len(drafts)
 
 
+def build_option(db, lead: Lead, est: Estimate, *, drawing: str = "current", label: str = "", note: str = "",
+                 proposal_id: str | None = None, position: int = 0, by: str = "") -> ProposalOption:
+    """A frozen copy of this estimate's prices, sides and feet, with the
+    picked numbered drawing. Not added to the session."""
+    from api.fence_scope import drawing_image
+    tiers = _jl(est.tiers, {}) if est is not None else {}
+    if not all(isinstance(tiers.get(k), (int, float)) and tiers.get(k) for k in TIERS):
+        raise HTTPException(status_code=400, detail="Calculate the estimate first (Save & Recalculate).")
+    inputs = _jl(est.inputs, {})
+    sides = inputs.get("fence_sides") if isinstance(inputs.get("fence_sides"), list) else []
+    try:
+        feet = int(float(inputs.get("linear_feet") or 0))
+    except (TypeError, ValueError):
+        feet = 0
+    img, mime = (None, "") if drawing == "none" else drawing_image(db, lead, drawing)
+    return ProposalOption(
+        id=str(uuid.uuid4()), lead_id=lead.id, proposal_id=proposal_id, position=position,
+        label=label, note=note, tiers=json.dumps({k: float(tiers[k]) for k in TIERS}), feet=feet,
+        sides=json.dumps([str(x) for x in sides]), scope_image=img, scope_mime=mime if img else "",
+        has_scope=bool(img), estimate_id=est.id, created_by=by, created_at=_now().isoformat(),
+    )
+
+
+def freeze_on_send(db, lead: Lead, est: Estimate, proposal_id: str, drawing: str | None, by: str = "") -> int:
+    """An interactive send freezes what the customer sees: the lead's saved
+    options if there are any, else this estimate with the picked drawing as
+    a single option. Returns how many options the proposal has."""
+    n = attach_draft_options(db, lead.id, proposal_id)
+    if n:
+        return n
+    db.add(build_option(db, lead, est, drawing=drawing or "current", proposal_id=proposal_id, by=by))
+    return 1
+
+
+def freeze_live_proposals(db, lead: Lead) -> int:
+    """Interactive proposals sent before freezing existed read the lead's
+    live estimate and drawing. Before the drawing changes, give each one a
+    frozen option of exactly what it shows now."""
+    done = 0
+    ests = db.query(Estimate).filter(Estimate.lead_id == lead.id).all()
+    payload = preview_payload(lead, ests)
+    tiers = payload.get("tiers")
+    if not tiers:
+        return 0
+    for p in db.query(Proposal).options(defer(Proposal.pdf_data)).filter(
+            Proposal.lead_id == lead.id, Proposal.proposal_version == INTERACTIVE).all():
+        if options_for(db, p.id):
+            continue
+        img = bytes(lead.fence_scope_export_image) if lead.has_fence_scope_export and lead.fence_scope_export_image else None
+        db.add(ProposalOption(
+            id=str(uuid.uuid4()), lead_id=lead.id, proposal_id=p.id, position=0, label="", note="",
+            tiers=json.dumps(tiers), feet=int(payload.get("feet") or 0), sides=json.dumps(payload.get("sides") or []),
+            scope_image=img, scope_mime=(lead.fence_scope_export_mime or "image/png") if img else "", has_scope=bool(img),
+            estimate_id=p.estimate_id or "", created_by="freeze", created_at=_now().isoformat(),
+        ))
+        done += 1
+    return done
+
+
 def state(db, p: Proposal, lead: Lead, ests: list[Estimate]) -> dict:
     """What the page needs: the preview payload plus the number, the price
     window, the regular prices, and whether this job is already reserved."""
@@ -467,6 +526,8 @@ def extend_price(lead_id: str, body: ExtendBody, user: dict = Depends(require_st
 class OptionBody(BaseModel):
     label: str = ""
     note: str = ""
+    # Which numbered scope drawing: "current", a filed drawing's id, or "none".
+    drawing: str = "current"
 
 
 def _staff_option(o: ProposalOption) -> dict:
@@ -495,39 +556,26 @@ def list_options(lead_id: str, user: dict = Depends(require_staff)):
 
 @router.post("/leads/{lead_id}/proposal-options")
 def save_option(lead_id: str, body: OptionBody, user: dict = Depends(require_staff)):
-    """Freeze the lead's estimate and scope drawing as they are now into a
-    draft option. Change the estimate or the drawing for the next one; this
-    one keeps what it saved."""
+    """Freeze the lead's estimate as it is now, with the picked numbered
+    drawing, into a draft option. Change the estimate for the next one;
+    this one keeps what it saved."""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
         est = (db.query(Estimate).filter(Estimate.lead_id == lead_id).order_by(Estimate.created_at.desc()).first())
-        tiers = _jl(est.tiers, {}) if est is not None else {}
-        if not all(isinstance(tiers.get(k), (int, float)) and tiers.get(k) for k in TIERS):
-            raise HTTPException(status_code=400, detail="Calculate the estimate first (Save & Recalculate), then save it as an option.")
-        inputs = _jl(est.inputs, {})
-        sides = inputs.get("fence_sides") if isinstance(inputs.get("fence_sides"), list) else []
-        try:
-            feet = int(float(inputs.get("linear_feet") or 0))
-        except (TypeError, ValueError):
-            feet = 0
         n = db.query(ProposalOption).filter(ProposalOption.lead_id == lead_id, ProposalOption.proposal_id.is_(None)).count()
         if n >= 4:
             raise HTTPException(status_code=400, detail="Four options is the most one proposal can hold.")
-        img = lead.fence_scope_export_image if lead.has_fence_scope_export else None
-        o = ProposalOption(
-            id=str(uuid.uuid4()), lead_id=lead_id, proposal_id=None, position=n,
-            label=(body.label or "").strip()[:60] or f"Option {n + 1}", note=(body.note or "").strip()[:200],
-            tiers=json.dumps({k: float(tiers[k]) for k in TIERS}), feet=feet, sides=json.dumps([str(x) for x in sides]),
-            scope_image=bytes(img) if img else None, scope_mime=lead.fence_scope_export_mime or "image/png" if img else "",
-            has_scope=bool(img), estimate_id=est.id, created_by=user.get("name") or user.get("sub") or "",
-            created_at=_now().isoformat(),
-        )
+        if est is None:
+            raise HTTPException(status_code=400, detail="This lead has no estimate yet.")
+        o = build_option(db, lead, est, drawing=body.drawing or "current",
+                         label=(body.label or "").strip()[:60] or f"Option {n + 1}", note=(body.note or "").strip()[:200],
+                         position=n, by=user.get("name") or user.get("sub") or "")
         db.add(o)
         db.commit()
-        log_event(lead_id, "proposal_option_saved", f"{o.label}: signature {tiers['signature']:.2f}, {'with' if img else 'no'} drawing")
+        log_event(lead_id, "proposal_option_saved", f"{o.label}: signature {json.loads(o.tiers)['signature']:.2f}, {'with' if o.has_scope else 'no'} drawing")
         return _staff_option(o)
     finally:
         db.close()

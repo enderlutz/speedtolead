@@ -348,6 +348,9 @@ class ApproveBody(BaseModel):
     # The interactive page (/p/<token>) or the PDF. None = carry the lead's
     # last choice forward, else the Settings default (see _proposal_version_for).
     interactive: bool | None = None
+    # The numbered scope drawing confirmed for this send: "current", a filed
+    # drawing's id, or "none". Interactive sends freeze it with the prices.
+    scope_drawing: str | None = None
 
 
 def _proposal_version_for(db, lead, requested: bool | None) -> str:
@@ -1207,10 +1210,14 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
         # One proposal, several options (Alan, 2026-10-13): the lead's saved
         # draft options freeze onto this proposal when it's interactive.
         if proposal.proposal_version == "interactive":
-            from api.proposal_live import attach_draft_options
-            n_opts = attach_draft_options(db, lead.id, proposal_id)
-            if n_opts:
-                log_event(lead.id, "proposal_options_sent", f"{n_opts} options on this proposal")
+            # Frozen at send (Alan, 2026-10-13): the saved options, or this
+            # estimate with the drawing confirmed for it. Later edits to the
+            # estimate or the scope never change what the customer has.
+            from api.proposal_live import freeze_on_send
+            n_opts = freeze_on_send(db, lead, est, proposal_id, body.scope_drawing if body else None,
+                                    by=(user or {}).get("name") or (user or {}).get("sub") or "")
+            log_event(lead.id, "proposal_frozen", f"{n_opts} option{'s' if n_opts != 1 else ''} on this proposal"
+                      + (f", drawing {body.scope_drawing}" if body and body.scope_drawing and n_opts == 1 else ""))
         db.commit()
 
         try:
