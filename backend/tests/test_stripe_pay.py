@@ -430,3 +430,24 @@ def test_the_customer_opening_the_pay_page_is_counted_but_bots_and_staff_are_not
     sp.pay_info(out["token"], req("Mozilla/5.0 (iPhone)"))
     row = sp.list_pay_links(lead.id, STAFF)["links"][0]
     assert row["view_count"] == 2 and row["first_viewed_at"] and row["last_viewed_at"]
+
+
+def test_a_link_can_be_texted_to_the_husband_only_if_he_is_a_contact(db, monkeypatch):
+    from database import Contact
+    _settings(monkeypatch)
+    lead = _lead(db)
+    lead.contact_name, lead.address, lead.ghl_location_id = "Christiana Test", "8714 Test Wren, Richmond, TX", "LOC"
+    db.commit()
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=2010, financing=False), STAFF)
+    sent = []
+    monkeypatch.setattr(sp.hooks.ghl, "send_sms", lambda cid, msg, loc=None: sent.append((cid, msg, loc)) or True)
+    with pytest.raises(HTTPException) as e:
+        sp.send_pay_link_to(out["token"], sp.SendToBody(phone="(281) 555-0199"), STAFF)
+    assert e.value.status_code == 404 and not sent  # never makes a GHL contact
+    db.add(Contact(id=str(uuid.uuid4()), ghl_contact_id="c-sam", ghl_location_id="LOC", phone="+12815550199", phone_key="2815550199"))
+    db.commit()
+    r = sp.send_pay_link_to(out["token"], sp.SendToBody(phone="281-555-0199", name="Sam"), STAFF)
+    assert r["sent_to"] == "Sam" and r["sent_at"]
+    cid, msg, loc = sent[0]
+    assert cid == "c-sam" and loc == "LOC"
+    assert msg.startswith("Hi Sam, it's Sterling Fence Staining. Here's the invoice for Christiana's fence at 8714 Test Wren, $2,010")

@@ -8,7 +8,7 @@
 // (Alan's post-payment spec, 2026-10-10.)
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, Eye, ExternalLink, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
+import { Copy, Ban, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceDoc } from "@/pages/PayLink";
@@ -31,6 +31,8 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
   const [sending, setSending] = useState<string | null>(null);
   const [settings, setSettings] = useState<StripeSettings | null>(null);
   const [checking, setChecking] = useState<string | null>(null);
+  // "Text someone else": which link's form is open, and what's typed in it.
+  const [other, setOther] = useState<{ token: string; phone: string; name: string } | null>(null);
   const [health, setHealth] = useState<StripeHealth | "loading" | null>(null);
 
   const load = useCallback(() => {
@@ -63,6 +65,15 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
     setSending(link.token);
     try { await api.sendPayLink(link.token); toast.success("Texted to the customer"); load(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
+    finally { setSending(null); }
+  };
+  const textOther = async () => {
+    if (!other) return;
+    setSending(other.token);
+    try {
+      const r = await api.sendPayLinkTo(other.token, { phone: other.phone, name: other.name });
+      toast.success(`Texted to ${r.sent_to}`); setOther(null); load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
     finally { setSending(null); }
   };
   const flipAuto = async (on: boolean) => {
@@ -137,7 +148,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
           {data.links.map((l) => (
-            <li key={l.token} className="flex items-center gap-2 rounded-lg bg-muted/40 px-2 py-1.5 text-xs">
+            <li key={l.token} className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-2 py-1.5 text-xs">
               <span className={cn("rounded-full px-1.5 py-0.5 font-bold uppercase tracking-wide",
                 l.status === "paid" ? "bg-emerald-100 text-emerald-800" : l.status === "void" ? "bg-stone-200 text-stone-600 line-through" : "bg-amber-100 text-amber-900")}>
                 {l.status}
@@ -165,10 +176,24 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
                   {checking === l.token ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Check with Stripe
                 </button>
               ) : null}
+              {l.status === "open" && l.kind !== "done" ? (
+                <button type="button" onClick={() => setOther(other?.token === l.token ? null : { token: l.token, phone: "", name: "" })} className="rounded-md p-1 hover:bg-background" title="Text it to someone else, like a husband or wife"><UserPlus className="h-3.5 w-3.5" /></button>
+              ) : null}
               <a href={l.status === "paid" && l.kind !== "done" ? l.url.replace("/pay/", "/receipt/") : `${l.url}?preview=1`} target="_blank" rel="noreferrer" className="rounded-md p-1 hover:bg-background"
                 title={l.status === "paid" && l.kind !== "done" ? "Open the receipt" : "Open what the customer sees (doesn't count as their view)"}><ExternalLink className="h-3.5 w-3.5" /></a>
               <button type="button" onClick={() => copy(l)} className="rounded-md p-1 hover:bg-background" title="Copy the link"><Copy className="h-3.5 w-3.5" /></button>
               {l.status === "open" ? <button type="button" onClick={() => voidLink(l)} className="rounded-md p-1 hover:bg-background" title="Void this link"><Ban className="h-3.5 w-3.5" /></button> : null}
+              {other?.token === l.token ? (
+                <div className="basis-full mt-1 flex flex-wrap items-center gap-1.5 rounded-md bg-background p-2">
+                  <span className="w-full text-[11px] font-semibold text-muted-foreground">Text this link to someone else on the job. The number has to be in your contacts already.</span>
+                  <input value={other.phone} onChange={(e) => setOther({ ...other, phone: e.target.value })} inputMode="tel" placeholder="Phone" autoFocus className="h-8 w-36 rounded-md border border-border bg-background px-2 text-xs" />
+                  <input value={other.name} onChange={(e) => setOther({ ...other, name: e.target.value })} placeholder="First name (optional)" className="h-8 w-36 rounded-md border border-border bg-background px-2 text-xs" />
+                  <button type="button" onClick={textOther} disabled={sending === l.token || !other.phone.trim()} className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+                    {sending === l.token ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} Text it
+                  </button>
+                  <button type="button" onClick={() => setOther(null)} className="h-8 rounded-md px-2 text-[11px] font-semibold hover:bg-muted">Cancel</button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

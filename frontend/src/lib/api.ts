@@ -1338,6 +1338,9 @@ export const api = {
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
+  /** Text the link to someone else on the job (a spouse), if their number is already a GHL contact. */
+  sendPayLinkTo: (token: string, body: { phone: string; name?: string }) =>
+    request<PayLinkEntry & { sent_to: string }>(`/api/pay-links/${token}/send-to`, { method: "POST", body: JSON.stringify(body) }),
   getStripeSettings: () => request<StripeSettings>(`/api/stripe/settings`),
   /** Ask Stripe about a link's last Checkout session; books it if paid. */
   checkPayLink: (token: string) => request<PayLinkCheck>(`/api/pay-links/${token}/check`, { method: "POST" }),

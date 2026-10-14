@@ -167,15 +167,28 @@ def message_for(link: PayLink, lead: Lead | None) -> str:
         return (f"Hi {first}, it's Sterling Fence Staining. Here's your link to reserve your dates with the {amt} deposit: {url}\n"
                 "Card, Apple Pay or Google Pay. Reply here with any questions.")
     if link.kind == "balance":
+        how = "Card, Apple Pay or bank account." if link.no_financing else "Card, or split it with Klarna."
         return (f"Hi {first}, your fence is done! Here's the link for your balance of {amt}: {url}\n"
-                "Card, or split it with Klarna. Thank you for choosing Sterling.")
+                f"{how} Thank you for choosing Sterling.")
     if link.kind == "extra":
         return f"Hi {first}, it's Sterling Fence Staining. Here's the link for the extra work we talked about, {amt}: {url}"
     if link.kind == "done":
         return (f"Hi {first}, your fence is done and you're all paid up. Thank you! "
                 f"One quick thing when you have a minute: {after_url(link.token)}")
     return (f"Hi {first}, it's Sterling Fence Staining. Here's your link to pay for your fence staining, {amt}: {url}\n"
-            "Card, or pay over time with Klarna.")
+            + ("Card, Apple Pay or bank account." if link.no_financing else "Card, or pay over time with Klarna."))
+
+
+def message_for_other(link: PayLink, lead: Lead | None, name: str) -> str:
+    """The same link texted to someone else on the job, usually a spouse who
+    pays (Alan, 2026-10-13). Says whose job it is, since it's not theirs."""
+    hi = f"Hi {name}" if name else "Hi"
+    whose = f"{_first(lead)}'s" if lead and lead.contact_name else "your"
+    amt = money((link.amount_cents or 0) / 100)
+    where = f" at {lead.address.split(',')[0]}" if lead and lead.address else ""
+    what = "deposit to reserve the dates" if link.kind == "deposit" else "invoice"
+    return (f"{hi}, it's Sterling Fence Staining. Here's the {what} for {whose} fence{where}, {amt}: {pay_url(link.token)}\n"
+            "Reply here with any questions.")
 
 
 def send_blockers(lead: Lead | None) -> list[str]:

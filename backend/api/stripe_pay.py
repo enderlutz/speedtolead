@@ -347,6 +347,58 @@ def send_pay_link(token: str, user: dict = Depends(require_staff)):
         db.close()
 
 
+class SendToBody(BaseModel):
+    phone: str
+    name: str = ""
+
+
+@router.post("/pay-links/{token}/send-to")
+def send_pay_link_to(token: str, body: SendToBody, user: dict = Depends(require_staff)):
+    """Text the link to someone else on the job, like the husband who pays.
+    Only to a number that's already a contact in GHL: making one here could
+    start the new-lead texts. A number that isn't one gets told to copy the
+    link instead."""
+    from database import Contact
+    from services.name_match import phone_key
+    pk = phone_key(body.phone)
+    if not pk:
+        raise HTTPException(status_code=400, detail="That doesn't look like a full phone number.")
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link or link.status == "void":
+            raise HTTPException(status_code=404, detail="Not found")
+        if link.status == "paid" or link.kind == "done":
+            raise HTTPException(status_code=400, detail="Only an unpaid link can be sent")
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        if lead and lead.do_not_contact:
+            raise HTTPException(status_code=400, detail="This customer asked not to be contacted.")
+        contacts = db.query(Contact).filter(Contact.phone_key == pk).all()
+        # Same GHL account as the customer first, so the text comes from the number they know.
+        contacts.sort(key=lambda c: c.ghl_location_id != (lead.ghl_location_id if lead else ""))
+        if not contacts:
+            raise HTTPException(status_code=404, detail="That number isn't in your contacts yet. Copy the link and text it from your phone.")
+        c = contacts[0]
+        if c.dnd or c.dnd_sms or db.query(Lead).filter(Lead.phone_key == pk, Lead.do_not_contact.is_(True)).first():
+            raise HTTPException(status_code=400, detail="That number has texts turned off (do not disturb).")
+        name = (body.name or "").strip()[:40]
+        msg = hooks.message_for_other(link, lead, name)
+        ok = False
+        try:
+            ok = bool(hooks.ghl.send_sms(c.ghl_contact_id, msg, c.ghl_location_id or None))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("pay link send-to failed for %s: %s", token, e)
+        if not ok:
+            raise HTTPException(status_code=502, detail="The text didn't go through. Try again, or copy the link.")
+        link.sent_at = datetime.now(timezone.utc).isoformat()
+        db.commit()
+        who = name or c.name or "another number"
+        log_event(link.lead_id, "pay_link_sent_to_other", f"{link.kind} to {who} (…{pk[-4:]}) by {user.get('name') or user.get('sub') or ''}")
+        return {**link_dict(link), "sent_to": who}
+    finally:
+        db.close()
+
+
 class StripeSettingsBody(BaseModel):
     auto_balance_link: bool
 
