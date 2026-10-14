@@ -1548,7 +1548,13 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <div className="w-full max-w-md rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-heading text-2xl font-bold leading-tight">Which package do you want?</h3>
             <p className="mt-1 text-[15px] text-[#15130F]/80">
-              {askPick === "finance" ? "Pick one, then we'll open Klarna for that price." : askPick === "reserve" ? "Pick one, then we'll open the $250 deposit." : "Tap the one you want."}
+              {/* Say why (Alan, 2026-10-14): we can't make their Klarna
+                  application or deposit link without knowing the package. */}
+              {askPick === "finance"
+                ? "Pick the package you want so we can make your Klarna application for that exact price. Then Klarna opens."
+                : askPick === "reserve"
+                  ? "Pick the package you want so we can make your $250 deposit link for that job. Then the payment page opens."
+                  : "Pick the package you want. Your price, deposit and Klarna options all go by it."}
             </p>
             <div className="mt-3 space-y-2">
               {packages.map((p) => (
