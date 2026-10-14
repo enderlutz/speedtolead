@@ -55,7 +55,7 @@ const NAMES: Record<Screen, string> = {
   paid: "Paid in full", score: "How did we do?", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
 };
 
-export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl }: {
+export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen }: {
   flow: PayFlow; method: PayMethod; paidUpFront?: boolean;
   firstName: string; address: string; pkgName: string; feet: number; total: number; repairs: number;
   /** What was just paid. The mockup derives it from the flow; the real page knows it. */
@@ -70,6 +70,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   onClose?: () => void;
   /** The paid receipt (save, share, text). None when nothing was paid here. */
   receiptUrl?: string;
+  /** Called as each screen shows (step is 1-based), so staff can see how far they got. */
+  onScreen?: (step: number, of: number, name: string) => void;
 }) {
   const screens = flow === "balance" ? FLOW_B : FLOW_A;
   const init = initial || {};
@@ -92,6 +94,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2200); return () => clearTimeout(t); }, [toast]);
 
   const screen = screens[step];
+  useEffect(() => { onScreen?.(step + 1, screens.length, NAMES[screens[step]]); }, [step, screens, onScreen]);
   const lender = method === "klarna" ? "Klarna" : method === "affirm" ? "Affirm" : null;
   const amount = amountProp ?? (flow === "deposit" ? 250 : flow === "full" ? total : Math.max(0, total - 250));
   const balance = total > 0 ? Math.max(0, total - amount) : 0;

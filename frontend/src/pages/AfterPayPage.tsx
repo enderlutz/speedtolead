@@ -2,7 +2,7 @@
 // backend whether the link is paid (the backend checks the session itself
 // if the webhook is a few seconds behind), then runs Flow A or Flow B and
 // saves every tap as it happens. (Alan's post-payment spec, 2026-10-10.)
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 
@@ -26,7 +26,11 @@ export default function AfterPayPage() {
     const s = params.get("s") || "";
     const check = async () => {
       try {
-        const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/after${s ? `?s=${encodeURIComponent(s)}` : ""}`);
+        // ?preview=1: staff looking, never counted as the customer's visit.
+        const qs = new URLSearchParams();
+        if (s) qs.set("s", s);
+        if (params.get("preview") === "1") qs.set("preview", "1");
+        const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/after${qs.toString() ? `?${qs}` : ""}`);
         if (r.status === 404) { if (alive) setState("gone"); return; }
         const data = (await r.json()) as After;
         if (!alive) return;
@@ -42,6 +46,14 @@ export default function AfterPayPage() {
     };
     void check();
     return () => { alive = false; };
+  }, [token, params]);
+
+  // How far they got, for the lead page ("got to 3 of 6"). Fire and forget.
+  const reached = useCallback((step: number, of: number, screen: string) => {
+    if (params.get("preview") === "1") return;
+    void fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/reached`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step, of, screen }), keepalive: true,
+    }).catch(() => {});
   }, [token, params]);
 
   const save = (field: string, value: unknown) => {
@@ -71,6 +83,7 @@ export default function AfterPayPage() {
         initial={after.answers}
         onAnswer={save}
         receiptUrl={after.kind === "done" ? undefined : `/receipt/${token}`}
+        onScreen={reached}
       />
     );
   }

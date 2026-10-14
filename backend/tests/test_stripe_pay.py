@@ -506,3 +506,23 @@ def test_staff_can_edit_the_text_but_not_drop_the_link(db, monkeypatch):
     db.commit()
     sp.send_pay_link_to(out["token"], sp.SendToBody(contact_id="k9", message=f"Sam, here you go: {out['url']}"), STAFF)
     assert sent[-1] == ("c-sam", f"Sam, here you go: {out['url']}")
+
+
+def test_the_thank_you_screens_record_the_visit_and_how_far_they_got(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=100), STAFF)
+    from database import PayLink
+    link = db.query(PayLink).filter_by(token=out["token"]).one()
+    link.status, link.paid_at = "paid", "2026-10-14T10:55:00+00:00"
+    db.commit()
+    req = lambda ua: SimpleNamespace(headers={"user-agent": ua})  # noqa: E731
+    sp.after_info(out["token"], None, req("Mozilla/5.0 (iPhone)"), preview=1)
+    sp.after_info(out["token"], None, req("facebookexternalhit/1.1"))
+    assert sp.list_pay_links(lead.id, STAFF)["links"][0]["after_view_count"] == 0
+    sp.after_info(out["token"], None, req("Mozilla/5.0 (iPhone)"))
+    sp.after_reached(out["token"], sp.ReachedBody(step=3, of=6, screen="Google review"))
+    sp.after_reached(out["token"], sp.ReachedBody(step=2, of=6, screen="How did we do?"))
+    row = sp.list_pay_links(lead.id, STAFF)["links"][0]
+    assert row["after_view_count"] == 1 and row["after_first_viewed_at"]
+    assert row["after_furthest"] == {"step": 3, "of": 6, "screen": "Google review"}

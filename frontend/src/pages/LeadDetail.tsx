@@ -17,6 +17,7 @@ import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
 import { ProposalLiveSwitch } from "@/components/ProposalLiveSwitch";
 import { ProposalOptionsCard } from "@/components/ProposalOptionsCard";
+import { AfterPaymentCard } from "@/components/AfterPaymentCard";
 import { ScopeDrawingPicker } from "@/components/ScopeDrawingPicker";
 import { SidesPicker } from "@/components/SidesPicker";
 import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
@@ -1786,6 +1787,7 @@ export default function LeadDetail() {
               under Contact and above Measure so the deposit link is one tap
               away (Alan, 2026-10-10: "so we can send the $250 deposit
               quicker"). Still folded until there's a job. */}
+          <AfterPaymentCard leadId={lead.id} />
           <Panel
             id="est-payments"
             className="scroll-mt-4"

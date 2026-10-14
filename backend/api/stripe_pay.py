@@ -138,6 +138,8 @@ def link_dict(link: PayLink) -> dict:
         "financing": link.kind != "deposit" and not link.no_financing,
         "first_viewed_at": link.first_viewed_at, "last_viewed_at": link.last_viewed_at,
         "view_count": link.view_count or 0,
+        "after_first_viewed_at": link.after_first_viewed_at, "after_last_viewed_at": link.after_last_viewed_at,
+        "after_view_count": link.after_view_count or 0, "after_furthest": _loads(link.after_furthest) or None,
     }
 
 
@@ -790,7 +792,7 @@ def start_session(token: str):
 
 
 @router.get("/pay/{token}/after")
-def after_info(token: str, s: str | None = None):
+def after_info(token: str, s: str | None = None, request: Request = None, preview: int = 0):
     """Public. Is this link paid, and what do the after screens need. If the
     webhook hasn't landed yet, ask Stripe about the session the customer
     just came back from and book it the same idempotent way."""
@@ -804,6 +806,19 @@ def after_info(token: str, s: str | None = None):
                     _record_paid(db, link, session, event_id=None)
             except Exception as e:  # noqa: BLE001 - the webhook will still land
                 logger.warning("after-page session check failed for %s: %s", token, e)
+        # A paid customer opening the thank-you screens (Alan, 2026-10-14:
+        # "did they actually go through it?"). Staff previews and bots skipped.
+        if link.status == "paid" and request is not None and preview != 1:
+            from api.proposals import _is_bot_view
+            if not _is_bot_view(request.headers.get("user-agent", "")):
+                now = _now()
+                first = not link.after_first_viewed_at
+                link.after_first_viewed_at = link.after_first_viewed_at or now
+                link.after_last_viewed_at = now
+                link.after_view_count = (link.after_view_count or 0) + 1
+                db.commit()
+                if first:
+                    log_event(link.lead_id, "after_pay_opened", f"{link.kind} thank-you screens opened")
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         pays = db.query(CustomerPayment).filter(CustomerPayment.lead_id == link.lead_id).all()
         this = next((p for p in pays if p.pay_link_token == link.token), None)
@@ -821,6 +836,32 @@ def after_info(token: str, s: str | None = None):
             "address": (lead.address if lead else "") or "",
             "answers": _loads(link.answers),
         }
+    finally:
+        db.close()
+
+
+class ReachedBody(BaseModel):
+    step: int
+    of: int
+    screen: str = ""
+
+
+@router.post("/pay/{token}/reached")
+def after_reached(token: str, body: ReachedBody):
+    """Public. The after screens report each screen they show; the furthest
+    one is kept, so staff see "got to 3 of 6 (Google review)" even when
+    nothing was tapped."""
+    db = get_db()
+    try:
+        link = _live_link(db, token)
+        if link.status != "paid":
+            return {"ok": False}
+        cur = _loads(link.after_furthest)
+        step = max(1, min(int(body.step or 1), 20))
+        if step > int(cur.get("step") or 0):
+            link.after_furthest = json.dumps({"step": step, "of": max(step, min(int(body.of or step), 20)), "screen": (body.screen or "")[:40]})
+            db.commit()
+        return {"ok": True}
     finally:
         db.close()
 

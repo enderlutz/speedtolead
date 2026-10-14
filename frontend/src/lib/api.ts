@@ -5632,6 +5632,9 @@ export interface PayLinkEntry {
   financing?: boolean;
   /** The customer opening the pay page; staff previews and bots don't count. */
   first_viewed_at?: string | null; last_viewed_at?: string | null; view_count?: number;
+  /** The thank-you screens after paying: opened when, how often, and the furthest screen reached. */
+  after_first_viewed_at?: string | null; after_last_viewed_at?: string | null; after_view_count?: number;
+  after_furthest?: { step: number; of: number; screen: string } | null;
   /** Someone opened the pay page, so Stripe holds a Checkout session for it. */
   opened: boolean;
   /** An itemized invoice: each line, and what they'd already paid. */
