@@ -28,7 +28,6 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
   const [tier, setTier] = useState("");
   const [jobTotal, setJobTotal] = useState("");
   const [busy, setBusy] = useState<PayLinkKind | null>(null);
-  const [sending, setSending] = useState<string | null>(null);
   const [settings, setSettings] = useState<StripeSettings | null>(null);
   const [checking, setChecking] = useState<string | null>(null);
   // "Text someone else": which link's form is open, and what's typed in it.
@@ -61,12 +60,9 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
     try { await navigator.clipboard.writeText(link.url); toast.success("Link copied. Paste it into the text."); }
     catch { toast.message(link.url); }
   };
-  const text = async (link: PayLinkEntry) => {
-    setSending(link.token);
-    try { await api.sendPayLink(link.token); toast.success("Texted to the customer"); load(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
-    finally { setSending(null); }
-  };
+  // Every text opens in an edit box first (Alan, 2026-10-13).
+  const [composing, setComposing] = useState<string | null>(null);
+  const text = (link: PayLinkEntry) => { setOther(null); setComposing(composing === link.token ? null : link.token); };
   const flipAuto = async (on: boolean) => {
     try { setSettings(await api.updateStripeSettings({ auto_balance_link: on })); toast.success(on ? "The balance link will text itself when a job is marked complete" : "Automatic balance link is off"); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't change that"); }
@@ -158,8 +154,8 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               <span className="ml-auto text-muted-foreground">{l.paid_at && l.kind !== "done" ? `paid ${new Date(l.paid_at).toLocaleDateString()}` : l.sent_at ? `texted ${new Date(l.sent_at).toLocaleDateString()}` : l.created_at ? new Date(l.created_at).toLocaleDateString() : ""}</span>
               {l.status === "paid" && l.answered_at ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-label="Answered the after-payment screens" /> : null}
               {l.status === "open" || l.kind === "done" ? (
-                <button type="button" onClick={() => text(l)} disabled={sending === l.token} className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60" title="Text the link to the customer">
-                  {sending === l.token ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} {l.sent_at ? "Text again" : "Text"}
+                <button type="button" onClick={() => text(l)} className="inline-flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60" title="Text the link to the customer (you can edit the text first)">
+                  <MessageSquare className="h-3 w-3" /> {l.sent_at ? "Text again" : "Text"}
                 </button>
               ) : null}
               {l.status === "open" && l.opened ? (
@@ -168,12 +164,18 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
                 </button>
               ) : null}
               {l.status === "open" && l.kind !== "done" ? (
-                <button type="button" onClick={() => setOther(other === l.token ? null : l.token)} className="rounded-md p-1 hover:bg-background" title="Text it to someone else, like a husband or wife"><UserPlus className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={() => { setComposing(null); setOther(other === l.token ? null : l.token); }} className="rounded-md p-1 hover:bg-background" title="Text it to someone else, like a husband or wife"><UserPlus className="h-3.5 w-3.5" /></button>
               ) : null}
               <a href={l.status === "paid" && l.kind !== "done" ? l.url.replace("/pay/", "/receipt/") : `${l.url}?preview=1`} target="_blank" rel="noreferrer" className="rounded-md p-1 hover:bg-background"
                 title={l.status === "paid" && l.kind !== "done" ? "Open the receipt" : "Open what the customer sees (doesn't count as their view)"}><ExternalLink className="h-3.5 w-3.5" /></a>
               <button type="button" onClick={() => copy(l)} className="rounded-md p-1 hover:bg-background" title="Copy the link"><Copy className="h-3.5 w-3.5" /></button>
               {l.status === "open" ? <button type="button" onClick={() => voidLink(l)} className="rounded-md p-1 hover:bg-background" title="Void this link"><Ban className="h-3.5 w-3.5" /></button> : null}
+              {composing === l.token ? (
+                <div className="mt-1 basis-full rounded-md bg-background p-2">
+                  <Compose token={l.token} who="the customer" onCancel={() => setComposing(null)}
+                    onSend={async (message) => { await api.sendPayLink(l.token, message); toast.success("Texted to the customer"); setComposing(null); load(); }} />
+                </div>
+              ) : null}
               {other === l.token ? <SendToOther token={l.token} onSent={() => { setOther(null); load(); }} onClose={() => setOther(null)} /> : null}
             </li>
           ))}
@@ -192,6 +194,45 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
 // An itemized invoice (Alan, 2026-10-13): each line with a short note, less
 // what they already paid. Becomes a balance link; the pay page and Stripe's
 // checkout list the lines.
+// The text, preset filled in, to edit before it goes. The link has to stay
+// in it (the backend checks too); Reset puts the preset back.
+function Compose({ token, who, other = false, name = "", onSend, onCancel }: {
+  token: string; who: string; other?: boolean; name?: string;
+  onSend: (message: string | undefined) => Promise<void>; onCancel: () => void;
+}) {
+  const [preset, setPreset] = useState<{ message: string; link: string } | null>(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.getPayLinkMessage(token, { name, other }).then((p) => { setPreset(p); setMsg(p.message); }).catch(() => toast.error("Couldn't load the text"));
+  }, [token, name, other]);
+  const missing = !!preset && !msg.includes(preset.link);
+  const go = async () => {
+    setBusy(true);
+    try { await onSend(preset && msg.trim() === preset.message.trim() ? undefined : msg); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
+    finally { setBusy(false); }
+  };
+  if (!preset) return <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Loading the text…</p>;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-semibold text-muted-foreground">Text to {who}. Edit it if you want, then send.</p>
+      <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={5} autoFocus className="w-full rounded-md border border-border bg-background p-2 text-sm leading-snug" />
+      {missing ? <p className="text-[11px] font-semibold text-rose-600">The pay link is missing from the text. Put it back or tap Reset, or they can't pay.</p> : null}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] text-muted-foreground tabular-nums">{msg.length} characters</span>
+        {msg !== preset.message ? <button type="button" onClick={() => setMsg(preset.message)} className="h-8 rounded-md px-2 text-xs font-semibold hover:bg-muted">Reset</button> : null}
+        <span className="ml-auto flex gap-1.5">
+          <button type="button" onClick={onCancel} className="h-8 rounded-md px-2 text-xs font-semibold hover:bg-muted">Cancel</button>
+          <button type="button" onClick={go} disabled={busy || missing || !msg.trim()} className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} Send text
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Send a link to someone else on the job (Alan, 2026-10-13: "her husband
 // wants the invoice too"). Search contacts by name or number and tap one;
 // if nobody has the number, add them as a new contact (made in GHL, shows up
@@ -204,15 +245,16 @@ function SendToOther({ token, onSent, onClose }: { token: string; onSent: () => 
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
-    if (q.trim().length < 2) { setHits(null); return; }
-    const t = setTimeout(() => { api.payLinkContactSearch(q.trim()).then(setHits).catch(() => setHits([])); }, 250);
+    const t = setTimeout(() => {
+      if (q.trim().length < 2) { setHits(null); return; }
+      api.payLinkContactSearch(q.trim()).then(setHits).catch(() => setHits([]));
+    }, 250);
     return () => clearTimeout(t);
   }, [q]);
-  const send = async (key: string, body: Parameters<typeof api.sendPayLinkTo>[1]) => {
-    setBusy(key);
-    try { const r = await api.sendPayLinkTo(token, body); toast.success(`Texted to ${r.sent_to}`); onSent(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't text it"); }
-    finally { setBusy(null); }
+  // Picking someone opens the text to edit; Send in there is what sends.
+  const [target, setTarget] = useState<{ label: string; name: string; body: Parameters<typeof api.sendPayLinkTo>[1] } | null>(null);
+  const send = (key: string, body: Parameters<typeof api.sendPayLinkTo>[1], label: string, name: string) => {
+    setBusy(null); setTarget({ label, name, body }); void key;
   };
   const startAdd = () => {
     const digits = q.replace(/\D/g, "");
@@ -225,7 +267,10 @@ function SendToOther({ token, onSent, onClose }: { token: string; onSent: () => 
         <span className="text-[11px] font-semibold text-muted-foreground">Send this link to someone else on the job</span>
         <button type="button" onClick={onClose} className="rounded p-0.5 hover:bg-muted" aria-label="Close"><X className="h-3.5 w-3.5" /></button>
       </div>
-      {!adding ? (
+      {target ? (
+        <Compose token={token} who={target.label} other name={target.name} onCancel={() => setTarget(null)}
+          onSend={async (message) => { const r = await api.sendPayLinkTo(token, { ...target.body, message }); toast.success(`Texted to ${r.sent_to}`); onSent(); }} />
+      ) : !adding ? (
         <>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search contacts by name or phone" autoFocus className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm" />
           {hits?.length ? (
@@ -233,9 +278,9 @@ function SendToOther({ token, onSent, onClose }: { token: string; onSent: () => 
               {hits.map((c) => (
                 <li key={c.id} className="flex items-center gap-2 px-2 py-1.5">
                   <span className="min-w-0 flex-1 truncate"><b>{c.name || "No name"}</b> <span className="text-muted-foreground tabular-nums">{c.phone}</span></span>
-                  <button type="button" onClick={() => send(c.id, { contact_id: c.id })} disabled={!!busy}
+                  <button type="button" onClick={() => send(c.id, { contact_id: c.id }, c.name || c.phone, c.name)} disabled={!!busy}
                     className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
-                    {busy === c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} Send
+                    {busy === c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} Pick
                   </button>
                 </li>
               ))}
@@ -253,9 +298,9 @@ function SendToOther({ token, onSent, onClose }: { token: string; onSent: () => 
           </div>
           <p className="text-[11px] text-muted-foreground">Adds them to GHL and your Contacts. If that number is already a contact, it uses that one instead.</p>
           <div className="flex gap-1.5">
-            <button type="button" onClick={() => send("new", { phone, name, create: true })} disabled={!!busy || phone.replace(/\D/g, "").length < 10}
+            <button type="button" onClick={() => send("new", { phone, name, create: true }, name || phone, name)} disabled={!!busy || phone.replace(/\D/g, "").length < 10}
               className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-2.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
-              {busy === "new" ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} Add and send
+              {busy === "new" ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />} Next: the text
             </button>
             <button type="button" onClick={() => setAdding(false)} className="h-8 rounded-md px-2 text-xs font-semibold hover:bg-muted">Back to search</button>
           </div>

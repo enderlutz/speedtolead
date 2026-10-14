@@ -1337,11 +1337,16 @@ export const api = {
   createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
-  sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
+  /** message: the text as edited before sending; leave out for the preset. */
+  sendPayLink: (token: string, message?: string) =>
+    request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST", body: JSON.stringify({ message: message ?? null }) }),
+  /** The preset text for a link, to edit before sending. other: the version for someone else on the job. */
+  getPayLinkMessage: (token: string, opts: { name?: string; other?: boolean } = {}) =>
+    request<{ message: string; link: string }>(`/api/pay-links/${token}/message?name=${encodeURIComponent(opts.name || "")}&other=${opts.other ? 1 : 0}`),
   /** Contacts to send a pay link to, by name or phone. */
   payLinkContactSearch: (q: string) => request<PayLinkContact[]>(`/api/pay-links/contact-search?q=${encodeURIComponent(q)}`),
   /** Text the link to someone else on the job (a spouse): a picked contact, or a number (create makes the contact in GHL when nobody has it). */
-  sendPayLinkTo: (token: string, body: { contact_id?: string; phone?: string; name?: string; create?: boolean }) =>
+  sendPayLinkTo: (token: string, body: { contact_id?: string; phone?: string; name?: string; create?: boolean; message?: string }) =>
     request<PayLinkEntry & { sent_to: string }>(`/api/pay-links/${token}/send-to`, { method: "POST", body: JSON.stringify(body) }),
   getStripeSettings: () => request<StripeSettings>(`/api/stripe/settings`),
   /** Ask Stripe about a link's last Checkout session; books it if paid. */

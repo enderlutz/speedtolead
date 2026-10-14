@@ -476,3 +476,33 @@ def test_search_a_contact_or_create_one_then_send(db, monkeypatch):
     r = sp.send_pay_link_to(out["token"], sp.SendToBody(phone="(713) 555-0122", name="Sam Husband", create=True), STAFF)
     assert made == [("LOC", "Sam Husband", "+17135550122")] and sent[-1][0] == "c-new"
     assert db.query(Contact).filter(Contact.ghl_contact_id == "c-new").one().phone_key == "7135550122"
+
+
+def test_staff_can_edit_the_text_but_not_drop_the_link(db, monkeypatch):
+    from database import Contact
+    _settings(monkeypatch)
+    lead = _lead(db)
+    lead.ghl_contact_id, lead.contact_phone, lead.ghl_location_id = "c-cust", "+12815550100", "LOC"
+    db.commit()
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=500), STAFF)
+    sent, made = [], []
+    monkeypatch.setattr(sp.hooks.ghl, "send_sms", lambda cid, msg, loc=None: sent.append((cid, msg)) or True)
+    monkeypatch.setattr(sp.hooks.ghl, "upsert_contact", lambda *a, **k: made.append(1) or "c-x")
+    preset = sp.pay_link_message(out["token"], user=STAFF)
+    assert out["url"] in preset["message"] and preset["link"] == out["url"]
+    assert sp.pay_link_message(out["token"], name="Sam Smith", other=1, user=STAFF)["message"].startswith("Hi Sam,")
+    with pytest.raises(HTTPException) as e:
+        sp.send_pay_link(out["token"], sp.MessageBody(message="Hi, pay us please"), STAFF)
+    assert e.value.status_code == 400 and not sent
+    sp.send_pay_link(out["token"], sp.MessageBody(message=f"Hey Test, thanks again! {out['url']}"), STAFF)
+    assert sent[-1] == ("c-cust", f"Hey Test, thanks again! {out['url']}")
+    sp.send_pay_link(out["token"], None, STAFF)
+    assert sent[-1][1] == sp.hooks.message_for(db.query(sp.PayLink).filter_by(token=out["token"]).one(), lead)
+    # Someone else: a bad edit stops before a contact is made.
+    with pytest.raises(HTTPException):
+        sp.send_pay_link_to(out["token"], sp.SendToBody(phone="7135550199", create=True, message="no link"), STAFF)
+    assert not made
+    db.add(Contact(id="k9", ghl_contact_id="c-sam", ghl_location_id="LOC", name="Sam", phone="+17135550199", phone_key="7135550199"))
+    db.commit()
+    sp.send_pay_link_to(out["token"], sp.SendToBody(contact_id="k9", message=f"Sam, here you go: {out['url']}"), STAFF)
+    assert sent[-1] == ("c-sam", f"Sam, here you go: {out['url']}")

@@ -326,8 +326,38 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
         db.close()
 
 
+class MessageBody(BaseModel):
+    # The text as staff edited it; empty = the preset.
+    message: str | None = None
+
+
+def _edited(link: PayLink, message: str | None) -> str | None:
+    try:
+        return hooks.check_edited(link, message)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/pay-links/{token}/message")
+def pay_link_message(token: str, name: str = "", other: int = 0, user: dict = Depends(require_staff)):
+    """The preset text, to edit before sending. other=1 is the version for
+    someone else on the job, greeting `name`."""
+    del user
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link:
+            raise HTTPException(status_code=404, detail="Not found")
+        lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
+        first = (name or "").split()[0].strip(",.;:") if (name or "").split() else ""
+        msg = hooks.message_for_other(link, lead, first) if other else hooks.message_for(link, lead)
+        return {"message": msg, "link": hooks.after_url(link.token) if link.kind == "done" else hooks.pay_url(link.token)}
+    finally:
+        db.close()
+
+
 @router.post("/pay-links/{token}/send")
-def send_pay_link(token: str, user: dict = Depends(require_staff)):
+def send_pay_link(token: str, body: MessageBody | None = None, user: dict = Depends(require_staff)):
     """Text the link to the customer through GHL, with the message written
     for its kind. Refuses a do-not-contact lead, or one with no phone."""
     db = get_db()
@@ -338,7 +368,7 @@ def send_pay_link(token: str, user: dict = Depends(require_staff)):
         if link.status == "paid" and link.kind != "done":
             raise HTTPException(status_code=400, detail="This link was already paid")
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
-        sent, reason = hooks.send_link(db, link, lead)
+        sent, reason = hooks.send_link(db, link, lead, _edited(link, body.message if body else None))
         if not sent:
             raise HTTPException(status_code=400, detail=reason)
         log_event(link.lead_id, "pay_link_texted_by", user.get("name") or user.get("sub") or "")
@@ -355,6 +385,8 @@ class SendToBody(BaseModel):
     phone: str = ""
     name: str = ""
     create: bool = False
+    # The text as staff edited it; empty = the preset.
+    message: str | None = None
 
 
 def _contact_row(c) -> dict:
@@ -398,6 +430,8 @@ def send_pay_link_to(token: str, body: SendToBody, user: dict = Depends(require_
             raise HTTPException(status_code=404, detail="Not found")
         if link.status == "paid" or link.kind == "done":
             raise HTTPException(status_code=400, detail="Only an unpaid link can be sent")
+        # Check an edited text before anything is created in GHL.
+        edited = _edited(link, body.message)
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         if lead and lead.do_not_contact:
             raise HTTPException(status_code=400, detail="This customer asked not to be contacted.")
@@ -440,7 +474,7 @@ def send_pay_link_to(token: str, body: SendToBody, user: dict = Depends(require_
         # First name only, whatever was typed ("Sam, her husband" -> "Sam").
         full = name or (c.first_name or "").strip() or (c.name or "").strip()
         greet = full.split()[0].strip(",.;:") if full.split() else ""
-        msg = hooks.message_for_other(link, lead, greet)
+        msg = edited or hooks.message_for_other(link, lead, greet)
         ok = False
         try:
             ok = bool(hooks.ghl.send_sms(c.ghl_contact_id, msg, c.ghl_location_id or None))

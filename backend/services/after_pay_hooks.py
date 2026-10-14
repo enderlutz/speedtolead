@@ -204,12 +204,29 @@ def send_blockers(lead: Lead | None) -> list[str]:
     return out
 
 
-def send_link(db, link: PayLink, lead: Lead | None) -> tuple[bool, str]:
-    """Text the link to the customer. Returns (sent, reason)."""
+def check_edited(link: PayLink, message: str | None) -> str | None:
+    """A text staff edited before sending. None = use the preset. Refuses
+    one with the link taken out, since the customer couldn't pay from it."""
+    if message is None:
+        return None
+    msg = message.strip()
+    if not msg:
+        raise ValueError("The text is empty.")
+    if len(msg) > 1500:
+        raise ValueError("That text is too long. Keep it under 1,500 characters.")
+    want = after_url(link.token) if link.kind == "done" else pay_url(link.token)
+    if want not in msg:
+        raise ValueError("The link has to stay in the text, or they can't pay. Put it back, or reset the text.")
+    return msg
+
+
+def send_link(db, link: PayLink, lead: Lead | None, message: str | None = None) -> tuple[bool, str]:
+    """Text the link to the customer: the preset text, or the one staff
+    edited (already checked by check_edited). Returns (sent, reason)."""
     blockers = send_blockers(lead)
     if blockers:
         return False, " ".join(blockers)
-    msg = message_for(link, lead)
+    msg = message or message_for(link, lead)
     ok = False
     try:
         ok = bool(ghl.send_sms(lead.ghl_contact_id, msg, lead.ghl_location_id or None))
