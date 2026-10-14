@@ -1,4 +1,3 @@
-import { LoveNote } from "@/components/LoveNote";
 import { useState, useCallback, useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
@@ -283,7 +282,6 @@ export default function App() {
       <TrainingModeProvider>
         <AppLayout />
         <Toaster position="top-right" richColors />
-        <LoveNote />
       </TrainingModeProvider>
     </BrowserRouter>
   );
