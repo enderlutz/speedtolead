@@ -23,6 +23,15 @@ def ghl(monkeypatch):
     monkeypatch.setattr(bk.ghl, "send_sms", lambda cid, msg, loc=None: sent.append(("sms", msg)) or True)
     monkeypatch.setattr(bk.ghl, "send_email", lambda **kw: sent.append(("email", kw["subject"], kw["html_body"])) or True)
     monkeypatch.setattr(bk, "log_event", lambda *a, **k: None)
+    events = {}
+
+    def upsert(db, event_id, **kw):
+        eid = event_id or f"ev{len(events) + 1}"
+        events[eid] = kw
+        sent.append(("cal", eid, kw["summary"], kw["description"], kw["job_date"]))
+        return eid, f"https://calendar.google.com/{eid}"
+    monkeypatch.setattr(bk.gcal, "upsert_internal_event", upsert)
+    monkeypatch.setattr(bk.gcal, "delete_event", lambda db, eid: sent.append(("cal-delete", eid)) or True)
     monkeypatch.setattr(pl, "log_event", lambda *a, **k: None)
     return sent
 
@@ -91,3 +100,26 @@ def test_the_link_has_to_stay_in_the_text_and_cancel_and_clear_work(db, ghl):
     assert pl.get_booking_draft(lead.id, STAFF) == {}
     with pytest.raises(HTTPException):
         bk.send_booking(lead.id, bk.SendBody(), STAFF)
+
+
+def test_it_goes_on_alans_calendar_with_the_scope_and_turns_confirmed_when_paid(db, ghl):
+    from database import PayLink
+    lead, day = _ready(db)
+    out = bk.send_booking(lead.id, bk.SendBody(), STAFF)
+    assert out["calendar"] is True and out["booking"]["on_calendar"] is True
+    cal = [x for x in ghl if x[0] == "cal"]
+    assert cal[0][2] == "Wes Wehr | Fence Staining | Held, deposit pending" and cal[0][4] == day
+    desc = cal[0][3]
+    assert "Signature Finish" in desc and "Pecan" in desc and "pergola" in desc and "200 ft" in desc and "/b/" in desc
+    # Sending again updates the same event.
+    bk.send_booking(lead.id, bk.SendBody(), STAFF)
+    assert [x[1] for x in ghl if x[0] == "cal"] == ["ev1", "ev1"]
+    # Paid: the Stripe hook turns it Confirmed.
+    db.add(PayLink(token="paidpaidpaidpaidpaid", lead_id=lead.id, kind="deposit", amount_cents=25000, status="paid",
+                   created_at=datetime.now(timezone.utc).isoformat(), paid_at=datetime.now(timezone.utc).isoformat(), answers="{}"))
+    db.commit()
+    bk.on_deposit_paid(lead.id)
+    last = [x for x in ghl if x[0] == "cal"][-1]
+    assert last[2].endswith("| Confirmed") and "CONFIRMED" in last[3]
+    bk.cancel_booking(lead.id, STAFF)
+    assert ("cal-delete", "ev1") in ghl

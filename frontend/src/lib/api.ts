@@ -555,6 +555,8 @@ export interface BookingSent {
   token: string; url: string; date: string; tier: string; color: string; notes: string; total: number;
   status: "held" | "confirmed" | "cancelled"; sent_at: string | null; sent_by: string; sent_count: number;
   first_viewed_at: string | null; last_viewed_at: string | null; view_count: number; hold_until: string;
+  /** On Alan's Google Calendar (never with the customer as a guest). */
+  on_calendar: boolean;
 }
 
 export interface BookingState {
@@ -2149,7 +2151,7 @@ export const api = {
   clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),
   sendBooking: (leadId: string, message: string, email: boolean) =>
-    request<BookingState & { emailed: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ message, email }) }),
+    request<BookingState & { emailed: boolean; calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ message, email }) }),
   cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
   /** Mark whether the customer left a Google review. Its own endpoint, so it
    *  never re-prices the estimate the way the form-data save does. */

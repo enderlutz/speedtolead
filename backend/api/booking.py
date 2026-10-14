@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import defer
 
 from api.auth import require_staff
-from api.proposal_live import NAMES, TIERS, _booking_draft, _paid_link, _open_link
+from api.proposal_live import NAMES, TIERS, _booking_draft, _lead_url, _paid_link, _open_link
 from api.proposal_preview import preview_payload
 from api.proposals import _is_bot_view, _is_internal_user
 from api.stripe_pay import DEPOSIT_CENTS
@@ -30,6 +30,7 @@ from config import proposal_base
 from database import get_db, Booking, Estimate, Lead, PayLink, Proposal
 from services import after_pay_hooks as hooks
 from services import ghl
+from services import google_calendar as gcal
 from services.activity_log import log_event
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         "sent_count": b.sent_count or 0, "first_viewed_at": b.first_viewed_at,
         "last_viewed_at": b.last_viewed_at, "view_count": b.view_count or 0,
         "hold_until": _hold_until(b),
+        "on_calendar": bool(b.google_event_id),
     }
 
 
@@ -109,6 +111,76 @@ def _state(db, lead: Lead) -> dict:
         "has_email": bool((lead.contact_email or "").strip()),
         "has_phone": bool((lead.contact_phone or "").strip()),
     }
+
+
+# ── Alan's Google Calendar ────────────────────────────────────────────────
+# The job goes on his own calendar for operations, with the whole scope on
+# it. The customer is never a guest: they have their page and its "Add to my
+# calendar" button. Calendar trouble never stops a send.
+
+def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
+    paid = _confirmed(db, lead)
+    name = (lead.contact_name or "Customer").strip()
+    total = (b.total_cents or 0) / 100
+    if paid:
+        paid_amt = (paid.amount_cents or 0) / 100
+        state = f"CONFIRMED · {'paid in full' if paid_amt >= total else 'deposit paid'} {hooks.money(paid_amt)}"
+        due = max(0.0, total - paid_amt)
+    else:
+        state = f"HELD · waiting on the $250 deposit (hold to {_hold_until(b)})"
+        due = max(0.0, total - DEPOSIT_CENTS / 100)
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:
+        fd = {}
+    raw = fd.get("fence_sides") or []
+    sides = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
+    lines = [
+        state, "",
+        f"Package: {NAMES.get(b.tier, b.tier)} · {hooks.money(total)}",
+        f"Due after the job: {hooks.money(due)}",
+        f"Color: {b.color or 'to pick on the day'}",
+        f"Fence: {fd.get('linear_feet') or '?'} ft",
+        f"Sides: {', '.join(sides) or 'see the lead'}",
+        "Included: cleaning, prep, two coats, cleanup",
+    ]
+    if (b.notes or "").strip():
+        lines += ["", f"Note on their invite: {b.notes.strip()}"]
+    lines += ["", f"Customer: {name}", f"Phone: {lead.contact_phone or '-'}", f"Email: {lead.contact_email or '-'}",
+              "", f"Their booking page: {booking_url(b.token)}", f"Lead: {_lead_url(lead)}"]
+    summary = f"{name} | Fence Staining | {'Confirmed' if paid else 'Held, deposit pending'}"
+    return summary, "\n".join(lines)
+
+
+def sync_calendar(db, lead: Lead, b: Booking) -> str:
+    """Put the booking on Alan's calendar, or bring it up to date. Returns
+    the event's link, or "" when Google didn't take it."""
+    try:
+        summary, desc = _calendar_text(db, lead, b)
+        eid, link = gcal.upsert_internal_event(db, b.google_event_id, summary=summary, description=desc,
+                                               location=lead.address or "", job_date=b.date)
+        if eid and eid != b.google_event_id:
+            b.google_event_id = eid
+            db.commit()
+        return link if eid else ""
+    except Exception as e:  # noqa: BLE001
+        logger.warning("booking calendar sync failed for %s: %s", lead.id, e)
+        return ""
+
+
+def on_deposit_paid(lead_id: str) -> None:
+    """A deposit (or the whole job) was paid: the calendar event turns to
+    Confirmed. Called from the Stripe webhook; never raises."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        b = _active(db, lead_id) if lead else None
+        if b is not None:
+            sync_calendar(db, lead, b)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("booking on_deposit_paid failed for %s: %s", lead_id, e)
+    finally:
+        db.close()
 
 
 # ── Staff ─────────────────────────────────────────────────────────────────
@@ -212,8 +284,9 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         b.sent_by = by
         b.sent_count = (b.sent_count or 0) + 1
         db.commit()
+        cal = sync_calendar(db, lead, b)
         log_event(lead.id, "booking_sent", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}" + (" +email" if emailed else ""))
-        return {**_state(db, lead), "emailed": emailed}
+        return {**_state(db, lead), "emailed": emailed, "calendar": bool(cal), "calendar_link": cal}
     finally:
         db.close()
 
@@ -230,6 +303,11 @@ def cancel_booking(lead_id: str, user: dict = Depends(require_staff)):
         if b is not None:
             b.status = "cancelled"
             db.commit()
+            if b.google_event_id:
+                try:
+                    gcal.delete_event(db, b.google_event_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("booking calendar delete failed for %s: %s", lead.id, e)
             log_event(lead.id, "booking_cancelled", f"{b.date} by {user.get('name') or user.get('sub') or ''}")
         return _state(db, lead)
     finally:

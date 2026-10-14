@@ -4027,6 +4027,9 @@ class Booking(Base):
     first_viewed_at = Column(Text, nullable=True)
     last_viewed_at = Column(Text, nullable=True)
     view_count = Column(Integer, nullable=True)
+    # The job on Alan's own Google Calendar, for operations. The customer is
+    # never a guest on it (Alan, 2026-10-14: "just on my end").
+    google_event_id = Column(Text, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4134,6 +4137,11 @@ def _run_migrations():
                              ("after_view_count", "INTEGER"), ("after_furthest", "TEXT")):
                 if col not in pl:
                     conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
+    if inspector.has_table("bookings"):
+        bk = {c["name"] for c in inspector.get_columns("bookings")}
+        if "google_event_id" not in bk:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN google_event_id TEXT"))
     if inspector.has_table("proposals"):
         pr = {c["name"] for c in inspector.get_columns("proposals")}
         if "extended_until" not in pr:

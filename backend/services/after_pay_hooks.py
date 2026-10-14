@@ -255,6 +255,10 @@ def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
         alert_alan(f"✅ Stripe: {name} paid {money(amount)}{how} ({kind}).")
     finally:
         db.close()
+    if kind in ("deposit", "full"):
+        # A booking invite on Alan's calendar turns to Confirmed.
+        from api.booking import on_deposit_paid
+        on_deposit_paid(lead_id)
 
 
 # ── After each tap on the after screens ───────────────────────────────────

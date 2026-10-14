@@ -338,6 +338,53 @@ def update_event(
         return False
 
 
+def upsert_internal_event(
+    db: Session,
+    event_id: str | None,
+    *,
+    summary: str,
+    description: str,
+    location: str,
+    job_date: str,            # YYYY-MM-DD
+    start_time: str = "07:30",
+    end_time: str = "15:00",
+    timezone_str: str = "America/Chicago",
+) -> tuple[str | None, str]:
+    """An event on Alan's calendar only: no guests, so Google never emails
+    anyone and never adds a Meet link (the booking invite, 2026-10-14).
+    Updates the event when it still exists, makes it otherwise. Returns
+    (event_id, html_link); (None, "") when Google isn't reachable."""
+    try:
+        access = _get_access_token(db)
+    except Exception as e:
+        logger.error(f"Google Calendar upsert_internal_event: token unavailable: {e}")
+        return (None, "")
+    body: dict[str, Any] = {
+        "summary": summary, "location": location, "description": description,
+        "start": {"dateTime": f"{job_date}T{start_time}:00", "timeZone": timezone_str},
+        "end": {"dateTime": f"{job_date}T{end_time}:00", "timeZone": timezone_str},
+        "colorId": GCAL_COLOR_BANANA,
+    }
+    cal_id = _calendar_id(db)
+    headers = {"Authorization": f"Bearer {access}"}
+    try:
+        if event_id:
+            r = _client.patch(f"{CALENDAR_BASE}/calendars/{cal_id}/events/{event_id}",
+                              headers=headers, params={"sendUpdates": "none"}, json={**body, "status": "confirmed"})
+            if r.status_code not in (404, 410):
+                r.raise_for_status()
+                data = r.json()
+                return (data.get("id"), data.get("htmlLink", "") or "")
+        r = _client.post(f"{CALENDAR_BASE}/calendars/{cal_id}/events",
+                         headers=headers, params={"sendUpdates": "none"}, json=body)
+        r.raise_for_status()
+        data = r.json()
+        return (data.get("id"), data.get("htmlLink", "") or "")
+    except Exception as e:
+        logger.error(f"Google Calendar upsert_internal_event failed: {e}")
+        return (None, "")
+
+
 def delete_event(db: Session, event_id: str) -> bool:
     if not event_id:
         return False

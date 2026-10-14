@@ -102,7 +102,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       if (changed) await save();
       const out = await api.sendBooking(lead.id, text, email && !!st?.has_email);
       setSt(out);
-      toast.success(`Sent to ${first} by text${out.emailed ? " and email" : ""}`);
+      toast.success(`Sent to ${first} by text${out.emailed ? " and email" : ""}${out.calendar ? ", and it's on your Google Calendar" : ""}`);
+      if (!out.calendar) toast.warning("It didn't go on your Google Calendar. Check Google is connected in Settings.");
     } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't send"); } finally { setBusy(null); }
   };
   const onCancel = async () => {
@@ -136,6 +137,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             Sent {when(sent.sent_at)}{sent.sent_by ? ` by ${sent.sent_by}` : ""}{sent.sent_count > 1 ? ` (${sent.sent_count} times)` : ""} ·{" "}
             {sent.view_count ? <span className="font-semibold text-foreground">Opened {sent.view_count}× · last {when(sent.last_viewed_at)}</span> : <span className="font-semibold text-amber-700">Not opened yet</span>}
             {sent.status !== "confirmed" ? ` · held to ${new Date(`${sent.hold_until}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+          </p>
+          <p className={cn("mt-1 text-xs font-semibold", sent.on_calendar ? "text-emerald-700" : "text-amber-700")}>
+            {sent.on_calendar ? "✓ On your Google Calendar (just you, they're not a guest)" : "Not on your Google Calendar yet. Send again to retry."}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <a href={`${sent.url}?preview=1`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">

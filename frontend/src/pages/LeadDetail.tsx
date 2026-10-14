@@ -196,6 +196,10 @@ const SHOW_NEW_BUILD: boolean = false;
 // Route stack / nearby jobs card, archived 2026-10-08 (Alan: not needed
 // right now). Flip to true to bring it back; the endpoint is untouched.
 const SHOW_ROUTE_STACK: boolean = false;
+// QuickBooks payments at the bottom of the lead, archived (Alan, 2026-10-14:
+// "we're switching over to Stripe"). The card, its endpoints and the Revenue
+// page are kept; flip to true to bring it back.
+const SHOW_QB_PAYMENTS = false;
 
 // The lead page's tabs: a tile (icon over a short label) on a phone, a row
 // (icon beside the full label) from `sm` up. The active one is the card
@@ -2574,8 +2578,8 @@ export default function LeadDetail() {
             </Panel>
           )}
 
-          {/* QuickBooks payments — restricted preview (allowlisted accounts only). */}
-          {canSeeRevenue() && <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />}
+          {/* QuickBooks payments, archived: see SHOW_QB_PAYMENTS. */}
+          {SHOW_QB_PAYMENTS && canSeeRevenue() && <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />}
         </TabsContent>
 
         <TabsContent value="call" className="space-y-4 sm:space-y-6 mt-4">
