@@ -338,3 +338,24 @@ def test_a_new_photo_clears_the_old_drone_view(db, monkeypatch):
     db.expire_all()
     lead = db.query(Lead).get(lead.id)
     assert not lead.has_fence_scope_ai and not lead.fence_scope_use_ai and lead.fence_scope_ai_image is None
+
+
+def test_the_booking_draft_saves_on_the_lead_without_touching_the_estimate(db):
+    lead = _lead(db)
+    est = _estimate(db, lead)
+    tiers = est.tiers
+    staff = {"name": "Alan", "role": "admin"}
+    assert pl.get_booking_draft(lead.id, staff) == {}
+    d = pl.save_booking_draft(lead.id, pl.BookingDraftBody(
+        date="2026-10-22", tier="signature", color="Pecan",
+        notes="A pergola would be about $750 to $950 more. We'd need a closer look."), staff)
+    assert d["date"] == "2026-10-22" and d["tier"] == "signature" and d["updated_by"] == "Alan"
+    assert pl.get_booking_draft(lead.id, staff)["notes"].startswith("A pergola")
+    db.expire_all()
+    from database import Estimate, Lead
+    assert db.query(Estimate).filter(Estimate.id == est.id).first().tiers == tiers
+    assert json.loads(db.query(Lead).filter(Lead.id == lead.id).first().form_data)["linear_feet"] == 200
+    # A made-up tier is dropped, a bad date is refused.
+    assert pl.save_booking_draft(lead.id, pl.BookingDraftBody(tier="gold"), staff)["tier"] == ""
+    with pytest.raises(HTTPException):
+        pl.save_booking_draft(lead.id, pl.BookingDraftBody(date="next thursday"), staff)

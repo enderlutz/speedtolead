@@ -542,6 +542,15 @@ export interface MeasurementPhoto {
   created_by: string;
 }
 
+export interface BookingDraft {
+  date?: string;
+  tier?: "" | "essential" | "signature" | "legacy";
+  color?: string;
+  notes?: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
 export interface LeadDetail extends Lead {
   estimates: EstimateDetail[];
   estimate?: EstimateDetail;
@@ -2118,6 +2127,10 @@ export const api = {
     request<{ ok: boolean; scanned: number; found: number }>(`/api/leads/${leadId}/objections/scan`, { method: "POST" }),
   removeObjection: (leadId: string, objectionId: string) =>
     request<{ ok: boolean }>(`/api/leads/${leadId}/objections/${objectionId}`, { method: "DELETE" }),
+  /** The booking invite drafted on the lead (date, package, colour, notes). */
+  getBookingDraft: (leadId: string) => request<BookingDraft>(`/api/leads/${leadId}/booking-draft`),
+  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes">) =>
+    request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
   /** Mark whether the customer left a Google review. Its own endpoint, so it
    *  never re-prices the estimate the way the form-data save does. */
   setGoogleReview: (leadId: string, left: boolean) =>

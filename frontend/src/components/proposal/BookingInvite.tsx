@@ -45,8 +45,10 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, staff, onClose }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
+  /** Alan's note to them, e.g. the pergola price range from the call. */
+  notes?: string;
   /** The day we're aiming for. */
   date: Date;
   staff?: boolean;
@@ -228,6 +230,13 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               <FileText className="h-4 w-4" style={{ color: GOLD }} /> See my full proposal
             </a>
           </div>
+
+          {notes?.trim() ? (
+            <div className="rounded-2xl bg-[#FFF8E6] p-4 ring-1 ring-[#C9972F]/40">
+              <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">A note from Alan</p>
+              <p className="mt-1.5 whitespace-pre-line text-[16px] leading-relaxed">{notes.trim()}</p>
+            </div>
+          ) : null}
 
           {confirmed ? (
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">

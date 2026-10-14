@@ -521,6 +521,74 @@ def extend_price(lead_id: str, body: ExtendBody, user: dict = Depends(require_st
         db.close()
 
 
+# ── Staff: the booking invite, drafted on the lead ────────────────────────
+# Our own invite in place of the Google Calendar one (Alan, 2026-10-14). For
+# now it's drafted and previewed on the lead; sending it comes next. Kept in
+# form_data under its own key so saving it never re-prices the estimate.
+
+BOOKING_TIERS = ("essential", "signature", "legacy")
+
+
+class BookingDraftBody(BaseModel):
+    date: str = ""      # YYYY-MM-DD, the day we're aiming for
+    tier: str = ""
+    color: str = ""
+    notes: str = ""     # e.g. "A pergola would be about $750–$950 more."
+
+
+def _booking_draft(lead: Lead) -> dict:
+    try:
+        fd = json.loads(lead.form_data or "{}")
+    except Exception:
+        fd = {}
+    d = fd.get("booking_draft")
+    return d if isinstance(d, dict) else {}
+
+
+@router.get("/leads/{lead_id}/booking-draft")
+def get_booking_draft(lead_id: str, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        return _booking_draft(lead)
+    finally:
+        db.close()
+
+
+@router.put("/leads/{lead_id}/booking-draft")
+def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depends(require_staff)):
+    date = (body.date or "").strip()
+    if date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Pick a date")
+    tier = body.tier if body.tier in BOOKING_TIERS else ""
+    notes = (body.notes or "").strip()
+    if len(notes) > 1000:
+        raise HTTPException(status_code=400, detail="Keep the note under 1,000 characters")
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        try:
+            fd = json.loads(lead.form_data or "{}")
+        except Exception:
+            fd = {}
+        fd["booking_draft"] = {
+            "date": date, "tier": tier, "color": (body.color or "").strip()[:80], "notes": notes,
+            "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
+        }
+        lead.form_data = json.dumps(fd)
+        db.commit()
+        return fd["booking_draft"]
+    finally:
+        db.close()
+
+
 # ── Staff: build the options before sending ───────────────────────────────
 
 class OptionBody(BaseModel):

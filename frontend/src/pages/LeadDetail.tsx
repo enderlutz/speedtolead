@@ -18,6 +18,7 @@ import { StripeLinksCard } from "@/components/StripeLinksCard";
 import { ProposalLiveSwitch } from "@/components/ProposalLiveSwitch";
 import { ProposalOptionsCard } from "@/components/ProposalOptionsCard";
 import { AfterPaymentCard } from "@/components/AfterPaymentCard";
+import { BookingInviteCard } from "@/components/BookingInviteCard";
 import { ScopeDrawingPicker } from "@/components/ScopeDrawingPicker";
 import { SidesPicker } from "@/components/SidesPicker";
 import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
@@ -1788,6 +1789,10 @@ export default function LeadDetail() {
               away (Alan, 2026-10-10: "so we can send the $250 deposit
               quicker"). Still folded until there's a job. */}
           <AfterPaymentCard leadId={lead.id} />
+          {/* Our own booking invite, in place of the Google Calendar one
+              (Alan, 2026-10-14). Right above the payment links: the $250
+              is what confirms it. */}
+          <BookingInviteCard lead={lead} />
           <Panel
             id="est-payments"
             className="scroll-mt-4"
