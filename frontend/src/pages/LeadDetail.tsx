@@ -200,6 +200,10 @@ const SHOW_ROUTE_STACK: boolean = false;
 // "we're switching over to Stripe"). The card, its endpoints and the Revenue
 // page are kept; flip to true to bring it back.
 const SHOW_QB_PAYMENTS = false;
+// The QuickBooks $250 deposit row in Payment links, archived (Alan,
+// 2026-10-14: the VA kept sending it instead of the Stripe $250). The
+// Stripe deposit in the same panel is the one to send. Flip to bring it back.
+const SHOW_QB_DEPOSIT: boolean = false;
 
 // The lead page's tabs: a tile (icon over a short label) on a phone, a row
 // (icon beside the full label) from `sm` up. The active one is the card
@@ -1809,10 +1813,11 @@ export default function LeadDetail() {
             bodyClassName="space-y-2 p-3.5"
           >
             <ProposalLiveSwitch leadId={lead.id} />
-            <DepositRow
+            {/* The QuickBooks $250 deposit row, archived: see SHOW_QB_DEPOSIT. */}
+            {SHOW_QB_DEPOSIT && <DepositRow
               lead={lead}
               onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
-            />
+            />}
             <FullInvoiceRow
               job={latestScheduledJob}
               onGenerate={() => setInvoiceModalOpen(true)}
