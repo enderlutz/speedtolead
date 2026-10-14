@@ -22,6 +22,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { sidesInWords } from "@/lib/fenceSides";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
+import { BookingInvite } from "@/components/proposal/BookingInvite";
 
 // A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
 // of work, her address, the linear foot… pretend she's a mock-up
@@ -672,6 +673,10 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // owes nothing then and only gets the after-the-job screens.
   const [afterPay, setAfterPay] = useState<null | { flow: PayFlow; method: PayMethod; paidUpFront?: boolean }>(null);
   const [payFaq, setPayFaq] = useState<null | "klarna" | "affirm">(null);
+  // Our own booking invite in place of the Google Calendar one (Alan,
+  // 2026-10-14). The mockup holds the next Thursday.
+  const [invite, setInvite] = useState(false);
+  const inviteDate = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7)); return d; }, []);
   const [postType, setPostType] = useState(POSTS[0].key);
 
   const chosen = packages.find((p) => p.key === pkg) || null;
@@ -745,6 +750,10 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">
             {phone ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
             {phone ? "Phone" : "Full"}
+          </button>
+          <button type="button" onClick={() => setInvite(true)} title="Our own calendar invite: date held until the $250 deposit, then confirmed by itself"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold text-[#15130F] hover:opacity-90" style={{ background: GOLD }}>
+            <Calendar className="h-3.5 w-3.5" /> Booking invite
           </button>
           <span className="ml-1 text-[11px] text-ivory/60">After the job:</span>
           <button type="button" onClick={() => setCheckout("balance")} title="The text with the balance link, after the crew marks the job done"
@@ -1471,6 +1480,21 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           repairs={repairs}
           staff={!preview || staffPeek}
           onClose={() => setAfterPay(null)}
+        />
+      ) : null}
+
+      {invite ? (
+        <BookingInvite
+          firstName={customer.name.split(" ")[0]}
+          address={tidyAddress(customer.address)}
+          pkgName={chosen?.name || packages[1].name}
+          color="Pecan"
+          sides={customer.sides}
+          feet={withScope ? customer.feet : 0}
+          total={(chosen?.price || packages[1].price) + repairs}
+          date={inviteDate}
+          staff
+          onClose={() => setInvite(false)}
         />
       ) : null}
 
