@@ -367,6 +367,7 @@ def _door(db, token: str, body: DoorBody, request: Request, kind: str) -> dict:
     link.job_tier = tier
     link.job_total_cents = int(round(price * 100))
     link.option_id = option.id if option else None
+    link.door = "finance" if kind == "full" else None
     picked = f"{NAMES[tier]}" + (f" ({option.label})" if option and option.label else "")
     link.description = f"{picked}, {'reserved' if kind == 'deposit' else 'financed'} on the proposal"
     db.commit()

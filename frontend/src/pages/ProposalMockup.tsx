@@ -426,7 +426,7 @@ const AFFIRM_ON = false;
 // Affirm's own published US terms; the real page links to affirm.com.
 const AFFIRM_FAQ: [string, string][] = [
   ["What is Affirm?", "A way to pay for your fence over time. Smaller amounts can be split into 4 interest-free payments; bigger ones get a monthly plan. Affirm pays us in full; you pay Affirm. Manage it in the Affirm app."],
-  ["How do I use it here?", "Tap \"See my options\", choose Affirm at checkout, and answer a few questions. You see your plans and the exact rate before you agree to anything."],
+  ["How do I use it here?", "Tap \"Apply for Klarna\", choose Affirm at checkout, and answer a few questions. You see your plans and the exact rate before you agree to anything."],
   ["What do I need?", "To be 18 or older, a US mobile number, and a US address. Affirm may ask for the last four digits of your Social Security number to check eligibility."],
   ["Does checking affect my credit?", "No. Seeing your options is a soft check with no effect on your credit score. If you take a monthly plan, Affirm may report it to the credit bureaus, which can help or hurt your score depending on how you pay."],
   ["What are the plans?", "4 interest-free payments on smaller amounts, or monthly plans from 3 to 36 months. Rates run from 0% to 36% APR based on your credit, and some plans are 0% APR. A down payment may be required."],
@@ -506,7 +506,7 @@ function payLine(total: number): { text: string; lender: "klarna" } {
 // links to Klarna's terms for the current ones.
 const KLARNA_FAQ: [string, string][] = [
   ["What is Klarna?", "A way to pay for your fence over time. Split it into 4 interest-free payments, or pick a monthly plan. Klarna pays us in full; you pay Klarna. See every payment in the Klarna app."],
-  ["How do I use it here?", "Tap \"See my options\" on this proposal, choose Klarna at checkout, pick 4 payments or monthly, and enter a debit or credit card. That's it. Your dates get booked the same as paying the deposit."],
+  ["How do I use it here?", "Pick your package, tap \"Apply for Klarna\", then pick 4 payments or a monthly plan and enter a debit or credit card. You see your plan before you agree. Your dates get booked the same as paying the deposit."],
   ["What do I need?", "A US-issued debit or credit card, to be 18 or older, a phone that gets texts, and a US home address."],
   ["How do the 4 payments work?", "The first payment comes off your card today at checkout. The other three come off automatically 14, 28 and 42 days later. No interest. Klarna emails you the schedule, and may ask some customers for a larger first payment."],
   ["Is there a fee for 4 payments?", "No fee when you pay on schedule. If a payment doesn't go through, Klarna tries again; if it still fails, a late fee of up to $7 plus the missed amount is added to the next payment."],
@@ -701,19 +701,19 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // picked and send the customer to it; the mockup opens its fake checkout.
   const [doorBusy, setDoorBusy] = useState<null | "reserve" | "finance">(null);
   const [doorError, setDoorError] = useState("");
-  const openDoor = async (which: "reserve" | "finance") => {
+  // No package yet: ask which one, then carry on (Alan, 2026-10-14: "if we
+  // don't know what package you want, we can't send you the link").
+  const [askPick, setAskPick] = useState<null | "reserve" | "finance" | "pick">(null);
+  const openDoor = async (which: "reserve" | "finance", key?: PkgKey) => {
     if (reserved?.afterUrl) { window.location.assign(reserved.afterUrl); return; }
+    const pickKey = key || chosen?.key;
+    if (!pickKey) { setAskPick(which); return; }
     if (!doors) { setCheckout(which === "reserve" ? "deposit" : "full"); return; }
-    if (!chosen) {
-      setDoorError("Pick a package first.");
-      document.getElementById("mock-packages")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
     if (doorBusy) return;
     setDoorBusy(which);
     setDoorError("");
     try {
-      window.location.assign(await doors[which](chosen.key, option?.id));
+      window.location.assign(await doors[which](pickKey, option?.id));
     } catch (e) {
       setDoorError(e instanceof Error ? e.message : "Couldn't open the payment page. Call or text us.");
       setDoorBusy(null);
@@ -918,7 +918,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                     tapped one (2026-10-13). Say it, in big words. */}
                 <p className="mb-2 flex items-center justify-center gap-2 text-center text-[17px] font-bold">
                   <span aria-hidden className="text-[22px] leading-none">👇</span>
-                  {chosen ? "Tap another one to compare" : "Tap a package to see what's in it"}
+                  {chosen ? "Tap another one to compare" : "Tap the package you want"}
                 </p>
                 <div className="grid grid-cols-3 gap-2">
                   {packages.map((p) => {
@@ -955,10 +955,13 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                           {/* A choice circle, the way paper forms do it: empty
                               and "Tap to see" until it's the one showing. */}
                           <p className="mt-1.5 flex h-[26px] items-center gap-1.5 text-[13px] font-bold" style={{ color: s.name }}>
-                            {shown
+                            {/* The tick means picked, never just "open" (Alan,
+                                2026-10-14: Exolei read Signature's "Showing ✓"
+                                as picked, and Klarna never opened). */}
+                            {on
                               ? <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-4 w-4" /></span>
                               : <span className="h-6 w-6 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
-                            {shown ? "Showing" : "Tap to see"}
+                            {on ? "Picked" : "Tap to pick"}
                           </p>
                         </div>
                       </button>
@@ -971,7 +974,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                   <div className="relative flex items-start justify-between gap-2 px-4 py-3" style={sk.card}>
                     {sk.frame ? <GoldFrame /> : null}
                     <div className="min-w-0">
-                      <p className="text-[13px] font-bold uppercase tracking-wider" style={{ color: sk.muted }}>{chosen ? "Your pick" : "You're looking at"}</p>
+                      <p className="text-[13px] font-bold uppercase tracking-wider" style={{ color: sk.muted }}>{chosen ? "Your pick" : "Not picked yet · you're looking at"}</p>
                       <h3 className="font-heading text-2xl font-bold leading-tight" style={{ color: sk.name }}>{show.name}</h3>
                       <p className="text-[14px] font-bold uppercase tracking-[0.1em]" style={{ color: sk.muted }}>{show.tag}<br /><span className="whitespace-nowrap">Usually lasts {show.lasts}*</span></p>
                     </div>
@@ -1008,7 +1011,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                       className={cn("mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
                         chosen ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
                       style={chosen ? undefined : { background: GOLD }}>
-                      {chosen ? <><Check className="h-5 w-5" /> {show.short} is your pick</> : `I want ${show.short}`}
+                      {chosen ? <><Check className="h-5 w-5" /> {show.short} is your pick</> : `Pick ${show.short}`}
                     </button>
                     {/* Flip to the next one without scrolling back up. */}
                     <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1320,6 +1323,12 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               ? <p className="text-sm leading-snug"><span className="font-bold">Your quoted price ended {customer.goodThrough}.</span> These are our regular prices. Call or text us with any questions.</p>
               : <p className="text-sm leading-snug"><span className="font-bold">Your price is good for {customer.priceDays} days, through {customer.goodThrough}.</span> Book by then and it's locked, even if we do the job next month. Paying over time means you don't need the money today.</p>}
           </div>
+          {!chosen && !reserved ? (
+            <div className="mb-3 flex items-center gap-3 rounded-xl bg-amber-50 px-3 py-3 ring-2 ring-amber-400">
+              <p className="min-w-0 flex-1 text-[16px] font-bold leading-snug text-amber-950">You haven't picked a package yet.</p>
+              <button type="button" onClick={() => setAskPick("pick")} className="h-11 shrink-0 rounded-xl bg-[#15130F] px-4 text-[15px] font-bold text-[#E3BE63]">Pick one</button>
+            </div>
+          ) : null}
           {doorError ? <p className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-700 ring-1 ring-rose-200">{doorError}</p> : null}
           {reserved ? (
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
@@ -1346,9 +1355,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 {AFFIRM_ON ? <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Pay a little each month. You see the full cost before you say yes." learn={() => setPayFaq("affirm")} /> : null}
               </div>
               <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98] disabled:opacity-70">
-                {doorBusy === "finance" ? "Opening your options…" : "See my options"}
+                {doorBusy === "finance" ? "Opening Klarna…" : chosen ? `Apply for Klarna · ${formatCurrency(total)}` : "Apply for Klarna"}
               </button>
-              <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">{AFFIRM_ON ? "Pick Klarna or Affirm on the next screen." : "Pick Klarna on the next screen."} Checking takes a minute and doesn't affect your credit score.</p>
+              <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">{chosen ? "Klarna asks a few quick questions." : "First you'll pick your package."} Checking doesn't affect your credit score.</p>
               <p className="mt-1 text-center text-[15px] leading-snug text-[#15130F]/80">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
             </div>
           </div>
@@ -1381,7 +1390,11 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               </button>
             </div>
           ) : (
-            <p className="py-2 text-center text-[15px] font-semibold text-white/85">Pick a package or a color to see your total.</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="min-w-0 text-[15px] font-semibold leading-snug text-white/90">You haven't picked a package yet.</p>
+              <button type="button" onClick={() => setAskPick("pick")}
+                className="flex h-12 shrink-0 items-center rounded-xl px-4 text-[15px] font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>Pick one</button>
+            </div>
           )}
         </div>
       </div>
@@ -1496,6 +1509,31 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           staff
           onClose={() => setInvite(false)}
         />
+      ) : null}
+
+      {askPick ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" onClick={() => setAskPick(null)}>
+          <div className="w-full max-w-md rounded-t-3xl bg-[#F8F3E7] p-5 text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-heading text-2xl font-bold leading-tight">Which package do you want?</h3>
+            <p className="mt-1 text-[15px] text-[#15130F]/80">
+              {askPick === "finance" ? "Pick one, then we'll open Klarna for that price." : askPick === "reserve" ? "Pick one, then we'll open the $250 deposit." : "Tap the one you want."}
+            </p>
+            <div className="mt-3 space-y-2">
+              {packages.map((p) => (
+                <button key={p.key} type="button"
+                  onClick={() => { const door = askPick; choose(p.key); setAskPick(null); if (door === "reserve" || door === "finance") void openDoor(door, p.key); }}
+                  className="flex min-h-[60px] w-full items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 text-left ring-1 ring-[#15130F]/15 active:scale-[0.98]">
+                  <span className="min-w-0">
+                    <span className="block font-heading text-[19px] font-bold leading-tight">{p.name}</span>
+                    <span className="block text-[14px] text-[#15130F]/75">{p.tag} · usually lasts {p.lasts}</span>
+                  </span>
+                  <span className="shrink-0 font-heading text-[19px] font-bold tabular-nums">{formatCurrency(p.price + repairs)}</span>
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setAskPick(null)} className="mt-3 h-12 w-full rounded-xl text-[16px] font-semibold underline underline-offset-2">Not yet</button>
+          </div>
+        </div>
       ) : null}
 
       {/* The terms, in plain words (Alan, 2026-10-10). */}

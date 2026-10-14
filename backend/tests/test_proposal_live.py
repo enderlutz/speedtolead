@@ -140,7 +140,7 @@ def test_finance_is_a_full_price_link_and_an_expired_price_charges_regular(db, q
     p = _proposal(db, lead, est, days_ago=40)
     pl.finance(p.token, pl.DoorBody(tier="essential"), _Req())
     link = db.query(PayLink).filter(PayLink.lead_id == lead.id).first()
-    assert link.kind == "full"
+    assert link.kind == "full" and link.door == "finance"  # its pay page is the Klarna walk-through
     assert link.amount_cents == 125000 and link.job_total_cents == 125000  # 1000 / 0.8
 
 

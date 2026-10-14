@@ -684,14 +684,23 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             "name": ((lead.contact_name or "").strip() if lead else ""),
             "invoice_number": _invoice_number(db, link.lead_id), "date": link.created_at or "",
             "financing": link.kind != "deposit" and not link.no_financing,
+            # Made by Apply for Klarna: the page is the Klarna walk-through.
+            "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",
             "paid_at": link.paid_at or "", "method": (pay.method if pay else "") or "",
         }
     finally:
         db.close()
 
 
+class SessionBody(BaseModel):
+    # "klarna": Stripe's page opens with Klarna as the only way to pay, so
+    # there's no "now find Klarna" step (Alan, 2026-10-14). Anything else:
+    # every method switched on for the link.
+    method: str = ""
+
+
 @router.post("/pay/{token}/session")
-def start_session(token: str):
+def start_session(token: str, body: SessionBody | None = None):
     """Public. A fresh Stripe Checkout session for this link; the customer
     is sent to Stripe's page. A link already paid goes to its after page."""
     db = get_db()
@@ -761,16 +770,29 @@ def start_session(token: str):
         # hides a lender when the amount is outside its range.
         # The deposit never takes Klarna; any other link can have it switched
         # off. Both use the same no-lender configuration.
+        klarna_only = (body is not None and body.method == "klarna"
+                       and link.kind != "deposit" and not link.no_financing)
         if link.kind == "deposit" or link.no_financing:
             pmc = _deposit_config(s)
             if pmc:
                 params["payment_method_configuration"] = pmc
+        elif klarna_only:
+            params["payment_method_types"] = ["klarna"]
         if lead and lead.contact_email:
             params["customer_email"] = lead.contact_email
         try:
             try:
                 session = s.checkout.Session.create(**params)
             except stripe.InvalidRequestError as e:  # type: ignore[attr-defined]
+                # Klarna turned off on the account, or the amount out of its
+                # range: open the usual page with every method instead.
+                if params.pop("payment_method_types", None):
+                    logger.warning("Stripe refused Klarna-only for %s, opening every method: %s", token, e)
+                    log_event(link.lead_id, "stripe_klarna_only_refused", str(e)[:500])
+                    session = s.checkout.Session.create(**params)
+                    link.stripe_session_id = session.id
+                    db.commit()
+                    return {"url": session.url, "paid": False}
                 # The terms line must never be what stops a payment: if Stripe
                 # refuses the request, try once more without it (the pay page
                 # and the proposal still show the agreement line).

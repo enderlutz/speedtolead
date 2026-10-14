@@ -526,3 +526,38 @@ def test_the_thank_you_screens_record_the_visit_and_how_far_they_got(db, monkeyp
     row = sp.list_pay_links(lead.id, STAFF)["links"][0]
     assert row["after_view_count"] == 1 and row["after_first_viewed_at"]
     assert row["after_furthest"] == {"step": 3, "of": 6, "screen": "Google review"}
+
+
+def test_apply_for_klarna_opens_stripe_on_klarna_and_falls_back_to_every_method(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen = []
+    refuse = {"on": False}
+
+    def fake_create(**params):
+        seen.append(dict(params))
+        if refuse["on"] and "payment_method_types" in params:
+            raise sp.stripe.InvalidRequestError("klarna is not activated", "payment_method_types")
+        return SimpleNamespace(id=f"cs_{len(seen)}", url=f"https://stripe.test/cs_{len(seen)}")
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create", fake_create)
+
+    full = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="full", amount=1335.84), STAFF)
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == full["token"]).one()
+    assert sp.pay_info(full["token"])["klarna"] is False  # a staff full link is not the Klarna page
+    link.door = "finance"
+    db.commit()
+    assert sp.pay_info(full["token"])["klarna"] is True
+    sp.start_session(full["token"], sp.SessionBody(method="klarna"))
+    assert seen[-1]["payment_method_types"] == ["klarna"] and "payment_method_configuration" not in seen[-1]
+    # Pay by card instead: every method.
+    sp.start_session(full["token"], sp.SessionBody())
+    assert "payment_method_types" not in seen[-1]
+    # Stripe refuses Klarna-only: the usual page opens, the customer is never stuck.
+    refuse["on"] = True
+    out = sp.start_session(full["token"], sp.SessionBody(method="klarna"))
+    assert out["url"].startswith("https://stripe.test/") and "payment_method_types" not in seen[-1]
+    # A deposit never takes Klarna, even if asked.
+    dep = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    refuse["on"] = False
+    sp.start_session(dep["token"], sp.SessionBody(method="klarna"))
+    assert "payment_method_types" not in seen[-1] and seen[-1]["payment_method_configuration"] == "pmc_deposit"

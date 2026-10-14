@@ -22,6 +22,8 @@ export type Info = {
   first_name: string; address: string; configured: boolean;
   items?: InvoiceItem[]; credit?: number;
   name?: string; invoice_number?: string; date?: string; financing?: boolean;
+  /** Made by the proposal's Apply for Klarna button: this page walks them through Klarna. */
+  klarna?: boolean;
 };
 
 export default function PayLink() {
@@ -62,12 +64,14 @@ export default function PayLink() {
     return () => { alive = false; };
   }, [token]);
 
-  const pay = async () => {
+  const pay = async (method = "") => {
     if (busy) return;
     setBusy(true);
     setError("");
     try {
-      const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/session`, { method: "POST" });
+      const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/session`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method }),
+      });
       const data = (await r.json()) as { url?: string; detail?: string };
       if (!r.ok || !data.url) throw new Error(data.detail || "Stripe couldn't start the payment.");
       window.location.assign(data.url);
@@ -90,6 +94,54 @@ export default function PayLink() {
     return <Shell><p className="text-[17px] font-semibold text-[#15130F]/75">One moment…</p></Shell>;
   }
   const deposit = info.kind === "deposit";
+  // Apply for Klarna (Alan, 2026-10-14): Exolei landed on "here's what's due"
+  // and never knew Klarna was the next step. This page says it plainly, and
+  // Stripe opens with Klarna as the only choice.
+  if (info.klarna && info.configured) {
+    return (
+      <Shell>
+        <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#8C6224" }}>Pay over time</p>
+        <h1 className="mt-1 font-heading text-3xl font-bold leading-tight">{info.first_name ? `Hi ${info.first_name}, ` : ""}apply for Klarna.</h1>
+        <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-20 shrink-0 items-center justify-center rounded-md bg-[#FFB3C7] text-[18px] font-black tracking-tight text-black">Klarna.</span>
+            <div>
+              <p className="text-[15px] text-[#15130F]/75">Your fence, paid over time</p>
+              <p className="font-heading text-3xl font-bold leading-none tabular-nums">{formatCurrency(info.amount)}</p>
+            </div>
+          </div>
+          {info.description ? <p className="mt-3 text-[15px] text-[#15130F]/80">{info.description.replace(/, financed on the proposal$/, "")}</p> : null}
+          {info.address ? <p className="mt-0.5 text-[15px] text-[#15130F]/80">{info.address}</p> : null}
+        </div>
+        <ol className="mt-4 space-y-3">
+          {[
+            ["Tap “Continue to Klarna” below.", "It opens Klarna's secure page."],
+            ["Pick 4 payments or a monthly plan.", "Klarna asks a few quick questions."],
+            ["See your plan before you agree.", "Checking doesn't affect your credit score. Nothing is charged until you say yes."],
+          ].map(([a, b], i) => (
+            <li key={a} className="flex items-start gap-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[15px] font-bold text-[#E3BE63]">{i + 1}</span>
+              <span className="pt-0.5"><span className="block text-[17px] font-bold leading-snug">{a}</span><span className="block text-[15px] leading-snug text-[#15130F]/75">{b}</span></span>
+            </li>
+          ))}
+        </ol>
+        <button type="button" onClick={() => void pay("klarna")} disabled={busy}
+          className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[18px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-60" style={{ background: GOLD }}>
+          {busy ? "Opening Klarna…" : "Continue to Klarna"}
+        </button>
+        <p className="mt-2 text-center text-[14px] text-[#15130F]/75">Once Klarna says yes, your job is paid and your dates get booked.</p>
+        <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
+        {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-800">{error}</p> : null}
+        <button type="button" onClick={() => void pay()} disabled={busy}
+          className="mt-4 flex min-h-[44px] w-full items-center justify-center text-[15px] font-semibold text-[#15130F]/80 underline underline-offset-2">
+          Rather pay it all now by card?
+        </button>
+        {terms ? <TermsSheet onClose={() => setTerms(false)} /> : null}
+        <p className="mt-6 flex items-center justify-center gap-2 text-[13px] text-[#15130F]/65"><Lock className="h-3.5 w-3.5" /> Secure checkout by Stripe</p>
+        <Contact />
+      </Shell>
+    );
+  }
   return (
     <Shell>
       <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#8C6224" }}>{info.label}</p>
@@ -106,7 +158,7 @@ export default function PayLink() {
       )}
       {info.configured ? (
         <>
-          <button type="button" onClick={pay} disabled={busy}
+          <button type="button" onClick={() => void pay()} disabled={busy}
             className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[18px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-60" style={{ background: GOLD }}>
             <Lock className="h-5 w-5" /> {busy ? "Opening secure checkout…" : `Pay ${formatCurrency(info.amount)}`}
           </button>

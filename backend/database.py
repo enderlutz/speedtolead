@@ -4001,6 +4001,9 @@ class PayLink(Base):
     after_last_viewed_at = Column(Text, nullable=True)
     after_view_count = Column(Integer, nullable=True)
     after_furthest = Column(Text, nullable=True)
+    # "finance" = made by the proposal's Apply for Klarna button: the pay page
+    # walks them through Klarna and Stripe opens on Klarna (Alan, 2026-10-14).
+    door = Column(Text, nullable=True)
 
 
 class Booking(Base):
@@ -4134,7 +4137,7 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
             for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER"), ("option_id", "TEXT"),
                              ("after_first_viewed_at", "TEXT"), ("after_last_viewed_at", "TEXT"),
-                             ("after_view_count", "INTEGER"), ("after_furthest", "TEXT")):
+                             ("after_view_count", "INTEGER"), ("after_furthest", "TEXT"), ("door", "TEXT")):
                 if col not in pl:
                     conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
     if inspector.has_table("bookings"):
