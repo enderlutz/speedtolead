@@ -23,6 +23,12 @@ export function LoveNote() {
   // Checked on every page change, so it also appears right after she logs in;
   // the session flag keeps it to once per visit.
   useEffect(() => {
+    // ?love=1 shows it to whoever is logged in, once, so Alan can see it
+    // without her password.
+    if (new URLSearchParams(window.location.search).get("love") === "1") {
+      const t = setTimeout(() => setOpen(true), 400);
+      return () => clearTimeout(t);
+    }
     if (SKIP.some((p) => pathname === p || pathname.startsWith(p)) || !isOlga()) return;
     let seen = false;
     try { seen = sessionStorage.getItem(SEEN_KEY) === "1"; } catch { /* fine */ }
