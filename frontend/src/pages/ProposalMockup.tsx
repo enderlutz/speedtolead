@@ -720,9 +720,16 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
       <style>{SHINE_CSS}</style>
       {/* Staff bar. Never part of the customer's page. */}
       {preview ? null : <div className="sticky top-0 z-30 flex flex-wrap items-center gap-2 bg-ink px-3 py-2 text-ivory shadow-md">
-        <Link to={previewLead ? `/leads/${previewLead}` : "/new-proposal"} className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
-          <ArrowLeft className="h-3.5 w-3.5" /> {previewLead ? "Back to the lead" : "Notes"}
-        </Link>
+        {previewLead ? (
+          // Big on purpose (Alan, 2026-10-14): the way back to the send has to be obvious.
+          <Link to={`/leads/${previewLead}`} className="inline-flex h-12 items-center gap-2 rounded-xl px-5 text-base font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>
+            <ArrowLeft className="h-5 w-5" /> Back to the lead
+          </Link>
+        ) : (
+          <Link to="/new-proposal" className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold hover:bg-white/20">
+            <ArrowLeft className="h-3.5 w-3.5" /> Notes
+          </Link>
+        )}
         <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-rose-200 ring-1 ring-rose-400/40">
           <Lightbulb className="h-3 w-3" /> {previewLead ? "Preview · what they get when you send · nothing is sent" : "Mockup · nothing here is sent to anyone"}
         </span>
@@ -752,6 +759,12 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <span className="text-[12px] text-white/70">See what {dressed?.name?.split(" ")[0] || "they"} get after paying:</span>
           <AfterPayButtons open={setAfterPay} className="rounded-lg bg-white/10 px-2.5 py-1.5 text-[12px] font-semibold hover:bg-white/20" />
         </div>
+      ) : null}
+
+      {previewLead ? (
+        <Link to={`/leads/${previewLead}`} className="fixed bottom-24 left-4 z-40 inline-flex h-14 items-center gap-2 rounded-full px-6 text-base font-bold text-[#15130F] shadow-2xl ring-4 ring-black/20" style={{ background: GOLD }}>
+          <ArrowLeft className="h-5 w-5" /> Back to the lead
+        </Link>
       ) : null}
 
       {/* The customer's page. Explicit colours so the dashboard's dark mode

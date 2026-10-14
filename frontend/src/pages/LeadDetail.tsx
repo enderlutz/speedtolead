@@ -640,6 +640,10 @@ export default function LeadDetail() {
   // 2026-10-13). Not needed when two or more saved options carry their own.
   const [scopeDrawing, setScopeDrawing] = useState<string | null>(null);
   const [optionDrafts, setOptionDrafts] = useState(0);
+  const [nextNumber, setNextNumber] = useState("");
+  useEffect(() => {
+    if (sendInteractive) api.getNextProposalNumber().then((r) => setNextNumber(r.number)).catch(() => setNextNumber(""));
+  }, [sendInteractive]);
   const needsDrawing = sendInteractive === true && optionDrafts < 2;
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
@@ -2301,6 +2305,32 @@ export default function LeadDetail() {
               {needsDrawing ? (
                 <div id="send-drawing" className={cn("rounded-xl border p-2.5", scopeDrawing ? "border-border bg-muted/30" : "border-amber-300 bg-amber-50 dark:bg-amber-950/30")}>
                   <p className="mb-1.5 text-sm font-semibold">Which drawing goes with this estimate?</p>
+                  {/* The prices being sent, right where the drawing is picked,
+                      so the pairing is checked at a glance (Alan, 2026-10-14). */}
+                  {estimate?.tiers ? (
+                    <div className="mb-2 rounded-lg bg-background p-2 text-xs ring-1 ring-border">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-bold">{nextNumber || "This estimate"}</span>
+                        {nextNumber ? <span className="text-muted-foreground">(number it gets when sent)</span> : null}
+                      </div>
+                      <div className="mt-1 grid grid-cols-3 gap-1 text-center tabular-nums">
+                        {(["essential", "signature", "legacy"] as const).map((t) => (
+                          <div key={t} className={cn("rounded-md px-1 py-1", t === "signature" ? "bg-violet-50 font-bold text-violet-900 dark:bg-violet-950/40 dark:text-violet-200" : "bg-muted/50")}>
+                            <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{t}</span>
+                            {formatCurrency(estimate.tiers[t] || 0)}
+                          </div>
+                        ))}
+                      </div>
+                      {(() => {
+                        const inp = (estimate.inputs || {}) as Record<string, unknown>;
+                        const sides = Array.isArray(inp.fence_sides) ? (inp.fence_sides as string[]) : [];
+                        const feet = Number(inp.linear_feet) || 0;
+                        return feet || sides.length ? (
+                          <p className="mt-1 text-muted-foreground">{feet ? `${feet} ft` : ""}{feet && sides.length ? " · " : ""}{sides.join(", ")}</p>
+                        ) : null;
+                      })()}
+                    </div>
+                  ) : null}
                   <ScopeDrawingPicker leadId={lead.id} value={scopeDrawing} onChange={setScopeDrawing} />
                   {scopeDrawing ? <p className="mt-1 text-[11px] text-muted-foreground">Confirmed. It's frozen with these prices when you send.</p> : <p className="mt-1 text-[11px] font-semibold text-amber-800">Tap a drawing to confirm it. The send waits for this.</p>}
                 </div>

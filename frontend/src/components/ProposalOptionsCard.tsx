@@ -6,7 +6,7 @@
 // between them on the one page.
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Layers, Loader2, Plus, Trash2, Image as ImageIcon } from "lucide-react";
+import { ChevronDown, Layers, Loader2, Plus, Trash2, Image as ImageIcon } from "lucide-react";
 import { api, type ProposalOptionsState } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { ScopeDrawingPicker } from "@/components/ScopeDrawingPicker";
@@ -19,6 +19,9 @@ export function ProposalOptionsCard({ leadId, interactive, onDrafts }: { leadId:
   // Which numbered drawing goes with the option being saved. Must be picked.
   const [drawing, setDrawing] = useState<string | null>(null);
   const [shown, setShown] = useState<{ id: string; url: string } | null>(null);
+  // Folded by default (Alan, 2026-10-14: most two-price customers get two
+  // separate proposals for now); opens by itself when options are saved.
+  const [openCard, setOpenCard] = useState<boolean | null>(null);
 
   const load = useCallback(() => { api.listProposalOptions(leadId).then(setState).catch(() => setState(null)); }, [leadId]);
   useEffect(() => { load(); }, [load]);
@@ -45,13 +48,24 @@ export function ProposalOptionsCard({ leadId, interactive, onDrafts }: { leadId:
     if (url) setShown({ id, url }); else toast.error("No drawing on that option");
   };
 
+  const isOpen = openCard ?? drafts.length > 0;
+  if (!isOpen) {
+    return (
+      <button type="button" onClick={() => setOpenCard(true)}
+        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-2.5 py-2 text-left text-xs font-semibold text-muted-foreground hover:bg-muted/40">
+        <Layers className="h-3.5 w-3.5 text-violet-600" /> Two prices in one proposal?
+        <ChevronDown className="ml-auto h-3.5 w-3.5" />
+      </button>
+    );
+  }
   return (
     <div className="rounded-xl border border-border bg-muted/30 p-2.5">
-      <div className="flex items-center gap-2">
+      <button type="button" onClick={() => setOpenCard(false)} className="flex w-full items-center gap-2 text-left">
         <Layers className="h-4 w-4 text-violet-600" />
         <p className="text-sm font-semibold">Options in one proposal</p>
-        {drafts.length ? <span className="ml-auto rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-800">{drafts.length} ready</span> : null}
-      </div>
+        {drafts.length ? <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-800">{drafts.length} ready</span> : null}
+        <ChevronDown className="ml-auto h-4 w-4 rotate-180 text-muted-foreground" />
+      </button>
       <p className="mt-1 text-xs text-muted-foreground">
         For a customer who wants more than one price. Set the estimate for option 1, pick its drawing, and save it. Then change the sides, Save &amp; Recalculate, pick the other drawing, and save option 2. Each option keeps its own prices and drawing.
       </p>

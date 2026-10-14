@@ -1361,6 +1361,8 @@ export const api = {
     request<StripeSettings>(`/api/stripe/settings`, { method: "PUT", body: JSON.stringify(body) }),
   // The interactive proposal: per-lead switch (admin), the price window, the extension.
   getProposalLive: (leadId: string) => request<ProposalLiveState>(`/api/leads/${leadId}/proposal/live`),
+  /** The SF number the next send will most likely get (a preview; taken for real at send). */
+  getNextProposalNumber: () => request<{ number: string }>(`/api/proposal-number/next`),
   // One proposal, several options: freeze the estimate + drawing as they are now.
   listProposalOptions: (leadId: string) => request<ProposalOptionsState>(`/api/leads/${leadId}/proposal-options`),
   saveProposalOption: (leadId: string, body: { label: string; note?: string; drawing?: string }) =>

@@ -629,3 +629,17 @@ def staff_option_scope(lead_id: str, option_id: str, user: dict = Depends(requir
         return Response(content=bytes(o.scope_image), media_type=o.scope_mime or "image/png")
     finally:
         db.close()
+
+
+@router.get("/proposal-number/next")
+def next_proposal_number(user: dict = Depends(require_staff)):
+    """Staff. The SF number the next send will most likely get, so the send
+    panel can show it beside the drawing it's paired with. Only a preview:
+    the real number is taken at send."""
+    del user
+    from api.estimates import _format_proposal_number, _next_proposal_seq
+    db = get_db()
+    try:
+        return {"number": _format_proposal_number(_next_proposal_seq(db))}
+    finally:
+        db.close()
