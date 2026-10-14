@@ -81,6 +81,8 @@ export function LoveNote() {
         </div>
         <p className="mt-4 font-heading text-3xl font-bold">Olga, I love you.</p>
         <p className="mt-2 text-lg text-stone-600">Have a great day.</p>
+        <p className="mx-auto mt-4 max-w-[16rem] border-t border-rose-100 pt-3 font-heading text-lg italic leading-snug text-stone-700">"The joy of the Lord is my strength."</p>
+        <p className="mt-0.5 text-sm font-semibold text-rose-500">Nehemiah 8:10</p>
         <p className="mt-1 text-sm text-stone-400">— Alan</p>
         <button type="button" onClick={() => setOpen(false)} className="mt-5 h-12 w-full rounded-xl bg-rose-500 text-base font-bold text-white hover:bg-rose-600">
           I love you too ❤️
