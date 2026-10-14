@@ -1,12 +1,32 @@
 // A note from Alan to Olga (2026-10-14): every time she opens the dashboard,
-// once per visit, not on every page change. Never shown to anyone else, and
-// never when Alan is viewing the dashboard as her.
+// once per visit, not on every page change, and again the first time she
+// comes back to a tab left open from an earlier day. Never shown to anyone
+// else, and never when Alan is viewing the dashboard as her.
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Heart } from "lucide-react";
 import { getCurrentUser } from "@/lib/api";
 
 const SEEN_KEY = "love-note-seen";
+// The Houston day it last showed, so a tab left open overnight shows it
+// again the next morning when she comes back to it.
+const DAY_KEY = "love-note-day";
+
+function today(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+function due(): boolean {
+  try {
+    return sessionStorage.getItem(SEEN_KEY) !== "1" || localStorage.getItem(DAY_KEY) !== today();
+  } catch {
+    return true;
+  }
+}
+
+function markShown() {
+  try { sessionStorage.setItem(SEEN_KEY, "1"); localStorage.setItem(DAY_KEY, today()); } catch { /* fine */ }
+}
 
 function isOlga(): boolean {
   const u = getCurrentUser();
@@ -30,15 +50,22 @@ export function LoveNote() {
       return () => clearTimeout(t);
     }
     if (SKIP.some((p) => pathname === p || pathname.startsWith(p)) || !isOlga()) return;
-    let seen = false;
-    try { seen = sessionStorage.getItem(SEEN_KEY) === "1"; } catch { /* fine */ }
-    if (seen) return;
-    // A beat after the dashboard paints, so it lands on the page she opened.
-    const t = setTimeout(() => {
-      try { sessionStorage.setItem(SEEN_KEY, "1"); } catch { /* shows again next visit, fine */ }
+    const tryShow = () => {
+      if (!due()) return;
+      markShown();
       setOpen(true);
-    }, 400);
-    return () => clearTimeout(t);
+    };
+    // A beat after the dashboard paints, so it lands on the page she opened.
+    const t = setTimeout(tryShow, 400);
+    // A tab left open: check again whenever she comes back to it.
+    const onBack = () => { if (document.visibilityState === "visible") tryShow(); };
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("focus", onBack);
+    };
   }, [pathname]);
   if (!open) return null;
   return (
