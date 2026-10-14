@@ -589,6 +589,28 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         db.close()
 
 
+@router.delete("/leads/{lead_id}/booking-draft")
+def clear_booking_draft(lead_id: str, user: dict = Depends(require_staff)):
+    """Throw the draft away (made on the wrong lead, say). A booking already
+    sent is left alone; cancel that on its own."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        try:
+            fd = json.loads(lead.form_data or "{}")
+        except Exception:
+            fd = {}
+        if fd.pop("booking_draft", None) is not None:
+            lead.form_data = json.dumps(fd)
+            db.commit()
+            log_event(lead_id, "booking_draft_cleared", user.get("name") or user.get("sub") or "")
+        return {}
+    finally:
+        db.close()
+
+
 # ── Staff: build the options before sending ───────────────────────────────
 
 class OptionBody(BaseModel):

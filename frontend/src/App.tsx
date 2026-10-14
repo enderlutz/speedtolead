@@ -65,6 +65,7 @@ import TermsPage from "@/pages/TermsPage";
 import ProposalLive from "@/pages/ProposalLive";
 import PayLink from "@/pages/PayLink";
 import AfterPayPage from "@/pages/AfterPayPage";
+import BookingPage from "@/pages/BookingPage";
 import ReceiptPage from "@/pages/ReceiptPage";
 import MapTab from "@/map/MapTab";
 import FenceScopeEditorPage from "@/pages/FenceScopeEditor";
@@ -168,6 +169,7 @@ function AppLayout() {
     location.pathname.startsWith("/preview/") ||
     location.pathname.startsWith("/pay/") ||
     location.pathname.startsWith("/after/") ||
+    location.pathname.startsWith("/b/") ||
     location.pathname.startsWith("/receipt/") ||
     location.pathname.startsWith("/legal/");
 
@@ -190,6 +192,7 @@ function AppLayout() {
         <Route path="/preview/proposal/:token" element={<ProposalPreview />} />
         <Route path="/pay/:token" element={<PayLink />} />
         <Route path="/after/:token" element={<AfterPayPage />} />
+        <Route path="/b/:token" element={<BookingPage />} />
         <Route path="/receipt/:token" element={<ReceiptPage />} />
         <Route path="/legal/eula" element={<Eula />} />
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />

@@ -551,6 +551,21 @@ export interface BookingDraft {
   updated_by?: string;
 }
 
+export interface BookingSent {
+  token: string; url: string; date: string; tier: string; color: string; notes: string; total: number;
+  status: "held" | "confirmed" | "cancelled"; sent_at: string | null; sent_by: string; sent_count: number;
+  first_viewed_at: string | null; last_viewed_at: string | null; view_count: number; hold_until: string;
+}
+
+export interface BookingState {
+  draft: BookingDraft;
+  booking: BookingSent | null;
+  /** The preset text, with [link] where their link goes. */
+  message: string;
+  has_email: boolean;
+  has_phone: boolean;
+}
+
 export interface LeadDetail extends Lead {
   estimates: EstimateDetail[];
   estimate?: EstimateDetail;
@@ -2131,6 +2146,11 @@ export const api = {
   getBookingDraft: (leadId: string) => request<BookingDraft>(`/api/leads/${leadId}/booking-draft`),
   saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes">) =>
     request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
+  clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
+  getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),
+  sendBooking: (leadId: string, message: string, email: boolean) =>
+    request<BookingState & { emailed: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ message, email }) }),
+  cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
   /** Mark whether the customer left a Google review. Its own endpoint, so it
    *  never re-prices the estimate the way the form-data save does. */
   setGoogleReview: (leadId: string, left: boolean) =>

@@ -4003,6 +4003,32 @@ class PayLink(Base):
     after_furthest = Column(Text, nullable=True)
 
 
+class Booking(Base):
+    """Our own booking invite, in place of the Google Calendar one (Alan,
+    2026-10-14). One per lead: sending again updates it and keeps the link.
+    The page reads "held" until a deposit (or full) payment on the lead is
+    paid, then "confirmed"; that is worked out when it's opened, so nothing
+    has to remember to flip it."""
+    __tablename__ = "bookings"
+    __table_args__ = (Index("idx_bookings_lead", "lead_id"),)
+
+    token = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    date = Column(Text, nullable=False)                 # YYYY-MM-DD, the day we're aiming for
+    tier = Column(Text, nullable=False)
+    color = Column(Text, default="")
+    notes = Column(Text, default="")
+    total_cents = Column(Integer, nullable=False, default=0)
+    status = Column(Text, default="held", nullable=False)  # held | cancelled
+    created_at = Column(Text, default="")
+    sent_at = Column(Text, nullable=True)
+    sent_by = Column(Text, default="")
+    sent_count = Column(Integer, nullable=True)
+    first_viewed_at = Column(Text, nullable=True)
+    last_viewed_at = Column(Text, nullable=True)
+    view_count = Column(Integer, nullable=True)
+
+
 class GoogleReview(Base):
     """One Google review of Sterling, as pulled from the listing. The
     proposal shows the five-star ones; `hidden` lets the office pull one

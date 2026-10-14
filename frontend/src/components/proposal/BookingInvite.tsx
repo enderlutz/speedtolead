@@ -45,28 +45,42 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
   /** The day we're aiming for. */
   date: Date;
   staff?: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  /** The real thing at /b/{token}: a full page, no overlay, no mockup badge. */
+  page?: boolean;
+  /** Where it stands when it opens (the real page reads it off the lead). */
+  initial?: BookingState | "cancelled";
+  /** The real deposit: makes the pay link and goes to it. */
+  onPay?: () => Promise<void>;
+  proposalHref?: string;
+  /** YYYY-MM-DD the hold runs to, from the server. */
+  holdUntilIso?: string;
+  /** What's been paid (the deposit, or the whole job). */
+  paidAmount?: number;
 }) {
-  const [state, setState] = useState<BookingState>("held");
+  const [state, setState] = useState<BookingState | "cancelled">(initial ?? "held");
   const [paying, setPaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [behind, setBehind] = useState(false);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2400); return () => clearTimeout(t); }, [toast]);
 
   const confirmed = state === "confirmed";
-  const balance = Math.max(0, total - DEPOSIT);
+  const paid = confirmed ? (paidAmount || DEPOSIT) : 0;
+  const paidInFull = confirmed && total > 0 && paid >= total;
+  const balance = Math.max(0, total - (confirmed ? paid : DEPOSIT));
   const stepNow = confirmed ? 3 : 2; // index of the step they're on
   const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
   const longDate = date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   // Held for 7 days, never past the day before the job itself.
   const [holdUntil] = useState(() => {
+    if (holdUntilIso) return new Date(`${holdUntilIso}T12:00:00`);
     const now = new Date();
     const week = new Date(now); week.setDate(week.getDate() + 7);
     const dayBefore = new Date(date); dayBefore.setDate(dayBefore.getDate() - 1);
@@ -77,14 +91,18 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
 
   // The mockup's deposit: a moment of "paying", then the page confirms by
   // itself, which is what Stripe's paid webhook does on the real one.
-  const pay = () => {
+  const pay = async () => {
     if (paying) return;
     setPaying(true);
+    if (onPay) {
+      try { await onPay(); } catch (e) { setPaying(false); setToast(e instanceof Error ? e.message : "Couldn't open the payment page. Call or text us."); }
+      return;
+    }
     setTimeout(() => { setPaying(false); setState("confirmed"); setToast("Deposit paid. The page confirmed itself."); }, 900);
   };
   const addToCalendar = () => {
     try {
-      const blob = new Blob([icsFile(date, address, confirmed, `https://${proposalUrl}`)], { type: "text/calendar" });
+      const blob = new Blob([icsFile(date, address, confirmed, page ? window.location.href : `https://${proposalUrl}`)], { type: "text/calendar" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = "sterling-fence-staining.ics";
@@ -100,30 +118,32 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
     ? `Confirmed: fence staining on ${longDate}`
     : `Your date is held: fence staining on ${longDate}`;
   const fires = confirmed ? [
-    "Stripe: $250 deposit paid",
+    "Stripe: $250 deposit paid (the same deposit link as the proposal's)",
     "This page: flips to Confirmed by itself (nobody touches anything)",
-    `Text + email to ${firstName}: "You're confirmed"`,
-    "Dashboard calendar: job turns from Held to Confirmed",
-    "GHL tag: deposit_paid · pipeline: Scheduling",
+    "The usual deposit alerts, tags and after-payment screens fire",
   ] : [
-    `Text from the Sterling number + email from ${EMAIL}`,
-    "Dashboard calendar: job shows as Held on this date",
-    `Hold ends ${holdUntil.toLocaleDateString("en-US", { month: "short", day: "numeric" })} if no deposit (7 days); Alan is told the day before`,
-    "Opens are tracked like the proposal (when, how many times)",
+    "Text from the Sterling number + email through GHL, if they have an email",
+    "Opens are tracked on the lead (when, how many times)",
+    `Shows the hold to ${holdUntil.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (7 days, never past the day before)`,
+    "Pay button: the $250 deposit for this package and price",
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4" onClick={onClose}>
-      <div className="relative flex max-h-[94vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-[#F8F3E7] text-[#15130F] shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+    <div className={page ? "min-h-screen bg-[#F8F3E7]" : "fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
+      <div className={cn("relative flex w-full max-w-md flex-col bg-[#F8F3E7] text-[#15130F]", page ? "mx-auto min-h-screen" : "max-h-[94vh] overflow-hidden rounded-t-3xl shadow-2xl sm:rounded-3xl")} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between bg-[#15130F] px-4 py-3">
           <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-7 w-auto" draggable={false} />
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">Mockup</span>
-            <button type="button" onClick={onClose} className="h-9 rounded-lg bg-white/10 px-3 text-[13px] font-semibold text-white">Close</button>
-          </div>
+          {page ? (
+            <a href={`tel:+1${PHONE.replace(/-/g, "")}`} className="inline-flex h-11 items-center gap-2 rounded-full px-4 text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}><Phone className="h-4 w-4" /> Call or text</a>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">{onPay ? "Preview" : "Mockup"}</span>
+              <button type="button" onClick={onClose} className="h-9 rounded-lg bg-white/10 px-3 text-[13px] font-semibold text-white">Close</button>
+            </div>
+          )}
         </div>
 
-        {staff ? (
+        {staff && !page ? (
           <div className="flex items-center gap-1.5 border-b border-[#15130F]/10 bg-[#15130F]/5 px-4 py-2">
             <span className="text-[12px] font-bold uppercase tracking-wide text-[#15130F]/70">Show it</span>
             {(["held", "confirmed"] as const).map((s) => (
@@ -135,14 +155,19 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
           </div>
         ) : null}
 
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5 pt-4">
+        <div className={cn("flex flex-1 flex-col gap-4 px-5 pb-5 pt-4", page ? "" : "overflow-y-auto")}>
           {/* The status, first thing they see. */}
-          {confirmed ? (
+          {state === "cancelled" ? (
+            <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+              <p className="text-[19px] font-bold leading-tight">This booking was cancelled</p>
+              <p className="mt-1 text-[15px]">Want to pick a new day? Call or text us at {PHONE} and we'll set you up.</p>
+            </div>
+          ) : confirmed ? (
             <div className="flex items-center gap-3 rounded-2xl bg-emerald-700 p-4 text-white shadow-md">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15"><Check className="h-6 w-6" /></span>
               <div>
                 <p className="text-[19px] font-bold leading-tight">You're confirmed</p>
-                <p className="text-[15px] text-white/90">Deposit paid · {formatCurrency(DEPOSIT)}</p>
+                <p className="text-[15px] text-white/90">{paidInFull ? "Paid in full" : "Deposit paid"} · {formatCurrency(paid)}</p>
               </div>
             </div>
           ) : (
@@ -162,6 +187,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
             </div>
           )}
 
+          {state === "cancelled" ? null : <>
           {/* The date, like a calendar invite but ours. */}
           <div className="flex gap-4 rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
             <div className="w-[76px] shrink-0 overflow-hidden rounded-xl text-center ring-1 ring-[#15130F]/15">
@@ -221,14 +247,15 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
               <div className="border-t border-[#15130F]/10 pt-2">
                 <Row k="Job total" v={formatCurrency(total)} />
-                <Row k={confirmed ? "Deposit paid" : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(DEPOSIT)}` : formatCurrency(DEPOSIT)} />
+                <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />
               </div>
             </dl>
-            <a href="#" onClick={(e) => { e.preventDefault(); setToast("Their proposal opens here"); }}
+            {page && !proposalHref ? null : <a href={proposalHref || "#"} target={proposalHref ? "_blank" : undefined} rel="noreferrer"
+              onClick={proposalHref ? undefined : (e) => { e.preventDefault(); setToast("Their proposal opens here"); }}
               className="mt-3 flex h-12 items-center justify-center gap-2 rounded-xl text-[15px] font-bold ring-1 ring-[#15130F]/15">
               <FileText className="h-4 w-4" style={{ color: GOLD }} /> See my full proposal
-            </a>
+            </a>}
           </div>
 
           {notes?.trim() ? (
@@ -250,12 +277,19 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
             </div>
           ) : null}
 
+          </>}
+
           <div className="grid grid-cols-2 gap-2">
             <a href={`sms:+1${PHONE.replace(/-/g, "")}`} className="flex h-12 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-bold ring-1 ring-[#15130F]/15"><MessageSquare className="h-4 w-4" /> Text us</a>
             <a href={`tel:+1${PHONE.replace(/-/g, "")}`} className="flex h-12 items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-bold ring-1 ring-[#15130F]/15"><Phone className="h-4 w-4" /> Call us</a>
           </div>
-          <button type="button" onClick={() => setToast(`Opens a text: "Hi, can we pick a different day than ${longDate}?"`)}
-            className="h-11 text-[15px] font-semibold underline underline-offset-2">Need a different day?</button>
+          {state === "cancelled" ? null : page ? (
+            <a href={`sms:+1${PHONE.replace(/-/g, "")}?&body=${encodeURIComponent(`Hi, it's ${firstName}. Can we pick a different day than ${longDate}?`)}`}
+              className="flex h-11 items-center justify-center text-[15px] font-semibold underline underline-offset-2">Need a different day?</a>
+          ) : (
+            <button type="button" onClick={() => setToast(`Opens a text: "Hi, can we pick a different day than ${longDate}?"`)}
+              className="h-11 text-[15px] font-semibold underline underline-offset-2">Need a different day?</button>
+          )}
 
           <p className="text-center text-[13px] text-[#15130F]/70">Sterling Fence Staining · {PHONE} · {EMAIL}</p>
         </div>

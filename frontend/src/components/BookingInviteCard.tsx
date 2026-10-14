@@ -1,11 +1,12 @@
-// The booking invite, drafted on the lead (Alan, 2026-10-14). Pick the day
-// we're aiming for, the package and colour, add a note (say, the pergola
-// range from the call), and see exactly what the customer gets. Sending it
-// comes next; for now this saves the draft and previews it.
+// The booking invite, on the lead (Alan, 2026-10-14). Pick the day we're
+// aiming for, the package and colour, add a note (say, the pergola range
+// from the call), preview it, and send it: one link by text, and by email
+// when there's an address. Their page says "held" until the $250 deposit is
+// paid and "confirmed" by itself after.
 import { useEffect, useMemo, useState } from "react";
-import { CalendarCheck, Eye, Save } from "lucide-react";
+import { CalendarCheck, Copy, ExternalLink, Eye, Mail, Save, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { api, type BookingDraft, type LeadDetail } from "@/lib/api";
+import { api, type BookingState, type LeadDetail } from "@/lib/api";
 import { Panel } from "@/components/Panel";
 import { ACCENT } from "@/lib/accents";
 import { sidesInWords } from "@/lib/fenceSides";
@@ -13,37 +14,52 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 
 type Tier = "essential" | "signature" | "legacy";
+type Draft = { date: string; tier: Tier; color: string; notes: string };
 const TIERS: { key: Tier; name: string }[] = [
-  { key: "essential", name: "Essential" },
+  { key: "essential", name: "Essential Seal" },
   { key: "signature", name: "Signature Finish" },
-  { key: "legacy", name: "Legacy" },
+  { key: "legacy", name: "Legacy Finish" },
 ];
 const COLORS = ["Redwood Naturaltone", "Cedar Naturaltone", "Pecan", "Redwood", "Cottage Gray", "Monticello Tan", "Dark Walnut", "Chocolate Chips"];
 const NOTE_HINT = "e.g. The pergola would be about $750 to $950 more. We'd just need a closer look at it on the day.";
+const LINK = "[link]";
 
 function nextThursday(): string {
   const d = new Date();
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "" });
+const longDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+const when = (iso?: string | null) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) : "";
 
 export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
-  const [draft, setDraft] = useState<{ date: string; tier: Tier; color: string; notes: string }>({ date: nextThursday(), tier: "signature", color: "", notes: "" });
-  const [saved, setSaved] = useState<BookingDraft | null>(null);
-  const [saving, setSaving] = useState(false);
+  const first = (lead.contact_name || "").split(" ")[0] || "them";
+  const [draft, setDraft] = useState<Draft>(blank);
+  const [st, setSt] = useState<BookingState | null>(null);
+  const [busy, setBusy] = useState<null | "save" | "send" | "clear" | "cancel">(null);
   const [preview, setPreview] = useState(false);
   const [open, setOpen] = useState(false);
+  // The text: the preset follows the date until someone edits it.
+  const [msg, setMsg] = useState("");
+  const [msgEdited, setMsgEdited] = useState(false);
+  const [email, setEmail] = useState(true);
+
+  const presetFor = (iso: string) =>
+    `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${longDay(iso)} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
 
   useEffect(() => {
     let alive = true;
-    api.getBookingDraft(lead.id).then((d) => {
-      if (!alive || !d?.updated_at) return;
-      setSaved(d);
-      setOpen(true);
-      setDraft((x) => ({ date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "" }));
+    api.getBooking(lead.id).then((s) => {
+      if (!alive) return;
+      setSt(s);
+      const d = s.draft;
+      if (d?.updated_at || s.booking) setOpen(true);
+      if (d?.updated_at) setDraft((x) => ({ date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "" }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
   }, [lead.id]);
+  const text = msgEdited ? msg : (draft.date ? presetFor(draft.date) : "");
 
   // The prices are the ones on the estimate that went out.
   const tiers = useMemo(() => {
@@ -56,28 +72,85 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const rawSides = fd.fence_sides;
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
   const total = tiers?.[draft.tier] || 0;
+  const saved = st?.draft?.updated_at ? st.draft : null;
   const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes;
+  const sent = st?.booking || null;
 
   const save = async () => {
-    setSaving(true);
+    const d = await api.saveBookingDraft(lead.id, draft);
+    setSt((s) => (s ? { ...s, draft: d } : s));
+    return d;
+  };
+  const onSave = async () => {
+    setBusy("save");
+    try { await save(); toast.success("Draft saved"); } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't save"); } finally { setBusy(null); }
+  };
+  const onClear = async () => {
+    if (!window.confirm(`Clear this booking draft for ${lead.contact_name || "this lead"}?${sent ? " The invite already sent stays as it is; cancel it separately." : ""}`)) return;
+    setBusy("clear");
     try {
-      setSaved(await api.saveBookingDraft(lead.id, draft));
-      toast.success("Booking invite saved");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't save");
-    } finally {
-      setSaving(false);
-    }
+      await api.clearBookingDraft(lead.id);
+      setSt((s) => (s ? { ...s, draft: {} } : s));
+      setDraft(blank()); setMsgEdited(false);
+      toast.success("Draft cleared");
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't clear"); } finally { setBusy(null); }
+  };
+  const onSend = async () => {
+    if (!text.includes(LINK)) { toast.error("Keep [link] in the text so they can open their booking."); return; }
+    setBusy("send");
+    try {
+      if (changed) await save();
+      const out = await api.sendBooking(lead.id, text, email && !!st?.has_email);
+      setSt(out);
+      toast.success(`Sent to ${first} by text${out.emailed ? " and email" : ""}`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't send"); } finally { setBusy(null); }
+  };
+  const onCancel = async () => {
+    if (!window.confirm(`Cancel ${first}'s booking? Their link will say it was cancelled. Nothing is texted.`)) return;
+    setBusy("cancel");
+    try { setSt(await api.cancelBooking(lead.id)); toast.success("Booking cancelled"); } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't cancel"); } finally { setBusy(null); }
+  };
+  const copy = async () => {
+    if (!sent) return;
+    try { await navigator.clipboard.writeText(sent.url); toast.success("Link copied"); } catch { toast.error("Couldn't copy"); }
   };
 
   const day = draft.date ? new Date(`${draft.date}T12:00:00`) : null;
-  const sub = saved?.date && day
-    ? `Draft · ${day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${TIERS.find((t) => t.key === draft.tier)?.name}`
-    : "Our own invite: date held until the $250 deposit, then confirmed";
+  const sub = sent
+    ? `${sent.status === "confirmed" ? "Confirmed" : "Sent · held"} · ${new Date(`${sent.date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`
+    : saved?.date ? `Draft · ${new Date(`${saved.date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · not sent`
+      : "Date held until the $250 deposit, then confirmed by itself";
 
   return (
     <Panel icon={CalendarCheck} title="Booking invite" sub={sub} accent={ACCENT.gold}
       collapsed={!open} onToggle={() => setOpen((v) => !v)} bodyClassName="space-y-3 p-3.5">
+      {sent ? (
+        <div className={cn("rounded-xl border p-3 text-sm", sent.status === "confirmed" ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide", sent.status === "confirmed" ? "bg-emerald-600 text-white" : "bg-amber-500 text-white")}>
+              {sent.status === "confirmed" ? "Confirmed · deposit paid" : "Held · waiting on the $250"}
+            </span>
+            <span className="font-semibold">{longDay(sent.date)} · {TIERS.find((t) => t.key === sent.tier)?.name} {formatCurrency(sent.total)}</span>
+          </div>
+          <p className="mt-1.5 text-muted-foreground">
+            Sent {when(sent.sent_at)}{sent.sent_by ? ` by ${sent.sent_by}` : ""}{sent.sent_count > 1 ? ` (${sent.sent_count} times)` : ""} ·{" "}
+            {sent.view_count ? <span className="font-semibold text-foreground">Opened {sent.view_count}× · last {when(sent.last_viewed_at)}</span> : <span className="font-semibold text-amber-700">Not opened yet</span>}
+            {sent.status !== "confirmed" ? ` · held to ${new Date(`${sent.hold_until}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a href={`${sent.url}?preview=1`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
+              <ExternalLink className="h-3.5 w-3.5" /> Their page
+            </a>
+            <button type="button" onClick={copy} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
+              <Copy className="h-3.5 w-3.5" /> Copy link
+            </button>
+            <button type="button" onClick={onCancel} disabled={busy === "cancel"} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 bg-background px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+              <X className="h-3.5 w-3.5" /> Cancel booking
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">
           <span className="font-semibold">Day we're aiming for</span>
@@ -111,22 +184,46 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       </label>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setPreview(true)} disabled={!day}
-          className="inline-flex h-11 items-center gap-2 rounded-lg bg-ink px-4 text-sm font-bold text-gold-light disabled:opacity-50">
-          <Eye className="h-4 w-4" /> Preview what {lead.contact_name?.split(" ")[0] || "they"} gets
-        </button>
-        <button type="button" onClick={save} disabled={saving || !changed}
           className="inline-flex h-11 items-center gap-2 rounded-lg border border-input px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50">
-          <Save className="h-4 w-4" /> {saving ? "Saving…" : changed ? "Save draft" : "Saved"}
+          <Eye className="h-4 w-4" /> Preview
         </button>
-        <span className="text-xs text-muted-foreground">Sending it by text and email comes next. Nothing is sent from here yet.</span>
+        <button type="button" onClick={onSave} disabled={busy !== null || !changed}
+          className="inline-flex h-11 items-center gap-2 rounded-lg border border-input px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+          <Save className="h-4 w-4" /> {busy === "save" ? "Saving…" : changed ? "Save draft" : "Saved"}
+        </button>
+        {saved ? (
+          <button type="button" onClick={onClear} disabled={busy !== null} title="Throw this draft away"
+            className="ml-auto inline-flex h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
+            <X className="h-4 w-4" /> Clear
+          </button>
+        ) : null}
       </div>
-      {saved?.updated_at ? (
-        <p className="text-xs text-muted-foreground">Last saved {new Date(saved.updated_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" })}{saved.updated_by ? ` by ${saved.updated_by}` : ""}</p>
-      ) : null}
+
+      {/* Send. The text is theirs to edit; [link] becomes their booking link. */}
+      <div className="space-y-2 rounded-xl border border-gold/50 bg-gold/5 p-3">
+        <p className="text-sm font-semibold">{sent ? `Send again to ${first} (same link, updated date and details)` : `Send to ${first}`}</p>
+        <textarea value={text} rows={5} maxLength={1400} onChange={(e) => { setMsg(e.target.value); setMsgEdited(true); }}
+          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-base" />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span><b>[link]</b> becomes their booking link.</span>
+          {msgEdited ? <button type="button" onClick={() => setMsgEdited(false)} className="font-semibold underline">Reset text</button> : null}
+        </div>
+        <label className={cn("flex items-center gap-2 text-sm", !st?.has_email && "text-muted-foreground")}>
+          <input type="checkbox" checked={email && !!st?.has_email} disabled={!st?.has_email} onChange={(e) => setEmail(e.target.checked)} className="h-4 w-4" />
+          <Mail className="h-4 w-4" /> {st?.has_email ? `Also email it to ${lead.contact_email}` : "No email on file, text only"}
+        </label>
+        <button type="button" onClick={onSend} disabled={busy !== null || !day || !total || st?.has_phone === false}
+          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-ink text-base font-bold text-gold-light disabled:opacity-50">
+          <Send className="h-4 w-4" /> {busy === "send" ? "Sending…" : sent ? `Send again to ${first}` : `Send to ${first}`}
+        </button>
+        {st?.has_phone === false ? <p className="text-xs text-rose-700">This lead has no phone number.</p> : null}
+        {!total ? <p className="text-xs text-rose-700">No price for that package yet. Send the estimate first.</p> : null}
+      </div>
+      {saved?.updated_at ? <p className="text-xs text-muted-foreground">Draft saved {when(saved.updated_at)}{saved.updated_by ? ` by ${saved.updated_by}` : ""}</p> : null}
 
       {preview && day ? (
         <BookingInvite
-          firstName={lead.contact_name?.split(" ")[0] || "there"}
+          firstName={first}
           address={lead.address || ""}
           pkgName={TIERS.find((t) => t.key === draft.tier)?.name || ""}
           color={draft.color}
