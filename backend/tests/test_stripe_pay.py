@@ -451,3 +451,28 @@ def test_a_link_can_be_texted_to_the_husband_only_if_he_is_a_contact(db, monkeyp
     cid, msg, loc = sent[0]
     assert cid == "c-sam" and loc == "LOC"
     assert msg.startswith("Hi Sam, it's Sterling Fence Staining. Here's the invoice for Christiana's fence at 8714 Test Wren, $2,010")
+
+
+def test_search_a_contact_or_create_one_then_send(db, monkeypatch):
+    from database import Contact
+    _settings(monkeypatch)
+    lead = _lead(db)
+    lead.contact_name, lead.ghl_location_id = "Christiana Test", "LOC"
+    db.commit()
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", amount=2010), STAFF)
+    sent, made = [], []
+    monkeypatch.setattr(sp.hooks.ghl, "send_sms", lambda cid, msg, loc=None: sent.append((cid, msg)) or True)
+    monkeypatch.setattr(sp.hooks.ghl, "upsert_contact", lambda loc, name="", phone="", **k: made.append((loc, name, phone)) or "c-new")
+    db.add(Contact(id="k1", ghl_contact_id="c-sam", ghl_location_id="LOC", name="Sam Test", first_name="Sam", phone="+12815550111", phone_key="2815550111", date_added="2026-10-01"))
+    db.commit()
+    hits = sp.pay_link_contact_search("sam", STAFF)
+    assert [h["id"] for h in hits] == ["k1"] and sp.pay_link_contact_search("0111", STAFF)[0]["id"] == "k1"
+    r = sp.send_pay_link_to(out["token"], sp.SendToBody(contact_id="k1"), STAFF)
+    assert r["sent_to"] == "Sam Test" and sent[-1][0] == "c-sam" and sent[-1][1].startswith("Hi Sam,") and not made
+    # A typed number someone already has: no new contact.
+    sp.send_pay_link_to(out["token"], sp.SendToBody(phone="281 555 0111", create=True), STAFF)
+    assert not made and sent[-1][0] == "c-sam"
+    # A new number: made in GHL once, mirrored, then texted.
+    r = sp.send_pay_link_to(out["token"], sp.SendToBody(phone="(713) 555-0122", name="Sam Husband", create=True), STAFF)
+    assert made == [("LOC", "Sam Husband", "+17135550122")] and sent[-1][0] == "c-new"
+    assert db.query(Contact).filter(Contact.ghl_contact_id == "c-new").one().phone_key == "7135550122"

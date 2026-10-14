@@ -1338,8 +1338,10 @@ export const api = {
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   sendPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST" }),
-  /** Text the link to someone else on the job (a spouse), if their number is already a GHL contact. */
-  sendPayLinkTo: (token: string, body: { phone: string; name?: string }) =>
+  /** Contacts to send a pay link to, by name or phone. */
+  payLinkContactSearch: (q: string) => request<PayLinkContact[]>(`/api/pay-links/contact-search?q=${encodeURIComponent(q)}`),
+  /** Text the link to someone else on the job (a spouse): a picked contact, or a number (create makes the contact in GHL when nobody has it). */
+  sendPayLinkTo: (token: string, body: { contact_id?: string; phone?: string; name?: string; create?: boolean }) =>
     request<PayLinkEntry & { sent_to: string }>(`/api/pay-links/${token}/send-to`, { method: "POST", body: JSON.stringify(body) }),
   getStripeSettings: () => request<StripeSettings>(`/api/stripe/settings`),
   /** Ask Stripe about a link's last Checkout session; books it if paid. */
@@ -5608,6 +5610,7 @@ export interface PayLinkEntry {
   /** An itemized invoice: each line, and what they'd already paid. */
   items: InvoiceLine[]; credit: number;
 }
+export interface PayLinkContact { id: string; name: string; phone: string; location_id: string; has_lead: boolean }
 export interface InvoiceLine { name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean }
 export interface PayLinkCheck {
   link: PayLinkEntry;

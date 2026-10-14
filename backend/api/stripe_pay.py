@@ -348,21 +348,49 @@ def send_pay_link(token: str, user: dict = Depends(require_staff)):
 
 
 class SendToBody(BaseModel):
-    phone: str
+    # Pick an existing contact (our contacts mirror id)...
+    contact_id: str = ""
+    # ...or give a number: an existing contact with it is used, and with
+    # create=True one is made in GHL when there isn't.
+    phone: str = ""
     name: str = ""
+    create: bool = False
+
+
+def _contact_row(c) -> dict:
+    return {"id": c.id, "name": (c.name or "").strip(), "phone": c.phone or "", "location_id": c.ghl_location_id or "",
+            "has_lead": bool(c.lead_id)}
+
+
+@router.get("/pay-links/contact-search")
+def pay_link_contact_search(q: str = "", user: dict = Depends(require_staff)):
+    """Find who to send a link to: by name or phone, from the contacts mirror."""
+    del user
+    from database import Contact
+    from sqlalchemy import or_
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    db = get_db()
+    try:
+        digits = "".join(ch for ch in q if ch.isdigit())
+        clauses = [Contact.name.ilike(f"%{q}%")]
+        if len(digits) >= 3:
+            clauses.append(Contact.phone_key.like(f"%{digits[-10:]}%"))
+        rows = db.query(Contact).filter(or_(*clauses)).order_by(Contact.date_added.desc()).limit(8).all()
+        return [_contact_row(c) for c in rows]
+    finally:
+        db.close()
 
 
 @router.post("/pay-links/{token}/send-to")
 def send_pay_link_to(token: str, body: SendToBody, user: dict = Depends(require_staff)):
     """Text the link to someone else on the job, like the husband who pays.
-    Only to a number that's already a contact in GHL: making one here could
-    start the new-lead texts. A number that isn't one gets told to copy the
-    link instead."""
+    Pick a contact; or type a number, and if nobody has it, create=True makes
+    the contact in the customer's GHL account (and our contacts list) first.
+    An existing contact is never duplicated."""
     from database import Contact
     from services.name_match import phone_key
-    pk = phone_key(body.phone)
-    if not pk:
-        raise HTTPException(status_code=400, detail="That doesn't look like a full phone number.")
     db = get_db()
     try:
         link = db.query(PayLink).filter(PayLink.token == token).first()
@@ -373,16 +401,46 @@ def send_pay_link_to(token: str, body: SendToBody, user: dict = Depends(require_
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         if lead and lead.do_not_contact:
             raise HTTPException(status_code=400, detail="This customer asked not to be contacted.")
-        contacts = db.query(Contact).filter(Contact.phone_key == pk).all()
-        # Same GHL account as the customer first, so the text comes from the number they know.
-        contacts.sort(key=lambda c: c.ghl_location_id != (lead.ghl_location_id if lead else ""))
-        if not contacts:
-            raise HTTPException(status_code=404, detail="That number isn't in your contacts yet. Copy the link and text it from your phone.")
-        c = contacts[0]
-        if c.dnd or c.dnd_sms or db.query(Lead).filter(Lead.phone_key == pk, Lead.do_not_contact.is_(True)).first():
+        loc = (lead.ghl_location_id if lead else "") or ""
+        name = (body.name or "").strip()[:60]
+        c = None
+        if body.contact_id:
+            c = db.query(Contact).filter(Contact.id == body.contact_id).first()
+            if not c:
+                raise HTTPException(status_code=404, detail="That contact is gone. Search again.")
+        else:
+            pk = phone_key(body.phone)
+            if not pk:
+                raise HTTPException(status_code=400, detail="That doesn't look like a full phone number.")
+            found = db.query(Contact).filter(Contact.phone_key == pk).all()
+            # Same GHL account as the customer first, so the text comes from the number they know.
+            found.sort(key=lambda x: x.ghl_location_id != loc)
+            c = found[0] if found else None
+            if c is None:
+                if not body.create:
+                    raise HTTPException(status_code=404, detail="No contact has that number yet.")
+                if not loc:
+                    raise HTTPException(status_code=400, detail="This lead has no GHL account to add the contact to.")
+                cid = hooks.ghl.upsert_contact(loc, name=name, phone=f"+1{pk}")
+                if not cid:
+                    raise HTTPException(status_code=502, detail="GHL didn't create the contact. Try again.")
+                c = db.query(Contact).filter(Contact.ghl_contact_id == cid).first()
+                if c is None:
+                    now = datetime.now(timezone.utc).isoformat()
+                    first, _, last = name.partition(" ")
+                    c = Contact(id=str(uuid.uuid4()), ghl_contact_id=cid, ghl_location_id=loc, name=name,
+                                first_name=first, last_name=last, phone=f"+1{pk}", phone_key=pk,
+                                date_added=now, first_synced_at=now, synced_at=now)
+                    db.add(c)
+                    db.commit()
+                log_event(link.lead_id, "contact_created_for_pay_link", f"{name or 'No name'} (…{pk[-4:]}) by {user.get('name') or user.get('sub') or ''}")
+        pk = c.phone_key or phone_key(c.phone or "")
+        if c.dnd or c.dnd_sms or (pk and db.query(Lead).filter(Lead.phone_key == pk, Lead.do_not_contact.is_(True)).first()):
             raise HTTPException(status_code=400, detail="That number has texts turned off (do not disturb).")
-        name = (body.name or "").strip()[:40]
-        msg = hooks.message_for_other(link, lead, name)
+        # First name only, whatever was typed ("Sam, her husband" -> "Sam").
+        full = name or (c.first_name or "").strip() or (c.name or "").strip()
+        greet = full.split()[0].strip(",.;:") if full.split() else ""
+        msg = hooks.message_for_other(link, lead, greet)
         ok = False
         try:
             ok = bool(hooks.ghl.send_sms(c.ghl_contact_id, msg, c.ghl_location_id or None))
@@ -392,7 +450,7 @@ def send_pay_link_to(token: str, body: SendToBody, user: dict = Depends(require_
             raise HTTPException(status_code=502, detail="The text didn't go through. Try again, or copy the link.")
         link.sent_at = datetime.now(timezone.utc).isoformat()
         db.commit()
-        who = name or c.name or "another number"
+        who = (c.name or "").strip() or name or f"…{pk[-4:]}"
         log_event(link.lead_id, "pay_link_sent_to_other", f"{link.kind} to {who} (…{pk[-4:]}) by {user.get('name') or user.get('sub') or ''}")
         return {**link_dict(link), "sent_to": who}
     finally:
