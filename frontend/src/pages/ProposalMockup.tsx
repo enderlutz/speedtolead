@@ -704,6 +704,19 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   // No package yet: ask which one, then carry on (Alan, 2026-10-14: "if we
   // don't know what package you want, we can't send you the link").
   const [askPick, setAskPick] = useState<null | "reserve" | "finance" | "pick">(null);
+  // "You haven't picked a package yet" waits until they've scrolled past the
+  // packages (Alan, 2026-10-14: on opening it's too soon, they haven't
+  // seen them). Once past, it stays.
+  const [pastPackages, setPastPackages] = useState(false);
+  useEffect(() => {
+    if (pastPackages) return;
+    const check = () => {
+      const el = document.getElementById("mock-packages");
+      if (el && el.getBoundingClientRect().bottom < window.innerHeight * 0.35) setPastPackages(true);
+    };
+    window.addEventListener("scroll", check, { passive: true, capture: true });
+    return () => window.removeEventListener("scroll", check, { capture: true });
+  }, [pastPackages]);
   const openDoor = async (which: "reserve" | "finance", key?: PkgKey) => {
     if (reserved?.afterUrl) { window.location.assign(reserved.afterUrl); return; }
     const pickKey = key || chosen?.key;
@@ -1373,7 +1386,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         </section>
 
         {/* Sticky bottom: the one thing to do. */}
-        <div className={cn("sticky bottom-0 z-20 border-t border-[#C9972F]/40 bg-[#15130F] p-3 text-white", phone && (preview ? "sm:rounded-b-[1.6rem]" : "rounded-b-[1.6rem]"))}>
+        {chosen || reserved || pastPackages ? <div className={cn("sticky bottom-0 z-20 border-t border-[#C9972F]/40 bg-[#15130F] p-3 text-white", phone && (preview ? "sm:rounded-b-[1.6rem]" : "rounded-b-[1.6rem]"))}>
           {chosen ? (
             // Both ways to pay, side by side, the moment a package is picked
             // (Alan, 2026-10-14): the $250 in gold, Klarna in its own pink.
@@ -1383,11 +1396,13 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                   <p className="truncate text-sm text-white/85"><span className="font-bold" style={{ color: "#E3BE63" }}>Your price</span> · {chosen.short}{repairs ? " + repairs" : ""}</p>
                   <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
                 </div>
-                <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  className="min-h-[44px] shrink-0 text-right text-[13px] font-semibold leading-tight underline underline-offset-2" style={{ color: "#E3BE63" }}>
-                  {reserved ? "" : `From ${pay.text.match(/\$[\d,]+\/month/)?.[0] || "monthly"}`}
-                </button>
               </div>
+              {reserved ? null : (
+                <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="mt-1 text-left text-[13px] font-semibold leading-snug underline underline-offset-2" style={{ color: "#E3BE63" }}>
+                  {pay.text}
+                </button>
+              )}
               {reserved ? (
                 <button type="button" onClick={() => void openDoor("reserve")}
                   className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>
@@ -1413,7 +1428,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 className="flex h-12 shrink-0 items-center rounded-xl px-4 text-[15px] font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>Pick one</button>
             </div>
           )}
-        </div>
+        </div> : null}
       </div>
 
       {colorOpen ? (
