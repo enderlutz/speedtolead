@@ -26,11 +26,14 @@ type Payload = {
   good_through: string; price_days: number; expired: boolean;
   reserved: { kind: string; tier: string; paid_at: string | null; after_url: string } | null;
   open_link: { kind: string; tier: string; url: string } | null;
+  options?: { id: string; label: string; note: string; feet: number; sides: string[];
+    tiers: { essential: number; signature: number; legacy: number } | null;
+    regular: { essential: number; signature: number; legacy: number } | null; has_scope: boolean }[];
 };
 
-async function door(token: string, which: "reserve" | "finance", tier: PkgKey): Promise<string> {
+async function door(token: string, which: "reserve" | "finance", tier: PkgKey, optionId?: string): Promise<string> {
   const r = await fetch(`${BASE}/api/public/proposal/${encodeURIComponent(token)}/${which}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tier }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tier, option_id: optionId || "" }),
   });
   const data = (await r.json().catch(() => ({}))) as { url?: string; detail?: string };
   if (!r.ok || !data.url) throw new Error(data.detail || "Couldn't open the payment page. Call or text us.");
@@ -56,7 +59,12 @@ export default function ProposalLive() {
             name: p.name, address: p.address, feet: p.feet, sides: sidesInWords(p.sides), tiers: p.tiers,
             scopeUrl: p.has_scope ? `${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/scope` : null,
             sentOn: p.sent_on, number: p.number, goodThrough: p.good_through, priceDays: p.price_days, expired: p.expired, regular: p.regular,
-            reserved: p.reserved ? { kind: p.reserved.kind, tier: p.reserved.tier as PkgKey, afterUrl: p.reserved.after_url } : null,
+            reserved: p.reserved ? { kind: p.reserved.kind, tier: p.reserved.tier as PkgKey, afterUrl: p.reserved.after_url, optionId: (p.reserved as { option_id?: string }).option_id || "" } : null,
+            // Each option's own frozen prices and drawing (one proposal, several prices).
+            options: (p.options ?? []).map((o) => ({
+              id: o.id, label: o.label, note: o.note, feet: o.feet, sides: sidesInWords(o.sides), tiers: o.tiers, regular: o.regular,
+              scopeUrl: o.has_scope ? `${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/scope?option=${encodeURIComponent(o.id)}` : null,
+            })),
           },
         });
       } catch {
@@ -87,8 +95,8 @@ export default function ProposalLive() {
       staffPeek={new URLSearchParams(window.location.search).get("preview") === "1"}
       dressed={state.live}
       doors={{
-        reserve: (tier) => door(t, "reserve", tier),
-        finance: (tier) => door(t, "finance", tier),
+        reserve: (tier, optionId) => door(t, "reserve", tier, optionId),
+        finance: (tier, optionId) => door(t, "finance", tier, optionId),
         // Fire and forget; keepalive so the report survives the jump into
         // Messages, which can unload the page.
         shared: (how) => { void fetch(`${BASE}/api/public/proposal/${encodeURIComponent(t)}/shared`, {

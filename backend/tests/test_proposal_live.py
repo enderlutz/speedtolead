@@ -213,3 +213,52 @@ def test_sharing_logs_every_time_and_texts_alan_once_in_12_hours(db, quiet):
     assert len(logged) == 3 and any("share" in r.detail for r in logged)
     with pytest.raises(HTTPException):
         pl.shared("nope", pl.ShareBody(how="text"), _Req())
+
+
+STAFF = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
+
+
+def test_one_proposal_two_options_each_frozen_with_its_own_drawing(db, quiet):
+    from database import PayLink, Estimate
+    lead = _lead(db)
+    lead.has_fence_scope_export, lead.fence_scope_export_image, lead.fence_scope_export_mime = True, b"DRAWING-ONE", "image/png"
+    est = _estimate(db, lead, {"essential": 836.28, "signature": 935.64, "legacy": 1142.64}, status="pending")
+    est.inputs = json.dumps({"linear_feet": "138", "fence_sides": ["Inside Back", "Inside Left", "Outside Front"]})
+    db.commit()
+    one = pl.save_option(lead.id, pl.OptionBody(label="Your side only", note="Inside plus the front sides"), STAFF)
+    assert one["tiers"]["signature"] == 935.64 and one["feet"] == 138 and one["has_scope"] and one["proposal_id"] is None
+
+    # Option 2: the estimate and drawing change; option 1 keeps what it saved.
+    est.tiers = json.dumps({"essential": 1259.0, "signature": 1457.0, "legacy": 1871.0})
+    lead.fence_scope_export_image = b"DRAWING-TWO"
+    db.commit()
+    two = pl.save_option(lead.id, pl.OptionBody(label="Both sides"), STAFF)
+    listed = pl.list_options(lead.id, STAFF)
+    assert [d["label"] for d in listed["drafts"]] == ["Your side only", "Both sides"] and listed["drafts"][0]["tiers"]["signature"] == 935.64
+
+    # The interactive send freezes both onto the proposal.
+    p = _proposal(db, lead, est)
+    assert pl.attach_draft_options(db, lead.id, p.id) == 2
+    db.commit()
+    with pytest.raises(HTTPException):
+        pl.delete_option(one["id"], STAFF)
+
+    st = pl.get_live(p.token, _Req())
+    assert [o["label"] for o in st["options"]] == ["Your side only", "Both sides"]
+    assert st["tiers"]["signature"] == 935.64  # option 1 stands in for the single price
+    assert st["options"][1]["tiers"]["signature"] == 1457.0
+    assert bytes(pl.get_live_scope(p.token, option=one["id"]).body) == b"DRAWING-ONE"
+    assert bytes(pl.get_live_scope(p.token, option=two["id"]).body) == b"DRAWING-TWO"
+
+    # Later estimate changes reach neither option.
+    db.query(Estimate).filter(Estimate.id == est.id).update({"tiers": json.dumps({"essential": 1, "signature": 2, "legacy": 3})})
+    db.commit()
+    assert pl.get_live(p.token, _Req())["options"][0]["tiers"]["signature"] == 935.64
+
+    # Her pick: option 2 Signature, financed at option 2's price.
+    pl.finance(p.token, pl.DoorBody(tier="signature", option_id=two["id"]), _Req())
+    link = db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one()
+    assert link.amount_cents == 145700 and link.option_id == two["id"] and "Both sides" in link.description
+    assert any(k == "alan" and "(Both sides)" in m for k, m in quiet)
+    with pytest.raises(HTTPException):
+        pl.reserve(p.token, pl.DoorBody(tier="signature", option_id="nope"), _Req())

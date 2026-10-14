@@ -3924,6 +3924,36 @@ class ObjectionScan(Base):
     kind = Column(Text, default="live")
 
 
+class ProposalOption(Base):
+    """One priced choice inside an interactive proposal (Alan, 2026-10-13:
+    "one proposal, two options"). Saved from the lead's estimate and scope
+    drawing as they stand, then frozen: the prices, sides, feet and the
+    drawing are copied here, so changing the estimate for option 2 never
+    touches option 1. Draft options (proposal_id NULL) attach to the next
+    interactive proposal sent for the lead."""
+    __tablename__ = "proposal_options"
+    __table_args__ = (
+        Index("idx_proposal_options_lead", "lead_id"),
+        Index("idx_proposal_options_proposal", "proposal_id"),
+    )
+
+    id = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    proposal_id = Column(Text, nullable=True)
+    position = Column(Integer, default=0)
+    label = Column(Text, default="")        # "Your side only"
+    note = Column(Text, default="")         # one plain line under the label
+    tiers = Column(Text, default="{}")      # {"essential": 836.28, ...}
+    feet = Column(Integer, default=0)
+    sides = Column(Text, default="[]")
+    scope_image = deferred(Column(LargeBinary, nullable=True))
+    scope_mime = Column(Text, default="")
+    has_scope = Column(Boolean, default=False)
+    estimate_id = Column(Text, default="")
+    created_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+
 class PayLink(Base):
     """A payment link texted to a customer: one token, one amount, one kind.
     Opening it makes a fresh Stripe Checkout session (sessions expire; the
@@ -3962,6 +3992,8 @@ class PayLink(Base):
     first_viewed_at = Column(Text, nullable=True)
     last_viewed_at = Column(Text, nullable=True)
     view_count = Column(Integer, nullable=True)
+    # The proposal option the customer picked, when it had more than one.
+    option_id = Column(Text, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4064,7 +4096,7 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN credit_cents INTEGER"))
             if "no_financing" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
-            for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER")):
+            for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER"), ("option_id", "TEXT")):
                 if col not in pl:
                     conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
     if inspector.has_table("proposals"):

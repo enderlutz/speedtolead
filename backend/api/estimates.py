@@ -1204,6 +1204,13 @@ def approve_estimate(estimate_id: str, background_tasks: BackgroundTasks, body: 
             created_at=now,
         )
         db.add(proposal)
+        # One proposal, several options (Alan, 2026-10-13): the lead's saved
+        # draft options freeze onto this proposal when it's interactive.
+        if proposal.proposal_version == "interactive":
+            from api.proposal_live import attach_draft_options
+            n_opts = attach_draft_options(db, lead.id, proposal_id)
+            if n_opts:
+                log_event(lead.id, "proposal_options_sent", f"{n_opts} options on this proposal")
         db.commit()
 
         try:

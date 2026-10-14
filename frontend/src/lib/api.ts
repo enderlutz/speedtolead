@@ -1361,6 +1361,20 @@ export const api = {
     request<StripeSettings>(`/api/stripe/settings`, { method: "PUT", body: JSON.stringify(body) }),
   // The interactive proposal: per-lead switch (admin), the price window, the extension.
   getProposalLive: (leadId: string) => request<ProposalLiveState>(`/api/leads/${leadId}/proposal/live`),
+  // One proposal, several options: freeze the estimate + drawing as they are now.
+  listProposalOptions: (leadId: string) => request<ProposalOptionsState>(`/api/leads/${leadId}/proposal-options`),
+  saveProposalOption: (leadId: string, body: { label: string; note?: string }) =>
+    request<ProposalOptionEntry>(`/api/leads/${leadId}/proposal-options`, { method: "POST", body: JSON.stringify(body) }),
+  editProposalOption: (id: string, body: { label: string; note?: string }) =>
+    request<ProposalOptionEntry>(`/api/proposal-options/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteProposalOption: (id: string) => request<{ ok: boolean }>(`/api/proposal-options/${id}`, { method: "DELETE" }),
+  /** A saved option's frozen drawing as an object URL (needs the auth header). Caller revokes. */
+  fetchProposalOptionScopeUrl: async (leadId: string, optionId: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/leads/${leadId}/proposal-options/${optionId}/scope`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
   setProposalInteractive: (leadId: string, on: boolean) =>
     request<ProposalLiveState>(`/api/leads/${leadId}/proposal/interactive`, { method: "POST", body: JSON.stringify({ on }) }),
   extendProposalPrice: (leadId: string, days = 7) =>
@@ -5647,6 +5661,12 @@ export interface ReviewsSummary { rating: number | null; total: number; five_sta
 export interface ReviewsAdmin { configured: boolean; seed_available?: boolean; summary: ReviewsSummary; reviews: GoogleReviewRow[] }
 
 /** The lead page's view of its latest proposal as the interactive page. */
+export interface ProposalOptionEntry {
+  id: string; label: string; note: string; feet: number; sides: string[];
+  tiers: { essential: number; signature: number; legacy: number } | null;
+  has_scope: boolean; position: number; proposal_id: string | null; created_at: string; created_by: string;
+}
+export interface ProposalOptionsState { drafts: ProposalOptionEntry[]; sent: ProposalOptionEntry[]; sent_number: string }
 export interface ProposalLiveState {
   proposal: {
     token: string; interactive: boolean; url: string; number: string; created_at: string;

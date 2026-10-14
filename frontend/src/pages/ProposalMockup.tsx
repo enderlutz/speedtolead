@@ -38,7 +38,15 @@ export type Live = {
   // is already reserved (a paid deposit or a financed job).
   number?: string; goodThrough?: string; priceDays?: number; expired?: boolean;
   regular?: Record<PkgKey, number> | null;
-  reserved?: { kind: string; tier: PkgKey | ""; afterUrl: string } | null;
+  reserved?: { kind: string; tier: PkgKey | ""; afterUrl: string; optionId?: string } | null;
+  // More than one priced choice on one proposal (Alan, 2026-10-13). Each
+  // carries its own frozen prices, feet, sides and drawing.
+  options?: LiveOption[];
+};
+
+export type LiveOption = {
+  id: string; label: string; note: string; feet: number; sides: string[];
+  tiers: Record<PkgKey, number> | null; regular: Record<PkgKey, number> | null; scopeUrl: string | null;
 };
 
 export type PkgKey = "essential" | "signature" | "legacy";
@@ -240,7 +248,7 @@ function ReviewCard({ author, photo, text, when, photos, phone }: { author: stri
 /** The two doors on the real page. Each returns the pay page to send the
  *  customer to; the mockup's fake checkout is used when these are absent. */
 export type ShareHow = "text" | "share" | "copy";
-export type Doors = { reserve: (tier: PkgKey) => Promise<string>; finance: (tier: PkgKey) => Promise<string>; shared?: (how: ShareHow) => void };
+export type Doors = { reserve: (tier: PkgKey, optionId?: string) => Promise<string>; finance: (tier: PkgKey, optionId?: string) => Promise<string>; shared?: (how: ShareHow) => void };
 
 // ── Sample data ────────────────────────────────────────────────────────
 // A made-up customer. Never a real one: this page ships inside the
@@ -532,7 +540,17 @@ function AfterPayButtons({ open, className }: { open: (v: { flow: PayFlow; metho
 }
 
 export default function ProposalMockup({ preview = false, dressed, doors, staffPeek = false }: { preview?: boolean; dressed?: Live; doors?: Doors; staffPeek?: boolean } = {}) {
-  const [live, setLive] = useState<Live | null>(dressed ?? null);
+  const [base, setLive] = useState<Live | null>(dressed ?? null);
+  // Which option she's looking at. A reserved job opens on the option it was
+  // reserved under. Everything below reads `live`, which is the proposal
+  // with the picked option's prices, feet, sides and drawing laid over it.
+  const opts = base?.options && base.options.length > 1 ? base.options : [];
+  const [optIdx, setOptIdx] = useState(() => Math.max(0, opts.findIndex((o) => o.id === dressed?.reserved?.optionId)));
+  const option = opts[optIdx] ?? null;
+  const live = useMemo<Live | null>(() => (base && option ? {
+    ...base, feet: option.feet || base.feet, sides: option.sides.length ? option.sides : base.sides,
+    tiers: option.tiers, regular: option.regular, scopeUrl: option.scopeUrl,
+  } : base), [base, option]);
   useEffect(() => {
     if (preview) return;
     let url: string | null = null;
@@ -661,7 +679,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
     setDoorBusy(which);
     setDoorError("");
     try {
-      window.location.assign(await doors[which](chosen.key));
+      window.location.assign(await doors[which](chosen.key, option?.id));
     } catch (e) {
       setDoorError(e instanceof Error ? e.message : "Couldn't open the payment page. Call or text us.");
       setDoorBusy(null);
@@ -740,6 +758,41 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <section className="flex items-start gap-2.5 bg-[#15130F] px-4 py-3 text-white">
             <Calendar className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "#E3BE63" }} />
             <p className="text-[15px] leading-snug"><span className="font-bold" style={{ color: "#E3BE63" }}>Your quoted price ended {customer.goodThrough}.</span> Our regular pricing is below. Call or text us with any questions.</p>
+          </section>
+        ) : null}
+
+        {/* More than one option: she flips between them here, and the drawing,
+            the feet and every price below follow. */}
+        {opts.length > 1 ? (
+          <section className="border-b border-[#15130F]/10 bg-[#FBF3DF] px-4 py-4">
+            <p className="text-[13px] font-bold uppercase tracking-[0.18em]" style={{ color: "#8C6224" }}>You asked for {opts.length} options</p>
+            <p className="mt-0.5 text-[15px] text-[#15130F]/80">Tap one to see what we'd stain and its prices.</p>
+            <div className="mt-3 grid gap-2" role="radiogroup" aria-label="Options">
+              {opts.map((o, i) => {
+                const on = i === optIdx;
+                return (
+                  <button key={o.id} type="button" role="radio" aria-checked={on} onClick={() => setOptIdx(i)}
+                    className={cn("flex min-h-[64px] w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left transition",
+                      on ? "bg-white shadow-md ring-2" : "bg-white/60 ring-1 ring-[#15130F]/15")}
+                    style={on ? { boxShadow: `0 0 0 2px ${GOLD}` } : undefined}>
+                    <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2", on ? "border-[#15130F] bg-[#15130F]" : "border-[#15130F]/40")}>
+                      {on ? <span className="h-2.5 w-2.5 rounded-full" style={{ background: GOLD }} /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-bold uppercase tracking-wide text-[#15130F]/60">Option {i + 1}</span>
+                      <span className="block text-[17px] font-bold leading-tight">{o.label}</span>
+                      {o.note ? <span className="block text-[14px] text-[#15130F]/70">{o.note}</span> : null}
+                    </span>
+                    {o.tiers ? (
+                      <span className="shrink-0 text-right">
+                        <span className="block text-[12px] text-[#15130F]/65">from</span>
+                        <span className="block font-heading text-xl font-bold tabular-nums">{formatCurrency(live?.expired && o.regular ? o.regular.essential : o.tiers.essential)}</span>
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
           </section>
         ) : null}
 
@@ -1206,7 +1259,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         {/* How to pay: the deposit, or the whole job over time. Both go to
             the same Stripe checkout; Klarna is picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
+          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${option ? ` · ${option.label}` : ""}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
           {/* The 20% off ends with the month and the price goes back up. Booking
               now locks it even if the job happens later; paying over time is
               how someone does that without the cash today (Alan, 2026-10-10). */}

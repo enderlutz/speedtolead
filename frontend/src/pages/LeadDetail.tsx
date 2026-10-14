@@ -14,6 +14,7 @@ import { fireConfetti } from "@/lib/confetti";
 import { Panel, Field, StatTile, ToggleChip, Pill } from "@/components/Panel";
 import { StripeLinksCard } from "@/components/StripeLinksCard";
 import { ProposalLiveSwitch } from "@/components/ProposalLiveSwitch";
+import { ProposalOptionsCard } from "@/components/ProposalOptionsCard";
 import { SidesPicker } from "@/components/SidesPicker";
 import { sideChips, sidesFromAnswer } from "@/lib/fenceSides";
 import { JourneyStrip, type JourneyStep } from "@/components/JourneyStrip";
@@ -2276,6 +2277,7 @@ export default function LeadDetail() {
                   </ToggleChip>
                 </div>
               </Field>
+              <ProposalOptionsCard leadId={lead.id} interactive={sendInteractive} />
               <Field label="Send via">
                 <div className="flex flex-wrap gap-1.5">
                   <ToggleChip
