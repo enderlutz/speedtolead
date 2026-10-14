@@ -1354,8 +1354,8 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 <PayOption lender="klarna" text={payLine(total || packages[1].price).text} note="Pick 4 payments or a monthly plan. You see the full cost before you say yes." learn={() => setPayFaq("klarna")} />
                 {AFFIRM_ON ? <PayOption lender="affirm" text="Affirm: 4 payments or monthly plans" note="Pay a little each month. You see the full cost before you say yes." learn={() => setPayFaq("affirm")} /> : null}
               </div>
-              <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#15130F] text-base font-bold text-[#E3BE63] active:scale-[0.98] disabled:opacity-70">
-                {doorBusy === "finance" ? "Opening Klarna…" : chosen ? `Apply for Klarna · ${formatCurrency(total)}` : "Apply for Klarna"}
+              <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#FFB3C7] text-base font-bold text-black shadow-md active:scale-[0.98] disabled:opacity-70">
+                {doorBusy === "finance" ? "Opening Klarna…" : <><span className="font-black tracking-tight">Klarna.</span> {chosen ? `Apply · ${formatCurrency(total)}` : "Apply for Klarna"}</>}
               </button>
               <p className="mt-2 text-center text-[15px] leading-snug text-[#15130F]/80">{chosen ? "Klarna asks a few quick questions." : "First you'll pick your package."} Checking doesn't affect your credit score.</p>
               <p className="mt-1 text-center text-[15px] leading-snug text-[#15130F]/80">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
@@ -1375,19 +1375,36 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         {/* Sticky bottom: the one thing to do. */}
         <div className={cn("sticky bottom-0 z-20 border-t border-[#C9972F]/40 bg-[#15130F] p-3 text-white", phone && (preview ? "sm:rounded-b-[1.6rem]" : "rounded-b-[1.6rem]"))}>
           {chosen ? (
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm text-white/85"><span className="font-bold" style={{ color: "#E3BE63" }}>Your price</span> · {chosen.short}{repairs ? " + repairs" : ""}</p>
-                <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
+            // Both ways to pay, side by side, the moment a package is picked
+            // (Alan, 2026-10-14): the $250 in gold, Klarna in its own pink.
+            <div>
+              <div className="flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-white/85"><span className="font-bold" style={{ color: "#E3BE63" }}>Your price</span> · {chosen.short}{repairs ? " + repairs" : ""}</p>
+                  <p className="font-heading text-2xl font-bold leading-none tabular-nums">{formatCurrency(total)}</p>
+                </div>
                 <button type="button" onClick={() => document.getElementById("mock-pay")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  className="mt-0.5 text-[13px] font-semibold underline underline-offset-2" style={{ color: "#E3BE63" }}>
-                  {pay.text}
+                  className="min-h-[44px] shrink-0 text-right text-[13px] font-semibold leading-tight underline underline-offset-2" style={{ color: "#E3BE63" }}>
+                  {reserved ? "" : `From ${pay.text.match(/\$[\d,]+\/month/)?.[0] || "monthly"}`}
                 </button>
               </div>
-              <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null}
-                className="flex h-12 shrink-0 items-center gap-2 rounded-xl px-4 text-[15px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
-                <Home className="h-4 w-4" /> {reserved ? "What's next" : "Reserve · $250"}
-              </button>
+              {reserved ? (
+                <button type="button" onClick={() => void openDoor("reserve")}
+                  className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>
+                  <Home className="h-4 w-4" /> What's next
+                </button>
+              ) : (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null}
+                    className="flex h-12 items-center justify-center gap-1.5 rounded-xl text-[15px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
+                    <Home className="h-4 w-4" /> {doorBusy === "reserve" ? "Opening…" : "Reserve · $250"}
+                  </button>
+                  <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null}
+                    className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-[#FFB3C7] text-[15px] font-bold text-black shadow-lg active:scale-[0.98] disabled:opacity-70">
+                    {doorBusy === "finance" ? "Opening…" : <><span className="font-black tracking-tight">Klarna.</span> Apply</>}
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center justify-between gap-3">
