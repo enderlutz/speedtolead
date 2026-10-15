@@ -712,7 +712,7 @@ export default function LeadDetail() {
   // localStorage so the badge resets correctly when you actually look at the
   // messages, not just when you load the page.
   // Estimators live in the Estimator tab — open straight to it for them.
-  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator" | "companycam">(
+  const [activeTab, setActiveTab] = useState<"estimate" | "call" | "exterior" | "upsell" | "estimator" | "companycam" | "stats">(
     () => (getCurrentUser()?.role === "estimator" ? "estimator" : "estimate"),
   );
   const callTabSeenKey = id ? `at_lead_${id}_call_seen_at` : "";
@@ -1342,7 +1342,7 @@ export default function LeadDetail() {
     { key: "priced", label: "Priced", icon: Calculator, accent: ACCENT.fuchsia, target: "est-inputs",
       done: cycleEstimates.some((e) => (e.tiers?.signature || 0) > 0),
       hint: "Fill in the inputs and hit Save & Recalculate to get the three prices." },
-    { key: "sent", label: "Sent", icon: Send, accent: ACCENT.cyan, target: "est-followups",
+    { key: "sent", label: "Sent", icon: Send, accent: ACCENT.cyan, target: "est-send",
       badge: lead.after_estimate?.status === "running" ? "Follow-ups on"
         : lead.after_estimate?.status === "not_started" ? "No follow-ups" : undefined,
       done: cycleEstimates.some((e) => e.status === "sent"),
@@ -1590,7 +1590,7 @@ export default function LeadDetail() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => {
-          const next = v as "estimate" | "call" | "exterior" | "upsell" | "estimator" | "companycam";
+          const next = v as "estimate" | "call" | "exterior" | "upsell" | "estimator" | "companycam" | "stats";
           setActiveTab(next);
           if (next === "call" && callTabSeenKey) {
             const now = new Date().toISOString();
@@ -1639,6 +1639,9 @@ export default function LeadDetail() {
           </TabsTrigger>
           <TabsTrigger value="history" className={LEAD_TAB}>
             <History /><span className="sm:hidden">History</span><span className="hidden sm:inline">Activity History</span>
+          </TabsTrigger>
+          <TabsTrigger value="stats" className={LEAD_TAB}>
+            <Hourglass /><span className="sm:hidden">Stats</span><span className="hidden sm:inline">Customer Stats</span>
           </TabsTrigger>
         </TabsList>
 
@@ -2497,7 +2500,8 @@ export default function LeadDetail() {
             </div>
           )}
 
-          {lead.after_estimate ? <SinceEstimateCard info={lead.after_estimate} discovery={lead.discovery_call} /> : null}
+          {/* "Since the estimate" moved to the Customer Stats tab (Alan,
+              2026-10-14: "pointless on this page"). */}
 
           {/* "Send a custom PDF" — archived 2026-10-08, Alan's call: unused
               and taking up room. Component, endpoint and any proposals
@@ -2684,6 +2688,14 @@ export default function LeadDetail() {
               <EstimatorLeadPanel leadId={lead.id} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Customer stats: the follow-up texts and calls since the estimate,
+            off the Estimate tab (Alan, 2026-10-14). */}
+        <TabsContent value="stats" className="space-y-4 sm:space-y-6 mt-4">
+          {lead.after_estimate
+            ? <SinceEstimateCard info={lead.after_estimate} discovery={lead.discovery_call} />
+            : <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No estimate has gone out yet, so there's nothing to count.</p>}
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4 sm:space-y-6 mt-4">
