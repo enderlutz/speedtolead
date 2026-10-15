@@ -463,7 +463,7 @@ function ContactFact({
  *  (Alan, 2026-10-08 — no more Edit button for the whole card). Enter saves,
  *  Escape puts it back. */
 function EditableFact({
-  icon, accent, label, value, display, right, onSave, placeholder, maxLength, inputMode, className,
+  icon, accent, label, value, display, right, onSave, placeholder, maxLength, inputMode, className, wrap,
 }: {
   icon: React.ElementType;
   accent: Accent;
@@ -476,6 +476,8 @@ function EditableFact({
   maxLength?: number;
   inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
   className?: string;
+  /** Wrap a long value onto more lines instead of cutting it off. */
+  wrap?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -536,7 +538,7 @@ function EditableFact({
             className="mt-0.5 h-8 text-sm"
           />
         ) : (
-          <button type="button" onClick={open} className="block w-full truncate text-left hover:text-primary">
+          <button type="button" onClick={open} className={cn("block w-full text-left hover:text-primary", wrap ? "break-words" : "truncate")}>
             {display ?? (value || "—")}
           </button>
         )}
@@ -1736,8 +1738,10 @@ export default function LeadDetail() {
                     <EditableFact icon={Mail} accent={ACCENT.violet} label="Email" className="sm:col-span-2"
                       value={lead.contact_email || ""} inputMode="email"
                       onSave={(v) => saveContactField("contact_email", v)} />
-                    <div className="flex gap-2 sm:col-span-2">
-                      <EditableFact icon={MapPin} accent={ACCENT.amber} label="Address" className="min-w-0 flex-1"
+                    {/* Address gets its own line on a phone, and wraps instead
+                        of cutting off (Alan, 2026-10-14: "it only shows half"). */}
+                    <div className="flex flex-col gap-2 sm:col-span-2 sm:flex-row">
+                      <EditableFact icon={MapPin} accent={ACCENT.amber} label="Address" className="min-w-0 flex-1" wrap
                         value={lead.address || ""}
                         right={mapsUrl ? (
                           <a href={mapsUrl} target="_blank" rel="noopener noreferrer" title="Open in Google Maps"
@@ -1746,7 +1750,7 @@ export default function LeadDetail() {
                           </a>
                         ) : undefined}
                         onSave={(v) => saveContactField("address", v)} />
-                      <EditableFact icon={Compass} accent={ACCENT.cyan} label="ZIP" className="w-36 shrink-0"
+                      <EditableFact icon={Compass} accent={ACCENT.cyan} label="ZIP" className="w-full shrink-0 sm:w-36"
                         value={lead.zip_code || ""} maxLength={5} inputMode="numeric" placeholder="77429"
                         onSave={(v) => saveContactField("zip_code", v)} />
                     </div>
