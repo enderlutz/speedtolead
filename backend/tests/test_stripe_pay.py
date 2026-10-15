@@ -563,3 +563,32 @@ def test_apply_for_klarna_opens_stripe_on_klarna_and_falls_back_to_every_method(
     refuse["on"] = False
     sp.start_session(dep["token"], sp.SessionBody(method="klarna"))
     assert "payment_method_types" not in seen[-1] and seen[-1]["payment_method_configuration"] == "pmc_deposit"
+
+
+def test_a_line_can_be_quantity_times_price_each_on_the_invoice_and_stripe(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen = []
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create",
+                        lambda **p: seen.append(p) or SimpleNamespace(id="cs_q", url="https://stripe.test/cs_q"))
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[
+        sp.InvoiceItem(name="Legacy Finish", amount=1300),
+        sp.InvoiceItem(name="Picket replacement (Pine)", amount=0, quantity=13, unit_price=12),
+    ], credit=250), STAFF)
+    info = sp.pay_info(out["token"])
+    assert info["amount"] == 1206.0
+    picket = info["items"][1]
+    assert picket["qty"] == 13 and picket["unit_price"] == 12.0 and picket["amount"] == 156.0
+    assert info["items"][0]["qty"] == 1 and info["items"][0]["unit_price"] == 1300.0
+    sp.start_session(out["token"])
+    # With a credit the lines are combined on Stripe; the quantity still shows on our invoice.
+    assert seen[-1]["line_items"][0]["price_data"]["unit_amount"] == 120600
+    # Without a credit, Stripe gets 13 × $12.
+    out2 = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", items=[
+        sp.InvoiceItem(name="Picket replacement (Pine)", amount=0, quantity=13, unit_price=12)]), STAFF)
+    sp.start_session(out2["token"])
+    li = seen[-1]["line_items"][0]
+    assert li["quantity"] == 13 and li["price_data"]["unit_amount"] == 1200
+    with pytest.raises(HTTPException):
+        sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", items=[
+            sp.InvoiceItem(name="Pickets", amount=0, quantity=0, unit_price=12)]), STAFF)

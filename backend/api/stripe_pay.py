@@ -162,6 +162,8 @@ def link_items(link: PayLink) -> list[dict]:
             "discount": round(int(i.get("discount_cents") or 0) / 100, 2),
             "discount_label": str(i.get("discount_label") or ""),
             "total_discount": cents < 0,
+            "qty": int(i.get("qty") or 1),
+            "unit_price": round(int(i.get("unit_cents") or cents) / 100, 2),
         })
     return out
 
@@ -209,6 +211,11 @@ class InvoiceItem(BaseModel):
     # Money off this line only, as a positive number, and what to call it.
     discount: float = 0
     discount_label: str = ""
+    # Quantity × price each, like any invoice (Alan, 2026-10-15: "13 at $12").
+    # When unit_price is given the line total is worked out from it; `amount`
+    # stays the line total either way.
+    quantity: int = 1
+    unit_price: float | None = None
 
 
 CreateLinkBody.model_rebuild()
@@ -231,11 +238,18 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             lines = []
             for it in body.items[:25]:
                 name = (it.name or "").strip()
-                c = int(round((it.amount or 0) * 100))
+                qty = int(it.quantity)
+                if qty < 1 or qty > 10000:
+                    raise HTTPException(status_code=400, detail=f"The quantity on {name or 'a line'} has to be 1 or more")
+                unit_cents = int(round(it.unit_price * 100)) if it.unit_price is not None else None
+                c = unit_cents * qty if unit_cents is not None else int(round((it.amount or 0) * 100))
                 # A minus line is a discount ("Package discount -$38").
                 if not name or c == 0:
                     raise HTTPException(status_code=400, detail="Every line needs a name and a price")
                 line = {"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c}
+                if qty > 1 and unit_cents is not None and unit_cents > 0:
+                    line["qty"] = qty
+                    line["unit_cents"] = unit_cents
                 d = int(round((it.discount or 0) * 100))
                 if d:
                     if c < 0 or d < 0 or d >= c:
@@ -718,14 +732,20 @@ def start_session(token: str, body: SessionBody | None = None):
             # line's own discount comes off its price and is spelled out.
             def _desc(i: dict) -> str:
                 bits = [i["description"]] if i["description"] else []
+                if i["qty"] > 1 and i["discount"]:
+                    bits.append(f"{i['qty']} × ${i['unit_price']:,.2f}")
                 if i["discount"]:
                     bits.append(f"${i['amount']:,.2f} less ${i['discount']:,.2f} {i['discount_label'].lower() or 'discount'}")
                 return " · ".join(bits)[:500]
+            # Quantity × price each on Stripe's page too, when the line has a
+            # quantity and no discount of its own; otherwise one line at its
+            # net total, the quantity spelled out in the description.
             line_items = [{
-                "quantity": 1,
+                "quantity": i["qty"] if i["qty"] > 1 and not i["discount"] else 1,
                 "price_data": {
                     "currency": "usd",
-                    "unit_amount": int(round((i["amount"] - i["discount"]) * 100)),
+                    "unit_amount": int(round(i["unit_price"] * 100)) if i["qty"] > 1 and not i["discount"]
+                    else int(round((i["amount"] - i["discount"]) * 100)),
                     "product_data": {"name": i["name"], **({"description": _desc(i)} if _desc(i) else {})},
                 },
             } for i in items]

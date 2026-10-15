@@ -5705,7 +5705,16 @@ export interface PayLinkEntry {
   items: InvoiceLine[]; credit: number;
 }
 export interface PayLinkContact { id: string; name: string; phone: string; location_id: string; has_lead: boolean }
-export interface InvoiceLine { name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean }
+export interface InvoiceLine {
+  name: string; description: string;
+  /** The line total (quantity × price each). */
+  amount: number;
+  discount?: number; discount_label?: string; total_discount?: boolean;
+  /** Quantity × price each, like any invoice (Alan, 2026-10-15). */
+  quantity?: number; unit_price?: number;
+  /** As stored and read back. */
+  qty?: number;
+}
 export interface PayLinkCheck {
   link: PayLinkEntry;
   stripe: { session_id: string; payment_status: string; status: string; amount: number; livemode: boolean; matches: boolean } | null;

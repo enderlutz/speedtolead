@@ -310,10 +310,13 @@ function SendToOther({ token, onSent, onClose }: { token: string; onSent: () => 
   );
 }
 
-type Row = { key: number; name: string; description: string; amount: string; discount: string | null; discountLabel: string };
+// `amount` is the price each; the line total is qty × amount (Alan, 2026-10-15:
+// "13 quantity, $12 per, and it adds up, like a regular invoicing software").
+type Row = { key: number; name: string; description: string; qty: string; amount: string; discount: string | null; discountLabel: string };
 
 const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
-const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", amount: "", discount: null, discountLabel: "" });
+const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qty: "1", amount: "", discount: null, discountLabel: "" });
+const qtyOf = (r: Row) => Math.max(1, Math.floor(Number(r.qty) || 1));
 
 function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void> }) {
   const [open, setOpen] = useState(false);
@@ -330,7 +333,8 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
     if (open) api.listSavedLines().then(setSaved).catch(() => {});
   }, [open]);
 
-  const subtotal = rows.reduce((t, r) => t + num(r.amount), 0);
+  const lineTotal = (r: Row) => Math.round(qtyOf(r) * num(r.amount) * 100) / 100;
+  const subtotal = rows.reduce((t, r) => t + lineTotal(r), 0);
   const lineOff = rows.reduce((t, r) => t + (r.discount !== null ? num(r.discount) : 0), 0);
   const wholeOff = whole ? num(whole.amount) : 0;
   const paid = num(credit);
@@ -361,7 +365,8 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
 
   const buildItems = (): InvoiceLine[] => {
     const items: InvoiceLine[] = rows.filter((r) => r.name.trim() || num(r.amount)).map((r) => ({
-      name: r.name.trim(), description: r.description.trim(), amount: num(r.amount),
+      name: r.name.trim(), description: r.description.trim(), amount: lineTotal(r),
+      quantity: qtyOf(r), unit_price: num(r.amount),
       ...(r.discount !== null ? { discount: num(r.discount), discount_label: r.discountLabel.trim() || "Discount" } : {}),
     }));
     if (whole) items.push({ name: whole.label.trim() || "Discount", description: "", amount: -wholeOff, total_discount: true });
@@ -370,7 +375,7 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
   const make = async () => {
     const used = rows.filter((r) => r.name.trim() || num(r.amount));
     if (!used.length || used.some((r) => !r.name.trim() || num(r.amount) <= 0)) { toast.error("Every line needs a name and a price"); return; }
-    const bad = used.find((r) => r.discount !== null && (num(r.discount) <= 0 || num(r.discount) >= num(r.amount)));
+    const bad = used.find((r) => r.discount !== null && (num(r.discount) <= 0 || num(r.discount) >= lineTotal(r)));
     if (bad) { toast.error(`The discount on ${bad.name.trim()} needs an amount less than its price`); return; }
     if (whole && wholeOff <= 0) { toast.error("Type the discount on the total, or remove it"); return; }
     if (due <= 0) { toast.error("The discounts and payments cover the whole invoice"); return; }
@@ -419,18 +424,14 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
         </div>
       )}
 
-      <div className="grid grid-cols-[1fr_7rem_3.5rem] bg-muted/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <span>Item</span><span className="text-right">Amount</span><span />
+      <div className="flex justify-between bg-muted/60 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>Item</span><span>Qty × price = total</span>
       </div>
       <ul className="divide-y divide-border">
         {rows.map((r) => (
           <li key={r.key} className="px-3 py-2">
-            <div className="grid grid-cols-[1fr_7rem_3.5rem] items-center gap-1">
+            <div className="grid grid-cols-[1fr_3.5rem] items-center gap-1">
               <input value={r.name} onChange={(e) => set(r.key, { name: e.target.value })} placeholder="Item name" className={cn(field, "h-8 text-sm font-semibold")} />
-              <div className="flex h-8 items-center rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
-                <span className="shrink-0 text-sm text-muted-foreground">$</span>
-                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" className="min-w-0 w-full bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
-              </div>
               <span className="flex justify-end">
                 <button type="button" onClick={() => saveLine(r)} className="rounded-md p-1 hover:bg-muted" aria-label="Save this line for next time" title="Save this line for next time">
                   <Star className={cn("h-3.5 w-3.5", isSaved(r) ? "fill-amber-400 text-amber-500" : "text-muted-foreground")} />
@@ -438,7 +439,23 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
                 <button type="button" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.key !== r.key) : [blankRow()]))} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Remove line"><Trash2 className="h-3.5 w-3.5" /></button>
               </span>
             </div>
-            <input value={r.description} onChange={(e) => set(r.key, { description: e.target.value })} placeholder="Note the customer sees (optional)" className={cn(field, "mt-0.5 h-7 w-[calc(100%-10.5rem)] text-xs text-muted-foreground")} />
+            <input value={r.description} onChange={(e) => set(r.key, { description: e.target.value })} placeholder="Note the customer sees (optional)" className={cn(field, "mt-0.5 h-7 w-full text-xs text-muted-foreground")} />
+            {/* Quantity × price each = the line total, like any invoice. */}
+            <div className="mt-1 flex items-center gap-1.5 text-sm">
+              <label className="flex h-8 items-center gap-1 rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
+                <span className="text-[11px] font-semibold uppercase text-muted-foreground">Qty</span>
+                <input value={r.qty} onChange={(e) => set(r.key, { qty: e.target.value.replace(/[^0-9]/g, "") })} inputMode="numeric" aria-label="Quantity"
+                  className="w-10 bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
+              </label>
+              <span className="text-muted-foreground">×</span>
+              <div className="flex h-8 w-28 items-center rounded-md border border-border bg-background px-1.5 focus-within:border-primary">
+                <span className="shrink-0 text-sm text-muted-foreground">$</span>
+                <input value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value })} inputMode="decimal" placeholder="0.00" aria-label={qtyOf(r) > 1 ? "Price each" : "Price"}
+                  className="min-w-0 w-full bg-transparent text-right text-sm font-semibold tabular-nums outline-none" />
+              </div>
+              {qtyOf(r) > 1 ? <span className="text-xs text-muted-foreground">each</span> : null}
+              <span className="ml-auto font-bold tabular-nums">{money(lineTotal(r))}</span>
+            </div>
             {r.discount !== null ? (
               <div className="mt-1 grid grid-cols-[1fr_7rem_3.5rem] items-center gap-1 rounded-md bg-emerald-50 py-1 pl-1 dark:bg-emerald-950/40">
                 <input value={r.discountLabel} onChange={(e) => set(r.key, { discountLabel: e.target.value })} placeholder="Discount name (e.g. Package discount)" className={cn(field, "h-7 text-xs font-medium text-emerald-800 dark:text-emerald-300")} />
@@ -496,11 +513,11 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
         <input type="checkbox" checked={klarna} onChange={(e) => setKlarna(e.target.checked)} className="h-5 w-5 shrink-0 accent-emerald-600" />
       </label>
       <div className="flex justify-end gap-1.5 border-t border-border bg-muted/40 px-3 py-2">
-        <button type="button" onClick={() => setOpen(false)} className="h-9 rounded-md px-3 text-sm font-semibold hover:bg-background">Cancel</button>
+        <button type="button" onClick={() => setOpen(false)} className="mr-auto h-9 shrink-0 rounded-md px-2 text-sm font-semibold hover:bg-background">Cancel</button>
         <button type="button" onClick={() => setPreview(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted">
           <Eye className="h-3.5 w-3.5" /> Preview
         </button>
-        <button type="button" onClick={make} disabled={busy} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
+        <button type="button" onClick={make} disabled={busy} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-emerald-600 px-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ReceiptText className="h-3.5 w-3.5" />} Make invoice link
         </button>
       </div>

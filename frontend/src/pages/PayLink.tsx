@@ -15,7 +15,11 @@ const BASE = import.meta.env.VITE_API_URL || "";
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 
-export type InvoiceItem = { name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean };
+export type InvoiceItem = {
+  name: string; description: string; amount: number; discount?: number; discount_label?: string; total_discount?: boolean;
+  /** Quantity × price each (stored as qty; the builder's preview sends quantity). */
+  qty?: number; quantity?: number; unit_price?: number;
+};
 
 export type Info = {
   kind: string; label: string; amount: number; description: string; status: string;
@@ -227,6 +231,9 @@ export function InvoiceDoc({ info, paid = false }: { info: Info; paid?: boolean 
             <div className="flex justify-between gap-3 text-[16px]">
               <div>
                 <p className="font-bold">{i.name}</p>
+                {(i.qty ?? i.quantity ?? 1) > 1 && i.unit_price ? (
+                  <p className="text-[14px] font-semibold text-[#15130F]/75 tabular-nums">{i.qty ?? i.quantity} × {money(i.unit_price)}</p>
+                ) : null}
                 {i.description ? <p className="text-[14px] text-[#15130F]/70">{i.description}</p> : null}
               </div>
               <p className="shrink-0 font-semibold tabular-nums">{money(i.amount)}</p>
