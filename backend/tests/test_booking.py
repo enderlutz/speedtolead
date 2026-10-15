@@ -123,3 +123,21 @@ def test_it_goes_on_alans_calendar_with_the_scope_and_turns_confirmed_when_paid(
     assert last[2].endswith("| Confirmed") and "CONFIRMED" in last[3]
     bk.cancel_booking(lead.id, STAFF)
     assert ("cal-delete", "ev1") in ghl
+
+
+def test_klarna_on_the_invite_is_a_full_price_klarna_link_and_paying_it_confirms(db, ghl):
+    from database import PayLink
+    lead, day = _ready(db)
+    token = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]["token"]
+    assert bk.booking_page(token, _Req())["klarna"] is False
+    with pytest.raises(HTTPException):
+        bk.booking_finance(token, _Req())   # not offered
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", color="Pecan", klarna=True), STAFF)
+    out = bk.send_booking(lead.id, bk.SendBody(), STAFF)
+    assert out["booking"]["klarna"] is True and bk.booking_page(token, _Req())["klarna"] is True
+    pay = bk.booking_finance(token, _Req())
+    link = db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one()
+    assert "/pay/" in pay["url"] and link.amount_cents == 99792 and link.door == "finance" and link.job_tier == "signature"
+    link.status, link.paid_at = "paid", datetime.now(timezone.utc).isoformat()
+    db.commit()
+    assert bk.booking_page(token, _Req())["status"] == "confirmed"

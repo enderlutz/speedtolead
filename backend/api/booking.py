@@ -99,6 +99,7 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         "last_viewed_at": b.last_viewed_at, "view_count": b.view_count or 0,
         "hold_until": _hold_until(b),
         "on_calendar": bool(b.google_event_id),
+        "klarna": bool(b.klarna),
     }
 
 
@@ -250,6 +251,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             db.add(b)
         b.date, b.tier = d["date"], d["tier"]
         b.color, b.notes = d.get("color") or "", d.get("notes") or ""
+        b.klarna = 1 if d.get("klarna") else None
         b.total_cents = int(round(float(tiers[d["tier"]]) * 100))
         url = booking_url(b.token)
 
@@ -362,6 +364,7 @@ def booking_page(token: str, request: Request, preview: int = 0):
             "paid_kind": paid.kind if paid else "",
             "hold_until": _hold_until(b),
             "proposal_url": f"{proposal_base()}/p/{p.token}" if p else "",
+            "klarna": bool(b.klarna),
         }
     finally:
         db.close()
@@ -392,6 +395,41 @@ def booking_pay(token: str, request: Request):
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_pay_opened", b.date)
+        return {"url": hooks.pay_url(link.token), "reserved": False}
+    finally:
+        db.close()
+
+
+@router.post("/public/booking/{token}/finance")
+def booking_finance(token: str, request: Request):
+    """The whole job through Klarna, when the invite offers it: a full-price
+    link whose page is the Klarna walk-through. Paying it confirms the
+    booking, the same as the deposit."""
+    db = get_db()
+    try:
+        b, lead = _public_booking(db, token)
+        if b.status == "cancelled":
+            raise HTTPException(status_code=400, detail="This booking was cancelled. Call or text us.")
+        if not b.klarna:
+            raise HTTPException(status_code=400, detail="Klarna isn't offered on this booking. Call or text us.")
+        paid = _paid_link(db, lead.id)
+        if paid is not None:
+            return {"url": hooks.after_url(paid.token), "reserved": True}
+        link = _open_link(db, lead.id, "full")
+        if link is None:
+            link = PayLink(token=secrets.token_urlsafe(20), lead_id=lead.id, kind="full",
+                           amount_cents=b.total_cents, status="open", created_by="customer",
+                           created_at=_now().isoformat(), answers="{}")
+            db.add(link)
+        link.amount_cents = b.total_cents
+        link.job_tier = b.tier
+        link.job_total_cents = b.total_cents
+        link.door = "finance"
+        link.no_financing = None
+        link.description = f"{NAMES.get(b.tier, b.tier)}, financed on the booking invite for {_long(b.date)}"
+        db.commit()
+        if not _is_internal_user(request):
+            log_event(lead.id, "booking_klarna_opened", b.date)
         return {"url": hooks.pay_url(link.token), "reserved": False}
     finally:
         db.close()

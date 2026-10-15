@@ -4046,6 +4046,9 @@ class Booking(Base):
     # The job on Alan's own Google Calendar, for operations. The customer is
     # never a guest on it (Alan, 2026-10-14: "just on my end").
     google_event_id = Column(Text, nullable=True)
+    # 1 = the invite also offers Klarna for the whole job beside the $250
+    # (Alan, 2026-10-15). NULL = deposit only.
+    klarna = Column(Integer, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4166,6 +4169,9 @@ def _run_migrations():
         if "google_event_id" not in bk:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE bookings ADD COLUMN google_event_id TEXT"))
+        if "klarna" not in bk:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN klarna INTEGER"))
     if inspector.has_table("proposals"):
         pr = {c["name"] for c in inspector.get_columns("proposals")}
         if "extended_until" not in pr:

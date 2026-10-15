@@ -535,6 +535,8 @@ class BookingDraftBody(BaseModel):
     tier: str = ""
     color: str = ""
     notes: str = ""     # e.g. "A pergola would be about $750–$950 more."
+    # Offer Klarna for the whole job beside the $250 deposit.
+    klarna: bool = False
 
 
 def _booking_draft(lead: Lead) -> dict:
@@ -581,6 +583,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
             fd = {}
         fd["booking_draft"] = {
             "date": date, "tier": tier, "color": (body.color or "").strip()[:80], "notes": notes,
+            "klarna": bool(body.klarna),
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)

@@ -17,6 +17,7 @@
 import { useEffect, useState } from "react";
 import { Check, CalendarPlus, CloudRain, FileText, MessageSquare, Phone, Lock, Clock, MapPin, ArrowLeft, Save } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
+import { klarnaLine } from "@/lib/klarna";
 
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
@@ -45,7 +46,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -64,6 +65,10 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   holdUntilIso?: string;
   /** What's been paid (the deposit, or the whole job). */
   paidAmount?: number;
+  /** Offer Klarna for the whole job beside the $250 (Alan, 2026-10-15). */
+  klarna?: boolean;
+  /** The real Klarna door: makes the full-price link and goes to it. */
+  onFinance?: () => Promise<void>;
   /** Staff preview: save the draft from here, without sending. */
   onSave?: () => void;
   saveLabel?: string;
@@ -101,6 +106,13 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
 
   // The mockup's deposit: a moment of "paying", then the page confirms by
   // itself, which is what Stripe's paid webhook does on the real one.
+  const [financing, setFinancing] = useState(false);
+  const finance = async () => {
+    if (financing || paying) return;
+    if (!onFinance) { setToast("Opens the Klarna page for the whole job"); return; }
+    setFinancing(true);
+    try { await onFinance(); } catch (e) { setFinancing(false); setToast(e instanceof Error ? e.message : "Couldn't open Klarna. Call or text us."); }
+  };
   const pay = async () => {
     if (paying) return;
     setPaying(true);
@@ -197,13 +209,31 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: GOLD }}><Clock className="h-6 w-6 text-[#15130F]" /></span>
                 <div>
                   <p className="text-[19px] font-bold leading-tight">Your date is on hold</p>
-                  <p className="text-[15px] text-white/85">{formatCurrency(DEPOSIT)} deposit to confirm</p>
+                  <p className="text-[15px] text-white/85">{klarna ? "The $250 deposit or Klarna confirms it" : `${formatCurrency(DEPOSIT)} deposit to confirm`}</p>
                 </div>
               </div>
+              {klarna ? (
+                // The proposal's pair: the $250 in gold, Klarna in its pink.
+                <>
+                  <p className="mt-3 text-[14px] font-semibold leading-snug" style={{ color: "#E3BE63" }}>{klarnaLine(total)}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={pay} disabled={paying || financing}
+                      className="flex h-14 items-center justify-center gap-1.5 rounded-xl text-[16px] font-bold text-[#15130F] shadow-md active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
+                      <Lock className="h-4 w-4" /> {paying ? "Opening…" : `Reserve · ${formatCurrency(DEPOSIT).replace(".00", "")}`}
+                    </button>
+                    <button type="button" onClick={() => void finance()} disabled={paying || financing}
+                      className="flex h-14 items-center justify-center gap-1.5 rounded-xl bg-[#FFB3C7] text-[16px] font-bold text-black shadow-md active:scale-[0.98] disabled:opacity-70">
+                      {financing ? "Opening…" : <><span className="font-black tracking-tight">Klarna.</span> Apply</>}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-center text-[13px] text-white/75">Either one confirms your date. Klarna pays the whole job, {formatCurrency(total)}, over time.</p>
+                </>
+              ) : (
               <button type="button" onClick={pay}
                 className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[17px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
                 <Lock className="h-5 w-5" /> {paying ? "Paying…" : `Pay ${formatCurrency(DEPOSIT)} to lock in my date`}
               </button>
+              )}
               <p className="mt-2 text-center text-[13px] text-white/75">We hold it for you until {holdUntil.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>
             </div>
           )}

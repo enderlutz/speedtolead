@@ -13,6 +13,7 @@ type Booking = {
   first_name: string; address: string; date: string; tier: string; package: string;
   color: string; notes: string; sides: string[]; feet: number; total: number; deposit: number;
   paid: number; paid_kind: string; hold_until: string; proposal_url: string;
+  klarna?: boolean;
 };
 
 export default function BookingPage() {
@@ -40,6 +41,13 @@ export default function BookingPage() {
     const r = await fetch(`${BASE}/api/public/booking/${encodeURIComponent(token || "")}/pay`, { method: "POST" });
     const d = (await r.json().catch(() => ({}))) as { url?: string; detail?: string };
     if (!r.ok || !d.url) throw new Error(d.detail || "Couldn't open the payment page. Call or text us.");
+    window.location.assign(d.url);
+  };
+
+  const finance = async () => {
+    const r = await fetch(`${BASE}/api/public/booking/${encodeURIComponent(token || "")}/finance`, { method: "POST" });
+    const d = (await r.json().catch(() => ({}))) as { url?: string; detail?: string };
+    if (!r.ok || !d.url) throw new Error(d.detail || "Couldn't open Klarna. Call or text us.");
     window.location.assign(d.url);
   };
 
@@ -73,6 +81,8 @@ export default function BookingPage() {
       paidAmount={b.paid}
       proposalHref={b.proposal_url || undefined}
       onPay={pay}
+      klarna={!!b.klarna}
+      onFinance={finance}
     />
   );
 }

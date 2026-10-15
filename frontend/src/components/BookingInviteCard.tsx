@@ -14,7 +14,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 
 type Tier = "essential" | "signature" | "legacy";
-type Draft = { date: string; tier: Tier; color: string; notes: string };
+type Draft = { date: string; tier: Tier; color: string; notes: string; klarna: boolean };
 const TIERS: { key: Tier; name: string }[] = [
   { key: "essential", name: "Essential Seal" },
   { key: "signature", name: "Signature Finish" },
@@ -29,7 +29,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "" });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false });
 const longDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const when = (iso?: string | null) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) : "";
 
@@ -58,7 +58,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       setSt(s);
       const d = s.draft;
       if (d?.updated_at || s.booking) setOpen(true);
-      if (d?.updated_at) setDraft((x) => ({ date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "" }));
+      if (d?.updated_at) setDraft((x) => ({ date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
   }, [lead.id]);
@@ -76,7 +76,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
   const total = tiers?.[draft.tier] || 0;
   const saved = st?.draft?.updated_at ? st.draft : null;
-  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes;
+  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna;
   const sent = st?.booking || null;
 
   const save = async () => {
@@ -189,6 +189,13 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <textarea value={draft.notes} maxLength={1000} rows={3} placeholder={NOTE_HINT} onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
           className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-base" />
       </label>
+      {/* Klarna beside the $250 on their invite, for a customer who'd
+          rather finance the whole job (Alan, 2026-10-15). */}
+      <label className="flex items-center gap-3 rounded-xl border border-input px-3 py-2.5 text-sm">
+        <input type="checkbox" checked={draft.klarna} onChange={(e) => setDraft({ ...draft, klarna: e.target.checked })} className="h-5 w-5 accent-[#15130F]" />
+        <span className="rounded bg-[#FFB3C7] px-1.5 py-0.5 text-xs font-black text-black">Klarna.</span>
+        <span><span className="font-semibold">Offer Klarna</span> <span className="text-muted-foreground">· a Klarna Apply button next to Reserve $250{total ? `, for ${formatCurrency(total)}` : ""}</span></span>
+      </label>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setPreview(true)} disabled={!day}
           className="inline-flex h-11 items-center gap-2 rounded-lg border border-input px-4 text-sm font-semibold hover:bg-muted disabled:opacity-50">
@@ -239,6 +246,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           total={total}
           date={day}
           notes={draft.notes}
+          klarna={draft.klarna}
           staff
           onClose={() => setPreview(false)}
           onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
@@ -258,6 +266,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           notes={sent.notes}
           initial={sent.status}
           holdUntilIso={sent.hold_until}
+          klarna={sent.klarna}
           staff
           onClose={() => setPreviewSent(false)}
           onSave={() => setPreviewSent(false)}

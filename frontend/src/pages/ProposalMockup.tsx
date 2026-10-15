@@ -21,6 +21,7 @@ import {
 import { cn, formatCurrency } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { sidesInWords } from "@/lib/fenceSides";
+import { klarnaLine, monthlyFrom } from "@/lib/klarna";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 
@@ -487,18 +488,12 @@ const FAQ: [string, string][] = [
 // is estimated the way Klarna does: the lowest rate over the longest plan
 // (7.99% APR over 24 months), rounded up to the dollar. Pay in 4 tops out
 // around $2,000 a purchase.
-const KLARNA_LOW_APR = 0.0799;
-const KLARNA_LONGEST_MONTHS = 24;
-function monthlyFrom(total: number): number {
-  const r = KLARNA_LOW_APR / 12;
-  return Math.ceil((total * r) / (1 - Math.pow(1 + r, -KLARNA_LONGEST_MONTHS)));
-}
 function payLine(total: number): { text: string; lender: "klarna" } {
   // PlayStation's exact shape, every time: "From $40/month, or 4 payments
   // at 0% interest with Klarna". Both halves always show (Alan,
   // 2026-10-10); on the real page Stripe's messaging element decides what
   // the customer qualifies for at that amount.
-  return { text: `From $${monthlyFrom(total)}/month, or 4 payments at 0% interest with Klarna`, lender: "klarna" };
+  return { text: klarnaLine(total), lender: "klarna" };
 }
 
 // Klarna's FAQ, rewritten for a fence (PlayStation's is the model, Alan,
