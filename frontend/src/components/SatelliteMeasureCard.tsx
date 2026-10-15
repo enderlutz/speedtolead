@@ -696,8 +696,12 @@ export default function SatelliteMeasureCard({
   //
   // Re-aiming at a new property is a separate effect below, which moves this
   // map rather than replacing it.
+  //
+  // Not until the card is first opened, though: every map load is billed,
+  // and most lead pages never open this card. Once built it stays, folded
+  // or not (the Panel keeps it mounted).
   useEffect(() => {
-    if (!mapsKey || mapRef.current) return;
+    if (!mapsKey || mapRef.current || collapsed) return;
     let cancelled = false;
     loadGoogleMaps(mapsKey)
       .then(() => {
@@ -732,7 +736,7 @@ export default function SatelliteMeasureCard({
       })
       .catch(() => { if (!cancelled) setStatus("error"); });
     return () => { cancelled = true; };
-  }, [mapsKey]);
+  }, [mapsKey, collapsed]);
 
   // Aim the existing map at whichever customer is open, and start their
   // measurements from scratch.
@@ -1162,6 +1166,10 @@ export default function SatelliteMeasureCard({
 
   return (
     <Panel
+      // Folded, the map stays on the page, just hidden. Removing it left the
+      // map with nowhere to draw: a lead that opened folded (any lead past
+      // measuring, like Exolei and Bijan) showed a blank box (Alan, 2026-10-14).
+      keepMounted
       icon={Ruler}
       title="Measure & capture"
       // One line (Alan, 2026-10-09: the page had too many words). Each

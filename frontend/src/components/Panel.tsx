@@ -15,7 +15,7 @@ import type { Accent } from "@/lib/accents";
 
 export function Panel({
   id, icon: Icon, title, sub, right, accent, className, bodyClassName,
-  collapsed, onToggle, children,
+  collapsed, onToggle, children, keepMounted,
 }: {
   id?: string;
   icon: React.ElementType;
@@ -30,6 +30,9 @@ export function Panel({
   collapsed?: boolean;
   onToggle?: () => void;
   children?: React.ReactNode;
+  /** Hide the body when folded instead of removing it, for bodies that must
+   *  not be rebuilt (the measuring map is created once). */
+  keepMounted?: boolean;
 }) {
   const chip = (
     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accent.grad} shadow-sm shadow-black/10`}>
@@ -76,8 +79,8 @@ export function Panel({
           {right}
         </div>
       )}
-      {collapsed ? null : (
-        <div className={cn("space-y-3 p-3.5", bodyClassName)}>{children}</div>
+      {collapsed && !keepMounted ? null : (
+        <div className={cn("space-y-3 p-3.5", bodyClassName, collapsed && "hidden")}>{children}</div>
       )}
     </Card>
   );
