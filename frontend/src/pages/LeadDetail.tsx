@@ -204,6 +204,10 @@ const SHOW_QB_PAYMENTS = false;
 // 2026-10-14: the VA kept sending it instead of the Stripe $250). The
 // Stripe deposit in the same panel is the one to send. Flip to bring it back.
 const SHOW_QB_DEPOSIT: boolean = false;
+// "Confidence in the measurement", archived (Alan, 2026-10-14: "nobody gives
+// a fuck about that"). The saved value stays "100" unless set before, so
+// nothing downstream changes. Flip to bring it back.
+const SHOW_CONFIDENCE: boolean = false;
 
 // The lead page's tabs: a tile (icon over a short label) on a phone, a row
 // (icon beside the full label) from `sm` up. The active one is the card
@@ -1939,6 +1943,7 @@ export default function LeadDetail() {
 
               {/* Confidence as three buttons, green to red, instead of a
                   dropdown: the VA's own doubt should be visible at a glance. */}
+              {SHOW_CONFIDENCE && <>
               <Field label="Confidence in the measurement">
                 <div className="grid grid-cols-3 gap-1.5">
                   {CONFIDENCE_OPTIONS.map((o) => {
@@ -1974,6 +1979,7 @@ export default function LeadDetail() {
                   />
                 </Field>
               )}
+              </>}
 
               {/* Fence Sides */}
               <Field

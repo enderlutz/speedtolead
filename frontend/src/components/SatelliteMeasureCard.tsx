@@ -158,6 +158,11 @@ function latLngFromPixel(
 // _in_home_region check in api/leads.py.
 const TX_BOX = { minLat: 25.5, maxLat: 36.6, minLng: -106.7, maxLng: -93.4 };
 
+/** Texas ZIPs run 75000–79999 (plus 885xx for El Paso). */
+function isTexasZip(z: string): boolean {
+  return /^(7[5-9]\d{3}|885\d{2})$/.test(z.trim());
+}
+
 function inHomeRegion(p: Pt): boolean {
   return (
     p.lat >= TX_BOX.minLat && p.lat <= TX_BOX.maxLat &&
@@ -183,6 +188,7 @@ function locateProperty(
   address: string,
   zip: string,
   onResult: (p: Pt, note: string) => void,
+  onFail?: (note: string) => void,
 ) {
   const street = address.trim();
   const z = (zip || "").trim();
@@ -192,10 +198,16 @@ function locateProperty(
     new g.Geocoder().geocode(
       { address: street, componentRestrictions: { country: "US", administrativeArea: "TX" } },
       (res, ok) => {
-        if (ok !== "OK" || !res?.length) return;
+        // Nothing found anywhere: say so instead of sitting silently on
+        // central Houston (Alan, 2026-10-14: Bijan's map never came up).
+        const fail = () => onFail?.(
+          z && !isTexasZip(z)
+            ? `Couldn't find this address. ZIP ${z} isn't a Texas ZIP. Fix it in Contact, or type the address with the right ZIP above and tap Find.`
+            : "Couldn't find this address on the map. Check the spelling, or type it above and tap Find.");
+        if (ok !== "OK" || !res?.length) { fail(); return; }
         const loc = res[0].geometry.location;
         const p = { lat: loc.lat(), lng: loc.lng() };
-        if (!inHomeRegion(p)) return;   // give up rather than guess
+        if (!inHomeRegion(p)) { fail(); return; }   // give up rather than guess
         onResult(p, z
           ? `ZIP ${z} didn't resolve near Houston — located from the street address instead. Worth checking.`
           : "No ZIP on file — located from the street address.");
@@ -339,7 +351,16 @@ export default function SatelliteMeasureCard({
   const [keyProblem, setKeyProblem] = useState("");
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnosis, setDiagnosis] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
+  // The box starts with the customer's address in it, as real text they can
+  // edit (Alan, 2026-10-14: it was a grey placeholder that looked filled in
+  // but couldn't be changed). Re-filled when the customer or address changes.
+  const searchSeed = `${address || ""}${zipCode ? ` ${zipCode}` : ""}`.trim();
+  const [search, setSearch] = useState(searchSeed);
+  const [seededFrom, setSeededFrom] = useState(`${leadId}|${searchSeed}`);
+  if (seededFrom !== `${leadId}|${searchSeed}`) {
+    setSeededFrom(`${leadId}|${searchSeed}`);
+    setSearch(searchSeed);
+  }
   const [mapsKey, setMapsKey] = useState("");
   const [keySource, setKeySource] = useState("");
   const [photos, setPhotos] = useState<MeasurementPhoto[]>([]);
@@ -758,7 +779,7 @@ export default function SatelliteMeasureCard({
           mapRef.current?.setZoom(DEFAULT_ZOOM);
           setPin(p);
           if (note) setLocateNote(note);
-        });
+        }, (note) => { if (!cancelled) setLocateNote(note); });
       } catch {
         /* leave the view where it is; the search box still works */
       }
@@ -944,6 +965,7 @@ export default function SatelliteMeasureCard({
         // Searching is how a wrong geocode gets corrected, so the pin moves
         // with it — otherwise it would still mark the wrong house.
         setPin({ lat: loc.lat(), lng: loc.lng() });
+        setLocateNote("");
         setZoomFine(DEFAULT_ZOOM);
       });
     } catch {
@@ -1192,11 +1214,8 @@ export default function SatelliteMeasureCard({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } }}
-              placeholder={
-                address
-                  ? `${address}${zipCode ? ` ${zipCode}` : ""}`
-                  : "Search an address…"
-              }
+              placeholder="Search an address…"
+              enterKeyHint="search"
               className="pl-8"
             />
           </div>
