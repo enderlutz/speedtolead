@@ -169,6 +169,10 @@ class Lead(Base):
     # phone fetches the picture itself, so it cannot sit behind a login.
     fence_scope_share_token = Column(Text, nullable=True)
     fence_scope_sent_at = Column(Text, nullable=True)
+    # The number of the drawing open in the editor ("Photo 2"). NULL = one
+    # past the highest filed drawing. Kept so reopening Photo 1 still calls it
+    # Photo 1 (Alan, 2026-10-14).
+    fence_scope_drawing_no = Column(Integer, nullable=True)
     # A carrier-sized copy of the export. The full-quality PNG runs to 8MB and
     # MMS tops out at 5MB, so what gets texted is a compressed JPEG — kept
     # beside the original rather than replacing it.
@@ -2891,6 +2895,14 @@ class FenceScopeVersion(Base):
     mms_image = deferred(Column(LargeBinary, nullable=True))
     mms_mime = Column(Text, default="")
     share_token = Column(Text, nullable=True)
+    # Its own photo and drone view, so it can be reopened and edited even
+    # after a later drawing used a new photo (Alan, 2026-10-14: "I can't go
+    # back to version 1"). Empty on drawings filed before then: those reuse
+    # whatever photo is on the lead.
+    source_image = deferred(Column(LargeBinary, nullable=True))
+    source_mime = Column(Text, default="")
+    ai_image = deferred(Column(LargeBinary, nullable=True))
+    ai_mime = Column(Text, default="")
 
     sent_at = Column(Text, nullable=True)
     archived_at = Column(Text, nullable=True)
@@ -4140,6 +4152,14 @@ def _run_migrations():
                              ("after_view_count", "INTEGER"), ("after_furthest", "TEXT"), ("door", "TEXT")):
                 if col not in pl:
                     conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
+    if inspector.has_table("fence_scope_versions"):
+        fv = {c["name"] for c in inspector.get_columns("fence_scope_versions")}
+        with _engine.begin() as conn:
+            blob_type = "BYTEA" if _engine.dialect.name == "postgresql" else "BLOB"
+            for col, typ in (("source_image", blob_type), ("source_mime", "TEXT DEFAULT ''"),
+                             ("ai_image", blob_type), ("ai_mime", "TEXT DEFAULT ''")):
+                if col not in fv:
+                    conn.execute(text(f"ALTER TABLE fence_scope_versions ADD COLUMN {col} {typ}"))
     if inspector.has_table("bookings"):
         bk = {c["name"] for c in inspector.get_columns("bookings")}
         if "google_event_id" not in bk:
@@ -4286,6 +4306,10 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_ai_generated_at TEXT"))
             conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_use_ai BOOLEAN NOT NULL DEFAULT FALSE"))
         logger.info("Migration: added leads.fence_scope_ai_* fields")
+
+    if "fence_scope_drawing_no" not in existing:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN fence_scope_drawing_no INTEGER"))
 
     if "fence_scope_share_token" not in existing:
         with _engine.begin() as conn:

@@ -359,3 +359,43 @@ def test_the_booking_draft_saves_on_the_lead_without_touching_the_estimate(db):
     assert pl.save_booking_draft(lead.id, pl.BookingDraftBody(tier="gold"), staff)["tier"] == ""
     with pytest.raises(HTTPException):
         pl.save_booking_draft(lead.id, pl.BookingDraftBody(date="next thursday"), staff)
+
+
+def test_photo_1_can_be_reopened_after_photo_2_used_a_new_photo_and_numbers_stay(db, quiet, monkeypatch):
+    from api import fence_scope as fs
+    from database import FenceScopeVersion, Lead
+    monkeypatch.setattr(fs, "_announce", lambda *a: None)
+    monkeypatch.setattr(fs, "build_mms_image", lambda b: (b + b"-mms", "image/jpeg"))
+    lead = _lead(db)
+    lead.has_fence_scope_source, lead.fence_scope_source_image, lead.fence_scope_source_mime = True, b"PHOTO-A", "image/jpeg"
+    lead.fence_scope_segments_json = '[{"id":"a"}]'
+    lead.has_fence_scope_export, lead.fence_scope_export_image = True, b"DRAWING-1"
+    db.commit()
+    # Photo 1 filed; Photo 2 from a new photo.
+    fs.new_fence_scope_drawing(lead.id, fs.NewDrawingBody(new_photo=True), STAFF)
+    lead = db.query(Lead).get(lead.id)
+    lead.has_fence_scope_source, lead.fence_scope_source_image = True, b"PHOTO-B"
+    lead.fence_scope_segments_json = '[{"id":"b"}]'
+    lead.has_fence_scope_export, lead.fence_scope_export_image = True, b"DRAWING-2"
+    db.commit()
+    assert fs.list_fence_scope_versions(lead.id, STAFF)["active_version_no"] == 2
+    v1 = db.query(FenceScopeVersion).filter_by(lead_id=lead.id, version_no=1).one()
+
+    # Reopen Photo 1: Photo 2 is filed under 2, Photo 1 comes back with its own photo and lines.
+    assert fs.open_fence_scope_drawing(lead.id, v1.id, STAFF)["editing_drawing_no"] == 1
+    db.expire_all()
+    lead = db.query(Lead).get(lead.id)
+    assert bytes(lead.fence_scope_source_image) == b"PHOTO-A" and lead.fence_scope_segments_json == '[{"id":"a"}]'
+    assert lead.has_fence_scope_export and bytes(lead.fence_scope_export_image) == b"DRAWING-1-mms"
+    filed = {v.version_no: v for v in db.query(FenceScopeVersion).filter_by(lead_id=lead.id).all()}
+    assert set(filed) == {2} and bytes(filed[2].source_image) == b"PHOTO-B"
+    assert fs.list_fence_scope_versions(lead.id, STAFF)["active_version_no"] == 1
+
+    # And back to Photo 2.
+    fs.open_fence_scope_drawing(lead.id, filed[2].id, STAFF)
+    db.expire_all()
+    lead = db.query(Lead).get(lead.id)
+    assert bytes(lead.fence_scope_source_image) == b"PHOTO-B"
+    assert {v.version_no for v in db.query(FenceScopeVersion).filter_by(lead_id=lead.id).all()} == {1}
+    # A new drawing after that becomes Photo 3, never a duplicate number.
+    assert fs.new_fence_scope_drawing(lead.id, fs.NewDrawingBody(), STAFF)["editing_drawing_no"] == 3
