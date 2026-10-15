@@ -1831,6 +1831,10 @@ export const api = {
   newFenceScopeDrawing: (leadId: string, newPhoto: boolean) =>
     request<{ filed_drawing_no: number; editing_drawing_no: number; updated_at: string }>(
       `/api/leads/${leadId}/fence-scope/new-drawing`, { method: "POST", body: JSON.stringify({ new_photo: newPhoto }) }),
+  /** Puts a filed photo back in the editor; the open one is filed first. */
+  openFenceScopeDrawing: (leadId: string, versionId: string) =>
+    request<{ editing_drawing_no: number; updated_at: string }>(
+      `/api/leads/${leadId}/fence-scope/open/${versionId}`, { method: "POST" }),
   /** Files the sent scope away and opens a fresh one, reusing the drone render. */
   reviseFenceScope: (leadId: string) =>
     request<{ archived_version_no: number; editing_version_no: number; updated_at: string }>(

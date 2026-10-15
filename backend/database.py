@@ -2921,7 +2921,8 @@ class FenceScopeVersion(Base):
             "sent_at": self.sent_at,
             "archived_at": self.archived_at,
             "archived_by": self.archived_by or "",
-            "has_image": bool(self.share_token),
+            # A saved picture (mime is set with it; the bytes stay deferred).
+            "has_image": bool(self.mms_mime or self.share_token),
         }
 
 
