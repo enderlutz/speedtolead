@@ -39,6 +39,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const [st, setSt] = useState<BookingState | null>(null);
   const [busy, setBusy] = useState<null | "save" | "send" | "clear" | "cancel">(null);
   const [preview, setPreview] = useState(false);
+  // "Their page", inside the dashboard: a new tab on a phone's home-screen
+  // app had no way back (Alan, 2026-10-14).
+  const [previewSent, setPreviewSent] = useState(false);
   const [open, setOpen] = useState(false);
   // The text: the preset follows the date until someone edits it.
   const [msg, setMsg] = useState("");
@@ -142,9 +145,9 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             {sent.on_calendar ? "✓ On your Google Calendar (just you, they're not a guest)" : "Not on your Google Calendar yet. Send again to retry."}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <a href={`${sent.url}?preview=1`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
+            <button type="button" onClick={() => setPreviewSent(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
               <ExternalLink className="h-3.5 w-3.5" /> Their page
-            </a>
+            </button>
             <button type="button" onClick={copy} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
               <Copy className="h-3.5 w-3.5" /> Copy link
             </button>
@@ -238,6 +241,27 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           notes={draft.notes}
           staff
           onClose={() => setPreview(false)}
+          onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
+          saveLabel={busy === "save" ? "Saving…" : changed ? "Save draft" : "Saved · close"}
+        />
+      ) : null}
+      {previewSent && sent ? (
+        <BookingInvite
+          firstName={first}
+          address={lead.address || ""}
+          pkgName={TIERS.find((t) => t.key === sent.tier)?.name || ""}
+          color={sent.color}
+          sides={sides}
+          feet={Number(fd.linear_feet) || 0}
+          total={sent.total}
+          date={new Date(`${sent.date}T12:00:00`)}
+          notes={sent.notes}
+          initial={sent.status}
+          holdUntilIso={sent.hold_until}
+          staff
+          onClose={() => setPreviewSent(false)}
+          onSave={() => setPreviewSent(false)}
+          saveLabel="Done"
         />
       ) : null}
     </Panel>

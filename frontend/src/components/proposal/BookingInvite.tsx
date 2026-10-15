@@ -15,7 +15,7 @@
 // except "Add to my calendar", which really does hand the phone a calendar
 // file, so it can be tried.
 import { useEffect, useState } from "react";
-import { Check, CalendarPlus, CloudRain, FileText, MessageSquare, Phone, Lock, Clock, MapPin } from "lucide-react";
+import { Check, CalendarPlus, CloudRain, FileText, MessageSquare, Phone, Lock, Clock, MapPin, ArrowLeft, Save } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const GOLD = "#C9972F";
@@ -45,7 +45,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -64,12 +64,22 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   holdUntilIso?: string;
   /** What's been paid (the deposit, or the whole job). */
   paidAmount?: number;
+  /** Staff preview: save the draft from here, without sending. */
+  onSave?: () => void;
+  saveLabel?: string;
 }) {
   const [state, setState] = useState<BookingState | "cancelled">(initial ?? "held");
   const [paying, setPaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [behind, setBehind] = useState(false);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2400); return () => clearTimeout(t); }, [toast]);
+  // Escape always gets out of the preview.
+  useEffect(() => {
+    if (page || !onClose) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [page, onClose]);
 
   const confirmed = state === "confirmed";
   const paid = confirmed ? (paidAmount || DEPOSIT) : 0;
@@ -129,19 +139,30 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   ];
 
   return (
-    <div className={page ? "min-h-screen bg-[#F8F3E7]" : "fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
-      <div className={cn("relative flex w-full max-w-md flex-col bg-[#F8F3E7] text-[#15130F]", page ? "mx-auto min-h-screen" : "max-h-[94vh] overflow-hidden rounded-t-3xl shadow-2xl sm:rounded-3xl")} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between bg-[#15130F] px-4 py-3">
-          <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-7 w-auto" draggable={false} />
-          {page ? (
+    <div className={page ? "min-h-screen bg-[#F8F3E7]" : "fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-center sm:p-4"} onClick={page ? undefined : onClose}>
+      <div className={cn("relative flex w-full max-w-md flex-col bg-[#F8F3E7] text-[#15130F]", page ? "mx-auto min-h-screen" : "h-full overflow-hidden shadow-2xl sm:h-auto sm:max-h-[94vh] sm:rounded-3xl")} onClick={(e) => e.stopPropagation()}>
+        {page ? (
+          <div className="flex items-center justify-between bg-[#15130F] px-4 py-3">
+            <img src="/sterling-logo-dark.png" alt="Sterling Fence Staining" className="h-7 w-auto" draggable={false} />
             <a href={`tel:+1${PHONE.replace(/-/g, "")}`} className="inline-flex h-11 items-center gap-2 rounded-full px-4 text-[15px] font-bold text-[#15130F]" style={{ background: GOLD }}><Phone className="h-4 w-4" /> Call or text</a>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">{onPay ? "Preview" : "Mockup"}</span>
-              <button type="button" onClick={onClose} className="h-9 rounded-lg bg-white/10 px-3 text-[13px] font-semibold text-white">Close</button>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          // Staff preview: a big way out, top left, always on screen (Alan,
+          // 2026-10-14: "I can't back out of it unless I restart").
+          <div className="flex items-center gap-2 bg-[#15130F] px-3 py-2.5" style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))" }}>
+            <button type="button" onClick={onClose} aria-label="Back"
+              className="inline-flex h-11 items-center gap-1.5 rounded-xl bg-white/15 px-3.5 text-[15px] font-bold text-white active:scale-[0.97]">
+              <ArrowLeft className="h-5 w-5" /> Back
+            </button>
+            <span className="rounded bg-amber-400/90 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-950">{onSave ? "Preview" : "Mockup"}</span>
+            {onSave ? (
+              <button type="button" onClick={onSave}
+                className="ml-auto inline-flex h-11 items-center gap-1.5 rounded-xl px-3.5 text-[15px] font-bold text-[#15130F] active:scale-[0.97]" style={{ background: GOLD }}>
+                <Save className="h-4 w-4" /> {saveLabel || "Save draft"}
+              </button>
+            ) : null}
+          </div>
+        )}
 
         {staff && !page ? (
           <div className="flex items-center gap-1.5 border-b border-[#15130F]/10 bg-[#15130F]/5 px-4 py-2">
@@ -155,7 +176,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
           </div>
         ) : null}
 
-        <div className={cn("flex flex-1 flex-col gap-4 px-5 pb-5 pt-4", page ? "" : "overflow-y-auto")}>
+        <div className={cn("flex flex-1 flex-col gap-4 px-5 pb-5 pt-4 [&>*]:shrink-0", page ? "" : "overflow-y-auto")}>
           {/* The status, first thing they see. */}
           {state === "cancelled" ? (
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
