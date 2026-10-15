@@ -166,3 +166,24 @@ def test_a_discount_shows_the_math_and_the_deposit_and_klarna_charge_the_discoun
     assert bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]["total"] == 897.92
     with pytest.raises(HTTPException):
         pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", discount_type="percent", discount_value=150), STAFF)
+
+
+def test_repairs_are_line_items_added_after_the_discount_and_charged_everywhere(db, ghl):
+    from database import PayLink
+    lead, day = _ready(db)
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(
+        date=day, tier="signature", klarna=True, discount_type="amount", discount_value=97.92,
+        repairs=[{"name": "Picket replacement (Cedar)", "qty": 13, "unit_price": 14},
+                 {"name": "Post replacement (6 ft fence)", "qty": 2, "unit_price": 225}],
+        repair_counts={"pickets": 13, "posts": 2}, picket_type="cedar", post_type="post6"), STAFF)
+    assert pl.get_booking_draft(lead.id, STAFF)["repair_counts"] == {"pickets": 13, "posts": 2}
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    # 997.92 - 97.92 + 13*14 + 2*225 = 900 + 182 + 450
+    assert b["total"] == 1532.0 and len(b["repairs"]) == 2
+    page = bk.booking_page(b["token"], _Req())
+    assert page["price"] - page["discount"] + sum(r["qty"] * r["unit_price"] for r in page["repairs"]) == page["total"]
+    assert "Picket replacement (Cedar) × 13" in [x for x in ghl if x[0] == "cal"][-1][3]
+    bk.booking_finance(b["token"], _Req())
+    assert db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one().amount_cents == 153200
+    with pytest.raises(HTTPException):
+        pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", repairs=[{"name": "x", "qty": 0, "unit_price": 5}]), STAFF)

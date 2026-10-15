@@ -541,6 +541,11 @@ class BookingDraftBody(BaseModel):
     discount_type: str = ""
     discount_value: float = 0
     discount_label: str = ""
+    # Repairs, one line each, plus what the picker needs to reopen them.
+    repairs: list[dict] = []
+    repair_counts: dict = {}
+    picket_type: str = ""
+    post_type: str = ""
 
 
 def _booking_draft(lead: Lead) -> dict:
@@ -582,6 +587,17 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         raise HTTPException(status_code=400, detail="That discount doesn't add up. Use dollars, or a percent under 100.")
     if not dval:
         dtype = ""
+    repairs = []
+    for r in (body.repairs or [])[:12]:
+        try:
+            name = str(r.get("name") or "").strip()[:80]
+            qty = int(r.get("qty") or 0)
+            unit = round(float(r.get("unit_price") or 0), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="A repair line doesn't add up.")
+        if not name or qty < 1 or qty > 500 or unit < 0 or unit > 5000:
+            raise HTTPException(status_code=400, detail="A repair line doesn't add up.")
+        repairs.append({"name": name, "qty": qty, "unit_price": unit})
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -596,6 +612,9 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
             "klarna": bool(body.klarna),
             "discount_type": dtype, "discount_value": dval,
             "discount_label": (body.discount_label or "").strip()[:60] if dtype else "",
+            "repairs": repairs,
+            "repair_counts": {str(k)[:20]: int(v) for k, v in (body.repair_counts or {}).items() if str(v).isdigit()} if repairs else {},
+            "picket_type": (body.picket_type or "")[:20], "post_type": (body.post_type or "")[:20],
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)

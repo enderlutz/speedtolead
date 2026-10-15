@@ -12,12 +12,16 @@ import { ACCENT } from "@/lib/accents";
 import { sidesInWords } from "@/lib/fenceSides";
 import { cn, formatCurrency } from "@/lib/utils";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
+import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
+import { PICKETS, PARTS, POSTS, repairLines, repairsTotal } from "@/lib/repairs";
 
 type Tier = "essential" | "signature" | "legacy";
 type Draft = {
   date: string; tier: Tier; color: string; notes: string; klarna: boolean;
   /** A discount: dollars or a percent off the package, and why. */
   dtype: "amount" | "percent"; dval: string; dlabel: string;
+  /** Repairs agreed on the phone: the proposal's counters, same prices. */
+  counts: Record<string, number>; picketType: string; postType: string;
 };
 const TIERS: { key: Tier; name: string }[] = [
   { key: "essential", name: "Essential Seal" },
@@ -33,7 +37,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "" });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -73,6 +77,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       if (d?.updated_at) setDraft((x) => ({
         date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
+        counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
       }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
@@ -91,12 +96,18 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
   const price = tiers?.[draft.tier] || 0;
   const off = discountOff(price, draft);
-  const total = Math.round((price - off) * 100) / 100;
+  const lines = repairLines(draft.counts, draft.picketType, draft.postType);
+  const repairs = repairsTotal(lines);
+  const total = Math.round((price - off + repairs) * 100) / 100;
+  const [repairsOpen, setRepairsOpen] = useState(false);
+  const bump = (key: string, by: number) =>
+    setDraft((d) => ({ ...d, counts: { ...d.counts, [key]: Math.max(0, (d.counts[key] || 0) + by) } }));
   const saved = st?.draft?.updated_at ? st.draft : null;
   const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
     || (saved.discount_value || 0) !== (Number(draft.dval) || 0)
     || ((saved.discount_value ? saved.discount_type : "") || "") !== (Number(draft.dval) ? draft.dtype : "")
-    || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "");
+    || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "")
+    || JSON.stringify((saved.repairs || []).map((r) => [r.name, r.qty, r.unit_price])) !== JSON.stringify(lines.map((r) => [r.name, r.qty, r.unit_price]));
   const sent = st?.booking || null;
 
   const save = async () => {
@@ -104,6 +115,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       date: draft.date, tier: draft.tier, color: draft.color, notes: draft.notes, klarna: draft.klarna,
       discount_type: Number(draft.dval) ? draft.dtype : "", discount_value: Number(draft.dval) || 0,
       discount_label: Number(draft.dval) ? draft.dlabel : "",
+      repairs: lines.map(({ name, qty, unit_price }) => ({ name, qty, unit_price })),
+      repair_counts: draft.counts, picket_type: draft.picketType, post_type: draft.postType,
     });
     setSt((s) => (s ? { ...s, draft: d } : s));
     return d;
@@ -231,11 +244,58 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           <p className="mt-2 text-sm">
             <span className="text-muted-foreground line-through">{formatCurrency(price)}</span>
             <span className="mx-1.5 font-semibold text-emerald-700">− {formatCurrency(off)}</span>
-            = <span className="font-bold">{formatCurrency(total)}</span>
-            <span className="text-muted-foreground"> · deposit, balance and Klarna all use this</span>
+            = <span className="font-bold">{formatCurrency(price - off)}</span>
+            <span className="text-muted-foreground"> for the package</span>
           </p>
         ) : null}
       </div>
+
+      {/* Repairs, folded: most jobs need none. The proposal's own counters
+          and prices, so what's agreed on the phone matches what they'd have
+          picked themselves (Alan, 2026-10-15). */}
+      <div className="overflow-hidden rounded-xl border border-input">
+        <button type="button" onClick={() => setRepairsOpen((v) => !v)}
+          className="flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm">
+          <span><span className="font-semibold">Repairs</span> <span className="text-muted-foreground">{lines.length ? `· ${lines.length} item${lines.length === 1 ? "" : "s"} · + ${formatCurrency(repairs)}` : "· any pickets, posts or boards to replace?"}</span></span>
+          <span className="text-xs font-semibold text-muted-foreground">{repairsOpen ? "Close" : lines.length ? "Change" : "Add"}</span>
+        </button>
+        {repairsOpen ? (
+          <div className="space-y-2.5 border-t bg-white p-3 text-[#15130F]">
+            <Counter stack label="Pickets" what="The upright boards" unit="picket" art={<FencePart part="picket" />}
+              price={PICKETS.find((p) => p.key === draft.picketType)!.price} n={draft.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+              <Chips options={PICKETS} value={draft.picketType} onChange={(k) => setDraft({ ...draft, picketType: k })} />
+            </Counter>
+            {PARTS.map((part) => (
+              <Counter stack key={part.key} label={part.label} what={part.what} unit={part.unit} art={<FencePart part={part.key as FencePartKey} />}
+                price={part.price} n={draft.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+            ))}
+            <Counter stack label="Post replacement" what="The thick posts set in the ground" unit="post" art={<FencePart part="post" />}
+              price={POSTS.find((p) => p.key === draft.postType)!.price} n={draft.counts.posts || 0} onChange={(d) => bump("posts", d)}>
+              <Chips options={POSTS} value={draft.postType} onChange={(k) => setDraft({ ...draft, postType: k })} />
+            </Counter>
+            <div className="flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
+              <span className="text-[15px] font-semibold">Repairs</span>
+              <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : "$0"}</span>
+            </div>
+            <button type="button" onClick={() => setRepairsOpen(false)}
+              className="h-12 w-full rounded-xl bg-[#C9972F] text-base font-bold text-[#15130F]">Confirm repairs</button>
+          </div>
+        ) : lines.length ? (
+          <ul className="space-y-0.5 border-t px-3 py-2 text-sm">
+            {lines.map((l) => (
+              <li key={l.key} className="flex justify-between gap-2"><span>{l.name} × {l.qty} @ {formatCurrency(l.unit_price).replace(".00", "")}</span><span className="font-semibold tabular-nums">{formatCurrency(l.qty * l.unit_price)}</span></li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      {off || repairs ? (
+        <p className="rounded-xl bg-muted/60 px-3 py-2 text-sm">
+          {formatCurrency(price)} {tiers ? TIERS.find((t) => t.key === draft.tier)?.name : ""}
+          {off ? <span className="text-emerald-700"> − {formatCurrency(off)} discount</span> : null}
+          {repairs ? <span> + {formatCurrency(repairs)} repairs</span> : null}
+          {" "}= <span className="font-bold">{formatCurrency(total)}</span>
+        </p>
+      ) : null}
 
       <label className="block text-sm">
         <span className="font-semibold">Additional notes</span>
@@ -303,6 +363,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           klarna={draft.klarna}
           discount={off}
           discountLabel={draft.dlabel}
+          repairs={lines}
           staff
           onClose={() => setPreview(false)}
           onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
@@ -325,6 +386,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           klarna={sent.klarna}
           discount={sent.discount}
           discountLabel={sent.discount_label}
+          repairs={sent.repairs}
           staff
           onClose={() => setPreviewSent(false)}
           onSave={() => setPreviewSent(false)}

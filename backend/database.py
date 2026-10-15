@@ -4055,6 +4055,10 @@ class Booking(Base):
     price_cents = Column(Integer, nullable=True)
     discount_cents = Column(Integer, nullable=True)
     discount_label = Column(Text, default="")
+    # Repairs agreed on the phone, one line each: [{name, qty, unit_price}]
+    # (Alan, 2026-10-15). Added on top of the package after any discount.
+    repairs_json = Column(Text, nullable=True)
+    repairs_cents = Column(Integer, nullable=True)
 
 
 class GoogleReview(Base):
@@ -4179,7 +4183,8 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE bookings ADD COLUMN klarna INTEGER"))
         with _engine.begin() as conn:
-            for col, typ in (("price_cents", "INTEGER"), ("discount_cents", "INTEGER"), ("discount_label", "TEXT DEFAULT ''")):
+            for col, typ in (("price_cents", "INTEGER"), ("discount_cents", "INTEGER"), ("discount_label", "TEXT DEFAULT ''"),
+                             ("repairs_json", "TEXT"), ("repairs_cents", "INTEGER")):
                 if col not in bk:
                     conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col} {typ}"))
     if inspector.has_table("proposals"):

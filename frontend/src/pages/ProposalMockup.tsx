@@ -24,6 +24,8 @@ import { sidesInWords } from "@/lib/fenceSides";
 import { klarnaLine, monthlyFrom } from "@/lib/klarna";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
+import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
+import { PICKETS, PARTS, POSTS } from "@/lib/repairs";
 
 // A real lead to dress the mockup in (Alan, 2026-10-10: "pull in her scope
 // of work, her address, the linear foot… pretend she's a mock-up
@@ -373,21 +375,6 @@ function GoldFrame({ inset = 3 }: { inset?: number }) {
 // Repairs, priced from Alan's list (2026-10-09; posts by fence height,
 // 2026-10-10). Pickets are just pine or cedar, one price each: the height
 // "adds too much variability" and confused people (Alan, 2026-10-11).
-const PICKETS = [
-  { key: "pine", label: "Pine", price: 12 },
-  { key: "cedar", label: "Cedar", price: 14 },
-];
-const PARTS = [
-  { key: "rotboard", label: "Rot board", what: "The board along the ground", unit: "board", price: 50 },
-  { key: "cap", label: "Cap", what: "The board along the top", unit: "cap", price: 85 },
-  { key: "rail", label: "Rail", what: "The long boards in back that the pickets nail to", unit: "rail", price: 75 },
-];
-const POSTS = [
-  { key: "post6", label: "6 ft fence", price: 225 },
-  { key: "post7", label: "7 ft fence", price: 255 },
-  { key: "post8", label: "8 ft fence", price: 350 },
-];
-
 // Signature colours with a real job photo (cropped from Alan's page in
 // progress). The rest of the chart arrives through the photo library.
 const SIGNATURE_PHOTOS = [
@@ -1796,46 +1783,6 @@ function PayOption({ lender, text, note, dim, learn }: { lender: "klarna" | "aff
 
 /** A choice as tap-pills with the price on each, instead of a drop-down
  *  (Alan, 2026-10-10). */
-function Chips({ options, value, onChange }: {
-  options: { key: string; label: string; price: number }[]; value: string; onChange: (key: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      {options.map((o) => {
-        const on = o.key === value;
-        return (
-          <button key={o.key} type="button" onClick={() => onChange(o.key)} aria-pressed={on}
-            className={cn("rounded-lg px-3 py-2 text-[15px] font-semibold leading-tight transition",
-              on ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/75 ring-1 ring-[#15130F]/15")}>
-            {o.label} <span className={cn("ml-0.5", on ? "text-white/85" : "text-[#15130F]/65")}>{formatCurrency(o.price).replace(".00", "")}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Counter({ label, what, unit, price, n, onChange, art, children }: {
-  label: string; what?: string; unit: string; price: number; n: number; onChange: (delta: number) => void; art?: React.ReactNode; children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl bg-[#F8F3E7] px-3 py-3">
-      {art ? <div className="shrink-0 overflow-hidden rounded-xl bg-white ring-1 ring-[#15130F]/10">{art}</div> : null}
-      <div className="min-w-0 flex-1">
-        <p className="text-base font-bold leading-tight">{label}</p>
-        {what ? <p className="text-[15px] leading-snug text-[#15130F]/75">{what}</p> : null}
-        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price).replace(".00", "")} per {unit}</p>
-        {children ? <div className="mt-1">{children}</div> : null}
-      </div>
-      <div className="flex items-center gap-1">
-        <button type="button" onClick={() => onChange(-1)} className="flex h-12 w-12 items-center justify-center rounded-xl bg-white ring-1 ring-[#15130F]/20 active:scale-95" aria-label={`One less ${label}`}><Minus className="h-5 w-5" /></button>
-        <span className="w-9 text-center font-heading text-2xl font-bold tabular-nums">{n}</span>
-        <button type="button" onClick={() => onChange(1)} className="flex h-12 w-12 items-center justify-center rounded-xl text-[#15130F] active:scale-95" style={{ background: GOLD }} aria-label={`One more ${label}`}><Plus className="h-5 w-5" /></button>
-      </div>
-    </div>
-  );
-}
-
 /** What happens to the fence, in order, for the "What you get" path. */
 const STEPS: { icon: React.ElementType; day?: string; head: string; body: string }[] = [
   { icon: Droplets, day: "Day 1", head: "Full prep wash", body: "Mold, mildew, dirt and gray weathering come off first." },
@@ -1846,34 +1793,6 @@ const STEPS: { icon: React.ElementType; day?: string; head: string; body: string
   { icon: Sparkles, head: "Clean jobsite", body: "Labor and cleanup included." },
 ];
 
-type FencePartKey = "picket" | "rotboard" | "cap" | "rail" | "post";
-
-/** One section of fence, drawn the same way every time, with the part
- *  being counted lit up in gold, so a customer can see what a rot board
- *  or a cap is before they count them (Alan, 2026-10-10). Only ONE of the
- *  part lights up: eight gold pickets made it look like $12 bought all
- *  eight (Alan, 2026-10-12). */
-function FencePart({ part }: { part: FencePartKey }) {
-  const wood = "#D9C2A3", edge = "#A98A63";
-  const hot = (k: FencePartKey, one = true) => (part === k && one ? { fill: GOLD, stroke: "#15130F", strokeWidth: 2 } : { fill: wood, stroke: edge, strokeWidth: 1 });
-  const pickets = [15, 22, 29, 36, 43, 50, 57, 64];
-  const picketLayer = pickets.map((x) => <rect key={x} x={x} y="11" width="6" height="42" rx="0.5" {...hot("picket", x === 36)} />);
-  const railLayer = [14, 30, 44].map((y) => <rect key={y} x="13" y={y} width="56" height="5" rx="0.5" {...hot("rail", y === 30)} />);
-  // From the street the pickets hide the rails. The rail view is the back
-  // of the fence, where the three rails run across the pickets.
-  const fromBack = part === "rail";
-  return (
-    <svg viewBox="0 0 82 62" width="96" height="72" role="img" aria-label={part}>
-      <rect x="0" y="57" width="82" height="5" fill="#6b8f4e" />
-      <rect x="6" y="6" width="7" height="52" rx="1" {...hot("post")} />
-      <rect x="69" y="6" width="7" height="52" rx="1" {...hot("post", false)} />
-      {fromBack ? <>{picketLayer}{railLayer}</> : <>{railLayer}{picketLayer}</>}
-      <rect x="13" y="50" width="56" height="6" {...hot("rotboard")} />
-      <rect x="4" y="5" width="74" height="5" rx="1" {...hot("cap")} />
-      {fromBack ? <text x="41" y="3.5" textAnchor="middle" fontSize="5.5" fontWeight="800" fill="#15130F">BACK OF FENCE</text> : null}
-    </svg>
-  );
-}
 
 /** A stand-in for the real scope drawing: the lot from above, the house, and
  *  the fence runs in the editor's colours. The real one is the customer's

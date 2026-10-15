@@ -46,7 +46,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -65,6 +65,8 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   holdUntilIso?: string;
   /** What's been paid (the deposit, or the whole job). */
   paidAmount?: number;
+  /** Repairs, one line each; `total` already includes them (Alan, 2026-10-15). */
+  repairs?: { name: string; qty: number; unit_price: number }[];
   /** Dollars off the package; `total` is already after it (Alan, 2026-10-15). */
   discount?: number;
   discountLabel?: string;
@@ -90,6 +92,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   }, [page, onClose]);
 
   const confirmed = state === "confirmed";
+  const repairSum = (repairs || []).reduce((t, r) => t + r.qty * r.unit_price, 0);
   const paid = confirmed ? (paidAmount || DEPOSIT) : 0;
   const paidInFull = confirmed && total > 0 && paid >= total;
   const balance = Math.max(0, total - (confirmed ? paid : DEPOSIT));
@@ -302,16 +305,23 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
               <div className="border-t border-[#15130F]/10 pt-2">
                 {/* The discount spelled out, so the math reads top to bottom. */}
-                {discount ? (
+                {discount || repairs?.length ? (
                   <>
-                    <Row k={pkgName || "Package"} v={formatCurrency(total + discount)} />
-                    <div className="flex justify-between gap-3 font-semibold text-emerald-700">
+                    <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum)} />
+                    {discount ? <div className="flex justify-between gap-3 font-semibold text-emerald-700">
                       <dt>Your discount{discountLabel ? ` · ${discountLabel}` : ""}</dt>
-                      <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(discount)}</dd>
-                    </div>
+                      <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(discount || 0)}</dd>
+                    </div> : null}
                   </>
                 ) : null}
-                <Row k="Job total" v={formatCurrency(total)} bold={!!discount} />
+                {/* Each repair on its own line, the way it was agreed on the phone. */}
+                {repairs?.map((r) => (
+                  <div key={r.name} className="flex justify-between gap-3">
+                    <dt className="text-[#15130F]/75">{r.name} <span className="whitespace-nowrap">× {r.qty} @ {formatCurrency(r.unit_price).replace(".00", "")}</span></dt>
+                    <dd className="whitespace-nowrap text-right font-semibold tabular-nums">{formatCurrency(r.qty * r.unit_price)}</dd>
+                  </div>
+                ))}
+                <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length)} />
                 <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />
               </div>
