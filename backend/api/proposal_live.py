@@ -546,6 +546,10 @@ class BookingDraftBody(BaseModel):
     repair_counts: dict = {}
     picket_type: str = ""
     post_type: str = ""
+    # A discount on the repairs total: dollars or a percent, and why.
+    repairs_discount_type: str = ""
+    repairs_discount_value: float = 0
+    repairs_discount_label: str = ""
 
 
 def _booking_draft(lead: Lead) -> dict:
@@ -598,6 +602,12 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         if not name or qty < 1 or qty > 500 or unit < 0 or unit > 5000:
             raise HTTPException(status_code=400, detail="A repair line doesn't add up.")
         repairs.append({"name": name, "qty": qty, "unit_price": unit})
+    rtype = body.repairs_discount_type if body.repairs_discount_type in ("amount", "percent") and repairs else ""
+    rval = round(float(body.repairs_discount_value or 0), 2) if rtype else 0
+    if rval < 0 or (rtype == "percent" and rval > 100):
+        raise HTTPException(status_code=400, detail="That repairs discount doesn't add up. Use dollars, or a percent up to 100.")
+    if not rval:
+        rtype = ""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -615,6 +625,8 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
             "repairs": repairs,
             "repair_counts": {str(k)[:20]: int(v) for k, v in (body.repair_counts or {}).items() if str(v).isdigit()} if repairs else {},
             "picket_type": (body.picket_type or "")[:20], "post_type": (body.post_type or "")[:20],
+            "repairs_discount_type": rtype, "repairs_discount_value": rval,
+            "repairs_discount_label": (body.repairs_discount_label or "").strip()[:60] if rtype else "",
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)

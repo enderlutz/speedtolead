@@ -22,6 +22,8 @@ type Draft = {
   dtype: "amount" | "percent"; dval: string; dlabel: string;
   /** Repairs agreed on the phone: the proposal's counters, same prices. */
   counts: Record<string, number>; picketType: string; postType: string;
+  /** A discount on the repairs alone. */
+  rtype: "amount" | "percent"; rval: string; rlabel: string;
 };
 const TIERS: { key: Tier; name: string }[] = [
   { key: "essential", name: "Essential Seal" },
@@ -37,7 +39,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "" });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -78,6 +80,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
+        rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
       }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
@@ -98,7 +101,14 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const off = discountOff(price, draft);
   const lines = repairLines(draft.counts, draft.picketType, draft.postType);
   const repairs = repairsTotal(lines);
-  const total = Math.round((price - off + repairs) * 100) / 100;
+  // The repairs discount, the same rule as the server: up to all of the repairs.
+  const roff = (() => {
+    const v = Number(draft.rval) || 0;
+    if (!repairs || v <= 0) return 0;
+    const o = draft.rtype === "percent" ? Math.round(repairs * Math.min(v, 100)) / 100 : v;
+    return Math.min(Math.round(o * 100) / 100, repairs);
+  })();
+  const total = Math.round((price - off + repairs - roff) * 100) / 100;
   const [repairsOpen, setRepairsOpen] = useState(false);
   const bump = (key: string, by: number) =>
     setDraft((d) => ({ ...d, counts: { ...d.counts, [key]: Math.max(0, (d.counts[key] || 0) + by) } }));
@@ -107,7 +117,10 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     || (saved.discount_value || 0) !== (Number(draft.dval) || 0)
     || ((saved.discount_value ? saved.discount_type : "") || "") !== (Number(draft.dval) ? draft.dtype : "")
     || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "")
-    || JSON.stringify((saved.repairs || []).map((r) => [r.name, r.qty, r.unit_price])) !== JSON.stringify(lines.map((r) => [r.name, r.qty, r.unit_price]));
+    || JSON.stringify((saved.repairs || []).map((r) => [r.name, r.qty, r.unit_price])) !== JSON.stringify(lines.map((r) => [r.name, r.qty, r.unit_price]))
+    || (saved.repairs_discount_value || 0) !== (roff ? Number(draft.rval) || 0 : 0)
+    || (saved.repairs_discount_label || "") !== (roff ? draft.rlabel : "")
+    || ((saved.repairs_discount_value ? saved.repairs_discount_type : "") || "") !== (roff ? draft.rtype : "");
   const sent = st?.booking || null;
 
   const save = async () => {
@@ -117,6 +130,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       discount_label: Number(draft.dval) ? draft.dlabel : "",
       repairs: lines.map(({ name, qty, unit_price }) => ({ name, qty, unit_price })),
       repair_counts: draft.counts, picket_type: draft.picketType, post_type: draft.postType,
+      repairs_discount_type: roff ? draft.rtype : "", repairs_discount_value: roff ? Number(draft.rval) || 0 : 0,
+      repairs_discount_label: roff ? draft.rlabel : "",
     });
     setSt((s) => (s ? { ...s, draft: d } : s));
     return d;
@@ -256,7 +271,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       <div className="overflow-hidden rounded-xl border border-input">
         <button type="button" onClick={() => setRepairsOpen((v) => !v)}
           className="flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm">
-          <span><span className="font-semibold">Repairs</span> <span className="text-muted-foreground">{lines.length ? `· ${lines.length} item${lines.length === 1 ? "" : "s"} · + ${formatCurrency(repairs)}` : "· any pickets, posts or boards to replace?"}</span></span>
+          <span><span className="font-semibold">Repairs</span> <span className="text-muted-foreground">{lines.length ? `· ${lines.length} item${lines.length === 1 ? "" : "s"} · + ${formatCurrency(repairs - roff)}${roff ? ` (${formatCurrency(roff)} off)` : ""}` : "· any pickets, posts or boards to replace?"}</span></span>
           <span className="text-xs font-semibold text-muted-foreground">{repairsOpen ? "Close" : lines.length ? "Change" : "Add"}</span>
         </button>
         {repairsOpen ? (
@@ -273,9 +288,32 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
               price={POSTS.find((p) => p.key === draft.postType)!.price} n={draft.counts.posts || 0} onChange={(d) => bump("posts", d)}>
               <Chips options={POSTS} value={draft.postType} onChange={(k) => setDraft({ ...draft, postType: k })} />
             </Counter>
+            {/* A discount on the repairs alone (Alan, 2026-10-15). */}
+            <div className="rounded-2xl bg-[#F8F3E7] p-3">
+              <p className="text-[15px] font-bold">Repairs discount <span className="font-normal text-[#15130F]/70">(optional)</span></p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <div className="inline-flex overflow-hidden rounded-lg ring-1 ring-[#15130F]/20">
+                  {(["amount", "percent"] as const).map((t) => (
+                    <button key={t} type="button" onClick={() => setDraft({ ...draft, rtype: t })}
+                      className={cn("h-11 w-11 text-base font-bold", draft.rtype === t ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/70")}>
+                      {t === "amount" ? "$" : "%"}
+                    </button>
+                  ))}
+                </div>
+                <input inputMode="decimal" value={draft.rval} placeholder={draft.rtype === "percent" ? "20" : "50"} aria-label="Repairs discount"
+                  onChange={(e) => setDraft({ ...draft, rval: e.target.value.replace(/[^0-9.]/g, "") })}
+                  className="h-11 w-20 rounded-lg bg-white px-3 text-base tabular-nums ring-1 ring-[#15130F]/20" />
+                <input value={draft.rlabel} maxLength={60} placeholder="Why, e.g. Neighbor deal" aria-label="Repairs discount reason"
+                  onChange={(e) => setDraft({ ...draft, rlabel: e.target.value })}
+                  className="h-11 min-w-0 flex-1 rounded-lg bg-white px-3 text-base ring-1 ring-[#15130F]/20" />
+              </div>
+            </div>
             <div className="flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
               <span className="text-[15px] font-semibold">Repairs</span>
-              <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : "$0"}</span>
+              <span className="font-heading text-xl font-bold tabular-nums">
+                {roff ? <span className="mr-2 text-base text-white/60 line-through">{formatCurrency(repairs)}</span> : null}
+                {repairs ? `+ ${formatCurrency(repairs - roff)}` : "$0"}
+              </span>
             </div>
             <button type="button" onClick={() => setRepairsOpen(false)}
               className="h-12 w-full rounded-xl bg-[#C9972F] text-base font-bold text-[#15130F]">Confirm repairs</button>
@@ -293,6 +331,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           {formatCurrency(price)} {tiers ? TIERS.find((t) => t.key === draft.tier)?.name : ""}
           {off ? <span className="text-emerald-700"> − {formatCurrency(off)} discount</span> : null}
           {repairs ? <span> + {formatCurrency(repairs)} repairs</span> : null}
+          {roff ? <span className="text-emerald-700"> − {formatCurrency(roff)} repairs discount</span> : null}
           {" "}= <span className="font-bold">{formatCurrency(total)}</span>
         </p>
       ) : null}
@@ -364,6 +403,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           discount={off}
           discountLabel={draft.dlabel}
           repairs={lines}
+          repairsDiscount={roff}
+          repairsDiscountLabel={draft.rlabel}
           staff
           onClose={() => setPreview(false)}
           onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
@@ -387,6 +428,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           discount={sent.discount}
           discountLabel={sent.discount_label}
           repairs={sent.repairs}
+          repairsDiscount={sent.repairs_discount}
+          repairsDiscountLabel={sent.repairs_discount_label}
           staff
           onClose={() => setPreviewSent(false)}
           onSave={() => setPreviewSent(false)}

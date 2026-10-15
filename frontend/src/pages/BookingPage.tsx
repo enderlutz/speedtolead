@@ -16,6 +16,7 @@ type Booking = {
   klarna?: boolean;
   price?: number; discount?: number; discount_label?: string;
   repairs?: { name: string; qty: number; unit_price: number }[];
+  repairs_discount?: number; repairs_discount_label?: string;
 };
 
 export default function BookingPage() {
@@ -87,6 +88,8 @@ export default function BookingPage() {
       discount={b.discount || 0}
       discountLabel={b.discount_label || ""}
       repairs={b.repairs || []}
+      repairsDiscount={b.repairs_discount || 0}
+      repairsDiscountLabel={b.repairs_discount_label || ""}
       onFinance={finance}
     />
   );

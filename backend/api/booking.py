@@ -116,6 +116,8 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         "discount": (b.discount_cents or 0) / 100,
         "discount_label": b.discount_label or "",
         "repairs": _repairs(b),
+        "repairs_discount": (b.repairs_discount_cents or 0) / 100,
+        "repairs_discount_label": b.repairs_discount_label or "",
     }
 
 
@@ -167,6 +169,7 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         + (f" (was {hooks.money((b.price_cents or 0) / 100)}, {hooks.money(b.discount_cents / 100)} off"
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
         *[f"Repair: {r['name']} × {r['qty']} @ {hooks.money(r['unit_price'])} = {hooks.money(r['qty'] * r['unit_price'])}" for r in _repairs(b)],
+        *([f"Repairs discount{(' ' + b.repairs_discount_label) if b.repairs_discount_label else ''}: -{hooks.money(b.repairs_discount_cents / 100)}"] if b.repairs_discount_cents else []),
         f"Due after the job: {hooks.money(due)}",
         f"Color: {b.color or 'to pick on the day'}",
         f"Fence: {fd.get('linear_feet') or '?'} ft",
@@ -289,8 +292,18 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         repairs_cents = sum(int(round(float(r.get("unit_price") or 0) * 100)) * int(r.get("qty") or 0) for r in lines)
         b.repairs_json = json.dumps(lines) if lines else None
         b.repairs_cents = repairs_cents or None
+        # The repairs discount comes off the repairs alone, up to all of it.
+        rkind, rval = d.get("repairs_discount_type") or "", float(d.get("repairs_discount_value") or 0)
+        roff = 0
+        if repairs_cents and rkind == "amount":
+            roff = int(round(rval * 100))
+        elif repairs_cents and rkind == "percent":
+            roff = int(round(repairs_cents * rval / 100))
+        roff = max(0, min(roff, repairs_cents))
+        b.repairs_discount_cents = roff or None
+        b.repairs_discount_label = (d.get("repairs_discount_label") or "").strip() if roff else ""
         # What they pay: the deposit, the balance and Klarna all go by this.
-        b.total_cents = price_cents - off + repairs_cents
+        b.total_cents = price_cents - off + repairs_cents - roff
         url = booking_url(b.token)
 
         msg = (body.message if body.message is not None else default_message(lead, b.date)).strip()
@@ -407,6 +420,8 @@ def booking_page(token: str, request: Request, preview: int = 0):
             "discount": (b.discount_cents or 0) / 100,
             "discount_label": b.discount_label or "",
             "repairs": _repairs(b),
+            "repairs_discount": (b.repairs_discount_cents or 0) / 100,
+            "repairs_discount_label": b.repairs_discount_label or "",
         }
     finally:
         db.close()

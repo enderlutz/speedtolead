@@ -187,3 +187,24 @@ def test_repairs_are_line_items_added_after_the_discount_and_charged_everywhere(
     assert db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one().amount_cents == 153200
     with pytest.raises(HTTPException):
         pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", repairs=[{"name": "x", "qty": 0, "unit_price": 5}]), STAFF)
+
+
+def test_a_repairs_discount_comes_off_the_repairs_only(db, ghl):
+    from database import PayLink
+    lead, day = _ready(db)
+    lines = [{"name": "Picket replacement (Cedar)", "qty": 13, "unit_price": 14},
+             {"name": "Post replacement (6 ft fence)", "qty": 2, "unit_price": 225}]
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", klarna=True, repairs=lines,
+                                                       repairs_discount_type="percent", repairs_discount_value=50,
+                                                       repairs_discount_label="Half off the wood"), STAFF)
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    # 997.92 + 632 - 316
+    assert b["repairs_discount"] == 316.0 and b["total"] == 1313.92 and b["repairs_discount_label"] == "Half off the wood"
+    page = bk.booking_page(b["token"], _Req())
+    assert round(page["price"] - page["discount"] + sum(r["qty"] * r["unit_price"] for r in page["repairs"]) - page["repairs_discount"], 2) == page["total"]
+    bk.booking_finance(b["token"], _Req())
+    assert db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one().amount_cents == 131392
+    # Dollars, never more than the repairs.
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", repairs=lines,
+                                                       repairs_discount_type="amount", repairs_discount_value=5000), STAFF)
+    assert bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]["total"] == 997.92

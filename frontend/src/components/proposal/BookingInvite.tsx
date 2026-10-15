@@ -46,7 +46,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -67,6 +67,9 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   paidAmount?: number;
   /** Repairs, one line each; `total` already includes them (Alan, 2026-10-15). */
   repairs?: { name: string; qty: number; unit_price: number }[];
+  /** Dollars off the repairs alone; `total` is already after it. */
+  repairsDiscount?: number;
+  repairsDiscountLabel?: string;
   /** Dollars off the package; `total` is already after it (Alan, 2026-10-15). */
   discount?: number;
   discountLabel?: string;
@@ -215,7 +218,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: GOLD }}><Clock className="h-6 w-6 text-[#15130F]" /></span>
                 <div>
                   <p className="text-[19px] font-bold leading-tight">Your date is on hold</p>
-                  {discount ? <p className="mt-0.5 inline-block rounded-full bg-emerald-500/20 px-2 py-0.5 text-[13px] font-bold text-emerald-300">You're saving {formatCurrency(discount)}{discountLabel ? ` · ${discountLabel}` : ""}</p> : null}
+                  {discount || repairsDiscount ? <p className="mt-0.5 inline-block rounded-full bg-emerald-500/20 px-2 py-0.5 text-[13px] font-bold text-emerald-300">You're saving {formatCurrency((discount || 0) + (repairsDiscount || 0))}{discountLabel && !repairsDiscount ? ` · ${discountLabel}` : ""}</p> : null}
                   <p className="text-[15px] text-white/85">{klarna ? "The $250 deposit or Klarna confirms it" : `${formatCurrency(DEPOSIT)} deposit to confirm`}</p>
                 </div>
               </div>
@@ -307,7 +310,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 {/* The discount spelled out, so the math reads top to bottom. */}
                 {discount || repairs?.length ? (
                   <>
-                    <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum)} />
+                    <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum + (repairsDiscount || 0))} />
                     {discount ? <div className="flex justify-between gap-3 font-semibold text-emerald-700">
                       <dt>Your discount{discountLabel ? ` · ${discountLabel}` : ""}</dt>
                       <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(discount || 0)}</dd>
@@ -321,6 +324,12 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                     <dd className="whitespace-nowrap text-right font-semibold tabular-nums">{formatCurrency(r.qty * r.unit_price)}</dd>
                   </div>
                 ))}
+                {repairsDiscount ? (
+                  <div className="flex justify-between gap-3 font-semibold text-emerald-700">
+                    <dt>Repairs discount{repairsDiscountLabel ? ` · ${repairsDiscountLabel}` : ""}</dt>
+                    <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(repairsDiscount)}</dd>
+                  </div>
+                ) : null}
                 <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length)} />
                 <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />
