@@ -955,21 +955,34 @@ export default function SatelliteMeasureCard({
     const q = search.trim();
     if (!q || !mapRef.current || !g) return;
     try {
-      new g.Geocoder().geocode({ address: q }, (res, ok) => {
+      // Texas first (Alan, 2026-10-14: "21219 Baileywood Dr" with no ZIP
+      // found nothing, or somewhere else). If Texas has nothing, try
+      // anywhere, so a typed out-of-town address still works.
+      const found = (res: { geometry: { location: { lat(): number; lng(): number } } }[] | null, ok: string) => {
         if (ok !== "OK" || !res || res.length === 0) {
-          toast.error("Couldn't find that address");
+          toast.error("Couldn't find that address. Add the ZIP or city and try again.");
           return;
         }
-        const loc = res[0].geometry.location;
-        mapRef.current.setCenter({ lat: loc.lat(), lng: loc.lng() });
-        // Searching is how a wrong geocode gets corrected, so the pin moves
-        // with it — otherwise it would still mark the wrong house.
-        setPin({ lat: loc.lat(), lng: loc.lng() });
-        setLocateNote("");
-        setZoomFine(DEFAULT_ZOOM);
-      });
+        place(res);
+      };
+      new g.Geocoder().geocode(
+        { address: q, componentRestrictions: { country: "US", administrativeArea: "TX" } },
+        (res, ok) => {
+          const loc = ok === "OK" && res?.length ? res[0].geometry.location : null;
+          if (loc && inHomeRegion({ lat: loc.lat(), lng: loc.lng() })) { place(res!); return; }
+          new g.Geocoder().geocode({ address: q }, found);
+        });
     } catch {
       toast.error("Address lookup failed");
+    }
+    function place(res: { geometry: { location: { lat(): number; lng(): number } } }[]) {
+      const loc = res[0].geometry.location;
+      mapRef.current.setCenter({ lat: loc.lat(), lng: loc.lng() });
+      // Searching is how a wrong geocode gets corrected, so the pin moves
+      // with it — otherwise it would still mark the wrong house.
+      setPin({ lat: loc.lat(), lng: loc.lng() });
+      setLocateNote("");
+      setZoomFine(DEFAULT_ZOOM);
     }
   }, [search, setZoomFine]);
 
