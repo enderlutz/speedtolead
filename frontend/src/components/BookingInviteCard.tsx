@@ -14,7 +14,11 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 
 type Tier = "essential" | "signature" | "legacy";
-type Draft = { date: string; tier: Tier; color: string; notes: string; klarna: boolean };
+type Draft = {
+  date: string; tier: Tier; color: string; notes: string; klarna: boolean;
+  /** A discount: dollars or a percent off the package, and why. */
+  dtype: "amount" | "percent"; dval: string; dlabel: string;
+};
 const TIERS: { key: Tier; name: string }[] = [
   { key: "essential", name: "Essential Seal" },
   { key: "signature", name: "Signature Finish" },
@@ -29,7 +33,15 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "" });
+
+/** The discount in dollars, the same rule as the server: never the whole price. */
+function discountOff(price: number, d: Draft): number {
+  const v = Number(d.dval) || 0;
+  if (!price || v <= 0) return 0;
+  const off = d.dtype === "percent" ? Math.round(price * v) / 100 : v;
+  return Math.max(0, Math.min(Math.round(off * 100) / 100, price - 1));
+}
 const longDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 const when = (iso?: string | null) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) : "";
 
@@ -58,7 +70,10 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       setSt(s);
       const d = s.draft;
       if (d?.updated_at || s.booking) setOpen(true);
-      if (d?.updated_at) setDraft((x) => ({ date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna }));
+      if (d?.updated_at) setDraft((x) => ({
+        date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
+        dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
+      }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
   }, [lead.id]);
@@ -74,13 +89,22 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const fd = (lead.form_data || {}) as Record<string, unknown>;
   const rawSides = fd.fence_sides;
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
-  const total = tiers?.[draft.tier] || 0;
+  const price = tiers?.[draft.tier] || 0;
+  const off = discountOff(price, draft);
+  const total = Math.round((price - off) * 100) / 100;
   const saved = st?.draft?.updated_at ? st.draft : null;
-  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna;
+  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
+    || (saved.discount_value || 0) !== (Number(draft.dval) || 0)
+    || ((saved.discount_value ? saved.discount_type : "") || "") !== (Number(draft.dval) ? draft.dtype : "")
+    || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "");
   const sent = st?.booking || null;
 
   const save = async () => {
-    const d = await api.saveBookingDraft(lead.id, draft);
+    const d = await api.saveBookingDraft(lead.id, {
+      date: draft.date, tier: draft.tier, color: draft.color, notes: draft.notes, klarna: draft.klarna,
+      discount_type: Number(draft.dval) ? draft.dtype : "", discount_value: Number(draft.dval) || 0,
+      discount_label: Number(draft.dval) ? draft.dlabel : "",
+    });
     setSt((s) => (s ? { ...s, draft: d } : s));
     return d;
   };
@@ -183,6 +207,36 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           ))}
         </div>
       </div>
+      {/* A discount on the package (Alan, 2026-10-15). They see it on the
+          invite, and the deposit, balance and Klarna all use the new total. */}
+      <div className="rounded-xl border border-input p-3">
+        <p className="text-sm font-semibold">Discount <span className="font-normal text-muted-foreground">(optional)</span></p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <div className="inline-flex overflow-hidden rounded-lg border border-input">
+            {(["amount", "percent"] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setDraft({ ...draft, dtype: t })}
+                className={cn("h-11 w-11 text-base font-bold", draft.dtype === t ? "bg-ink text-gold-light" : "bg-background text-muted-foreground")}>
+                {t === "amount" ? "$" : "%"}
+              </button>
+            ))}
+          </div>
+          <input inputMode="decimal" value={draft.dval} placeholder={draft.dtype === "percent" ? "10" : "100"}
+            onChange={(e) => setDraft({ ...draft, dval: e.target.value.replace(/[^0-9.]/g, "") })}
+            className="h-11 w-24 rounded-lg border border-input bg-background px-3 text-base tabular-nums" />
+          <input value={draft.dlabel} maxLength={60} placeholder="Why, e.g. Returning customer"
+            onChange={(e) => setDraft({ ...draft, dlabel: e.target.value })}
+            className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-base" />
+        </div>
+        {off ? (
+          <p className="mt-2 text-sm">
+            <span className="text-muted-foreground line-through">{formatCurrency(price)}</span>
+            <span className="mx-1.5 font-semibold text-emerald-700">− {formatCurrency(off)}</span>
+            = <span className="font-bold">{formatCurrency(total)}</span>
+            <span className="text-muted-foreground"> · deposit, balance and Klarna all use this</span>
+          </p>
+        ) : null}
+      </div>
+
       <label className="block text-sm">
         <span className="font-semibold">Additional notes</span>
         <span className="ml-1 text-muted-foreground">(they see this on the invite)</span>
@@ -247,6 +301,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           date={day}
           notes={draft.notes}
           klarna={draft.klarna}
+          discount={off}
+          discountLabel={draft.dlabel}
           staff
           onClose={() => setPreview(false)}
           onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
@@ -267,6 +323,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           initial={sent.status}
           holdUntilIso={sent.hold_until}
           klarna={sent.klarna}
+          discount={sent.discount}
+          discountLabel={sent.discount_label}
           staff
           onClose={() => setPreviewSent(false)}
           onSave={() => setPreviewSent(false)}

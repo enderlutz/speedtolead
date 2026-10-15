@@ -4049,6 +4049,12 @@ class Booking(Base):
     # 1 = the invite also offers Klarna for the whole job beside the $250
     # (Alan, 2026-10-15). NULL = deposit only.
     klarna = Column(Integer, nullable=True)
+    # A discount on the package (Alan, 2026-10-15). price_cents is the
+    # package before it; total_cents is what they pay, after it. NULL/0 on
+    # older bookings = no discount.
+    price_cents = Column(Integer, nullable=True)
+    discount_cents = Column(Integer, nullable=True)
+    discount_label = Column(Text, default="")
 
 
 class GoogleReview(Base):
@@ -4172,6 +4178,10 @@ def _run_migrations():
         if "klarna" not in bk:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE bookings ADD COLUMN klarna INTEGER"))
+        with _engine.begin() as conn:
+            for col, typ in (("price_cents", "INTEGER"), ("discount_cents", "INTEGER"), ("discount_label", "TEXT DEFAULT ''")):
+                if col not in bk:
+                    conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col} {typ}"))
     if inspector.has_table("proposals"):
         pr = {c["name"] for c in inspector.get_columns("proposals")}
         if "extended_until" not in pr:

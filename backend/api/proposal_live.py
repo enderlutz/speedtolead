@@ -537,6 +537,10 @@ class BookingDraftBody(BaseModel):
     notes: str = ""     # e.g. "A pergola would be about $750–$950 more."
     # Offer Klarna for the whole job beside the $250 deposit.
     klarna: bool = False
+    # A discount on the package: dollars ("amount") or a percent, and why.
+    discount_type: str = ""
+    discount_value: float = 0
+    discount_label: str = ""
 
 
 def _booking_draft(lead: Lead) -> dict:
@@ -572,6 +576,12 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
     notes = (body.notes or "").strip()
     if len(notes) > 1000:
         raise HTTPException(status_code=400, detail="Keep the note under 1,000 characters")
+    dtype = body.discount_type if body.discount_type in ("amount", "percent") else ""
+    dval = round(float(body.discount_value or 0), 2) if dtype else 0
+    if dval < 0 or (dtype == "percent" and dval >= 100):
+        raise HTTPException(status_code=400, detail="That discount doesn't add up. Use dollars, or a percent under 100.")
+    if not dval:
+        dtype = ""
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -584,6 +594,8 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         fd["booking_draft"] = {
             "date": date, "tier": tier, "color": (body.color or "").strip()[:80], "notes": notes,
             "klarna": bool(body.klarna),
+            "discount_type": dtype, "discount_value": dval,
+            "discount_label": (body.discount_label or "").strip()[:60] if dtype else "",
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)

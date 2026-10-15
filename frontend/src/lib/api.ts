@@ -549,6 +549,10 @@ export interface BookingDraft {
   notes?: string;
   /** Offer Klarna for the whole job beside the $250. */
   klarna?: boolean;
+  /** A discount on the package: dollars or a percent, and why. */
+  discount_type?: "" | "amount" | "percent";
+  discount_value?: number;
+  discount_label?: string;
   updated_at?: string;
   updated_by?: string;
 }
@@ -560,6 +564,10 @@ export interface BookingSent {
   /** On Alan's Google Calendar (never with the customer as a guest). */
   on_calendar: boolean;
   klarna: boolean;
+  /** The package before the discount; `total` is after it. */
+  price: number;
+  discount: number;
+  discount_label: string;
 }
 
 export interface BookingState {
@@ -2153,7 +2161,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/leads/${leadId}/objections/${objectionId}`, { method: "DELETE" }),
   /** The booking invite drafted on the lead (date, package, colour, notes). */
   getBookingDraft: (leadId: string) => request<BookingDraft>(`/api/leads/${leadId}/booking-draft`),
-  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna">) =>
+  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label">) =>
     request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
   clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),

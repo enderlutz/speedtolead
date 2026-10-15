@@ -14,6 +14,7 @@ type Booking = {
   color: string; notes: string; sides: string[]; feet: number; total: number; deposit: number;
   paid: number; paid_kind: string; hold_until: string; proposal_url: string;
   klarna?: boolean;
+  price?: number; discount?: number; discount_label?: string;
 };
 
 export default function BookingPage() {
@@ -82,6 +83,8 @@ export default function BookingPage() {
       proposalHref={b.proposal_url || undefined}
       onPay={pay}
       klarna={!!b.klarna}
+      discount={b.discount || 0}
+      discountLabel={b.discount_label || ""}
       onFinance={finance}
     />
   );

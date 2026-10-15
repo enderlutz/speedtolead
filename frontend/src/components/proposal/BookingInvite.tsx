@@ -46,7 +46,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -65,6 +65,9 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   holdUntilIso?: string;
   /** What's been paid (the deposit, or the whole job). */
   paidAmount?: number;
+  /** Dollars off the package; `total` is already after it (Alan, 2026-10-15). */
+  discount?: number;
+  discountLabel?: string;
   /** Offer Klarna for the whole job beside the $250 (Alan, 2026-10-15). */
   klarna?: boolean;
   /** The real Klarna door: makes the full-price link and goes to it. */
@@ -209,6 +212,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: GOLD }}><Clock className="h-6 w-6 text-[#15130F]" /></span>
                 <div>
                   <p className="text-[19px] font-bold leading-tight">Your date is on hold</p>
+                  {discount ? <p className="mt-0.5 inline-block rounded-full bg-emerald-500/20 px-2 py-0.5 text-[13px] font-bold text-emerald-300">You're saving {formatCurrency(discount)}{discountLabel ? ` · ${discountLabel}` : ""}</p> : null}
                   <p className="text-[15px] text-white/85">{klarna ? "The $250 deposit or Klarna confirms it" : `${formatCurrency(DEPOSIT)} deposit to confirm`}</p>
                 </div>
               </div>
@@ -297,7 +301,17 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               {sides.length ? <Row k="Sides" v={sides.join(", ")} /> : null}
               <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
               <div className="border-t border-[#15130F]/10 pt-2">
-                <Row k="Job total" v={formatCurrency(total)} />
+                {/* The discount spelled out, so the math reads top to bottom. */}
+                {discount ? (
+                  <>
+                    <Row k={pkgName || "Package"} v={formatCurrency(total + discount)} />
+                    <div className="flex justify-between gap-3 font-semibold text-emerald-700">
+                      <dt>Your discount{discountLabel ? ` · ${discountLabel}` : ""}</dt>
+                      <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(discount)}</dd>
+                    </div>
+                  </>
+                ) : null}
+                <Row k="Job total" v={formatCurrency(total)} bold={!!discount} />
                 <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />
               </div>

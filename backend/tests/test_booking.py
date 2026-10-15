@@ -141,3 +141,28 @@ def test_klarna_on_the_invite_is_a_full_price_klarna_link_and_paying_it_confirms
     link.status, link.paid_at = "paid", datetime.now(timezone.utc).isoformat()
     db.commit()
     assert bk.booking_page(token, _Req())["status"] == "confirmed"
+
+
+def test_a_discount_shows_the_math_and_the_deposit_and_klarna_charge_the_discounted_total(db, ghl):
+    from database import PayLink
+    lead, day = _ready(db)
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", klarna=True,
+                                                       discount_type="percent", discount_value=10,
+                                                       discount_label="Returning customer"), STAFF)
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    assert b["price"] == 997.92 and b["discount"] == 99.79 and b["total"] == 898.13
+    page = bk.booking_page(b["token"], _Req())
+    assert page["price"] - page["discount"] == page["total"] == 898.13 and page["discount_label"] == "Returning customer"
+    cal = [x for x in ghl if x[0] == "cal"][-1][3]
+    assert "$898.13" in cal and "was $997.92" in cal and "Returning customer" in cal
+    bk.booking_pay(b["token"], _Req())
+    dep = db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "deposit").one()
+    assert dep.amount_cents == 25000 and dep.job_total_cents == 89813
+    bk.booking_finance(b["token"], _Req())
+    full = db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one()
+    assert full.amount_cents == 89813
+    # Dollars work too, and a silly discount is refused.
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", discount_type="amount", discount_value=100), STAFF)
+    assert bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]["total"] == 897.92
+    with pytest.raises(HTTPException):
+        pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", discount_type="percent", discount_value=150), STAFF)

@@ -61,6 +61,18 @@ def _first(lead: Lead) -> str:
     return ((lead.contact_name or "").split() or ["there"])[0].title()
 
 
+def discount_cents(price_cents: int, kind: str, value: float) -> int:
+    """The discount in cents: dollars or a percent of the package, never the
+    whole price."""
+    if kind == "amount":
+        off = int(round(value * 100))
+    elif kind == "percent":
+        off = int(round(price_cents * value / 100))
+    else:
+        off = 0
+    return max(0, min(off, price_cents - 100))
+
+
 def default_message(lead: Lead, iso: str) -> str:
     return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. I'm holding {_long(iso)} "
             f"for your fence. Here's your booking, and the $250 deposit locks it in: {LINK}")
@@ -100,6 +112,9 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         "hold_until": _hold_until(b),
         "on_calendar": bool(b.google_event_id),
         "klarna": bool(b.klarna),
+        "price": (b.price_cents or b.total_cents or 0) / 100,
+        "discount": (b.discount_cents or 0) / 100,
+        "discount_label": b.discount_label or "",
     }
 
 
@@ -138,7 +153,9 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
     sides = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
     lines = [
         state, "",
-        f"Package: {NAMES.get(b.tier, b.tier)} · {hooks.money(total)}",
+        f"Package: {NAMES.get(b.tier, b.tier)} · {hooks.money(total)}"
+        + (f" (was {hooks.money((b.price_cents or 0) / 100)}, {hooks.money(b.discount_cents / 100)} off"
+           + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
         f"Due after the job: {hooks.money(due)}",
         f"Color: {b.color or 'to pick on the day'}",
         f"Fence: {fd.get('linear_feet') or '?'} ft",
@@ -252,7 +269,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         b.date, b.tier = d["date"], d["tier"]
         b.color, b.notes = d.get("color") or "", d.get("notes") or ""
         b.klarna = 1 if d.get("klarna") else None
-        b.total_cents = int(round(float(tiers[d["tier"]]) * 100))
+        price_cents = int(round(float(tiers[d["tier"]]) * 100))
+        off = discount_cents(price_cents, d.get("discount_type") or "", float(d.get("discount_value") or 0))
+        b.price_cents = price_cents
+        b.discount_cents = off or None
+        b.discount_label = (d.get("discount_label") or "").strip() if off else ""
+        # What they pay: the deposit, the balance and Klarna all go by this.
+        b.total_cents = price_cents - off
         url = booking_url(b.token)
 
         msg = (body.message if body.message is not None else default_message(lead, b.date)).strip()
@@ -365,6 +388,9 @@ def booking_page(token: str, request: Request, preview: int = 0):
             "hold_until": _hold_until(b),
             "proposal_url": f"{proposal_base()}/p/{p.token}" if p else "",
             "klarna": bool(b.klarna),
+            "price": (b.price_cents or b.total_cents or 0) / 100,
+            "discount": (b.discount_cents or 0) / 100,
+            "discount_label": b.discount_label or "",
         }
     finally:
         db.close()
