@@ -358,11 +358,11 @@ def test_saved_invoice_lines_replace_by_name_and_delete(db):
     rows = sp.save_line(sp.InvoiceItem(name="house wash ", amount=250), STAFF)
     # Names and notes only: every job is priced on its own (Alan, 2026-10-15).
     assert [(r["name"], r["amount"]) for r in rows] == [("house wash", 0), ("Post replacement", 0)]
-    assert sp.save_line(sp.InvoiceItem(name="Top caps stained", amount=125), STAFF)[0] == {"name": "Top caps stained", "description": "", "amount": 0}
     assert sp.list_saved_lines(STAFF) == rows
+    assert sp.save_line(sp.InvoiceItem(name="Top caps stained", amount=125), STAFF)[0] == {"name": "Top caps stained", "description": "", "amount": 0}
     with pytest.raises(HTTPException):
         sp.save_line(sp.InvoiceItem(name="  ", amount=10), STAFF)
-    assert [r["name"] for r in sp.delete_saved_line("HOUSE WASH", STAFF)] == ["Post replacement"]
+    assert [r["name"] for r in sp.delete_saved_line("HOUSE WASH", STAFF)] == ["Top caps stained", "Post replacement"]
 
 
 def test_an_invoice_carries_the_job_number(db, monkeypatch):
