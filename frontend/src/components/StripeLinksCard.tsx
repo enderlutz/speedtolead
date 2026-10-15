@@ -337,11 +337,13 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
   const due = subtotal - lineOff - wholeOff - paid;
 
   const set = (k: number, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === k ? { ...r, ...patch } : r)));
-  const isSaved = (r: Row) => saved.some((s) => s.name.toLowerCase() === r.name.trim().toLowerCase() && s.amount === num(r.amount) && s.description === r.description.trim());
+  // Saved lines keep the name and note only. No price: every job is priced on
+  // its own, so the amount is typed each time (Alan, 2026-10-15).
+  const isSaved = (r: Row) => saved.some((s) => s.name.toLowerCase() === r.name.trim().toLowerCase() && s.description === r.description.trim());
   const saveLine = async (r: Row) => {
-    if (!r.name.trim() || !num(r.amount)) { toast.error("Give the line a name and a price first"); return; }
+    if (!r.name.trim()) { toast.error("Give the line a name first"); return; }
     try {
-      setSaved(await api.saveLine({ name: r.name.trim(), description: r.description.trim(), amount: num(r.amount) }));
+      setSaved(await api.saveLine({ name: r.name.trim(), description: r.description.trim(), amount: 0 }));
       toast.success(`Saved "${r.name.trim()}" for next time`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save the line");
@@ -352,7 +354,7 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
   };
   // A saved chip fills the first empty line, or adds a new one.
   const addSaved = (s: InvoiceLine) => setRows((rs) => {
-    const fresh = { ...blankRow(), name: s.name, description: s.description, amount: String(s.amount) };
+    const fresh = { ...blankRow(), name: s.name, description: s.description, amount: "" };
     const i = rs.findIndex((r) => !r.name.trim() && !num(r.amount));
     return i >= 0 ? rs.map((r, j) => (j === i ? fresh : r)) : [...rs, fresh];
   });
@@ -408,7 +410,7 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
             {saved.map((s) => (
               <span key={s.name} className="inline-flex h-8 items-center rounded-full border border-border bg-muted/50 text-xs">
                 <button type="button" onClick={() => addSaved(s)} className="h-full rounded-l-full pl-2.5 pr-1 font-medium hover:bg-muted" title={s.description || undefined}>
-                  + {s.name} <span className="tabular-nums text-muted-foreground">{money(s.amount)}</span>
+                  + {s.name}
                 </button>
                 <button type="button" onClick={() => forget(s.name)} className="h-full rounded-r-full px-1.5 text-muted-foreground hover:bg-muted" aria-label={`Remove saved line ${s.name}`}><X className="h-3 w-3" /></button>
               </span>

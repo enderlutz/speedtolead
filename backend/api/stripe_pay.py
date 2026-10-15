@@ -548,12 +548,14 @@ def list_saved_lines(user: dict = Depends(require_staff)):
 @router.post("/stripe/saved-lines")
 def save_line(body: InvoiceItem, user: dict = Depends(require_staff)):
     name = body.name.strip()
-    if not name or not body.amount:
-        raise HTTPException(status_code=400, detail="A saved line needs a name and a price")
+    if not name:
+        raise HTTPException(status_code=400, detail="A saved line needs a name")
     db = get_db()
     try:
         rows = [r for r in _saved_lines(db) if r["name"].lower() != name.lower()]
-        rows.insert(0, {"name": name, "description": body.description.strip(), "amount": round(float(body.amount), 2)})
+        # The name and note only, never a price: every job is priced on its
+        # own (Alan, 2026-10-15), so the amount is typed in each time.
+        rows.insert(0, {"name": name, "description": body.description.strip(), "amount": 0})
         SystemConfig.set(db, SAVED_LINES_KEY, json.dumps(rows[:SAVED_LINES_MAX]))
         log_event(None, "invoice_line_saved", f"{name} {body.amount} by {user.get('name') or user.get('sub') or ''}")
         return rows[:SAVED_LINES_MAX]
