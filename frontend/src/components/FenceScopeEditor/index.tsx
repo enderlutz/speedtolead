@@ -359,11 +359,13 @@ export default function FenceScopeEditor({ leadId }: Props) {
   // The frame the view pans within is the page itself: any slack and the axis
   // with the most room would refuse to pan until you'd zoomed much further in.
   const pageSize = useMemo(() => ({ width: page.width, height: page.height }), [page.width, page.height]);
-  const view = useCanvasView(pageSize, pageSize);
+  // Phone with a pen down: the photo slides freely under the fixed crosshair.
+  const crosshairMode = COARSE_POINTER && scope.mode !== "select";
+  const view = useCanvasView(pageSize, pageSize, crosshairMode);
 
   // Phone: while a pen is down the crosshair sits in the middle of the
   // page; the photo is panned under it and Add point drops the point there.
-  const crosshair = COARSE_POINTER && scope.mode !== "select"
+  const crosshair = crosshairMode
     ? { x: (page.width / 2 - view.pan.x) / view.zoom, y: (page.height / 2 - view.pan.y) / view.zoom }
     : null;
   const penHex = scope.mode === "green" ? GREEN : scope.mode === "red" ? RED : BLUE;

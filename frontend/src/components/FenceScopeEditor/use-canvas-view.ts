@@ -29,9 +29,20 @@ function clamp(v: number, lo: number, hi: number) {
 /** Where the page is allowed to sit: centred in the axes where it's smaller
  * than the frame, edge-locked in the axes where it's bigger. This is the whole
  * fix for "zoom out and the page disappears into the corner". */
-export function clampToFrame(p: Pan, zoom: number, frame: Size, page: Size): Pan {
+export function clampToFrame(p: Pan, zoom: number, frame: Size, page: Size, free = false): Pan {
   const cw = page.width * zoom;
   const ch = page.height * zoom;
+  // Crosshair mode (phone, pen down): the crosshair is fixed in the middle,
+  // so the page has to slide until ANY point of it, edges and corners
+  // included, can sit under the middle. Edge-locking made the outer part of
+  // the photo unreachable and the page wouldn't move at all at fit (Alan,
+  // 2026-10-14: "it wouldn't move, I'd have to zoom in and zoom out").
+  if (free) {
+    return {
+      x: clamp(p.x, frame.width / 2 - cw, frame.width / 2),
+      y: clamp(p.y, frame.height / 2 - ch, frame.height / 2),
+    };
+  }
   return {
     x: cw <= frame.width ? (frame.width - cw) / 2 : clamp(p.x, frame.width - cw, 0),
     y: ch <= frame.height ? (frame.height - ch) / 2 : clamp(p.y, frame.height - ch, 0),
@@ -77,7 +88,7 @@ export interface CanvasView {
 /** Zoom and pan move together (zooming about a point changes both), so they
  * live in one piece of state and every update is a pure function of the
  * previous one — no refs, nothing to go stale mid-gesture. */
-export function useCanvasView(frame: Size, page: Size): CanvasView {
+export function useCanvasView(frame: Size, page: Size, free = false): CanvasView {
   const [state, setState] = useState<{ zoom: number; pan: Pan }>({ zoom: 1, pan: { x: 0, y: 0 } });
 
   const zoomAbout = useCallback(
@@ -86,17 +97,17 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
         const nz = clamp(nextZoom(cur.zoom), MIN_ZOOM, MAX_ZOOM);
         if (nz === cur.zoom) return cur;
         const a = anchor ?? { x: frame.width / 2, y: frame.height / 2 };
-        return { zoom: nz, pan: clampToFrame(panForZoomAt(a, cur.pan, cur.zoom, nz), nz, frame, page) };
+        return { zoom: nz, pan: clampToFrame(panForZoomAt(a, cur.pan, cur.zoom, nz), nz, frame, page, free) };
       });
     },
-    [frame, page]
+    [frame, page, free]
   );
 
   const zoomIn = useCallback(() => zoomAbout((z) => z * BUTTON_STEP), [zoomAbout]);
   const zoomOut = useCallback(() => zoomAbout((z) => z / BUTTON_STEP), [zoomAbout]);
   const fit = useCallback(
-    () => setState({ zoom: 1, pan: clampToFrame({ x: 0, y: 0 }, 1, frame, page) }),
-    [frame, page]
+    () => setState({ zoom: 1, pan: clampToFrame({ x: 0, y: 0 }, 1, frame, page, free) }),
+    [frame, page, free]
   );
 
   const wheel = useCallback(
@@ -114,10 +125,10 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
       const dy = evt.shiftKey && evt.deltaX === 0 ? 0 : evt.deltaY;
       setState((cur) => ({
         ...cur,
-        pan: clampToFrame({ x: cur.pan.x - dx, y: cur.pan.y - dy }, cur.zoom, frame, page),
+        pan: clampToFrame({ x: cur.pan.x - dx, y: cur.pan.y - dy }, cur.zoom, frame, page, free),
       }));
     },
-    [zoomAbout, frame, page]
+    [zoomAbout, frame, page, free]
   );
 
   const pinch = useCallback(
@@ -134,31 +145,31 @@ export function useCanvasView(frame: Size, page: Size): CanvasView {
         zoom: nextZoom,
         pan: clampToFrame(
           { x: center.x - held.x * nextZoom, y: center.y - held.y * nextZoom },
-          nextZoom, frame, page
+          nextZoom, frame, page, free
         ),
       });
     },
-    [frame, page]
+    [frame, page, free]
   );
 
   // Safe to close over the current zoom: a drag gesture can't change it.
   const boundPan = useCallback(
-    (p: Pan) => clampToFrame(p, state.zoom, frame, page),
-    [state.zoom, frame, page]
+    (p: Pan) => clampToFrame(p, state.zoom, frame, page, free),
+    [state.zoom, frame, page, free]
   );
 
   const commitPan = useCallback(
-    (p: Pan) => setState((cur) => ({ ...cur, pan: clampToFrame(p, cur.zoom, frame, page) })),
-    [frame, page]
+    (p: Pan) => setState((cur) => ({ ...cur, pan: clampToFrame(p, cur.zoom, frame, page, free) })),
+    [frame, page, free]
   );
 
   // Clamped on the way out rather than corrected in an effect: a resize
   // changes what counts as a legal pan, and deriving it here means the page
   // re-centres on the very same render instead of a frame later.
-  const pan = clampToFrame(state.pan, state.zoom, frame, page);
+  const pan = clampToFrame(state.pan, state.zoom, frame, page, free);
   // Nothing to pan to while the page fits — worth telling the user, because a
   // dead-feeling drag looks identical to a broken one.
-  const pannable = page.width * state.zoom > frame.width + 0.5 || page.height * state.zoom > frame.height + 0.5;
+  const pannable = free || page.width * state.zoom > frame.width + 0.5 || page.height * state.zoom > frame.height + 0.5;
 
   return { zoom: state.zoom, pan, pannable, zoomIn, zoomOut, fit, wheel, pinch, boundPan, commitPan };
 }
