@@ -220,22 +220,6 @@ const LEAD_TAB =
 
 const STAGE_DECLINED = "f207a600-81c9-4150-941c-e977ea876929";
 
-// True below the `lg` breakpoint (single-column layout). Used to place a few
-// sections differently on phones without touching the desktop layout.
-function useIsMobile(query = "(max-width: 1023px)"): boolean {
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" && window.matchMedia(query).matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    const on = () => setIsMobile(mq.matches);
-    on();
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, [query]);
-  return isMobile;
-}
-
 /** The options, plus the lead's own source when that isn't one of them.
  *
  *  513 leads carry "contact_mirror" (written by the GHL contact mirror, not
@@ -609,7 +593,6 @@ export default function LeadDetail() {
   const { trainingModeOn, activeCall, startCall } = useTrainingMode();
   const [practicing, setPracticing] = useState(false);
   const [lead, setLead] = useState<LeadDetailType | null>(null);
-  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -2530,12 +2513,7 @@ export default function LeadDetail() {
           {/* Phone only: The Hit List sits right under "Send a custom PDF".
               Desktop keeps it full-width below the grid (rendered there when
               !isMobile). Only one instance mounts, so no double fetch. */}
-          {isMobile && (
-            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}
-                   collapsed={!isOpen("hitlist", false)} onToggle={() => toggle("hitlist", false)}>
-              <DailyTaskList leadId={lead.id} />
-            </Panel>
-          )}
+          {/* The Hit List moved to the Customer Stats tab (Alan, 2026-10-14). */}
 
           {/* The small facts, folded (Alan, 2026-10-09). */}
           <Panel icon={Compass} title="Details" sub={`Came in ${formatDate(lead.created_at)}`} accent={ACCENT.slate}
@@ -2590,12 +2568,7 @@ export default function LeadDetail() {
               call log, notes, E/S/L prices, follow-up, actions) the VA sees on
               the dashboard queue, mirrored here. Desktop position; on phones
               it's rendered up under "Send a custom PDF" instead. */}
-          {!isMobile && (
-            <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}
-                   collapsed={!isOpen("hitlist", false)} onToggle={() => toggle("hitlist", false)}>
-              <DailyTaskList leadId={lead.id} />
-            </Panel>
-          )}
+          {/* The Hit List lives on the Customer Stats tab now. */}
 
           {/* QuickBooks payments, archived: see SHOW_QB_PAYMENTS. */}
           {SHOW_QB_PAYMENTS && canSeeRevenue() && <LeadInvoicesCard leadId={lead.id} leadName={lead.contact_name || ""} />}
@@ -2696,6 +2669,12 @@ export default function LeadDetail() {
           {lead.after_estimate
             ? <SinceEstimateCard info={lead.after_estimate} discovery={lead.discovery_call} />
             : <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No estimate has gone out yet, so there's nothing to count.</p>}
+          {/* The lead's row from the daily queue, under the follow-ups
+              (Alan, 2026-10-14: moved off the Estimate tab). */}
+          <Panel icon={Flame} title="The Hit List" sub="This lead's row from the daily queue" accent={ACCENT.rose}
+                 collapsed={!isOpen("hitlist", true)} onToggle={() => toggle("hitlist", true)}>
+            <DailyTaskList leadId={lead.id} />
+          </Panel>
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4 sm:space-y-6 mt-4">
