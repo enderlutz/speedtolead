@@ -11,6 +11,10 @@ import type { Rect } from "./layout";
 
 /** How close, in on-screen pixels, counts as aiming at an existing corner. */
 export const SNAP_RADIUS_SCREEN = 14;
+/** A thumb dragging the photo under a crosshair is less exact than a mouse,
+ *  and the crosshair shows when it will weld, so phones reach further
+ *  (Alan, 2026-10-14). */
+export const PHONE_SNAP_RADIUS_SCREEN = 26;
 
 /** The existing vertex nearest to a page-space point, if one is within
  * `radius` page pixels. Returns the stored point itself, so the new point is
@@ -57,10 +61,11 @@ export function pointAt(
   x: number, y: number,
   body: { x: number; y: number; width: number; height: number },
   zoom: number,
+  radiusScreen: number = SNAP_RADIUS_SCREEN,
 ): { x: number; y: number } | null {
   const points = scope.drawingPoints;
   const last = points.length ? points[points.length - 1] : null;
-  const corner = snapToVertex(x, y, scope.segments, body, SNAP_RADIUS_SCREEN / zoom, last);
+  const corner = snapToVertex(x, y, scope.segments, body, radiusScreen / zoom, last);
   const next = corner ?? {
     x: Math.min(1, Math.max(0, (x - body.x) / body.width)),
     y: Math.min(1, Math.max(0, (y - body.y) / body.height)),

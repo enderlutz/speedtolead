@@ -33,6 +33,8 @@ interface Props {
   /** Phone: where the fixed crosshair sits, in stage pixels, while a pen is
    *  down. A dotted leg runs from the trace's last point to it. */
   crosshair?: { x: number; y: number } | null;
+  /** Phone: the existing dot the crosshair would weld to, in stage pixels. */
+  snapTo?: { x: number; y: number } | null;
 }
 
 type BodyRect = RectBox;
@@ -72,7 +74,7 @@ function flatten(pts: Pt[]) {
 }
 export default function ScopeCanvas({
   scope, page, view, sourceImage, logoImage,
-  headerTheme, address, activePointIndex, onActivePointChange, stageRef, crosshair,
+  headerTheme, address, activePointIndex, onActivePointChange, stageRef, crosshair, snapTo,
 }: Props) {
   const { width: pageWidth, height: pageHeight, body: bodyRect } = page;
   const internalStageRef = useRef<Konva.Stage>(null);
@@ -461,7 +463,7 @@ export default function ScopeCanvas({
           const last = toPixel(scope.drawingPoints[scope.drawingPoints.length - 1], bodyRect);
           return (
             <Line
-              points={[last.x, last.y, crosshair.x, crosshair.y]}
+              points={[last.x, last.y, (snapTo ?? crosshair).x, (snapTo ?? crosshair).y]}
               stroke={colorHex(scope.mode === "select" ? "blue" : scope.mode)}
               strokeWidth={LINE_WIDTH_INNER}
               dash={[2, 7]}
@@ -471,6 +473,12 @@ export default function ScopeCanvas({
             />
           );
         })() : null}
+
+        {/* Phone: a ring on the dot the next point will weld to. */}
+        {crosshair && snapTo ? (
+          <Circle x={snapTo.x} y={snapTo.y} radius={14 / view.zoom} stroke="#22c55e" strokeWidth={3 / view.zoom}
+            shadowColor="black" shadowBlur={4 / view.zoom} shadowOpacity={0.6} listening={false} />
+        ) : null}
 
         {/* In-progress trace preview */}
         {scope.drawingPoints.length > 0 && (

@@ -17,7 +17,8 @@ import { orientImage } from "./orient";
 import { enhanceImage } from "./enhance";
 import { pageLayout, pageAspect, sourceAspect } from "./layout";
 import ScopeCanvas from "./ScopeCanvas";
-import { pointAt } from "./snap";
+import { pointAt, snapToVertex, PHONE_SNAP_RADIUS_SCREEN } from "./snap";
+import { Loupe } from "./loupe";
 import SendScopeDialog from "./SendScopeDialog";
 import ScopeVersions from "./ScopeVersions";
 import StepStrip from "./StepStrip";
@@ -369,9 +370,17 @@ export default function FenceScopeEditor({ leadId }: Props) {
     ? { x: (page.width / 2 - view.pan.x) / view.zoom, y: (page.height / 2 - view.pan.y) / view.zoom }
     : null;
   const penHex = scope.mode === "green" ? GREEN : scope.mode === "red" ? RED : BLUE;
+  // The dot the crosshair would weld to, shown before Add point is pressed.
+  const snapTarget = crosshair
+    ? snapToVertex(crosshair.x, crosshair.y, scope.segments, page.body, PHONE_SNAP_RADIUS_SCREEN / view.zoom,
+      scope.drawingPoints.length ? scope.drawingPoints[scope.drawingPoints.length - 1] : null)
+    : null;
+  const snapPixel = snapTarget
+    ? { x: page.body.x + snapTarget.x * page.body.width, y: page.body.y + snapTarget.y * page.body.height }
+    : null;
   const addPointAtCrosshair = () => {
     if (!crosshair) return;
-    const p = pointAt(scope, crosshair.x, crosshair.y, page.body, view.zoom);
+    const p = pointAt(scope, crosshair.x, crosshair.y, page.body, view.zoom, PHONE_SNAP_RADIUS_SCREEN);
     if (p) scope.addDrawingPoint(p);
   };
 
@@ -756,12 +765,22 @@ export default function FenceScopeEditor({ leadId }: Props) {
               onActivePointChange={setActivePointIndex}
               stageRef={stageRef}
               crosshair={crosshair}
+              snapTo={snapPixel}
             />
             {crosshair ? (
               <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                <div className="h-9 w-9 rounded-full border-[3px] shadow-[0_0_0_2px_rgba(0,0,0,0.6)]" style={{ borderColor: penHex }} />
+                <div className="h-9 w-9 rounded-full border-[3px] shadow-[0_0_0_2px_rgba(0,0,0,0.6)]" style={{ borderColor: snapPixel ? "#22c55e" : penHex }} />
                 <div className="absolute left-1/2 top-1/2 h-0.5 w-14 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
                 <div className="absolute left-1/2 top-1/2 h-14 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+                {snapPixel ? (
+                  <span className="absolute left-1/2 top-full mt-5 -translate-x-1/2 whitespace-nowrap rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white shadow-lg">Snaps to this dot</span>
+                ) : null}
+              </div>
+            ) : null}
+            {/* The magnifier: a close-up of what's under the crosshair. */}
+            {crosshair ? (
+              <div className="pointer-events-none absolute bottom-2 left-2">
+                <Loupe stageRef={stageRef} color={snapPixel ? "#22c55e" : penHex} />
               </div>
             ) : null}
           </div>
