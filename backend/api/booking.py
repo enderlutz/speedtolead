@@ -211,8 +211,10 @@ def sync_calendar(db, lead: Lead, b: Booking) -> str:
     the event's link, or "" when Google didn't take it."""
     try:
         summary, desc = _calendar_text(db, lead, b)
+        # Blue while the booking is only held; yellow (a real job) once paid.
+        color = gcal.GCAL_COLOR_BANANA if _confirmed(db, lead) else gcal.GCAL_COLOR_BLUEBERRY
         eid, link = gcal.upsert_internal_event(db, b.google_event_id, summary=summary, description=desc,
-                                               location=lead.address or "", job_date=b.date)
+                                               location=lead.address or "", job_date=b.date, color_id=color)
         if eid and eid != b.google_event_id:
             b.google_event_id = eid
             db.commit()

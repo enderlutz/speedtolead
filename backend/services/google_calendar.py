@@ -349,6 +349,7 @@ def upsert_internal_event(
     start_time: str = "07:30",
     end_time: str = "15:00",
     timezone_str: str = "America/Chicago",
+    color_id: str = "5",
 ) -> tuple[str | None, str]:
     """An event on Alan's calendar only: no guests, so Google never emails
     anyone and never adds a Meet link (the booking invite, 2026-10-14).
@@ -363,7 +364,7 @@ def upsert_internal_event(
         "summary": summary, "location": location, "description": description,
         "start": {"dateTime": f"{job_date}T{start_time}:00", "timeZone": timezone_str},
         "end": {"dateTime": f"{job_date}T{end_time}:00", "timeZone": timezone_str},
-        "colorId": GCAL_COLOR_BANANA,
+        "colorId": color_id,
     }
     cal_id = _calendar_id(db)
     headers = {"Authorization": f"Bearer {access}"}
@@ -420,6 +421,7 @@ def delete_event(db: Session, event_id: str) -> bool:
 # Reference: https://developers.google.com/calendar/api/v3/reference/colors
 GCAL_COLOR_BANANA = "5"   # yellow → fence staining job
 GCAL_COLOR_TOMATO = "11"  # red    → pressure washing job
+GCAL_COLOR_BLUEBERRY = "9"  # blue  → booking held, deposit not paid yet
 JOB_COLOR_IDS = {GCAL_COLOR_BANANA, GCAL_COLOR_TOMATO}
 SERVICE_TYPE_BY_COLOR = {
     GCAL_COLOR_BANANA: "fence_staining",

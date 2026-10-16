@@ -28,7 +28,7 @@ def ghl(monkeypatch):
     def upsert(db, event_id, **kw):
         eid = event_id or f"ev{len(events) + 1}"
         events[eid] = kw
-        sent.append(("cal", eid, kw["summary"], kw["description"], kw["job_date"]))
+        sent.append(("cal", eid, kw["summary"], kw["description"], kw["job_date"], kw.get("color_id")))
         return eid, f"https://calendar.google.com/{eid}"
     monkeypatch.setattr(bk.gcal, "upsert_internal_event", upsert)
     monkeypatch.setattr(bk.gcal, "delete_event", lambda db, eid: sent.append(("cal-delete", eid)) or True)
@@ -109,6 +109,7 @@ def test_it_goes_on_alans_calendar_with_the_scope_and_turns_confirmed_when_paid(
     assert out["calendar"] is True and out["booking"]["on_calendar"] is True
     cal = [x for x in ghl if x[0] == "cal"]
     assert cal[0][2] == "Wes Wehr | Fence Staining | Held, deposit pending" and cal[0][4] == day
+    assert cal[0][5] == "9"  # blue until the deposit is paid
     desc = cal[0][3]
     assert "Signature Finish" in desc and "Pecan" in desc and "pergola" in desc and "200 ft" in desc and "/b/" in desc
     # Sending again updates the same event.
@@ -121,6 +122,7 @@ def test_it_goes_on_alans_calendar_with_the_scope_and_turns_confirmed_when_paid(
     bk.on_deposit_paid(lead.id)
     last = [x for x in ghl if x[0] == "cal"][-1]
     assert last[2].endswith("| Confirmed") and "CONFIRMED" in last[3]
+    assert last[5] == "5"  # yellow once paid
     bk.cancel_booking(lead.id, STAFF)
     assert ("cal-delete", "ev1") in ghl
 
