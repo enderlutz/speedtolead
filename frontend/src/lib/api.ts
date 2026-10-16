@@ -639,6 +639,17 @@ export interface LeadDetail extends Lead {
     color_rows: number;
     color_confirmed: number;
     final_color: string;
+    /** Our booking invite's day, once it has been sent. */
+    booking_date?: string;
+    /** A deposit (or full payment) has been paid. */
+    reserved?: boolean;
+    /** The crew's first job photo (anything but the scope). */
+    started_at?: string;
+    /** The crew tapped "Job done". */
+    completed_at?: string;
+    /** A final invoice (balance / full / job-complete link) exists. */
+    invoiced?: boolean;
+    invoice_paid?: boolean;
   };
 }
 
@@ -3729,6 +3740,10 @@ export const api = {
       { method: "POST", body: JSON.stringify({ message: message || null }) }),
   resetCompanyCamAlmostDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/almost-done/reset`, { method: "POST" }),
+  markCompanyCamDone: (leadId: string) =>
+    request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`, { method: "POST" }),
+  resetCompanyCamDone: (leadId: string) =>
+    request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/done/reset`, { method: "POST" }),
   updateCompanyCamPhoto: (leadId: string, photoId: string,
                           patch: { side?: string; note?: string; is_damage?: boolean }) =>
     request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/${photoId}`, {
@@ -3880,6 +3895,8 @@ export interface CompanyCamJob {
   final_stain_id: string; previously_stained: string; wood_type: string;
   /** "walked" | "texted" | "ghl" | "" */
   almost_done_how?: string;
+  completed_at?: string;
+  completed_by?: string;
   /** "yes" = the chosen stain goes on every side in the scope; "no" = some differ. */
   color_all_sides?: string;
   /** Someone else wants a quote: "none" | "details" | "no_details" | "". */

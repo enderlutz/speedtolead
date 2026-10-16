@@ -1343,14 +1343,19 @@ export default function LeadDetail() {
         : "No text or real conversation since the estimate went out. Call, then log how it went.")
         + (lead.after_estimate ? ` ${lead.after_estimate.calls_tried} call${lead.after_estimate.calls_tried === 1 ? "" : "s"} tried since, ${lead.after_estimate.calls_connected} connected.` : "") },
     { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-visits",
-      done: !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid",
-      hint: "Collect the deposit and put the visits on the calendar." },
+      done: !!latestScheduledJob || !!jp?.reserved || (lead.deposit_status || "").toLowerCase() === "paid",
+      active: !!jp?.booking_date && !jp?.reserved && !latestScheduledJob,
+      activeLabel: "Held, no deposit yet",
+      badge: jp?.booking_date ? new Date(`${jp.booking_date}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" }) : undefined,
+      hint: jp?.booking_date && !jp?.reserved
+        ? "The booking invite went out. It turns booked when the deposit is paid."
+        : "Collect the deposit and put the visits on the calendar." },
 
     // ── The job. Read off the last scheduled visit. ──
     { key: "started", label: "Job started", icon: Paintbrush, accent: ACCENT.cyan, target: "est-visits", phase: "job",
-      done: !!latestScheduledJob && (!!latestScheduledJob.started_at
-        || ["in_progress", "completed"].includes(latestScheduledJob.status)),
-      hint: "The crew taps Start on the job when they arrive." },
+      done: !!jp?.started_at || (!!latestScheduledJob && (!!latestScheduledJob.started_at
+        || ["in_progress", "completed"].includes(latestScheduledJob.status))),
+      hint: "Ticks when the crew takes their first job photo on Company Cam." },
     { key: "colour", label: "Colour chosen", icon: Palette, accent: ACCENT.fuchsia, target: "est-visits", phase: "job",
       done: !!jp?.final_color || ((jp?.color_rows || 0) > 0 && jp?.color_confirmed === jp?.color_rows),
       active: (jp?.color_rows || 0) > 0 && (jp?.color_confirmed || 0) < (jp?.color_rows || 0) && !jp?.final_color,
@@ -1367,11 +1372,12 @@ export default function LeadDetail() {
       activeLabel: "Getting stained",
       hint: "Stainer uploads before-staining photos on arrival, after-staining photos when done." },
     { key: "completed", label: "Job done", icon: CheckCircle2, accent: ACCENT.emerald, target: "est-visits", phase: "job",
-      done: !!latestScheduledJob && (latestScheduledJob.status === "completed" || !!latestScheduledJob.completed_at),
-      hint: "Walkthrough with the customer, then the crew marks the job complete." },
+      done: !!jp?.completed_at || (!!latestScheduledJob && (latestScheduledJob.status === "completed" || !!latestScheduledJob.completed_at)),
+      hint: "Walkthrough with the customer, then the crew taps Job done at the bottom of Company Cam." },
     { key: "invoiced", label: "Invoiced", icon: Receipt, accent: ACCENT.violet, target: "est-payments", phase: "job",
-      done: !!latestScheduledJob && (!!latestScheduledJob.qb_invoice_id
-        || ["pending", "paid"].includes((latestScheduledJob.payment_status || "").toLowerCase())),
+      done: !!jp?.invoiced || (!!latestScheduledJob && (!!latestScheduledJob.qb_invoice_id
+        || ["pending", "paid"].includes((latestScheduledJob.payment_status || "").toLowerCase()))),
+      badge: jp?.invoice_paid ? "Paid" : jp?.invoiced ? "Not paid yet" : undefined,
       hint: "Generate the full invoice under Payment links — it texts them a tap-to-pay link." },
     { key: "reviewed", label: "Google review", icon: Star, accent: ACCENT.gold, target: "est-contact", phase: "job",
       done: !!lead.form_data?.google_review_left_at,

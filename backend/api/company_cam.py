@@ -305,6 +305,8 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "almost_done_sent_at": job.almost_done_sent_at or "",
         "almost_done_sent_by": job.almost_done_sent_by or "",
         "almost_done_how": job.almost_done_how or "",
+        "completed_at": job.completed_at or "",
+        "completed_by": job.completed_by or "",
         "updated_at": job.updated_at or "",
     }
 
@@ -1115,6 +1117,51 @@ def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depend
         job.almost_done_sent_at = _now()
         job.almost_done_sent_by = _actor(user)
         job.almost_done_how = how
+        job.updated_at = _now()
+        db.commit()
+        return {"job": _job_dict(job)}
+    finally:
+        db.close()
+
+
+@router.post("/company-cam/{lead_id}/done", dependencies=[Depends(crew_guard)])
+def mark_job_done(lead_id: str, user: dict = Depends(get_current_user)):
+    """The crew is finished and packing up (Alan, 2026-10-16). Ticks "Job
+    done" on the customer journey and tells Alan the invoice can go."""
+    from services.activity_log import log_event
+    db = get_db()
+    try:
+        lead = _lead_or_404(db, lead_id)
+        job = _get_or_create(db, lead)
+        if not job.completed_at:
+            job.completed_at = _now()
+            job.completed_by = _actor(user)
+            job.updated_at = _now()
+            db.commit()
+            log_event(lead_id, "company_cam_job_done", f"Job done, marked by {job.completed_by}",
+                      {"actor": job.completed_by})
+            try:
+                from services.after_pay_hooks import alert_alan
+                used = f" Used {job.stain_gallons_used:g} gallons of stain." if job.stain_gallons_used else ""
+                alert_alan(f"{lead.contact_name or 'A customer'}'s fence is done ({job.completed_by or 'the crew'}).{used} "
+                           f"Time to send the final invoice (Payment links).")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("job done: alert failed for %s: %s", lead_id, e)
+        photos = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all()
+        return {"job": _job_dict(job), "blockers": _blockers(job, photos)}
+    finally:
+        db.close()
+
+
+@router.post("/company-cam/{lead_id}/done/reset", dependencies=[Depends(crew_guard)])
+def reset_job_done(lead_id: str, user: dict = Depends(get_current_user)):
+    """Undo a "Job done" tapped by mistake."""
+    db = get_db()
+    try:
+        lead = _lead_or_404(db, lead_id)
+        job = _get_or_create(db, lead)
+        job.completed_at = ""
+        job.completed_by = ""
         job.updated_at = _now()
         db.commit()
         return {"job": _job_dict(job)}

@@ -1467,6 +1467,46 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           </div>
         ) : null}
       </Panel>
+      {/* The last tap of the day (Alan, 2026-10-16): ticks "Job done" on
+          the customer's journey and tells Alan the invoice can go. */}
+      <Panel icon={CheckCircle2} accent={ACCENT.emerald}
+             title="Job done"
+             sub="Tap this when you're finished and packing up">
+        {job.completed_at ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-3">
+            <span className="inline-flex items-center gap-1.5 text-base font-semibold text-emerald-900">
+              <CheckCircle2 className="h-5 w-5" /> Job done
+            </span>
+            <span className="text-sm text-emerald-800">
+              {new Date(job.completed_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              {job.completed_by ? ` by ${job.completed_by}` : ""}
+            </span>
+            <Button variant="outline" size="sm" className="ml-auto h-9"
+                    onClick={async () => {
+                      if (!confirm("Undo Job done? Only if it was tapped by mistake.")) return;
+                      try {
+                        const r = await api.resetCompanyCamDone(leadId);
+                        setData((d) => (d ? { ...d, job: r.job } : d));
+                      } catch (e) { toast.error(errMessage(e, "Couldn't undo")); }
+                    }}>
+              <RotateCcw className="mr-1 h-3.5 w-3.5" /> Undo
+            </Button>
+          </div>
+        ) : (
+          <Button size="lg"
+                  className="h-auto min-h-14 w-full whitespace-normal bg-gradient-to-r from-emerald-600 to-teal-600 py-3 text-lg font-bold hover:from-emerald-600 hover:to-teal-700"
+                  onClick={async () => {
+                    if (blockers.length && !confirm(`Still missing:\n\n• ${blockers.join("\n• ")}\n\nMark the job done anyway?`)) return;
+                    try {
+                      const r = await api.markCompanyCamDone(leadId);
+                      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers } : d));
+                      toast.success("Job done. Alan's been told. Nice work!");
+                    } catch (e) { toast.error(errMessage(e, "Couldn't save")); }
+                  }}>
+            <CheckCircle2 className="mr-2 h-6 w-6" /> Job done
+          </Button>
+        )}
+      </Panel>
       {picking ? (
         <LibraryPicker leadId={leadId} section={picking} onClose={() => setPicking(null)} onAdded={() => void load()} />
       ) : null}

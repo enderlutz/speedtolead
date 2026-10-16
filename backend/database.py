@@ -1839,6 +1839,10 @@ class CompanyCamJob(Base):
     # home and they walked it together; "texted" = the crew texted it from
     # their own phone; "ghl" = sent through GHL (the old button).
     almost_done_how = Column(Text, default="")
+    # The crew tapped "Job done" at the end (Alan, 2026-10-16). Drives the
+    # "Job done" step of the customer journey and tells Alan to invoice.
+    completed_at = Column(Text, default="")
+    completed_by = Column(Text, default="")
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -4568,6 +4572,8 @@ def _run_migrations():
             ("neighbor_sent_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_by", "TEXT DEFAULT ''"),
+            ("completed_at", "TEXT DEFAULT ''"),
+            ("completed_by", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

@@ -873,11 +873,34 @@ def get_lead(lead_id: str):
                 plan = json.loads(cc.color_plan_json or "[]") or []
             except (ValueError, TypeError):
                 plan = []
+        # The booking, the start, the finish and the invoice, from where they
+        # live now (Alan, 2026-10-16): our booking invite, the crew's first
+        # job photo, their "Job done" tap, and the Stripe pay links. The old
+        # scheduled_jobs row is still read by the page as a fallback.
+        from database import Booking, PayLink
+        first_photo = (
+            db.query(_f.min(CompanyCamPhoto.uploaded_at))
+            .filter(CompanyCamPhoto.lead_id == lead.id,
+                    CompanyCamPhoto.section != "fence_scope",
+                    CompanyCamPhoto.uploaded_at != "")
+            .scalar()
+        )
+        booking = (db.query(Booking).filter(Booking.lead_id == lead.id, Booking.status != "cancelled")
+                   .order_by(Booking.created_at.desc()).first())
+        links = db.query(PayLink).filter(PayLink.lead_id == lead.id).all()
+        reserved = any(l.kind in ("deposit", "full") and l.status == "paid" for l in links)
+        final = [l for l in links if l.kind in ("balance", "full", "done") and l.status != "void"]
         result["job_progress"] = {
             "photos": {k: int(v) for k, v in photos.items()},
             "color_rows": len(plan),
             "color_confirmed": sum(1 for r in plan if r.get("status") == "confirmed" and r.get("colors")),
             "final_color": (cc.final_color or "") if cc else "",
+            "booking_date": booking.date if booking and booking.sent_at else "",
+            "reserved": reserved,
+            "started_at": first_photo or "",
+            "completed_at": (cc.completed_at or "") if cc else "",
+            "invoiced": bool(final),
+            "invoice_paid": any(l.status == "paid" and l.kind in ("balance", "full", "done") for l in final),
         }
 
         # Since the estimate went out: are the follow-ups running, how many

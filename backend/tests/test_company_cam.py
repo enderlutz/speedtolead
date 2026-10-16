@@ -918,3 +918,46 @@ def test_a_neighbour_or_friend_reaches_alan_with_or_without_details(db, monkeypa
     from database import ReferralClaim, Lead
     claim = db.query(ReferralClaim).filter(ReferralClaim.referrer_lead_id == lead.id).first()
     assert claim and db.query(Lead).filter(Lead.id == claim.lead_id).first().lead_source == "referral"
+
+
+def test_job_done_stamps_once_and_tells_alan(db, monkeypatch):
+    """The crew's last tap: ticks Job done on the journey and alerts Alan,
+    once — a second tap neither restamps nor re-texts him."""
+    from services import after_pay_hooks
+    sent = []
+    monkeypatch.setattr(after_pay_hooks, "alert_alan", lambda m: sent.append(m))
+    lead = _lead(db)
+    r = cc.mark_job_done(lead.id, user=USER)
+    first = r["job"]["completed_at"]
+    assert first and r["job"]["completed_by"]
+    assert len(sent) == 1 and "invoice" in sent[0]
+    r = cc.mark_job_done(lead.id, user=USER)
+    assert r["job"]["completed_at"] == first and len(sent) == 1
+    assert cc.reset_job_done(lead.id, user=USER)["job"]["completed_at"] == ""
+
+
+def test_journey_reads_booking_photos_done_and_stripe_invoice(db, monkeypatch):
+    """The lead page's job steps come from where the work happens now, not
+    the old scheduled_jobs row (none of the October jobs have one)."""
+    from services import after_pay_hooks
+    from database import Booking, PayLink
+    from api import leads as leads_api
+    monkeypatch.setattr(after_pay_hooks, "alert_alan", lambda m: None)
+    lead = _lead(db)
+    db.add(Booking(token="b" + uuid.uuid4().hex, lead_id=lead.id, date="2026-10-20", tier="signature",
+                   total_cents=150000, status="held", created_at="2026-10-10T00:00:00Z",
+                   sent_at="2026-10-10T00:00:00Z"))
+    db.add(CompanyCamPhoto(id=str(uuid.uuid4()), lead_id=lead.id, section="clean_before",
+                           uploaded_at="2026-10-20T14:00:00Z"))
+    db.commit()
+    jp = leads_api.get_lead(lead.id)["job_progress"]
+    assert jp["booking_date"] == "2026-10-20" and not jp["reserved"]
+    assert jp["started_at"] == "2026-10-20T14:00:00Z"
+    assert not jp["completed_at"] and not jp["invoiced"]
+
+    cc.mark_job_done(lead.id, user=USER)
+    db.add(PayLink(token="p" + uuid.uuid4().hex, lead_id=lead.id, kind="deposit", amount_cents=25000, status="paid"))
+    db.add(PayLink(token="p" + uuid.uuid4().hex, lead_id=lead.id, kind="balance", amount_cents=125000, status="open"))
+    db.commit()
+    jp = leads_api.get_lead(lead.id)["job_progress"]
+    assert jp["reserved"] and jp["completed_at"] and jp["invoiced"] and not jp["invoice_paid"]
