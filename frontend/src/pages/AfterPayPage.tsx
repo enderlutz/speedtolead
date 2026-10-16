@@ -87,6 +87,15 @@ export default function AfterPayPage() {
         onScreen={reached}
         askReview={after.ask_review !== false}
         referralUrl={after.referral_url || undefined}
+        onReferFriend={after.referral_url ? async (name, phone) => {
+          const code = (after.referral_url || "").split("/").pop() || "";
+          const r = await fetch(`${BASE}/api/public/referral/${encodeURIComponent(code)}/claim`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, phone, by_referrer: true, ok_to_text: true }),
+          });
+          const d = (await r.json().catch(() => ({}))) as { detail?: string };
+          if (!r.ok) throw new Error(d.detail || "That didn't go through. Try again.");
+        } : undefined}
       />
     );
   }

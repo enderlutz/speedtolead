@@ -62,6 +62,38 @@ function Stat({ label, value, hint, tone }: { label: string; value: number | str
  * rotation — a lead waits a median two hours for its turn. Having just rung
  * somebody, that is exactly when the page is wrong and you are looking at it.
  */
+/** Every friend who came in through a referral link or a customer's
+ *  thank-you screen, with who sent them (Alan, 2026-10-15). */
+function ReferralsList() {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof api.listReferrals>>["referrals"] | null>(null);
+  useEffect(() => { api.listReferrals().then((r) => setRows(r.referrals)).catch(() => setRows([])); }, []);
+  if (rows === null) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (rows.length === 0) return <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No referrals yet. They show up here the moment a friend comes in through a customer's link.</p>;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">{rows.length} referral{rows.length === 1 ? "" : "s"} · $100 off for each friend · $100 owed to the customer who sent them once the friend's job is paid</p>
+      {rows.map((r) => (
+        <div key={r.created_at + r.name} className="rounded-xl border bg-card p-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {r.lead_id ? <a href={`/leads/${r.lead_id}`} className="font-heading text-base font-bold hover:underline">{r.name}</a> : <span className="font-heading text-base font-bold">{r.name}</span>}
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${r.paid ? "bg-emerald-600 text-white" : r.stage === "Estimate sent" ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-900"}`}>{r.stage}</span>
+          </div>
+          <p className="mt-0.5 text-muted-foreground">
+            Referred by <a href={`/leads/${r.referrer_lead_id}`} className="font-semibold text-foreground underline">{r.referrer_name || "a customer"}</a>
+            {" · "}{fmtDate(r.created_at)}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            {r.phone ? <a href={`tel:${r.phone}`} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-medium"><Phone className="h-3 w-3" />{fmtPhone(r.phone)}</a> : null}
+            {r.address ? <span className="text-muted-foreground">{r.address}</span> : <span className="text-amber-700">No address yet</span>}
+            <span className={r.texted ? "text-emerald-700" : "text-rose-700"}>{r.texted ? "✓ Welcome text sent" : "Welcome text didn't go out"}</span>
+            {r.paid ? <span className="font-semibold text-emerald-700">· Owe {r.referrer_name.split(" ")[0] || "them"} $100</span> : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Texts and calls in plain words (Alan, 2026-10-15: "4 texts (2 in), 3 talked,
  *  0 no answer, 3 dials — what does that even mean?"). Green when they've
  *  answered: texted back, or picked up. */
@@ -218,6 +250,8 @@ export default function Contacts() {
   const [urlParams] = useSearchParams();
   const [search, setSearch] = useState(urlParams.get("q") || saved.search || "");
   const [estimate, setEstimate] = useState<EstimateFilter>(saved.estimate || "all");
+  // The Referrals view: friends customers sent us (Alan, 2026-10-15).
+  const [showRefs, setShowRefs] = useState(false);
   const [sort, setSort] = useState<SortKey>(saved.sort || "intake");
   const restored = useRef(false);
   const [flash, setFlash] = useState("");
@@ -405,6 +439,10 @@ export default function Contacts() {
             {label}
           </Button>
         ))}
+        <Button size="sm" variant={showRefs ? "default" : "outline"} onClick={() => setShowRefs((v) => !v)}
+          title="Friends our customers sent us, and who sent them" className={showRefs ? "" : "border-emerald-300 text-emerald-800"}>
+          🎁 Referrals
+        </Button>
         <span className="mx-1 hidden h-5 w-px bg-border sm:inline-block" />
         {([
           ["intake", "Newest form fill", "A customer who fills the form again moves back to the top"],
@@ -433,6 +471,7 @@ export default function Contacts() {
         </div>
       ) : null}
 
+      {showRefs ? <ReferralsList /> : <>
       {/* The estimate filter is applied to the page after it is built (the
           flag is derived from two other tables), so the visible count can be
           smaller than the page size. Said plainly rather than hidden. */}
@@ -633,6 +672,7 @@ export default function Contacts() {
           Next
         </Button>
       </div>
+      </>}
     </div>
   );
 }

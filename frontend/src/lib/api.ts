@@ -2185,6 +2185,9 @@ export const api = {
   updateBooking: (leadId: string) =>
     request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false }) }),
   cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
+  /** Every referred friend, newest first, with who sent them. */
+  listReferrals: () =>
+    request<{ referrals: { name: string; phone: string; address: string; created_at: string; lead_id: string | null; referrer_name: string; referrer_lead_id: string; texted: boolean; stage: string; paid: boolean }[] }>(`/api/referrals`),
   /** Who this customer has referred, and their own referral link. */
   getReferrals: (leadId: string) =>
     request<{ url: string; claims: { name: string; phone: string; address: string; lead_id: string | null; created_at: string }[] }>(`/api/leads/${leadId}/referrals`),

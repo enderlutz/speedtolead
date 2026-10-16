@@ -63,7 +63,7 @@ const NAMES: Record<Screen, string> = {
   paid: "Paid in full", score: "How did we do?", sorry: "We'll make it right", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
 };
 
-export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl }: {
+export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl, onReferFriend }: {
   flow: PayFlow; method: PayMethod; paidUpFront?: boolean;
   firstName: string; address: string; pkgName: string; feet: number; total: number; repairs: number;
   /** What was just paid. The mockup derives it from the flow; the real page knows it. */
@@ -84,6 +84,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   askReview?: boolean;
   /** Their own referral link, a real page. The mockup makes one up. */
   referralUrl?: string;
+  /** Send us a friend's name and number; Alan's welcome text goes out. */
+  onReferFriend?: (name: string, phone: string) => Promise<void>;
 }) {
   const init = initial || {};
   const [stars, setStars] = useState<number | null>(typeof init.stars === "number" ? init.stars : null);
@@ -104,6 +106,25 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   const [skipped, setSkipped] = useState<string[]>([]);
   const answer = (field: string, value: unknown) => { if (onAnswer) onAnswer(field, value); };
   const [toast, setToast] = useState<string | null>(null);
+  // A friend typed in here rather than shared a link to (Alan, 2026-10-15).
+  const [friend, setFriend] = useState({ name: "", phone: "", ok: false });
+  const [friendBusy, setFriendBusy] = useState(false);
+  const [friendsSent, setFriendsSent] = useState<string[]>([]);
+  const sendFriend = async () => {
+    if (friendBusy || !friend.name.trim() || !friend.phone.trim() || !friend.ok) return;
+    setFriendBusy(true);
+    try {
+      if (onReferFriend) await onReferFriend(friend.name.trim(), friend.phone.trim());
+      setFriendsSent((f) => [...f, friend.name.trim().split(" ")[0]]);
+      setFriend({ name: "", phone: "", ok: false });
+      setToast(onReferFriend ? "Sent! Alan just texted them." : "Alan's welcome text goes to them here");
+      answer("referral_shared", ["friend form"]);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "That didn't go through. Try again.");
+    } finally {
+      setFriendBusy(false);
+    }
+  };
   const [behind, setBehind] = useState(false);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2200); return () => clearTimeout(t); }, [toast]);
 
@@ -367,6 +388,23 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
           <h2 className="font-heading text-3xl font-bold leading-tight">Know someone whose fence needs this?</h2>
           {offer("off for them", "to you when their job is done")}
           {shareBlock}
+          {/* Or just give us their name and number. */}
+          <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+            <p className="text-[16px] font-bold">Or tell us who, and Alan will text them</p>
+            {friendsSent.length ? <p className="mt-1 text-[14px] font-semibold text-emerald-700">✓ Sent: {friendsSent.join(", ")}. Add another?</p> : null}
+            <input value={friend.name} onChange={(e) => setFriend({ ...friend, name: e.target.value })} placeholder="Their name" autoComplete="off"
+              className="mt-2 h-12 w-full rounded-xl border border-[#15130F]/20 bg-[#F8F3E7] px-3 text-[16px]" />
+            <input value={friend.phone} onChange={(e) => setFriend({ ...friend, phone: e.target.value })} placeholder="Their mobile number" inputMode="tel" autoComplete="off"
+              className="mt-2 h-12 w-full rounded-xl border border-[#15130F]/20 bg-[#F8F3E7] px-3 text-[16px]" />
+            <label className="mt-2 flex items-start gap-2 text-[15px]">
+              <input type="checkbox" checked={friend.ok} onChange={(e) => setFriend({ ...friend, ok: e.target.checked })} className="mt-1 h-5 w-5 accent-[#15130F]" />
+              <span>They said it's OK for Alan to text them</span>
+            </label>
+            <button type="button" onClick={() => void sendFriend()} disabled={friendBusy || !friend.name.trim() || !friend.phone.trim() || !friend.ok}
+              className="mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-[#15130F] text-[16px] font-bold text-[#E3BE63] disabled:opacity-50">
+              {friendBusy ? "Sending…" : "Send them $100 off"}
+            </button>
+          </div>
         </>
       );
       foot = next("Continue", true);
