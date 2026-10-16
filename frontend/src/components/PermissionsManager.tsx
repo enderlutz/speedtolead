@@ -64,6 +64,8 @@ function UserRow({
   const [clockIn, setClockIn] = useState(!u.no_clock_in);
   // Their name as everyone sees it ("Chris Moran"); the login stays the same.
   const [displayName, setDisplayName] = useState(u.display_name || "");
+  // Set a new password (a forgotten one can't be read back; it's stored scrambled).
+  const [newPassword, setNewPassword] = useState("");
   const [jobTitle, setJobTitle] = useState(u.job_title || "");
   const [saving, setSaving] = useState(false);
 
@@ -83,7 +85,8 @@ function UserRow({
       for (const k of Object.keys(draft)) {
         if (!!draft[k] !== !!roleDefaults[k]) overrides[k] = !!draft[k];
       }
-      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username });
+      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username, ...(newPassword.trim() ? { password: newPassword.trim() } : {}) });
+      if (newPassword.trim()) { toast.success(`New password set. ${u.display_name || u.username} logs in as ${u.username}.`); setNewPassword(""); }
       toast.success(`Saved ${u.display_name || u.username}`);
       onChanged();
     } catch (e) {
@@ -166,6 +169,11 @@ function UserRow({
                 maxLength={40}
                 className="text-xs rounded border bg-background px-1.5 py-1 w-32"
               />
+            </label>
+            <label className="text-xs flex items-center gap-1.5">
+              New password
+              <input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Leave blank to keep it" type="text" autoComplete="off"
+                     className="text-sm rounded border bg-background px-1.5 py-1 w-44" />
             </label>
             <label className="text-xs flex items-center gap-1.5">
               Name
