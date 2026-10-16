@@ -44,7 +44,7 @@ import {
 import { useTrainingMode } from "@/lib/training_mode_context";
 import PdfPreviewModal from "@/components/PdfPreviewModal";
 import ScheduleJobModal from "@/components/ScheduleJobModal";
-import ScheduledVisitsCard from "@/components/ScheduledVisitsCard";
+// import ScheduledVisitsCard from "@/components/ScheduledVisitsCard"; // archived 2026-10-16
 import CalendarGlimpse from "@/components/CalendarGlimpse";
 import { LeadDelayPanel } from "@/components/EstimateDelay";
 import TimeSpentCard from "@/components/TimeSpentCard";
@@ -1199,7 +1199,9 @@ export default function LeadDetail() {
   }
 
   const approvalStatus = estimate?.approval_status as keyof typeof APPROVAL_CONFIG | undefined;
-  const approvalCfg = approvalStatus ? APPROVAL_CONFIG[approvalStatus] : null;
+  // "Something to think about" (red) archived 2026-10-16 (Alan): it's the
+  // first thing on the page and not worth it. Green and amber still show.
+  const approvalCfg = approvalStatus && approvalStatus !== "red" ? APPROVAL_CONFIG[approvalStatus] : null;
   // Facebook-ad leads give a street + ZIP (e.g. "123 Main St., 77014"). The
   // street alone geocodes to the wrong city/state (there are hundreds of
   // "123 Main St" across the country), so always pin the map with the ZIP.
@@ -1342,7 +1344,7 @@ export default function LeadDetail() {
         ? "They opened it and went quiet. Call them now — this is the moment."
         : "No text or real conversation since the estimate went out. Call, then log how it went.")
         + (lead.after_estimate ? ` ${lead.after_estimate.calls_tried} call${lead.after_estimate.calls_tried === 1 ? "" : "s"} tried since, ${lead.after_estimate.calls_connected} connected.` : "") },
-    { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-visits",
+    { key: "booked", label: "Booked", icon: CalendarCheck, accent: ACCENT.emerald, target: "est-booking",
       done: !!latestScheduledJob || !!jp?.reserved || (lead.deposit_status || "").toLowerCase() === "paid",
       active: !!jp?.booking_date && !jp?.reserved && !latestScheduledJob,
       activeLabel: "Held, no deposit yet",
@@ -1352,26 +1354,26 @@ export default function LeadDetail() {
         : "Collect the deposit and put the visits on the calendar." },
 
     // ── The job. Read off the last scheduled visit. ──
-    { key: "started", label: "Job started", icon: Paintbrush, accent: ACCENT.cyan, target: "est-visits", phase: "job",
+    { key: "started", label: "Job started", icon: Paintbrush, accent: ACCENT.cyan, target: "est-booking", phase: "job",
       done: !!jp?.started_at || (!!latestScheduledJob && (!!latestScheduledJob.started_at
         || ["in_progress", "completed"].includes(latestScheduledJob.status))),
       hint: "Ticks when the crew takes their first job photo on Company Cam." },
-    { key: "colour", label: "Colour chosen", icon: Palette, accent: ACCENT.fuchsia, target: "est-visits", phase: "job",
+    { key: "colour", label: "Colour chosen", icon: Palette, accent: ACCENT.fuchsia, target: "est-booking", phase: "job",
       done: !!jp?.final_color || ((jp?.color_rows || 0) > 0 && jp?.color_confirmed === jp?.color_rows),
       active: (jp?.color_rows || 0) > 0 && (jp?.color_confirmed || 0) < (jp?.color_rows || 0) && !jp?.final_color,
       activeLabel: `${jp?.color_confirmed || 0} of ${jp?.color_rows || 0} settled`,
       hint: "Confirm the stain colour for every part of the fence on Company Cam." },
-    { key: "cleaned", label: "Fence cleaned", icon: Sparkles, accent: ACCENT.cyan, target: "est-visits", phase: "job",
+    { key: "cleaned", label: "Fence cleaned", icon: Sparkles, accent: ACCENT.cyan, target: "est-booking", phase: "job",
       done: photos("clean_after") > 0,
       active: photos("clean_before") > 0 && photos("clean_after") === 0,
       activeLabel: "Getting cleaned",
       hint: "Cleaner uploads before-cleaning photos on arrival, after-cleaning photos when done." },
-    { key: "stained", label: "Fence stained", icon: Paintbrush, accent: ACCENT.emerald, target: "est-visits", phase: "job",
+    { key: "stained", label: "Fence stained", icon: Paintbrush, accent: ACCENT.emerald, target: "est-booking", phase: "job",
       done: photos("stain_after") > 0,
       active: photos("stain_before") > 0 && photos("stain_after") === 0,
       activeLabel: "Getting stained",
       hint: "Stainer uploads before-staining photos on arrival, after-staining photos when done." },
-    { key: "completed", label: "Job done", icon: CheckCircle2, accent: ACCENT.emerald, target: "est-visits", phase: "job",
+    { key: "completed", label: "Job done", icon: CheckCircle2, accent: ACCENT.emerald, target: "est-booking", phase: "job",
       done: !!jp?.completed_at || (!!latestScheduledJob && (latestScheduledJob.status === "completed" || !!latestScheduledJob.completed_at)),
       hint: "Walkthrough with the customer, then the crew taps Job done at the bottom of Company Cam." },
     { key: "invoiced", label: "Invoiced", icon: Receipt, accent: ACCENT.violet, target: "est-payments", phase: "job",
@@ -1406,7 +1408,6 @@ export default function LeadDetail() {
   const sentNow = journey.some((st) => st.key === "sent" && st.done);
   const contactDefault = ["address", "replied", "discovery"].includes(stepKey);
   const inputsDefault = !sentNow;
-  const visitsDefault = sentNow || !!latestScheduledJob;
   const paymentsDefault = !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid";
 
   return (
@@ -1809,7 +1810,7 @@ export default function LeadDetail() {
           {/* Our own booking invite, in place of the Google Calendar one
               (Alan, 2026-10-14). Right above the payment links: the $250
               is what confirms it. */}
-          <BookingInviteCard lead={lead} />
+          <div id="est-booking" className="scroll-mt-4"><BookingInviteCard lead={lead} /></div>
           <Panel
             id="est-payments"
             className="scroll-mt-4"
@@ -2510,15 +2511,16 @@ export default function LeadDetail() {
             onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
           /> */}
 
-          {/* All scheduled visits for this customer (clean/stain/finish-up) —
-              add, edit, and reschedule each; shows invite vs internal. */}
-          <div id="est-visits" className="scroll-mt-4">
+          {/* Scheduled visits — archived 2026-10-16 (Alan). The booking invite
+              and the calendar cover it. Component, endpoints and visits are
+              kept. Uncomment to bring it back. */}
+          {/* <div id="est-visits" className="scroll-mt-4">
             <ScheduledVisitsCard
               lead={lead}
               collapsed={!isOpen("visits", visitsDefault)}
               onToggle={() => toggle("visits", visitsDefault)}
             />
-          </div>
+          </div> */}
 
           {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
               data all kept: 3 submissions ever, none from a real customer, and
