@@ -347,7 +347,7 @@ def _booked_services(db, lead_id: str) -> list[dict]:
     """Other services on the lead's booking, for the final invoice."""
     from api.booking import _active, _services
     b = _active(db, lead_id)
-    return [{"name": sv["name"], "qty": 1, "unit_price": sv["price"]} for sv in _services(b)] if b else []
+    return [{"name": sv["name"], "qty": 1, "unit_price": sv["price"], "description": sv["description"]} for sv in _services(b)] if b else []
 
 
 @router.get("/leads/{lead_id}/pay-links")

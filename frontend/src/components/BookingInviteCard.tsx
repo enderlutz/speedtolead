@@ -25,7 +25,7 @@ type Draft = {
   /** A discount on the repairs alone. */
   rtype: "amount" | "percent"; rval: string; rlabel: string;
   /** Other services booked with the fence (Alan, 2026-10-16), price as typed. */
-  services: { name: string; price: string }[];
+  services: { name: string; price: string; description: string }[];
 };
 // One tap adds the line; the price is typed (it comes from their estimate).
 const SERVICE_PICKS = ["House soft wash", "Driveway, walkways & front porch", "Back patio cleaning", "Gutter cleaning", "Window cleaning", "Roof soft wash"];
@@ -97,7 +97,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
         rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
-        services: (d.services || []).map((x) => ({ name: x.name, price: String(x.price) })),
+        services: (d.services || []).map((x) => ({ name: x.name, price: String(x.price), description: x.description || "" })),
       }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
@@ -125,11 +125,11 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     const o = draft.rtype === "percent" ? Math.round(repairs * Math.min(v, 100)) / 100 : v;
     return Math.min(Math.round(o * 100) / 100, repairs);
   })();
-  const serviceLines = draft.services.map((x) => ({ name: x.name.trim(), price: Math.round((Number(x.price) || 0) * 100) / 100 }))
+  const serviceLines = draft.services.map((x) => ({ name: x.name.trim(), price: Math.round((Number(x.price) || 0) * 100) / 100, description: x.description.trim() }))
     .filter((x) => x.name && x.price > 0);
   const servicesSum = serviceLines.reduce((t, x) => t + x.price, 0);
   const total = Math.round((price - off + repairs - roff + servicesSum) * 100) / 100;
-  const setService = (i: number, patch: Partial<{ name: string; price: string }>) =>
+  const setService = (i: number, patch: Partial<{ name: string; price: string; description: string }>) =>
     setDraft((d) => ({ ...d, services: d.services.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
   const [repairsOpen, setRepairsOpen] = useState(false);
   const bump = (key: string, by: number) =>
@@ -143,7 +143,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     || (saved.repairs_discount_value || 0) !== (roff ? Number(draft.rval) || 0 : 0)
     || (saved.repairs_discount_label || "") !== (roff ? draft.rlabel : "")
     || ((saved.repairs_discount_value ? saved.repairs_discount_type : "") || "") !== (roff ? draft.rtype : "")
-    || JSON.stringify((saved.services || []).map((x) => [x.name, x.price])) !== JSON.stringify(serviceLines.map((x) => [x.name, x.price]));
+    || JSON.stringify((saved.services || []).map((x) => [x.name, x.price, x.description || ""])) !== JSON.stringify(serviceLines.map((x) => [x.name, x.price, x.description]));
   const sent = st?.booking || null;
   // The card says something different from what they have: a different day,
   // package, price or note. Lights up "Update without texting".
@@ -402,14 +402,15 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <p className="text-sm"><span className="font-semibold">Other services</span> <span className="text-muted-foreground">· anything else they're booking with the fence</span></p>
         <div className="flex flex-wrap gap-1.5">
           {SERVICE_PICKS.filter((n) => !draft.services.some((x) => x.name === n)).map((n) => (
-            <button key={n} type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: n, price: "" }] }))}
+            <button key={n} type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: n, price: "", description: "" }] }))}
               className="min-h-10 rounded-full border border-input bg-background px-3 text-sm font-medium hover:bg-muted">+ {n}</button>
           ))}
-          <button type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: "", price: "" }] }))}
+          <button type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: "", price: "", description: "" }] }))}
             className="min-h-10 rounded-full border border-dashed border-input px-3 text-sm font-medium text-muted-foreground hover:bg-muted">+ Something else</button>
         </div>
         {draft.services.map((x, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={i} className="space-y-1.5 rounded-lg bg-muted/40 p-2">
+          <div className="flex items-center gap-2">
             <input value={x.name} maxLength={80} placeholder="Service" aria-label={`Service ${i + 1}`}
               onChange={(e) => setService(i, { name: e.target.value })}
               className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-base" />
@@ -421,6 +422,11 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             </div>
             <button type="button" aria-label={`Remove ${x.name || "service"}`} onClick={() => setDraft((d) => ({ ...d, services: d.services.filter((_, k) => k !== i) }))}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-input text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+          </div>
+          <textarea value={x.description} maxLength={300} rows={2} aria-label={`Description for ${x.name || "service"}`}
+            placeholder="Description (optional), e.g. Soft wash all 4 sides of the house, gutters and soffits included"
+            onChange={(e) => setService(i, { description: e.target.value })}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-base" />
           </div>
         ))}
         {serviceLines.length ? <p className="text-right text-sm font-semibold tabular-nums">+ {formatCurrency(servicesSum)}</p> : null}

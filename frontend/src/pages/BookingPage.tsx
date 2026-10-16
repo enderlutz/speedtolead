@@ -17,7 +17,7 @@ type Booking = {
   price?: number; discount?: number; discount_label?: string;
   repairs?: { name: string; qty: number; unit_price: number }[];
   repairs_discount?: number; repairs_discount_label?: string;
-  services?: { name: string; price: number }[];
+  services?: { name: string; price: number; description?: string }[];
 };
 
 export default function BookingPage() {

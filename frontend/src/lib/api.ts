@@ -573,7 +573,7 @@ export interface BookingDraft {
 }
 
 /** A service booked alongside the fence: house wash, driveway, patio… */
-export interface BookingService { name: string; price: number }
+export interface BookingService { name: string; price: number; description?: string }
 
 export interface BookingSent {
   token: string; url: string; date: string; tier: string; color: string; notes: string; total: number;
@@ -5844,7 +5844,7 @@ export interface PayLinksResponse {
   /** Extra repairs the customer agreed to on site (Company Cam). */
   site_extras?: { name: string; qty: number; unit_price: number }[];
   /** Other services on the booking, to add to the final invoice. */
-  booked_services?: { name: string; qty: number; unit_price: number }[];
+  booked_services?: { name: string; qty: number; unit_price: number; description?: string }[];
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 

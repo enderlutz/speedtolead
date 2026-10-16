@@ -71,7 +71,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   repairsDiscount?: number;
   repairsDiscountLabel?: string;
   /** Other services booked with the fence; `total` already includes them. */
-  services?: { name: string; price: number }[];
+  services?: { name: string; price: number; description?: string }[];
   /** Dollars off the package; `total` is already after it (Alan, 2026-10-15). */
   discount?: number;
   discountLabel?: string;
@@ -333,7 +333,12 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                     <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(repairsDiscount)}</dd>
                   </div>
                 ) : null}
-                {services?.map((sv) => <Row key={sv.name} k={sv.name} v={formatCurrency(sv.price)} />)}
+                {services?.map((sv) => (
+                  <div key={sv.name}>
+                    <Row k={sv.name} v={formatCurrency(sv.price)} />
+                    {sv.description ? <p className="text-[14px] leading-snug text-[#15130F]/70">{sv.description}</p> : null}
+                  </div>
+                ))}
                 <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length || services?.length)} />
                 <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />

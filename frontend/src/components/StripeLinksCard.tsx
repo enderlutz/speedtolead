@@ -360,7 +360,7 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
   editing?: PayLinkEntry | null; onStopEditing?: () => void;
   /** Extra repairs the customer agreed to on site (Company Cam), to add as lines. */
   siteExtras?: { name: string; qty: number; unit_price: number }[];
-  bookedServices?: { name: string; qty: number; unit_price: number }[];
+  bookedServices?: { name: string; qty: number; unit_price: number; description?: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -555,7 +555,7 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
           <button type="button" title={bookedServices.map((x) => `${x.name} ${formatCurrency(x.unit_price)}`).join("\n")}
                   onClick={() => {
                     setRows((rs) => [...rs.filter((r) => r.name.trim() || num(r.amount)),
-                      ...bookedServices.map((x) => ({ ...blankRow(), name: x.name, description: "Booked with the fence", qty: String(x.qty), amount: String(x.unit_price) }))]);
+                      ...bookedServices.map((x) => ({ ...blankRow(), name: x.name, description: x.description || "Booked with the fence", qty: String(x.qty), amount: String(x.unit_price) }))]);
                     toast.success("Added the other services they booked");
                   }}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-sky-100 px-2 text-xs font-semibold text-sky-900 hover:bg-sky-200">

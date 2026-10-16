@@ -570,7 +570,8 @@ def clean_services(raw) -> list[dict]:
             continue
         if not name or price <= 0 or price > 20000:
             raise HTTPException(status_code=400, detail="Each service needs a name and a price.")
-        out.append({"name": name, "price": price})
+        desc = str(r.get("description") or "").strip()[:300]
+        out.append({"name": name, "price": price, **({"description": desc} if desc else {})})
     return out
 
 

@@ -246,7 +246,7 @@ def test_other_services_are_booked_with_the_fence_and_charged_everywhere(db, ghl
     lead, day = _ready(db)
     pl.save_booking_draft(lead.id, pl.BookingDraftBody(
         date=day, tier="signature", klarna=True,
-        services=[{"name": "House soft wash", "price": 348.62},
+        services=[{"name": "House soft wash", "price": 348.62, "description": "All 4 sides, gutters and soffits"},
                   {"name": "Driveway, walkways & front porch", "price": 227.36},
                   {"name": "Back patio cleaning", "price": 148.26},
                   {"name": "", "price": 0}]), STAFF)
@@ -255,9 +255,11 @@ def test_other_services_are_booked_with_the_fence_and_charged_everywhere(db, ghl
     assert b["total"] == pytest.approx(997.92 + 348.62 + 227.36 + 148.26)
     page = bk.booking_page(b["token"], _Req())
     assert [s["name"] for s in page["services"]] == ["House soft wash", "Driveway, walkways & front porch", "Back patio cleaning"]
-    assert "Also booked: House soft wash" in [x for x in ghl if x[0] == "cal"][-1][3]
+    assert page["services"][0]["description"] == "All 4 sides, gutters and soffits" and page["services"][1]["description"] == ""
+    assert "Also booked: House soft wash $348.62 (All 4 sides, gutters and soffits)" in [x for x in ghl if x[0] == "cal"][-1][3]
     bk.booking_finance(b["token"], _Req())
     assert db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one().amount_cents == 172216
     assert [x["unit_price"] for x in stripe_pay._booked_services(db, lead.id)] == [348.62, 227.36, 148.26]
+    assert stripe_pay._booked_services(db, lead.id)[0]["description"] == "All 4 sides, gutters and soffits"
     with pytest.raises(HTTPException):
         pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", services=[{"name": "Gutters", "price": 0}]), STAFF)

@@ -140,7 +140,8 @@ def _services(b: Booking) -> list[dict]:
         lines = json.loads(b.services_json or "[]")
     except (TypeError, ValueError):
         return []
-    return [{"name": r.get("name", ""), "price": float(r.get("price") or 0)} for r in lines if isinstance(r, dict)]
+    return [{"name": r.get("name", ""), "price": float(r.get("price") or 0), "description": r.get("description") or ""}
+            for r in lines if isinstance(r, dict)]
 
 
 def _state(db, lead: Lead) -> dict:
@@ -187,7 +188,8 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
         *[f"Repair: {r['name']} × {r['qty']} @ {hooks.money(r['unit_price'])} = {hooks.money(r['qty'] * r['unit_price'])}" for r in _repairs(b)],
         *([f"Repairs discount{(' ' + b.repairs_discount_label) if b.repairs_discount_label else ''}: -{hooks.money(b.repairs_discount_cents / 100)}"] if b.repairs_discount_cents else []),
-        *[f"Also booked: {sv['name']} {hooks.money(sv['price'])}" for sv in _services(b)],
+        *[f"Also booked: {sv['name']} {hooks.money(sv['price'])}" + (f" ({sv['description']})" if sv["description"] else "")
+          for sv in _services(b)],
         *[f"Added on site: {l['name']} × {l['qty']} @ {hooks.money(l['unit_cents'] / 100)} = {hooks.money(l['qty'] * l['unit_cents'] / 100)}"
           for l in extras["lines"]],
         f"Due after the job: {hooks.money(due + extras['total_cents'] / 100)}",
