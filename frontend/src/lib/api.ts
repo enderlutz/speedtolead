@@ -3704,6 +3704,7 @@ export const api = {
       pickets_marked?: boolean;
       extras_confirmed?: boolean;
       fence_sides?: string[];
+      neighbor_send?: boolean;
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
@@ -3876,6 +3877,8 @@ export interface CompanyCamJob {
   almost_done_how?: string;
   /** "yes" = the chosen stain goes on every side in the scope; "no" = some differ. */
   color_all_sides?: string;
+  /** Someone else wants a quote: "none" | "details" | "no_details" | "". */
+  neighbor_status?: string; neighbor_sent_at?: string;
   /** Repairs set by the office: counts per part, picket wood, post height. */
   repairs?: { counts: Record<string, number>; picket_type: string; post_type: string };
   /** The office's note to the crew about the repairs. */

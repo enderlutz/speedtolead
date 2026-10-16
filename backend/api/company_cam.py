@@ -235,6 +235,8 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "cleaner_checklist": _json_list(job.cleaner_checklist_json),
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
+        "neighbor_status": job.neighbor_status or "",
+        "neighbor_sent_at": job.neighbor_sent_at or "",
         "neighbor_first_name": job.neighbor_first_name or "",
         "neighbor_last_name": job.neighbor_last_name or "",
         "neighbor_phone": job.neighbor_phone or "",
@@ -288,6 +290,24 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
     try:
         lead = _lead_or_404(db, lead_id)
         job = _get_or_create(db, lead)
+        # A stain picked before the label carried brand and opacity (Yogi,
+        # 2026-10-15): fill the label in, so "every side" names it, and let
+        # gallons follow the solid/165 math unless typed in by hand.
+        if job.final_stain_id:
+            from database import StainInventoryItem
+            item = db.query(StainInventoryItem).filter(StainInventoryItem.id == job.final_stain_id).first()
+            if item and job.final_color != stain_label(item):
+                job.final_color = stain_label(item)
+                job.color = job.final_color
+                if job.color_all_sides == "yes":
+                    job.color_plan_json = json.dumps(normalize_color_plan([{"area": "Every side", "sides": estimate_sides(db, lead),
+                                                                             "status": "confirmed", "colors": [job.final_color]}]))
+                db.commit()
+        if not job.gallons_edited and job.sqft:
+            g = gallons_for(job.sqft, sqft_per_gallon(db, job))
+            if g != job.gallons_needed:
+                job.gallons_needed = g
+                db.commit()
         # The package they bought, filled in once if nobody picked one.
         if not job.package:
             sold = sold_package(db, lead_id)
@@ -393,6 +413,10 @@ class CompanyCamPatch(BaseModel):
     cleaner_checklist: list[str] | None = None
     stainer_checklist: list[str] | None = None
     neighbor_interested: bool | None = None
+    # "none" | "details" | "no_details" | ""
+    neighbor_status: str | None = None
+    # True: send what the crew wrote down to Alan (and make the friend a lead).
+    neighbor_send: bool | None = None
     neighbor_first_name: str | None = None
     neighbor_last_name: str | None = None
     neighbor_phone: str | None = None
@@ -516,6 +540,25 @@ def update_company_cam(
         if body.pickets_marked is not None:
             job.pickets_marked_at = _now() if body.pickets_marked else ""
             job.pickets_marked_by = _actor(user) if body.pickets_marked else ""
+        neighbor_alert = ""
+        if body.neighbor_status is not None:
+            v = body.neighbor_status.strip().lower()
+            if v not in ("none", "details", "no_details", ""):
+                raise HTTPException(400, "Neighbour or friend is none, details, no_details or blank")
+            if v != (job.neighbor_status or ""):
+                job.neighbor_status = v
+                job.neighbor_interested = v in ("details", "no_details")
+                job.neighbor_sent_at = ""
+                if v == "no_details":
+                    job.neighbor_sent_at = _now()
+                    neighbor_alert = "no_details"
+        if body.neighbor_send:
+            if not (job.neighbor_phone or "").strip() and not (job.neighbor_first_name or "").strip():
+                raise HTTPException(400, "Put in at least their name or their number")
+            job.neighbor_status = "details"
+            job.neighbor_interested = True
+            job.neighbor_sent_at = _now()
+            neighbor_alert = "details"
         if body.fence_sides is not None:
             from api.permissions import require_perm
             require_perm("see_prices")(user)  # office only, not the crew
@@ -548,6 +591,8 @@ def update_company_cam(
         db.commit()
         if newly_confirmed:
             _extras_confirmed(db, lead, job)
+        if neighbor_alert:
+            _neighbor_to_alan(db, lead, job, neighbor_alert, _actor(user))
         photos = (
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
@@ -935,6 +980,35 @@ def _extras_confirmed(db, lead: Lead, job: CompanyCamJob) -> None:
                    f"Confirmed by {job.extras_confirmed_by or 'the crew'}. It's ready to add on their invoice (Payment links).")
     except Exception as e:  # noqa: BLE001
         logger.warning("extras: alert failed for %s: %s", lead.id, e)
+
+
+def _neighbor_to_alan(db, lead: Lead, job: CompanyCamJob, kind: str, who: str) -> None:
+    """Someone else wants a quote. With details, the friend becomes a lead
+    marked as referred by this customer (no automatic text: the friend never
+    said yes to one). Without, Alan is told to ask the customer. Never raises."""
+    from services.after_pay_hooks import alert_alan
+    name = lead.contact_name or "A customer"
+    try:
+        if kind == "no_details":
+            alert_alan(f"{name} mentioned a neighbour or friend who wants a quote, but {who or 'the crew'} didn't get their info. "
+                       f"Call {name} ({lead.contact_phone or 'no number'}) and ask who it is.")
+            return
+        friend = f"{job.neighbor_first_name or ''} {job.neighbor_last_name or ''}".strip() or "Someone"
+        phone = (job.neighbor_phone or "").strip()
+        if phone:
+            from database import ReferralClaim
+            from services import referrals
+            code = referrals.code_for(db, lead)
+            new = referrals.make_lead(db, lead, code, friend, phone, "")
+            db.add(ReferralClaim(id=str(uuid.uuid4()), code=code, referrer_lead_id=lead.id, lead_id=new.id,
+                                 name=friend, phone=phone, address="", created_at=_now()))
+            db.commit()
+        alert_alan(f"{name}'s {('neighbour or friend')} wants a quote: {friend}, {phone or 'no number'}"
+                   + (f", wants: {job.neighbor_project}" if job.neighbor_project else "")
+                   + (f". Note: {job.neighbor_notes}" if job.neighbor_notes else "")
+                   + f". From {who or 'the crew'}." + (" They're in Contacts under Referrals." if phone else ""))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("neighbour alert failed for %s: %s", lead.id, e)
 
 
 class AlmostDoneMarkBody(BaseModel):

@@ -1802,6 +1802,12 @@ class CompanyCamJob(Base):
     # the price list; confirmed once the customer says yes, which puts them
     # on the calendar event and tells Alan to add them to the invoice.
     extras_json = Column(Text, default="")
+    # Someone else wants a quote (Alan, 2026-10-16: "neighbor or friend"):
+    # "none" | "details" (the crew got name and number) | "no_details" (the
+    # customer mentioned someone; Alan calls the customer to find out who).
+    # neighbor_sent_at: when it went to Alan.
+    neighbor_status = Column(Text, default="")
+    neighbor_sent_at = Column(Text, default="")
     extras_confirmed_at = Column(Text, default="")
     extras_confirmed_by = Column(Text, default="")
 
@@ -4548,6 +4554,8 @@ def _run_migrations():
             ("pickets_marked_at", "TEXT DEFAULT ''"),
             ("pickets_marked_by", "TEXT DEFAULT ''"),
             ("extras_json", "TEXT DEFAULT ''"),
+            ("neighbor_status", "TEXT DEFAULT ''"),
+            ("neighbor_sent_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_by", "TEXT DEFAULT ''"),
         ):

@@ -878,3 +878,22 @@ def test_a_solid_stain_divides_by_175_the_rest_by_165(db):
     assert r["job"]["sqft_per_gallon"] == 175 and r["job"]["gallons_needed"] == gallons_for(3439, 175)
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id="cn"), user=USER)
     assert r["job"]["sqft_per_gallon"] == 165 and r["job"]["gallons_needed"] == gallons_for(3439)
+
+
+def test_a_neighbour_or_friend_reaches_alan_with_or_without_details(db, monkeypatch):
+    told = []
+    monkeypatch.setattr("services.after_pay_hooks.alert_alan", lambda m: told.append(m))
+    lead = _lead(db, name="Yogi Patel")
+    cc.get_company_cam(lead.id, user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(neighbor_status="no_details"), user=USER)
+    assert r["job"]["neighbor_status"] == "no_details" and r["job"]["neighbor_interested"] is True
+    assert len(told) == 1 and "didn't get their info" in told[0] and "Yogi Patel" in told[0]
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(neighbor_send=True), user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(neighbor_first_name="Angie", neighbor_phone="(713) 555-0199", neighbor_project="back fence"), user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(neighbor_send=True), user=USER)
+    assert r["job"]["neighbor_status"] == "details" and r["job"]["neighbor_sent_at"]
+    assert "Angie" in told[-1] and "back fence" in told[-1] and "Referrals" in told[-1]
+    from database import ReferralClaim, Lead
+    claim = db.query(ReferralClaim).filter(ReferralClaim.referrer_lead_id == lead.id).first()
+    assert claim and db.query(Lead).filter(Lead.id == claim.lead_id).first().lead_source == "referral"

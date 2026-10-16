@@ -18,13 +18,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
-  Droplets, Hammer, Search, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
+  Droplets, Hammer, Search, Send, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, canSeeRevenue, type CompanyCamPayload, type CoverageStats, type StainOption, type CompanyCamPhoto,
+  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CoverageStats, type StainOption, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -594,7 +594,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   useEffect(() => { void load(); }, [load]);
 
   const patch = async (
-    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean },
+    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
@@ -1099,7 +1099,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                     hint={manager ? "From Stain Inventory. Type to search." : undefined}>
             {manager ? (
               <StainPicker options={data.stain_options || []} value={job.final_stain_id}
-                           onPick={(id) => void patch({ final_stain_id: id })} />
+                           onPick={(id) => void patch({ final_stain_id: id })} onAdded={() => void load()} />
             ) : (
               <ReadValue>{(data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label || job.final_color || "Not picked yet"}</ReadValue>
             )}
@@ -1123,7 +1123,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                hint={manager ? "Colour, brand and opacity, from Stain Inventory. Still deciding? Leave it and use the rows below." : undefined}>
           {manager ? (
             <StainPicker options={data.stain_options || []} value={job.final_stain_id}
-                         onPick={(id) => void patch({ final_stain_id: id })} />
+                         onPick={(id) => void patch({ final_stain_id: id })} onAdded={() => void load()} />
           ) : (
             <ReadValue>{chosenStain || "Not chosen yet"}</ReadValue>
           )}
@@ -1332,56 +1332,74 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
       </RoleGroup>
 
-      {/* Neighbours — the cheapest lead source there is. */}
+      {/* Neighbours and friends — the cheapest lead there is. Made so simple
+          it can't go wrong (Alan, 2026-10-16): one question, three answers. */}
       <Panel icon={Users} accent={ACCENT.rose}
-             title="Any interested neighbours?"
-             sub="The cheapest lead there is">
-        <Button size="lg"
-                variant={job.neighbor_interested ? "default" : "outline"}
-                className={cn("h-11 w-full sm:w-auto",
-                              job.neighbor_interested
-                                && "bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700")}
-                onClick={() => void patch({ neighbor_interested: !job.neighbor_interested })}>
-          {job.neighbor_interested
-            ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> Yes, a neighbour was interested</>
-            : <><Users className="mr-1.5 h-4 w-4" /> A neighbour asked about us</>}
-        </Button>
-        {!job.neighbor_interested ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Getting their name and number is the whole job here — Alan calls
-            them once this one's finished.
+             title="Any neighbour or friend interested?"
+             sub="Ask the customer before you leave">
+        <p className="text-sm font-semibold">Does anyone else want a quote? A neighbour, a friend, family?</p>
+        <div className="grid gap-2">
+          {([
+            ["none", "No one"],
+            ["details", "Yes, and I got their name and number"],
+            ["no_details", "Yes, but I didn't get their info"],
+          ] as const).map(([v, label]) => (
+            <Button key={v} size="lg" variant={(job.neighbor_status || "") === v ? "default" : "outline"}
+                    className={cn("h-auto min-h-12 w-full justify-start whitespace-normal py-2.5 text-left text-base font-semibold",
+                      (job.neighbor_status || "") === v && v !== "none" && "bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700")}
+                    onClick={() => void patch({ neighbor_status: job.neighbor_status === v ? "" : v })}>
+              {(job.neighbor_status || "") === v ? <CheckCircle2 className="mr-2 h-5 w-5 shrink-0" /> : <span className="mr-2 h-5 w-5 shrink-0 rounded-full border-2 border-current opacity-40" />}
+              {label}
+            </Button>
+          ))}
+        </div>
+        {job.neighbor_status === "no_details" ? (
+          <p className="flex items-start gap-1.5 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> Alan's been told. He'll call the customer to find out who. Nothing else to do.
           </p>
-        ) : (
+        ) : null}
+        {job.neighbor_status === "details" ? (
           <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/40 p-3">
-            {/* A referral is a lead, so it's captured like one. All optional —
-                a first name and a number is already enough to make the call. */}
             <div className="grid gap-2.5 sm:grid-cols-2">
-              <Field label="First name">
-                <BlurText value={job.neighbor_first_name} placeholder="First"
+              <Field label="Their name">
+                <BlurText value={job.neighbor_first_name} placeholder="First name"
                           onSave={(v) => void patch({ neighbor_first_name: v })} />
               </Field>
-              <Field label="Last name">
-                <BlurText value={job.neighbor_last_name} placeholder="Last"
+              <Field label="Last name (if they gave it)">
+                <BlurText value={job.neighbor_last_name} placeholder="Last name"
                           onSave={(v) => void patch({ neighbor_last_name: v })} />
               </Field>
-              <Field label="Phone number" hint="The one thing that makes this callable">
+              <Field label="Phone number">
                 <BlurText value={job.neighbor_phone} placeholder="(713) 555-0101"
                           onSave={(v) => void patch({ neighbor_phone: v })} />
               </Field>
-              <Field label="What do they want doing?">
+              <Field label="What do they want done?">
                 <BlurText value={job.neighbor_project}
-                          placeholder="e.g. back fence, maybe the gates too"
+                          placeholder="e.g. their back fence"
                           onSave={(v) => void patch({ neighbor_project: v })} />
               </Field>
             </div>
-            <Field label="Anything else"
-                   hint="Which house, best time to call, what they said.">
+            <Field label="Anything else (optional)" hint="Which house, best time to call.">
               <BlurText rows={2} value={job.neighbor_notes}
-                        placeholder="e.g. House to the left, grey truck — said to call after 5."
+                        placeholder="e.g. House to the left. Call after 5."
                         onSave={(v) => void patch({ neighbor_notes: v })} />
             </Field>
+            {job.neighbor_sent_at ? (
+              <p className="flex items-start gap-1.5 text-sm font-semibold text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> Sent to Alan. He'll take it from here.
+              </p>
+            ) : (
+              <Button size="lg" className="h-12 w-full text-base font-semibold"
+                      onClick={() => {
+                        // A note still being typed saves on blur; give it a beat.
+                        (document.activeElement as HTMLElement | null)?.blur?.();
+                        setTimeout(() => void patch({ neighbor_send: true }), 350);
+                      }}>
+                <Send className="mr-1.5 h-4 w-4" /> Send to Alan
+              </Button>
+            )}
           </div>
-        )}
+        ) : null}
       </Panel>
       {picking ? (
         <LibraryPicker leadId={leadId} section={picking} onClose={() => setPicking(null)} onAdded={() => void load()} />
@@ -1574,9 +1592,27 @@ function ReadValue({ children }: { children: React.ReactNode }) {
 }
 
 /** Search Stain Inventory and pick the stain they went with. */
-function StainPicker({ options, value, onPick }: { options: StainOption[]; value: string; onPick: (id: string) => void }) {
+function StainPicker({ options, value, onPick, onAdded }: { options: StainOption[]; value: string; onPick: (id: string) => void; onAdded?: () => void }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  // A stain we've never used (Alan, 2026-10-16: "Whiteout"): add it to Stain
+  // Inventory right here, with its brand and opacity, then it's picked.
+  const [adding, setAdding] = useState<{ name: string; brand: string; finish: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const brands = [...new Set(options.map((o) => o.brand).filter(Boolean))].sort();
+  const addNew = async () => {
+    if (!adding) return;
+    if (!adding.name.trim() || !adding.brand.trim() || !adding.finish) { toast.error("Fill in the name, brand and opacity"); return; }
+    setSaving(true);
+    try {
+      const made = await api.createStain({ brand: adding.brand.trim(), finish_type: adding.finish, color_name: adding.name.trim(), gallons: 0, note: "Added from Company Cam" });
+      onPick(made.id);
+      onAdded?.();
+      toast.success(`${made.color_name} added to Stain Inventory`);
+      setAdding(null); setOpen(false);
+    } catch (e) { toast.error(errMessage(e, "Couldn't add the stain")); }
+    finally { setSaving(false); }
+  };
   const picked = options.find((o) => o.id === value);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const hits = options.filter((o) => words.every((w) => o.label.toLowerCase().includes(w))).slice(0, 40);
@@ -1602,8 +1638,35 @@ function StainPicker({ options, value, onPick }: { options: StainOption[]; value
             <span className="truncate">{o.label}</span>
             {!o.active ? <span className="ml-auto shrink-0 text-xs text-muted-foreground">off the shelf</span> : null}
           </button>
-        )) : <p className="px-3 py-2 text-xs text-muted-foreground">No stain matches. Add it on the Stain Inventory page.</p>}
+        )) : <p className="px-3 py-2 text-xs text-muted-foreground">No stain matches.</p>}
       </div>
+      {adding ? (
+        <div className="space-y-2 rounded-lg border border-fuchsia-200 bg-fuchsia-50/50 p-2.5">
+          <p className="text-sm font-bold">New stain for Stain Inventory</p>
+          <Input value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} placeholder="Stain name, e.g. Whiteout" className="h-10 text-base sm:text-sm" />
+          <Input value={adding.brand} onChange={(e) => setAdding({ ...adding, brand: e.target.value })} placeholder="Brand, e.g. Valspar" list="cc-brands" className="h-10 text-base sm:text-sm" />
+          <datalist id="cc-brands">{brands.map((b) => <option key={b} value={b} />)}</datalist>
+          <div className="flex flex-wrap gap-1">
+            {STAIN_FINISH_TYPES.map((f) => (
+              <button key={f.value} type="button" onClick={() => setAdding({ ...adding, finish: f.value })}
+                      className={cn("min-h-10 rounded-lg px-3 text-sm font-semibold ring-1", adding.finish === f.value ? "bg-foreground text-background ring-foreground" : "bg-background ring-border")}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button size="lg" className="h-11 flex-1" disabled={saving} onClick={() => void addNew()}>
+              {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />} Add and pick it
+            </Button>
+            <Button size="lg" variant="outline" className="h-11" onClick={() => setAdding(null)}>Cancel</Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="lg" className="h-11 w-full border-dashed"
+                onClick={() => setAdding({ name: q.trim().replace(/\b\w/g, (c) => c.toUpperCase()), brand: "", finish: "" })}>
+          <Plus className="mr-1.5 h-4 w-4" /> {q.trim() && !hits.length ? `Add "${q.trim()}" as a new stain` : "Add a stain we've never used"}
+        </Button>
+      )}
       <div className="flex justify-between">
         {value ? <button type="button" onClick={() => { onPick(""); setOpen(false); }} className="min-h-10 px-1 text-sm font-semibold text-muted-foreground underline">Clear</button> : <span />}
         <button type="button" onClick={() => setOpen(false)} className="min-h-10 px-1 text-sm font-semibold text-muted-foreground underline">Cancel</button>
