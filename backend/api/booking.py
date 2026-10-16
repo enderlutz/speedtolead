@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 LINK = "[link]"
+# The day in the text comes from the booking itself, filled in as it sends,
+# so the text can never say a different day than their page (Alan,
+# 2026-10-15: the resend still said October 24 after the date changed).
+DAY = "[day]"
 HOLD_DAYS = 7
 
 
@@ -74,7 +78,7 @@ def discount_cents(price_cents: int, kind: str, value: float) -> int:
 
 
 def default_message(lead: Lead, iso: str) -> str:
-    return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. I'm holding {_long(iso)} "
+    return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. I'm holding {DAY} "
             f"for your fence. Here's your booking, and the $250 deposit locks it in: {LINK}")
 
 
@@ -323,7 +327,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             raise HTTPException(status_code=400, detail="The text is empty.")
         if LINK not in msg and url not in msg:
             raise HTTPException(status_code=400, detail="Keep [link] in the text so they can open their booking.")
-        msg = msg.replace(LINK, url)
+        msg = msg.replace(LINK, url).replace(DAY, _long(b.date))
         if len(msg) > 1500:
             raise HTTPException(status_code=400, detail="That text is too long. Keep it under 1,500 characters.")
 

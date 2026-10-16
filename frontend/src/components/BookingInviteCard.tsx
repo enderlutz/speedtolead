@@ -33,6 +33,18 @@ const TIERS: { key: Tier; name: string }[] = [
 const COLORS = ["Redwood Naturaltone", "Cedar Naturaltone", "Pecan", "Redwood", "Cottage Gray", "Monticello Tan", "Dark Walnut", "Chocolate Chips"];
 const NOTE_HINT = "e.g. The pergola would be about $750 to $950 more. We'd just need a closer look at it on the day.";
 const LINK = "[link]";
+// The day is filled in from the booking as it sends, so the text can never
+// name a different day than their page (Alan, 2026-10-15).
+const DAY = "[day]";
+const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** The next two weeks as tap targets, weekday on each, so a day is never
+ *  picked off the iPhone wheel by mistake. */
+function nextDays(n = 14): string[] {
+  const out: string[] = [];
+  const d = new Date();
+  for (let i = 1; i <= n; i++) { d.setDate(d.getDate() + 1); out.push(isoOf(d)); }
+  return out;
+}
 
 function nextThursday(): string {
   const d = new Date();
@@ -66,8 +78,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const [msgEdited, setMsgEdited] = useState(false);
   const [email, setEmail] = useState(true);
 
-  const presetFor = (iso: string) =>
-    `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${longDay(iso)} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
+  const presetFor = () =>
+    `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${DAY} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
 
   useEffect(() => {
     let alive = true;
@@ -85,7 +97,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
   }, [lead.id]);
-  const text = msgEdited ? msg : (draft.date ? presetFor(draft.date) : "");
+  const text = msgEdited ? msg : presetFor();
 
   // The prices are the ones on the estimate that went out.
   const tiers = useMemo(() => {
@@ -156,6 +168,11 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   };
   const onSend = async () => {
     if (!text.includes(LINK)) { toast.error("Keep [link] in the text so they can open their booking."); return; }
+    // Say the day out loud before anything goes (Exolei got "October 24"
+    // after the day was changed, Alan, 2026-10-15).
+    const when = longDay(draft.date);
+    const mentions = text.includes(DAY) || text.toLowerCase().includes(when.toLowerCase());
+    if (!window.confirm(`Text ${first} the booking for ${when}?${mentions ? "" : `\n\nYour text doesn't say ${when}. Put [day] back in, or check the day you typed.`}`)) return;
     setBusy("send");
     try {
       if (changed) await save();
@@ -232,11 +249,30 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm">
-          <span className="font-semibold">Day we're aiming for</span>
-          <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })}
-            className="mt-1 h-11 w-full rounded-lg border border-input bg-background px-3 text-base" />
-        </label>
+        <div className="text-sm sm:col-span-2">
+          <p className="font-semibold">Day we're aiming for{draft.date ? <span className="ml-1.5 rounded-md bg-gold/20 px-2 py-0.5 font-bold text-bronze">{longDay(draft.date)}</span> : null}</p>
+          {/* Tap a day: the weekday is on every button. */}
+          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {nextDays().map((iso) => {
+              const d = new Date(`${iso}T12:00:00`);
+              const on = draft.date === iso;
+              const weekend = d.getDay() === 0 || d.getDay() === 6;
+              return (
+                <button key={iso} type="button" onClick={() => setDraft({ ...draft, date: iso })}
+                  className={cn("flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl border text-center leading-tight",
+                    on ? "border-bronze bg-ink text-gold-light" : weekend ? "border-gold/50 bg-gold/10" : "border-input bg-background")}>
+                  <span className="text-[11px] font-bold uppercase">{d.toLocaleDateString("en-US", { weekday: "short" })}</span>
+                  <span className="text-lg font-bold tabular-nums">{d.getDate()}</span>
+                </button>
+              );
+            })}
+          </div>
+          <label className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            Another day:
+            <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+              className="h-9 rounded-lg border border-input bg-background px-2 text-sm" />
+          </label>
+        </div>
         <label className="block text-sm">
           <span className="font-semibold">Color</span>
           <input list="booking-colors" value={draft.color} placeholder="Pick or type a color" onChange={(e) => setDraft({ ...draft, color: e.target.value })}
@@ -393,9 +429,14 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <textarea value={text} rows={5} maxLength={1400} onChange={(e) => { setMsg(e.target.value); setMsgEdited(true); }}
           className="w-full rounded-lg border border-input bg-background px-3 py-2 text-base" />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span><b>[link]</b> becomes their booking link.</span>
+          <span><b>[day]</b> becomes the day you picked, <b>[link]</b> their booking link.</span>
           {msgEdited ? <button type="button" onClick={() => setMsgEdited(false)} className="font-semibold underline">Reset text</button> : null}
         </div>
+        {/* Exactly what they'll read, the day filled in. */}
+        <p className="rounded-lg bg-background px-3 py-2 text-xs leading-relaxed ring-1 ring-input">
+          <span className="font-semibold text-muted-foreground">They'll get: </span>
+          {text.split(DAY).join(draft.date ? longDay(draft.date) : "[no day picked]").split(LINK).join("estimate.sterlingfencetx.com/b/…")}
+        </p>
         <label className={cn("flex items-center gap-2 text-sm", !st?.has_email && "text-muted-foreground")}>
           <input type="checkbox" checked={email && !!st?.has_email} disabled={!st?.has_email} onChange={(e) => setEmail(e.target.checked)} className="h-4 w-4" />
           <Mail className="h-4 w-4" /> {st?.has_email ? `Also email it to ${lead.contact_email}` : "No email on file, text only"}

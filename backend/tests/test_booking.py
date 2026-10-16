@@ -48,7 +48,7 @@ def _ready(db, email="wes@example.com"):
 def test_send_texts_and_emails_one_link_and_the_page_is_held(db, ghl):
     lead, day = _ready(db)
     st = bk.get_booking(lead.id, STAFF)
-    assert bk.LINK in st["message"] and "Wes" in st["message"] and st["booking"] is None
+    assert bk.LINK in st["message"] and bk.DAY in st["message"] and "Wes" in st["message"] and st["booking"] is None
     out = bk.send_booking(lead.id, bk.SendBody(message=st["message"]), STAFF)
     b = out["booking"]
     assert b["status"] == "held" and b["total"] == 997.92 and b["sent_count"] == 1 and out["emailed"] is True
@@ -223,3 +223,15 @@ def test_update_without_texting_moves_the_date_and_calendar_but_sends_nothing(db
     assert len([x for x in ghl if x[0] in ("sms", "email")]) == texts
     assert [x for x in ghl if x[0] == "cal"][-1][4] == new_day
     assert bk.booking_page(b["token"], _Req())["date"] == new_day
+
+
+def test_the_day_in_the_text_always_comes_from_the_booking(db, ghl):
+    lead, day = _ready(db)
+    msg = bk.get_booking(lead.id, STAFF)["message"]
+    bk.send_booking(lead.id, bk.SendBody(message=msg), STAFF)
+    assert bk._long(day) in [x for x in ghl if x[0] == "sms"][-1][1]
+    new_day = (date.today() + timedelta(days=3)).isoformat()
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=new_day, tier="signature"), STAFF)
+    bk.send_booking(lead.id, bk.SendBody(message=msg), STAFF)   # the same [day] text, a new date
+    sms = [x for x in ghl if x[0] == "sms"][-1][1]
+    assert bk._long(new_day) in sms and bk._long(day) not in sms and "[day]" not in sms
