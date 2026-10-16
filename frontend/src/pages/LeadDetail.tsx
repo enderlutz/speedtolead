@@ -1650,7 +1650,7 @@ export default function LeadDetail() {
               the page. Answers "what do I do next on this lead?" before a
               single card is read. */}
           {/* The order a call goes (Alan, 2026-10-16): Contact, Measure & capture,
-              Estimator input, the estimate, Customer journey, Objections, Send,
+              Estimator input, the estimate, Send, Customer journey, Objections,
               then booking, payments and Details. One column on every screen. */}
           {/* Contact info */}
           <Panel
@@ -2147,29 +2147,6 @@ export default function LeadDetail() {
             </Panel>
           )}
 
-          {/* Folded by default (Alan, 2026-10-16): the header says what's
-              next; a tap opens every step. */}
-          <JourneyStrip
-            collapsed={!isOpen("journey", false)}
-            onToggle={() => toggle("journey", false)}
-            steps={journey}
-            note={cameBack
-              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
-              : undefined}
-          />
-
-          {/* Every objection the scanner found in this customer's texts and
-              calls, each with their exact words and whether it came before or
-              after the estimate. Nobody picks; a wrong one can be removed. */}
-          <ObjectionsPanel
-            leadId={lead.id}
-            objections={objections}
-            categories={objectionCats}
-            onChange={loadObjections}
-            collapsed={!isOpen("objections", objections.length > 0)}
-            onToggle={() => toggle("objections", objections.length > 0)}
-          />
-
           {/* Approval status, right above Send */}
           {approvalCfg && (
             <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} />
@@ -2458,6 +2435,29 @@ export default function LeadDetail() {
               </div>
             </div>
           )}
+
+          {/* Folded by default (Alan, 2026-10-16): the header says what's
+              next; a tap opens every step. */}
+          <JourneyStrip
+            collapsed={!isOpen("journey", false)}
+            onToggle={() => toggle("journey", false)}
+            steps={journey}
+            note={cameBack
+              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
+              : undefined}
+          />
+
+          {/* Every objection the scanner found in this customer's texts and
+              calls, each with their exact words and whether it came before or
+              after the estimate. Nobody picks; a wrong one can be removed. */}
+          <ObjectionsPanel
+            leadId={lead.id}
+            objections={objections}
+            categories={objectionCats}
+            onChange={loadObjections}
+            collapsed={!isOpen("objections", objections.length > 0)}
+            onToggle={() => toggle("objections", objections.length > 0)}
+          />
 
           {/* Our own booking invite, in place of the Google Calendar one
               (Alan, 2026-10-14). Right above the payment links: the $250
