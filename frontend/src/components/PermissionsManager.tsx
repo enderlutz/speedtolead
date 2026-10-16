@@ -62,6 +62,8 @@ function UserRow({
   const [seeAll, setSeeAll] = useState(u.see_all_jobs);
   // Clock in to start the day: off for someone paid per job (Alan, 2026-10-16).
   const [clockIn, setClockIn] = useState(!u.no_clock_in);
+  // Their name as everyone sees it ("Chris Moran"); the login stays the same.
+  const [displayName, setDisplayName] = useState(u.display_name || "");
   const [jobTitle, setJobTitle] = useState(u.job_title || "");
   const [saving, setSaving] = useState(false);
 
@@ -81,7 +83,7 @@ function UserRow({
       for (const k of Object.keys(draft)) {
         if (!!draft[k] !== !!roleDefaults[k]) overrides[k] = !!draft[k];
       }
-      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, job_title: jobTitle, permissions: overrides });
+      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username });
       toast.success(`Saved ${u.display_name || u.username}`);
       onChanged();
     } catch (e) {
@@ -164,6 +166,11 @@ function UserRow({
                 maxLength={40}
                 className="text-xs rounded border bg-background px-1.5 py-1 w-32"
               />
+            </label>
+            <label className="text-xs flex items-center gap-1.5">
+              Name
+              <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="First Last"
+                     className="text-sm rounded border bg-background px-1.5 py-1 w-40" />
             </label>
             <label className="text-xs flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={seeAll} onChange={(e) => setSeeAll(e.target.checked)} className="h-3.5 w-3.5" />
