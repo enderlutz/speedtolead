@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Loader2, MapPin, Search } from "lucide-react
 import { api } from "@/lib/api";
 import CompanyCamTab from "@/components/CompanyCamTab";
 
-type Row = { lead_id: string; name: string; address: string; date: string };
+type Row = { lead_id: string; name: string; address: string; date: string; task?: string };
 
 function day(iso: string) {
   if (!iso) return "";
@@ -68,6 +68,11 @@ function JobList() {
                   <span className="w-16 shrink-0 rounded-lg bg-muted px-1.5 py-1 text-center text-xs font-bold leading-tight">{day(r.date)}</span>
                 ) : null}
                 <span className="min-w-0 flex-1">
+                  {r.task ? (
+                    <span className={`mb-0.5 inline-block rounded px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white ${r.task === "staining" ? "bg-emerald-700" : "bg-sky-600"}`}>
+                      {r.task === "staining" ? "Staining" : "Cleaning"}
+                    </span>
+                  ) : null}
                   <span className="block truncate text-base font-semibold capitalize">{(r.name || "Customer").toLowerCase()}</span>
                   {r.address ? <span className="flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{r.address}</span> : null}
                 </span>

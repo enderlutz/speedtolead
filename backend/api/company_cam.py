@@ -65,13 +65,25 @@ def _sees_all(user: dict) -> bool:
         return False
 
 
-def _crew_of(job: CompanyCamJob | None) -> list[str]:
+def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
+    """[{"username": "ChrisMoran", "date": "2026-10-16", "task": "cleaning"}].
+    Older rows hold bare usernames; they read as no day and no task yet."""
     try:
         v = json.loads((job.crew_json if job else "") or "[]")
     except (ValueError, TypeError):
         v = []
-    return [str(x) for x in v if str(x).strip()] if isinstance(v, list) else []
+    out = []
+    for x in v if isinstance(v, list) else []:
+        if isinstance(x, str) and x.strip():
+            out.append({"username": x.strip(), "date": "", "task": ""})
+        elif isinstance(x, dict) and str(x.get("username") or "").strip():
+            out.append({"username": str(x["username"]).strip(), "date": str(x.get("date") or "")[:10],
+                        "task": x.get("task") if x.get("task") in ("cleaning", "staining") else ""})
+    return out
 
+
+def _crew_of(job: CompanyCamJob | None) -> list[str]:
+    return [e["username"] for e in _crew_entries(job)]
 
 def _crew_options(db) -> list[dict]:
     """Crew accounts (not admins or VAs), so the office can put them on a job."""
@@ -283,7 +295,7 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
         "neighbor_status": job.neighbor_status or "",
-        "crew": _crew_of(job),
+        "crew": _crew_entries(job),
         "neighbor_sent_at": job.neighbor_sent_at or "",
         "neighbor_first_name": job.neighbor_first_name or "",
         "neighbor_last_name": job.neighbor_last_name or "",
@@ -468,8 +480,9 @@ class CompanyCamPatch(BaseModel):
     neighbor_status: str | None = None
     # True: send what the crew wrote down to Alan (and make the friend a lead).
     neighbor_send: bool | None = None
-    # Crew usernames on this job (office only).
-    crew: list[str] | None = None
+    # Crew on this job (office only): usernames, or {username, date, task}
+    # with task "cleaning" | "staining".
+    crew: list | None = None
     neighbor_first_name: str | None = None
     neighbor_last_name: str | None = None
     neighbor_phone: str | None = None
@@ -598,7 +611,21 @@ def update_company_cam(
                 raise HTTPException(403, "Only the office puts crew on a job")
             from database import User
             names = {u.username.lower(): u.username for u in db.query(User).all()}
-            job.crew_json = json.dumps([names[c.lower()] for c in body.crew if c and c.lower() in names])
+            entries = []
+            for c in body.crew:
+                e = {"username": c} if isinstance(c, str) else dict(c or {})
+                name = names.get(str(e.get("username") or "").lower())
+                if not name or any(x["username"] == name for x in entries):
+                    continue
+                day = str(e.get("date") or "")[:10]
+                if day:
+                    try:
+                        datetime.strptime(day, "%Y-%m-%d")
+                    except ValueError:
+                        raise HTTPException(400, "The day isn't a real date")
+                entries.append({"username": name, "date": day,
+                                "task": e.get("task") if e.get("task") in ("cleaning", "staining") else ""})
+            job.crew_json = json.dumps(entries)
         neighbor_alert = ""
         if body.neighbor_status is not None:
             v = body.neighbor_status.strip().lower()
@@ -1126,13 +1153,21 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
                 row.update({"name": lead.contact_name or "", "address": lead.address or ""})
         if not _sees_all(user):
             me = (user.get("sub") or "").lower()
-            mine = {j.lead_id for j in db.query(CompanyCamJob).all() if me in {c.lower() for c in _crew_of(j)}}
+            mine = {}
+            for j in db.query(CompanyCamJob).all():
+                for e in _crew_entries(j):
+                    if e["username"].lower() == me:
+                        mine[j.lead_id] = e
             out = {k: v for k, v in out.items() if k in mine}
             if not term:
-                for lid in mine - set(out):
+                for lid in set(mine) - set(out):
                     lead = db.query(Lead).filter(Lead.id == lid).first()
                     if lead:
                         out[lid] = {"lead_id": lid, "name": lead.contact_name or "", "address": lead.address or "", "date": ""}
+            # The crew's own day and task for each job.
+            for lid, row in out.items():
+                row["date"] = mine[lid]["date"] or row.get("date", "")
+                row["task"] = mine[lid]["task"]
         rows = list(out.values())
         rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r["name"].lower()))
         return rows

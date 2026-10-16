@@ -825,12 +825,14 @@ function fmtElapsed(ms: number): string {
 // shows a live day timer while the worker is on the clock.
 function DailyCheckInCard() {
   const [shift, setShift] = useState<WorkerShift | null | undefined>(undefined); // undefined = loading
+  // Off for someone paid per job, not by the hour (Alan, 2026-10-16).
+  const [clockIn, setClockIn] = useState(true);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     api.getWorkerShiftToday()
-      .then((r) => setShift(r.shift))
+      .then((r) => { setShift(r.shift); setClockIn(r.clock_in !== false); })
       .catch(() => setShift(null));
   }, []);
 
@@ -864,6 +866,7 @@ function DailyCheckInCard() {
   };
 
   if (shift === undefined) return null; // stay quiet until we know the state
+  if (!clockIn) return null; // paid per job: no clock-in
 
   const fmt = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   const onClock = !!shift && shift.is_open;
@@ -910,6 +913,39 @@ function DailyCheckInCard() {
   );
 }
 
+type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string };
+
+/** The Company Cam jobs the office put this person on, for the tab's days
+ *  (Alan, 2026-10-16: "Cleaning · Yogi" on the day, tap to open it). */
+function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string }) {
+  const shown = jobs.filter((j) => (tab === "today" ? j.date === today : tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today))
+    .sort((a, b) => (a.date || "9").localeCompare(b.date || "9"));
+  if (!shown.length) return null;
+  const day = (iso: string) => {
+    if (!iso) return "Day not set yet";
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+  return (
+    <div className="mb-4 space-y-2">
+      {shown.map((j) => (
+        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}`}
+              className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
+          <span className={`flex h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : "bg-stone-500"}`}>
+            <span className="text-sm uppercase tracking-wide">{j.task === "staining" ? "Staining" : j.task === "cleaning" ? "Cleaning" : "Job"}</span>
+            {tab !== "today" ? <span className="font-medium opacity-90">{day(j.date)}</span> : null}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-base font-semibold capitalize">{(j.name || "Customer").toLowerCase()}</span>
+            {j.address ? <span className="flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{j.address}</span> : null}
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export default function MySchedule() {
   // getCurrentUser() re-decodes the JWT and hands back a new object each call,
   // so memoise it — otherwise every callback depending on `user` would get a
@@ -921,6 +957,12 @@ export default function MySchedule() {
   const [refreshing, setRefreshing] = useState(false);
 
   const today = useMemo(() => ctISO(0), []);
+  // Company Cam jobs the office put this person on, with their day and task.
+  const [camJobs, setCamJobs] = useState<CamJob[]>([]);
+  useEffect(() => {
+    if (!hasPerm("company_cam")) return;
+    api.getCompanyCamJobs().then((r) => setCamJobs(user?.role === "worker" ? r : r.filter((j) => j.task))).catch(() => setCamJobs([]));
+  }, [user]);
 
   const load = useCallback(async (which: Tab) => {
     setLoading(true);
@@ -1039,7 +1081,8 @@ export default function MySchedule() {
               )}
             </div>
           )}
-          {todaySorted.length === 0 ? (
+          <CamJobs jobs={camJobs} tab="today" today={today} />
+          {todaySorted.length === 0 && camJobs.some((j) => j.date === today) ? null : todaySorted.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
                 No jobs scheduled today. Enjoy the day off!
@@ -1055,7 +1098,8 @@ export default function MySchedule() {
         </>
       ) : (
         <>
-          {grouped.length === 0 ? (
+          <CamJobs jobs={camJobs} tab={tab} today={today} />
+          {grouped.length === 0 && camJobs.some((j) => (tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today)) ? null : grouped.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
                 {tab === "upcoming" ? "No upcoming jobs scheduled." : "No jobs in the last 30 days."}

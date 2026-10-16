@@ -60,6 +60,8 @@ function UserRow({
   const [draft, setDraft] = useState<Record<string, boolean>>(u.effective);
   const [role, setRole] = useState(u.role);
   const [seeAll, setSeeAll] = useState(u.see_all_jobs);
+  // Clock in to start the day: off for someone paid per job (Alan, 2026-10-16).
+  const [clockIn, setClockIn] = useState(!u.no_clock_in);
   const [jobTitle, setJobTitle] = useState(u.job_title || "");
   const [saving, setSaving] = useState(false);
 
@@ -79,7 +81,7 @@ function UserRow({
       for (const k of Object.keys(draft)) {
         if (!!draft[k] !== !!roleDefaults[k]) overrides[k] = !!draft[k];
       }
-      await api.updateUser(u.id, { role, see_all_jobs: seeAll, job_title: jobTitle, permissions: overrides });
+      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, job_title: jobTitle, permissions: overrides });
       toast.success(`Saved ${u.display_name || u.username}`);
       onChanged();
     } catch (e) {
@@ -166,6 +168,10 @@ function UserRow({
             <label className="text-xs flex items-center gap-1.5 cursor-pointer">
               <input type="checkbox" checked={seeAll} onChange={(e) => setSeeAll(e.target.checked)} className="h-3.5 w-3.5" />
               See all jobs (manager)
+            </label>
+            <label className="text-xs flex items-center gap-1.5 cursor-pointer" title="Untick for someone paid a flat amount per job, not by the hour">
+              <input type="checkbox" checked={clockIn} onChange={(e) => setClockIn(e.target.checked)} className="h-3.5 w-3.5" />
+              Clock in to start the day <span className="text-muted-foreground">(untick if paid per job)</span>
             </label>
           </div>
 

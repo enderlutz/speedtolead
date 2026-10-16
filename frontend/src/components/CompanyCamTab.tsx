@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CoverageStats, type StainOption, type CompanyCamPhoto,
+  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CoverageStats, type StainOption, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -594,7 +594,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   useEffect(() => { void load(); }, [load]);
 
   const patch = async (
-    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew?: string[] },
+    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
@@ -926,17 +926,40 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
       {manager ? (
         <div className="rounded-2xl border border-border bg-card p-3">
           <p className="text-sm font-bold">Who's on this job?</p>
-          <p className="text-xs text-muted-foreground">They'll see this customer on their Company Cam. Crew only see the jobs they're on.</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <p className="text-xs text-muted-foreground">Tap a name, then their day and whether they're cleaning or staining. It shows on their My Schedule. Crew only see the jobs they're on.</p>
+          <div className="mt-2 space-y-2">
             {(data.crew_options || []).map((c) => {
-              const on = (job.crew || []).some((x) => x.toLowerCase() === c.username.toLowerCase());
+              const crew = job.crew || [];
+              const mine = crew.find((x) => x.username.toLowerCase() === c.username.toLowerCase());
+              const setMine = (patchE: Partial<CrewEntry> | null) => void patch({
+                crew: patchE === null
+                  ? crew.filter((x) => x !== mine)
+                  : mine ? crew.map((x) => (x === mine ? { ...x, ...patchE } : x)) : [...crew, { username: c.username, date: "", task: "", ...patchE }],
+              });
               return (
-                <button key={c.username} type="button"
-                        onClick={() => void patch({ crew: on ? (job.crew || []).filter((x) => x.toLowerCase() !== c.username.toLowerCase()) : [...(job.crew || []), c.username] })}
-                        className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold ring-1",
-                          on ? "bg-emerald-600 text-white ring-emerald-600" : "bg-background ring-border hover:bg-muted")}>
-                  {on ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{c.name}
-                </button>
+                <div key={c.username} className={cn("rounded-xl p-2", mine ? "bg-emerald-50 ring-1 ring-emerald-200" : "")}>
+                  <button type="button" onClick={() => setMine(mine ? null : {})}
+                          className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold ring-1",
+                            mine ? "bg-emerald-600 text-white ring-emerald-600" : "bg-background ring-border hover:bg-muted")}>
+                    {mine ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{c.name}
+                  </button>
+                  {mine ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <label className="flex min-h-11 items-center gap-1.5 rounded-lg bg-background px-2.5 text-sm ring-1 ring-border">
+                        <span className="font-semibold">Day</span>
+                        <input type="date" value={mine.date} onChange={(e) => setMine({ date: e.target.value })}
+                               className="h-9 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
+                      </label>
+                      {(["cleaning", "staining"] as const).map((t) => (
+                        <button key={t} type="button" onClick={() => setMine({ task: mine.task === t ? "" : t })}
+                                className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
+                                  mine.task === t ? (t === "cleaning" ? "bg-sky-600 text-white ring-sky-600" : "bg-emerald-700 text-white ring-emerald-700") : "bg-background ring-border")}>
+                          {t === "cleaning" ? "Cleaning" : "Staining"}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
             {!(data.crew_options || []).length ? <p className="text-xs text-muted-foreground">No crew accounts yet. Make one in Settings → Permissions.</p> : null}

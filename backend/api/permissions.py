@@ -185,6 +185,7 @@ class UpdateUserBody(BaseModel):
     job_title: str | None = None                # display label; does NOT affect access
     role: str | None = None
     see_all_jobs: bool | None = None
+    no_clock_in: bool | None = None             # paid per job: no daily clock-in
     password: str | None = None                 # optional reset
     permissions: dict[str, bool] | None = None  # full per-account override map
 
@@ -205,6 +206,7 @@ def _user_row(db, u: User) -> dict:
         "job_title": (getattr(u, "job_title", "") or ""),
         "role": u.role,
         "see_all_jobs": bool(getattr(u, "see_all_jobs", False)),
+        "no_clock_in": bool(getattr(u, "no_clock_in", False)),
         "overrides": _load_overrides(u.permissions),
         "effective": effective_permissions(u.role, u.permissions, _role_override_raw(db, u.role)),
         "created_at": u.created_at or "",
@@ -315,6 +317,8 @@ def update_user(user_id: str, body: UpdateUserBody, user: dict = Depends(require
             u.role = body.role
         if body.see_all_jobs is not None:
             u.see_all_jobs = bool(body.see_all_jobs)
+        if body.no_clock_in is not None:
+            u.no_clock_in = bool(body.no_clock_in)
         if body.password:
             u.password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
         if body.permissions is not None:

@@ -170,6 +170,8 @@ export interface AdminUser {
   job_title: string;
   role: string;                          // admin | va | worker
   see_all_jobs: boolean;
+  /** Paid per job, so no daily clock-in. */
+  no_clock_in?: boolean;
   overrides: Record<string, boolean>;    // per-account permission overrides
   effective: Record<string, boolean>;    // resolved effective permissions
   created_at: string;
@@ -1342,7 +1344,7 @@ export const api = {
     role?: string; see_all_jobs?: boolean; permissions?: Record<string, boolean>;
   }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (id: string, body: {
-    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean;
+    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean; no_clock_in?: boolean;
     password?: string; permissions?: Record<string, boolean>;
   }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),
@@ -2717,7 +2719,7 @@ export const api = {
     ),
   // Worker daily check-in / check-out (general day clock).
   getWorkerShiftToday: () =>
-    request<{ work_date: string; shift: WorkerShift | null }>(`/api/worker/shift/today`),
+    request<{ work_date: string; shift: WorkerShift | null; clock_in?: boolean }>(`/api/worker/shift/today`),
   workerCheckIn: () =>
     request<{ work_date: string; shift: WorkerShift }>(`/api/worker/shift/check-in`, { method: "POST" }),
   workerCheckOut: () =>
@@ -3694,7 +3696,7 @@ export const api = {
   getStainCoverage: () => request<StainCoverageFile>("/api/stain-coverage"),
   /** The crew's Company Cam list: booked customers, or a search. No prices. */
   getCompanyCamJobs: (q = "") =>
-    request<{ lead_id: string; name: string; address: string; date: string }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
+    request<{ lead_id: string; name: string; address: string; date: string; task?: string }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
@@ -3705,7 +3707,7 @@ export const api = {
       extras_confirmed?: boolean;
       fence_sides?: string[];
       neighbor_send?: boolean;
-      crew?: string[];
+      crew?: CrewEntry[];
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
@@ -3882,8 +3884,8 @@ export interface CompanyCamJob {
   color_all_sides?: string;
   /** Someone else wants a quote: "none" | "details" | "no_details" | "". */
   neighbor_status?: string; neighbor_sent_at?: string;
-  /** Crew usernames on this job; the crew sees only jobs they're on. */
-  crew?: string[];
+  /** Crew on this job, each with a day and a task; the crew sees only jobs they're on. */
+  crew?: CrewEntry[];
   /** Repairs set by the office: counts per part, picket wood, post height. */
   repairs?: { counts: Record<string, number>; picket_type: string; post_type: string };
   /** The office's note to the crew about the repairs. */
@@ -5848,3 +5850,5 @@ export interface StainCoverageFile {
     fence_age: string; previously_stained: string; jobs: CoverageJob[]; gallons: number; sqft: number; sqft_per_gallon: number | null }[];
   missing_stain: CoverageJob[];
 }
+
+export type CrewEntry = { username: string; date: string; task: "" | "cleaning" | "staining" };

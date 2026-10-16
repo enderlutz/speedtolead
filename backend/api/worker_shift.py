@@ -60,7 +60,11 @@ def shift_today(user: dict = Depends(get_current_user)):
             .order_by(WorkerShift.clock_in.desc())
             .first()
         )
-        return {"work_date": wd, "shift": row.to_dict() if row else None}
+        from database import User
+        me = db.query(User).filter(User.username == user.get("sub")).first()
+        return {"work_date": wd, "shift": row.to_dict() if row else None,
+                # False: this person is paid per job, so no clock-in card.
+                "clock_in": not bool(getattr(me, "no_clock_in", False))}
     finally:
         db.close()
 
