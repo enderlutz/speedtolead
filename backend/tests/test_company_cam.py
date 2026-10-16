@@ -852,3 +852,14 @@ def test_the_crew_list_needs_the_company_cam_permission(db, monkeypatch):
     rows = cc.company_cam_jobs(q="lazy vine", user=crew)
     assert rows[0]["lead_id"] == lead.id and rows[0]["name"] == "Yogi Patel"
     assert "price" not in str(rows).lower()
+
+
+def test_the_office_changes_the_sides_from_company_cam(db):
+    import json
+    lead = _lead(db, form_data=json.dumps({"fence_sides": ["Inside Front", "Outside Front"], "fence_age": "6-15 years"}))
+    cc.get_company_cam(lead.id, user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(fence_sides=["Inside Front", "Outside Front", "Outside Left", "bogus"]), user=USER)
+    assert r["estimate_sides"] == ["Inside Front", "Outside Front", "Outside Left"]
+    db.refresh(lead)
+    fd = json.loads(lead.form_data)
+    assert fd["fence_sides"] == ["Inside Front", "Outside Front", "Outside Left"] and fd["fence_age"] == "6-15 years"

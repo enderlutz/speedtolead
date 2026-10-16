@@ -385,6 +385,9 @@ class CompanyCamPatch(BaseModel):
     # Changing them un-confirms; extras_confirmed=True is "the customer said yes".
     extras: dict | None = None
     extras_confirmed: bool | None = None
+    # The sides we're staining, changed from Company Cam (management view).
+    # Saved on the lead, where the Estimate tab keeps them.
+    fence_sides: list[str] | None = None
     cleaner_checklist: list[str] | None = None
     stainer_checklist: list[str] | None = None
     neighbor_interested: bool | None = None
@@ -508,6 +511,20 @@ def update_company_cam(
         if body.pickets_marked is not None:
             job.pickets_marked_at = _now() if body.pickets_marked else ""
             job.pickets_marked_by = _actor(user) if body.pickets_marked else ""
+        if body.fence_sides is not None:
+            from api.permissions import require_perm
+            require_perm("see_prices")(user)  # office only, not the crew
+            from services.company_cam import normalize_sides
+            try:
+                fd = json.loads(lead.form_data or "{}") if isinstance(lead.form_data, str) else dict(lead.form_data or {})
+            except (ValueError, TypeError):
+                fd = {}
+            fd["fence_sides"] = normalize_sides(body.fence_sides)
+            lead.form_data = json.dumps(fd)
+            # One stain on every side follows the new sides.
+            if job.color_all_sides == "yes" and job.final_color:
+                job.color_plan_json = json.dumps(normalize_color_plan([{"area": "Every side", "sides": fd["fence_sides"],
+                                                                         "status": "confirmed", "colors": [job.final_color]}]))
         if body.color_all_sides is not None:
             v = body.color_all_sides.strip().lower()
             if v not in ("yes", "no", ""):
@@ -530,7 +547,7 @@ def update_company_cam(
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
-        return {"job": _job_dict(job), "blockers": _blockers(job, photos)}
+        return {"job": _job_dict(job), "blockers": _blockers(job, photos), "estimate_sides": estimate_sides(db, lead)}
     finally:
         db.close()
 

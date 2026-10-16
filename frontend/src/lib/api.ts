@@ -3703,13 +3703,14 @@ export const api = {
       upsells?: string[];
       pickets_marked?: boolean;
       extras_confirmed?: boolean;
+      fence_sides?: string[];
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
       stainer_checklist?: string[];
     },
   ) =>
-    request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}`, {
+    request<{ job: CompanyCamJob; blockers: string[]; estimate_sides?: string[] }>(`/api/company-cam/${leadId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),

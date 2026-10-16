@@ -596,6 +596,19 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
     }
   };
 
+  // The office changing the sides from here (Alan, 2026-10-15: "why doesn't
+  // it let me add the outside left"). Saved on the lead with the estimate's.
+  const saveSides = async (next: string[]) => {
+    setData((d) => (d ? { ...d, estimate_sides: next } : d));
+    try {
+      const r = await api.updateCompanyCam(leadId, { fence_sides: next });
+      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers, estimate_sides: r.estimate_sides ?? next } : d));
+    } catch (e) {
+      toast.error(errMessage(e, "Couldn't save the sides"));
+      void load();
+    }
+  };
+
   const upload = async (section: string, files: FileList | null) => {
     if (!files?.length) return;
     setUploading(section);
@@ -885,8 +898,9 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
         {chosenStain ? (
           <div className="space-y-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 p-2.5">
-            <p className="text-sm font-bold">Does {chosenStain} go on every side in the fence scope?</p>
-            {estimate_sides.length ? <SidesPicker value={estimate_sides} readOnly compact /> : null}
+            {manager || !job.color_all_sides ? (
+              <p className="text-sm font-bold">Does {chosenStain} go on every side in the fence scope?</p>
+            ) : null}
             {manager ? (
               <div className="flex gap-1.5">
                 {([["yes", "Yes, every side"], ["no", "No, some sides are different"]] as const).map(([v, label]) => (
@@ -899,9 +913,9 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               </div>
             ) : null}
             {job.color_all_sides === "yes" ? (
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5" /> One stain on every side above. Nothing else to settle.</p>
+              <p className="flex items-start gap-1.5 text-sm font-semibold text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {chosenStain} on every side in the fence scope. Nothing else to settle.</p>
             ) : job.color_all_sides === "no" ? (
-              <p className="text-xs text-muted-foreground">Add a row for each part that gets a different stain, and tap its sides.</p>
+              <p className="text-xs text-muted-foreground">{manager ? "Add a row for each part that gets a different stain, and tap its sides." : `${chosenStain}, except the parts below.`}</p>
             ) : null}
           </div>
         ) : null}
@@ -1011,14 +1025,17 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             {sec.key === "fence_scope" ? (
               <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
                 <p className="mb-1.5 text-sm font-bold">The sides we're staining</p>
-                {estimate_sides.length ? (
+                {manager ? (
+                  <SidesPicker value={estimate_sides} onChange={(next) => void saveSides(next)} />
+                ) : estimate_sides.length ? (
                   <SidesPicker value={estimate_sides} readOnly />
                 ) : (
                   <p className="text-xs text-muted-foreground">No sides on the estimate yet.</p>
                 )}
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  Coloured = we stain it. Crossed out = don't touch it. Front faces the street.
-                  {manager ? " Change the sides on the Estimate tab." : ""}
+                  {manager
+                    ? "Tap a side to add or remove it. Saved for this customer (the Estimate tab shows the same sides). Front faces the street."
+                    : "Coloured = we stain it. Crossed out = don't touch it. Front faces the street."}
                 </p>
               </div>
             ) : null}
