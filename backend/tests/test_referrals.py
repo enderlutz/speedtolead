@@ -64,6 +64,10 @@ def test_the_review_switch_and_stars(db, monkeypatch, quiet):
     off = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="done", ask_review=False), STAFF)
     assert sp.after_info(on["token"])["ask_review"] is True and on["ask_review"] is True
     assert sp.after_info(off["token"])["ask_review"] is False and off["ask_review"] is False
+    # Flipped on a link already made, both ways.
+    assert sp.set_ask_review(on["token"], sp.AskReviewBody(on=False), STAFF)["ask_review"] is False
+    assert sp.after_info(on["token"])["ask_review"] is False
+    assert sp.set_ask_review(on["token"], sp.AskReviewBody(on=True), STAFF)["ask_review"] is True
     hooks.on_answer(lead.id, "stars", 2, {"comment": "Took too long"})
     assert ("tag", "stars_2") in quiet and ("tag", "nps_detractor") in quiet
     assert any(k == "alan" and "2/5" in m and "Took too long" in m for k, m in quiet)

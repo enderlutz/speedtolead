@@ -607,3 +607,28 @@ def test_the_text_only_mentions_klarna_when_klarna_is_on_for_that_link(db, monke
         assert "Klarna" not in hooks.message_for(link_off, lead)
         assert "Klarna" in hooks.message_for(link_on, lead)
         assert "Klarna" not in hooks.message_for_other(link_off, lead, "Sam")
+
+
+def test_an_unpaid_invoice_can_be_edited_in_place_and_an_open_checkout_is_closed(db, monkeypatch):
+    _settings(monkeypatch)
+    lead = _lead(db)
+    expired = []
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create",
+                        lambda **p: SimpleNamespace(id="cs_old", url="https://stripe.test/cs_old"))
+    monkeypatch.setattr(sp.stripe.checkout.Session, "expire", lambda sid, **k: expired.append(sid))
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[
+        sp.InvoiceItem(name="Signature Finish", amount=3215)], credit=250), STAFF)
+    sp.start_session(out["token"])
+    edited = sp.edit_invoice(out["token"], sp.EditInvoiceBody(items=[
+        sp.InvoiceItem(name="Signature Finish", amount=3215),
+        sp.InvoiceItem(name="Thank you for your patience", amount=-200),
+    ], credit=250, financing=False, ask_review=False), STAFF)
+    assert edited["token"] == out["token"] and edited["amount"] == 2765.0
+    assert edited["financing"] is False and edited["ask_review"] is False
+    assert expired == ["cs_old"]
+    info = sp.pay_info(out["token"])
+    assert info["amount"] == 2765.0 and len(info["items"]) == 2
+    # A non-itemized link, or a paid one, can't be edited.
+    plain = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", amount=50), STAFF)
+    with pytest.raises(HTTPException):
+        sp.edit_invoice(plain["token"], sp.EditInvoiceBody(items=[sp.InvoiceItem(name="X", amount=5)]), STAFF)

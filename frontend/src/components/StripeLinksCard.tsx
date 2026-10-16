@@ -6,9 +6,9 @@
 // its kind; it refuses a do-not-contact lead. The switch at the bottom lets
 // the crew's "job complete" text the balance link on its own.
 // (Alan's post-payment spec, 2026-10-10.)
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Copy, Ban, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
+import { Copy, Ban, Pencil, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle2, Loader2, MessageSquare, Plus, ReceiptText, RefreshCw, Star, Stethoscope, Trash2, X } from "lucide-react";
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceDoc } from "@/pages/PayLink";
@@ -37,6 +37,8 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
   // On by default; off for someone who already left one, a repeat customer,
   // a job still being walked (Alan, 2026-10-15).
   const [askReview, setAskReview] = useState(true);
+  // The invoice being edited in the builder, if any.
+  const [editing, setEditing] = useState<PayLinkEntry | null>(null);
 
   const load = useCallback(() => {
     api.listPayLinks(leadId).then(setData).catch(() => setData(null));
@@ -92,6 +94,11 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
     try { setHealth(await api.getStripeHealth()); }
     catch (e) { setHealth(null); toast.error(e instanceof Error ? e.message : "Couldn't ask Stripe"); }
   };
+  const flipReview = async (link: PayLinkEntry) => {
+    const on = link.ask_review === false;
+    try { await api.setPayLinkReview(link.token, on); toast.success(on ? "This link will ask for a Google review" : "This link won't ask for a Google review"); load(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't change that"); }
+  };
   const voidLink = async (link: PayLinkEntry) => {
     try { await api.voidPayLink(link.token); toast.success("Link voided"); load(); }
     catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't void it"); }
@@ -135,11 +142,18 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
           </button>
         ))}
       </div>
-      <label className="mt-1.5 flex items-center gap-2 text-xs">
-        <input type="checkbox" checked={askReview} onChange={(e) => setAskReview(e.target.checked)} className="h-4 w-4" />
-        <span><span className="font-semibold">Ask for a Google review</span> <span className="text-muted-foreground">on the thank-you screens after they pay. Untick if they already left one.</span></span>
+      <label className={cn("mt-2 flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 ring-1", askReview ? "bg-amber-50 ring-amber-200" : "bg-muted/40 ring-border")}>
+        <input type="checkbox" checked={askReview} onChange={(e) => setAskReview(e.target.checked)} className="h-5 w-5 shrink-0 accent-amber-500" />
+        <span className="min-w-0 flex-1 text-xs">
+          <span className="block text-sm font-semibold">{askReview ? "Ask for a Google review" : "Don't ask for a Google review"}</span>
+          <span className="block text-muted-foreground">{askReview
+            ? "After they pay and give 4 or 5 stars, they see this screen. Untick if they already left one."
+            : "They skip this screen: stars, then the referral. For new links made here."}</span>
+        </span>
+        <ReviewPicture on={askReview} />
       </label>
-      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} onMade={async (l) => { await copy(l); load(); }} />
+      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} editing={editing} onStopEditing={() => setEditing(null)}
+        onMade={async (l) => { if (editing) { toast.success("Invoice updated. Same link, so a text already sent shows the new lines."); setEditing(null); } else await copy(l); load(); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
           {data.links.map((l) => (
@@ -153,6 +167,13 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               {l.job_total ? <span className="text-muted-foreground">· {l.job_tier} sale {formatCurrency(l.job_total)}</span> : null}
               {l.items?.length ? <span className="truncate text-muted-foreground" title={l.items.map((i) => `${i.name} ${formatCurrency(i.amount)}`).join("\n")}>· {l.items.length} lines{l.credit ? `, less ${formatCurrency(l.credit)} paid` : ""}</span> : null}
               {l.kind !== "deposit" && l.financing === false ? <span className="shrink-0 rounded bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">No Klarna</span> : null}
+              {l.kind !== "deposit" && l.status !== "void" ? (
+                <button type="button" onClick={() => flipReview(l)} disabled={!!l.answered_at}
+                  title={l.answered_at ? "They already went through the thank-you screens" : "Tap to switch the Google review ask on this link"}
+                  className={cn("inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 text-[10px] font-semibold disabled:cursor-default", l.ask_review === false ? "bg-muted text-muted-foreground" : "bg-amber-100 text-amber-900")}>
+                  <Star className={cn("h-2.5 w-2.5", l.ask_review === false ? "" : "fill-amber-500 text-amber-500")} />{l.ask_review === false ? "No review ask" : "Asks for review"}
+                </button>
+              ) : null}
               {l.status === "open" && l.kind !== "done" ? (
                 <span className={cn("shrink-0 rounded px-1.5 text-[10px] font-semibold", l.view_count ? "bg-sky-100 text-sky-800" : "bg-muted text-muted-foreground")}
                   title={l.first_viewed_at ? `First opened ${new Date(l.first_viewed_at).toLocaleString()}` : undefined}>
@@ -169,6 +190,11 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               {l.status === "open" && l.opened ? (
                 <button type="button" onClick={() => check(l)} disabled={checking === l.token} className="inline-flex h-7 items-center gap-1 rounded-md bg-sky-600 px-2 text-[11px] font-bold text-white hover:bg-sky-700 disabled:opacity-60" title="Ask Stripe whether this was paid, and book it if so">
                   {checking === l.token ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Check with Stripe
+                </button>
+              ) : null}
+              {l.status === "open" && l.items?.length ? (
+                <button type="button" onClick={() => setEditing(l)} className="inline-flex h-7 items-center gap-1 rounded-md bg-muted px-2 text-[11px] font-bold hover:bg-background" title="Change the lines, discounts, what they paid or Klarna. Same link.">
+                  <Pencil className="h-3 w-3" /> Edit
                 </button>
               ) : null}
               {l.status === "open" && l.kind !== "done" ? (
@@ -326,7 +352,11 @@ const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
 const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qty: "1", amount: "", discount: null, discountLabel: "" });
 const qtyOf = (r: Row) => Math.max(1, Math.floor(Number(r.qty) || 1));
 
-function InvoiceBuilder({ leadId, billTo, onMade, askReview = true }: { leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean }) {
+function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing }: {
+  leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean;
+  /** An unpaid invoice to load back in and change (Alan, 2026-10-15). */
+  editing?: PayLinkEntry | null; onStopEditing?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [rows, setRows] = useState<Row[]>([blankRow()]);
@@ -340,6 +370,23 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true }: { leadId: 
   useEffect(() => {
     if (open) api.listSavedLines().then(setSaved).catch(() => {});
   }, [open]);
+  // Edit: the invoice's lines, discounts, credit and Klarna back in the boxes.
+  useEffect(() => {
+    if (!editing) return;
+    const items = editing.items || [];
+    const lines = items.filter((i) => !i.total_discount);
+    const wholeLine = items.find((i) => i.total_discount);
+    setRows(lines.length ? lines.map((i) => ({
+      key: Math.random(), name: i.name, description: i.description || "",
+      qty: String(i.qty || 1), amount: String(i.unit_price ?? i.amount),
+      discount: i.discount ? String(i.discount) : null, discountLabel: i.discount_label || "",
+    })) : [blankRow()]);
+    setWhole(wholeLine ? { label: wholeLine.name, amount: String(Math.abs(wholeLine.amount)) } : null);
+    setCredit(editing.credit ? String(editing.credit) : "");
+    setKlarna(editing.financing !== false);
+    setOpen(true);
+  }, [editing]);
+  const reset = () => { setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setOpen(false); onStopEditing?.(); };
 
   const lineTotal = (r: Row) => Math.round(qtyOf(r) * num(r.amount) * 100) / 100;
   const subtotal = rows.reduce((t, r) => t + lineTotal(r), 0);
@@ -390,9 +437,11 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true }: { leadId: 
     const items = buildItems();
     setBusy(true);
     try {
-      const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna, ask_review: askReview });
+      const link = editing
+        ? await api.editInvoice(editing.token, { items, credit: paid || undefined, financing: klarna, ask_review: editing.ask_review !== false })
+        : await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna, ask_review: askReview });
       await onMade(link);
-      setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setOpen(false);
+      reset();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't make the invoice");
     } finally {
@@ -412,8 +461,8 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true }: { leadId: 
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-border bg-background shadow-sm">
       <div className="flex items-center justify-between bg-foreground px-3 py-2 text-background">
-        <span className="text-xs font-bold uppercase tracking-[0.18em]">Invoice</span>
-        <button type="button" onClick={() => setOpen(false)} className="rounded p-1 hover:bg-background/15" aria-label="Close"><X className="h-4 w-4" /></button>
+        <span className="text-xs font-bold uppercase tracking-[0.18em]">{editing ? `Editing invoice · was ${formatCurrency(editing.amount)}` : "Invoice"}</span>
+        <button type="button" onClick={reset} className="rounded p-1 hover:bg-background/15" aria-label="Close"><X className="h-4 w-4" /></button>
       </div>
 
       {saved.length > 0 && (
@@ -513,20 +562,24 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true }: { leadId: 
           <dd className={cn("text-xl font-bold tabular-nums", due < 0 && "text-rose-600")}>{formatCurrency(Math.max(0, due))}</dd>
         </div>
       </dl>
-      <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-border px-3 py-2 text-sm">
-        <span>
-          <span className="font-semibold">Offer Klarna</span>
-          <span className="block text-xs text-muted-foreground">{klarna ? "They can pay over time. Klarna takes about 3% from you." : "Off: card, Apple Pay, Google Pay, bank account and Cash App only."}</span>
+      <label className={cn("flex cursor-pointer items-center gap-3 border-t border-border px-3 py-2 text-sm", klarna && "bg-[#FFB3C7]/15")}>
+        <input type="checkbox" checked={klarna} onChange={(e) => setKlarna(e.target.checked)} className="h-5 w-5 shrink-0 accent-pink-500" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 font-semibold">
+            <span className={cn("rounded px-1 text-[12px] font-black tracking-tight", klarna ? "bg-[#FFB3C7] text-black" : "bg-muted text-muted-foreground line-through")}>Klarna.</span>
+            {klarna ? "On: they can pay over time" : "Off"}
+          </span>
+          <span className="block text-xs text-muted-foreground">{klarna ? "The pink Klarna choice shows on their pay page. Klarna takes about 3% from you." : "No Klarna on their pay page: card, Apple Pay, Google Pay, bank account and Cash App only."}</span>
         </span>
-        <input type="checkbox" checked={klarna} onChange={(e) => setKlarna(e.target.checked)} className="h-5 w-5 shrink-0 accent-emerald-600" />
+        <KlarnaPicture on={klarna} total={Math.max(0, due)} />
       </label>
       <div className="flex justify-end gap-1.5 border-t border-border bg-muted/40 px-3 py-2">
-        <button type="button" onClick={() => setOpen(false)} className="mr-auto h-9 shrink-0 rounded-md px-2 text-sm font-semibold hover:bg-background">Cancel</button>
+        <button type="button" onClick={reset} className="mr-auto h-9 shrink-0 rounded-md px-2 text-sm font-semibold hover:bg-background">Cancel</button>
         <button type="button" onClick={() => setPreview(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted">
           <Eye className="h-3.5 w-3.5" /> Preview
         </button>
         <button type="button" onClick={make} disabled={busy} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md bg-emerald-600 px-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-60">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ReceiptText className="h-3.5 w-3.5" />} Make invoice link
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ReceiptText className="h-3.5 w-3.5" />} {editing ? "Save changes" : "Make invoice link"}
         </button>
       </div>
       {preview && (
@@ -611,5 +664,48 @@ function HealthPanel({ h, onClose }: { h: StripeHealth; onClose: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+
+// A tiny phone of the screen the switch turns on or off, so the box isn't
+// just words (Alan, 2026-10-15).
+function MiniPhone({ on, children, label }: { on: boolean; children: ReactNode; label: string }) {
+  return (
+    <span className="relative shrink-0" aria-hidden>
+      <span className={cn("flex h-[92px] w-[56px] flex-col items-center gap-1 rounded-[10px] border-2 border-stone-800 bg-[#FBF8F2] px-1 pb-1 pt-2 transition", !on && "opacity-40 grayscale")}>
+        {children}
+      </span>
+      {!on ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="rotate-[-12deg] rounded bg-rose-600 px-1 text-[9px] font-black uppercase tracking-wide text-white shadow">{label}</span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function ReviewPicture({ on }: { on: boolean }) {
+  return (
+    <MiniPhone on={on} label="Skipped">
+      <span className="text-[7px] font-bold leading-tight text-stone-800">Thank you!</span>
+      <span className="flex gap-px">{[0, 1, 2, 3, 4].map((i) => <Star key={i} className="h-2 w-2 fill-amber-400 text-amber-400" />)}</span>
+      <span className="mt-auto flex w-full items-center justify-center gap-0.5 rounded bg-white py-1 text-[7px] font-bold text-stone-800 ring-1 ring-stone-300">
+        <span className="font-black"><span className="text-[#4285F4]">G</span></span> Review
+      </span>
+    </MiniPhone>
+  );
+}
+
+function KlarnaPicture({ on, total }: { on: boolean; total: number }) {
+  return (
+    <MiniPhone on={true} label="">
+      <span className="text-[7px] font-bold leading-tight text-stone-800">Pay {total ? formatCurrency(total).replace(/\.00$/, "") : ""}</span>
+      <span className="mt-auto w-full rounded bg-stone-800 py-1 text-center text-[7px] font-bold text-white">Card</span>
+      <span className="relative w-full">
+        <span className={cn("block w-full rounded py-1 text-center text-[7px] font-black tracking-tight", on ? "bg-[#FFB3C7] text-black" : "bg-stone-200 text-stone-400 line-through")}>Klarna.</span>
+        {!on ? <span className="absolute -right-1 -top-1.5 flex h-3 w-3 items-center justify-center rounded-full bg-rose-600 text-[8px] font-black leading-none text-white">×</span> : null}
+      </span>
+    </MiniPhone>
   );
 }

@@ -225,6 +225,41 @@ class InvoiceItem(BaseModel):
 CreateLinkBody.model_rebuild()
 
 
+def _invoice_lines(items: list["InvoiceItem"], credit: float | None) -> tuple[str, int, float]:
+    """Checks an itemized invoice and returns (lines as stored, what they
+    already paid in cents, the amount due in dollars). Shared by making an
+    invoice and editing one."""
+    lines = []
+    for it in items[:25]:
+        name = (it.name or "").strip()
+        qty = int(it.quantity)
+        if qty < 1 or qty > 10000:
+            raise HTTPException(status_code=400, detail=f"The quantity on {name or 'a line'} has to be 1 or more")
+        unit_cents = int(round(it.unit_price * 100)) if it.unit_price is not None else None
+        c = unit_cents * qty if unit_cents is not None else int(round((it.amount or 0) * 100))
+        # A minus line is a discount ("Package discount -$38").
+        if not name or c == 0:
+            raise HTTPException(status_code=400, detail="Every line needs a name and a price")
+        line = {"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c}
+        if qty > 1 and unit_cents is not None and unit_cents > 0:
+            line["qty"] = qty
+            line["unit_cents"] = unit_cents
+        d = int(round((it.discount or 0) * 100))
+        if d:
+            if c < 0 or d < 0 or d >= c:
+                raise HTTPException(status_code=400, detail=f"The discount on {name} has to be less than its price")
+            line["discount_cents"] = d
+            line["discount_label"] = (it.discount_label or "").strip()[:80] or "Discount"
+        lines.append(line)
+    credit_cents = max(0, int(round((credit or 0) * 100)))
+    items_total = sum(i["amount_cents"] - i.get("discount_cents", 0) for i in lines)
+    if items_total <= 0:
+        raise HTTPException(status_code=400, detail="The discounts cover the whole invoice")
+    if credit_cents >= items_total:
+        raise HTTPException(status_code=400, detail="What they already paid covers the whole invoice")
+    return json.dumps(lines), credit_cents, (items_total - credit_cents) / 100
+
+
 @router.post("/leads/{lead_id}/pay-links")
 def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(require_staff)):
     kind = (body.kind or "").strip().lower()
@@ -239,36 +274,7 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
         if body.items:
             if kind not in ("balance", "extra", "full"):
                 raise HTTPException(status_code=400, detail="Line items go on a balance, extra-work or paid-in-full link")
-            lines = []
-            for it in body.items[:25]:
-                name = (it.name or "").strip()
-                qty = int(it.quantity)
-                if qty < 1 or qty > 10000:
-                    raise HTTPException(status_code=400, detail=f"The quantity on {name or 'a line'} has to be 1 or more")
-                unit_cents = int(round(it.unit_price * 100)) if it.unit_price is not None else None
-                c = unit_cents * qty if unit_cents is not None else int(round((it.amount or 0) * 100))
-                # A minus line is a discount ("Package discount -$38").
-                if not name or c == 0:
-                    raise HTTPException(status_code=400, detail="Every line needs a name and a price")
-                line = {"name": name[:120], "description": (it.description or "").strip()[:300], "amount_cents": c}
-                if qty > 1 and unit_cents is not None and unit_cents > 0:
-                    line["qty"] = qty
-                    line["unit_cents"] = unit_cents
-                d = int(round((it.discount or 0) * 100))
-                if d:
-                    if c < 0 or d < 0 or d >= c:
-                        raise HTTPException(status_code=400, detail=f"The discount on {name} has to be less than its price")
-                    line["discount_cents"] = d
-                    line["discount_label"] = (it.discount_label or "").strip()[:80] or "Discount"
-                lines.append(line)
-            credit_cents = max(0, int(round((body.credit or 0) * 100)))
-            items_total = sum(i["amount_cents"] - i.get("discount_cents", 0) for i in lines)
-            if items_total <= 0:
-                raise HTTPException(status_code=400, detail="The discounts cover the whole invoice")
-            if credit_cents >= items_total:
-                raise HTTPException(status_code=400, detail="What they already paid covers the whole invoice")
-            items_json = json.dumps(lines)
-            body.amount = (items_total - credit_cents) / 100
+            items_json, credit_cents, body.amount = _invoice_lines(body.items, body.credit)
         if kind == "deposit":
             cents = DEPOSIT_CENTS if body.amount is None else int(round(body.amount * 100))
         elif kind == "done":
@@ -590,6 +596,68 @@ def delete_saved_line(name: str, user: dict = Depends(require_staff)):
         rows = [r for r in _saved_lines(db) if r["name"].lower() != name.strip().lower()]
         SystemConfig.set(db, SAVED_LINES_KEY, json.dumps(rows))
         return rows
+    finally:
+        db.close()
+
+
+class EditInvoiceBody(BaseModel):
+    items: list[InvoiceItem]
+    credit: float | None = None
+    financing: bool = True
+    ask_review: bool = True
+
+
+# Go back into an invoice and fix it (Alan, 2026-10-15). Same link, so a text
+# already sent opens the new lines. A checkout the customer already started
+# is closed, so nobody pays the old amount from an open tab.
+@router.put("/pay-links/{token}")
+def edit_invoice(token: str, body: EditInvoiceBody, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link:
+            raise HTTPException(status_code=404, detail="Not found")
+        if link.status != "open":
+            raise HTTPException(status_code=400, detail="Only an unpaid invoice can be edited")
+        if not link.items or link.kind not in ("balance", "extra", "full"):
+            raise HTTPException(status_code=400, detail="Only an itemized invoice can be edited")
+        if not body.items:
+            raise HTTPException(status_code=400, detail="Every line needs a name and a price")
+        old = link.amount_cents or 0
+        link.items, link.credit_cents, amount = _invoice_lines(body.items, body.credit)
+        link.amount_cents = int(round(amount * 100))
+        link.no_financing = None if body.financing else 1
+        link.ask_review = None if body.ask_review else 0
+        sid, link.stripe_session_id = link.stripe_session_id, None
+        db.commit()
+        if sid and configured():
+            try:
+                _stripe().checkout.Session.expire(sid)
+            except Exception as e:  # noqa: BLE001 - already paid/expired, or Stripe down
+                logger.info("couldn't expire session %s after edit: %s", sid, e)
+        log_event(link.lead_id, "pay_link_edited", f"{old / 100:.2f} -> {link.amount_cents / 100:.2f} by {user.get('name') or user.get('sub') or ''}")
+        return link_dict(link)
+    finally:
+        db.close()
+
+
+class AskReviewBody(BaseModel):
+    on: bool
+
+
+# The review switch on a link already made (Alan, 2026-10-15): the box above
+# only sets new links, so each link row flips its own.
+@router.post("/pay-links/{token}/ask-review")
+def set_ask_review(token: str, body: AskReviewBody, user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        link = db.query(PayLink).filter(PayLink.token == token).first()
+        if not link:
+            raise HTTPException(status_code=404, detail="Not found")
+        link.ask_review = None if body.on else 0
+        db.commit()
+        return link_dict(link)
     finally:
         db.close()
 

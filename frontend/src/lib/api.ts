@@ -1388,6 +1388,11 @@ export const api = {
   createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean; ask_review?: boolean }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
+  /** Change an unpaid itemized invoice in place; the link stays the same. */
+  editInvoice: (token: string, body: { items: InvoiceLine[]; credit?: number; financing: boolean; ask_review: boolean }) =>
+    request<PayLinkEntry>(`/api/pay-links/${token}`, { method: "PUT", body: JSON.stringify(body) }),
+  setPayLinkReview: (token: string, on: boolean) =>
+    request<PayLinkEntry>(`/api/pay-links/${token}/ask-review`, { method: "POST", body: JSON.stringify({ on }) }),
   /** message: the text as edited before sending; leave out for the preset. */
   sendPayLink: (token: string, message?: string) =>
     request<PayLinkEntry>(`/api/pay-links/${token}/send`, { method: "POST", body: JSON.stringify({ message: message ?? null }) }),
