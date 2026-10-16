@@ -1385,7 +1385,7 @@ export const api = {
   // Stripe pay links (backend api/stripe_pay.py). Staff only; the customer
   // pages at /pay and /after use raw fetch so a 401 can't bounce them here.
   listPayLinks: (leadId: string) => request<PayLinksResponse>(`/api/leads/${leadId}/pay-links`),
-  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean }) =>
+  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean; ask_review?: boolean }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   /** message: the text as edited before sending; leave out for the preset. */
@@ -2185,6 +2185,9 @@ export const api = {
   updateBooking: (leadId: string) =>
     request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false }) }),
   cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
+  /** Who this customer has referred, and their own referral link. */
+  getReferrals: (leadId: string) =>
+    request<{ url: string; claims: { name: string; phone: string; address: string; lead_id: string | null; created_at: string }[] }>(`/api/leads/${leadId}/referrals`),
   /** Mark whether the customer left a Google review. Its own endpoint, so it
    *  never re-prices the estimate the way the form-data save does. */
   setGoogleReview: (leadId: string, left: boolean) =>
@@ -5691,6 +5694,8 @@ export type PayLinkKind = "deposit" | "full" | "balance" | "extra" | "done";
 export interface PayLinkEntry {
   token: string; lead_id: string; kind: PayLinkKind; label: string; amount: number; description: string;
   status: "open" | "paid" | "void"; url: string; after_url: string; created_by: string;
+  /** False: the thank-you screens don't ask for a Google review. */
+  ask_review?: boolean;
   created_at: string; sent_at: string | null; paid_at: string | null;
   answers: Record<string, unknown>; answered_at: string | null;
   /** Deposit: the package sold and the job total the sale is booked at. */

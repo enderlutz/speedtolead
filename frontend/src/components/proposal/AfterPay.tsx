@@ -17,8 +17,8 @@
 // Rules kept from the spec: one idea per screen, Skip on every screen but
 // the confirmations, and the Google review button is the same for every
 // score. The review ask is never tied to the referral reward.
-import { useEffect, useState } from "react";
-import { Check, Copy, MessageSquare, Share2, Phone, ExternalLink, ArrowLeft, ReceiptText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, MessageSquare, Share2, Phone, ExternalLink, ArrowLeft, ReceiptText, Star } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 
 export type PayFlow = "deposit" | "full" | "balance";
@@ -46,16 +46,24 @@ const PREP: [string, string, string][] = [
   ["🌧️", "Rain in the forecast?", "We move your day and let you know. Stain only goes on a dry fence."],
 ];
 
-type Screen = "locked" | "prep" | "neighbor" | "doneA" | "paid" | "score" | "referral" | "review" | "next" | "doneB";
+type Screen = "locked" | "prep" | "neighbor" | "doneA" | "paid" | "score" | "sorry" | "referral" | "review" | "next" | "doneB";
 const FLOW_A: Screen[] = ["locked", "prep", "neighbor", "doneA"];
-const FLOW_B: Screen[] = ["paid", "score", "referral", "review", "next", "doneB"];
+// Flow B by the stars (Alan, 2026-10-15): 4–5 go to the Google review, then
+// referral and services; 1–3 hear "Alan will call you today" (the review
+// link is still there for them, small: asking only happy customers is
+// against Google's rules), then referral and services. A link sent with the
+// review switched off skips the review ask for everyone.
+function flowB(stars: number | null, askReview: boolean): Screen[] {
+  const unhappy = stars !== null && stars <= 3;
+  return ["paid", "score", ...(unhappy ? ["sorry" as Screen] : askReview ? ["review" as Screen] : []), "referral", "next", "doneB"];
+}
 const NO_SKIP = new Set<Screen>(["locked", "paid", "doneA", "doneB"]);
 const NAMES: Record<Screen, string> = {
   locked: "Locked in", prep: "Prep checklist", neighbor: "Friends and neighbors", doneA: "Done",
-  paid: "Paid in full", score: "How did we do?", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
+  paid: "Paid in full", score: "How did we do?", sorry: "We'll make it right", referral: "Referral", review: "Google review", next: "Other services", doneB: "Done",
 };
 
-export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen }: {
+export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgName, feet, total, repairs, amount: amountProp, staff, page, initial, onAnswer, onClose, receiptUrl, onScreen, askReview, referralUrl }: {
   flow: PayFlow; method: PayMethod; paidUpFront?: boolean;
   firstName: string; address: string; pkgName: string; feet: number; total: number; repairs: number;
   /** What was just paid. The mockup derives it from the flow; the real page knows it. */
@@ -72,15 +80,21 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   receiptUrl?: string;
   /** Called as each screen shows (step is 1-based), so staff can see how far they got. */
   onScreen?: (step: number, of: number, name: string) => void;
+  /** False: the link was sent with the Google review ask switched off. */
+  askReview?: boolean;
+  /** Their own referral link, a real page. The mockup makes one up. */
+  referralUrl?: string;
 }) {
-  const screens = flow === "balance" ? FLOW_B : FLOW_A;
   const init = initial || {};
+  const [stars, setStars] = useState<number | null>(typeof init.stars === "number" ? init.stars : null);
+  const screens = useMemo(() => (flow === "balance" ? flowB(stars, askReview !== false) : FLOW_A), [flow, stars, askReview]);
   const savedServices = Array.isArray(init.services_interested) ? (init.services_interested as string[]) : [];
   const [step, setStep] = useState(0);
   const [prep, setPrep] = useState(init.prep_acknowledged === true);
   const [share, setShare] = useState({ text: false, copy: false, share: false });
   const [sheet, setSheet] = useState(false);
-  const [score, setScore] = useState<number | null>(typeof init.score === "number" ? init.score : null);
+  // The old 0–10 score, read for answers saved before the stars.
+  const [score] = useState<number | null>(typeof init.score === "number" ? init.score : null);
   const [comment, setComment] = useState(typeof init.comment === "string" ? init.comment : "");
   const [review, setReview] = useState(init.review_clicked === true);
   const [callback, setCallback] = useState(init.callback_requested === true);
@@ -99,8 +113,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   const amount = amountProp ?? (flow === "deposit" ? 250 : flow === "full" ? total : Math.max(0, total - 250));
   const balance = total > 0 ? Math.max(0, total - amount) : 0;
   const financed = flow === "full" && !!lender;
-  const code = `${firstName.toUpperCase().replace(/[^A-Z]/g, "") || "FRIEND"}14`;
-  const link = `sterlingfencestaining.com/r/${code}`;
+  const code = referralUrl ? referralUrl.split("/").pop() || "" : `${firstName.toUpperCase().replace(/[^A-Z]/g, "") || "FRIEND"}14`;
+  const link = referralUrl ? referralUrl.replace(/^https?:\/\//, "") : `estimate.sterlingfencetx.com/r/${code}`;
   const smsText = flow === "balance"
     ? `Sterling just stained our fence and it looks brand new. Use my link and you get $100 off yours: ${link}`
     : `Hey! We're getting our fence stained by Sterling Fence Staining soon. They'll take $100 off yours if you book through my link: ${link}`;
@@ -116,7 +130,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
     answer("skipped_screens", next);
     go(step + 1);
   };
-  const band = score === null ? null : score >= 9 ? "promoter" : score >= 7 ? "passive" : "detractor";
+  const band = stars !== null ? (stars === 5 ? "promoter" : stars === 4 ? "passive" : "detractor")
+    : score === null ? null : score >= 9 ? "promoter" : score >= 7 ? "passive" : "detractor";
   const sharedHow = [share.text && "text", share.copy && "copy link", share.share && "share sheet"].filter(Boolean).join(", ");
 
   const shared = (how: "text" | "copy" | "share") => {
@@ -147,7 +162,8 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
   } else {
     fires.push("GHL tag: paid_in_full", "GHL pipeline: moved to Complete");
     if (band) fires.push(`GHL tag: nps_${band}`);
-    if (band === "detractor") fires.push(`Alert: text Alan, score ${score} from ${firstName}`);
+    if (band === "detractor") fires.push(`Alert: text Alan, ${stars ?? score}${stars !== null ? "/5 stars" : "/10"} from ${firstName}: call today`);
+    if (askReview === false) fires.push("Google review: not asked on this link (switched off)");
     if (comment.trim()) fires.push(`Note on the contact: "${comment.trim()}"`);
     if (review) fires.push("GHL tag: review_link_clicked");
     if (callback) fires.push("Task: Alan calls the customer");
@@ -307,18 +323,40 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
       body = (
         <>
           <h2 className="font-heading text-3xl font-bold leading-tight">How did we do?</h2>
-          <p className="text-[16px]">How likely are you to recommend Sterling to a friend or neighbor?</p>
-          <div className="grid grid-cols-6 gap-2">
-            {Array.from({ length: 11 }, (_, i) => (
-              <button key={i} type="button" onClick={() => { setScore(i); answer("score", i); if (i > 6) setCallback(false); }}
-                className={cn("h-12 rounded-xl text-[17px] font-bold tabular-nums ring-1 transition", score === i ? "bg-[#15130F] text-[#E3BE63] ring-[#15130F]" : "bg-white ring-[#15130F]/15")}>{i}</button>
+          <p className="text-[16px]">Tap the stars.</p>
+          <div className="flex justify-between gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" aria-label={`${n} star${n === 1 ? "" : "s"}`}
+                onClick={() => { setStars(n); answer("stars", n); if (n > 3) setCallback(false); }}
+                className="flex h-16 flex-1 items-center justify-center rounded-xl bg-white ring-1 ring-[#15130F]/15 active:scale-95">
+                <Star className={cn("h-10 w-10", stars !== null && n <= stars ? "fill-[#C9972F] text-[#C9972F]" : "text-[#15130F]/25")} />
+              </button>
             ))}
           </div>
-          <div className="flex justify-between text-[13px] text-[#15130F]/75"><span>0 · Not a chance</span><span>10 · Already did</span></div>
-          <p className="min-h-[20px] text-[14px] font-semibold text-emerald-700">{score === null ? "" : "Saved. Tap again to change it."}</p>
-          <label className="block text-[14px] font-semibold text-[#15130F]/80">Anything we could do better? (optional)
+          <p className="min-h-[20px] text-center text-[15px] font-semibold text-[#15130F]/80">
+            {stars === null ? "" : ["", "We're sorry.", "We're sorry.", "Thank you for telling us.", "Thank you!", "Thank you so much!"][stars]}
+          </p>
+          <label className="block text-[14px] font-semibold text-[#15130F]/80">{stars !== null && stars <= 3 ? "What went wrong? (optional)" : "Anything we could do better? (optional)"}
             <textarea value={comment} onChange={(e) => setComment(e.target.value)} onBlur={() => answer("comment", comment.trim())} rows={3} className="mt-1 w-full resize-none rounded-xl border border-[#15130F]/15 bg-white px-3 py-2.5 text-[16px] font-normal text-[#15130F]" />
           </label>
+        </>
+      );
+      foot = next("Continue");
+      break;
+    case "sorry":
+      body = (
+        <>
+          <h2 className="font-heading text-3xl font-bold leading-tight">We're sorry, {firstName}.</h2>
+          <p className="text-[17px]">Thank you for telling us. I own Sterling, and I'll call you today to hear what happened and make it right.</p>
+          <div className="rounded-2xl border border-[#C9972F] bg-[#FFF7E6] p-4">
+            <p className="text-[15px] font-semibold">Alan has your message and your number.</p>
+            <p className="mt-1 text-[15px] text-[#15130F]/80">Rather talk now? Call or text {PHONE}.</p>
+          </div>
+          {askReview !== false ? (
+            // Still offered to everyone (Google's rules), just not pushed here.
+            <a href={REVIEW_URL} target="_blank" rel="noreferrer" onClick={() => { setReview(true); answer("review_clicked", true); }}
+              className="mt-2 text-center text-[14px] text-[#15130F]/70 underline underline-offset-2">You can also share your experience on Google</a>
+          ) : null}
         </>
       );
       foot = next("Continue");
@@ -343,15 +381,7 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
             className="flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[17px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
             <ExternalLink className="h-5 w-5" /> {review ? "Opened Google ✓" : "Leave a Google review"}
           </a>
-          {score !== null && score <= 6 ? (
-            <div className="rounded-2xl border border-[#C9972F] bg-[#FFF7E6] p-4">
-              <p className="font-heading text-[19px] font-bold leading-tight">Want Alan to call you personally?</p>
-              <p className="mt-1 text-[15px] text-[#15130F]/80">I own Sterling. If something wasn't right, I want to hear it from you and fix it.</p>
-              <button type="button" onClick={() => { setCallback(true); answer("callback_requested", true); }} className={cn("mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[16px] font-bold", callback ? "bg-emerald-700 text-white" : "bg-[#15130F] text-[#E3BE63]")}>
-                {callback ? <><Check className="h-5 w-5" /> Alan will call you</> : "Yes, have Alan call me"}
-              </button>
-            </div>
-          ) : null}
+
         </>
       );
       foot = next("Continue", true);

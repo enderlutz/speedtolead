@@ -11,6 +11,7 @@ const BASE = import.meta.env.VITE_API_URL || "";
 type After = {
   paid: boolean; kind: string; flow: "A" | "B"; amount: number; method: string; paid_total: number;
   first_name: string; address: string; answers: Record<string, unknown>;
+  ask_review?: boolean; referral_url?: string;
 };
 
 export default function AfterPayPage() {
@@ -84,6 +85,8 @@ export default function AfterPayPage() {
         onAnswer={save}
         receiptUrl={after.kind === "done" ? undefined : `/receipt/${token}`}
         onScreen={reached}
+        askReview={after.ask_review !== false}
+        referralUrl={after.referral_url || undefined}
       />
     );
   }

@@ -28,6 +28,8 @@ function Yes({ on, children }: { on: boolean; children: React.ReactNode }) {
 function Answers({ l }: { l: PayLinkEntry }) {
   const a = (l.answers || {}) as Record<string, unknown>;
   const score = typeof a.score === "number" ? a.score : null;
+  // 1–5 stars from Oct 15 on; the old 0–10 score for anything before.
+  const stars = typeof a.stars === "number" ? a.stars : null;
   const comment = typeof a.comment === "string" && a.comment.trim() ? a.comment.trim() : "";
   const shared = Array.isArray(a.referral_shared) ? (a.referral_shared as string[]) : [];
   const services = Array.isArray(a.services_interested) ? (a.services_interested as string[]) : [];
@@ -51,13 +53,22 @@ function Answers({ l }: { l: PayLinkEntry }) {
       <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
         {jobDone ? (
           <>
-            <li className="flex items-center gap-2">
-              <span className={cn("flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-bold", score === null ? "bg-stone-200 text-stone-500" : score >= 9 ? "bg-emerald-600 text-white" : score >= 7 ? "bg-amber-500 text-white" : "bg-rose-600 text-white")}>
-                {score === null ? <Star className="h-3 w-3" /> : score}
-              </span>
-              <span className={score === null ? "text-muted-foreground" : "font-medium"}>{score === null ? "No score yet" : `Scored us ${score}/10`}</span>
-            </li>
-            <Yes on={a.review_clicked === true}>Tapped Google review</Yes>
+            {stars !== null ? (
+              <li className="flex items-center gap-2">
+                <span className={cn("flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white", stars >= 5 ? "bg-emerald-600" : stars === 4 ? "bg-amber-500" : "bg-rose-600")}>{stars}</span>
+                <span className="font-medium">{"★".repeat(stars)}{"☆".repeat(5 - stars)} {stars}/5 stars{stars <= 3 ? " · told you'd call today" : ""}</span>
+              </li>
+            ) : (
+              <li className="flex items-center gap-2">
+                <span className={cn("flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-bold", score === null ? "bg-stone-200 text-stone-500" : score >= 9 ? "bg-emerald-600 text-white" : score >= 7 ? "bg-amber-500 text-white" : "bg-rose-600 text-white")}>
+                  {score === null ? <Star className="h-3 w-3" /> : score}
+                </span>
+                <span className={score === null ? "text-muted-foreground" : "font-medium"}>{score === null ? "No rating yet" : `Scored us ${score}/10`}</span>
+              </li>
+            )}
+            {l.ask_review === false
+              ? <li className="flex items-center gap-2 text-muted-foreground"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-stone-200 text-[11px]">–</span>Google review not asked (switched off)</li>
+              : <Yes on={a.review_clicked === true}>Tapped Google review</Yes>}
             <Yes on={shared.length > 0}>Shared the referral{shared.length ? ` (${shared.join(", ")})` : ""}</Yes>
             <Yes on={a.callback_requested === true}>Asked for a call from you</Yes>
             <Yes on={services.length > 0}>Wants other services{services.length ? `: ${services.join(", ")}` : ""}</Yes>
@@ -79,15 +90,33 @@ function Answers({ l }: { l: PayLinkEntry }) {
 
 export function AfterPaymentCard({ leadId }: { leadId: string }) {
   const [paid, setPaid] = useState<PayLinkEntry[] | null>(null);
+  // Friends they've sent us through their link (it used to go nowhere).
+  const [refs, setRefs] = useState<{ name: string; phone: string; lead_id: string | null; created_at: string }[]>([]);
+  useEffect(() => {
+    api.getReferrals(leadId).then((r) => setRefs(r.claims)).catch(() => setRefs([]));
+  }, [leadId]);
   useEffect(() => {
     api.listPayLinks(leadId)
       .then((d) => setPaid(d.links.filter((l) => l.status === "paid" && (l.kind !== "done" || l.after_view_count || Object.keys(l.answers || {}).length))))
       .catch(() => setPaid(null));
   }, [leadId]);
-  if (!paid || paid.length === 0) return null;
+  if ((!paid || paid.length === 0) && refs.length === 0) return null;
   return (
-    <Panel icon={HeartHandshake} title="After payment" sub="What they did on the thank-you screens: score, comment, Google review, referral" accent={ACCENT.emerald} bodyClassName="space-y-2 p-3.5">
-      {paid.map((l) => <Answers key={l.token} l={l} />)}
+    <Panel icon={HeartHandshake} title="After payment" sub="What they did on the thank-you screens: stars, comment, Google review, referrals" accent={ACCENT.emerald} bodyClassName="space-y-2 p-3.5">
+      {(paid || []).map((l) => <Answers key={l.token} l={l} />)}
+      {refs.length ? (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30">
+          <p className="font-semibold">Referred {refs.length} {refs.length === 1 ? "friend" : "friends"} · $100 off for each, $100 owed to them when a friend's job is done</p>
+          <ul className="mt-1 space-y-0.5">
+            {refs.map((r) => (
+              <li key={r.created_at + r.name}>
+                {r.lead_id ? <a href={`/leads/${r.lead_id}`} className="font-semibold text-emerald-800 underline">{r.name}</a> : <b>{r.name}</b>}
+                <span className="text-muted-foreground"> · {r.phone} · {when(r.created_at)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </Panel>
   );
 }

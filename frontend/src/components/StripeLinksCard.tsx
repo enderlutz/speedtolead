@@ -33,6 +33,10 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
   // "Text someone else": which link's form is open, and what's typed in it.
   const [other, setOther] = useState<string | null>(null);
   const [health, setHealth] = useState<StripeHealth | "loading" | null>(null);
+  // Ask for a Google review on the thank-you screens of the links made here.
+  // On by default; off for someone who already left one, a repeat customer,
+  // a job still being walked (Alan, 2026-10-15).
+  const [askReview, setAskReview] = useState(true);
 
   const load = useCallback(() => {
     api.listPayLinks(leadId).then(setData).catch(() => setData(null));
@@ -47,7 +51,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
     const total = jobTotal ? Number(jobTotal) : undefined;
     setBusy(kind);
     try {
-      const link = await api.createPayLink(leadId, kind === "deposit" ? { kind, tier, job_total: total } : { kind, amount: amt });
+      const link = await api.createPayLink(leadId, kind === "deposit" ? { kind, tier, job_total: total } : { kind, amount: amt, ask_review: askReview });
       await copy(link);
       load();
     } catch (e) {
@@ -131,7 +135,11 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
           </button>
         ))}
       </div>
-      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} onMade={async (l) => { await copy(l); load(); }} />
+      <label className="mt-1.5 flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={askReview} onChange={(e) => setAskReview(e.target.checked)} className="h-4 w-4" />
+        <span><span className="font-semibold">Ask for a Google review</span> <span className="text-muted-foreground">on the thank-you screens after they pay. Untick if they already left one.</span></span>
+      </label>
+      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} onMade={async (l) => { await copy(l); load(); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
           {data.links.map((l) => (
@@ -318,7 +326,7 @@ const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
 const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qty: "1", amount: "", discount: null, discountLabel: "" });
 const qtyOf = (r: Row) => Math.max(1, Math.floor(Number(r.qty) || 1));
 
-function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void> }) {
+function InvoiceBuilder({ leadId, billTo, onMade, askReview = true }: { leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean }) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [rows, setRows] = useState<Row[]>([blankRow()]);
@@ -382,7 +390,7 @@ function InvoiceBuilder({ leadId, billTo, onMade }: { leadId: string; billTo?: {
     const items = buildItems();
     setBusy(true);
     try {
-      const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna });
+      const link = await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna, ask_review: askReview });
       await onMade(link);
       setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setOpen(false);
     } catch (e) {

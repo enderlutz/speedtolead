@@ -279,6 +279,17 @@ def on_answer(lead_id: str, field: str, value, answers: dict | None = None) -> N
             _tag(lead, f"nps_{band}")
             if band == "detractor":
                 alert_alan(f"Low score: {name} gave us {score}/10 after the job.")
+        elif field == "stars" and isinstance(value, (int, float)):
+            # 1 to 5 stars (Alan, 2026-10-15). 1–3 is told "Alan will call you
+            # today to make it right", so the text says to call.
+            stars = max(1, min(5, int(value)))
+            _tag(lead, f"stars_{stars}")
+            _tag(lead, "nps_promoter" if stars == 5 else "nps_passive" if stars == 4 else "nps_detractor")
+            if stars <= 3:
+                comment = (answers.get("comment") or "").strip() if isinstance(answers.get("comment"), str) else ""
+                alert_alan(f"⚠️ {name} gave us {stars}/5 stars after the job. They were told you'll call today to make it right."
+                           + (f' They said: "{comment}"' if comment else "")
+                           + (f"\n{lead.contact_phone}" if lead and lead.contact_phone else ""))
         elif field == "comment" and isinstance(value, str) and value.strip():
             _note(lead, f"After the job, {name} said: \"{value.strip()}\"")
         elif field == "review_clicked" and value:

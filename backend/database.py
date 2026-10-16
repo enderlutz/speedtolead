@@ -4017,6 +4017,9 @@ class PayLink(Base):
     # "finance" = made by the proposal's Apply for Klarna button: the pay page
     # walks them through Klarna and Stripe opens on Klarna (Alan, 2026-10-14).
     door = Column(Text, nullable=True)
+    # 0 = the thank-you screens don't ask for a Google review (already left
+    # one, a repeat customer...). NULL = ask, the default (Alan, 2026-10-15).
+    ask_review = Column(Integer, nullable=True)
 
 
 class Booking(Base):
@@ -4062,6 +4065,35 @@ class Booking(Base):
     # A discount on the repairs alone (Alan, 2026-10-15).
     repairs_discount_cents = Column(Integer, nullable=True)
     repairs_discount_label = Column(Text, default="")
+
+
+class ReferralCode(Base):
+    """A customer's own referral code, as in estimate.sterlingfencetx.com/r/VAL27
+    (Alan, 2026-10-15: the old link went to a page that didn't exist). One
+    per lead, made the first time their thank-you screens open."""
+    __tablename__ = "referral_codes"
+    __table_args__ = (Index("idx_referral_codes_lead", "lead_id"),)
+
+    code = Column(Text, primary_key=True)
+    lead_id = Column(Text, nullable=False)
+    created_at = Column(Text, default="")
+
+
+class ReferralClaim(Base):
+    """A friend who came in through someone's referral link: who sent them,
+    and the lead it made. $100 off for the friend; the referrer's $100 is
+    owed once the friend's job is done."""
+    __tablename__ = "referral_claims"
+    __table_args__ = (Index("idx_referral_claims_referrer", "referrer_lead_id"),)
+
+    id = Column(Text, primary_key=True)
+    code = Column(Text, nullable=False)
+    referrer_lead_id = Column(Text, nullable=False)
+    lead_id = Column(Text, nullable=True)
+    name = Column(Text, default="")
+    phone = Column(Text, default="")
+    address = Column(Text, default="")
+    created_at = Column(Text, default="")
 
 
 class GoogleReview(Base):
@@ -4166,7 +4198,8 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
             for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER"), ("option_id", "TEXT"),
                              ("after_first_viewed_at", "TEXT"), ("after_last_viewed_at", "TEXT"),
-                             ("after_view_count", "INTEGER"), ("after_furthest", "TEXT"), ("door", "TEXT")):
+                             ("after_view_count", "INTEGER"), ("after_furthest", "TEXT"), ("door", "TEXT"),
+                             ("ask_review", "INTEGER")):
                 if col not in pl:
                     conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
     if inspector.has_table("fence_scope_versions"):

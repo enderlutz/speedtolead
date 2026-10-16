@@ -39,6 +39,7 @@ from config import get_settings
 from database import get_db, Lead, PayLink, CustomerPayment, SystemConfig
 from services import after_pay_hooks as hooks
 from services.activity_log import log_event
+from services.referrals import referral_url_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,7 +55,7 @@ LABELS = {
 }
 # What the after-payment screens may save. Anything else is refused.
 ANSWER_FIELDS = {
-    "receipt_viewed", "prep_acknowledged", "referral_shared", "score", "comment",
+    "receipt_viewed", "prep_acknowledged", "referral_shared", "score", "stars", "comment",
     "review_clicked", "callback_requested", "services_interested", "feature_permission",
     "skipped_screens", "finished",
 }
@@ -124,6 +125,7 @@ def link_dict(link: PayLink) -> dict:
         "after_url": f"{_base()}/after/{link.token}",
         "created_by": link.created_by or "",
         "created_at": link.created_at,
+        "ask_review": link.ask_review != 0,
         "sent_at": link.sent_at,
         "paid_at": link.paid_at,
         "answers": _loads(link.answers),
@@ -201,6 +203,8 @@ class CreateLinkBody(BaseModel):
     credit: float | None = None
     # False keeps Klarna off this link's checkout (it costs Alan ~3%).
     financing: bool = True
+    # False: the thank-you screens skip the Google review ask for this one.
+    ask_review: bool = True
 
 
 class InvoiceItem(BaseModel):
@@ -312,6 +316,7 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             job_tier=job_tier, job_total_cents=job_total_cents,
             items=items_json, credit_cents=credit_cents,
             no_financing=None if body.financing or kind == "deposit" else 1,
+            ask_review=None if body.ask_review else 0,
         )
         db.add(link)
         db.commit()
@@ -879,6 +884,9 @@ def after_info(token: str, s: str | None = None, request: Request = None, previe
             "first_name": _first_name(lead),
             "address": (lead.address if lead else "") or "",
             "answers": _loads(link.answers),
+            "ask_review": link.ask_review != 0,
+            # Their own referral link, a real page (it used to 404).
+            "referral_url": referral_url_for(db, lead) if lead else "",
         }
     finally:
         db.close()
