@@ -32,6 +32,7 @@ from services.company_cam import (
     STAINER_CHECKLIST,
     cleaner_color_actions,
     coverage_stats,
+    estimate_options,
     fence_age,
     sold_package,
     color_options,
@@ -117,6 +118,15 @@ def _import_scope_photo(db, lead: Lead) -> None:
         .first()
     )
     if already:
+        # Saved again since (Save, don't send, or a new send): the crew gets
+        # the drawing as it is now.
+        if (lead.fence_scope_updated_at or "") > (already.uploaded_at or "") and lead.fence_scope_export_image:
+            already.image_data = lead.fence_scope_export_image
+            already.has_image_data = True
+            already.storage_url = ""
+            already.mime = lead.fence_scope_export_mime or "image/png"
+            already.uploaded_at = _now()
+            db.commit()
         return
     data = lead.fence_scope_export_image
     if not data:
@@ -131,7 +141,7 @@ def _import_scope_photo(db, lead: Lead) -> None:
         storage_url="",
         image_data=data,
         has_image_data=True,
-        mime=getattr(lead, "fence_scope_mime", None) or "image/png",
+        mime=getattr(lead, "fence_scope_export_mime", None) or "image/png",
         uploaded_at=_now(),
         uploaded_by="auto:fence-scope",
     ))
@@ -286,6 +296,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # this old (Alan, 2026-10-15).
             "fence_age": age,
             "coverage": coverage_stats(db, age),
+            "estimate_options": estimate_options(db, lead_id),
             "customer": {
                 "name": lead.contact_name or "",
                 "phone": lead.contact_phone or "",
@@ -415,6 +426,138 @@ def mark_color_shown(lead_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
+def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: dict | None, *,
+                 side: str = "", note: str = "", is_damage: bool = False, uploaded_by: str | None = None) -> CompanyCamPhoto:
+    """Adds a photo to a section, next in line. Storage first; a BLOB when it
+    isn't configured, which is how local dev runs. Never lose the photo over
+    a missing env var. The caller commits."""
+    last = (
+        db.query(CompanyCamPhoto)
+        .filter(CompanyCamPhoto.lead_id == lead_id, CompanyCamPhoto.section == section)
+        .order_by(CompanyCamPhoto.seq.desc())
+        .first()
+    )
+    seq = int(last.seq or 0) + 1 if last else 1
+    photo_id = str(uuid.uuid4())
+    url = ""
+    try:
+        from services.supabase_storage import upload_image
+
+        ext = (mime.split("/")[-1] or "jpg").replace("jpeg", "jpg")
+        url = upload_image(STORAGE_BUCKET, f"{lead_id}/{section}/{photo_id}.{ext}", data, mime) or ""
+    except Exception as e:
+        logger.warning(f"Company Cam: Storage upload failed for {photo_id}: {e}")
+    photo = CompanyCamPhoto(
+        id=photo_id, lead_id=lead_id, section=section, seq=seq,
+        side=side or "", note=note or "", is_damage=bool(is_damage),
+        storage_url=url, image_data=None if url else data, has_image_data=not url,
+        mime=mime, uploaded_at=_now(), uploaded_by=uploaded_by or _actor(user),
+    )
+    db.add(photo)
+    return photo
+
+
+# Every picture we already hold for this customer, to drop into a section
+# instead of taking a new one (Alan, 2026-10-15: "pull them all, we'll cut
+# the fat later"): the scope drawing and its photo and drone view, every
+# numbered drawing, and the Measure & capture shots.
+def _library(db, lead: Lead) -> list[dict]:
+    from database import FenceScopeVersion, LeadMeasurement
+
+    out: list[dict] = []
+    if lead.has_fence_scope_export:
+        out.append({"key": "scope:export", "label": "Fence scope drawing (latest)", "group": "Fence scope"})
+    if getattr(lead, "has_fence_scope_ai", False):
+        out.append({"key": "scope:ai", "label": "Drone view (latest)", "group": "Fence scope"})
+    if getattr(lead, "has_fence_scope_source", False):
+        out.append({"key": "scope:source", "label": "Scope photo (latest)", "group": "Fence scope"})
+    vers = (db.query(FenceScopeVersion).filter(FenceScopeVersion.lead_id == lead.id)
+            .order_by(FenceScopeVersion.version_no.desc()).all())
+    for v in vers:
+        n = v.version_no
+        if v.mms_mime:
+            out.append({"key": f"ver:{v.id}:drawing", "label": f"Drawing {n}" + (" (sent)" if v.sent_at else ""), "group": "Numbered drawings"})
+        if v.ai_mime:
+            out.append({"key": f"ver:{v.id}:ai", "label": f"Drawing {n} drone view", "group": "Numbered drawings"})
+        if v.source_mime:
+            out.append({"key": f"ver:{v.id}:source", "label": f"Drawing {n} photo", "group": "Numbered drawings"})
+    for m in (db.query(LeadMeasurement).filter(LeadMeasurement.lead_id == lead.id, LeadMeasurement.has_image.is_(True))
+              .order_by(LeadMeasurement.seq).all()):
+        out.append({"key": f"meas:{m.id}", "label": m.label or f"Measure & capture · Photo {m.seq}", "group": "Measure & capture"})
+    if getattr(lead, "has_measurement_image", False):
+        out.append({"key": "lead:measurement", "label": "Measurement photo", "group": "Measure & capture"})
+    return out
+
+
+def _library_image(db, lead: Lead, key: str) -> tuple[bytes, str]:
+    from database import FenceScopeVersion, LeadMeasurement
+
+    data, mime = None, "image/png"
+    if key == "scope:export":
+        data, mime = lead.fence_scope_export_image, lead.fence_scope_export_mime
+    elif key == "scope:ai":
+        data, mime = lead.fence_scope_ai_image, lead.fence_scope_ai_mime
+    elif key == "scope:source":
+        data, mime = lead.fence_scope_source_image, lead.fence_scope_source_mime
+    elif key == "lead:measurement":
+        data, mime = lead.measurement_image_data, lead.measurement_mime
+    elif key.startswith("ver:"):
+        parts = key.split(":")
+        v = db.query(FenceScopeVersion).filter(FenceScopeVersion.id == parts[1], FenceScopeVersion.lead_id == lead.id).first() if len(parts) == 3 else None
+        if v:
+            data, mime = {"drawing": (v.mms_image, v.mms_mime), "ai": (v.ai_image, v.ai_mime),
+                          "source": (v.source_image, v.source_mime)}.get(parts[2], (None, ""))
+    elif key.startswith("meas:"):
+        m = db.query(LeadMeasurement).filter(LeadMeasurement.id == key[5:], LeadMeasurement.lead_id == lead.id).first()
+        if m:
+            data, mime = m.image_data, m.mime
+    if not data:
+        raise HTTPException(404, "That picture isn't there any more")
+    return bytes(data), mime or "image/png"
+
+
+@router.get("/company-cam/{lead_id}/library")
+def photo_library(lead_id: str, user: dict = Depends(get_current_user)):
+    del user
+    db = get_db()
+    try:
+        return _library(db, _lead_or_404(db, lead_id))
+    finally:
+        db.close()
+
+
+@router.get("/company-cam/{lead_id}/library/image")
+def photo_library_image(lead_id: str, key: str, user: dict = Depends(get_current_user)):
+    del user
+    db = get_db()
+    try:
+        data, mime = _library_image(db, _lead_or_404(db, lead_id), key)
+        return Response(content=data, media_type=mime, headers={"Cache-Control": "private, max-age=300"})
+    finally:
+        db.close()
+
+
+class FromLibraryBody(BaseModel):
+    key: str
+    section: str
+
+
+@router.post("/company-cam/{lead_id}/photos/from-library")
+def photo_from_library(lead_id: str, body: FromLibraryBody, user: dict = Depends(get_current_user)):
+    if body.section not in SECTION_KEYS:
+        raise HTTPException(400, f"Unknown section. Expected one of: {', '.join(SECTION_KEYS)}")
+    db = get_db()
+    try:
+        lead = _lead_or_404(db, lead_id)
+        label = next((i["label"] for i in _library(db, lead) if i["key"] == body.key), "")
+        data, mime = _library_image(db, lead, body.key)
+        photo = _store_photo(db, lead_id, body.section, data, mime, user, note=label)
+        db.commit()
+        return _photo_dict(photo)
+    finally:
+        db.close()
+
+
 @router.post("/company-cam/{lead_id}/photos")
 async def upload_photo(
     lead_id: str,
@@ -436,45 +579,8 @@ async def upload_photo(
     db = get_db()
     try:
         _lead_or_404(db, lead_id)
-        last = (
-            db.query(CompanyCamPhoto)
-            .filter(CompanyCamPhoto.lead_id == lead_id, CompanyCamPhoto.section == section)
-            .order_by(CompanyCamPhoto.seq.desc())
-            .first()
-        )
-        seq = int(last.seq or 0) + 1 if last else 1
-        photo_id = str(uuid.uuid4())
-        mime = file.content_type or "image/jpeg"
-
-        # Storage first; fall back to a BLOB when it isn't configured, which
-        # is how local dev runs. Never lose the photo over a missing env var.
-        url = ""
-        try:
-            from services.supabase_storage import upload_image
-
-            ext = (mime.split("/")[-1] or "jpg").replace("jpeg", "jpg")
-            url = upload_image(
-                STORAGE_BUCKET, f"{lead_id}/{section}/{photo_id}.{ext}", data, mime
-            ) or ""
-        except Exception as e:
-            logger.warning(f"Company Cam: Storage upload failed for {photo_id}: {e}")
-
-        photo = CompanyCamPhoto(
-            id=photo_id,
-            lead_id=lead_id,
-            section=section,
-            seq=seq,
-            side=side or "",
-            note=note or "",
-            is_damage=bool(is_damage),
-            storage_url=url,
-            image_data=None if url else data,
-            has_image_data=not url,
-            mime=mime,
-            uploaded_at=_now(),
-            uploaded_by=_actor(user),
-        )
-        db.add(photo)
+        photo = _store_photo(db, lead_id, section, data, file.content_type or "image/jpeg", user,
+                             side=side, note=note, is_damage=is_damage)
         db.commit()
         return _photo_dict(photo)
     finally:

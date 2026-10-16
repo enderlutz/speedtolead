@@ -594,6 +594,11 @@ export default function FenceScopeEditor({ leadId }: Props) {
     if (exported) setSendOpen(true);
   };
 
+  // Save the drawing as it is on screen, text nobody (Alan, 2026-10-15).
+  const saveOnly = async () => {
+    if (await handleExport()) toast.success("Drawing saved. Nothing was sent. The crew sees it on the Company Cam tab.");
+  };
+
   // "Looks right — send it": looking at it and saying so IS the confirmation,
   // so one press does both instead of a confirm button that then unlocks a
   // send button.
@@ -725,6 +730,8 @@ export default function FenceScopeEditor({ leadId }: Props) {
         busy={exporting}
         onPrepare={() => void preparePhoto()}
         onConfirmAndSend={confirmAndSend}
+        onSaveOnly={() => void saveOnly()}
+        canSave={scope.segments.length > 0}
       />
       {/* What this customer has already been sent, and the one-click way to
           correct it. Revising reuses the drone render, so a fix that used to

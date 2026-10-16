@@ -5,7 +5,7 @@
 // one after the other; now it is one. The strip is the editor's navigation:
 // whoever opens a scope sees where it is and what to do about it before they
 // look at anything else.
-import { Check, Sparkles, Loader2, Send, PenLine } from "lucide-react";
+import { Check, Sparkles, Loader2, Send, PenLine, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STAGES, currentStage, stageDone, type ScopeSteps } from "./steps";
 
@@ -18,11 +18,16 @@ interface Props {
   busy: boolean;
   onPrepare: () => void;
   onConfirmAndSend: () => void;
+  /** Save the drawing without texting anyone (Alan, 2026-10-15). It then
+   *  shows on the Company Cam tab for the crew. */
+  onSaveOnly?: () => void;
+  /** There's a line drawn, so there's something to save. */
+  canSave?: boolean;
 }
 
 const GOLD = "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold-light via-gold to-bronze px-3.5 text-xs font-bold text-ink shadow-md shadow-gold/30 ring-1 ring-gold-light/60 transition hover:from-gold hover:to-bronze active:scale-95 disabled:from-stone-300 disabled:via-stone-300 disabled:to-stone-300 disabled:text-stone-600 disabled:shadow-none disabled:ring-0";
 
-export default function StepStrip({ steps, aiConfigured, rendering, busy, onPrepare, onConfirmAndSend }: Props) {
+export default function StepStrip({ steps, aiConfigured, rendering, busy, onPrepare, onConfirmAndSend, onSaveOnly, canSave }: Props) {
   const stage = currentStage(steps);
 
   return (
@@ -56,6 +61,14 @@ export default function StepStrip({ steps, aiConfigured, rendering, busy, onPrep
         })}
       </ol>
 
+      {stage !== 1 && onSaveOnly && canSave ? (
+        <button type="button" onClick={onSaveOnly} disabled={busy}
+                title="Keep this drawing for the crew without texting the customer"
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold text-ink ring-1 ring-ink/20 transition hover:bg-stone-50 active:scale-95 disabled:opacity-60">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          <span className="sm:hidden">Save</span><span className="hidden sm:inline">Save, don't send</span>
+        </button>
+      ) : null}
       {stage === 1 ? (
         <button type="button" onClick={onPrepare} disabled={rendering || busy} className={GOLD}
                 title={aiConfigured

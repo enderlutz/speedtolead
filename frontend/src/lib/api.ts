@@ -3676,6 +3676,20 @@ export const api = {
     if (!res.ok) return null;
     return URL.createObjectURL(await res.blob());
   },
+  /** Every picture we already hold for the customer (scope drawings, drone
+   *  views, Measure & capture), to drop into a section. */
+  getCompanyCamLibrary: (leadId: string) =>
+    request<{ key: string; label: string; group: string }[]>(`/api/company-cam/${leadId}/library`),
+  fetchCompanyCamLibraryImage: async (leadId: string, key: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/company-cam/${leadId}/library/image?key=${encodeURIComponent(key)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  addCompanyCamFromLibrary: (leadId: string, key: string, section: string) =>
+    request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/from-library`, { method: "POST", body: JSON.stringify({ key, section }) }),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
@@ -3887,6 +3901,8 @@ export interface CompanyCamPayload {
   fence_age?: string;
   /** Square feet a gallon covered on our jobs: all of them, and fences this old. */
   coverage?: { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null };
+  /** Each estimate we sent and its square footage, to pick the job's from. */
+  estimate_options?: { id: string; sent_at: string; sqft: number; linear_feet: number | null; height: string }[];
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
 }

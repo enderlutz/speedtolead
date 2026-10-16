@@ -521,3 +521,35 @@ def coverage_stats(db, age: str) -> dict:
             same.append(r)
     avg = lambda xs: round(sum(xs) / len(xs)) if xs else None  # noqa: E731
     return {"all_jobs": len(all_rates), "all_avg": avg(all_rates), "age_jobs": len(same), "age_avg": avg(same)}
+
+
+def estimate_options(db, lead_id: str) -> list[dict]:
+    """Every estimate we sent, newest first, with its square footage, so the
+    job's footage can be picked from one (Alan, 2026-10-15)."""
+    from database import Estimate
+
+    out = []
+    for est in (db.query(Estimate).filter(Estimate.lead_id == lead_id, Estimate.status == "sent")
+                .order_by(Estimate.sent_at.desc().nullslast()).all()):
+        try:
+            inputs = json.loads(est.inputs or "{}") or {}
+        except (ValueError, TypeError):
+            inputs = {}
+        sqft = 0.0
+        try:
+            sqft = float(inputs.get("_sqft") or 0)
+            if not sqft:
+                lf = float(inputs.get("linear_feet") or 0)
+                h = str(inputs.get("fence_height") or "").lower().replace("ft", "").strip()
+                sqft = lf * float(h) if (lf and h) else 0
+        except (TypeError, ValueError):
+            sqft = 0
+        if sqft <= 0:
+            continue
+        try:
+            lf = float(inputs.get("linear_feet") or 0)
+        except (TypeError, ValueError):
+            lf = 0
+        out.append({"id": est.id, "sent_at": est.sent_at or "", "sqft": round(sqft), "linear_feet": round(lf) if lf else None,
+                    "height": str(inputs.get("fence_height") or "")})
+    return out

@@ -20,7 +20,7 @@ import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
-  Package, Hash, Hourglass, Plus, X, Eye,
+  Package, Hash, Hourglass, Images, Plus, X, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -81,23 +81,54 @@ function BlurText({
   value, onSave, placeholder, rows,
 }: { value: string; onSave: (v: string) => void; placeholder?: string; rows?: number }) {
   const [local, setLocal] = useState(value);
-  useEffect(() => { setLocal(value); }, [value]);
-  const commit = () => { if (local !== value) onSave(local); };
+  const [state, setState] = useState<"" | "typing" | "saved">("");
+  // Saves a second after typing stops, and on leaving the box: a crew that
+  // types a note and pockets the phone keeps it (Alan, 2026-10-15).
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef({ local, value, onSave });
+  useEffect(() => { latest.current = { local, value, onSave }; });
+  // The saved text coming back from the server, unless they're mid-typing:
+  // a reply to an earlier save mustn't wipe the letters typed since.
+  const [seen, setSeen] = useState(value);
+  if (value !== seen && state !== "typing") { setSeen(value); setLocal(value); }
+  const commit = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const { local: l, value: v, onSave: save } = latest.current;
+    if (l !== v) { save(l); setState("saved"); }
+  }, []);
+  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); commit(); } }, [commit]);
+  const change = (v: string) => {
+    setLocal(v);
+    setState("typing");
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(commit, 1000);
+  };
+  const note = state ? (
+    <p className={cn("mt-0.5 text-[11px] font-semibold", state === "saved" ? "text-emerald-700" : "text-muted-foreground")}>
+      {state === "saved" ? "✓ Saved" : "Saving…"}
+    </p>
+  ) : null;
   if (rows) {
     return (
-      <textarea
-        value={local}
-        rows={rows}
-        placeholder={placeholder}
-        onChange={(e) => setLocal(e.target.value)}
-        onBlur={commit}
-        className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/30"
-      />
+      <>
+        <textarea
+          value={local}
+          rows={rows}
+          placeholder={placeholder}
+          onChange={(e) => change(e.target.value)}
+          onBlur={commit}
+          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/30"
+        />
+        {note}
+      </>
     );
   }
   return (
-    <Input value={local} placeholder={placeholder}
-           onChange={(e) => setLocal(e.target.value)} onBlur={commit} />
+    <>
+      <Input value={local} placeholder={placeholder}
+             onChange={(e) => change(e.target.value)} onBlur={commit} />
+      {note}
+    </>
   );
 }
 
@@ -511,6 +542,8 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState<string>("");
+  // The section the "Pick from our photos" sheet is adding to, if open.
+  const [picking, setPicking] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   // The preset text, editable right before it goes. The crew adjusts the
   // wording for the customer in front of them, so what they approved is what
@@ -536,7 +569,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
-    setData({ ...data, job: { ...data.job, ...p } as CompanyCamJob });
+    setData((d) => (d ? { ...d, job: { ...d.job, ...p } as CompanyCamJob } : d));
     try {
       const r = await api.updateCompanyCam(leadId, p);
       setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers } : d));
@@ -727,32 +760,53 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           teach us what a gallon covers on each kind of fence. No price: the
           crew works from this screen. */}
       <Panel icon={Droplets} accent={ACCENT.blue} title="The job"
-             sub="Fill in the real numbers">
+             sub="What we're doing and what to bring">
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={Ruler} label="Square footage" accent={ACCENT.blue}
-                    hint={job.sqft_edited ? "✓ Typed in by hand" : "From the estimate. Type the real number."}>
-            <Input type="number" inputMode="decimal" defaultValue={job.sqft || ""}
+                    hint={job.sqft_edited ? "✓ Set for this job" : "From the latest estimate. Pick one or type it."}>
+            <Input key={job.sqft} type="number" inputMode="decimal" defaultValue={job.sqft || ""}
                    className="h-10 text-base font-semibold tabular-nums"
                    onBlur={(e) => {
                      const v = parseFloat(e.target.value || "0");
                      if (v !== job.sqft) void patch({ sqft: v });
                    }} />
+            {(data.estimate_options || []).length ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {(data.estimate_options || []).map((o, i, all) => (
+                  <button key={o.id} type="button" onClick={() => void patch({ sqft: o.sqft })}
+                          title={`Estimate sent ${o.sent_at ? new Date(o.sent_at).toLocaleDateString() : ""}${o.linear_feet ? ` · ${o.linear_feet} ft × ${o.height}` : ""}`}
+                          className={cn("rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums ring-1",
+                            Math.round(job.sqft) === o.sqft ? "bg-blue-600 text-white ring-blue-600" : "bg-background ring-border hover:bg-muted")}>
+                    Estimate {all.length - i}{o.sent_at ? ` · ${new Date(o.sent_at).toLocaleDateString([], { month: "short", day: "numeric" })}` : ""} · {o.sqft.toLocaleString()} sq ft
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </StatTile>
 
-          <StatTile icon={Droplets} label="Gallons of stain used" accent={ACCENT.cyan}
-                    hint={job.stain_gallons_used
-                      ? "✓ Recorded"
-                      : `The crew fills this in. Bring about ${job.gallons_needed || "?"}.`}>
-            <Input type="number" inputMode="decimal" step="0.5" placeholder="Gallons"
-                   defaultValue={job.stain_gallons_used || ""}
-                   className="h-10 text-base font-semibold tabular-nums"
-                   onBlur={(e) => {
-                     const v = parseFloat(e.target.value || "0");
-                     if (v !== job.stain_gallons_used) void patch({ stain_gallons_used: v });
-                   }} />
+          <StatTile icon={Droplets} label="Gallons of stain to bring" accent={ACCENT.cyan}
+                    hint={job.gallons_edited
+                      ? "Typed in by hand, not following the footage"
+                      : `Square footage ÷ ${job.sqft_per_gallon}, rounded up`}>
+            <div className="flex gap-1.5">
+              <Input key={job.gallons_needed} type="number" inputMode="decimal" step="0.5" defaultValue={job.gallons_needed || ""}
+                     className="h-10 text-base font-semibold tabular-nums"
+                     onBlur={(e) => {
+                       const v = parseFloat(e.target.value || "0");
+                       if (v !== job.gallons_needed) void patch({ gallons_needed: v });
+                     }} />
+              {job.gallons_edited ? (
+                <Button variant="outline" size="icon" className="h-10 w-10 shrink-0"
+                        title="Go back to following the square footage"
+                        onClick={() => void patch({ recalc_gallons: true })}>
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              ) : null}
+            </div>
           </StatTile>
 
-          <StatTile icon={Package} label="Package" accent={ACCENT.violet}>
+          <StatTile icon={Package} label="Package" accent={ACCENT.violet}
+                    hint={job.package ? "From what they paid the deposit on, or picked here" : "Tap the one they bought"}>
             <div className="flex gap-1">
               {PACKAGES.map((p) => (
                 <Button key={p} size="sm"
@@ -770,7 +824,6 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             <p className="flex h-10 items-center text-base font-semibold">{ageLabel(data.fence_age)}</p>
           </StatTile>
         </div>
-        <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage} />
       </Panel>
 
       {/* Colour, per area. Drives what the cleaner has to settle on site. */}
@@ -878,6 +931,13 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               type="file" accept="image/*" multiple capture="environment" hidden
               onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
             />
+
+            {sec.key === "fence_scope" ? (
+              <Button variant="outline" size="lg" onClick={() => setPicking(sec.key)}
+                      className="h-11 w-full border-violet-300 text-violet-800 hover:bg-violet-50 sm:w-auto">
+                <Images className="mr-1.5 h-4 w-4" /> Pick from our photos
+              </Button>
+            ) : null}
 
             {list.length ? (
               <>
@@ -1076,9 +1136,19 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
       {/* What actually happened. The gap from the estimates is the number
           worth having — for pricing, and for the stain inventory. */}
       <Panel icon={ClipboardCheck} accent={ACCENT.slate}
-             title="End of job — stain bought and bleach"
-             sub="The gallons used go in The job, up top">
-        <div className="grid gap-2.5 sm:grid-cols-2">
+             title="End of job — what we actually used"
+             sub="The crew fills this in before they leave">
+        <div className="grid gap-2.5 sm:grid-cols-3">
+          <StatTile icon={Droplets} label="Gallons of stain used" accent={ACCENT.emerald}
+                    hint={job.stain_gallons_used ? "✓ Recorded" : `Brought about ${job.gallons_needed || "?"}`}>
+            <Input type="number" inputMode="decimal" step="0.5" placeholder="Gallons"
+                   defaultValue={job.stain_gallons_used || ""}
+                   className="h-10 text-base font-semibold tabular-nums"
+                   onBlur={(e) => {
+                     const v = parseFloat(e.target.value || "0");
+                     if (v !== job.stain_gallons_used) void patch({ stain_gallons_used: v });
+                   }} />
+          </StatTile>
           <StatTile icon={ShoppingCart} label="Stain gallons bought today" accent={ACCENT.amber}
                     hint="Only what was picked up on the way, not what came off the shelf">
             <Input type="number" inputMode="decimal" step="0.5"
@@ -1099,6 +1169,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                    }} />
           </StatTile>
         </div>
+        <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage} />
       </Panel>
 
       {/* Neighbours — the cheapest lead source there is. */}
@@ -1152,6 +1223,9 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           </div>
         )}
       </Panel>
+      {picking ? (
+        <LibraryPicker leadId={leadId} section={picking} onClose={() => setPicking(null)} onAdded={() => void load()} />
+      ) : null}
     </div>
   );
 }
@@ -1186,5 +1260,81 @@ function Coverage({ sqft, gallons, age, stats }: {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** Every picture we already hold for this customer, to drop into a section
+ *  instead of taking a new one (Alan, 2026-10-15: "pull them all"). */
+function LibraryPicker({ leadId, section, onClose, onAdded }: {
+  leadId: string; section: string; onClose: () => void; onAdded: () => void;
+}) {
+  const [items, setItems] = useState<{ key: string; label: string; group: string }[] | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    api.getCompanyCamLibrary(leadId).then(setItems).catch(() => setItems([]));
+  }, [leadId]);
+  const add = async (key: string) => {
+    setBusy(key);
+    try {
+      await api.addCompanyCamFromLibrary(leadId, key, section);
+      setAdded((a) => [...a, key]);
+      onAdded();
+      toast.success("Added");
+    } catch (e) { toast.error(errMessage(e, "Couldn't add it")); }
+    finally { setBusy(null); }
+  };
+  const groups = [...new Set((items || []).map((i) => i.group))];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center" onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-background p-4 shadow-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-heading text-lg font-bold">Pick from our photos</p>
+          <button type="button" onClick={onClose} className="rounded-full p-2 hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="text-xs text-muted-foreground">Tap a picture to add it. Tap as many as you want.</p>
+        {items === null ? (
+          <p className="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
+        ) : !items.length ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">No pictures on file for this customer yet. Draw the fence scope or use Measure &amp; capture first.</p>
+        ) : groups.map((g) => (
+          <div key={g} className="mt-3">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{g}</p>
+            <div className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {items.filter((i) => i.group === g).map((i) => (
+                <LibraryThumb key={i.key} leadId={leadId} item={i} added={added.includes(i.key)} busy={busy === i.key} onPick={() => void add(i.key)} />
+              ))}
+            </div>
+          </div>
+        ))}
+        <Button size="lg" className="mt-4 h-11 w-full" onClick={onClose}>Done</Button>
+      </div>
+    </div>
+  );
+}
+
+function LibraryThumb({ leadId, item, added, busy, onPick }: {
+  leadId: string; item: { key: string; label: string }; added: boolean; busy: boolean; onPick: () => void;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let url: string | null = null;
+    let live = true;
+    api.fetchCompanyCamLibraryImage(leadId, item.key).then((u) => { url = u; if (live) setSrc(u); });
+    return () => { live = false; if (url) URL.revokeObjectURL(url); };
+  }, [leadId, item.key]);
+  return (
+    <button type="button" onClick={onPick} disabled={busy}
+            className={cn("relative overflow-hidden rounded-xl text-left ring-2 transition active:scale-[0.98]", added ? "ring-emerald-500" : "ring-border hover:ring-violet-400")}>
+      <span className="block aspect-[4/3] bg-muted">
+        {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></span>}
+      </span>
+      <span className="block px-2 py-1.5 text-xs font-semibold">{item.label}</span>
+      {added || busy ? (
+        <span className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-white shadow">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+        </span>
+      ) : null}
+    </button>
   );
 }

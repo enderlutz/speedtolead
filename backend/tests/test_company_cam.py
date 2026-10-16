@@ -674,6 +674,7 @@ def test_the_job_box_pulls_fence_age_and_package_and_learns_coverage(db):
     assert out["fence_age"] == "6-15 years"  # the priced estimate wins over the form
     assert out["job"]["package"] == "signature"
     assert out["coverage"]["all_jobs"] == 0
+    assert [o["sqft"] for o in out["estimate_options"]] == [1288]
     cc.update_company_cam(lead.id, cc.CompanyCamPatch(sqft=1288, stain_gallons_used=8), user=USER)
     other = _lead(db, ghl_contact_id="ghl-other", form_data=json.dumps({"fence_age": "brand new"}))
     cc.get_company_cam(other.id, user=USER)
@@ -681,3 +682,43 @@ def test_the_job_box_pulls_fence_age_and_package_and_learns_coverage(db):
     cov = cc.get_company_cam(lead.id, user=USER)["coverage"]
     assert cov["all_jobs"] == 2 and cov["all_avg"] == round((161 + 250) / 2)
     assert cov["age_jobs"] == 1 and cov["age_avg"] == 161
+
+
+def test_any_photo_we_hold_can_be_dropped_into_a_section(db):
+    from database import LeadMeasurement
+    lead = _lead(db)
+    lead.fence_scope_export_image = b"PNGDATA"
+    lead.has_fence_scope_export = True
+    lead.fence_scope_export_mime = "image/png"
+    db.add(LeadMeasurement(id="m1", lead_id=lead.id, seq=1, image_data=b"SAT", has_image=True, mime="image/png"))
+    db.commit()
+    lib = cc.photo_library(lead.id, user=USER)
+    keys = [i["key"] for i in lib]
+    assert "scope:export" in keys and "meas:m1" in keys
+    p = cc.photo_from_library(lead.id, cc.FromLibraryBody(key="meas:m1", section="fence_scope"), user=USER)
+    assert p["note"].startswith("Measure & capture")
+    with pytest.raises(HTTPException):
+        cc.photo_from_library(lead.id, cc.FromLibraryBody(key="meas:nope", section="fence_scope"), user=USER)
+
+
+def test_everything_the_crew_fills_in_saves_and_comes_back(db):
+    """Alan, 2026-10-15: make sure all of it saves. Each field the crew can
+    touch, written once, then read back from a fresh load."""
+    from services.company_cam import CLEANER_CHECKLIST, STAINER_CHECKLIST
+    lead = _lead(db)
+    cc.get_company_cam(lead.id, user=USER)
+    up = upsell_options()[0]["key"]
+    patch = cc.CompanyCamPatch(
+        scope_explanation="Inside sides only", cleaning_notes="Dog in the yard", staining_notes="Two coats on the gate",
+        cleaner_checklist=[CLEANER_CHECKLIST[0]["key"]], stainer_checklist=[STAINER_CHECKLIST[0]["key"]],
+        upsells=[up], upsell_notes="Wants the driveway done", package="signature", sqft=1288,
+        stain_gallons_used=8, stain_gallons_bought=2, bleach_gallons_used=3,
+    )
+    cc.update_company_cam(lead.id, patch, user=USER)
+    job = cc.get_company_cam(lead.id, user=USER)["job"]
+    assert job["scope_explanation"] == "Inside sides only" and job["cleaning_notes"] == "Dog in the yard"
+    assert job["staining_notes"] == "Two coats on the gate" and job["upsell_notes"] == "Wants the driveway done"
+    assert job["cleaner_checklist"] == [CLEANER_CHECKLIST[0]["key"]] and job["stainer_checklist"] == [STAINER_CHECKLIST[0]["key"]]
+    assert job["upsells"] == [up] and job["package"] == "signature" and job["sqft"] == 1288
+    assert job["stain_gallons_used"] == 8 and job["stain_gallons_bought"] == 2 and job["bleach_gallons_used"] == 3
+    assert job["gallons_needed"] == 8  # 1288 / 165, rounded up, follows the footage
