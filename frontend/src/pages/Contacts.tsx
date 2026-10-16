@@ -62,6 +62,35 @@ function Stat({ label, value, hint, tone }: { label: string; value: number | str
  * rotation — a lead waits a median two hours for its turn. Having just rung
  * somebody, that is exactly when the page is wrong and you are looking at it.
  */
+/** Texts and calls in plain words (Alan, 2026-10-15: "4 texts (2 in), 3 talked,
+ *  0 no answer, 3 dials — what does that even mean?"). Green when they've
+ *  answered: texted back, or picked up. */
+function TextsChip({ sent, fromThem }: { sent: number; fromThem: number }) {
+  return (
+    <span title={`${sent} texts in the thread, ${fromThem} of them from the customer`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${fromThem > 0 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-muted text-muted-foreground"}`}>
+      <MessageSquare className="h-3 w-3" />
+      {sent === 0 ? "No texts" : <>{sent} text{sent === 1 ? "" : "s"}{fromThem > 0 ? <> · <b>{fromThem} from them</b></> : " · no reply"}</>}
+    </span>
+  );
+}
+
+function CallsChip({ dials, talked, voicemails }: { dials: number; talked: number; voicemails: number }) {
+  const noAnswer = Math.max(0, dials - talked - voicemails);
+  return (
+    <span title="Calls we made: how many they picked up, went to voicemail, or rang out"
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${talked > 0 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-muted text-muted-foreground"}`}>
+      <Phone className="h-3 w-3" />
+      {dials === 0 ? "No calls yet" : <>
+        {dials} call{dials === 1 ? "" : "s"}
+        {talked > 0 ? <> · <b>{talked} picked up</b></> : null}
+        {voicemails > 0 ? ` · ${voicemails} voicemail` : null}
+        {noAnswer > 0 ? ` · ${noAnswer} no answer` : null}
+      </>}
+    </span>
+  );
+}
+
 function CallTally({
   row,
   onRefreshed,
@@ -73,7 +102,6 @@ function CallTally({
   const talked = row.conversation_count;
   const voicemails = row.voicemail_count;
   const dials = row.attempt_count;
-  const noAnswer = Math.max(0, dials - talked - voicemails);
 
   const pull = async () => {
     if (!row.lead_id || pulling) return;
@@ -102,21 +130,7 @@ function CallTally({
   // scrolling (Alan, 2026-10-12), and each number keeps its tooltip.
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
-      <span title="Calls that connected and left us a recording">
-        <span className="tabular-nums font-medium text-foreground">{talked}</span>
-        <span className="text-muted-foreground"> talked</span>
-      </span>
-      {voicemails > 0 ? (
-        <span className="text-muted-foreground" title="Rang out to voicemail and we left a message">
-          · <span className="tabular-nums">{voicemails}</span> vm
-        </span>
-      ) : null}
-      <span className="text-muted-foreground" title="Dialled and nobody picked up — no answer, busy, or an instant hangup">
-        · <span className="tabular-nums">{noAnswer}</span> no answer
-      </span>
-      <span className="text-muted-foreground/80" title="Every dial, answered or not">
-        · <span className="tabular-nums">{dials}</span> dials
-      </span>
+      <CallsChip dials={dials} talked={talked} voicemails={voicemails} />
       {row.lead_id ? (
         <button
           type="button"
@@ -477,10 +491,8 @@ export default function Contacts() {
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <EstimateBadge c={c} />
               <span>came in {fmtDate(c.last_intake_at || c.date_added)}</span>
-              <span className="inline-flex items-center gap-1" title={`${c.inbound_count} from them`}>
-                <MessageSquare className="h-3 w-3" />{c.message_count}{c.inbound_count > 0 ? ` (${c.inbound_count} in)` : ""}
-              </span>
-              <span>{c.conversation_count} talked · {c.attempt_count} dials</span>
+              <TextsChip sent={c.message_count} fromThem={c.inbound_count} />
+              <CallsChip dials={c.attempt_count} talked={c.conversation_count} voicemails={c.voicemail_count} />
               {c.phone ? <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3" />{fmtPhone(c.phone)}</span> : null}
               {c.stage ? <span className="truncate">{c.stage}</span> : null}
             </div>
@@ -559,10 +571,7 @@ export default function Contacts() {
                 <td className="px-3 py-2"><EstimateBadge c={c} /></td>
                 <td className="px-3 py-2"><NextStep s={c.next_step} /></td>
                 <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">
-                  <div className="inline-flex items-center gap-1" title={`${c.inbound_count} from them`}>
-                    <MessageSquare className="h-3 w-3" />{c.message_count} texts
-                    {c.inbound_count > 0 ? <span className="font-medium text-foreground">({c.inbound_count} in)</span> : null}
-                  </div>
+                  <TextsChip sent={c.message_count} fromThem={c.inbound_count} />
                   {/* Talked / no answer / dials: a recording means we actually
                       spoke, a dial with no recording is a voicemail or a
                       ring-out, and that is half of all dialling. */}
