@@ -841,7 +841,8 @@ def test_the_crew_list_needs_the_company_cam_permission(db, monkeypatch):
     from api import permissions as perms
     monkeypatch.setattr(perms, "get_db", lambda: db)
     db.close = lambda: None
-    db.add(User(id="w1", username="ChrisMoran", display_name="Chris Moran", password_hash="x", role="worker", created_at=""))
+    db.add(User(id="w1", username="ChrisMoran", display_name="Chris Moran", password_hash="x", role="worker",
+                permissions='{"company_cam": false}', created_at=""))
     db.commit()
     lead = _lead(db, name="Yogi Patel", address="2619 Lazy Vine Ln")
     crew = {"sub": "ChrisMoran", "role": "worker", "perms": []}

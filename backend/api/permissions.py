@@ -86,7 +86,9 @@ ROLE_BASELINE: dict[str, set[str]] = {
         "company_cam",
         "see_prices", "assign_crew", "mark_paid", "delete_jobs",
     },
-    "worker": {"calendar", "my_schedule"},
+    # Company Cam on for every worker: they only ever see the jobs the
+    # office put them on (Alan, 2026-10-16).
+    "worker": {"calendar", "my_schedule", "company_cam"},
     # Estimator — a field role that ONLY sees the Estimator page (their own
     # schedule + clock in/out). No prices, no leads, no calendar. The admin
     # view of that same page (drive-path map) is gated separately by role.

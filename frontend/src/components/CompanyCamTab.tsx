@@ -950,6 +950,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                         <input type="date" value={mine.date} onChange={(e) => setMine({ date: e.target.value })}
                                className="h-9 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
                       </label>
+                      {!mine.date ? <span className="w-full text-xs font-semibold text-amber-700">Pick their day, or it won't show under Today on their schedule.</span> : null}
                       {(["cleaning", "staining"] as const).map((t) => (
                         <button key={t} type="button" onClick={() => setMine({ task: mine.task === t ? "" : t })}
                                 className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
