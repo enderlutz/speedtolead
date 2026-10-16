@@ -54,6 +54,7 @@ import DailyTasks from "@/pages/DailyTasks";
 import Contacts from "@/pages/Contacts";
 import Accounting from "@/pages/Accounting";
 import StainInventory from "@/pages/StainInventory";
+import CompanyCamPage from "@/pages/CompanyCamPage";
 import FencePhotos from "@/pages/FencePhotos";
 import Agents from "@/pages/Agents";
 import Internal from "@/pages/Internal";
@@ -113,6 +114,7 @@ function landingFor(): string {
   // these two the chain falls through to /settings, which is itself gated on
   // the `settings` perm — so RequireView would bounce them straight back here
   // and the app would redirect forever.
+  if (hasPerm("company_cam")) return "/company-cam";
   if (hasPerm("stain_inventory")) return "/stain-inventory";
   if (hasPerm("fence_photos")) return "/fence-photos";
   return "/settings";
@@ -220,6 +222,8 @@ function AppLayout() {
               <Route path="/" element={<RequireView view="dashboard"><Dashboard /></RequireView>} />
               <Route path="/daily-tasks" element={<RequireView view="dashboard"><DailyTasks /></RequireView>} />
               <Route path="/contacts" element={<RequireView view="leads"><Contacts /></RequireView>} />
+              <Route path="/company-cam" element={<RequireView view="company_cam"><CompanyCamPage /></RequireView>} />
+              <Route path="/company-cam/:leadId" element={<RequireView view="company_cam"><CompanyCamPage /></RequireView>} />
               <Route path="/leads" element={<RequireView view="leads"><LeadsV2 /></RequireView>} />
               <Route path="/leads-b" element={<RequireView view="leads"><LeadsB /></RequireView>} />
               <Route path="/leads-brick" element={<RequireView view="leads"><LeadsBrick /></RequireView>} />

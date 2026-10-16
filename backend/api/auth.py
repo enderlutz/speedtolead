@@ -1,5 +1,6 @@
 """Dashboard authentication — JWT-based login for internal users."""
 from __future__ import annotations
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
@@ -167,12 +168,41 @@ def logout():
     return {"status": "ok"}
 
 
+DELETED_USERS_KEY = "deleted_usernames"
+
+
+def was_deleted(db, username: str) -> bool:
+    """An account an admin deleted in Settings. The start-up seeds below
+    check this, so a deleted account isn't re-created on the next deploy
+    (it was: Eduardo came back as an admin every restart)."""
+    from database import SystemConfig
+    try:
+        names = json.loads(SystemConfig.get(db, DELETED_USERS_KEY) or "[]")
+    except (TypeError, ValueError):
+        names = []
+    return username.lower() in {str(n).lower() for n in names}
+
+
+def mark_deleted(db, username: str) -> None:
+    from database import SystemConfig
+    try:
+        names = json.loads(SystemConfig.get(db, DELETED_USERS_KEY) or "[]")
+    except (TypeError, ValueError):
+        names = []
+    if username.lower() not in {str(n).lower() for n in names}:
+        names.append(username)
+        SystemConfig.set(db, DELETED_USERS_KEY, json.dumps(names))
+
+
 def seed_fragned_user():
     """Create fragned developer account if it doesn't exist."""
     db = get_db()
     try:
         existing = db.query(User).filter(User.username == "fragned").first()
         if existing:
+            return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "fragned"):
             return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(
@@ -199,6 +229,9 @@ def seed_eduardo_user():
     try:
         existing = db.query(User).filter(User.username == "EduardoElvir").first()
         if existing:
+            return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "EduardoElvir"):
             return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(
@@ -246,6 +279,9 @@ def seed_brent_user():
     db = get_db()
     try:
         if db.query(User).filter(User.username == "BrentBrown").first():
+            return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "BrentBrown"):
             return
         now = datetime.now(timezone.utc).isoformat()
         emp_id = str(uuid.uuid4())
@@ -296,6 +332,9 @@ def seed_emmanuel_user():
             if changed:
                 db.commit()
             return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "EmmanuelOnibayo"):
+            return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(
             id=str(uuid.uuid4()),
@@ -333,6 +372,9 @@ def seed_neo_user():
                 changed = True
             if changed:
                 db.commit()
+            return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "NeoHerrera"):
             return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(
@@ -420,6 +462,9 @@ def seed_geoconda_user():
     try:
         if db.query(User).filter(User.username == "Geoconda").first():
             return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "Geoconda"):
+            return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(
             id=str(uuid.uuid4()),
@@ -443,6 +488,9 @@ def seed_anna_moran_user():
     db = get_db()
     try:
         if db.query(User).filter(User.username == "AnnaMoran").first():
+            return
+        # Deleted on purpose in Settings: stay deleted (Alan, 2026-10-15).
+        if was_deleted(db, "AnnaMoran"):
             return
         now = datetime.now(timezone.utc).isoformat()
         db.add(User(

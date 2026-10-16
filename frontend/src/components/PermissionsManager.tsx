@@ -194,29 +194,38 @@ function UserRow({
 
 function CreateUserForm({ catalog, onCreated }: { catalog: PermissionCatalog; onCreated: () => void }) {
   const [open, setOpen] = useState(false);
+  // First and last name (Alan, 2026-10-15: "Username / Display name" turned
+  // Chris Moran into a login of "Chris" called "Moran"). The login is the two
+  // names run together, which he can change before creating.
+  const [first, setFirst] = useState("");
+  const [last, setLast] = useState("");
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("worker");
   const [seeAll, setSeeAll] = useState(false);
   const [saving, setSaving] = useState(false);
+  const autoUsername = `${first}${last}`.replace(/[^A-Za-z0-9]/g, "");
+  const login = usernameTouched ? username : autoUsername;
+  const displayName = `${first.trim()} ${last.trim()}`.trim();
 
   const reset = () => {
-    setUsername(""); setDisplayName(""); setPassword(""); setRole("worker"); setSeeAll(false);
+    setFirst(""); setLast(""); setUsername(""); setUsernameTouched(false); setPassword(""); setRole("worker"); setSeeAll(false);
   };
 
   const create = async () => {
-    if (!username.trim() || !password) { toast.error("Username and password are required"); return; }
+    if (!first.trim()) { toast.error("Type their first name"); return; }
+    if (!login.trim() || !password) { toast.error("A login and a password are needed"); return; }
     setSaving(true);
     try {
       await api.createUser({
-        username: username.trim(),
+        username: login.trim(),
         password,
-        display_name: displayName.trim(),
+        display_name: displayName,
         role,
         see_all_jobs: seeAll,
       });
-      toast.success("Account created");
+      toast.success(`Account made for ${displayName}. They log in as ${login.trim()}.`);
       reset();
       setOpen(false);
       onCreated();
@@ -239,8 +248,13 @@ function CreateUserForm({ catalog, onCreated }: { catalog: PermissionCatalog; on
     <div className="border rounded-md p-3 space-y-2 bg-muted/30">
       <p className="text-sm font-medium">New account</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" className="text-sm rounded border bg-background px-2 py-1" />
-        <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Display name" className="text-sm rounded border bg-background px-2 py-1" />
+        <input value={first} onChange={(e) => setFirst(e.target.value)} placeholder="First name" autoComplete="off" className="text-sm rounded border bg-background px-2 py-1" />
+        <input value={last} onChange={(e) => setLast(e.target.value)} placeholder="Last name" autoComplete="off" className="text-sm rounded border bg-background px-2 py-1" />
+        <label className="text-[11px] text-muted-foreground sm:col-span-2">
+          They log in as
+          <input value={login} onChange={(e) => { setUsername(e.target.value); setUsernameTouched(true); }} placeholder="Login"
+                 autoComplete="off" className="ml-1.5 text-sm text-foreground rounded border bg-background px-2 py-1" />
+        </label>
         <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="text" className="text-sm rounded border bg-background px-2 py-1" />
         <select value={role} onChange={(e) => setRole(e.target.value)} className="text-sm rounded border bg-background px-2 py-1">
           {catalog.roles.map((r) => <option key={r} value={r}>{ROLE_LABEL[r] || r}</option>)}

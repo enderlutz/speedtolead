@@ -35,7 +35,7 @@ from api import company_cam as cc  # noqa: E402
 from services.company_cam import SQFT_PER_GALLON, gallons_for, upsell_options  # noqa: E402
 import services.company_cam as cc_svc  # noqa: E402
 
-USER = {"sub": "alanbonner", "name": "Alan"}
+USER = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
 
 
 def _lead(db, **kw):
@@ -833,3 +833,22 @@ def test_extras_agreed_on_site_are_confirmed_priced_and_alan_is_told(db, monkeyp
     # Changing the count needs the customer's yes again.
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(extras={"counts": {"pickets": 6}, "picket_type": "pine"}), user=USER)
     assert r["job"]["extras_confirmed_at"] == ""
+
+
+def test_the_crew_list_needs_the_company_cam_permission(db, monkeypatch):
+    from database import User
+    from api import permissions as perms
+    monkeypatch.setattr(perms, "get_db", lambda: db)
+    db.close = lambda: None
+    db.add(User(id="w1", username="ChrisMoran", display_name="Chris Moran", password_hash="x", role="worker", created_at=""))
+    db.commit()
+    lead = _lead(db, name="Yogi Patel", address="2619 Lazy Vine Ln")
+    crew = {"sub": "ChrisMoran", "role": "worker", "perms": []}
+    with pytest.raises(HTTPException):
+        cc.company_cam_jobs(user=crew)
+    u = db.query(User).filter(User.id == "w1").first()
+    u.permissions = '{"company_cam": true}'
+    db.commit()
+    rows = cc.company_cam_jobs(q="lazy vine", user=crew)
+    assert rows[0]["lead_id"] == lead.id and rows[0]["name"] == "Yogi Patel"
+    assert "price" not in str(rows).lower()

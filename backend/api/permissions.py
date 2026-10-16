@@ -48,6 +48,7 @@ VIEW_PERMS: list[tuple[str, str]] = [
     ("training", "Training"),
     ("payroll", "Payroll / Crew"),
     ("stain_inventory", "Stain Inventory"),
+    ("company_cam", "Company Cam (crew view, no prices)"),
     ("fence_photos", "Fence Photos"),
     ("accounting", "Accounting"),
     ("calendar", "Job Calendar"),
@@ -82,6 +83,7 @@ ROLE_BASELINE: dict[str, set[str]] = {
         "training", "calendar", "invoice_queue", "pricing", "settings",
         "stain_inventory",
         "fence_photos",
+        "company_cam",
         "see_prices", "assign_crew", "mark_paid", "delete_jobs",
     },
     "worker": {"calendar", "my_schedule"},
@@ -243,6 +245,20 @@ def list_users(user: dict = Depends(require_perm("manage_users"))):
         db.close()
 
 
+def _undelete(db, username: str) -> None:
+    """Making an account again under a deleted name: it's wanted now."""
+    import json as _json
+    from database import SystemConfig
+    from api.auth import DELETED_USERS_KEY
+    try:
+        names = _json.loads(SystemConfig.get(db, DELETED_USERS_KEY) or "[]")
+    except (TypeError, ValueError):
+        return
+    keep = [n for n in names if str(n).lower() != username.lower()]
+    if len(keep) != len(names):
+        SystemConfig.set(db, DELETED_USERS_KEY, _json.dumps(keep))
+
+
 @router.post("/admin/users")
 def create_user(body: CreateUserBody, user: dict = Depends(require_perm("manage_users"))):
     del user
@@ -255,6 +271,7 @@ def create_user(body: CreateUserBody, user: dict = Depends(require_perm("manage_
             raise HTTPException(400, f"role must be one of {VALID_ROLES}")
         if db.query(User).filter(User.username == username).first():
             raise HTTPException(409, "That username already exists")
+        _undelete(db, username)
         u = User(
             id=str(uuid.uuid4()),
             username=username,
@@ -320,6 +337,8 @@ def delete_user(user_id: str, user: dict = Depends(require_perm("manage_users"))
             raise HTTPException(400, "You can't delete your own account")
         if u.role == "admin" and db.query(User).filter(User.role == "admin").count() <= 1:
             raise HTTPException(400, "Can't delete the last admin")
+        from api.auth import mark_deleted
+        mark_deleted(db, u.username)
         db.delete(u)
         db.commit()
         return {"status": "deleted"}

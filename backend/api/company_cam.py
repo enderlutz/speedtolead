@@ -280,6 +280,8 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
 @router.get("/company-cam/{lead_id}")
 def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
     """The whole record. Creates it on first open and imports the scope."""
+    from api.permissions import require_perm
+    require_perm("company_cam")(user)
     db = get_db()
     try:
         lead = _lead_or_404(db, lead_id)
@@ -934,6 +936,42 @@ def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depend
         job.updated_at = _now()
         db.commit()
         return {"job": _job_dict(job)}
+    finally:
+        db.close()
+
+
+@router.get("/company-cam-jobs")
+def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
+    """The crew's Company Cam list (Alan, 2026-10-15): customers with a
+    booked day or a Company Cam record, soonest first, or any customer by
+    name or address. Names, addresses and days only; no prices."""
+    from api.permissions import require_perm
+    require_perm("company_cam")(user)
+    from database import Booking
+    db = get_db()
+    try:
+        out: dict[str, dict] = {}
+        term = (q or "").strip()
+        if term:
+            like = f"%{term}%"
+            for lead in (db.query(Lead).filter((Lead.contact_name.ilike(like)) | (Lead.address.ilike(like)))
+                         .order_by(Lead.created_at.desc()).limit(25).all()):
+                out[lead.id] = {"lead_id": lead.id, "name": lead.contact_name or "", "address": lead.address or "", "date": ""}
+        else:
+            for b in db.query(Booking).filter(Booking.status != "cancelled").all():
+                out.setdefault(b.lead_id, {"lead_id": b.lead_id, "date": b.date})
+            for j in db.query(CompanyCamJob).order_by(CompanyCamJob.updated_at.desc()).limit(60).all():
+                out.setdefault(j.lead_id, {"lead_id": j.lead_id, "date": ""})
+            leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_(list(out))).all()} if out else {}
+            for lid, row in list(out.items()):
+                lead = leads.get(lid)
+                if not lead:
+                    out.pop(lid)
+                    continue
+                row.update({"name": lead.contact_name or "", "address": lead.address or ""})
+        rows = list(out.values())
+        rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r["name"].lower()))
+        return rows
     finally:
         db.close()
 

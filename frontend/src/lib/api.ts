@@ -3692,6 +3692,9 @@ export const api = {
     request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/from-library`, { method: "POST", body: JSON.stringify({ key, section }) }),
   /** The coverage file: sq ft a gallon per stain, wood, fence age, prior stain. */
   getStainCoverage: () => request<StainCoverageFile>("/api/stain-coverage"),
+  /** The crew's Company Cam list: booked customers, or a search. No prices. */
+  getCompanyCamJobs: (q = "") =>
+    request<{ lead_id: string; name: string; address: string; date: string }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
