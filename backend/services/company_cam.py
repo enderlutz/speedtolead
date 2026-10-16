@@ -657,3 +657,37 @@ def measure_options(db, lead_id: str) -> dict:
             if m.linear_feet]
     heights = [_height_ft(o["height"]) for o in estimate_options(db, lead_id)]
     return {"captures": rows, "height_ft": next((h for h in heights if h), 6.0)}
+
+
+# The repair price list, per unit, tax included. Matches frontend
+# lib/repairs.ts; change both together.
+REPAIR_PRICE_CENTS = {"pine": 1200, "cedar": 1400, "rotboard": 5000, "cap": 8500, "rail": 7500,
+                      "post6": 22500, "post7": 25500, "post8": 35000}
+POST_LABELS = {"post6": "6 ft fence", "post7": "7 ft fence", "post8": "8 ft fence"}
+
+
+def repair_lines(counts: dict, picket_type: str, post_type: str) -> list[dict]:
+    """[{"name": "Picket replacement (Pine)", "qty": 5, "unit_cents": 1200}, ...]"""
+    out = []
+    if counts.get("pickets"):
+        out.append({"name": f"Picket replacement ({picket_type.title()})", "qty": int(counts["pickets"]),
+                    "unit_cents": REPAIR_PRICE_CENTS.get(picket_type, 1200)})
+    for key, label in (("rotboard", "Rot board"), ("cap", "Cap"), ("rail", "Rail")):
+        if counts.get(key):
+            out.append({"name": f"{label} replacement", "qty": int(counts[key]), "unit_cents": REPAIR_PRICE_CENTS[key]})
+    if counts.get("posts"):
+        out.append({"name": f"Post replacement ({POST_LABELS.get(post_type, '6 ft fence')})", "qty": int(counts["posts"]),
+                    "unit_cents": REPAIR_PRICE_CENTS.get(post_type, 22500)})
+    return out
+
+
+def site_extras(job) -> dict:
+    """The confirmed on-site extras: their lines and total, or empty."""
+    if not job or not (job.extras_confirmed_at or ""):
+        return {"lines": [], "total_cents": 0, "confirmed_at": ""}
+    try:
+        v = json.loads(job.extras_json or "{}") or {}
+    except (ValueError, TypeError):
+        v = {}
+    lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6")
+    return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines), "confirmed_at": job.extras_confirmed_at}

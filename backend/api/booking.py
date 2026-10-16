@@ -165,6 +165,10 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         fd = json.loads(lead.form_data or "{}")
     except Exception:
         fd = {}
+    # Extra repairs the customer agreed to on site (Company Cam).
+    from database import CompanyCamJob
+    from services.company_cam import site_extras
+    extras = site_extras(db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first())
     raw = fd.get("fence_sides") or []
     sides = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
     lines = [
@@ -174,7 +178,9 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
         *[f"Repair: {r['name']} × {r['qty']} @ {hooks.money(r['unit_price'])} = {hooks.money(r['qty'] * r['unit_price'])}" for r in _repairs(b)],
         *([f"Repairs discount{(' ' + b.repairs_discount_label) if b.repairs_discount_label else ''}: -{hooks.money(b.repairs_discount_cents / 100)}"] if b.repairs_discount_cents else []),
-        f"Due after the job: {hooks.money(due)}",
+        *[f"Added on site: {l['name']} × {l['qty']} @ {hooks.money(l['unit_cents'] / 100)} = {hooks.money(l['qty'] * l['unit_cents'] / 100)}"
+          for l in extras["lines"]],
+        f"Due after the job: {hooks.money(due + extras['total_cents'] / 100)}",
         f"Color: {b.color or 'to pick on the day'}",
         f"Fence: {fd.get('linear_feet') or '?'} ft",
         f"Sides: {', '.join(sides) or 'see the lead'}",

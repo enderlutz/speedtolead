@@ -794,3 +794,42 @@ def test_almost_done_is_marked_walked_or_texted_without_sending(db):
     assert r["job"]["almost_done_how"] == "texted"
     with pytest.raises(HTTPException):
         cc.mark_almost_done(lead.id, cc.AlmostDoneMarkBody(how="ghl"), user=USER)
+
+
+def test_repairs_and_the_crew_note_save_and_the_cleaner_marks_the_pickets(db):
+    lead = _lead(db)
+    cc.get_company_cam(lead.id, user=USER)
+    job = cc.get_company_cam(lead.id, user=USER)["job"]
+    assert job["repairs"]["counts"]["pickets"] == 0 and job["repair_notes"] == ""
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(
+        repairs={"counts": {"pickets": 15, "bogus": 3}, "picket_type": "pine", "post_type": "nope"},
+        repair_notes="A 2x4 needs screwing in on the back"), user=USER)
+    assert r["job"]["repairs"] == {"counts": {"pickets": 15, "rotboard": 0, "cap": 0, "rail": 0, "posts": 0},
+                                   "picket_type": "pine", "post_type": "post6"}
+    assert r["job"]["repair_notes"] == "A 2x4 needs screwing in on the back"
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(pickets_marked=True), user=USER)
+    assert r["job"]["pickets_marked_at"] and r["job"]["pickets_marked_by"]
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(repairs={"counts": {"pickets": -1}}), user=USER)
+
+
+def test_extras_agreed_on_site_are_confirmed_priced_and_alan_is_told(db, monkeypatch):
+    told = []
+    monkeypatch.setattr("services.after_pay_hooks.alert_alan", lambda m: told.append(m))
+    lead = _lead(db, name="Yogi Patel")
+    cc.get_company_cam(lead.id, user=USER)
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(extras_confirmed=True), user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(extras={"counts": {"pickets": 5}, "picket_type": "pine"}), user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(extras_confirmed=True), user=USER)
+    assert r["job"]["extras_confirmed_at"] and r["job"]["extras"]["counts"]["pickets"] == 5
+    assert len(told) == 1 and "5 × Picket replacement (Pine) @ $12" in told[0] and "$60" in told[0]
+    from services.company_cam import site_extras
+    from database import CompanyCamJob
+    job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
+    assert site_extras(job)["total_cents"] == 6000
+    from api import stripe_pay as sp
+    assert sp.list_pay_links(lead.id, user=USER)["site_extras"] == [{"name": "Picket replacement (Pine)", "qty": 5, "unit_price": 12.0}]
+    # Changing the count needs the customer's yes again.
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(extras={"counts": {"pickets": 6}, "picket_type": "pine"}), user=USER)
+    assert r["job"]["extras_confirmed_at"] == ""

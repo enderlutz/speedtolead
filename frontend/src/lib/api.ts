@@ -3698,6 +3698,8 @@ export const api = {
     leadId: string,
     patch: Partial<CompanyCamJob> & {
       upsells?: string[];
+      pickets_marked?: boolean;
+      extras_confirmed?: boolean;
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
@@ -3870,6 +3872,15 @@ export interface CompanyCamJob {
   almost_done_how?: string;
   /** "yes" = the chosen stain goes on every side in the scope; "no" = some differ. */
   color_all_sides?: string;
+  /** Repairs set by the office: counts per part, picket wood, post height. */
+  repairs?: { counts: Record<string, number>; picket_type: string; post_type: string };
+  /** The office's note to the crew about the repairs. */
+  repair_notes?: string;
+  /** The cleaner agreed the exact pickets with the customer and marked them. */
+  pickets_marked_at?: string; pickets_marked_by?: string;
+  /** Extra repairs the customer agreed to on site, and when they said yes. */
+  extras?: { counts: Record<string, number>; picket_type: string; post_type: string };
+  extras_confirmed_at?: string; extras_confirmed_by?: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
   neighbor_interested: boolean;
@@ -5789,6 +5800,8 @@ export interface CustomerPaymentEntry {
 export interface PayLinksResponse {
   links: PayLinkEntry[]; payments: CustomerPaymentEntry[]; paid_total: number; configured: boolean;
   bill_to?: { name: string; address: string; invoice_number: string };
+  /** Extra repairs the customer agreed to on site (Company Cam). */
+  site_extras?: { name: string; qty: number; unit_price: number }[];
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 

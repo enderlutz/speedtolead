@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
-  Droplets, Search, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
+  Droplets, Hammer, Search, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye,
 } from "lucide-react";
@@ -30,10 +30,12 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn, errMessage } from "@/lib/utils";
+import { cn, errMessage, formatCurrency } from "@/lib/utils";
 import { ACCENT, type Accent } from "@/lib/accents";
 import { Panel, Field, StatTile, ProgressPill, Pill } from "@/components/Panel";
 import { SidesPicker } from "@/components/SidesPicker";
+import { Chips, Counter, FencePart, type FencePartKey } from "@/components/proposal/Repairs";
+import { PARTS, PICKETS, POSTS } from "@/lib/repairs";
 import { sidesLabel } from "@/lib/fenceSides";
 
 const PACKAGES = ["essential", "signature", "legacy"] as const;
@@ -580,7 +582,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   useEffect(() => { void load(); }, [load]);
 
   const patch = async (
-    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean },
+    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
@@ -857,7 +859,12 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             )}
           </StatTile>
         </div>
+        <WhatToBring job={job} stain={chosenStain} />
       </Panel>
+
+      {/* Repairs (Alan, 2026-10-15): the office counts them; the crew sees them
+          only when there are some, without prices. */}
+      <RepairsPanel job={job} manager={manager} onPatch={(p) => void patch(p)} />
 
       {/* Colour, per area. Drives what the cleaner has to settle on site. */}
       <Panel icon={Palette} accent={ACCENT.fuchsia}
@@ -1600,6 +1607,206 @@ function AlmostDone({ text, defaultText, onText, phone, blocked, onMark }: {
         <button type="button" onClick={() => setMode("")} className="text-xs font-semibold text-muted-foreground underline">Back</button>
         {text !== defaultText ? <button type="button" onClick={() => onText(defaultText)} className="text-xs font-semibold text-muted-foreground underline">Reset wording</button> : null}
       </div>
+    </div>
+  );
+}
+
+type Repairs = { counts: Record<string, number>; picket_type: string; post_type: string };
+const NO_REPAIRS: Repairs = { counts: {}, picket_type: "pine", post_type: "post6" };
+
+function hasRepairs(job: CompanyCamJob) {
+  return Object.values(job.repairs?.counts || {}).some((n) => n > 0) || !!(job.repair_notes || "").trim();
+}
+
+/** "15 pine pickets", "2 rot boards", "1 post (7 ft fence)": the crew's
+ *  words, no prices. */
+function repairWords(r: Repairs): string[] {
+  const c = r.counts || {};
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const wood = (PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0]).label.toLowerCase();
+  const post = (POSTS.find((p) => p.key === r.post_type) || POSTS[0]).label;
+  const out: string[] = [];
+  if (c.pickets) out.push(plural(c.pickets, `${wood} picket`, `${wood} pickets`));
+  if (c.rotboard) out.push(plural(c.rotboard, "rot board", "rot boards"));
+  if (c.cap) out.push(plural(c.cap, "cap", "caps"));
+  if (c.rail) out.push(plural(c.rail, "rail", "rails"));
+  if (c.posts) out.push(`${plural(c.posts, "post", "posts")} (${post})`);
+  return out;
+}
+
+/** Everything the stainer loads before driving out (Alan, 2026-10-15):
+ *  stain, every picket (planned + agreed on site), a saw, and four screw
+ *  nails a picket, plus the office's repair note. */
+function WhatToBring({ job, stain }: { job: CompanyCamJob; stain: string }) {
+  const planned = job.repairs || NO_REPAIRS;
+  const extras: Repairs = job.extras_confirmed_at ? (job.extras || NO_REPAIRS) : NO_REPAIRS;
+  const sum: Repairs = { ...planned, counts: Object.fromEntries(["pickets", "rotboard", "cap", "rail", "posts"].map((k) => [k, (planned.counts[k] || 0) + (extras.counts[k] || 0)])) };
+  const pickets = sum.counts.pickets || 0;
+  const items = [
+    job.gallons_needed ? `${job.gallons_needed} gallons of ${stain || "stain (colour not picked yet)"}` : "",
+    ...repairWords(sum).map((w, i) => (i === 0 && pickets && extras.counts.pickets ? `${w} (${planned.counts.pickets || 0} planned + ${extras.counts.pickets} added on site)` : w)),
+    pickets ? `${pickets * 4} screw nails (4 a picket)` : "",
+    pickets || sum.counts.rotboard || sum.counts.cap || sum.counts.rail ? "A saw, to cut pickets and boards to size" : "",
+  ].filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <div className="mt-2.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-blue-900">What to bring</p>
+      <ul className="mt-1 space-y-0.5 text-sm font-semibold">
+        {items.map((t) => <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />{t}</li>)}
+      </ul>
+      {pickets && job.pickets_marked_at ? <p className="mt-1 text-xs text-blue-900">The pickets to replace are marked with spray paint.</p> : null}
+      {(job.repair_notes || "").trim() ? (
+        <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-white/70 px-2 py-1.5 text-xs"><b>Repair note:</b> {job.repair_notes}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function RepairsPanel({ job, manager, onPatch }: {
+  job: CompanyCamJob; manager: boolean;
+  onPatch: (p: Partial<CompanyCamJob> & { pickets_marked?: boolean; extras_confirmed?: boolean }) => void;
+}) {
+  const r = job.repairs || NO_REPAIRS;
+  const planned = hasRepairs(job);
+  const set = (patch: Partial<Repairs>) => onPatch({ repairs: { ...r, ...patch, counts: { ...r.counts, ...(patch.counts || {}) } } });
+  const bump = (key: string, d: number) => set({ counts: { [key]: Math.max(0, (r.counts[key] || 0) + d) } });
+  const words = repairWords(r);
+  const pickets = r.counts.pickets || 0;
+  return (
+    <Panel icon={Hammer} accent={ACCENT.amber} title="Repairs"
+           sub={manager ? "Fill in what we're fixing. The crew sees it only if something's here." : planned ? "What we're fixing on this job" : "No repairs planned. Add any the customer asks for below."}>
+      {manager ? (
+        <div className="space-y-2">
+          <Counter stack label="Pickets" what="The upright boards" unit="picket" price={(PICKETS.find((p) => p.key === r.picket_type) || PICKETS[0]).price}
+                   art={<FencePart part="picket" />} n={pickets} onChange={(d) => bump("pickets", d)}>
+            <Chips options={PICKETS} value={r.picket_type} onChange={(k) => set({ picket_type: k })} />
+          </Counter>
+          {PARTS.map((part) => (
+            <Counter stack key={part.key} label={part.label} what={part.what} unit={part.unit} price={part.price}
+                     art={<FencePart part={part.key as FencePartKey} />} n={r.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+          ))}
+          <Counter stack label="Post replacement" what="The thick posts set in the ground" unit="post" price={(POSTS.find((p) => p.key === r.post_type) || POSTS[0]).price}
+                   art={<FencePart part="post" />} n={r.counts.posts || 0} onChange={(d) => bump("posts", d)}>
+            <Chips options={POSTS} value={r.post_type} onChange={(k) => set({ post_type: k })} />
+          </Counter>
+          <Field label="Additional notes for the crew" hint="Only shows to the crew when you write something. e.g. a 2x4 on the back needs screwing back in.">
+            <BlurText rows={3} value={job.repair_notes || ""} placeholder="Anything else to fix, and how…"
+                      onSave={(v) => onPatch({ repair_notes: v })} />
+          </Field>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {words.length ? (
+            <ul className="space-y-1 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-200">
+              <li className="text-[11px] font-bold uppercase tracking-wide text-amber-900">Planned by the office</li>
+              {words.map((w) => <li key={w} className="text-base font-bold">{w}</li>)}
+            </ul>
+          ) : null}
+          {(job.repair_notes || "").trim() ? (
+            <div className="rounded-xl bg-muted/50 px-3 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">From the office</p>
+              <p className="whitespace-pre-wrap text-sm">{job.repair_notes}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
+      {pickets > 0 ? (
+        <div className={cn("rounded-xl border p-2.5", job.pickets_marked_at ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50/60")}>
+          <p className="text-sm font-bold">Cleaner: mark the {pickets} pickets with the customer</p>
+          <p className="mt-0.5 text-xs leading-relaxed">
+            Walk the fence with the customer and agree on exactly which {pickets} pickets get replaced. Put a quick spray-paint mark on each one,
+            so the stainer replaces the right ones. If they want more than {pickets}, tell the office before you leave.
+          </p>
+          <Button size="lg" variant={job.pickets_marked_at ? "default" : "outline"}
+                  className={cn("mt-2 h-11 w-full text-sm font-semibold", job.pickets_marked_at && "bg-emerald-600 hover:bg-emerald-600")}
+                  onClick={() => onPatch({ pickets_marked: !job.pickets_marked_at })}>
+            {job.pickets_marked_at
+              ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> Agreed with the customer and marked{job.pickets_marked_by ? ` · ${job.pickets_marked_by}` : ""}</>
+              : <>Agreed with the customer and marked all {pickets}</>}
+          </Button>
+        </div>
+      ) : null}
+      <SiteExtras job={job} onPatch={onPatch} afterPlanned={pickets > 0 && !job.pickets_marked_at} />
+    </Panel>
+  );
+}
+
+/** The customer wants more fixed (Alan, 2026-10-15): the cleaner counts it
+ *  with them at the fence, the price list does the math out loud, and
+ *  "Customer agreed" adds it to the job, the calendar and Alan's invoice. */
+function SiteExtras({ job, onPatch, afterPlanned }: {
+  job: CompanyCamJob; afterPlanned: boolean;
+  onPatch: (p: Partial<CompanyCamJob> & { extras_confirmed?: boolean }) => void;
+}) {
+  const e = job.extras || NO_REPAIRS;
+  const confirmed = !!job.extras_confirmed_at;
+  const set = (patch: Partial<Repairs>) => onPatch({ extras: { ...e, ...patch, counts: { ...e.counts, ...(patch.counts || {}) } } });
+  const bump = (key: string, d: number) => set({ counts: { [key]: Math.max(0, (e.counts[key] || 0) + d) } });
+  const picket = PICKETS.find((p) => p.key === e.picket_type) || PICKETS[0];
+  const post = POSTS.find((p) => p.key === e.post_type) || POSTS[0];
+  const lines = [
+    { n: e.counts.pickets || 0, what: `${picket.label.toLowerCase()} picket`, price: picket.price },
+    ...PARTS.map((p) => ({ n: e.counts[p.key] || 0, what: p.label.toLowerCase(), price: p.price })),
+    { n: e.counts.posts || 0, what: `post (${post.label})`, price: post.price },
+  ].filter((l) => l.n > 0);
+  const total = lines.reduce((t, l) => t + l.n * l.price, 0);
+  const [open, setOpen] = useState(lines.length > 0);
+  const [editing, setEditing] = useState(false);
+  if (!open) {
+    return (
+      <Button variant="outline" size="lg" className="h-11 w-full border-dashed" onClick={() => setOpen(true)}>
+        <Plus className="mr-1.5 h-4 w-4" /> The customer wants more fixed
+      </Button>
+    );
+  }
+  return (
+    <div className={cn("space-y-2 rounded-xl border p-2.5", confirmed ? "border-emerald-300 bg-emerald-50/60" : "border-border bg-background")}>
+      <p className="text-sm font-bold">Extra repairs the customer wants</p>
+      {afterPlanned ? <p className="text-xs text-amber-800">Mark the planned pickets with the customer first, then add any extras.</p> : null}
+      {!confirmed || editing ? (<>
+      <p className="text-xs text-muted-foreground">Show them the price as you count. Tap + once for each one.</p>
+        <Counter stack label="Pickets" what="The upright boards" unit="picket" price={picket.price}
+                 art={<FencePart part="picket" />} n={e.counts.pickets || 0} onChange={(d) => bump("pickets", d)}>
+          <Chips options={PICKETS} value={e.picket_type} onChange={(k) => set({ picket_type: k })} />
+        </Counter>
+        {PARTS.map((part) => (
+          <Counter stack key={part.key} label={part.label} what={part.what} unit={part.unit} price={part.price}
+                   art={<FencePart part={part.key as FencePartKey} />} n={e.counts[part.key] || 0} onChange={(d) => bump(part.key, d)} />
+        ))}
+        <Counter stack label="Post replacement" what="The thick posts set in the ground" unit="post" price={post.price}
+                 art={<FencePart part="post" />} n={e.counts.posts || 0} onChange={(d) => bump("posts", d)}>
+          <Chips options={POSTS} value={e.post_type} onChange={(k) => set({ post_type: k })} />
+        </Counter>
+      </>) : null}
+      {lines.length ? (
+        <div className="rounded-xl bg-[#15130F] px-3 py-2.5 text-white">
+          {lines.map((l) => (
+            <p key={l.what} className="flex justify-between gap-2 text-sm tabular-nums">
+              <span>{l.n} {l.what}{l.n === 1 ? "" : "s"} × {formatCurrency(l.price).replace(".00", "")}</span>
+              <span>{formatCurrency(l.n * l.price).replace(".00", "")}</span>
+            </p>
+          ))}
+          <p className="mt-1 flex justify-between border-t border-white/20 pt-1 text-lg font-bold tabular-nums">
+            <span>Added to their total</span><span>{formatCurrency(total).replace(".00", "")}</span>
+          </p>
+        </div>
+      ) : null}
+      {lines.length && !confirmed ? (
+        <Button size="lg" className="h-auto min-h-12 w-full whitespace-normal py-2 text-base font-semibold"
+                onClick={() => { onPatch({ extras_confirmed: true }); setEditing(false); }}>
+          The customer agreed: add {formatCurrency(total).replace(".00", "")}
+        </Button>
+      ) : null}
+      {confirmed ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="flex flex-1 items-center gap-1.5 text-sm font-semibold text-emerald-800">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> Customer agreed{job.extras_confirmed_by ? ` · ${job.extras_confirmed_by}` : ""}. Added to the job. Mark the extra pickets too.
+          </p>
+          {!editing ? <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing(true)}>Change</Button> : null}
+        </div>
+      ) : null}
+      {confirmed && editing ? <p className="text-[11px] text-muted-foreground">Changing a count needs the customer's yes again.</p> : null}
     </div>
   );
 }

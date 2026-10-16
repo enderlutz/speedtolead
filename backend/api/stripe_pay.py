@@ -336,6 +336,13 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
         db.close()
 
 
+def _site_extras(db, lead_id: str) -> list[dict]:
+    from database import CompanyCamJob
+    from services.company_cam import site_extras
+    ex = site_extras(db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first())
+    return [{"name": l["name"], "qty": l["qty"], "unit_price": l["unit_cents"] / 100} for l in ex["lines"]]
+
+
 @router.get("/leads/{lead_id}/pay-links")
 def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
     del user
@@ -352,6 +359,8 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
             "payments": [payment_dict(p) for p in pays],
             "paid_total": round(sum(p.amount_cents or 0 for p in pays) / 100, 2),
             "configured": configured(),
+            # Extra repairs the customer agreed to on site, to add to the invoice.
+            "site_extras": _site_extras(db, lead_id),
         }
     finally:
         db.close()

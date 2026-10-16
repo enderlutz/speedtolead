@@ -1788,6 +1788,22 @@ class CompanyCamJob(Base):
     # Does the stain they chose go on every side in the fence scope? "yes" |
     # "no" (some sides get another stain: the colour rows say which) | "".
     color_all_sides = Column(Text, default="")
+    # Repairs on this job (Alan, 2026-10-15), set by the office: counts by
+    # part ({"pickets": 15, "rotboard": 0, ...}) plus the picket wood and
+    # post height, and a note for the crew ("a 2x4 needs screwing in").
+    # The cleaner confirms the exact pickets with the customer and marks
+    # each with spray paint, so the stainer replaces the right ones.
+    repairs_json = Column(Text, default="")
+    repair_notes = Column(Text, default="")
+    pickets_marked_at = Column(Text, default="")
+    pickets_marked_by = Column(Text, default="")
+    # Extra repairs the customer agreed to on site, counted by the cleaner
+    # with them at the fence (same keys as repairs_json counts). Billed at
+    # the price list; confirmed once the customer says yes, which puts them
+    # on the calendar event and tells Alan to add them to the invoice.
+    extras_json = Column(Text, default="")
+    extras_confirmed_at = Column(Text, default="")
+    extras_confirmed_by = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
     cleaner_checklist_json = Column(Text, default="[]")
@@ -4527,6 +4543,13 @@ def _run_migrations():
             ("wood_type", "TEXT DEFAULT ''"),
             ("almost_done_how", "TEXT DEFAULT ''"),
             ("color_all_sides", "TEXT DEFAULT ''"),
+            ("repairs_json", "TEXT DEFAULT ''"),
+            ("repair_notes", "TEXT DEFAULT ''"),
+            ("pickets_marked_at", "TEXT DEFAULT ''"),
+            ("pickets_marked_by", "TEXT DEFAULT ''"),
+            ("extras_json", "TEXT DEFAULT ''"),
+            ("extras_confirmed_at", "TEXT DEFAULT ''"),
+            ("extras_confirmed_by", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

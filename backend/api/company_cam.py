@@ -179,6 +179,21 @@ def _json_list(raw: str | None) -> list:
         return []
 
 
+REPAIR_KEYS = ("pickets", "rotboard", "cap", "rail", "posts")
+
+
+def _repairs(job: CompanyCamJob, raw: str | None = None) -> dict:
+    """{"counts": {...}, "picket_type": "pine", "post_type": "post6"}"""
+    try:
+        v = json.loads((job.repairs_json if raw is None else raw) or "{}") or {}
+    except (ValueError, TypeError):
+        v = {}
+    counts = v.get("counts") if isinstance(v.get("counts"), dict) else {}
+    return {"counts": {k: int(counts.get(k) or 0) for k in REPAIR_KEYS},
+            "picket_type": v.get("picket_type") if v.get("picket_type") in ("pine", "cedar") else "pine",
+            "post_type": v.get("post_type") if v.get("post_type") in ("post6", "post7", "post8") else "post6"}
+
+
 def _job_dict(job: CompanyCamJob) -> dict:
     upsells = _json_list(job.upsells_json)
     return {
@@ -208,6 +223,13 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "previously_stained": job.previously_stained or "",
         "wood_type": job.wood_type or "",
         "color_all_sides": job.color_all_sides or "",
+        "repairs": _repairs(job),
+        "repair_notes": job.repair_notes or "",
+        "pickets_marked_at": job.pickets_marked_at or "",
+        "pickets_marked_by": job.pickets_marked_by or "",
+        "extras": _repairs(job, job.extras_json or ""),
+        "extras_confirmed_at": job.extras_confirmed_at or "",
+        "extras_confirmed_by": job.extras_confirmed_by or "",
         "cleaner_checklist": _json_list(job.cleaner_checklist_json),
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
@@ -352,6 +374,15 @@ class CompanyCamPatch(BaseModel):
     wood_type: str | None = None
     # "yes" | "no" | "" — the chosen stain covers every side in the scope.
     color_all_sides: str | None = None
+    # {"counts": {"pickets": 15, ...}, "picket_type": "pine", "post_type": "post6"}
+    repairs: dict | None = None
+    repair_notes: str | None = None
+    # True: the cleaner agreed the exact pickets with the customer and marked them.
+    pickets_marked: bool | None = None
+    # Extra repairs the customer agreed to on site (same shape as repairs).
+    # Changing them un-confirms; extras_confirmed=True is "the customer said yes".
+    extras: dict | None = None
+    extras_confirmed: bool | None = None
     cleaner_checklist: list[str] | None = None
     stainer_checklist: list[str] | None = None
     neighbor_interested: bool | None = None
@@ -435,6 +466,46 @@ def update_company_cam(
             if v not in ("pine", "cedar", "other", ""):
                 raise HTTPException(400, "Wood is pine, cedar, other, or blank")
             job.wood_type = v
+        def clean_repairs(raw: dict) -> str:
+            counts = raw.get("counts") if isinstance(raw.get("counts"), dict) else {}
+            clean = {}
+            for k in REPAIR_KEYS:
+                try:
+                    n = int(counts.get(k) or 0)
+                except (TypeError, ValueError):
+                    n = 0
+                if n < 0 or n > 2000:
+                    raise HTTPException(400, f"{k} has to be between 0 and 2000")
+                clean[k] = n
+            return json.dumps({
+                "counts": clean,
+                "picket_type": raw.get("picket_type") if raw.get("picket_type") in ("pine", "cedar") else "pine",
+                "post_type": raw.get("post_type") if raw.get("post_type") in ("post6", "post7", "post8") else "post6",
+            })
+        newly_confirmed = False
+        if body.extras is not None:
+            v = clean_repairs(body.extras or {})
+            if v != (job.extras_json or ""):
+                job.extras_json = v
+                job.extras_confirmed_at = ""
+                job.extras_confirmed_by = ""
+        if body.extras_confirmed is not None:
+            if body.extras_confirmed:
+                if not any(_repairs(job, job.extras_json or "")["counts"].values()):
+                    raise HTTPException(400, "Count the extra repairs first")
+                newly_confirmed = not job.extras_confirmed_at
+                job.extras_confirmed_at = _now()
+                job.extras_confirmed_by = _actor(user)
+            else:
+                job.extras_confirmed_at = ""
+                job.extras_confirmed_by = ""
+        if body.repairs is not None:
+            job.repairs_json = clean_repairs(body.repairs or {})
+        if body.repair_notes is not None:
+            job.repair_notes = body.repair_notes.strip()[:2000]
+        if body.pickets_marked is not None:
+            job.pickets_marked_at = _now() if body.pickets_marked else ""
+            job.pickets_marked_by = _actor(user) if body.pickets_marked else ""
         if body.color_all_sides is not None:
             v = body.color_all_sides.strip().lower()
             if v not in ("yes", "no", ""):
@@ -451,6 +522,8 @@ def update_company_cam(
 
         job.updated_at = _now()
         db.commit()
+        if newly_confirmed:
+            _extras_confirmed(db, lead, job)
         photos = (
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
@@ -815,6 +888,29 @@ def reset_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
         return {"job": _job_dict(job)}
     finally:
         db.close()
+
+
+def _extras_confirmed(db, lead: Lead, job: CompanyCamJob) -> None:
+    """The customer said yes to extra repairs on site: the calendar event
+    shows them and Alan is told to add them to the invoice. Never raises."""
+    from services.company_cam import site_extras
+    from services.after_pay_hooks import alert_alan, money
+    ex = site_extras(job)
+    if not ex["lines"]:
+        return
+    what = "; ".join(f"{l['qty']} × {l['name']} @ {money(l['unit_cents'] / 100)}" for l in ex["lines"])
+    try:
+        from api.booking import _active, sync_calendar
+        b = _active(db, lead.id)
+        if b is not None:
+            sync_calendar(db, lead, b)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("extras: calendar update failed for %s: %s", lead.id, e)
+    try:
+        alert_alan(f"{lead.contact_name or 'A customer'} agreed on site to {what} = {money(ex['total_cents'] / 100)}. "
+                   f"Confirmed by {job.extras_confirmed_by or 'the crew'}. It's ready to add on their invoice (Payment links).")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("extras: alert failed for %s: %s", lead.id, e)
 
 
 class AlmostDoneMarkBody(BaseModel):
