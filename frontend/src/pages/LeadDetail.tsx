@@ -1404,10 +1404,10 @@ export default function LeadDetail() {
   ];
 
   // What starts open on this lead, read off the journey.
-  const sentNow = journey.some((st) => st.key === "sent" && st.done);
   // Contact and Measure & capture always start open (Alan, 2026-10-16).
   const contactDefault = true;
-  const inputsDefault = !sentNow;
+  // Estimator input always starts open (Alan, 2026-10-16).
+  const inputsDefault = true;
   const paymentsDefault = !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid";
 
   return (
@@ -1649,37 +1649,7 @@ export default function LeadDetail() {
               each tappable, each the same colour it is everywhere else on
               the page. Answers "what do I do next on this lead?" before a
               single card is read. */}
-          {/* Folded by default (Alan, 2026-10-16): the header says what's
-              next; a tap opens every step. */}
-          <JourneyStrip
-            collapsed={!isOpen("journey", false)}
-            onToggle={() => toggle("journey", false)}
-            steps={journey}
-            note={cameBack
-              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
-              : undefined}
-          />
-
-          {/* Every objection the scanner found in this customer's texts and
-              calls, each with their exact words and whether it came before or
-              after the estimate. Nobody picks; a wrong one can be removed. */}
-          <ObjectionsPanel
-            leadId={lead.id}
-            objections={objections}
-            categories={objectionCats}
-            onChange={loadObjections}
-            collapsed={!isOpen("objections", objections.length > 0)}
-            onToggle={() => toggle("objections", objections.length > 0)}
-          />
-
-          {/* Mobile: approval status */}
-          {approvalCfg && (
-            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="lg:hidden" />
-          )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Left column */}
-        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+          {/* Contact first, above the journey (Alan, 2026-10-16). */}
           {/* Contact info */}
           <Panel
             id="est-contact"
@@ -1793,6 +1763,37 @@ export default function LeadDetail() {
                 </>
           </Panel>
 
+          {/* Folded by default (Alan, 2026-10-16): the header says what's
+              next; a tap opens every step. */}
+          <JourneyStrip
+            collapsed={!isOpen("journey", false)}
+            onToggle={() => toggle("journey", false)}
+            steps={journey}
+            note={cameBack
+              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
+              : undefined}
+          />
+
+          {/* Every objection the scanner found in this customer's texts and
+              calls, each with their exact words and whether it came before or
+              after the estimate. Nobody picks; a wrong one can be removed. */}
+          <ObjectionsPanel
+            leadId={lead.id}
+            objections={objections}
+            categories={objectionCats}
+            onChange={loadObjections}
+            collapsed={!isOpen("objections", objections.length > 0)}
+            onToggle={() => toggle("objections", objections.length > 0)}
+          />
+
+          {/* Mobile: approval status */}
+          {approvalCfg && (
+            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="lg:hidden" />
+          )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        {/* Left column */}
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           {/* The "Satellite view" card is archived (2026-10-09, Alan: "it's
               repetitive to see the map on the measure and capture as well…
               just combine it into one"). Measure & capture below is the one
@@ -1805,39 +1806,6 @@ export default function LeadDetail() {
               button press, so hiding it costs nothing and saves the API call.
               Uncomment to bring it back. */}
           {/* <CallPrepCard leadId={lead.id} leadName={lead.contact_name} /> */}
-
-          {/* The $250 deposit, the Stripe links and the full invoice. Right
-              under Contact and above Measure so the deposit link is one tap
-              away (Alan, 2026-10-10: "so we can send the $250 deposit
-              quicker"). Still folded until there's a job. */}
-          <AfterPaymentCard leadId={lead.id} />
-          {/* Our own booking invite, in place of the Google Calendar one
-              (Alan, 2026-10-14). Right above the payment links: the $250
-              is what confirms it. */}
-          <div id="est-booking" className="scroll-mt-4"><BookingInviteCard lead={lead} /></div>
-          <Panel
-            id="est-payments"
-            className="scroll-mt-4"
-            icon={CircleDollarSign}
-            title="Payment links"
-            sub="The $250 deposit, then the full invoice"
-            accent={ACCENT.emerald}
-            collapsed={!isOpen("payments", paymentsDefault)}
-            onToggle={() => toggle("payments", paymentsDefault)}
-            bodyClassName="space-y-2 p-3.5"
-          >
-            <ProposalLiveSwitch leadId={lead.id} />
-            {/* The QuickBooks $250 deposit row, archived: see SHOW_QB_DEPOSIT. */}
-            {SHOW_QB_DEPOSIT && <DepositRow
-              lead={lead}
-              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
-            />}
-            <FullInvoiceRow
-              job={latestScheduledJob}
-              onGenerate={() => setInvoiceModalOpen(true)}
-            />
-            <StripeLinksCard leadId={lead.id} />
-          </Panel>
 
           {/* Measure the property in place. Sits directly above the
               estimator because its output IS the estimator's first input:
@@ -2091,6 +2059,38 @@ export default function LeadDetail() {
                 {saving ? "Recalculating..." : "Save & Recalculate"}
               </Button>
           </Panel>
+
+          {/* Our own booking invite, in place of the Google Calendar one
+              (Alan, 2026-10-14). Right above the payment links: the $250
+              is what confirms it. */}
+          <div id="est-booking" className="scroll-mt-4"><BookingInviteCard lead={lead} /></div>
+          <Panel
+            id="est-payments"
+            className="scroll-mt-4"
+            icon={CircleDollarSign}
+            title="Payment links"
+            sub="The $250 deposit, then the full invoice"
+            accent={ACCENT.emerald}
+            collapsed={!isOpen("payments", paymentsDefault)}
+            onToggle={() => toggle("payments", paymentsDefault)}
+            bodyClassName="space-y-2 p-3.5"
+          >
+            <ProposalLiveSwitch leadId={lead.id} />
+            {/* The QuickBooks $250 deposit row, archived: see SHOW_QB_DEPOSIT. */}
+            {SHOW_QB_DEPOSIT && <DepositRow
+              lead={lead}
+              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
+            />}
+            <FullInvoiceRow
+              job={latestScheduledJob}
+              onGenerate={() => setInvoiceModalOpen(true)}
+            />
+            <StripeLinksCard leadId={lead.id} />
+          </Panel>
+
+          {/* Deposit and invoice status, under the payment links (Alan, 2026-10-16:
+              order is booking invite, payment links, then the estimate). */}
+          <AfterPaymentCard leadId={lead.id} />
 
           {/* (Follow-up automation, Messages, Chatbot, Call Recordings all
               relocated to the Call tab below.) */}
