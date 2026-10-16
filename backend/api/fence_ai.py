@@ -139,8 +139,12 @@ def apply_measurement(lead_id: str, body: ApplyRequest, user: dict = Depends(req
         zip_code = lead.zip_code or ""
         low, high, breakdown, meta = calculate_estimate("fence_staining", fd, zip_code)
 
-        # Update existing estimate
-        est = db.query(Estimate).filter(Estimate.lead_id == lead_id).order_by(Estimate.created_at.desc()).first()
+        # Update the draft estimate only. A sent estimate keeps the prices the
+        # customer was quoted (Alan, 2026-10-16: price changes are "from now
+        # on"), so a new measurement never rewrites one.
+        est = (db.query(Estimate)
+               .filter(Estimate.lead_id == lead_id, Estimate.status == "pending")
+               .order_by(Estimate.created_at.desc()).first())
         if est:
             est.inputs = json.dumps({**fd, **{f"_{k}": v for k, v in meta.items()}})
             est.breakdown = json.dumps(breakdown)

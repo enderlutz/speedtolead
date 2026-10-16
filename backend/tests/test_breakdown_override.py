@@ -154,3 +154,23 @@ def test_saving_without_tags_still_works(db):
     out = est_api.override_breakdown(est.id, est_api.BreakdownOverrideBody(items=items))
     tiers = out["tiers"] if isinstance(out["tiers"], dict) else json.loads(out["tiers"])
     assert tiers["essential"] == 1253.6
+
+
+def test_new_measurement_never_reprices_a_sent_estimate(db):
+    """Price changes are from now on (Alan, 2026-10-16): applying a fresh
+    AI measurement updates the draft, never an estimate already sent."""
+    import json, uuid
+    from database import Estimate, Lead
+    from api import fence_ai
+    lead = Lead(id=str(uuid.uuid4()), contact_name="Sent Customer", contact_phone="+17135550101",
+                ghl_contact_id="ghl-sent", pipeline_version="v2", status="new",
+                created_at="2026-10-01T00:00:00Z", zip_code="77339",
+                form_data=json.dumps({"fence_height": "6ft standard", "fence_age": "1-6 years"}))
+    sent = Estimate(id=str(uuid.uuid4()), lead_id=lead.id, service_type="fence_staining", status="sent",
+                    tiers=json.dumps({"signature": 1000.0}), estimate_low=900, estimate_high=1100,
+                    created_at="2026-10-02T00:00:00Z", sent_at="2026-10-02T00:00:00Z")
+    db.add_all([lead, sent]); db.commit()
+    fence_ai.apply_measurement(lead.id, fence_ai.ApplyRequest(linear_feet=300), user={"sub": "fragned", "role": "admin"})
+    db.expire_all()
+    again = db.query(Estimate).filter(Estimate.id == sent.id).one()
+    assert json.loads(again.tiers)["signature"] == 1000.0 and again.estimate_low == 900
