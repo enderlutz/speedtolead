@@ -2181,6 +2181,9 @@ export const api = {
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),
   sendBooking: (leadId: string, message: string, email: boolean) =>
     request<BookingState & { emailed: boolean; calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ message, email }) }),
+  /** Change a sent booking (the date, a price) without texting or emailing them. */
+  updateBooking: (leadId: string) =>
+    request<BookingState & { calendar: boolean }>(`/api/leads/${leadId}/booking/send`, { method: "POST", body: JSON.stringify({ notify: false }) }),
   cancelBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking/cancel`, { method: "POST" }),
   /** Mark whether the customer left a Google review. Its own endpoint, so it
    *  never re-prices the estimate the way the form-data save does. */

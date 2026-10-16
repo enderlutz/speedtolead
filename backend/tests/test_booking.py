@@ -208,3 +208,18 @@ def test_a_repairs_discount_comes_off_the_repairs_only(db, ghl):
     pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", repairs=lines,
                                                        repairs_discount_type="amount", repairs_discount_value=5000), STAFF)
     assert bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]["total"] == 997.92
+
+
+def test_update_without_texting_moves_the_date_and_calendar_but_sends_nothing(db, ghl):
+    lead, day = _ready(db)
+    with pytest.raises(HTTPException):
+        bk.send_booking(lead.id, bk.SendBody(notify=False), STAFF)   # nothing sent yet
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    texts = len([x for x in ghl if x[0] in ("sms", "email")])
+    new_day = (date.today() + timedelta(days=3)).isoformat()
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=new_day, tier="signature"), STAFF)
+    out = bk.send_booking(lead.id, bk.SendBody(notify=False), STAFF)
+    assert out["booking"]["date"] == new_day and out["booking"]["token"] == b["token"] and out["booking"]["sent_count"] == 1
+    assert len([x for x in ghl if x[0] in ("sms", "email")]) == texts
+    assert [x for x in ghl if x[0] == "cal"][-1][4] == new_day
+    assert bk.booking_page(b["token"], _Req())["date"] == new_day

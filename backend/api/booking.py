@@ -233,6 +233,9 @@ class SendBody(BaseModel):
     # The text as staff left it. "[link]" (or the link itself) has to stay in.
     message: str | None = None
     email: bool = True
+    # False: update their page and the calendar only, no text or email
+    # (Alan, 2026-10-15: "I put the 24th, I meant the 17th").
+    notify: bool = True
 
 
 def _email_html(lead: Lead, b: Booking, url: str) -> str:
@@ -272,11 +275,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         tiers = _tiers(db, lead)
         if not tiers or not tiers.get(d["tier"]):
             raise HTTPException(status_code=400, detail="This lead has no price for that package yet.")
-        blockers = hooks.send_blockers(lead)
+        b = _active(db, lead.id)
+        if not body.notify and b is None:
+            raise HTTPException(status_code=400, detail="Nothing has been sent yet. Send it first.")
+        blockers = hooks.send_blockers(lead) if body.notify else []
         if blockers:
             raise HTTPException(status_code=400, detail=" ".join(blockers))
 
-        b = _active(db, lead.id)
         if b is None:
             b = Booking(token=secrets.token_urlsafe(16), lead_id=lead.id, created_at=_now().isoformat(), status="held")
             db.add(b)
@@ -305,6 +310,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         # What they pay: the deposit, the balance and Klarna all go by this.
         b.total_cents = price_cents - off + repairs_cents - roff
         url = booking_url(b.token)
+
+        if not body.notify:
+            by = user.get("name") or user.get("sub") or ""
+            db.commit()
+            cal = sync_calendar(db, lead, b)
+            log_event(lead.id, "booking_updated", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}, not texted")
+            return {**_state(db, lead), "emailed": False, "calendar": bool(cal), "calendar_link": cal, "texted": False}
 
         msg = (body.message if body.message is not None else default_message(lead, b.date)).strip()
         if not msg:

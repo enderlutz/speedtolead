@@ -55,7 +55,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const first = (lead.contact_name || "").split(" ")[0] || "them";
   const [draft, setDraft] = useState<Draft>(blank);
   const [st, setSt] = useState<BookingState | null>(null);
-  const [busy, setBusy] = useState<null | "save" | "send" | "clear" | "cancel">(null);
+  const [busy, setBusy] = useState<null | "save" | "send" | "clear" | "cancel" | "update">(null);
   const [preview, setPreview] = useState(false);
   // "Their page", inside the dashboard: a new tab on a phone's home-screen
   // app had no way back (Alan, 2026-10-14).
@@ -122,6 +122,10 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     || (saved.repairs_discount_label || "") !== (roff ? draft.rlabel : "")
     || ((saved.repairs_discount_value ? saved.repairs_discount_type : "") || "") !== (roff ? draft.rtype : "");
   const sent = st?.booking || null;
+  // The card says something different from what they have: a different day,
+  // package, price or note. Lights up "Update without texting".
+  const draftDiffersFromSent = !!sent && (sent.date !== draft.date || sent.tier !== draft.tier
+    || Math.abs((sent.total || 0) - total) > 0.005 || (sent.notes || "") !== draft.notes || (sent.color || "") !== draft.color || sent.klarna !== draft.klarna);
 
   const save = async () => {
     const d = await api.saveBookingDraft(lead.id, {
@@ -160,6 +164,17 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       toast.success(`Sent to ${first} by text${out.emailed ? " and email" : ""}${out.calendar ? ", and it's on your Google Calendar" : ""}`);
       if (!out.calendar) toast.warning("It didn't go on your Google Calendar. Check Google is connected in Settings.");
     } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't send"); } finally { setBusy(null); }
+  };
+  // Fix a sent booking (wrong day, a price) without texting them: their page
+  // and the calendar change, nothing goes out (Alan, 2026-10-15).
+  const onUpdate = async () => {
+    setBusy("update");
+    try {
+      if (changed) await save();
+      const out = await api.updateBooking(lead.id);
+      setSt(out);
+      toast.success(`Updated${out.booking ? ` to ${longDay(out.booking.date)}` : ""}. Their page and your calendar changed. Nothing was texted.`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't update"); } finally { setBusy(null); }
   };
   const onCancel = async () => {
     if (!window.confirm(`Cancel ${first}'s booking? Their link will say it was cancelled. Nothing is texted.`)) return;
@@ -202,6 +217,12 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             </button>
             <button type="button" onClick={copy} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-background px-3 text-xs font-semibold hover:bg-muted">
               <Copy className="h-3.5 w-3.5" /> Copy link
+            </button>
+            <button type="button" onClick={onUpdate} disabled={busy !== null || !day || !total}
+              title="Change the date or details on their page and your calendar, without texting them"
+              className={cn("inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-bold disabled:opacity-50",
+                draftDiffersFromSent ? "bg-ink text-gold-light" : "border border-input bg-background hover:bg-muted")}>
+              <Save className="h-3.5 w-3.5" /> {busy === "update" ? "Updating…" : "Update without texting"}
             </button>
             <button type="button" onClick={onCancel} disabled={busy === "cancel"} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-rose-200 bg-background px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">
               <X className="h-3.5 w-3.5" /> Cancel booking
