@@ -10,7 +10,7 @@
 // of buttons before any card — so each row is a swipeable strip instead,
 // scrolled so the current step sits in the middle.
 import { useEffect, useRef } from "react";
-import { Check, Star, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, Star, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Accent } from "@/lib/accents";
 
@@ -42,7 +42,14 @@ export type JourneyStep = {
 // Below Tailwind's `sm` the rows swipe; from `sm` up they are grids.
 const PHONE = "(max-width: 639px)";
 
-export function JourneyStrip({ steps, note }: { steps: JourneyStep[]; /** One line under the title, e.g. "came back and restarted". */ note?: string }) {
+export function JourneyStrip({ steps, note, collapsed = false, onToggle }: {
+  steps: JourneyStep[];
+  /** One line under the title, e.g. "came back and restarted". */
+  note?: string;
+  /** Folded to its one-line header (Alan, 2026-10-16: "way too much"); a tap opens it. */
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
   const done = steps.filter((s) => s.done).length;
   const current = steps.find((s) => !s.done && !s.skipped);
   const jump = (id: string) =>
@@ -70,7 +77,14 @@ export function JourneyStrip({ steps, note }: { steps: JourneyStep[]; /** One li
       <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cedar/25 blur-3xl" />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gold-light/70 to-transparent" />
 
-      <div className="relative flex items-start justify-between gap-3">
+      <div
+        className={cn("relative flex items-start justify-between gap-3", onToggle && "cursor-pointer select-none")}
+        role={onToggle ? "button" : undefined}
+        tabIndex={onToggle ? 0 : undefined}
+        aria-expanded={onToggle ? !collapsed : undefined}
+        onClick={onToggle}
+        onKeyDown={onToggle ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } } : undefined}
+      >
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gold-light/90">Customer journey</p>
           <p className="font-heading text-base font-bold leading-tight sm:text-lg">
@@ -89,9 +103,13 @@ export function JourneyStrip({ steps, note }: { steps: JourneyStep[]; /** One li
           <p className="font-heading text-2xl font-bold tabular-nums leading-none">
             {done}<span className="text-white/40">/{steps.length}</span>
           </p>
-          <p className="mt-1 text-[10px] uppercase tracking-wider text-white/60">steps</p>
+          <p className="mt-1 flex items-center justify-end gap-1 text-[10px] uppercase tracking-wider text-white/60">
+            steps{onToggle ? <ChevronDown className={cn("h-4 w-4 transition-transform", !collapsed && "rotate-180")} /> : null}
+          </p>
         </div>
       </div>
+
+      {collapsed ? null : <>
 
       {/* One bar for the whole journey. It used to be a coloured segment per
           step, which lined up with nothing: the chips sit in two rows and,
@@ -174,6 +192,7 @@ export function JourneyStrip({ steps, note }: { steps: JourneyStep[]; /** One li
           </div>
         );
       })}
+      </>}
     </div>
   );
 }

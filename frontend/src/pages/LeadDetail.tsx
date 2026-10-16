@@ -1404,9 +1404,9 @@ export default function LeadDetail() {
   ];
 
   // What starts open on this lead, read off the journey.
-  const stepKey = journey.find((st) => !st.done && !st.skipped)?.key || "done";
   const sentNow = journey.some((st) => st.key === "sent" && st.done);
-  const contactDefault = ["address", "replied", "discovery"].includes(stepKey);
+  // Contact and Measure & capture always start open (Alan, 2026-10-16).
+  const contactDefault = true;
   const inputsDefault = !sentNow;
   const paymentsDefault = !!latestScheduledJob || (lead.deposit_status || "").toLowerCase() === "paid";
 
@@ -1649,7 +1649,11 @@ export default function LeadDetail() {
               each tappable, each the same colour it is everywhere else on
               the page. Answers "what do I do next on this lead?" before a
               single card is read. */}
+          {/* Folded by default (Alan, 2026-10-16): the header says what's
+              next; a tap opens every step. */}
           <JourneyStrip
+            collapsed={!isOpen("journey", false)}
+            onToggle={() => toggle("journey", false)}
             steps={journey}
             note={cameBack
               ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
@@ -1844,8 +1848,8 @@ export default function LeadDetail() {
           <div id="est-measure" className="scroll-mt-4">
             <SatelliteMeasureCard
               leadId={lead.id}
-              collapsed={!isOpen("measure", inputsDefault)}
-              onToggle={() => toggle("measure", inputsDefault)}
+              collapsed={!isOpen("measure", true)}
+              onToggle={() => toggle("measure", true)}
               lat={lead.lat || 0}
               lng={lead.lng || 0}
               address={lead.address || ""}
