@@ -1649,7 +1649,9 @@ export default function LeadDetail() {
               each tappable, each the same colour it is everywhere else on
               the page. Answers "what do I do next on this lead?" before a
               single card is read. */}
-          {/* Contact first, above the journey (Alan, 2026-10-16). */}
+          {/* The order a call goes (Alan, 2026-10-16): Contact, Measure & capture,
+              Estimator input, the estimate, Customer journey, Objections, Send,
+              then booking, payments and Details. One column on every screen. */}
           {/* Contact info */}
           <Panel
             id="est-contact"
@@ -1763,37 +1765,6 @@ export default function LeadDetail() {
                 </>
           </Panel>
 
-          {/* Folded by default (Alan, 2026-10-16): the header says what's
-              next; a tap opens every step. */}
-          <JourneyStrip
-            collapsed={!isOpen("journey", false)}
-            onToggle={() => toggle("journey", false)}
-            steps={journey}
-            note={cameBack
-              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
-              : undefined}
-          />
-
-          {/* Every objection the scanner found in this customer's texts and
-              calls, each with their exact words and whether it came before or
-              after the estimate. Nobody picks; a wrong one can be removed. */}
-          <ObjectionsPanel
-            leadId={lead.id}
-            objections={objections}
-            categories={objectionCats}
-            onChange={loadObjections}
-            collapsed={!isOpen("objections", objections.length > 0)}
-            onToggle={() => toggle("objections", objections.length > 0)}
-          />
-
-          {/* Mobile: approval status */}
-          {approvalCfg && (
-            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="lg:hidden" />
-          )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Left column */}
-        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
           {/* The "Satellite view" card is archived (2026-10-09, Alan: "it's
               repetitive to see the map on the measure and capture as well…
               just combine it into one"). Measure & capture below is the one
@@ -2060,49 +2031,6 @@ export default function LeadDetail() {
               </Button>
           </Panel>
 
-          {/* Our own booking invite, in place of the Google Calendar one
-              (Alan, 2026-10-14). Right above the payment links: the $250
-              is what confirms it. */}
-          <div id="est-booking" className="scroll-mt-4"><BookingInviteCard lead={lead} /></div>
-          <Panel
-            id="est-payments"
-            className="scroll-mt-4"
-            icon={CircleDollarSign}
-            title="Payment links"
-            sub="The $250 deposit, then the full invoice"
-            accent={ACCENT.emerald}
-            collapsed={!isOpen("payments", paymentsDefault)}
-            onToggle={() => toggle("payments", paymentsDefault)}
-            bodyClassName="space-y-2 p-3.5"
-          >
-            <ProposalLiveSwitch leadId={lead.id} />
-            {/* The QuickBooks $250 deposit row, archived: see SHOW_QB_DEPOSIT. */}
-            {SHOW_QB_DEPOSIT && <DepositRow
-              lead={lead}
-              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
-            />}
-            <FullInvoiceRow
-              job={latestScheduledJob}
-              onGenerate={() => setInvoiceModalOpen(true)}
-            />
-            <StripeLinksCard leadId={lead.id} />
-          </Panel>
-
-          {/* Deposit and invoice status, under the payment links (Alan, 2026-10-16:
-              order is booking invite, payment links, then the estimate). */}
-          <AfterPaymentCard leadId={lead.id} />
-
-          {/* (Follow-up automation, Messages, Chatbot, Call Recordings all
-              relocated to the Call tab below.) */}
-        </div>
-
-        {/* Right column */}
-        <div className="space-y-4 sm:space-y-6">
-          {/* Approval status — desktop */}
-          {approvalCfg && (
-            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} className="hidden lg:flex" />
-          )}
-
           {/* "New estimate" with no estimate to hang it on yet. With one, the
               button sits in the Estimate card's header. */}
           {!estimate && lead?.estimates && (
@@ -2217,6 +2145,34 @@ export default function LeadDetail() {
                   />
                 )}
             </Panel>
+          )}
+
+          {/* Folded by default (Alan, 2026-10-16): the header says what's
+              next; a tap opens every step. */}
+          <JourneyStrip
+            collapsed={!isOpen("journey", false)}
+            onToggle={() => toggle("journey", false)}
+            steps={journey}
+            note={cameBack
+              ? `Came back ${timeAgo(lead.intake?.at || "")} — form filled ${lead.intake?.count} times. The journey restarted from there.`
+              : undefined}
+          />
+
+          {/* Every objection the scanner found in this customer's texts and
+              calls, each with their exact words and whether it came before or
+              after the estimate. Nobody picks; a wrong one can be removed. */}
+          <ObjectionsPanel
+            leadId={lead.id}
+            objections={objections}
+            categories={objectionCats}
+            onChange={loadObjections}
+            collapsed={!isOpen("objections", objections.length > 0)}
+            onToggle={() => toggle("objections", objections.length > 0)}
+          />
+
+          {/* Approval status, right above Send */}
+          {approvalCfg && (
+            <ApprovalBanner cfg={approvalCfg} reason={estimate?.approval_reason} />
           )}
 
           {/* Actions */}
@@ -2503,38 +2459,40 @@ export default function LeadDetail() {
             </div>
           )}
 
-          {/* "Since the estimate" moved to the Customer Stats tab (Alan,
-              2026-10-14: "pointless on this page"). */}
-
-          {/* "Send a custom PDF" — archived 2026-10-08, Alan's call: unused
-              and taking up room. Component, endpoint and any proposals
-              already sent through it are kept. Uncomment to bring it back. */}
-          {/* <CustomProposalCard
-            leadId={lead.id}
-            pipelineVersion={lead.pipeline_version}
-            onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
-          /> */}
-
-          {/* Scheduled visits — archived 2026-10-16 (Alan). The booking invite
-              and the calendar cover it. Component, endpoints and visits are
-              kept. Uncomment to bring it back. */}
-          {/* <div id="est-visits" className="scroll-mt-4">
-            <ScheduledVisitsCard
+          {/* Our own booking invite, in place of the Google Calendar one
+              (Alan, 2026-10-14). Right above the payment links: the $250
+              is what confirms it. */}
+          <div id="est-booking" className="scroll-mt-4"><BookingInviteCard lead={lead} /></div>
+          <Panel
+            id="est-payments"
+            className="scroll-mt-4"
+            icon={CircleDollarSign}
+            title="Payment links"
+            sub="The $250 deposit, then the full invoice"
+            accent={ACCENT.emerald}
+            collapsed={!isOpen("payments", paymentsDefault)}
+            onToggle={() => toggle("payments", paymentsDefault)}
+            bodyClassName="space-y-2 p-3.5"
+          >
+            <ProposalLiveSwitch leadId={lead.id} />
+            {/* The QuickBooks $250 deposit row, archived: see SHOW_QB_DEPOSIT. */}
+            {SHOW_QB_DEPOSIT && <DepositRow
               lead={lead}
-              collapsed={!isOpen("visits", visitsDefault)}
-              onToggle={() => toggle("visits", visitsDefault)}
+              onChange={() => api.getLead(lead.id).then(setLead).catch(() => {})}
+            />}
+            <FullInvoiceRow
+              job={latestScheduledJob}
+              onGenerate={() => setInvoiceModalOpen(true)}
             />
-          </div> */}
+            <StripeLinksCard leadId={lead.id} />
+          </Panel>
 
-          {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
-              data all kept: 3 submissions ever, none from a real customer, and
-              nothing sent since 25 Aug. Uncomment to bring it back. */}
-          {/* <VideoEstimateCard leadId={lead.id} /> */}
+          {/* Deposit and invoice status, under the payment links (Alan, 2026-10-16:
+              order is booking invite, payment links, then the estimate). */}
+          <AfterPaymentCard leadId={lead.id} />
 
-          {/* Phone only: The Hit List sits right under "Send a custom PDF".
-              Desktop keeps it full-width below the grid (rendered there when
-              !isMobile). Only one instance mounts, so no double fetch. */}
-          {/* The Hit List moved to the Customer Stats tab (Alan, 2026-10-14). */}
+          {/* (Follow-up automation, Messages, Chatbot, Call Recordings all
+              relocated to the Call tab below.) */}
 
           {/* The small facts, folded (Alan, 2026-10-09). */}
           <Panel icon={Compass} title="Details" sub={`Came in ${formatDate(lead.created_at)}`} accent={ACCENT.slate}
@@ -2576,8 +2534,40 @@ export default function LeadDetail() {
                 </Button>
             </Panel>
           )}
-        </div>
-      </div>
+
+          {/* "Since the estimate" moved to the Customer Stats tab (Alan,
+              2026-10-14: "pointless on this page"). */}
+
+          {/* "Send a custom PDF" — archived 2026-10-08, Alan's call: unused
+              and taking up room. Component, endpoint and any proposals
+              already sent through it are kept. Uncomment to bring it back. */}
+          {/* <CustomProposalCard
+            leadId={lead.id}
+            pipelineVersion={lead.pipeline_version}
+            onSent={() => { if (id) api.getLead(id).then(setLead).catch(() => {}); }}
+          /> */}
+
+          {/* Scheduled visits — archived 2026-10-16 (Alan). The booking invite
+              and the calendar cover it. Component, endpoints and visits are
+              kept. Uncomment to bring it back. */}
+          {/* <div id="est-visits" className="scroll-mt-4">
+            <ScheduledVisitsCard
+              lead={lead}
+              collapsed={!isOpen("visits", visitsDefault)}
+              onToggle={() => toggle("visits", visitsDefault)}
+            />
+          </div> */}
+
+          {/* FenceScope video estimates — hidden 2026-09-28. Route, API and
+              data all kept: 3 submissions ever, none from a real customer, and
+              nothing sent since 25 Aug. Uncomment to bring it back. */}
+          {/* <VideoEstimateCard leadId={lead.id} /> */}
+
+          {/* Phone only: The Hit List sits right under "Send a custom PDF".
+              Desktop keeps it full-width below the grid (rendered there when
+              !isMobile). Only one instance mounts, so no double fetch. */}
+          {/* The Hit List moved to the Customer Stats tab (Alan, 2026-10-14). */}
+
 
           {/* Below the grid (full width inside the Estimate tab): route
               stacking hints + worker hours. NearbyJobsCard gets the wider
