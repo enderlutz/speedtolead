@@ -772,3 +772,16 @@ def test_the_coverage_file_groups_by_stain_wood_age_and_prior_stain(db):
     assert page["customer_previously_stained"] == "No"
     assert page["coverage"]["match_jobs"] == 2
     assert any(o["id"] == "ob" for o in page["stain_options"])
+
+
+def test_almost_done_is_marked_walked_or_texted_without_sending(db):
+    lead = _lead(db, name="Yogi Patel")
+    out = cc.get_company_cam(lead.id, user=USER)
+    assert out["almost_done_default"].startswith("Hey Yogi, this is the crew from Sterling Fence Staining")
+    r = cc.mark_almost_done(lead.id, cc.AlmostDoneMarkBody(how="walked"), user=USER)
+    assert r["job"]["almost_done_how"] == "walked" and r["job"]["almost_done_sent_at"]
+    cc.reset_almost_done(lead.id, user=USER)
+    r = cc.mark_almost_done(lead.id, cc.AlmostDoneMarkBody(how="texted"), user=USER)
+    assert r["job"]["almost_done_how"] == "texted"
+    with pytest.raises(HTTPException):
+        cc.mark_almost_done(lead.id, cc.AlmostDoneMarkBody(how="ghl"), user=USER)

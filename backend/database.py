@@ -1802,6 +1802,10 @@ class CompanyCamJob(Base):
 
     almost_done_sent_at = Column(Text, default="")
     almost_done_sent_by = Column(Text, default="")
+    # How the crew handled it (Alan, 2026-10-15): "walked" = the customer was
+    # home and they walked it together; "texted" = the crew texted it from
+    # their own phone; "ghl" = sent through GHL (the old button).
+    almost_done_how = Column(Text, default="")
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -4518,6 +4522,7 @@ def _run_migrations():
             ("final_stain_id", "TEXT DEFAULT ''"),
             ("previously_stained", "TEXT DEFAULT ''"),
             ("wood_type", "TEXT DEFAULT ''"),
+            ("almost_done_how", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

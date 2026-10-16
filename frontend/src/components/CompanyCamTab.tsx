@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
-  Droplets, Search, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
+  Droplets, Search, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye,
 } from "lucide-react";
@@ -560,7 +560,6 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   });
   const setView = (v: "manager" | "employee") => { setViewState(v); try { localStorage.setItem("cc_view", v); } catch { /* private mode */ } };
   const manager = canManage && view === "manager";
-  const [sending, setSending] = useState(false);
   // The preset text, editable right before it goes. The crew adjusts the
   // wording for the customer in front of them, so what they approved is what
   // gets sent.
@@ -1120,75 +1119,44 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
         );
       })}
 
-      {/* Almost finished — catch the customer while the crew is still there. */}
+      {/* Almost finished — catch the customer while the crew is still there.
+          Either they're home and the crew walks it with them, or the crew
+          texts them from their own phone: the crew can't see GHL, so nothing
+          sends from here (Alan, 2026-10-15). */}
       <Panel icon={MessageSquare} accent={ACCENT.cyan}
              title="20–30 minutes from finishing"
-             sub="Text the customer before you pack up">
+             sub="Show the customer before you pack up">
         {job.almost_done_sent_at ? (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-3">
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-900">
-              <CheckCircle2 className="h-4 w-4" /> Sent
+              <CheckCircle2 className="h-4 w-4" />
+              {job.almost_done_how === "walked" ? "Walked it with the customer" : job.almost_done_how === "texted" ? "Texted the customer" : "Sent"}
             </span>
             <span className="text-xs text-emerald-800">
-              {job.almost_done_sent_at.slice(0, 16).replace("T", " ")} UTC
+              {new Date(job.almost_done_sent_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               {job.almost_done_sent_by ? ` by ${job.almost_done_sent_by}` : ""}
             </span>
             <Button variant="outline" size="sm" className="ml-auto h-8"
                     onClick={async () => {
-                      if (!confirm("Clear this so it can be sent again? Only for a genuine second visit.")) return;
+                      if (!confirm("Undo this? Only if it was tapped by mistake or there's a second visit.")) return;
                       try {
                         const r = await api.resetCompanyCamAlmostDone(leadId);
                         setData((d) => (d ? { ...d, job: r.job } : d));
                       } catch (e) { toast.error(errMessage(e, "Couldn't reset")); }
                     }}>
-              <RotateCcw className="mr-1 h-3.5 w-3.5" /> Allow again
+              <RotateCcw className="mr-1 h-3.5 w-3.5" /> Undo
             </Button>
           </div>
         ) : (
-          <>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Edit this however you like before sending — it goes exactly as written.
-            </p>
-            <div className="relative">
-              <textarea
-                value={almostDoneText}
-                onChange={(e) => setAlmostDoneText(e.target.value)}
-                rows={4}
-                className="w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-sm leading-relaxed shadow-sm outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/30"
-              />
-              <span className="absolute bottom-2 right-2.5 text-[10px] tabular-nums text-muted-foreground">
-                {almostDoneText.length} chars
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="lg"
-                      className="h-11 flex-1 bg-gradient-to-r from-cyan-600 to-sky-600 text-base font-semibold hover:from-cyan-600 hover:to-sky-700 sm:flex-none sm:px-6"
-                      disabled={sending || customer.do_not_contact
-                                || !customer.phone || !almostDoneText.trim()}
-                      title={customer.do_not_contact
-                        ? "This customer asked not to be contacted"
-                        : !customer.phone ? "No phone number on this lead" : ""}
-                      onClick={async () => {
-                        setSending(true);
+          <AlmostDone text={almostDoneText} defaultText={almost_done_default} onText={setAlmostDoneText}
+                      phone={customer.phone} blocked={customer.do_not_contact}
+                      onMark={async (how) => {
                         try {
-                          const r = await api.sendCompanyCamAlmostDone(leadId, almostDoneText);
+                          const r = await api.markCompanyCamAlmostDone(leadId, how);
                           setData((d) => (d ? { ...d, job: r.job } : d));
-                          toast.success("Customer texted");
-                        } catch (e) { toast.error(errMessage(e, "Couldn't send")); }
-                        finally { setSending(false); }
-                      }}>
-                {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                         : <Send className="mr-1.5 h-4 w-4" />}
-                Send it
-              </Button>
-              {almostDoneText !== almost_done_default ? (
-                <Button variant="ghost" size="sm" className="h-9"
-                        onClick={() => setAlmostDoneText(almost_done_default)}>
-                  <RotateCcw className="mr-1 h-3.5 w-3.5" /> Reset wording
-                </Button>
-              ) : null}
-            </div>
-          </>
+                          toast.success(how === "walked" ? "Marked: walked it with them" : "Marked: texted them");
+                        } catch (e) { toast.error(errMessage(e, "Couldn't save")); }
+                      }} />
         )}
         {customer.do_not_contact ? (
           <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
@@ -1541,6 +1509,62 @@ function StainPicker({ options, value, onPick }: { options: StainOption[]; value
       <div className="flex justify-between">
         {value ? <button type="button" onClick={() => { onPick(""); setOpen(false); }} className="text-xs font-semibold text-muted-foreground underline">Clear</button> : <span />}
         <button type="button" onClick={() => setOpen(false)} className="text-xs font-semibold text-muted-foreground underline">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+/** Customer home: walk it with them. Not home: copy the text into your own
+ *  phone and send it yourself, then say so. */
+function AlmostDone({ text, defaultText, onText, phone, blocked, onMark }: {
+  text: string; defaultText: string; onText: (t: string) => void; phone: string; blocked: boolean;
+  onMark: (how: "walked" | "texted") => void;
+}) {
+  const [mode, setMode] = useState<"" | "text">("");
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(text); setCopied(true); toast.success("Copied. Paste it into your text to the customer."); }
+    catch { toast.error("Couldn't copy. Press and hold the text to copy it."); }
+  };
+  const sms = phone ? `sms:${phone}${/iPhone|iPad|Mac/.test(navigator.userAgent) ? "&" : "?"}body=${encodeURIComponent(text)}` : "";
+  if (!mode) {
+    return (
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button size="lg" className="h-auto min-h-14 flex-col gap-0.5 bg-gradient-to-r from-emerald-600 to-teal-600 py-2.5 text-base font-semibold hover:from-emerald-600 hover:to-teal-700"
+                onClick={() => onMark("walked")}>
+          <span className="flex items-center gap-1.5"><Users className="h-4 w-4" /> The customer's home</span>
+          <span className="text-xs font-normal opacity-90">I'll walk the fence with them in person</span>
+        </Button>
+        <Button size="lg" variant="outline" className="h-auto min-h-14 flex-col gap-0.5 py-2.5 text-base font-semibold"
+                disabled={blocked} onClick={() => setMode("text")}>
+          <span className="flex items-center gap-1.5"><MessageSquare className="h-4 w-4" /> They're not home</span>
+          <span className="text-xs font-normal text-muted-foreground">I'll text them from my phone</span>
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-semibold">Copy this and text it to the customer from your phone{phone ? ` (${phone})` : ""}. You can change the words first.</p>
+      <textarea value={text} onChange={(e) => onText(e.target.value)} rows={8}
+                className="w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-[15px] leading-relaxed shadow-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30" />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button size="lg" className="h-12 text-base font-semibold" onClick={() => void copy()}>
+          {copied ? <Check className="mr-1.5 h-4 w-4" /> : null}{copied ? "Copied" : "1. Copy the text"}
+        </Button>
+        {sms ? (
+          <a href={sms} className="inline-flex h-12 items-center justify-center rounded-md border border-input bg-background text-base font-semibold hover:bg-muted">
+            <Phone className="mr-1.5 h-4 w-4" /> Or open my texts with it filled in
+          </a>
+        ) : null}
+      </div>
+      <Button size="lg" className="h-12 w-full bg-gradient-to-r from-cyan-600 to-sky-600 text-base font-semibold hover:from-cyan-600 hover:to-sky-700"
+              onClick={() => onMark("texted")}>
+        <CheckCircle2 className="mr-1.5 h-4 w-4" /> 2. I sent it
+      </Button>
+      <div className="flex justify-between">
+        <button type="button" onClick={() => setMode("")} className="text-xs font-semibold text-muted-foreground underline">Back</button>
+        {text !== defaultText ? <button type="button" onClick={() => onText(defaultText)} className="text-xs font-semibold text-muted-foreground underline">Reset wording</button> : null}
       </div>
     </div>
   );

@@ -216,6 +216,7 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "neighbor_notes": job.neighbor_notes or "",
         "almost_done_sent_at": job.almost_done_sent_at or "",
         "almost_done_sent_by": job.almost_done_sent_by or "",
+        "almost_done_how": job.almost_done_how or "",
         "updated_at": job.updated_at or "",
     }
 
@@ -693,12 +694,14 @@ def delete_photo(lead_id: str, photo_id: str, user: dict = Depends(get_current_u
 
 # The text the crew fires when they're nearly done. Fixed wording, like the
 # review SMS, so it's auditable and consistent whoever presses it.
+# Texted from the crew's own phone, so it says who it's from (Alan,
+# 2026-10-15: they copy it into their own texts, not through GHL).
 ALMOST_DONE_TEMPLATE = (
-    "Hey {first_name}, we're almost finished with your fence and I'll be "
-    "heading out shortly. If you're home, I'd love for you to take a look "
-    "and make sure you're completely happy with everything. If you're not "
-    "home, just reply and I'll send you videos of the finished fence before "
-    "I go."
+    "Hey {first_name}, this is the crew from Sterling Fence Staining. We're "
+    "almost finished with your fence and will be heading out shortly. If "
+    "you're home, come take a look and make sure you're completely happy "
+    "with everything. If you're not home, just reply and I'll send you "
+    "videos of the finished fence before we go."
 )
 
 
@@ -769,6 +772,7 @@ def send_almost_done(
 
         job.almost_done_sent_at = _now()
         job.almost_done_sent_by = _actor(user)
+        job.almost_done_how = "ghl"
         job.updated_at = _now()
         db.commit()
         log_event(lead_id, "almost_done_sms_sent",
@@ -788,6 +792,32 @@ def reset_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
         job = _get_or_create(db, lead)
         job.almost_done_sent_at = ""
         job.almost_done_sent_by = ""
+        job.almost_done_how = ""
+        job.updated_at = _now()
+        db.commit()
+        return {"job": _job_dict(job)}
+    finally:
+        db.close()
+
+
+class AlmostDoneMarkBody(BaseModel):
+    how: str  # "walked" | "texted"
+
+
+@router.post("/company-cam/{lead_id}/almost-done/mark")
+def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depends(get_current_user)):
+    """The crew walked it with the customer, or texted them from their own
+    phone. Nothing is sent from here."""
+    how = (body.how or "").strip().lower()
+    if how not in ("walked", "texted"):
+        raise HTTPException(400, "How is walked or texted")
+    db = get_db()
+    try:
+        lead = _lead_or_404(db, lead_id)
+        job = _get_or_create(db, lead)
+        job.almost_done_sent_at = _now()
+        job.almost_done_sent_by = _actor(user)
+        job.almost_done_how = how
         job.updated_at = _now()
         db.commit()
         return {"job": _job_dict(job)}

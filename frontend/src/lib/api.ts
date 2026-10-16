@@ -3708,6 +3708,9 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  /** Walked it with the customer, or texted them from the crew's own phone. */
+  markCompanyCamAlmostDone: (leadId: string, how: "walked" | "texted") =>
+    request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/almost-done/mark`, { method: "POST", body: JSON.stringify({ how }) }),
   markCompanyCamColorShown: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/color-shown`, { method: "POST" }),
   sendCompanyCamAlmostDone: (leadId: string, message?: string) =>
@@ -3863,6 +3866,8 @@ export interface CompanyCamJob {
   /** The stain they went with (a Stain Inventory id), prior stain confirmed
    *  on site ("yes" | "no" | ""), and the wood the cleaner saw. */
   final_stain_id: string; previously_stained: string; wood_type: string;
+  /** "walked" | "texted" | "ghl" | "" */
+  almost_done_how?: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
   neighbor_interested: boolean;
