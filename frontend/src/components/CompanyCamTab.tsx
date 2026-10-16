@@ -638,6 +638,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
     almost_done_default, cleaner_actions,
   } = data;
   const totalPhotos = Object.values(photos).reduce((n, arr) => n + arr.length, 0);
+  const chosenStain = (data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label || (job.final_stain_id ? job.final_color : "");
   const damage = Object.values(photos).flat().filter((p) => p.is_damage).length;
 
   // Progress across the four stages. The scope stage counts as done when the
@@ -860,21 +861,61 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
       {/* Colour, per area. Drives what the cleaner has to settle on site. */}
       <Panel icon={Palette} accent={ACCENT.fuchsia}
-             title="Stain colour — where the customer is"
-             sub="A row per colour — tap the sides it covers">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          They can be at a different stage on each — insides settled while the
-          outsides are still between three colours is normal. Insides brown and
-          outsides the HOA colour is two rows.
-        </p>
-        <ColorPlan
-          plan={job.color_plan}
-          statuses={color_statuses}
-          colorOptions={color_options}
-          estimateSides={estimate_sides}
-          scopePhoto={(photos.fence_scope || []).length > 0}
-          onChange={(next) => void patch({ color_plan: next })}
-        />
+             title="Stain colour"
+             sub="What they chose, and where it goes">
+        {/* One stain, picked once, always with brand and opacity: a colour
+            name alone exists in other brands and opacities (Alan, 2026-10-15).
+            Same field as "Stain they went with" in The job. */}
+        <Field label="What stain did they choose?"
+               hint={manager ? "Colour, brand and opacity, from Stain Inventory. Still deciding? Leave it and use the rows below." : undefined}>
+          {manager ? (
+            <StainPicker options={data.stain_options || []} value={job.final_stain_id}
+                         onPick={(id) => void patch({ final_stain_id: id })} />
+          ) : (
+            <ReadValue>{chosenStain || "Not chosen yet"}</ReadValue>
+          )}
+        </Field>
+
+        {chosenStain ? (
+          <div className="space-y-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 p-2.5">
+            <p className="text-sm font-bold">Does {chosenStain} go on every side in the fence scope?</p>
+            {estimate_sides.length ? <SidesPicker value={estimate_sides} readOnly compact /> : null}
+            {manager ? (
+              <div className="flex gap-1.5">
+                {([["yes", "Yes, every side"], ["no", "No, some sides are different"]] as const).map(([v, label]) => (
+                  <Button key={v} size="lg" variant={job.color_all_sides === v ? "default" : "outline"}
+                          onClick={() => void patch({ color_all_sides: job.color_all_sides === v ? "" : v })}
+                          className="h-11 flex-1 text-sm font-semibold">
+                    {job.color_all_sides === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            {job.color_all_sides === "yes" ? (
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5" /> One stain on every side above. Nothing else to settle.</p>
+            ) : job.color_all_sides === "no" ? (
+              <p className="text-xs text-muted-foreground">Add a row for each part that gets a different stain, and tap its sides.</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!chosenStain || job.color_all_sides === "no" ? (
+          <>
+            {!chosenStain ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Not settled yet? A row per part of the fence: where the customer is, and the stains they're between.
+              </p>
+            ) : null}
+            <ColorPlan
+              plan={job.color_plan}
+              statuses={color_statuses}
+              colorOptions={color_options}
+              estimateSides={estimate_sides}
+              scopePhoto={(photos.fence_scope || []).length > 0}
+              onChange={(next) => void patch({ color_plan: next })}
+            />
+          </>
+        ) : null}
 
         {cleaner_actions.length > 0 ? (
           <div className="overflow-hidden rounded-xl border border-sky-300 bg-gradient-to-br from-sky-50 to-cyan-50">
@@ -892,14 +933,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-end gap-2 rounded-xl border bg-muted/30 p-3">
-          <div className="min-w-[180px] flex-1">
-            <Field label="Colour they finally went with"
-                   hint="Fill in once it's settled — this is the one the stainer uses.">
-              <BlurText value={job.final_color} placeholder="e.g. Canyon Brown"
-                        onSave={(v) => void patch({ final_color: v })} />
-            </Field>
-          </div>
+        <div className="flex flex-wrap items-end gap-2">
           <Button size="lg"
                   variant={job.color_shown_at ? "default" : "outline"}
                   className={cn("h-10", job.color_shown_at && "bg-emerald-600 hover:bg-emerald-600")}

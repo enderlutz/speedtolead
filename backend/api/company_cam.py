@@ -34,6 +34,7 @@ from services.company_cam import (
     coverage_stats,
     customer_previously_stained,
     estimate_options,
+    stain_label,
     stain_options,
     stained_answer,
     fence_age,
@@ -206,6 +207,7 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "final_stain_id": job.final_stain_id or "",
         "previously_stained": job.previously_stained or "",
         "wood_type": job.wood_type or "",
+        "color_all_sides": job.color_all_sides or "",
         "cleaner_checklist": _json_list(job.cleaner_checklist_json),
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
@@ -348,6 +350,8 @@ class CompanyCamPatch(BaseModel):
     previously_stained: str | None = None
     # "pine" | "cedar" | "other" | "" — the cleaner checks on site.
     wood_type: str | None = None
+    # "yes" | "no" | "" — the chosen stain covers every side in the scope.
+    color_all_sides: str | None = None
     cleaner_checklist: list[str] | None = None
     stainer_checklist: list[str] | None = None
     neighbor_interested: bool | None = None
@@ -416,7 +420,10 @@ def update_company_cam(
                 item = db.query(StainInventoryItem).filter(StainInventoryItem.id == sid).first()
                 if not item:
                     raise HTTPException(400, "That stain isn't in the inventory")
-                job.final_color = item.color_name or ""
+                # Colour, brand and opacity, never the name alone.
+                job.final_color = stain_label(item)
+                job.color = job.final_color
+                job.color_confirmed = True
             job.final_stain_id = sid
         if body.previously_stained is not None:
             v = body.previously_stained.strip().lower()
@@ -428,6 +435,16 @@ def update_company_cam(
             if v not in ("pine", "cedar", "other", ""):
                 raise HTTPException(400, "Wood is pine, cedar, other, or blank")
             job.wood_type = v
+        if body.color_all_sides is not None:
+            v = body.color_all_sides.strip().lower()
+            if v not in ("yes", "no", ""):
+                raise HTTPException(400, "Every side is yes, no, or blank")
+            job.color_all_sides = v
+        # One stain on every side: the colour plan is just that, so the
+        # cleaner and stainer see one confirmed row covering the scope.
+        if job.color_all_sides == "yes" and job.final_color and (body.color_all_sides is not None or body.final_stain_id is not None):
+            job.color_plan_json = json.dumps(normalize_color_plan([{"area": "Every side", "sides": estimate_sides(db, lead),
+                                                                     "status": "confirmed", "colors": [job.final_color]}]))
         if body.upsells is not None:
             valid = {o["key"] for o in upsell_options()}
             job.upsells_json = json.dumps([u for u in body.upsells if u in valid])

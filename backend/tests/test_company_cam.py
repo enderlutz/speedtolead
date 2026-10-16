@@ -513,23 +513,32 @@ def test_leaning_is_only_kept_while_no_colour_is_chosen(db):
     assert r["job"]["color_plan"][0]["leaning"] == ""
 
 
-def test_colour_chips_start_with_what_is_on_the_shelf(db):
-    """Inventory first, then the usual list, one chip per colour whatever the
-    capitalisation."""
+def test_colour_chips_are_inventory_stains_with_brand_and_opacity(db):
+    """A colour name alone is never enough (Alan, 2026-10-15): each chip is
+    colour · brand · opacity, straight from Stain Inventory, active only."""
     from database import StainInventoryItem
-    db.add(StainInventoryItem(id="s1", brand="Ready Seal", color_name="pine bark",
-                              gallons=5, active=True))
-    db.add(StainInventoryItem(id="s2", brand="Cabot", color_name="Bleached Oak",
-                              gallons=2, active=True))
-    db.add(StainInventoryItem(id="s3", brand="Cabot", color_name="Retired Red",
-                              gallons=0, active=False))
+    db.add(StainInventoryItem(id="s1", brand="Valspar", finish_type="solid", color_name="Chocolate Chip", gallons=5, active=True))
+    db.add(StainInventoryItem(id="s2", brand="Valspar", finish_type="semi_transparent", color_name="Chocolate Chip", gallons=0, active=True))
+    db.add(StainInventoryItem(id="s3", brand="Cabot", color_name="Retired Red", gallons=0, active=False))
     db.commit()
     lead = _lead(db)
     opts = cc.get_company_cam(lead.id, user=USER)["color_options"]
-    assert opts[:2] == ["Bleached Oak", "pine bark"]
-    assert "Pine Bark" not in opts          # the shelf's spelling wins
-    assert "Retired Red" not in opts        # inactive stays off the screen
-    assert "October Brown" in opts          # the usual list follows
+    assert opts == ["Chocolate Chip · Valspar · Semi-transparent", "Chocolate Chip · Valspar · Solid"]
+
+
+def test_one_stain_on_every_side_fills_the_colour_plan(db):
+    import json
+    from database import StainInventoryItem
+    db.add(StainInventoryItem(id="ob", brand="Valspar", finish_type="solid", color_name="October Brown", gallons=13.5, active=True))
+    db.commit()
+    lead = _lead(db, form_data=json.dumps({"fence_sides": ["Inside Front", "Inside Back"]}))
+    cc.get_company_cam(lead.id, user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id="ob"), user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(color_all_sides="yes"), user=USER)
+    plan = r["job"]["color_plan"]
+    assert len(plan) == 1 and plan[0]["status"] == "confirmed" and plan[0]["colors"] == ["October Brown · Valspar · Solid"]
+    assert sorted(plan[0]["sides"]) == ["Inside Back", "Inside Front"]
+    assert r["job"]["color_all_sides"] == "yes"
 
 
 def test_the_colour_map_knows_which_sides_were_bought(db):
@@ -754,7 +763,7 @@ def test_the_coverage_file_groups_by_stain_wood_age_and_prior_stain(db):
         cc.update_company_cam(lead.id, cc.CompanyCamPatch(sqft=sqft, stain_gallons_used=gal), user=USER)
     for lead in (yogi, other):
         r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id="ob", wood_type="pine"), user=USER)
-        assert r["job"]["final_color"] == "October Brown"
+        assert r["job"]["final_color"] == "October Brown · Valspar · Solid"
     cc.update_company_cam(yogi.id, cc.CompanyCamPatch(previously_stained="no"), user=USER)
     with pytest.raises(HTTPException):
         cc.update_company_cam(yogi.id, cc.CompanyCamPatch(final_stain_id="nope"), user=USER)

@@ -279,34 +279,24 @@ STAIN_COLORS: list[str] = [
 
 
 def color_options(db) -> list[str]:
-    """What is on the shelf, then the rest of the usual list. De-duplicated
-    ignoring case, so "pine bark" in inventory and "Pine Bark" here is one
-    chip, spelled the way inventory has it."""
+    """Every stain on the shelf as colour · brand · opacity ("October Brown ·
+    Valspar · Solid"). A colour name alone means nothing: the same name comes
+    in other brands and other opacities (Alan, 2026-10-15), so the bare
+    "usual list" is gone. Active rows only."""
     from database import StainInventoryItem
 
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def add(name: str) -> None:
-        n = str(name or "").strip()
-        if n and n.lower() not in seen:
-            seen.add(n.lower())
-            out.append(n)
-
     try:
-        rows = (
-            db.query(StainInventoryItem)
-            .filter(StainInventoryItem.active.is_(True))
-            .order_by(StainInventoryItem.color_name)
-            .all()
-        )
-        for r in rows:
-            add(r.color_name)
+        rows = (db.query(StainInventoryItem).filter(StainInventoryItem.active.is_(True))
+                .order_by(StainInventoryItem.color_name, StainInventoryItem.brand).all())
     except Exception:  # noqa: BLE001 — a missing table must not break the crew screen
         logger.exception("stain inventory unavailable for colour options")
-    for c in STAIN_COLORS:
-        add(c)
-    return out
+        return []
+    out: list[str] = []
+    for r in rows:
+        label = stain_label(r)
+        if label and label not in out:
+            out.append(label)
+    return sorted(out, key=str.lower)
 
 
 # --- where the customer actually is on colour ---

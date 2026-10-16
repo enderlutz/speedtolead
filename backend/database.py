@@ -1785,6 +1785,9 @@ class CompanyCamJob(Base):
     # What the fence is made of, set by the cleaner on site: "pine" |
     # "cedar" | "other" | "" (not checked yet). Changes how far a gallon goes.
     wood_type = Column(Text, default="")
+    # Does the stain they chose go on every side in the fence scope? "yes" |
+    # "no" (some sides get another stain: the colour rows say which) | "".
+    color_all_sides = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
     cleaner_checklist_json = Column(Text, default="[]")
@@ -4523,6 +4526,7 @@ def _run_migrations():
             ("previously_stained", "TEXT DEFAULT ''"),
             ("wood_type", "TEXT DEFAULT ''"),
             ("almost_done_how", "TEXT DEFAULT ''"),
+            ("color_all_sides", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

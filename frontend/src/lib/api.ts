@@ -3868,6 +3868,8 @@ export interface CompanyCamJob {
   final_stain_id: string; previously_stained: string; wood_type: string;
   /** "walked" | "texted" | "ghl" | "" */
   almost_done_how?: string;
+  /** "yes" = the chosen stain goes on every side in the scope; "no" = some differ. */
+  color_all_sides?: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
   neighbor_interested: boolean;
