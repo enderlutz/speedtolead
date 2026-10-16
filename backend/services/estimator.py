@@ -35,8 +35,8 @@ PURPLE_ZONE_ZIPS = {
 
 ZONE_SURCHARGES: dict[str, float | None] = {
     "Base": 0.00,
-    "Blue": 0.02,
-    "Purple": 0.05,
+    "Blue": 0.08,     # 30–45 min drive (Alan, 2026-10-16; was 0.02)
+    "Purple": 0.12,   # 45–75 min drive (Alan, 2026-10-16; was 0.05)
     "Outside": None,
 }
 
