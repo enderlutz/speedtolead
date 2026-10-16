@@ -592,3 +592,18 @@ def test_a_line_can_be_quantity_times_price_each_on_the_invoice_and_stripe(db, m
     with pytest.raises(HTTPException):
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", items=[
             sp.InvoiceItem(name="Pickets", amount=0, quantity=0, unit_price=12)]), STAFF)
+
+
+def test_the_text_only_mentions_klarna_when_klarna_is_on_for_that_link(db, monkeypatch):
+    # Alan, 2026-10-15: "only if I put Klarna as an option do you say you can split it with Klarna".
+    from services import after_pay_hooks as hooks
+    _settings(monkeypatch)
+    lead = _lead(db)
+    for kind in ("balance", "full"):
+        off = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind=kind, amount=1206, financing=False), STAFF)
+        on = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind=kind, amount=1206, financing=True), STAFF)
+        link_off = db.query(sp.PayLink).filter(sp.PayLink.token == off["token"]).one()
+        link_on = db.query(sp.PayLink).filter(sp.PayLink.token == on["token"]).one()
+        assert "Klarna" not in hooks.message_for(link_off, lead)
+        assert "Klarna" in hooks.message_for(link_on, lead)
+        assert "Klarna" not in hooks.message_for_other(link_off, lead, "Sam")
