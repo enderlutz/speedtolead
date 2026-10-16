@@ -1809,6 +1809,9 @@ class CompanyCamJob(Base):
     neighbor_status = Column(Text, default="")
     # Bleach the office wants the cleaner to bring, in gallons (Alan, 2026-10-16).
     bleach_gallons_to_bring = Column(Float, default=0.0)
+    # Crew accounts on this job, as usernames (Alan, 2026-10-16: Chris sees
+    # only Yogi and Taiyeb). Crew see only jobs they're on; office sees all.
+    crew_json = Column(Text, default="[]")
     neighbor_sent_at = Column(Text, default="")
     extras_confirmed_at = Column(Text, default="")
     extras_confirmed_by = Column(Text, default="")
@@ -4558,6 +4561,7 @@ def _run_migrations():
             ("extras_json", "TEXT DEFAULT ''"),
             ("neighbor_status", "TEXT DEFAULT ''"),
             ("bleach_gallons_to_bring", "DOUBLE PRECISION DEFAULT 0"),
+            ("crew_json", "TEXT DEFAULT '[]'"),
             ("neighbor_sent_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_by", "TEXT DEFAULT ''"),

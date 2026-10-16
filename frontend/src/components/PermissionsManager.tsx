@@ -129,8 +129,8 @@ function UserRow({
           title={u.job_title ? `Job title. Access is still ${ROLE_LABEL[u.role] || u.role}.` : undefined}
         >{u.job_title || ROLE_LABEL[u.role] || u.role}</span>
         {u.username !== currentUsername && (
-          <button onClick={switchTo} className="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-[11px]" title={`Switch to ${u.username}'s account`}>
-            <LogIn className="h-3.5 w-3.5" /> Switch
+          <button onClick={switchTo} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2.5 text-xs font-semibold text-primary hover:bg-primary/20" title={`See exactly what ${u.display_name || u.username} sees`}>
+            <LogIn className="h-3.5 w-3.5" /> Log in as {(u.display_name || u.username).split(" ")[0]}
           </button>
         )}
         {u.username !== currentUsername && (

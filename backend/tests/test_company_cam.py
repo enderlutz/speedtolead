@@ -850,8 +850,24 @@ def test_the_crew_list_needs_the_company_cam_permission(db, monkeypatch):
     u = db.query(User).filter(User.id == "w1").first()
     u.permissions = '{"company_cam": true}'
     db.commit()
-    rows = cc.company_cam_jobs(q="lazy vine", user=crew)
-    assert rows[0]["lead_id"] == lead.id and rows[0]["name"] == "Yogi Patel"
+    # Not on the job yet: nothing in his list, even searching, and the job won't open.
+    assert cc.company_cam_jobs(q="lazy vine", user=crew) == []
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    with pytest.raises(HTTPException):
+        cc.crew_guard(lead.id, user=crew)
+    other = _lead(db, ghl_contact_id="ghl-9", name="Someone Else")
+    cc.get_company_cam(other.id, user=USER)
+    cc.get_company_cam(lead.id, user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=["chrismoran", "nobody"]), user=USER)
+    assert r["job"]["crew"] == ["ChrisMoran"]
+    rows = cc.company_cam_jobs(user=crew)
+    assert [x["lead_id"] for x in rows] == [lead.id] and rows[0]["name"] == "Yogi Patel"
+    assert cc.company_cam_jobs(q="someone", user=crew) == []
+    assert cc.crew_guard(lead.id, user=crew) == crew
+    with pytest.raises(HTTPException):
+        cc.crew_guard(other.id, user=crew)
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[]), user=crew)
     assert "price" not in str(rows).lower()
 
 

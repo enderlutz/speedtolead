@@ -51,6 +51,52 @@ from services.company_cam import (
 )
 
 router = APIRouter()
+
+def _sees_all(user: dict) -> bool:
+    """The office (admins, VAs, anyone who sees prices) sees every job; the
+    crew sees only the jobs they're on."""
+    if user.get("role") in ("admin", "va"):
+        return True
+    from api.permissions import require_perm
+    try:
+        require_perm("see_prices")(user)
+        return True
+    except HTTPException:
+        return False
+
+
+def _crew_of(job: CompanyCamJob | None) -> list[str]:
+    try:
+        v = json.loads((job.crew_json if job else "") or "[]")
+    except (ValueError, TypeError):
+        v = []
+    return [str(x) for x in v if str(x).strip()] if isinstance(v, list) else []
+
+
+def _crew_options(db) -> list[dict]:
+    """Crew accounts (not admins or VAs), so the office can put them on a job."""
+    from database import User
+    return [{"username": u.username, "name": u.display_name or u.username}
+            for u in db.query(User).filter(User.role.notin_(["admin", "va"])).order_by(User.display_name).all()
+            if not getattr(u, "disabled", False)]
+
+
+def crew_guard(lead_id: str, user: dict = Depends(get_current_user)) -> dict:
+    """Every Company Cam call: the Company Cam permission, and for the crew,
+    being on this job."""
+    from api.permissions import require_perm
+    require_perm("company_cam")(user)
+    if _sees_all(user):
+        return user
+    db = get_db()
+    try:
+        job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead_id).first()
+        if (user.get("sub") or "").lower() not in {c.lower() for c in _crew_of(job)}:
+            raise HTTPException(403, "This job isn't assigned to you. Ask the office.")
+        return user
+    finally:
+        db.close()
+
 logger = logging.getLogger(__name__)
 
 MAX_PHOTO_BYTES = 12 * 1024 * 1024
@@ -237,6 +283,7 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
         "neighbor_status": job.neighbor_status or "",
+        "crew": _crew_of(job),
         "neighbor_sent_at": job.neighbor_sent_at or "",
         "neighbor_first_name": job.neighbor_first_name or "",
         "neighbor_last_name": job.neighbor_last_name or "",
@@ -282,7 +329,7 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
     return out
 
 
-@router.get("/company-cam/{lead_id}")
+@router.get("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
 def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
     """The whole record. Creates it on first open and imports the scope."""
     from api.permissions import require_perm
@@ -358,6 +405,8 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # know"), shown until someone confirms it on site.
             "customer_previously_stained": customer_previously_stained(lead),
             "estimate_options": estimate_options(db, lead_id),
+            # Crew accounts the office can put on this job.
+            "crew_options": _crew_options(db) if _sees_all(user) else [],
             "measure_options": measure_options(db, lead_id),
             "customer": {
                 "name": lead.contact_name or "",
@@ -419,6 +468,8 @@ class CompanyCamPatch(BaseModel):
     neighbor_status: str | None = None
     # True: send what the crew wrote down to Alan (and make the friend a lead).
     neighbor_send: bool | None = None
+    # Crew usernames on this job (office only).
+    crew: list[str] | None = None
     neighbor_first_name: str | None = None
     neighbor_last_name: str | None = None
     neighbor_phone: str | None = None
@@ -426,7 +477,7 @@ class CompanyCamPatch(BaseModel):
     neighbor_notes: str | None = None
 
 
-@router.patch("/company-cam/{lead_id}")
+@router.patch("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
 def update_company_cam(
     lead_id: str, body: CompanyCamPatch, user: dict = Depends(get_current_user)
 ):
@@ -542,6 +593,12 @@ def update_company_cam(
         if body.pickets_marked is not None:
             job.pickets_marked_at = _now() if body.pickets_marked else ""
             job.pickets_marked_by = _actor(user) if body.pickets_marked else ""
+        if body.crew is not None:
+            if not _sees_all(user):
+                raise HTTPException(403, "Only the office puts crew on a job")
+            from database import User
+            names = {u.username.lower(): u.username for u in db.query(User).all()}
+            job.crew_json = json.dumps([names[c.lower()] for c in body.crew if c and c.lower() in names])
         neighbor_alert = ""
         if body.neighbor_status is not None:
             v = body.neighbor_status.strip().lower()
@@ -604,7 +661,7 @@ def update_company_cam(
         db.close()
 
 
-@router.post("/company-cam/{lead_id}/color-shown")
+@router.post("/company-cam/{lead_id}/color-shown", dependencies=[Depends(crew_guard)])
 def mark_color_shown(lead_id: str, user: dict = Depends(get_current_user)):
     """The cleaner showed the customer the colour in person.
 
@@ -715,7 +772,7 @@ def _library_image(db, lead: Lead, key: str) -> tuple[bytes, str]:
     return bytes(data), mime or "image/png"
 
 
-@router.get("/company-cam/{lead_id}/library")
+@router.get("/company-cam/{lead_id}/library", dependencies=[Depends(crew_guard)])
 def photo_library(lead_id: str, user: dict = Depends(get_current_user)):
     del user
     db = get_db()
@@ -725,7 +782,7 @@ def photo_library(lead_id: str, user: dict = Depends(get_current_user)):
         db.close()
 
 
-@router.get("/company-cam/{lead_id}/library/image")
+@router.get("/company-cam/{lead_id}/library/image", dependencies=[Depends(crew_guard)])
 def photo_library_image(lead_id: str, key: str, user: dict = Depends(get_current_user)):
     del user
     db = get_db()
@@ -741,7 +798,7 @@ class FromLibraryBody(BaseModel):
     section: str
 
 
-@router.post("/company-cam/{lead_id}/photos/from-library")
+@router.post("/company-cam/{lead_id}/photos/from-library", dependencies=[Depends(crew_guard)])
 def photo_from_library(lead_id: str, body: FromLibraryBody, user: dict = Depends(get_current_user)):
     if body.section not in SECTION_KEYS:
         raise HTTPException(400, f"Unknown section. Expected one of: {', '.join(SECTION_KEYS)}")
@@ -757,7 +814,7 @@ def photo_from_library(lead_id: str, body: FromLibraryBody, user: dict = Depends
         db.close()
 
 
-@router.post("/company-cam/{lead_id}/photos")
+@router.post("/company-cam/{lead_id}/photos", dependencies=[Depends(crew_guard)])
 async def upload_photo(
     lead_id: str,
     file: UploadFile = File(...),
@@ -792,7 +849,7 @@ class PhotoPatch(BaseModel):
     is_damage: bool | None = None
 
 
-@router.patch("/company-cam/{lead_id}/photos/{photo_id}")
+@router.patch("/company-cam/{lead_id}/photos/{photo_id}", dependencies=[Depends(crew_guard)])
 def update_photo(
     lead_id: str, photo_id: str, body: PhotoPatch,
     user: dict = Depends(get_current_user),
@@ -818,7 +875,7 @@ def update_photo(
         db.close()
 
 
-@router.get("/company-cam/{lead_id}/photos/{photo_id}/image")
+@router.get("/company-cam/{lead_id}/photos/{photo_id}/image", dependencies=[Depends(crew_guard)])
 def get_photo_image(lead_id: str, photo_id: str, user: dict = Depends(get_current_user)):
     """Serves the fallback bytes. Storage-backed photos never reach here."""
     db = get_db()
@@ -835,7 +892,7 @@ def get_photo_image(lead_id: str, photo_id: str, user: dict = Depends(get_curren
         db.close()
 
 
-@router.delete("/company-cam/{lead_id}/photos/{photo_id}")
+@router.delete("/company-cam/{lead_id}/photos/{photo_id}", dependencies=[Depends(crew_guard)])
 def delete_photo(lead_id: str, photo_id: str, user: dict = Depends(get_current_user)):
     db = get_db()
     try:
@@ -876,7 +933,7 @@ class AlmostDoneBody(BaseModel):
     message: str | None = None
 
 
-@router.post("/company-cam/{lead_id}/almost-done")
+@router.post("/company-cam/{lead_id}/almost-done", dependencies=[Depends(crew_guard)])
 def send_almost_done(
     lead_id: str,
     body: AlmostDoneBody | None = None,
@@ -944,7 +1001,7 @@ def send_almost_done(
         db.close()
 
 
-@router.post("/company-cam/{lead_id}/almost-done/reset")
+@router.post("/company-cam/{lead_id}/almost-done/reset", dependencies=[Depends(crew_guard)])
 def reset_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
     """Clear the send lock — for a genuine second visit, or a misfire."""
     db = get_db()
@@ -1017,7 +1074,7 @@ class AlmostDoneMarkBody(BaseModel):
     how: str  # "walked" | "texted"
 
 
-@router.post("/company-cam/{lead_id}/almost-done/mark")
+@router.post("/company-cam/{lead_id}/almost-done/mark", dependencies=[Depends(crew_guard)])
 def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depends(get_current_user)):
     """The crew walked it with the customer, or texted them from their own
     phone. Nothing is sent from here."""
@@ -1067,6 +1124,15 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
                     out.pop(lid)
                     continue
                 row.update({"name": lead.contact_name or "", "address": lead.address or ""})
+        if not _sees_all(user):
+            me = (user.get("sub") or "").lower()
+            mine = {j.lead_id for j in db.query(CompanyCamJob).all() if me in {c.lower() for c in _crew_of(j)}}
+            out = {k: v for k, v in out.items() if k in mine}
+            if not term:
+                for lid in mine - set(out):
+                    lead = db.query(Lead).filter(Lead.id == lid).first()
+                    if lead:
+                        out[lid] = {"lead_id": lid, "name": lead.contact_name or "", "address": lead.address or "", "date": ""}
         rows = list(out.values())
         rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r["name"].lower()))
         return rows

@@ -108,13 +108,14 @@ function RevenueOnly({ children }: { children: React.ReactNode }) {
 function landingFor(): string {
   if (hasPerm("dashboard")) return "/";
   if (hasPerm("estimator")) return "/estimator";
+  // Crew on Company Cam start there (Alan, 2026-10-16: Chris sees only that).
+  if (hasPerm("company_cam")) return "/company-cam";
   if (hasPerm("my_schedule")) return "/my-schedule";
   if (hasPerm("calendar")) return "/calendar";
   // Crew accounts that only look after stain stock / colour photos. Without
   // these two the chain falls through to /settings, which is itself gated on
   // the `settings` perm — so RequireView would bounce them straight back here
   // and the app would redirect forever.
-  if (hasPerm("company_cam")) return "/company-cam";
   if (hasPerm("stain_inventory")) return "/stain-inventory";
   if (hasPerm("fence_photos")) return "/fence-photos";
   return "/settings";

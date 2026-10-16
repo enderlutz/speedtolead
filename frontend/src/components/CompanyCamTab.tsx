@@ -594,7 +594,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   useEffect(() => { void load(); }, [load]);
 
   const patch = async (
-    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean },
+    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew?: string[] },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
@@ -918,6 +918,29 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             ))}
           </div>
           {view === "employee" ? <span className="text-xs text-muted-foreground">Exactly what the crew sees.</span> : null}
+        </div>
+      ) : null}
+
+      {/* Who's on this job (Alan, 2026-10-16): the crew sees only the jobs
+          they're on, nothing else, even by searching. */}
+      {manager ? (
+        <div className="rounded-2xl border border-border bg-card p-3">
+          <p className="text-sm font-bold">Who's on this job?</p>
+          <p className="text-xs text-muted-foreground">They'll see this customer on their Company Cam. Crew only see the jobs they're on.</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {(data.crew_options || []).map((c) => {
+              const on = (job.crew || []).some((x) => x.toLowerCase() === c.username.toLowerCase());
+              return (
+                <button key={c.username} type="button"
+                        onClick={() => void patch({ crew: on ? (job.crew || []).filter((x) => x.toLowerCase() !== c.username.toLowerCase()) : [...(job.crew || []), c.username] })}
+                        className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold ring-1",
+                          on ? "bg-emerald-600 text-white ring-emerald-600" : "bg-background ring-border hover:bg-muted")}>
+                  {on ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{c.name}
+                </button>
+              );
+            })}
+            {!(data.crew_options || []).length ? <p className="text-xs text-muted-foreground">No crew accounts yet. Make one in Settings → Permissions.</p> : null}
+          </div>
         </div>
       ) : null}
 

@@ -3705,6 +3705,7 @@ export const api = {
       extras_confirmed?: boolean;
       fence_sides?: string[];
       neighbor_send?: boolean;
+      crew?: string[];
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
@@ -3881,6 +3882,8 @@ export interface CompanyCamJob {
   color_all_sides?: string;
   /** Someone else wants a quote: "none" | "details" | "no_details" | "". */
   neighbor_status?: string; neighbor_sent_at?: string;
+  /** Crew usernames on this job; the crew sees only jobs they're on. */
+  crew?: string[];
   /** Repairs set by the office: counts per part, picket wood, post height. */
   repairs?: { counts: Record<string, number>; picket_type: string; post_type: string };
   /** The office's note to the crew about the repairs. */
@@ -3937,6 +3940,8 @@ export interface CompanyCamPayload {
   stain_options?: StainOption[];
   /** The customer's form answer to "previously stained?". */
   customer_previously_stained?: string;
+  /** Crew accounts the office can put on this job. */
+  crew_options?: { username: string; name: string }[];
   /** Each estimate we sent and its square footage, to pick the job's from. */
   estimate_options?: { id: string; sent: boolean; sent_at: string; when: string; sqft: number; linear_feet: number | null; height: string }[];
   /** Feet traced on Measure & capture, and the fence height to start from. */
