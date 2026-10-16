@@ -1385,11 +1385,11 @@ export const api = {
   // Stripe pay links (backend api/stripe_pay.py). Staff only; the customer
   // pages at /pay and /after use raw fetch so a 401 can't bounce them here.
   listPayLinks: (leadId: string) => request<PayLinksResponse>(`/api/leads/${leadId}/pay-links`),
-  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean; ask_review?: boolean }) =>
+  createPayLink: (leadId: string, body: { kind: PayLinkKind; amount?: number; description?: string; tier?: string; job_total?: number; items?: InvoiceLine[]; credit?: number; financing?: boolean; ask_review?: boolean; due_date?: string | null }) =>
     request<PayLinkEntry>(`/api/leads/${leadId}/pay-links`, { method: "POST", body: JSON.stringify(body) }),
   voidPayLink: (token: string) => request<PayLinkEntry>(`/api/pay-links/${token}/void`, { method: "POST" }),
   /** Change an unpaid itemized invoice in place; the link stays the same. */
-  editInvoice: (token: string, body: { items: InvoiceLine[]; credit?: number; financing: boolean; ask_review: boolean }) =>
+  editInvoice: (token: string, body: { items: InvoiceLine[]; credit?: number; financing: boolean; ask_review: boolean; due_date?: string | null }) =>
     request<PayLinkEntry>(`/api/pay-links/${token}`, { method: "PUT", body: JSON.stringify(body) }),
   setPayLinkReview: (token: string, on: boolean) =>
     request<PayLinkEntry>(`/api/pay-links/${token}/ask-review`, { method: "POST", body: JSON.stringify({ on }) }),
@@ -5704,6 +5704,8 @@ export interface PayLinkEntry {
   status: "open" | "paid" | "void"; url: string; after_url: string; created_by: string;
   /** False: the thank-you screens don't ask for a Google review. */
   ask_review?: boolean;
+  /** YYYY-MM-DD; null = due upon receipt. */
+  due_date?: string | null;
   created_at: string; sent_at: string | null; paid_at: string | null;
   answers: Record<string, unknown>; answered_at: string | null;
   /** Deposit: the package sold and the job total the sale is booked at. */

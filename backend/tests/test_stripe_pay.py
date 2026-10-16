@@ -618,11 +618,15 @@ def test_an_unpaid_invoice_can_be_edited_in_place_and_an_open_checkout_is_closed
     monkeypatch.setattr(sp.stripe.checkout.Session, "expire", lambda sid, **k: expired.append(sid))
     out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="balance", items=[
         sp.InvoiceItem(name="Signature Finish", amount=3215)], credit=250), STAFF)
+    assert out["due_date"] is None and sp.pay_info(out["token"])["due_date"] is None  # due upon receipt
     sp.start_session(out["token"])
     edited = sp.edit_invoice(out["token"], sp.EditInvoiceBody(items=[
         sp.InvoiceItem(name="Signature Finish", amount=3215),
         sp.InvoiceItem(name="Thank you for your patience", amount=-200),
-    ], credit=250, financing=False, ask_review=False), STAFF)
+    ], credit=250, financing=False, ask_review=False, due_date="2026-10-24"), STAFF)
+    assert edited["due_date"] == "2026-10-24" and sp.pay_info(out["token"])["due_date"] == "2026-10-24"
+    with pytest.raises(HTTPException):
+        sp.edit_invoice(out["token"], sp.EditInvoiceBody(items=[sp.InvoiceItem(name="X", amount=5)], due_date="Friday"), STAFF)
     assert edited["token"] == out["token"] and edited["amount"] == 2765.0
     assert edited["financing"] is False and edited["ask_review"] is False
     assert expired == ["cs_old"]

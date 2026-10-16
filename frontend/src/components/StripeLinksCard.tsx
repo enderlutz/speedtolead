@@ -12,6 +12,7 @@ import { Copy, Ban, Pencil, CreditCard, Eye, ExternalLink, UserPlus, CheckCircle
 import { api, type InvoiceLine, type PayLinkEntry, type PayLinkKind, type PayLinksResponse, type PayLinkContact, type StripeHealth, type StripeSettings } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 import { InvoiceDoc } from "@/pages/PayLink";
+import { dueText } from "@/lib/due";
 
 const KINDS: { kind: PayLinkKind; label: string; hint: string; needsAmount: boolean }[] = [
   { kind: "deposit", label: "Deposit $250", hint: "Books their dates. Card and wallets only.", needsAmount: false },
@@ -166,6 +167,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
               <span className="tabular-nums">{l.kind === "done" ? "" : formatCurrency(l.amount)}</span>
               {l.job_total ? <span className="text-muted-foreground">· {l.job_tier} sale {formatCurrency(l.job_total)}</span> : null}
               {l.items?.length ? <span className="truncate text-muted-foreground" title={l.items.map((i) => `${i.name} ${formatCurrency(i.amount)}`).join("\n")}>· {l.items.length} lines{l.credit ? `, less ${formatCurrency(l.credit)} paid` : ""}</span> : null}
+              {l.items?.length && l.status === "open" ? <span className="shrink-0 rounded bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">Due {l.due_date ? dueText(l.due_date).replace(/, \d{4}$/, "") : "upon receipt"}</span> : null}
               {l.kind !== "deposit" && l.financing === false ? <span className="shrink-0 rounded bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">No Klarna</span> : null}
               {l.kind !== "deposit" && l.status !== "void" ? (
                 <button type="button" onClick={() => flipReview(l)} disabled={!!l.answered_at}
@@ -365,6 +367,8 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
   const [credit, setCredit] = useState("");
   // Klarna costs ~3%; Alan turns it off when nobody asked to finance.
   const [klarna, setKlarna] = useState(true);
+  // When it's due: null = upon receipt, else the day picked (YYYY-MM-DD).
+  const [dueOn, setDueOn] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<InvoiceLine[]>([]);
   useEffect(() => {
@@ -384,9 +388,10 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
     setWhole(wholeLine ? { label: wholeLine.name, amount: String(Math.abs(wholeLine.amount)) } : null);
     setCredit(editing.credit ? String(editing.credit) : "");
     setKlarna(editing.financing !== false);
+    setDueOn(editing.due_date || null);
     setOpen(true);
   }, [editing]);
-  const reset = () => { setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setOpen(false); onStopEditing?.(); };
+  const reset = () => { setRows([blankRow()]); setWhole(null); setCredit(""); setKlarna(true); setDueOn(null); setOpen(false); onStopEditing?.(); };
 
   const lineTotal = (r: Row) => Math.round(qtyOf(r) * num(r.amount) * 100) / 100;
   const subtotal = rows.reduce((t, r) => t + lineTotal(r), 0);
@@ -438,8 +443,8 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
     setBusy(true);
     try {
       const link = editing
-        ? await api.editInvoice(editing.token, { items, credit: paid || undefined, financing: klarna, ask_review: editing.ask_review !== false })
-        : await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna, ask_review: askReview });
+        ? await api.editInvoice(editing.token, { items, credit: paid || undefined, financing: klarna, ask_review: editing.ask_review !== false, due_date: dueOn })
+        : await api.createPayLink(leadId, { kind: "balance", items, credit: paid || undefined, financing: klarna, ask_review: askReview, due_date: dueOn });
       await onMade(link);
       reset();
     } catch (e) {
@@ -562,6 +567,18 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
           <dd className={cn("text-xl font-bold tabular-nums", due < 0 && "text-rose-600")}>{formatCurrency(Math.max(0, due))}</dd>
         </div>
       </dl>
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-3 py-2 text-sm">
+        <span className="mr-1 font-semibold">Due</span>
+        <button type="button" onClick={() => setDueOn(null)}
+          className={cn("h-9 rounded-full px-3 text-xs font-semibold ring-1", dueOn === null ? "bg-foreground text-background ring-foreground" : "bg-background ring-border hover:bg-muted")}>
+          Upon receipt
+        </button>
+        <label className={cn("flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-3 text-xs font-semibold ring-1", dueOn !== null ? "bg-foreground text-background ring-foreground" : "bg-background ring-border hover:bg-muted")}>
+          On a day
+          <input type="date" value={dueOn ?? ""} min={todayIso()} onChange={(e) => setDueOn(e.target.value || null)}
+            className={cn("h-7 rounded-md border-0 bg-transparent px-1 text-xs tabular-nums outline-none", dueOn !== null ? "text-background [color-scheme:dark]" : "w-[7.5rem] text-muted-foreground")} />
+        </label>
+      </div>
       <label className={cn("flex cursor-pointer items-center gap-3 border-t border-border px-3 py-2 text-sm", klarna && "bg-[#FFB3C7]/15")}>
         <input type="checkbox" checked={klarna} onChange={(e) => setKlarna(e.target.checked)} className="h-5 w-5 shrink-0 accent-pink-500" />
         <span className="min-w-0 flex-1">
@@ -592,7 +609,7 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
             <InvoiceDoc info={{
               kind: "balance", label: "Balance", amount: Math.max(0, due), description: "", status: "open",
               first_name: (billTo?.name || "").split(" ")[0], address: billTo?.address || "", configured: true,
-              items: buildItems(), credit: paid, financing: klarna, name: billTo?.name || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(),
+              items: buildItems(), credit: paid, financing: klarna, name: billTo?.name || "", invoice_number: billTo?.invoice_number || "", date: new Date().toISOString(), due_date: dueOn,
             }} />
             <div className="mt-4 flex h-14 w-full items-center justify-center rounded-xl text-[18px] font-bold text-[#15130F] opacity-90" style={{ background: "#C9972F" }}>
               Pay {formatCurrency(Math.max(0, due))}
@@ -708,4 +725,9 @@ function KlarnaPicture({ on, total }: { on: boolean; total: number }) {
       </span>
     </MiniPhone>
   );
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }

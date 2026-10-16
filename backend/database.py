@@ -4020,6 +4020,9 @@ class PayLink(Base):
     # 0 = the thank-you screens don't ask for a Google review (already left
     # one, a repeat customer...). NULL = ask, the default (Alan, 2026-10-15).
     ask_review = Column(Integer, nullable=True)
+    # When the invoice is due, YYYY-MM-DD. NULL = due upon receipt, the
+    # default (Alan, 2026-10-15: "keep it simple").
+    due_date = Column(Text, nullable=True)
 
 
 class Booking(Base):
@@ -4199,7 +4202,7 @@ def _run_migrations():
             for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER"), ("option_id", "TEXT"),
                              ("after_first_viewed_at", "TEXT"), ("after_last_viewed_at", "TEXT"),
                              ("after_view_count", "INTEGER"), ("after_furthest", "TEXT"), ("door", "TEXT"),
-                             ("ask_review", "INTEGER")):
+                             ("ask_review", "INTEGER"), ("due_date", "TEXT")):
                 if col not in pl:
                     conn.execute(text(f"ALTER TABLE pay_links ADD COLUMN {col} {typ}"))
     if inspector.has_table("fence_scope_versions"):

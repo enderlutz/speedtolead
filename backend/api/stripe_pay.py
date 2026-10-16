@@ -126,6 +126,7 @@ def link_dict(link: PayLink) -> dict:
         "created_by": link.created_by or "",
         "created_at": link.created_at,
         "ask_review": link.ask_review != 0,
+        "due_date": link.due_date or None,
         "sent_at": link.sent_at,
         "paid_at": link.paid_at,
         "answers": _loads(link.answers),
@@ -205,6 +206,8 @@ class CreateLinkBody(BaseModel):
     financing: bool = True
     # False: the thank-you screens skip the Google review ask for this one.
     ask_review: bool = True
+    # YYYY-MM-DD; empty = due upon receipt.
+    due_date: str | None = None
 
 
 class InvoiceItem(BaseModel):
@@ -323,6 +326,7 @@ def create_pay_link(lead_id: str, body: CreateLinkBody, user: dict = Depends(req
             items=items_json, credit_cents=credit_cents,
             no_financing=None if body.financing or kind == "deposit" else 1,
             ask_review=None if body.ask_review else 0,
+            due_date=_due(body.due_date) if items_json else None,
         )
         db.add(link)
         db.commit()
@@ -605,6 +609,18 @@ class EditInvoiceBody(BaseModel):
     credit: float | None = None
     financing: bool = True
     ask_review: bool = True
+    due_date: str | None = None
+
+
+def _due(v: str | None) -> str | None:
+    """A due date as YYYY-MM-DD, or None for due upon receipt."""
+    v = (v or "").strip()
+    if not v:
+        return None
+    try:
+        return datetime.strptime(v[:10], "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="The due date isn't a real date")
 
 
 # Go back into an invoice and fix it (Alan, 2026-10-15). Same link, so a text
@@ -628,6 +644,7 @@ def edit_invoice(token: str, body: EditInvoiceBody, user: dict = Depends(require
         link.amount_cents = int(round(amount * 100))
         link.no_financing = None if body.financing else 1
         link.ask_review = None if body.ask_review else 0
+        link.due_date = _due(body.due_date)
         sid, link.stripe_session_id = link.stripe_session_id, None
         db.commit()
         if sid and configured():
@@ -772,6 +789,7 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             "configured": configured(),
             "name": ((lead.contact_name or "").strip() if lead else ""),
             "invoice_number": _invoice_number(db, link.lead_id), "date": link.created_at or "",
+            "due_date": link.due_date or None,
             "financing": link.kind != "deposit" and not link.no_financing,
             # Made by Apply for Klarna: the page is the Klarna walk-through.
             "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",

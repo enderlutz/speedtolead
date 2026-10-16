@@ -10,6 +10,7 @@ import { useParams } from "react-router-dom";
 import { Lock, Phone } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { TermsBody } from "@/components/proposal/TermsBody";
+import { dueText } from "@/lib/due";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 const GOLD = "#C9972F";
@@ -26,6 +27,8 @@ export type Info = {
   first_name: string; address: string; configured: boolean;
   items?: InvoiceItem[]; credit?: number;
   name?: string; invoice_number?: string; date?: string; financing?: boolean;
+  /** YYYY-MM-DD; empty = due upon receipt. */
+  due_date?: string | null;
   /** Made by the proposal's Apply for Klarna button: this page walks them through Klarna. */
   klarna?: boolean;
 };
@@ -219,6 +222,10 @@ export function InvoiceDoc({ info, paid = false }: { info: Info; paid?: boolean 
           {date ? (<>
             <p className="mt-1 text-[12px] font-bold uppercase tracking-wide text-[#15130F]/60">Date</p>
             <p className="tabular-nums">{date}</p>
+          </>) : null}
+          {!paid ? (<>
+            <p className="mt-1 text-[12px] font-bold uppercase tracking-wide text-[#15130F]/60">Due</p>
+            <p className="font-bold tabular-nums">{dueText(info.due_date)}</p>
           </>) : null}
         </div>
       </div>
