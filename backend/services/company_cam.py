@@ -455,3 +455,69 @@ def filter_checklist(raw, which: str) -> list[str]:
     """Keep only the ticks we recognise, so a stale client cannot store junk."""
     valid = CHECKLIST_KEYS.get(which, ())
     return [str(k) for k in (raw or []) if str(k) in valid]
+
+
+def fence_age(db, lead) -> str:
+    """How old the fence is, as the customer answered ("6-15 years").
+
+    The latest sent estimate's inputs first, since that's what was priced;
+    the form answer otherwise. Empty when they never said."""
+    from database import Estimate
+
+    est = (
+        db.query(Estimate)
+        .filter(Estimate.lead_id == lead.id, Estimate.status == "sent")
+        .order_by(Estimate.sent_at.desc().nullslast())
+        .first()
+    )
+    if est:
+        try:
+            v = str((json.loads(est.inputs or "{}") or {}).get("fence_age") or "").strip()
+        except (ValueError, TypeError, AttributeError):
+            v = ""
+        if v:
+            return v
+    try:
+        fd = json.loads(lead.form_data or "{}") if isinstance(lead.form_data, str) else (lead.form_data or {})
+    except (ValueError, TypeError):
+        fd = {}
+    return str(fd.get("fence_age") or "").strip() if isinstance(fd, dict) else ""
+
+
+def sold_package(db, lead_id: str) -> str:
+    """The package they bought, wherever it was recorded: the booking, the
+    deposit link, or the estimate marked closed. Empty when nowhere."""
+    from database import Booking, Estimate, PayLink
+
+    b = (db.query(Booking).filter(Booking.lead_id == lead_id, Booking.status != "cancelled")
+         .order_by(Booking.sent_at.desc().nullslast()).first())
+    for v in (
+        b.tier if b else "",
+        next((p.job_tier for p in db.query(PayLink).filter(PayLink.lead_id == lead_id, PayLink.job_tier.isnot(None))
+              .order_by(PayLink.created_at.desc()).all() if p.job_tier), ""),
+        next((e.closed_tier for e in db.query(Estimate).filter(Estimate.lead_id == lead_id, Estimate.closed_tier.isnot(None)).all()
+              if e.closed_tier), ""),
+    ):
+        v = (v or "").strip().lower()
+        if v in ("essential", "signature", "legacy"):
+            return v
+    return ""
+
+
+def coverage_stats(db, age: str) -> dict:
+    """Square feet a gallon actually covered, from every job where the crew
+    recorded gallons used: across all jobs, and on fences this old. The
+    number Alan wants to learn per kind of fence (2026-10-15)."""
+    from database import CompanyCamJob, Lead
+
+    rows = (db.query(CompanyCamJob.sqft, CompanyCamJob.stain_gallons_used, Lead)
+            .join(Lead, Lead.id == CompanyCamJob.lead_id)
+            .filter(CompanyCamJob.stain_gallons_used > 0, CompanyCamJob.sqft > 0).all())
+    all_rates, same = [], []
+    for sqft, gal, lead in rows:
+        r = float(sqft) / float(gal)
+        all_rates.append(r)
+        if age and fence_age(db, lead) == age:
+            same.append(r)
+    avg = lambda xs: round(sum(xs) / len(xs)) if xs else None  # noqa: E731
+    return {"all_jobs": len(all_rates), "all_avg": avg(all_rates), "age_jobs": len(same), "age_avg": avg(same)}

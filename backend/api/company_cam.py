@@ -31,6 +31,9 @@ from services.company_cam import (
     SQFT_PER_GALLON,
     STAINER_CHECKLIST,
     cleaner_color_actions,
+    coverage_stats,
+    fence_age,
+    sold_package,
     color_options,
     derive_from_estimate,
     estimate_sides,
@@ -171,8 +174,6 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "gallons_edited": bool(job.gallons_edited),
         "sqft_per_gallon": SQFT_PER_GALLON,
         "package": job.package or "",
-        # Dollars on the wire, cents in the column.
-        "final_price": round(int(job.final_price_cents or 0) / 100.0, 2),
         "color_plan": _json_list(job.color_plan_json),
         "color": job.color or "",
         "color_confirmed": bool(job.color_confirmed),
@@ -241,7 +242,14 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
     try:
         lead = _lead_or_404(db, lead_id)
         job = _get_or_create(db, lead)
+        # The package they bought, filled in once if nobody picked one.
+        if not job.package:
+            sold = sold_package(db, lead_id)
+            if sold:
+                job.package = sold
+                db.commit()
         _import_scope_photo(db, lead)
+        age = fence_age(db, lead)
         photos = (
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id)
@@ -273,6 +281,11 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # so it cannot drift from the plan it describes.
             "cleaner_actions": cleaner_color_actions(_json_list(job.color_plan_json)),
             "blockers": _blockers(job, photos),
+            # How old the fence is, from the estimate (read-only here), and
+            # what a gallon has covered on our jobs, overall and on fences
+            # this old (Alan, 2026-10-15).
+            "fence_age": age,
+            "coverage": coverage_stats(db, age),
             "customer": {
                 "name": lead.contact_name or "",
                 "phone": lead.contact_phone or "",

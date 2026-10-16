@@ -3827,8 +3827,6 @@ export interface CompanyCamJob {
   /** Square feet one gallon covers — shown so the maths is never a mystery. */
   sqft_per_gallon: number;
   package: string;
-  /** Dollars. Alan-only — the crew never sees this. */
-  final_price: number;
   color_plan: ColorPlanRow[];
   color: string;
   color_confirmed: boolean;
@@ -3885,6 +3883,10 @@ export interface CompanyCamPayload {
   /** What the cleaner has to settle on site. Derived, never stored. */
   cleaner_actions: string[];
   /** What still has to happen before the job is properly documented. */
+  /** How old the fence is, from the estimate ("6-15 years"); empty if they never said. */
+  fence_age?: string;
+  /** Square feet a gallon covered on our jobs: all of them, and fences this old. */
+  coverage?: { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null };
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
 }

@@ -20,11 +20,11 @@ import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
-  CircleDollarSign, Package, Hash, Plus, X, Eye,
+  Package, Hash, Hourglass, Plus, X, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, canSeeRevenue, type CompanyCamPayload, type CompanyCamPhoto,
+  api, type CompanyCamPayload, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -722,12 +722,15 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
         </Card>
       )}
 
-      {/* The job card: what to bring and what to put on. */}
+      {/* The job card (Alan, 2026-10-15): the real footage, the gallons the
+          crew actually used, the package and the fence's age. Together they
+          teach us what a gallon covers on each kind of fence. No price: the
+          crew works from this screen. */}
       <Panel icon={Droplets} accent={ACCENT.blue} title="The job"
-             sub="What to load the van with">
+             sub="Fill in the real numbers">
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={Ruler} label="Square footage" accent={ACCENT.blue}
-                    hint={job.sqft_edited ? "Edited by hand" : "From the latest estimate"}>
+                    hint={job.sqft_edited ? "✓ Typed in by hand" : "From the estimate. Type the real number."}>
             <Input type="number" inputMode="decimal" defaultValue={job.sqft || ""}
                    className="h-10 text-base font-semibold tabular-nums"
                    onBlur={(e) => {
@@ -736,25 +739,17 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                    }} />
           </StatTile>
 
-          <StatTile icon={Droplets} label="Gallons of stain" accent={ACCENT.cyan}
-                    hint={job.gallons_edited
-                      ? "Overridden — no longer follows the footage"
-                      : `${job.sqft_per_gallon} sq ft a gallon, rounded up`}>
-            <div className="flex gap-1.5">
-              <Input type="number" inputMode="decimal" step="0.5" defaultValue={job.gallons_needed || ""}
-                     className="h-10 text-base font-semibold tabular-nums"
-                     onBlur={(e) => {
-                       const v = parseFloat(e.target.value || "0");
-                       if (v !== job.gallons_needed) void patch({ gallons_needed: v });
-                     }} />
-              {job.gallons_edited ? (
-                <Button variant="outline" size="icon" className="h-10 w-10 shrink-0"
-                        title="Go back to following the square footage"
-                        onClick={() => void patch({ recalc_gallons: true })}>
-                  <RotateCcw className="h-4 w-4" />
-                </Button>
-              ) : null}
-            </div>
+          <StatTile icon={Droplets} label="Gallons of stain used" accent={ACCENT.cyan}
+                    hint={job.stain_gallons_used
+                      ? "✓ Recorded"
+                      : `The crew fills this in. Bring about ${job.gallons_needed || "?"}.`}>
+            <Input type="number" inputMode="decimal" step="0.5" placeholder="Gallons"
+                   defaultValue={job.stain_gallons_used || ""}
+                   className="h-10 text-base font-semibold tabular-nums"
+                   onBlur={(e) => {
+                     const v = parseFloat(e.target.value || "0");
+                     if (v !== job.stain_gallons_used) void patch({ stain_gallons_used: v });
+                   }} />
           </StatTile>
 
           <StatTile icon={Package} label="Package" accent={ACCENT.violet}>
@@ -770,21 +765,12 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             </div>
           </StatTile>
 
-          {/* Price is gated the same way revenue is everywhere else — the
-              crew works from this screen and has no business seeing it. */}
-          {canSeeRevenue() ? (
-            <StatTile icon={CircleDollarSign} label="Final price" accent={ACCENT.emerald}
-                      hint="Only visible to you, not the crew">
-              <Input type="number" inputMode="decimal" step="1"
-                     defaultValue={job.final_price || ""}
-                     className="h-10 text-base font-semibold tabular-nums"
-                     onBlur={(e) => {
-                       const v = parseFloat(e.target.value || "0");
-                       if (v !== job.final_price) void patch({ final_price: v });
-                     }} />
-            </StatTile>
-          ) : null}
+          <StatTile icon={Hourglass} label="Age of the fence" accent={ACCENT.amber}
+                    hint="From the estimate">
+            <p className="flex h-10 items-center text-base font-semibold">{ageLabel(data.fence_age)}</p>
+          </StatTile>
         </div>
+        <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage} />
       </Panel>
 
       {/* Colour, per area. Drives what the cleaner has to settle on site. */}
@@ -1090,28 +1076,9 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
       {/* What actually happened. The gap from the estimates is the number
           worth having — for pricing, and for the stain inventory. */}
       <Panel icon={ClipboardCheck} accent={ACCENT.slate}
-             title="End of job — what we actually used"
-             sub="Everything above is the estimate; this is the real thing">
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile icon={Ruler} label="Actual square footage" accent={ACCENT.slate}
-                    hint={job.sqft ? `Estimated ${Math.round(job.sqft)}` : undefined}>
-            <Input type="number" inputMode="decimal" defaultValue={job.actual_sqft || ""}
-                   className="h-10 text-base font-semibold tabular-nums"
-                   onBlur={(e) => {
-                     const v = parseFloat(e.target.value || "0");
-                     if (v !== job.actual_sqft) void patch({ actual_sqft: v });
-                   }} />
-          </StatTile>
-          <StatTile icon={Droplets} label="Stain gallons used" accent={ACCENT.emerald}
-                    hint={job.gallons_needed ? `Planned ${job.gallons_needed}` : undefined}>
-            <Input type="number" inputMode="decimal" step="0.5"
-                   defaultValue={job.stain_gallons_used || ""}
-                   className="h-10 text-base font-semibold tabular-nums"
-                   onBlur={(e) => {
-                     const v = parseFloat(e.target.value || "0");
-                     if (v !== job.stain_gallons_used) void patch({ stain_gallons_used: v });
-                   }} />
-          </StatTile>
+             title="End of job — stain bought and bleach"
+             sub="The gallons used go in The job, up top">
+        <div className="grid gap-2.5 sm:grid-cols-2">
           <StatTile icon={ShoppingCart} label="Stain gallons bought today" accent={ACCENT.amber}
                     hint="Only what was picked up on the way, not what came off the shelf">
             <Input type="number" inputMode="decimal" step="0.5"
@@ -1132,17 +1099,6 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                    }} />
           </StatTile>
         </div>
-        {job.actual_sqft > 0 && job.sqft > 0
-          && Math.abs(job.actual_sqft - job.sqft) / job.sqft > 0.15 ? (
-          <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              That's {Math.round(Math.abs(job.actual_sqft - job.sqft) / job.sqft * 100)}%
-              {job.actual_sqft > job.sqft ? " more" : " less"} than estimated — worth
-              knowing why before the next quote like it.
-            </span>
-          </p>
-        ) : null}
       </Panel>
 
       {/* Neighbours — the cheapest lead source there is. */}
@@ -1196,6 +1152,39 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           </div>
         )}
       </Panel>
+    </div>
+  );
+}
+
+/** "6-15 years" reads as "6-15 years old"; nothing said reads as such. */
+function ageLabel(v?: string) {
+  const t = (v || "").trim();
+  if (!t) return "They didn't say";
+  if (/new/i.test(t)) return "Brand new";
+  if (/not sure/i.test(t)) return "Not sure";
+  return /old$/i.test(t) ? t : `${t} old`;
+}
+
+/** What a gallon covered on this job, next to our average overall and on
+ *  fences this old. Each job with gallons recorded adds to the averages. */
+function Coverage({ sqft, gallons, age, stats }: {
+  sqft: number; gallons: number; age?: string;
+  stats?: { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null };
+}) {
+  const rate = sqft > 0 && gallons > 0 ? Math.round(sqft / gallons) : null;
+  return (
+    <div className="mt-2.5 rounded-xl bg-muted/50 px-3 py-2.5 text-sm">
+      {rate ? (
+        <p><b className="tabular-nums">{Math.round(sqft).toLocaleString()} sq ft ÷ {gallons} gallons = {rate} sq ft a gallon</b> on this job.</p>
+      ) : (
+        <p className="text-muted-foreground">Put in the square footage and the gallons used, and this shows how far a gallon went.</p>
+      )}
+      {stats && stats.all_jobs > 0 ? (
+        <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+          Our average: {stats.all_avg} sq ft a gallon over {stats.all_jobs} {stats.all_jobs === 1 ? "job" : "jobs"}
+          {age && stats.age_jobs > 0 ? ` · on ${ageLabel(age).toLowerCase()} fences: ${stats.age_avg} (${stats.age_jobs} ${stats.age_jobs === 1 ? "job" : "jobs"})` : ""}
+        </p>
+      ) : null}
     </div>
   );
 }

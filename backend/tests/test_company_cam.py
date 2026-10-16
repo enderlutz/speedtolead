@@ -552,11 +552,14 @@ def test_bought_sides_fall_back_to_the_sent_estimate(db):
 
 # --- money ---
 
-def test_final_price_is_stored_as_cents(db):
-    """Money is integer cents — Numeric degrades to float on SQLite."""
+def test_final_price_is_stored_as_cents_and_never_sent_to_the_screen(db):
+    """Money is integer cents — Numeric degrades to float on SQLite. The crew
+    works from this screen, so the price isn't in what it loads (Alan,
+    2026-10-15)."""
     lead = _lead(db)
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_price=1831.57), user=USER)
-    assert r["job"]["final_price"] == 1831.57
+    assert "final_price" not in r["job"]
+    assert "final_price" not in cc.get_company_cam(lead.id, user=USER)["job"]
     row = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first()
     assert row.final_price_cents == 183157
 
@@ -657,3 +660,24 @@ def test_the_preset_is_offered_with_the_customers_name(db):
     lead = _lead(db, name="Michele Horton")
     out = cc.get_company_cam(lead.id, user=USER)
     assert out["almost_done_default"].startswith("Hey Michele,")
+
+
+def test_the_job_box_pulls_fence_age_and_package_and_learns_coverage(db):
+    import json
+    from database import PayLink
+    lead = _lead(db, form_data=json.dumps({"fence_age": "1-6 years"}))
+    est = _estimate(db, lead, sqft=1288)
+    est.inputs = json.dumps({**json.loads(est.inputs), "fence_age": "6-15 years"})
+    db.add(PayLink(token="t" * 27, lead_id=lead.id, kind="deposit", amount_cents=25000, status="paid", job_tier="signature", created_at="2026-10-03"))
+    db.commit()
+    out = cc.get_company_cam(lead.id, user=USER)
+    assert out["fence_age"] == "6-15 years"  # the priced estimate wins over the form
+    assert out["job"]["package"] == "signature"
+    assert out["coverage"]["all_jobs"] == 0
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(sqft=1288, stain_gallons_used=8), user=USER)
+    other = _lead(db, ghl_contact_id="ghl-other", form_data=json.dumps({"fence_age": "brand new"}))
+    cc.get_company_cam(other.id, user=USER)
+    cc.update_company_cam(other.id, cc.CompanyCamPatch(sqft=1000, stain_gallons_used=4), user=USER)
+    cov = cc.get_company_cam(lead.id, user=USER)["coverage"]
+    assert cov["all_jobs"] == 2 and cov["all_avg"] == round((161 + 250) / 2)
+    assert cov["age_jobs"] == 1 and cov["age_avg"] == 161
