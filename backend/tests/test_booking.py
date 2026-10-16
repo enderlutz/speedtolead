@@ -235,3 +235,29 @@ def test_the_day_in_the_text_always_comes_from_the_booking(db, ghl):
     bk.send_booking(lead.id, bk.SendBody(message=msg), STAFF)   # the same [day] text, a new date
     sms = [x for x in ghl if x[0] == "sms"][-1][1]
     assert bk._long(new_day) in sms and bk._long(day) not in sms and "[day]" not in sms
+
+
+def test_other_services_are_booked_with_the_fence_and_charged_everywhere(db, ghl):
+    """Alan, 2026-10-16: a customer adds a house wash, driveway and patio to
+    the fence. Each is its own line, in the total, on their page, on the
+    calendar, behind Klarna, and one tap onto the final invoice."""
+    from database import PayLink
+    from api import stripe_pay
+    lead, day = _ready(db)
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(
+        date=day, tier="signature", klarna=True,
+        services=[{"name": "House soft wash", "price": 348.62},
+                  {"name": "Driveway, walkways & front porch", "price": 227.36},
+                  {"name": "Back patio cleaning", "price": 148.26},
+                  {"name": "", "price": 0}]), STAFF)
+    assert len(pl.get_booking_draft(lead.id, STAFF)["services"]) == 3
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    assert b["total"] == pytest.approx(997.92 + 348.62 + 227.36 + 148.26)
+    page = bk.booking_page(b["token"], _Req())
+    assert [s["name"] for s in page["services"]] == ["House soft wash", "Driveway, walkways & front porch", "Back patio cleaning"]
+    assert "Also booked: House soft wash" in [x for x in ghl if x[0] == "cal"][-1][3]
+    bk.booking_finance(b["token"], _Req())
+    assert db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "full").one().amount_cents == 172216
+    assert [x["unit_price"] for x in stripe_pay._booked_services(db, lead.id)] == [348.62, 227.36, 148.26]
+    with pytest.raises(HTTPException):
+        pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", services=[{"name": "Gutters", "price": 0}]), STAFF)

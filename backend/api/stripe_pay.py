@@ -343,6 +343,13 @@ def _site_extras(db, lead_id: str) -> list[dict]:
     return [{"name": l["name"], "qty": l["qty"], "unit_price": l["unit_cents"] / 100} for l in ex["lines"]]
 
 
+def _booked_services(db, lead_id: str) -> list[dict]:
+    """Other services on the lead's booking, for the final invoice."""
+    from api.booking import _active, _services
+    b = _active(db, lead_id)
+    return [{"name": sv["name"], "qty": 1, "unit_price": sv["price"]} for sv in _services(b)] if b else []
+
+
 @router.get("/leads/{lead_id}/pay-links")
 def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
     del user
@@ -361,6 +368,8 @@ def list_pay_links(lead_id: str, user: dict = Depends(require_staff)):
             "configured": configured(),
             # Extra repairs the customer agreed to on site, to add to the invoice.
             "site_extras": _site_extras(db, lead_id),
+            # Other services booked with the fence (house wash, driveway…).
+            "booked_services": _booked_services(db, lead_id),
         }
     finally:
         db.close()

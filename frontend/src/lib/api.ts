@@ -566,9 +566,14 @@ export interface BookingDraft {
   repairs_discount_type?: "" | "amount" | "percent";
   repairs_discount_value?: number;
   repairs_discount_label?: string;
+  /** Other services booked with the fence, each with its price. */
+  services?: BookingService[];
   updated_at?: string;
   updated_by?: string;
 }
+
+/** A service booked alongside the fence: house wash, driveway, patio… */
+export interface BookingService { name: string; price: number }
 
 export interface BookingSent {
   token: string; url: string; date: string; tier: string; color: string; notes: string; total: number;
@@ -584,6 +589,7 @@ export interface BookingSent {
   repairs: BookingRepair[];
   repairs_discount: number;
   repairs_discount_label: string;
+  services?: BookingService[];
 }
 
 export interface BookingState {
@@ -2195,7 +2201,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/leads/${leadId}/objections/${objectionId}`, { method: "DELETE" }),
   /** The booking invite drafted on the lead (date, package, colour, notes). */
   getBookingDraft: (leadId: string) => request<BookingDraft>(`/api/leads/${leadId}/booking-draft`),
-  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label" | "repairs" | "repair_counts" | "picket_type" | "post_type" | "repairs_discount_type" | "repairs_discount_value" | "repairs_discount_label">) =>
+  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label" | "repairs" | "repair_counts" | "picket_type" | "post_type" | "repairs_discount_type" | "repairs_discount_value" | "repairs_discount_label" | "services">) =>
     request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
   clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),
@@ -5837,6 +5843,8 @@ export interface PayLinksResponse {
   bill_to?: { name: string; address: string; invoice_number: string };
   /** Extra repairs the customer agreed to on site (Company Cam). */
   site_extras?: { name: string; qty: number; unit_price: number }[];
+  /** Other services on the booking, to add to the final invoice. */
+  booked_services?: { name: string; qty: number; unit_price: number }[];
 }
 export interface StripeSettings { auto_balance_link: boolean; configured: boolean }
 

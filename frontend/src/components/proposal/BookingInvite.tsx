@@ -46,7 +46,7 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -70,6 +70,8 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   /** Dollars off the repairs alone; `total` is already after it. */
   repairsDiscount?: number;
   repairsDiscountLabel?: string;
+  /** Other services booked with the fence; `total` already includes them. */
+  services?: { name: string; price: number }[];
   /** Dollars off the package; `total` is already after it (Alan, 2026-10-15). */
   discount?: number;
   discountLabel?: string;
@@ -96,6 +98,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
 
   const confirmed = state === "confirmed";
   const repairSum = (repairs || []).reduce((t, r) => t + r.qty * r.unit_price, 0);
+  const serviceSum = (services || []).reduce((t, sv) => t + sv.price, 0);
   const paid = confirmed ? (paidAmount || DEPOSIT) : 0;
   const paidInFull = confirmed && total > 0 && paid >= total;
   const balance = Math.max(0, total - (confirmed ? paid : DEPOSIT));
@@ -308,9 +311,9 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
               <div className="border-t border-[#15130F]/10 pt-2">
                 {/* The discount spelled out, so the math reads top to bottom. */}
-                {discount || repairs?.length ? (
+                {discount || repairs?.length || services?.length ? (
                   <>
-                    <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum + (repairsDiscount || 0))} />
+                    <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum + (repairsDiscount || 0) - serviceSum)} />
                     {discount ? <div className="flex justify-between gap-3 font-semibold text-emerald-700">
                       <dt>Your discount{discountLabel ? ` · ${discountLabel}` : ""}</dt>
                       <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(discount || 0)}</dd>
@@ -330,7 +333,8 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                     <dd className="whitespace-nowrap text-right tabular-nums">− {formatCurrency(repairsDiscount)}</dd>
                   </div>
                 ) : null}
-                <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length)} />
+                {services?.map((sv) => <Row key={sv.name} k={sv.name} v={formatCurrency(sv.price)} />)}
+                <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length || services?.length)} />
                 <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />
               </div>

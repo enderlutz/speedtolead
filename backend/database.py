@@ -4129,6 +4129,9 @@ class Booking(Base):
     # A discount on the repairs alone (Alan, 2026-10-15).
     repairs_discount_cents = Column(Integer, nullable=True)
     repairs_discount_label = Column(Text, default="")
+    # Other services booked with the fence, [{name, price}] (Alan, 2026-10-16).
+    services_json = Column(Text, nullable=True)
+    services_cents = Column(Integer, nullable=True)
 
 
 class ReferralCode(Base):
@@ -4285,7 +4288,8 @@ def _run_migrations():
         with _engine.begin() as conn:
             for col, typ in (("price_cents", "INTEGER"), ("discount_cents", "INTEGER"), ("discount_label", "TEXT DEFAULT ''"),
                              ("repairs_json", "TEXT"), ("repairs_cents", "INTEGER"),
-                             ("repairs_discount_cents", "INTEGER"), ("repairs_discount_label", "TEXT DEFAULT ''")):
+                             ("repairs_discount_cents", "INTEGER"), ("repairs_discount_label", "TEXT DEFAULT ''"),
+                             ("services_json", "TEXT"), ("services_cents", "INTEGER")):
                 if col not in bk:
                     conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col} {typ}"))
     if inspector.has_table("proposals"):

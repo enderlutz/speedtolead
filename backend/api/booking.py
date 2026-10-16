@@ -122,6 +122,7 @@ def _staff_dict(db, lead: Lead, b: Booking | None) -> dict:
         "repairs": _repairs(b),
         "repairs_discount": (b.repairs_discount_cents or 0) / 100,
         "repairs_discount_label": b.repairs_discount_label or "",
+        "services": _services(b),
     }
 
 
@@ -132,6 +133,14 @@ def _repairs(b: Booking) -> list[dict]:
         return []
     return [{"name": r.get("name", ""), "qty": int(r.get("qty") or 0), "unit_price": float(r.get("unit_price") or 0)}
             for r in lines if isinstance(r, dict)]
+
+
+def _services(b: Booking) -> list[dict]:
+    try:
+        lines = json.loads(b.services_json or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [{"name": r.get("name", ""), "price": float(r.get("price") or 0)} for r in lines if isinstance(r, dict)]
 
 
 def _state(db, lead: Lead) -> dict:
@@ -178,6 +187,7 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
         *[f"Repair: {r['name']} × {r['qty']} @ {hooks.money(r['unit_price'])} = {hooks.money(r['qty'] * r['unit_price'])}" for r in _repairs(b)],
         *([f"Repairs discount{(' ' + b.repairs_discount_label) if b.repairs_discount_label else ''}: -{hooks.money(b.repairs_discount_cents / 100)}"] if b.repairs_discount_cents else []),
+        *[f"Also booked: {sv['name']} {hooks.money(sv['price'])}" for sv in _services(b)],
         *[f"Added on site: {l['name']} × {l['qty']} @ {hooks.money(l['unit_cents'] / 100)} = {hooks.money(l['qty'] * l['unit_cents'] / 100)}"
           for l in extras["lines"]],
         f"Due after the job: {hooks.money(due + extras['total_cents'] / 100)}",
@@ -317,8 +327,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         roff = max(0, min(roff, repairs_cents))
         b.repairs_discount_cents = roff or None
         b.repairs_discount_label = (d.get("repairs_discount_label") or "").strip() if roff else ""
+        # Other services booked with the fence, at the price agreed.
+        services = [sv for sv in (d.get("services") or []) if isinstance(sv, dict) and sv.get("name")]
+        services_cents = sum(int(round(float(sv.get("price") or 0) * 100)) for sv in services)
+        b.services_json = json.dumps(services) if services else None
+        b.services_cents = services_cents or None
         # What they pay: the deposit, the balance and Klarna all go by this.
-        b.total_cents = price_cents - off + repairs_cents - roff
+        b.total_cents = price_cents - off + repairs_cents - roff + services_cents
         url = booking_url(b.token)
 
         if not body.notify:
@@ -444,6 +459,7 @@ def booking_page(token: str, request: Request, preview: int = 0):
             "repairs": _repairs(b),
             "repairs_discount": (b.repairs_discount_cents or 0) / 100,
             "repairs_discount_label": b.repairs_discount_label or "",
+            "services": _services(b),
         }
     finally:
         db.close()

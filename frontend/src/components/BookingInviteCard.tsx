@@ -24,7 +24,11 @@ type Draft = {
   counts: Record<string, number>; picketType: string; postType: string;
   /** A discount on the repairs alone. */
   rtype: "amount" | "percent"; rval: string; rlabel: string;
+  /** Other services booked with the fence (Alan, 2026-10-16), price as typed. */
+  services: { name: string; price: string }[];
 };
+// One tap adds the line; the price is typed (it comes from their estimate).
+const SERVICE_PICKS = ["House soft wash", "Driveway, walkways & front porch", "Back patio cleaning", "Gutter cleaning", "Window cleaning", "Roof soft wash"];
 const TIERS: { key: Tier; name: string }[] = [
   { key: "essential", name: "Essential Seal" },
   { key: "signature", name: "Signature Finish" },
@@ -51,7 +55,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "" });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [] });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -93,6 +97,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
         rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
+        services: (d.services || []).map((x) => ({ name: x.name, price: String(x.price) })),
       }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
@@ -120,7 +125,12 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     const o = draft.rtype === "percent" ? Math.round(repairs * Math.min(v, 100)) / 100 : v;
     return Math.min(Math.round(o * 100) / 100, repairs);
   })();
-  const total = Math.round((price - off + repairs - roff) * 100) / 100;
+  const serviceLines = draft.services.map((x) => ({ name: x.name.trim(), price: Math.round((Number(x.price) || 0) * 100) / 100 }))
+    .filter((x) => x.name && x.price > 0);
+  const servicesSum = serviceLines.reduce((t, x) => t + x.price, 0);
+  const total = Math.round((price - off + repairs - roff + servicesSum) * 100) / 100;
+  const setService = (i: number, patch: Partial<{ name: string; price: string }>) =>
+    setDraft((d) => ({ ...d, services: d.services.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
   const [repairsOpen, setRepairsOpen] = useState(false);
   const bump = (key: string, by: number) =>
     setDraft((d) => ({ ...d, counts: { ...d.counts, [key]: Math.max(0, (d.counts[key] || 0) + by) } }));
@@ -132,7 +142,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
     || JSON.stringify((saved.repairs || []).map((r) => [r.name, r.qty, r.unit_price])) !== JSON.stringify(lines.map((r) => [r.name, r.qty, r.unit_price]))
     || (saved.repairs_discount_value || 0) !== (roff ? Number(draft.rval) || 0 : 0)
     || (saved.repairs_discount_label || "") !== (roff ? draft.rlabel : "")
-    || ((saved.repairs_discount_value ? saved.repairs_discount_type : "") || "") !== (roff ? draft.rtype : "");
+    || ((saved.repairs_discount_value ? saved.repairs_discount_type : "") || "") !== (roff ? draft.rtype : "")
+    || JSON.stringify((saved.services || []).map((x) => [x.name, x.price])) !== JSON.stringify(serviceLines.map((x) => [x.name, x.price]));
   const sent = st?.booking || null;
   // The card says something different from what they have: a different day,
   // package, price or note. Lights up "Update without texting".
@@ -148,6 +159,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       repair_counts: draft.counts, picket_type: draft.picketType, post_type: draft.postType,
       repairs_discount_type: roff ? draft.rtype : "", repairs_discount_value: roff ? Number(draft.rval) || 0 : 0,
       repairs_discount_label: roff ? draft.rlabel : "",
+      services: serviceLines,
     });
     setSt((s) => (s ? { ...s, draft: d } : s));
     return d;
@@ -383,12 +395,43 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           </ul>
         ) : null}
       </div>
-      {off || repairs ? (
+      {/* Other services booked with the fence (Alan, 2026-10-16): house wash,
+          driveway, patio… Each is its own line on their page and in the
+          total, so the deposit, balance and Klarna all include it. */}
+      <div className="space-y-2 rounded-xl border border-input p-3">
+        <p className="text-sm"><span className="font-semibold">Other services</span> <span className="text-muted-foreground">· anything else they're booking with the fence</span></p>
+        <div className="flex flex-wrap gap-1.5">
+          {SERVICE_PICKS.filter((n) => !draft.services.some((x) => x.name === n)).map((n) => (
+            <button key={n} type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: n, price: "" }] }))}
+              className="min-h-10 rounded-full border border-input bg-background px-3 text-sm font-medium hover:bg-muted">+ {n}</button>
+          ))}
+          <button type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: "", price: "" }] }))}
+            className="min-h-10 rounded-full border border-dashed border-input px-3 text-sm font-medium text-muted-foreground hover:bg-muted">+ Something else</button>
+        </div>
+        {draft.services.map((x, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input value={x.name} maxLength={80} placeholder="Service" aria-label={`Service ${i + 1}`}
+              onChange={(e) => setService(i, { name: e.target.value })}
+              className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-base" />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+              <input inputMode="decimal" value={x.price} placeholder="0.00" aria-label={`Price for service ${i + 1}`}
+                onChange={(e) => setService(i, { price: e.target.value.replace(/[^0-9.]/g, "") })}
+                className="h-11 w-28 rounded-lg border border-input bg-background pl-6 pr-2 text-base tabular-nums" />
+            </div>
+            <button type="button" aria-label={`Remove ${x.name || "service"}`} onClick={() => setDraft((d) => ({ ...d, services: d.services.filter((_, k) => k !== i) }))}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-input text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+          </div>
+        ))}
+        {serviceLines.length ? <p className="text-right text-sm font-semibold tabular-nums">+ {formatCurrency(servicesSum)}</p> : null}
+      </div>
+      {off || repairs || servicesSum ? (
         <p className="rounded-xl bg-muted/60 px-3 py-2 text-sm">
           {formatCurrency(price)} {tiers ? TIERS.find((t) => t.key === draft.tier)?.name : ""}
           {off ? <span className="text-emerald-700"> − {formatCurrency(off)} discount</span> : null}
           {repairs ? <span> + {formatCurrency(repairs)} repairs</span> : null}
           {roff ? <span className="text-emerald-700"> − {formatCurrency(roff)} repairs discount</span> : null}
+          {servicesSum ? <span> + {formatCurrency(servicesSum)} other services</span> : null}
           {" "}= <span className="font-bold">{formatCurrency(total)}</span>
         </p>
       ) : null}
@@ -467,6 +510,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           repairs={lines}
           repairsDiscount={roff}
           repairsDiscountLabel={draft.rlabel}
+          services={serviceLines}
           staff
           onClose={() => setPreview(false)}
           onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
@@ -492,6 +536,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           repairs={sent.repairs}
           repairsDiscount={sent.repairs_discount}
           repairsDiscountLabel={sent.repairs_discount_label}
+          services={sent.services || []}
           staff
           onClose={() => setPreviewSent(false)}
           onSave={() => setPreviewSent(false)}

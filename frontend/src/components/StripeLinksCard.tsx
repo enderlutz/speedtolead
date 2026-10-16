@@ -153,7 +153,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
         </span>
         <ReviewPicture on={askReview} />
       </label>
-      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} editing={editing} siteExtras={data?.site_extras} onStopEditing={() => setEditing(null)}
+      <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} editing={editing} siteExtras={data?.site_extras} bookedServices={data?.booked_services} onStopEditing={() => setEditing(null)}
         onMade={async (l) => { if (editing) { toast.success("Invoice updated. Same link, so a text already sent shows the new lines."); setEditing(null); } else await copy(l); load(); setOther(null); setComposing(l.token); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
@@ -354,12 +354,13 @@ const num = (v: string) => Number(String(v).replace(/[$,\s]/g, "")) || 0;
 const blankRow = (): Row => ({ key: Math.random(), name: "", description: "", qty: "1", amount: "", discount: null, discountLabel: "" });
 const qtyOf = (r: Row) => Math.max(1, Math.floor(Number(r.qty) || 1));
 
-function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing, siteExtras = [] }: {
+function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = null, onStopEditing, siteExtras = [], bookedServices = [] }: {
   leadId: string; billTo?: { name: string; address: string; invoice_number: string }; onMade: (l: PayLinkEntry) => void | Promise<void>; askReview?: boolean;
   /** An unpaid invoice to load back in and change (Alan, 2026-10-15). */
   editing?: PayLinkEntry | null; onStopEditing?: () => void;
   /** Extra repairs the customer agreed to on site (Company Cam), to add as lines. */
   siteExtras?: { name: string; qty: number; unit_price: number }[];
+  bookedServices?: { name: string; qty: number; unit_price: number }[];
 }) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -548,6 +549,17 @@ function InvoiceBuilder({ leadId, billTo, onMade, askReview = true, editing = nu
                   }}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-amber-100 px-2 text-xs font-semibold text-amber-900 hover:bg-amber-200">
             <Plus className="h-3.5 w-3.5" /> On-site extras ({siteExtras.reduce((t, x) => t + x.qty, 0)})
+          </button>
+        ) : null}
+        {bookedServices.length ? (
+          <button type="button" title={bookedServices.map((x) => `${x.name} ${formatCurrency(x.unit_price)}`).join("\n")}
+                  onClick={() => {
+                    setRows((rs) => [...rs.filter((r) => r.name.trim() || num(r.amount)),
+                      ...bookedServices.map((x) => ({ ...blankRow(), name: x.name, description: "Booked with the fence", qty: String(x.qty), amount: String(x.unit_price) }))]);
+                    toast.success("Added the other services they booked");
+                  }}
+                  className="inline-flex h-8 items-center gap-1 rounded-md bg-sky-100 px-2 text-xs font-semibold text-sky-900 hover:bg-sky-200">
+            <Plus className="h-3.5 w-3.5" /> Booked services ({bookedServices.length})
           </button>
         ) : null}
         {!whole && (

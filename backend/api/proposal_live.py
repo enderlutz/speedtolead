@@ -550,6 +550,28 @@ class BookingDraftBody(BaseModel):
     repairs_discount_type: str = ""
     repairs_discount_value: float = 0
     repairs_discount_label: str = ""
+    # Other services booked with the fence (house wash, driveway, patio…),
+    # one line each with its price (Alan, 2026-10-16).
+    services: list[dict] = []
+
+
+def clean_services(raw) -> list[dict]:
+    """Other services on the booking: a name and a price each, checked."""
+    out = []
+    for r in (raw or [])[:10]:
+        if not isinstance(r, dict):
+            raise HTTPException(status_code=400, detail="A service line doesn't add up.")
+        try:
+            name = str(r.get("name") or "").strip()[:80]
+            price = round(float(r.get("price") or 0), 2)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="A service line doesn't add up.")
+        if not name and not price:
+            continue
+        if not name or price <= 0 or price > 20000:
+            raise HTTPException(status_code=400, detail="Each service needs a name and a price.")
+        out.append({"name": name, "price": price})
+    return out
 
 
 def _booking_draft(lead: Lead) -> dict:
@@ -608,6 +630,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
         raise HTTPException(status_code=400, detail="That repairs discount doesn't add up. Use dollars, or a percent up to 100.")
     if not rval:
         rtype = ""
+    services = clean_services(body.services)
     db = get_db()
     try:
         lead = db.query(Lead).filter(Lead.id == lead_id).first()
@@ -627,6 +650,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
             "picket_type": (body.picket_type or "")[:20], "post_type": (body.post_type or "")[:20],
             "repairs_discount_type": rtype, "repairs_discount_value": rval,
             "repairs_discount_label": (body.repairs_discount_label or "").strip()[:60] if rtype else "",
+            "services": services,
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)
