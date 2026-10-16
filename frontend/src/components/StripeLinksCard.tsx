@@ -153,7 +153,7 @@ export function StripeLinksCard({ leadId }: { leadId: string }) {
         <ReviewPicture on={askReview} />
       </label>
       <InvoiceBuilder leadId={leadId} billTo={data?.bill_to} askReview={askReview} editing={editing} onStopEditing={() => setEditing(null)}
-        onMade={async (l) => { if (editing) { toast.success("Invoice updated. Same link, so a text already sent shows the new lines."); setEditing(null); } else await copy(l); load(); }} />
+        onMade={async (l) => { if (editing) { toast.success("Invoice updated. Same link, so a text already sent shows the new lines."); setEditing(null); } else await copy(l); load(); setOther(null); setComposing(l.token); }} />
       {data && data.links.length ? (
         <ul className="mt-2 space-y-1">
           {data.links.map((l) => (
@@ -250,8 +250,8 @@ function Compose({ token, who, other = false, name = "", onSend, onCancel }: {
   if (!preset) return <p className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Loading the text…</p>;
   return (
     <div className="space-y-1.5">
-      <p className="text-[11px] font-semibold text-muted-foreground">Text to {who}. Edit it if you want, then send.</p>
-      <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={5} autoFocus className="w-full rounded-md border border-border bg-background p-2 text-sm leading-snug" />
+      <p className="text-xs font-semibold text-emerald-800">✏️ Text to {who}. Tap in the box to change the words, then Send text.</p>
+      <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={5} autoFocus className="w-full rounded-md border-2 border-emerald-500/60 bg-background p-2 text-[15px] leading-snug" />
       {missing ? <p className="text-[11px] font-semibold text-rose-600">The pay link is missing from the text. Put it back or tap Reset, or they can't pay.</p> : null}
       <div className="flex items-center gap-1.5">
         <span className="text-[11px] text-muted-foreground tabular-nums">{msg.length} characters</span>
