@@ -633,6 +633,8 @@ export interface LeadDetail extends Lead {
     /** On the phone with them when the estimate went out, 30s+ after it. */
     on_call_at_send?: boolean;
   } | null;
+  /** Where the lead came from: website, Facebook ad (with the ad), called in… */
+  source?: { channel: string; label: string; campaign: string; ad_set: string; ad: string } | null;
   /** Company Cam progress, read only. Photo counts per section. */
   job_progress?: {
     photos: Record<string, number>;

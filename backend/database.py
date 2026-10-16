@@ -574,6 +574,16 @@ class Contact(Base):
     postal_code = Column(Text, default="")
     country = Column(Text, default="")
     source = Column(Text, default="")
+    # Where they came from (services/lead_channel.py): website, facebook_ad,
+    # facebook_messenger, phone_call, added_by_team; plus the Meta campaign,
+    # ad set and ad (names and ids) on an ad lead. Refreshed every sweep.
+    channel = Column(Text, default="")
+    ad_campaign = Column(Text, default="")
+    ad_campaign_id = Column(Text, default="")
+    ad_set = Column(Text, default="")
+    ad_set_id = Column(Text, default="")
+    ad_name = Column(Text, default="")
+    ad_id = Column(Text, default="")
     contact_type = Column(Text, default="")      # GHL "type": lead | customer
     tags_json = Column(Text, default="[]")
     # GHL's own do-not-disturb flag. Mirrored so the contact list can show it;
@@ -4469,6 +4479,11 @@ def _run_migrations():
 
     if inspector.has_table("contacts"):
         contact_cols = {c["name"] for c in inspector.get_columns("contacts")}
+        for col in ("channel", "ad_campaign", "ad_campaign_id", "ad_set", "ad_set_id", "ad_name", "ad_id"):
+            if col not in contact_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE contacts ADD COLUMN {col} TEXT DEFAULT ''"))
+                logger.info(f"Migration: added contacts.{col}")
         if "dnd_sms" not in contact_cols:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE contacts ADD COLUMN dnd_sms BOOLEAN DEFAULT FALSE"))

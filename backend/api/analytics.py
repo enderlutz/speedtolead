@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, Query, Depends
 from api.auth import require_staff
+from sqlalchemy import func
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Proposal, ScheduledJob
 import clock
@@ -1086,7 +1087,9 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
     db = get_db()
     try:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        q = db.query(Lead).filter(Lead.created_at >= since)
+        # When they came in by GHL's clock: created_at on a mirrored row is
+        # its import time, which would bunch months of history into one day.
+        q = db.query(Lead).filter(func.coalesce(func.nullif(Lead.ghl_created_at, ""), Lead.created_at) >= since)
         q = _apply_pipeline_filter(q, pipeline_version)
         leads = q.all()
 
@@ -1116,13 +1119,25 @@ def get_lead_sources(pipeline_version: str | None = Query(None), days: int = 90)
         # Bulk-loaded so we don't pay N queries.
         collected_by_lead = _collected_by_lead(db, lead_ids)
 
+        # Where each lead really came from: the GHL contact's channel
+        # (website, Facebook ad, Messenger, called in…), unless someone set
+        # the source by hand. "ad" used to be the default for everything.
+        from database import Contact
+        from services.lead_channel import LABELS as CHANNEL_LABELS, lead_channel
+        channel_by_lead: dict[str, str] = {}
+        if lead_ids:
+            for lid, ch in (db.query(Contact.lead_id, Contact.channel)
+                            .filter(Contact.lead_id.in_(lead_ids)).all()):
+                if ch:
+                    channel_by_lead[lid] = ch
+
         buckets: dict[str, dict] = {}
         for l in leads:
-            src = (l.lead_source or "ad").strip() or "ad"
+            src = lead_channel(l.lead_source, channel_by_lead.get(l.id))
             if src not in buckets:
                 buckets[src] = {
                     "key": src,
-                    "label": _SOURCE_LABELS.get(src, src.replace("_", " ").title()),
+                    "label": CHANNEL_LABELS.get(src) or _SOURCE_LABELS.get(src, src.replace("_", " ").title()),
                     "leads": 0,
                     "sent": 0,
                     "closed": 0,

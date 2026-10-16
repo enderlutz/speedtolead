@@ -1453,6 +1453,15 @@ export default function LeadDetail() {
             sentAt={estimate?.sent_at}
             declined={(((lead.form_data as Record<string, unknown> | undefined)?.decline_reasons as string[] | undefined) || []).length}
           />
+          {/* Where they came from (Alan, 2026-10-16): website leads were
+              being filed as ads. The ad's name rides along for ad leads. */}
+          {lead.source ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground"
+               title={[lead.source.campaign, lead.source.ad_set, lead.source.ad].filter(Boolean).join(" › ")}>
+              From: <span className="font-medium text-foreground">{lead.source.label}</span>
+              {lead.source.ad || lead.source.campaign ? ` · ${lead.source.ad || lead.source.campaign}` : ""}
+            </p>
+          ) : null}
         </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:shrink-0 sm:justify-end">

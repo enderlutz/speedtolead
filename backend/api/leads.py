@@ -856,6 +856,23 @@ def get_lead(lead_id: str):
             logger.exception("intake summary failed for %s", lead.id)
             result["intake"] = None
 
+        # Where they came from: website, which Facebook ad, called in…
+        try:
+            from database import Contact
+            from services.lead_channel import LABELS, lead_channel
+            crow = db.query(Contact).filter(Contact.lead_id == lead.id).first()
+            ch = lead_channel(lead.lead_source, crow.channel if crow else "")
+            result["source"] = {
+                "channel": ch,
+                "label": LABELS.get(ch, ch.replace("_", " ").title()),
+                "campaign": (crow.ad_campaign or "") if crow else "",
+                "ad_set": (crow.ad_set or "") if crow else "",
+                "ad": (crow.ad_name or "") if crow else "",
+            }
+        except Exception:
+            logger.exception("lead source failed for %s", lead.id)
+            result["source"] = None
+
         # Where the job is, from Company Cam — read only, so opening a lead
         # never creates a Company Cam record. Drives the job row of the
         # customer journey: colour chosen, getting cleaned, getting stained.

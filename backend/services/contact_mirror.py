@@ -24,6 +24,8 @@ account attaches to the lead they already had instead of doubling up.
 """
 from __future__ import annotations
 import json
+
+from services.lead_channel import classify as classify_channel
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -275,6 +277,11 @@ def sync_contacts(location_id: str | None = None, location_label: str = "",
                 row.country = (c.get("country") or "").strip()
                 row.source = (c.get("source") or "").strip()
                 row.contact_type = (c.get("type") or "").strip()
+                src = classify_channel(c)
+                row.channel = src["channel"]
+                row.ad_campaign, row.ad_campaign_id = src["campaign"], src["campaign_id"]
+                row.ad_set, row.ad_set_id = src["ad_set"], src["ad_set_id"]
+                row.ad_name, row.ad_id = src["ad"], src["ad_id"]
                 row.tags_json = json.dumps(c.get("tags") or [])
                 row.dnd = bool(c.get("dnd"))
                 row.dnd_sms, row.dnd_note = sms_dnd(c)
