@@ -353,11 +353,19 @@ def impersonate_user(user_id: str, user: dict = Depends(require_perm("manage_use
     'return to your account' banner. Gated on manage_users (admin-only)."""
     db = get_db()
     try:
+        # Admins only, checked on the account itself, not just the
+        # manage_users permission a VA could be given (Alan, 2026-10-16: "make
+        # sure Alan's the only person who can do this, and Fragne").
+        me = db.query(User).filter(User.username == user.get("sub")).first()
+        if not me or me.role != "admin" or user.get("impersonated_by"):
+            raise HTTPException(403, "Only an admin, signed in as themselves, can log in as someone else.")
         target = db.query(User).filter(User.id == user_id).first()
         if not target:
             raise HTTPException(404, "User not found")
         if target.username == user.get("sub"):
             raise HTTPException(400, "You're already on this account.")
+        if target.role == "admin":
+            raise HTTPException(400, "You can't log in as another admin.")
         perms = perms_for_user(db, target)
         imp = {"sub": user.get("sub", ""), "name": user.get("name", "")}
         logger.info(f"[IMPERSONATE] {user.get('sub')} → {target.username}")

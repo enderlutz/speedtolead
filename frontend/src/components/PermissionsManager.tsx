@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { api, getCurrentUser, startImpersonation, type AdminUser, type PermissionCatalog } from "@/lib/api";
+import { api, getCurrentUser, isImpersonating, startImpersonation, type AdminUser, type PermissionCatalog } from "@/lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -128,7 +128,7 @@ function UserRow({
           className="text-[10px] uppercase tracking-wide bg-muted px-1.5 py-0.5 rounded"
           title={u.job_title ? `Job title. Access is still ${ROLE_LABEL[u.role] || u.role}.` : undefined}
         >{u.job_title || ROLE_LABEL[u.role] || u.role}</span>
-        {u.username !== currentUsername && (
+        {u.username !== currentUsername && u.role !== "admin" && getCurrentUser()?.role === "admin" && !isImpersonating() && (
           <button onClick={switchTo} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2.5 text-xs font-semibold text-primary hover:bg-primary/20" title={`See exactly what ${u.display_name || u.username} sees`}>
             <LogIn className="h-3.5 w-3.5" /> Log in as {(u.display_name || u.username).split(" ")[0]}
           </button>

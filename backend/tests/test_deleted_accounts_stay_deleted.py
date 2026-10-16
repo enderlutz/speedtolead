@@ -27,3 +27,22 @@ def test_a_deleted_seeded_account_is_not_recreated_on_restart(db, monkeypatch):
     # Making it again by hand brings it back for good.
     perms.create_user(perms.CreateUserBody(username="EduardoElvir", password="x1234567", role="worker"), user=ADMIN)
     assert not auth.was_deleted(db, "EduardoElvir")
+
+
+def test_only_an_admin_signed_in_as_themselves_can_log_in_as_someone(db, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    monkeypatch.setattr(perms, "get_db", lambda: db)
+    db.close = lambda: None
+    db.add(User(id="alan", username="alanbonner", display_name="Alan", password_hash="x", role="admin", created_at=""))
+    db.add(User(id="frag", username="fragned", display_name="Fragne", password_hash="x", role="admin", created_at=""))
+    db.add(User(id="olga", username="olga", display_name="Olga", password_hash="x", role="va", permissions='{"manage_users": true}', created_at=""))
+    db.add(User(id="chris", username="ChrisMoran", display_name="Chris Moran", password_hash="x", role="worker", created_at=""))
+    db.commit()
+    out = perms.impersonate_user("chris", user=ADMIN)
+    assert out["user"]["username"] == "ChrisMoran" and out["user"]["impersonated_by"]["sub"] == "alanbonner"
+    for who, target in (({"sub": "olga", "role": "va"}, "chris"),                       # a VA, even with manage_users
+                        ({"sub": "ChrisMoran", "role": "worker", "impersonated_by": {"sub": "alanbonner"}}, "olga"),  # already switched
+                        (ADMIN, "frag")):                                                # into another admin
+        with pytest.raises(HTTPException):
+            perms.impersonate_user(target, user=who)

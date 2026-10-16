@@ -16,13 +16,13 @@ export default function ImpersonationBanner() {
   };
 
   return (
-    <div className="bg-amber-500 text-white text-xs sm:text-sm px-3 py-1.5 flex items-center justify-center gap-3 shrink-0">
+    <div className="bg-amber-500 text-white text-sm px-3 py-2 flex items-center justify-center gap-3 shrink-0">
       <span className="flex items-center gap-1.5 min-w-0">
         <UserCheck className="h-4 w-4 shrink-0" />
         <span className="truncate">Viewing as <strong>{u.name || u.sub}</strong>{u.impersonated_by ? ` — signed in by ${u.impersonated_by.name || u.impersonated_by.sub}` : ""}</span>
       </span>
-      <button onClick={back} className="underline font-semibold hover:no-underline shrink-0">
-        Return to your account
+      <button onClick={back} className="shrink-0 rounded-md bg-white px-3 py-1.5 font-bold text-amber-700 shadow-sm hover:bg-amber-50">
+        Back to my account
       </button>
     </div>
   );
