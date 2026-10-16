@@ -16,7 +16,10 @@ interface PricingConfig {
   tier_rates: Record<string, TierRates | null>;
   zones: { base: string[]; blue: string[]; purple: string[] };
   zone_surcharges: Record<string, number>;
-  surcharge: { rate: number; min_sqft: number; max_sqft: number };
+  /** "Up to N sq ft adds R per sq ft"; over the last tier adds nothing. */
+  size_tiers: { up_to: number; rate: number }[];
+  /** The least a job can come to (Essential). */
+  min_job_price: number;
 }
 
 const AGE_LABELS: Record<string, string> = {
@@ -29,7 +32,7 @@ const AGE_LABELS: Record<string, string> = {
 const ZONE_META: { key: "base" | "blue" | "purple"; label: string; desc: string; driveTime: string; dotCls: string; bgCls: string; chipCls: string; surchargeKey: string }[] = [
   { key: "base", label: "Base Zone", desc: "Home base area — Cypress and surrounding. No surcharge applied.", driveTime: "0-30 min drive", dotCls: "bg-green-500", bgCls: "from-green-800 to-green-700", chipCls: "bg-green-700 text-green-100", surchargeKey: "Base" },
   { key: "blue", label: "Blue Zone", desc: "Extended service area — includes The Woodlands, Katy, Memorial area.", driveTime: "30-45 min drive", dotCls: "bg-blue-500", bgCls: "from-blue-800 to-blue-700", chipCls: "bg-blue-700 text-blue-100", surchargeKey: "Blue" },
-  { key: "purple", label: "Purple Zone", desc: "Outer service area — Sugar Land, Conroe, inner Houston, Humble/Kingwood.", driveTime: "45-70 min drive", dotCls: "bg-purple-500", bgCls: "from-purple-800 to-purple-700", chipCls: "bg-purple-700 text-purple-100", surchargeKey: "Purple" },
+  { key: "purple", label: "Purple Zone", desc: "Outer service area — Sugar Land, Conroe, inner Houston, Humble/Kingwood.", driveTime: "45-75 min drive", dotCls: "bg-purple-500", bgCls: "from-purple-800 to-purple-700", chipCls: "bg-purple-700 text-purple-100", surchargeKey: "Purple" },
 ];
 
 export default function Pricing() {
@@ -253,37 +256,50 @@ export default function Pricing() {
         </CardContent>
       </Card>
 
-      {/* Size Surcharge */}
+      {/* Size surcharge (Alan, 2026-10-16): steps down as the fence grows,
+          plus a minimum job. A bigger fence is never quoted less than a
+          smaller one; the engine eases the add-on off at each step. */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Ruler className="h-4 w-4" /> Size Surcharge
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Rate ($/sqft)</label>
-              <Input type="number" step="0.01" value={config.surcharge.rate}
-                onChange={(e) => setConfig({ ...config, surcharge: { ...config.surcharge, rate: parseFloat(e.target.value) || 0 } })}
-                className="h-8 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Min Sqft</label>
-              <Input type="number" value={config.surcharge.min_sqft}
-                onChange={(e) => setConfig({ ...config, surcharge: { ...config.surcharge, min_sqft: parseInt(e.target.value) || 0 } })}
-                className="h-8 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Max Sqft</label>
-              <Input type="number" value={config.surcharge.max_sqft}
-                onChange={(e) => setConfig({ ...config, surcharge: { ...config.surcharge, max_sqft: parseInt(e.target.value) || 0 } })}
-                className="h-8 text-sm" />
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Surcharge of ${config.surcharge.rate}/sqft applied to jobs between {config.surcharge.min_sqft}-{config.surcharge.max_sqft} sqft
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Small fences cost the same to set up, wash and drive to, so they pay a bit more per sq ft. Added on top of the package rate.
           </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {(config.size_tiers || []).map((t, i) => {
+              const from = i === 0 ? 0 : config.size_tiers[i - 1].up_to;
+              const set = (patch: Partial<{ up_to: number; rate: number }>) =>
+                setConfig({ ...config, size_tiers: config.size_tiers.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
+              return (
+                <div key={i} className="rounded-lg border p-3 space-y-2">
+                  <div className="text-xs font-semibold">{from === 0 ? "Under" : `${from.toLocaleString()} to`} {t.up_to.toLocaleString()} sq ft</div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground w-16" htmlFor={`tier-rate-${i}`}>+$/sq ft</label>
+                    <Input id={`tier-rate-${i}`} type="number" step="0.01" value={t.rate}
+                      onChange={(e) => set({ rate: parseFloat(e.target.value) || 0 })} className="h-8 text-sm" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground w-16" htmlFor={`tier-upto-${i}`}>Up to</label>
+                    <Input id={`tier-upto-${i}`} type="number" step="50" value={t.up_to}
+                      onChange={(e) => set({ up_to: parseInt(e.target.value) || 0 })} className="h-8 text-sm" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Over {(config.size_tiers?.[config.size_tiers.length - 1]?.up_to || 0).toLocaleString()} sq ft: no surcharge.
+          </p>
+          <div className="flex items-center gap-2 max-w-xs">
+            <label className="text-xs font-medium text-muted-foreground whitespace-nowrap" htmlFor="min-job">Minimum job ($)</label>
+            <Input id="min-job" type="number" step="25" value={config.min_job_price}
+              onChange={(e) => setConfig({ ...config, min_job_price: parseFloat(e.target.value) || 0 })} className="h-8 text-sm" />
+          </div>
+          <p className="text-xs text-muted-foreground">Essential never comes in under this; Signature and Legacy keep their gap above it.</p>
         </CardContent>
       </Card>
     </div>

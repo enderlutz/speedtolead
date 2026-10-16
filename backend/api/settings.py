@@ -25,16 +25,24 @@ def get_pricing():
     """Return full pricing config with defaults for fence_staining."""
     from services.estimator import (
         BASE_ZONE_ZIPS, BLUE_ZONE_ZIPS, PURPLE_ZONE_ZIPS,
-        TIER_RATES, SIZE_SURCHARGE_RATE, SIZE_SURCHARGE_MIN, SIZE_SURCHARGE_MAX,
-        ZONE_SURCHARGES,
+        TIER_RATES, SIZE_TIERS, MIN_JOB_PRICE, ZONE_SURCHARGES,
     )
+    # Zone add-ons are priced from the code, so show those (a saved copy
+    # here once read 2¢/5¢ while estimates used 8¢/12¢). The size tiers and
+    # minimum come from the saved config when set; the old flat band is gone.
+    live = {
+        "zone_surcharges": {k: v for k, v in ZONE_SURCHARGES.items() if v is not None},
+    }
     db = get_db()
     try:
         cfg = db.query(PricingConfig).filter(PricingConfig.service_type == "fence_staining").first()
         if cfg and cfg.config:
             data = json.loads(cfg.config) if isinstance(cfg.config, str) else cfg.config
             if data:
-                return {"service_type": "fence_staining", "config": data}
+                data = {k: v for k, v in data.items() if k != "surcharge"}
+                data.setdefault("size_tiers", SIZE_TIERS)
+                data.setdefault("min_job_price", MIN_JOB_PRICE)
+                return {"service_type": "fence_staining", "config": {**data, **live}}
 
         # Return defaults
         return {
@@ -46,12 +54,9 @@ def get_pricing():
                     "blue": sorted(BLUE_ZONE_ZIPS),
                     "purple": sorted(PURPLE_ZONE_ZIPS),
                 },
-                "zone_surcharges": {k: v for k, v in ZONE_SURCHARGES.items() if v is not None},
-                "surcharge": {
-                    "rate": SIZE_SURCHARGE_RATE,
-                    "min_sqft": SIZE_SURCHARGE_MIN,
-                    "max_sqft": SIZE_SURCHARGE_MAX,
-                },
+                **live,
+                "size_tiers": SIZE_TIERS,
+                "min_job_price": MIN_JOB_PRICE,
             },
         }
     finally:

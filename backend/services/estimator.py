@@ -49,10 +49,30 @@ TIER_RATES: dict[str, dict[str, float] | None] = {
     "15plus":    None,
 }
 
-SIZE_SURCHARGE_RATE = 0.12
-SIZE_SURCHARGE_MIN = 500
-SIZE_SURCHARGE_MAX = 1000
+# --- Size surcharge (Alan, 2026-10-16: "Realistic Size Surcharges") ---
+# Small fences carry the same setup, wash and drive as big ones, so they pay
+# more per sq ft, stepping down as the fence grows. This replaced a flat
+# +$0.25/sqft that only applied between 500 and 1,000 sq ft: under 500 got
+# nothing, and 1,001 sq ft quoted LESS than 900 ("less for more").
+#
+# Each tier is "up to N sq ft adds R per sq ft"; over the last tier adds
+# nothing. A tier boundary must never make a bigger fence cheaper, so when
+# the rate steps down the dollar add-on eases off no faster than the base
+# price grows (see size_surcharge_dollars).
+SIZE_TIERS: list[dict] = [
+    {"up_to": 400, "rate": 0.45},    # PDF: +$0.40–0.50
+    {"up_to": 700, "rate": 0.28},    # PDF: +$0.25–0.30
+    {"up_to": 1200, "rate": 0.12},   # PDF: +$0.10–0.15
+]                                    # over 1,200: base rate
+# The least a job can come to (Essential; the other packages keep their gap
+# above it). PDF: $550–650.
+MIN_JOB_PRICE = 600.0
 MIN_SQFT_AUTO = 500
+
+# Kept for anything still importing the old names; nothing prices with them.
+SIZE_SURCHARGE_RATE = 0.0
+SIZE_SURCHARGE_MIN = 0
+SIZE_SURCHARGE_MAX = 0
 
 
 def _load_pricing_config() -> dict | None:
@@ -93,17 +113,41 @@ def _get_tier_rates() -> dict[str, dict[str, float] | None]:
     return TIER_RATES
 
 
-def _get_surcharge_config() -> tuple[float, int, int]:
-    """Return (rate, min_sqft, max_sqft) from DB config or defaults."""
-    cfg = _load_pricing_config()
-    if cfg and "surcharge" in cfg:
-        s = cfg["surcharge"]
-        return (
-            float(s.get("rate", SIZE_SURCHARGE_RATE)),
-            int(s.get("min_sqft", SIZE_SURCHARGE_MIN)),
-            int(s.get("max_sqft", SIZE_SURCHARGE_MAX)),
-        )
-    return SIZE_SURCHARGE_RATE, SIZE_SURCHARGE_MIN, SIZE_SURCHARGE_MAX
+def _get_size_config() -> tuple[list[dict], float]:
+    """(size tiers, minimum job price) from the Pricing page, else defaults.
+    The old flat-band "surcharge" setting is deliberately ignored."""
+    cfg = _load_pricing_config() or {}
+    tiers = SIZE_TIERS
+    raw = cfg.get("size_tiers")
+    if isinstance(raw, list) and raw:
+        try:
+            tiers = sorted(({"up_to": float(t["up_to"]), "rate": float(t["rate"])} for t in raw),
+                           key=lambda t: t["up_to"])
+        except (KeyError, TypeError, ValueError):
+            tiers = SIZE_TIERS
+    try:
+        min_job = float(cfg.get("min_job_price", MIN_JOB_PRICE))
+    except (TypeError, ValueError):
+        min_job = MIN_JOB_PRICE
+    return tiers, min_job
+
+
+def size_surcharge_dollars(sqft: float, tiers: list[dict], taper_rate: float) -> float:
+    """The small-job add-on in dollars for a fence of `sqft`.
+
+    The tier's rate × sqft, except just past a tier boundary, where the
+    add-on the smaller fence paid eases off at `taper_rate` per sq ft (the
+    cheapest base rate). The base price grows at least that fast, so the
+    total never drops as the fence gets bigger.
+    """
+    if sqft <= 0:
+        return 0.0
+    rate = next((t["rate"] for t in tiers if sqft < t["up_to"]), 0.0)
+    best = sqft * rate
+    for t in tiers:
+        if sqft >= t["up_to"]:
+            best = max(best, t["up_to"] * t["rate"] - taper_rate * (sqft - t["up_to"]))
+    return round(max(best, 0.0), 2)
 
 
 # --- Helpers ---
@@ -227,7 +271,7 @@ def calculate_fence_staining(
     sqft = round(linear_feet * height, 2)
 
     tier_rates = _get_tier_rates()
-    surcharge_rate, surcharge_min, surcharge_max = _get_surcharge_config()
+    size_tiers, min_job = _get_size_config()
 
     if sqft == 0:
         approval_status, approval_reason = "red", "Missing linear feet"
@@ -257,17 +301,23 @@ def calculate_fence_staining(
         }
         return 0.0, 0.0, [], meta
 
-    size_surcharge_applied = surcharge_min <= sqft <= surcharge_max
-    size_surcharge = surcharge_rate if size_surcharge_applied else 0.0
+    taper = min((r["essential"] for r in tier_rates.values() if r), default=rates["essential"])
+    size_dollars = size_surcharge_dollars(sqft, size_tiers, taper)
+    size_surcharge_applied = size_dollars > 0
 
     def calc_tier(base_rate: float) -> float:
-        return round(sqft * (base_rate + zone_surcharge_rate + size_surcharge), 2)
+        return round(sqft * (base_rate + zone_surcharge_rate) + size_dollars, 2)
 
     tiers = {
         "essential": calc_tier(rates["essential"]),
         "signature": calc_tier(rates["signature"]),
         "legacy": calc_tier(rates["legacy"]),
     }
+    # The minimum job: lift Essential to it, and the others by the same
+    # dollars so the packages keep their gap.
+    min_topup = round(max(0.0, min_job - tiers["essential"]), 2)
+    if min_topup:
+        tiers = {k: round(v + min_topup, 2) for k, v in tiers.items()}
 
     mid = tiers["signature"]
 
@@ -297,9 +347,15 @@ def calculate_fence_staining(
         })
     if size_surcharge_applied:
         breakdown.append({
-            "label": f"Small job surcharge: +${surcharge_rate:.2f}/sqft",
-            "value": round(sqft * surcharge_rate, 2),
-            "note": f"Applied for {surcharge_min}-{surcharge_max} sqft jobs",
+            "label": f"Small job surcharge ({sqft:.0f} sqft)",
+            "value": size_dollars,
+            "note": "Setup, wash and drive cost the same on a small fence; steps down as the fence grows",
+        })
+    if min_topup:
+        breakdown.append({
+            "label": f"Minimum job (${min_job:,.0f})",
+            "value": min_topup,
+            "note": "Brings a very small job up to the minimum; applied to all tiers",
         })
 
     meta = {
@@ -310,6 +366,8 @@ def calculate_fence_staining(
         "approval_reason": approval_reason,
         "tiers": tiers,
         "size_surcharge_applied": size_surcharge_applied,
+        "size_surcharge": size_dollars,
+        "min_job_topup": min_topup,
     }
 
     return mid, mid, breakdown, meta
