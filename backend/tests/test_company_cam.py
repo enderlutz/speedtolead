@@ -721,7 +721,7 @@ def test_everything_the_crew_fills_in_saves_and_comes_back(db):
         scope_explanation="Inside sides only", cleaning_notes="Dog in the yard", staining_notes="Two coats on the gate",
         cleaner_checklist=[CLEANER_CHECKLIST[0]["key"]], stainer_checklist=[STAINER_CHECKLIST[0]["key"]],
         upsells=[up], upsell_notes="Wants the driveway done", package="signature", sqft=1288,
-        stain_gallons_used=8, stain_gallons_bought=2, bleach_gallons_used=3,
+        stain_gallons_used=8, stain_gallons_bought=2, bleach_gallons_used=3, bleach_gallons_to_bring=4,
     )
     cc.update_company_cam(lead.id, patch, user=USER)
     job = cc.get_company_cam(lead.id, user=USER)["job"]
@@ -730,6 +730,7 @@ def test_everything_the_crew_fills_in_saves_and_comes_back(db):
     assert job["cleaner_checklist"] == [CLEANER_CHECKLIST[0]["key"]] and job["stainer_checklist"] == [STAINER_CHECKLIST[0]["key"]]
     assert job["upsells"] == [up] and job["package"] == "signature" and job["sqft"] == 1288
     assert job["stain_gallons_used"] == 8 and job["stain_gallons_bought"] == 2 and job["bleach_gallons_used"] == 3
+    assert job["bleach_gallons_to_bring"] == 4
     assert job["gallons_needed"] == 8  # 1288 / 165, rounded up, follows the footage
 
 

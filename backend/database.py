@@ -1807,6 +1807,8 @@ class CompanyCamJob(Base):
     # customer mentioned someone; Alan calls the customer to find out who).
     # neighbor_sent_at: when it went to Alan.
     neighbor_status = Column(Text, default="")
+    # Bleach the office wants the cleaner to bring, in gallons (Alan, 2026-10-16).
+    bleach_gallons_to_bring = Column(Float, default=0.0)
     neighbor_sent_at = Column(Text, default="")
     extras_confirmed_at = Column(Text, default="")
     extras_confirmed_by = Column(Text, default="")
@@ -4555,6 +4557,7 @@ def _run_migrations():
             ("pickets_marked_by", "TEXT DEFAULT ''"),
             ("extras_json", "TEXT DEFAULT ''"),
             ("neighbor_status", "TEXT DEFAULT ''"),
+            ("bleach_gallons_to_bring", "DOUBLE PRECISION DEFAULT 0"),
             ("neighbor_sent_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_at", "TEXT DEFAULT ''"),
             ("extras_confirmed_by", "TEXT DEFAULT ''"),

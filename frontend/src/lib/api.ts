@@ -3869,6 +3869,8 @@ export interface CompanyCamJob {
   stain_gallons_used: number;
   stain_gallons_bought: number;
   bleach_gallons_used: number;
+  /** What the office wants the cleaner to bring. */
+  bleach_gallons_to_bring?: number;
   final_color: string;
   /** The stain they went with (a Stain Inventory id), prior stain confirmed
    *  on site ("yes" | "no" | ""), and the wood the cleaner saw. */

@@ -220,6 +220,7 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "stain_gallons_used": float(job.stain_gallons_used or 0),
         "stain_gallons_bought": float(job.stain_gallons_bought or 0),
         "bleach_gallons_used": float(job.bleach_gallons_used or 0),
+        "bleach_gallons_to_bring": float(job.bleach_gallons_to_bring or 0),
         "final_color": job.final_color or "",
         "final_stain_id": job.final_stain_id or "",
         "previously_stained": job.previously_stained or "",
@@ -389,6 +390,7 @@ class CompanyCamPatch(BaseModel):
     stain_gallons_used: float | None = None
     stain_gallons_bought: float | None = None
     bleach_gallons_used: float | None = None
+    bleach_gallons_to_bring: float | None = None
     final_color: str | None = None
     # A Stain Inventory id, or "" to clear. Sets final_color from it.
     final_stain_id: str | None = None
@@ -452,7 +454,7 @@ def update_company_cam(
         if body.color_plan is not None:
             job.color_plan_json = json.dumps(normalize_color_plan(body.color_plan))
         for field in ("actual_sqft", "stain_gallons_used",
-                      "stain_gallons_bought", "bleach_gallons_used"):
+                      "stain_gallons_bought", "bleach_gallons_used", "bleach_gallons_to_bring"):
             v = getattr(body, field)
             if v is not None:
                 setattr(job, field, max(0.0, float(v)))

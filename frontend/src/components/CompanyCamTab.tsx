@@ -1076,6 +1076,21 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             </div> : <ReadValue>{job.gallons_needed ? `${job.gallons_needed} gallons` : "Not set yet"}</ReadValue>}
           </StatTile>
 
+          <StatTile icon={Sparkles} label="Gallons of bleach to bring" accent={ACCENT.cyan}
+                    hint={manager ? "For the cleaner. Your call for this job." : "For the cleaner"}>
+            {manager ? (
+              <Input key={job.bleach_gallons_to_bring} type="number" inputMode="decimal" step="0.5" placeholder="Gallons"
+                     defaultValue={job.bleach_gallons_to_bring || ""}
+                     className="h-10 text-base font-semibold tabular-nums"
+                     onBlur={(e) => {
+                       const v = parseFloat(e.target.value || "0");
+                       if (v !== (job.bleach_gallons_to_bring || 0)) void patch({ bleach_gallons_to_bring: v });
+                     }} />
+            ) : (
+              <ReadValue>{job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} gallons` : "Not set yet"}</ReadValue>
+            )}
+          </StatTile>
+
           <StatTile icon={Package} label="Package" accent={ACCENT.violet}
                     hint={!manager ? undefined : job.package ? "From what they paid the deposit on, or picked here" : "Tap the one they bought"}>
             {!manager ? <ReadValue>{job.package ? job.package[0].toUpperCase() + job.package.slice(1) : "Not set yet"}</ReadValue> : <div className="flex gap-1">
@@ -1754,31 +1769,46 @@ function repairWords(r: Repairs): string[] {
   return out;
 }
 
-/** Everything the stainer loads before driving out (Alan, 2026-10-15):
- *  stain, every picket (planned + agreed on site), a saw, and four screw
- *  nails a picket, plus the office's repair note. */
+/** What each person loads before driving out, split by who (Alan,
+ *  2026-10-16). The cleaner: bleach, and spray paint when there are pickets
+ *  to mark. The stainer: stain, every picket (planned + agreed on site), four
+ *  screw nails a picket, a saw, and the office's repair note. */
 function WhatToBring({ job, stain }: { job: CompanyCamJob; stain: string }) {
   const planned = job.repairs || NO_REPAIRS;
   const extras: Repairs = job.extras_confirmed_at ? (job.extras || NO_REPAIRS) : NO_REPAIRS;
   const sum: Repairs = { ...planned, counts: Object.fromEntries(["pickets", "rotboard", "cap", "rail", "posts"].map((k) => [k, (planned.counts[k] || 0) + (extras.counts[k] || 0)])) };
   const pickets = sum.counts.pickets || 0;
-  const items = [
+  const cleaner = [
+    job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} gallons of bleach` : "",
+    planned.counts.pickets ? "Spray paint, to mark the pickets with the customer" : "",
+  ].filter(Boolean);
+  const stainer = [
     job.gallons_needed ? `${job.gallons_needed} gallons of ${stain || "stain (colour not picked yet)"}` : "",
     ...repairWords(sum).map((w, i) => (i === 0 && pickets && extras.counts.pickets ? `${w} (${planned.counts.pickets || 0} planned + ${extras.counts.pickets} added on site)` : w)),
     pickets ? `${pickets * 4} screw nails (4 a picket)` : "",
     pickets || sum.counts.rotboard || sum.counts.cap || sum.counts.rail ? "A saw, to cut pickets and boards to size" : "",
   ].filter(Boolean);
-  if (!items.length) return null;
+  if (!cleaner.length && !stainer.length) return null;
+  const list = (title: string, items: string[], tone: string, Icon: typeof Sparkles, extra?: React.ReactNode) => (
+    <div className={cn("rounded-xl border px-3 py-2.5", tone)}>
+      <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide"><Icon className="h-3.5 w-3.5" /> {title}</p>
+      {items.length ? (
+        <ul className="mt-1 space-y-0.5 text-sm font-semibold">
+          {items.map((t) => <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />{t}</li>)}
+        </ul>
+      ) : <p className="mt-1 text-sm text-muted-foreground">Nothing set yet.</p>}
+      {extra}
+    </div>
+  );
   return (
-    <div className="mt-2.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5">
-      <p className="text-xs font-bold uppercase tracking-wide text-blue-900">What to bring</p>
-      <ul className="mt-1 space-y-0.5 text-sm font-semibold">
-        {items.map((t) => <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />{t}</li>)}
-      </ul>
-      {pickets && job.pickets_marked_at ? <p className="mt-1 text-xs text-blue-900">The pickets to replace are marked with spray paint.</p> : null}
-      {(job.repair_notes || "").trim() ? (
-        <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-white/70 px-2 py-1.5 text-xs"><b>Repair note:</b> {job.repair_notes}</p>
-      ) : null}
+    <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+      {list("The cleaner brings", cleaner, "border-sky-200 bg-sky-50/60 text-sky-950", Sparkles)}
+      {list("The stainer brings", stainer, "border-emerald-200 bg-emerald-50/60 text-emerald-950", Paintbrush, <>
+        {pickets && job.pickets_marked_at ? <p className="mt-1 text-xs">The pickets to replace are marked with spray paint.</p> : null}
+        {(job.repair_notes || "").trim() ? (
+          <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-white/70 px-2 py-1.5 text-xs text-foreground"><b>Repair note:</b> {job.repair_notes}</p>
+        ) : null}
+      </>)}
     </div>
   );
 }
