@@ -530,6 +530,17 @@ def _height_ft(v) -> float:
     return float(m.group()) if m else 0.0
 
 
+def _last_recalc(db, lead_id: str) -> str:
+    """When the lead's estimate was last saved & recalculated, from the log:
+    for estimates saved before the save time was kept on the estimate."""
+    from database import AutomationLog
+
+    row = (db.query(AutomationLog.created_at)
+           .filter(AutomationLog.lead_id == lead_id, AutomationLog.event_type == "estimate_recalculated")
+           .order_by(AutomationLog.created_at.desc()).first())
+    return row[0] if row else ""
+
+
 def estimate_options(db, lead_id: str) -> list[dict]:
     """Every estimate with a footage, sent or only saved, newest first, so the
     job's footage can be picked from one (Alan, 2026-10-15: "even if I saved
@@ -552,8 +563,9 @@ def estimate_options(db, lead_id: str) -> list[dict]:
             sqft = 0
         if sqft <= 0:
             continue
+        when = est.sent_at if est.status == "sent" else (inputs.get("_saved_at") or _last_recalc(db, lead_id) or est.created_at)
         out.append({"id": est.id, "sent": est.status == "sent", "sent_at": est.sent_at or "",
-                    "when": est.sent_at or est.created_at or "", "sqft": round(sqft),
+                    "when": when or "", "sqft": round(sqft),
                     "linear_feet": round(lf) if lf else None, "height": str(inputs.get("fence_height") or "")})
     out.sort(key=lambda o: o["when"], reverse=True)
     return out

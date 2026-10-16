@@ -24,19 +24,22 @@ const GROUP_ACCENT: Record<SideGroup, Accent> = {
  *   plan). Shown dotted; tapping one moves it here.
  */
 export function SidesPicker({
-  value, onChange, highlight, elsewhere, compact,
+  value, onChange, highlight, elsewhere, compact, readOnly = false,
 }: {
   value: string[];
-  onChange: (next: string[]) => void;
+  onChange?: (next: string[]) => void;
   highlight?: string[];
   elsewhere?: string[];
   compact?: boolean;
+  /** Just shows the sides (Company Cam's scope, for the crew): nothing to
+   *  tap, and a side we're not staining is crossed out. */
+  readOnly?: boolean;
 }) {
   const toggle = (name: string) =>
-    onChange(value.includes(name) ? value.filter((s) => s !== name) : [...value, name]);
+    onChange?.(value.includes(name) ? value.filter((s) => s !== name) : [...value, name]);
   const setGroup = (names: readonly string[], on: boolean) => {
     const rest = value.filter((s) => !names.includes(s));
-    onChange(on ? [...rest, ...names] : rest);
+    onChange?.(on ? [...rest, ...names] : rest);
   };
 
   return (
@@ -61,9 +64,12 @@ export function SidesPicker({
                 key={name}
                 type="button"
                 aria-pressed={on}
-                title={title}
-                onClick={() => toggle(name)}
+                title={readOnly ? (on ? `${name}: we stain it` : `${name}: we don't touch it`) : title}
+                onClick={readOnly ? undefined : () => toggle(name)}
+                disabled={readOnly}
                 className={cn(
+                  readOnly && !on && "!border-dashed !bg-background !text-muted-foreground/50 line-through !opacity-100",
+                  readOnly && "cursor-default active:scale-100",
                   "flex aspect-square items-center justify-center rounded-lg border font-semibold transition active:scale-95",
                   compact ? "text-[10px]" : "text-[11px]",
                   on
@@ -87,13 +93,13 @@ export function SidesPicker({
                 <span className={cn("text-[11px] font-bold uppercase tracking-wide", accent.text)}>{group}</span>
                 <div className="flex items-center gap-1.5">
                   <ProgressPill done={n} total={names.length} />
-                  <button
+                  {readOnly ? null : <button
                     type="button"
                     onClick={() => setGroup(names, n < names.length)}
                     className="text-[10px] font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
                     {n < names.length ? "All" : "None"}
-                  </button>
+                  </button>}
                 </div>
               </div>
               <div className={cn("mx-auto grid grid-cols-3 gap-1", compact ? "max-w-[150px]" : "max-w-[170px]")}>

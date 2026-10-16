@@ -1301,6 +1301,9 @@ def update_form_data(lead_id: str, body: FormDataUpdate, user: dict = Depends(ge
             )
 
         now = _now()
+        # When this estimate was last saved, for an estimate that's never
+        # sent (Company Cam names it "Not sent · saved Oct 15").
+        meta = {**meta, "saved_at": now}
         if estimate:
             estimate.inputs = json.dumps({**merged, **{f"_{k}": v for k, v in meta.items()}})
             estimate.breakdown = json.dumps(breakdown)

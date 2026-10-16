@@ -552,6 +552,14 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   const [uploading, setUploading] = useState<string>("");
   // The section the "Pick from our photos" sheet is adding to, if open.
   const [picking, setPicking] = useState<string | null>(null);
+  // Management view or employee view (Alan, 2026-10-15): office staff can
+  // flip to exactly what the crew sees. The crew only ever gets employee view.
+  const canManage = canSeeRevenue();
+  const [view, setViewState] = useState<"manager" | "employee">(() => {
+    try { return localStorage.getItem("cc_view") === "employee" ? "employee" : "manager"; } catch { return "manager"; }
+  });
+  const setView = (v: "manager" | "employee") => { setViewState(v); try { localStorage.setItem("cc_view", v); } catch { /* private mode */ } };
+  const manager = canManage && view === "manager";
   const [sending, setSending] = useState(false);
   // The preset text, editable right before it goes. The crew adjusts the
   // wording for the customer in front of them, so what they approved is what
@@ -650,6 +658,21 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
   return (
     <div className="space-y-3.5">
+      {canManage ? (
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-xl bg-muted p-1" role="tablist" aria-label="View">
+            {(["manager", "employee"] as const).map((v) => (
+              <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)}
+                      className={cn("h-9 whitespace-nowrap rounded-lg px-3 text-sm font-semibold transition",
+                        view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                {v === "manager" ? "Management" : "Employee"}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground">{view === "employee" ? "Exactly what the crew sees." : "view"}</span>
+        </div>
+      ) : null}
+
       {/* Who, where, and how much of the job is on file. */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-4 text-white ring-1 ring-white/10 sm:p-5">
         <div className="pointer-events-none absolute -right-16 -top-24 h-56 w-56 rounded-full bg-indigo-500/25 blur-3xl" />
@@ -771,7 +794,8 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
              sub="What we're doing and what to bring">
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={Ruler} label="Square footage" accent={ACCENT.blue}
-                    hint={job.sqft_edited ? "✓ Set for this job" : "From the latest sent estimate. Pick one below or type it."}>
+                    hint={!manager ? undefined : job.sqft_edited ? "✓ Set for this job" : "From the latest sent estimate. Pick one below or type it."}>
+            {manager ? (<>
             <Input key={job.sqft} type="number" inputMode="decimal" defaultValue={job.sqft || ""}
                    className="h-10 text-base font-semibold tabular-nums"
                    onBlur={(e) => {
@@ -780,13 +804,14 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                    }} />
             <FootageChoices sqft={job.sqft} estimates={data.estimate_options || []} measure={data.measure_options}
                             onPick={(v) => void patch({ sqft: v })} />
+            </>) : <ReadValue>{job.sqft ? `${Math.round(job.sqft).toLocaleString()} sq ft` : "Not set yet"}</ReadValue>}
           </StatTile>
 
           <StatTile icon={Droplets} label="Gallons of stain to bring" accent={ACCENT.cyan}
-                    hint={job.gallons_edited
+                    hint={!manager ? undefined : job.gallons_edited
                       ? "Typed in by hand, not following the footage"
                       : `Square footage ÷ ${job.sqft_per_gallon}, rounded up`}>
-            <div className="flex gap-1.5">
+            {manager ? <div className="flex gap-1.5">
               <Input key={job.gallons_needed} type="number" inputMode="decimal" step="0.5" defaultValue={job.gallons_needed || ""}
                      className="h-10 text-base font-semibold tabular-nums"
                      onBlur={(e) => {
@@ -800,12 +825,12 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                   <RotateCcw className="h-4 w-4" />
                 </Button>
               ) : null}
-            </div>
+            </div> : <ReadValue>{job.gallons_needed ? `${job.gallons_needed} gallons` : "Not set yet"}</ReadValue>}
           </StatTile>
 
           <StatTile icon={Package} label="Package" accent={ACCENT.violet}
-                    hint={job.package ? "From what they paid the deposit on, or picked here" : "Tap the one they bought"}>
-            <div className="flex gap-1">
+                    hint={!manager ? undefined : job.package ? "From what they paid the deposit on, or picked here" : "Tap the one they bought"}>
+            {!manager ? <ReadValue>{job.package ? job.package[0].toUpperCase() + job.package.slice(1) : "Not set yet"}</ReadValue> : <div className="flex gap-1">
               {PACKAGES.map((p) => (
                 <Button key={p} size="sm"
                         variant={job.package === p ? "default" : "outline"}
@@ -814,7 +839,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                   {p}
                 </Button>
               ))}
-            </div>
+            </div>}
           </StatTile>
 
           <StatTile icon={Hourglass} label="Age of the fence" accent={ACCENT.amber}
@@ -931,8 +956,25 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
             />
 
+            {/* The sides, the same map as the estimate, next to the scope photo
+                so nobody can stain the wrong side (Alan, 2026-10-15). */}
+            {sec.key === "fence_scope" ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
+                <p className="mb-1.5 text-sm font-bold">The sides we're staining</p>
+                {estimate_sides.length ? (
+                  <SidesPicker value={estimate_sides} readOnly />
+                ) : (
+                  <p className="text-xs text-muted-foreground">No sides on the estimate yet.</p>
+                )}
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Coloured = we stain it. Crossed out = don't touch it. Front faces the street.
+                  {manager ? " Change the sides on the Estimate tab." : ""}
+                </p>
+              </div>
+            ) : null}
+
             {/* Alan picks the scope photo; the crew only sees it (2026-10-15). */}
-            {sec.key === "fence_scope" && canSeeRevenue() ? (
+            {sec.key === "fence_scope" && manager ? (
               <Button variant="outline" size="lg" onClick={() => setPicking(sec.key)}
                       className="h-11 w-full border-violet-300 text-violet-800 hover:bg-violet-50 sm:w-auto">
                 <Images className="mr-1.5 h-4 w-4" /> Pick from our photos
@@ -1356,6 +1398,9 @@ function FootageChoices({ sqft, estimates, measure, onPick }: {
     on ? "bg-blue-600 text-white ring-blue-600" : "bg-background ring-border hover:bg-muted");
   const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
   const n = estimates.length;
+  // Only sent estimates get a number, oldest first: the customer saw 1, 2, 3.
+  const sentNo: Record<string, number> = {};
+  estimates.filter((o) => o.sent).reverse().forEach((o, i) => { sentNo[o.id] = i + 1; });
   return (
     <div className="mt-1.5 space-y-1.5">
       {n ? (
@@ -1363,7 +1408,7 @@ function FootageChoices({ sqft, estimates, measure, onPick }: {
           {estimates.map((o, i) => (
             <button key={o.id} type="button" onClick={() => onPick(o.sqft)} className={chip(Math.round(sqft) === o.sqft)}
                     title={o.linear_feet ? `${o.linear_feet} ft × ${o.height}` : undefined}>
-              Estimate {n - i} · {o.sent ? `sent ${day(o.when)}` : "saved, not sent"} · {o.sqft.toLocaleString()} sq ft
+              {o.sent ? `Estimate ${sentNo[o.id]} · sent ${day(o.when)}` : `Not sent · saved ${day(o.when)}`} · {o.sqft.toLocaleString()} sq ft{i === 0 ? " · newest" : ""}
             </button>
           ))}
         </div>
@@ -1398,4 +1443,9 @@ function FootageChoices({ sqft, estimates, measure, onPick }: {
       ) : null}
     </div>
   );
+}
+
+/** A number the crew reads but doesn't change (employee view). */
+function ReadValue({ children }: { children: React.ReactNode }) {
+  return <p className="flex h-10 items-center text-base font-semibold tabular-nums">{children}</p>;
 }
