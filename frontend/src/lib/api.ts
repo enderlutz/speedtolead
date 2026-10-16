@@ -3507,6 +3507,21 @@ export const api = {
     }),
   endTrainingSession: (id: string) =>
     request<TrainingSessionRecord>(`/api/training/session/${id}/end`, { method: "POST" }),
+  // ── VA training course (modules: video, steps, checklist, quiz) ──
+  listCourse: () => request<{ modules: CourseModuleRow[]; is_admin: boolean }>(`/api/training-course`),
+  getCourseModule: (id: string) => request<CourseModule>(`/api/training-course/${id}`),
+  createCourseModule: (body: Partial<CourseModuleEdit>) =>
+    request<CourseModule>(`/api/training-course`, { method: "POST", body: JSON.stringify(body) }),
+  saveCourseModule: (id: string, body: Partial<CourseModuleEdit>) =>
+    request<CourseModule>(`/api/training-course/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  moveCourseModule: (id: string, direction: number) =>
+    request<{ ok: boolean }>(`/api/training-course/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) }),
+  draftCourseModule: (id: string, transcript: string) =>
+    request<CourseDraft>(`/api/training-course/${id}/draft`, { method: "POST", body: JSON.stringify({ transcript }) }),
+  saveCourseProgress: (id: string, body: { watched?: boolean; checked?: number[]; answers?: number[] }) =>
+    request<{ progress: CourseProgress; quiz_result: { score: number; wrong: number[] } | null }>(
+      `/api/training-course/${id}/progress`, { method: "POST", body: JSON.stringify(body) }),
+  courseTeam: () => request<{ total: number; people: { user: string; done: number; last: string }[] }>(`/api/training-course/team`),
   listTrainingSessions: () =>
     request<{ items: TrainingSessionRecord[] }>(`/api/training/sessions`),
   getTrainingSession: (id: string) =>
@@ -5879,3 +5894,21 @@ export interface StainCoverageFile {
 }
 
 export type CrewEntry = { username: string; date: string; task: "" | "cleaning" | "staining" };
+
+export type CourseVideo = { label: string; url: string };
+export type CourseQuizQ = { q: string; options: string[]; answer?: number };
+export type CourseProgress = { watched: boolean; checked: number[]; quiz_score: number | null; passed: boolean; done: boolean };
+export type CourseModuleRow = {
+  id: string; position: number; section: string; title: string; summary: string;
+  status: "draft" | "published" | "archived"; updated_at: string; videos: CourseVideo[];
+  record_note?: string; progress: CourseProgress; search_text: string;
+};
+export type CourseModule = Omit<CourseModuleRow, "search_text"> & {
+  steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[]; transcript?: string;
+};
+export type CourseModuleEdit = {
+  section: string; title: string; summary: string; record_note: string; videos: CourseVideo[];
+  steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[]; transcript: string;
+  status: "draft" | "published" | "archived";
+};
+export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };

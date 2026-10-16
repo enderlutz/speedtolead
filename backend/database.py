@@ -3469,6 +3469,49 @@ class SystemConfig(Base):
         db.commit()
 
 
+class TrainingModule(Base):
+    """One lesson in the VA training course (Alan, 2026-10-16): a screen
+    recording of him doing the task (Loom), the steps written out from it, the
+    mistakes to avoid, a checklist and a short quiz. Replaces the old call
+    simulator on the Training page."""
+    __tablename__ = "training_modules"
+    __table_args__ = (Index("idx_training_modules_pos", "position"),)
+
+    id = Column(Text, primary_key=True)
+    position = Column(Integer, nullable=False, default=0)
+    section = Column(Text, default="")
+    title = Column(Text, nullable=False, default="")
+    summary = Column(Text, default="")          # why this matters, 1–3 lines
+    record_note = Column(Text, default="")      # admin only: what to record for it
+    videos_json = Column(Text, default="[]")    # [{"label", "url"}]
+    steps = Column(Text, default="")            # one step per line; "Say: …" lines are the words to use
+    mistakes = Column(Text, default="")         # one per line
+    checklist_json = Column(Text, default="[]") # [str]
+    quiz_json = Column(Text, default="[]")      # [{"q", "options": [str], "answer": int}]
+    transcript = Column(Text, default="")
+    status = Column(Text, nullable=False, default="draft")  # draft | published | archived
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+    updated_by = Column(Text, default="")
+
+
+class TrainingProgress(Base):
+    """Where one person is on one module: watched, checklist ticks, quiz."""
+    __tablename__ = "training_progress"
+    __table_args__ = (UniqueConstraint("user_sub", "module_id", name="uq_training_progress"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_sub = Column(Text, nullable=False)
+    user_name = Column(Text, default="")
+    module_id = Column(Text, nullable=False)
+    watched_at = Column(Text, nullable=True)
+    checked_json = Column(Text, default="[]")   # indexes of ticked checklist items
+    quiz_score = Column(Integer, nullable=True)  # % right on the last try
+    passed_at = Column(Text, nullable=True)
+    done_at = Column(Text, nullable=True)
+    updated_at = Column(Text, default="")
+
+
 class BrandingAsset(Base):
     """Company branding files the admin uploads at runtime — currently just
     the logo used on customer-facing scope images.

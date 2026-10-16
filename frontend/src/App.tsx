@@ -29,6 +29,7 @@ import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
 import Calls from "@/pages/Calls";
 import Training from "@/pages/Training";
+import TrainingCourse from "@/pages/TrainingCourse";
 import ExteriorCapture from "@/pages/ExteriorCapture";
 import VideoEstimate from "@/pages/VideoEstimate";
 import VideoEstimates from "@/pages/VideoEstimates";
@@ -236,7 +237,10 @@ function AppLayout() {
               <Route path="/video-estimates" element={<StaffOnly><VideoEstimates /></StaffOnly>} />
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
               <Route path="/calls" element={<RequireView view="calls"><Calls /></RequireView>} />
-              <Route path="/training" element={<RequireView view="training"><Training /></RequireView>} />
+              <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
+              {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}
+              <Route path="/training/archive" element={<RequireView view="training"><Training /></RequireView>} />
+              <Route path="/training/:moduleId" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
               <Route path="/crew" element={<RequireView view="payroll"><Crew /></RequireView>} />
               <Route path="/crew/:id" element={<RequireView view="payroll"><CrewEmployee /></RequireView>} />
               <Route path="/stain-inventory" element={<RequireView view="stain_inventory"><StainInventory /></RequireView>} />
