@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # Kept as a constant so changing it is one line and every surface moves
 # together.
 SQFT_PER_GALLON = 165.0
+# A solid stain covers more fence a gallon (Alan, 2026-10-16), so a job
+# with a solid stain picked divides by 175 instead.
+SQFT_PER_GALLON_SOLID = 175.0
 
 # The photo sections, in the order the job actually happens.
 #
@@ -114,7 +117,7 @@ def upsell_options() -> list[dict]:
     return out
 
 
-def gallons_for(sqft: float | None) -> float:
+def gallons_for(sqft: float | None, per_gallon: float = SQFT_PER_GALLON) -> float:
     """Gallons of stain for a given area, rounded up to the nearest half
     gallon — you cannot buy 3.07 gallons, and sending a crew out short is
     worse than sending them with a little spare."""
@@ -124,7 +127,7 @@ def gallons_for(sqft: float | None) -> float:
         return 0.0
     if s <= 0:
         return 0.0
-    raw = s / SQFT_PER_GALLON
+    raw = s / (per_gallon or SQFT_PER_GALLON)
     return round((int(raw * 2) + (1 if raw * 2 % 1 else 0)) / 2, 2)
 
 
@@ -691,3 +694,12 @@ def site_extras(job) -> dict:
         v = {}
     lines = repair_lines(v.get("counts") or {}, v.get("picket_type") or "pine", v.get("post_type") or "post6")
     return {"lines": lines, "total_cents": sum(l["qty"] * l["unit_cents"] for l in lines), "confirmed_at": job.extras_confirmed_at}
+
+
+def sqft_per_gallon(db, job) -> float:
+    """175 when the stain they went with is a solid, else 165."""
+    if not (job.final_stain_id or ""):
+        return SQFT_PER_GALLON
+    from database import StainInventoryItem
+    item = db.query(StainInventoryItem).filter(StainInventoryItem.id == job.final_stain_id).first()
+    return SQFT_PER_GALLON_SOLID if item and (item.finish_type or "") == "solid" else SQFT_PER_GALLON

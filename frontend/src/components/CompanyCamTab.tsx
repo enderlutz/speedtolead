@@ -106,7 +106,7 @@ function BlurText({
     timer.current = setTimeout(commit, 1000);
   };
   const note = state ? (
-    <p className={cn("mt-0.5 text-[11px] font-semibold", state === "saved" ? "text-emerald-700" : "text-muted-foreground")}>
+    <p className={cn("mt-0.5 text-xs font-semibold", state === "saved" ? "text-emerald-700" : "text-muted-foreground")}>
       {state === "saved" ? "✓ Saved" : "Saving…"}
     </p>
   ) : null;
@@ -119,7 +119,7 @@ function BlurText({
           placeholder={placeholder}
           onChange={(e) => change(e.target.value)}
           onBlur={commit}
-          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/30"
+          className="w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-base shadow-sm outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/30 sm:text-sm"
         />
         {note}
       </>
@@ -135,10 +135,12 @@ function BlurText({
 }
 
 function PhotoCard({
-  leadId, photo, onPatch, onDelete,
+  leadId, photo, onPatch, onDelete, bare = false,
 }: {
   leadId: string;
   photo: CompanyCamPhoto;
+  /** Just the picture, full width, nothing to fill in (the crew's scope). */
+  bare?: boolean;
   onPatch: (p: { side?: string; note?: string; is_damage?: boolean }) => void;
   onDelete: () => void;
 }) {
@@ -163,6 +165,16 @@ function PhotoCard({
     return () => { dead = true; if (url) URL.revokeObjectURL(url); };
   }, [leadId, photo.id, photo.from_storage]);
 
+  if (bare) {
+    // Tap to open it full size, to zoom in on a side.
+    return src ? (
+      <a href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border bg-muted">
+        <img src={src} alt="The fence scope" className="max-h-[75vh] w-full object-contain" />
+      </a>
+    ) : (
+      <div className="flex h-56 items-center justify-center rounded-xl bg-muted"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+    );
+  }
   return (
     <div className={cn(
       "overflow-hidden rounded-xl border bg-card shadow-sm transition hover:shadow-md",
@@ -178,16 +190,16 @@ function PhotoCard({
           </div>
         )}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black/45 to-transparent" />
-        <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
+        <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/55 px-1.5 py-0.5 text-xs font-bold text-white backdrop-blur-sm">
           <Hash className="h-2.5 w-2.5" />{photo.seq}
         </span>
         {photo.is_damage ? (
-          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-red-600 px-1.5 py-0.5 text-xs font-bold text-white shadow-sm">
             <AlertTriangle className="h-2.5 w-2.5" /> DAMAGE
           </span>
         ) : null}
         {photo.side ? (
-          <span className="absolute bottom-1.5 left-1.5 max-w-[90%] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+          <span className="absolute bottom-1.5 left-1.5 max-w-[90%] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
             {photo.side}
           </span>
         ) : null}
@@ -197,20 +209,20 @@ function PhotoCard({
           defaultValue={photo.side}
           placeholder="Which side? (back, left, front gate…)"
           onBlur={(e) => { if (e.target.value !== photo.side) onPatch({ side: e.target.value }); }}
-          className="h-8 text-xs"
+          className="h-10 text-base sm:h-8 sm:text-xs"
         />
         <Input
           defaultValue={photo.note}
           placeholder="Note (optional)"
           onBlur={(e) => { if (e.target.value !== photo.note) onPatch({ note: e.target.value }); }}
-          className="h-8 text-xs"
+          className="h-10 text-base sm:h-8 sm:text-xs"
         />
         <div className="flex items-center justify-between gap-1">
           <button
             type="button"
             onClick={() => onPatch({ is_damage: !photo.is_damage })}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold transition",
+              "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold transition",
               photo.is_damage
                 ? "bg-red-50 text-red-700 hover:bg-red-100"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -305,7 +317,7 @@ function ColorRow({
   };
   const custom = row.colors.filter((c) => !colorOptions.some((o) => same(o, c)));
   const chipCls = (on: boolean) => cn(
-    "inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-semibold transition active:scale-95",
+    "inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-semibold transition active:scale-95",
     on
       ? "border-transparent bg-gradient-to-br from-fuchsia-500 to-purple-600 text-white shadow-sm"
       : "border-input bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
@@ -320,7 +332,7 @@ function ColorRow({
             <p className={cn("text-sm font-semibold leading-tight", !label && "text-muted-foreground")}>
               {label || "Which sides get this colour?"}
             </p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {row.sides.length
                 ? `${row.sides.length} of 8 sides`
                 : isDraft
@@ -350,14 +362,14 @@ function ColorRow({
             return (
               <Button key={o.key} size="sm"
                       variant={on ? "default" : "outline"}
-                      className={cn("h-8 text-[11px] font-semibold", on && t.on)}
+                      className={cn("h-8 text-xs font-semibold", on && t.on)}
                       onClick={() => onChange({ status: o.key as ColorPlanRow["status"] })}>
                 {on ? <Check className="mr-1 h-3 w-3" /> : null}{o.label}
               </Button>
             );
           })}
         </div>
-        {st ? <p className="text-[11px] leading-snug text-muted-foreground">{st.hint}</p> : null}
+        {st ? <p className="text-xs leading-snug text-muted-foreground">{st.hint}</p> : null}
 
         {row.status !== "not_chosen" ? (
           <div className="space-y-1.5">
@@ -375,7 +387,7 @@ function ColorRow({
               ))}
             </div>
             <AddColorBox onAdd={(c) => onChange({ colors: single ? [c] : (has(c) ? row.colors : [...row.colors, c]) })} />
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {single ? "One colour — tapping another swaps it." : "Tap every colour still in play."}
             </p>
           </div>
@@ -482,13 +494,13 @@ function ColorPlan({
         />
       ))}
       {scopePhoto ? (
-        <p className="flex items-start gap-1.5 rounded-xl border border-violet-200 bg-violet-50/60 px-2.5 py-2 text-[11px] text-violet-900">
+        <p className="flex items-start gap-1.5 rounded-xl border border-violet-200 bg-violet-50/60 px-2.5 py-2 text-xs text-violet-900">
           <Check className="mt-0.5 h-3 w-3 shrink-0" />
           <span><b>The scope photo shows which sides we're staining.</b> Just pick the colour. Tapping sides is optional.</span>
         </p>
       ) : null}
       {uncovered.length > 0 && !scopePhoto ? (
-        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-amber-200 bg-amber-50/60 px-2.5 py-2 text-[11px] text-amber-900">
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-amber-200 bg-amber-50/60 px-2.5 py-2 text-xs text-amber-900">
           <AlertTriangle className="mr-0.5 h-3 w-3 shrink-0" />
           <span className="font-semibold">On the estimate, no colour yet:</span>
           {uncovered.map((s) => <Pill key={s} accent={ACCENT.amber}>{s}</Pill>)}
@@ -537,7 +549,7 @@ function Checklist({
             <span className="min-w-0">
               <span className={cn("text-sm font-medium", on && "text-emerald-900")}>{it.label}</span>
               {it.hint ? (
-                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{it.hint}</span>
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{it.hint}</span>
               ) : null}
             </span>
           </button>
@@ -671,6 +683,227 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   const jump = (key: string) =>
     document.getElementById(`cc-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
+  const renderStep = (key: string) => {
+    const sec = steps.find((x) => x.key === key);
+    if (!sec) return null;
+
+        const list = photos[sec.key] || [];
+        const busy = uploading === sec.key;
+        return (
+          <Panel
+            key={sec.key}
+            id={`cc-${sec.key}`}
+            icon={sec.icon}
+            accent={sec.accent}
+            title={sec.label}
+            sub={sec.who}
+            right={
+              <span className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums",
+                list.length ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground",
+              )}>
+                {list.length ? <Check className="h-2.5 w-2.5" /> : null}
+                {list.length} photo{list.length === 1 ? "" : "s"}
+              </span>
+            }
+          >
+            {manager || sec.key !== "fence_scope" ? <p className="text-xs leading-relaxed text-muted-foreground">{sec.hint}</p> : null}
+
+            {sec.key === "fence_scope" && !manager && job.scope_explanation.trim() ? (
+              <p className="whitespace-pre-wrap rounded-xl bg-violet-50 px-3 py-2.5 text-base">{job.scope_explanation}</p>
+            ) : null}
+            {sec.key === "fence_scope" && manager && !list.length ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+                <Field label="No scope drawing — write out the job instead"
+                       hint="So the cleaner and stainer know exactly what is and isn't included.">
+                  <BlurText rows={3} value={job.scope_explanation}
+                            placeholder="e.g. All inside-facing sides plus the outside front. Skip the shared fence with next door."
+                            onSave={(v) => void patch({ scope_explanation: v })} />
+                </Field>
+              </div>
+            ) : null}
+
+            <input
+              ref={(el) => { inputs.current[sec.key] = el; }}
+              type="file" accept="image/*" multiple capture="environment" hidden
+              onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
+            />
+
+            {/* The sides, the same map as the estimate, next to the scope photo
+                so nobody can stain the wrong side (Alan, 2026-10-15). */}
+            {sec.key === "fence_scope" ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
+                <p className="mb-1.5 text-sm font-bold">The sides we're staining</p>
+                {manager ? (
+                  <SidesPicker value={estimate_sides} onChange={(next) => void saveSides(next)} />
+                ) : estimate_sides.length ? (
+                  <SidesPicker value={estimate_sides} readOnly />
+                ) : (
+                  <p className="text-xs text-muted-foreground">No sides on the estimate yet.</p>
+                )}
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {manager
+                    ? "Tap a side to add or remove it. Saved for this customer (the Estimate tab shows the same sides). Front faces the street."
+                    : "Coloured = we stain it. Crossed out = don't touch it. Front faces the street."}
+                </p>
+              </div>
+            ) : null}
+
+            {sec.key === "fence_scope" ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
+                <p className="text-sm font-bold">Has this fence been stained before?</p>
+                <p className="text-xs text-muted-foreground">
+                  The customer said: <b className="text-foreground">{data.customer_previously_stained || "nothing"}</b>
+                  {job.previously_stained ? " · ✓ confirmed" : manager ? " · tap to confirm" : ""}
+                </p>
+                {manager ? (
+                  <div className="mt-1.5 flex gap-1.5">
+                    {([["no", "Not stained before"], ["yes", "Stained before"]] as const).map(([v, label]) => (
+                      <Button key={v} size="lg" variant={job.previously_stained === v ? "default" : "outline"}
+                              onClick={() => void patch({ previously_stained: job.previously_stained === v ? "" : v })}
+                              className="h-auto min-h-11 flex-1 whitespace-normal py-2 text-sm font-semibold leading-tight">
+                        {job.previously_stained === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : job.previously_stained ? (
+                  <ReadValue>{job.previously_stained === "yes" ? "Stained before" : "Not stained before"}</ReadValue>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* Alan picks the scope photo; the crew only sees it (2026-10-15). */}
+            {sec.key === "fence_scope" && manager ? (
+              <Button variant="outline" size="lg" onClick={() => setPicking(sec.key)}
+                      className="h-11 w-full border-violet-300 text-violet-800 hover:bg-violet-50 sm:w-auto">
+                <Images className="mr-1.5 h-4 w-4" /> Pick from our photos
+              </Button>
+            ) : null}
+
+            {/* The crew's scope: just the picture, big, nothing to fill in. */}
+            {sec.key === "fence_scope" && !manager ? (
+              list.length ? (
+                <div className="space-y-2">
+                  {list.map((p) => <PhotoCard key={p.id} leadId={leadId} photo={p} bare onPatch={() => {}} onDelete={() => {}} />)}
+                </div>
+              ) : !job.scope_explanation.trim() ? (
+                <p className="rounded-xl bg-muted/50 px-3 py-3 text-sm text-muted-foreground">The office hasn't added the scope yet. Call the office before you start.</p>
+              ) : null
+            ) : list.length ? (
+              <>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {list.map((p) => (
+                    <PhotoCard key={p.id} leadId={leadId} photo={p}
+                      onPatch={async (pp) => {
+                        try {
+                          await api.updateCompanyCamPhoto(leadId, p.id, pp);
+                          await load();
+                        } catch (e) { toast.error(errMessage(e, "Couldn't save")); }
+                      }}
+                      onDelete={async () => {
+                        if (!confirm("Delete this photo?")) return;
+                        try {
+                          await api.deleteCompanyCamPhoto(leadId, p.id);
+                          await load();
+                        } catch (e) { toast.error(errMessage(e, "Couldn't delete")); }
+                      }} />
+                  ))}
+                </div>
+                <Button variant="outline" size="lg" disabled={busy}
+                        onClick={() => inputs.current[sec.key]?.click()}
+                        className="h-11 w-full sm:w-auto">
+                  {busy
+                    ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Uploading…</>
+                    : <><Camera className="mr-1.5 h-4 w-4" /> Add more photos</>}
+                </Button>
+              </>
+            ) : (
+              // A big dashed target, because on a phone this is the one thing
+              // the crew is here to do.
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => inputs.current[sec.key]?.click()}
+                className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-input bg-muted/30 py-7 text-muted-foreground transition hover:border-primary/50 hover:bg-primary/5 hover:text-foreground disabled:opacity-60"
+              >
+                {busy
+                  ? <Loader2 className="h-7 w-7 animate-spin" />
+                  : <ImagePlus className="h-7 w-7" />}
+                <span className="text-sm font-semibold">
+                  {busy ? "Uploading…" : "Take or add photos"}
+                </span>
+                <span className="text-xs">{sec.who}</span>
+              </button>
+            )}
+
+            {/* The cleaner checks the wood on arrival (Alan, 2026-10-15): pine
+                and cedar take stain differently, so it goes in the coverage file. */}
+            {sec.key === "clean_before" ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-2.5">
+                <p className="text-sm font-bold">Cleaner: what's the fence made of?</p>
+                <div className="mt-1.5 flex gap-1.5">
+                  {([["pine", "Pine"], ["cedar", "Cedar"], ["other", "Something else"]] as const).map(([v, label]) => (
+                    <Button key={v} size="lg" variant={job.wood_type === v ? "default" : "outline"}
+                            onClick={() => void patch({ wood_type: job.wood_type === v ? "" : v })}
+                            className="h-auto min-h-11 flex-1 whitespace-normal py-2 text-sm font-semibold leading-tight">
+                      {job.wood_type === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
+                    </Button>
+                  ))}
+                </div>
+                {!job.wood_type ? <p className="mt-1 text-xs text-muted-foreground">Not sure? Cedar is reddish and smells like cedar. Pine is pale yellow-white.</p> : null}
+              </div>
+            ) : null}
+
+            {sec.key === "clean_after" ? (
+              <>
+                <StatTile icon={Sparkles} label="Bleach gallons used" accent={ACCENT.cyan}>
+                  <Input key={job.bleach_gallons_used} type="number" inputMode="decimal" step="0.5" placeholder="Gallons"
+                         defaultValue={job.bleach_gallons_used || ""}
+                         className="h-11 text-base font-semibold tabular-nums"
+                         onBlur={(e) => {
+                           const v = parseFloat(e.target.value || "0");
+                           if (v !== job.bleach_gallons_used) void patch({ bleach_gallons_used: v });
+                         }} />
+                </StatTile>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Before you leave — cleaner's checklist
+                  </span>
+                  <ProgressPill done={job.cleaner_checklist.length} total={cleaner_checklist.length} />
+                </div>
+                <Checklist items={cleaner_checklist} ticked={job.cleaner_checklist}
+                           onChange={(next) => void patch({ cleaner_checklist: next })} />
+                <Field label="Cleaning notes"
+                       hint="Anything the customer said, or anything management needs to decide on. Fill this in before you leave.">
+                  <BlurText rows={3} value={job.cleaning_notes}
+                            placeholder="What the customer mentioned, anything unexpected…"
+                            onSave={(v) => void patch({ cleaning_notes: v })} />
+                </Field>
+              </>
+            ) : null}
+
+            {sec.key === "stain_after" ? (
+              <>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Before you leave — stainer's checklist
+                  </span>
+                  <ProgressPill done={job.stainer_checklist.length} total={stainer_checklist.length} />
+                </div>
+                <Checklist items={stainer_checklist} ticked={job.stainer_checklist}
+                           onChange={(next) => void patch({ stainer_checklist: next })} />
+                <Field label="Staining notes"
+                       hint="Anything worth knowing before we invoice or follow up.">
+                  <BlurText rows={3} value={job.staining_notes}
+                            placeholder="How it went, anything left to do…"
+                            onSave={(v) => void patch({ staining_notes: v })} />
+                </Field>
+              </>
+            ) : null}
+          </Panel>
+        );
+  };
+
   return (
     <div className="space-y-3.5">
       {canManage ? (
@@ -684,7 +917,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               </button>
             ))}
           </div>
-          <span className="text-xs text-muted-foreground">{view === "employee" ? "Exactly what the crew sees." : "view"}</span>
+          {view === "employee" ? <span className="text-xs text-muted-foreground">Exactly what the crew sees.</span> : null}
         </div>
       ) : null}
 
@@ -695,13 +928,13 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
         <div className="relative flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/50">
               Company Cam
             </p>
             <h2 className="font-heading truncate text-xl font-semibold sm:text-2xl">
               {customer.name || "This job"}
             </h2>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/70">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/70">
               {customer.address ? (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="h-3 w-3" />{customer.address}
@@ -743,10 +976,10 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                 {s.done ? <Check className="h-4 w-4" /> : <s.icon className="h-3.5 w-3.5" />}
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-[11px] font-semibold leading-tight">
+                <span className="block truncate text-xs font-semibold leading-tight">
                   {s.label}
                 </span>
-                <span className="block text-[10px] text-white/50">
+                <span className="block text-xs text-white/50">
                   {s.n ? `${s.n} photo${s.n === 1 ? "" : "s"}`
                        : s.written ? "written out" : "nothing yet"}
                 </span>
@@ -755,7 +988,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           ))}
         </div>
 
-        <p className="relative mt-3 text-[11px] text-white/55">
+        <p className="relative mt-3 text-xs text-white/55">
           {totalPhotos} photo{totalPhotos === 1 ? "" : "s"} on file
           {damage ? ` · ${damage} flagged as damage` : ""}
         </p>
@@ -825,7 +1058,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           <StatTile icon={Droplets} label="Gallons of stain to bring" accent={ACCENT.cyan}
                     hint={!manager ? undefined : job.gallons_edited
                       ? "Typed in by hand, not following the footage"
-                      : `Square footage ÷ ${job.sqft_per_gallon}, rounded up`}>
+                      : `Square footage ÷ ${job.sqft_per_gallon}, rounded up${job.sqft_per_gallon === 175 ? " (solid stain goes further)" : ""}`}>
             {manager ? <div className="flex gap-1.5">
               <Input key={job.gallons_needed} type="number" inputMode="decimal" step="0.5" defaultValue={job.gallons_needed || ""}
                      className="h-10 text-base font-semibold tabular-nums"
@@ -850,7 +1083,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                 <Button key={p} size="sm"
                         variant={job.package === p ? "default" : "outline"}
                         onClick={() => void patch({ package: job.package === p ? "" : p })}
-                        className="h-10 flex-1 text-[11px] font-semibold capitalize">
+                        className="h-10 flex-1 text-xs font-semibold capitalize">
                   {p}
                 </Button>
               ))}
@@ -903,10 +1136,10 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             ) : null}
             {manager ? (
               <div className="flex gap-1.5">
-                {([["yes", "Yes, every side"], ["no", "No, some sides are different"]] as const).map(([v, label]) => (
+                {([["yes", "Yes, every side"], ["no", "No, some are different"]] as const).map(([v, label]) => (
                   <Button key={v} size="lg" variant={job.color_all_sides === v ? "default" : "outline"}
                           onClick={() => void patch({ color_all_sides: job.color_all_sides === v ? "" : v })}
-                          className="h-11 flex-1 text-sm font-semibold">
+                          className="h-auto min-h-11 flex-1 whitespace-normal py-2 text-sm font-semibold leading-tight">
                     {job.color_all_sides === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
                   </Button>
                 ))}
@@ -954,228 +1187,39 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-end gap-2">
-          <Button size="lg"
-                  variant={job.color_shown_at ? "default" : "outline"}
-                  className={cn("h-10", job.color_shown_at && "bg-emerald-600 hover:bg-emerald-600")}
-                  title="Mark that you physically showed the customer the colour"
+        {/* Shown once is enough (Alan, 2026-10-16): when the office already
+            settled it with the customer, the crew is told not to show it again. */}
+        {job.color_shown_at ? (
+          <p className="flex items-start gap-1.5 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            Confirmed with the customer by {job.color_shown_by || "the office"}. No need to show it to them again.
+          </p>
+        ) : (
+          <Button size="lg" variant="outline" className="h-auto min-h-11 w-full whitespace-normal py-2 sm:w-auto"
+                  title={manager ? "You already settled the colour with them: the crew won't need to show it" : "Mark that you showed the customer the colour"}
                   onClick={async () => {
                     try {
                       const r = await api.markCompanyCamColorShown(leadId);
                       setData((d) => (d ? { ...d, job: r.job } : d));
-                      toast.success("Logged — colour shown to the customer");
+                      toast.success(manager ? "Marked: the colour's confirmed, the crew won't show it" : "Logged: colour shown to the customer");
                     } catch (e) { toast.error(errMessage(e, "Couldn't save")); }
                   }}>
-            {job.color_shown_at
-              ? <><Check className="mr-1.5 h-4 w-4" /> Shown to customer</>
-              : <><Palette className="mr-1.5 h-4 w-4" /> I showed them the colour</>}
+            <Palette className="mr-1.5 h-4 w-4" />
+            {manager ? "Already confirmed with the customer (no need to show it)" : "I showed them the colour"}
           </Button>
-        </div>
-        {job.color_shown_at ? (
-          <p className="text-[11px] text-muted-foreground">
-            Shown by {job.color_shown_by || "crew"}. Show it even when it's
-            already confirmed.
-          </p>
-        ) : null}
+        )}
       </Panel>
 
-      {/* Photos, in the order the job happens. */}
-      {steps.map((sec) => {
-        const list = photos[sec.key] || [];
-        const busy = uploading === sec.key;
-        return (
-          <Panel
-            key={sec.key}
-            id={`cc-${sec.key}`}
-            icon={sec.icon}
-            accent={sec.accent}
-            title={sec.label}
-            sub={sec.who}
-            right={
-              <span className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums",
-                list.length ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground",
-              )}>
-                {list.length ? <Check className="h-2.5 w-2.5" /> : null}
-                {list.length} photo{list.length === 1 ? "" : "s"}
-              </span>
-            }
-          >
-            <p className="text-xs leading-relaxed text-muted-foreground">{sec.hint}</p>
-
-            {sec.key === "fence_scope" && !list.length ? (
-              <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3">
-                <Field label="No scope drawing — write out the job instead"
-                       hint="So the cleaner and stainer know exactly what is and isn't included.">
-                  <BlurText rows={3} value={job.scope_explanation}
-                            placeholder="e.g. All inside-facing sides plus the outside front. Skip the shared fence with next door."
-                            onSave={(v) => void patch({ scope_explanation: v })} />
-                </Field>
-              </div>
-            ) : null}
-
-            <input
-              ref={(el) => { inputs.current[sec.key] = el; }}
-              type="file" accept="image/*" multiple capture="environment" hidden
-              onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
-            />
-
-            {/* The sides, the same map as the estimate, next to the scope photo
-                so nobody can stain the wrong side (Alan, 2026-10-15). */}
-            {sec.key === "fence_scope" ? (
-              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
-                <p className="mb-1.5 text-sm font-bold">The sides we're staining</p>
-                {manager ? (
-                  <SidesPicker value={estimate_sides} onChange={(next) => void saveSides(next)} />
-                ) : estimate_sides.length ? (
-                  <SidesPicker value={estimate_sides} readOnly />
-                ) : (
-                  <p className="text-xs text-muted-foreground">No sides on the estimate yet.</p>
-                )}
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {manager
-                    ? "Tap a side to add or remove it. Saved for this customer (the Estimate tab shows the same sides). Front faces the street."
-                    : "Coloured = we stain it. Crossed out = don't touch it. Front faces the street."}
-                </p>
-              </div>
-            ) : null}
-
-            {sec.key === "fence_scope" ? (
-              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
-                <p className="text-sm font-bold">Has this fence been stained before?</p>
-                <p className="text-[11px] text-muted-foreground">
-                  The customer said: <b className="text-foreground">{data.customer_previously_stained || "nothing"}</b>
-                  {job.previously_stained ? " · ✓ confirmed" : manager ? " · tap to confirm" : ""}
-                </p>
-                {manager ? (
-                  <div className="mt-1.5 flex gap-1.5">
-                    {([["no", "Not stained before"], ["yes", "Stained before"]] as const).map(([v, label]) => (
-                      <Button key={v} size="lg" variant={job.previously_stained === v ? "default" : "outline"}
-                              onClick={() => void patch({ previously_stained: job.previously_stained === v ? "" : v })}
-                              className="h-11 flex-1 text-sm font-semibold">
-                        {job.previously_stained === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
-                      </Button>
-                    ))}
-                  </div>
-                ) : job.previously_stained ? (
-                  <ReadValue>{job.previously_stained === "yes" ? "Stained before" : "Not stained before"}</ReadValue>
-                ) : null}
-              </div>
-            ) : null}
-
-            {/* Alan picks the scope photo; the crew only sees it (2026-10-15). */}
-            {sec.key === "fence_scope" && manager ? (
-              <Button variant="outline" size="lg" onClick={() => setPicking(sec.key)}
-                      className="h-11 w-full border-violet-300 text-violet-800 hover:bg-violet-50 sm:w-auto">
-                <Images className="mr-1.5 h-4 w-4" /> Pick from our photos
-              </Button>
-            ) : null}
-
-            {list.length ? (
-              <>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {list.map((p) => (
-                    <PhotoCard key={p.id} leadId={leadId} photo={p}
-                      onPatch={async (pp) => {
-                        try {
-                          await api.updateCompanyCamPhoto(leadId, p.id, pp);
-                          await load();
-                        } catch (e) { toast.error(errMessage(e, "Couldn't save")); }
-                      }}
-                      onDelete={async () => {
-                        if (!confirm("Delete this photo?")) return;
-                        try {
-                          await api.deleteCompanyCamPhoto(leadId, p.id);
-                          await load();
-                        } catch (e) { toast.error(errMessage(e, "Couldn't delete")); }
-                      }} />
-                  ))}
-                </div>
-                <Button variant="outline" size="lg" disabled={busy}
-                        onClick={() => inputs.current[sec.key]?.click()}
-                        className="h-11 w-full sm:w-auto">
-                  {busy
-                    ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Uploading…</>
-                    : <><Camera className="mr-1.5 h-4 w-4" /> Add more photos</>}
-                </Button>
-              </>
-            ) : (
-              // A big dashed target, because on a phone this is the one thing
-              // the crew is here to do.
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => inputs.current[sec.key]?.click()}
-                className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-input bg-muted/30 py-7 text-muted-foreground transition hover:border-primary/50 hover:bg-primary/5 hover:text-foreground disabled:opacity-60"
-              >
-                {busy
-                  ? <Loader2 className="h-7 w-7 animate-spin" />
-                  : <ImagePlus className="h-7 w-7" />}
-                <span className="text-sm font-semibold">
-                  {busy ? "Uploading…" : "Take or add photos"}
-                </span>
-                <span className="text-[11px]">{sec.who}</span>
-              </button>
-            )}
-
-            {/* The cleaner checks the wood on arrival (Alan, 2026-10-15): pine
-                and cedar take stain differently, so it goes in the coverage file. */}
-            {sec.key === "clean_before" ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-2.5">
-                <p className="text-sm font-bold">Cleaner: what's the fence made of?</p>
-                <div className="mt-1.5 flex gap-1.5">
-                  {([["pine", "Pine"], ["cedar", "Cedar"], ["other", "Something else"]] as const).map(([v, label]) => (
-                    <Button key={v} size="lg" variant={job.wood_type === v ? "default" : "outline"}
-                            onClick={() => void patch({ wood_type: job.wood_type === v ? "" : v })}
-                            className="h-11 flex-1 text-sm font-semibold">
-                      {job.wood_type === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
-                    </Button>
-                  ))}
-                </div>
-                {!job.wood_type ? <p className="mt-1 text-[11px] text-muted-foreground">Not sure? Cedar is reddish and smells like cedar. Pine is pale yellow-white.</p> : null}
-              </div>
-            ) : null}
-
-            {sec.key === "clean_after" ? (
-              <>
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Before you leave — cleaner's checklist
-                  </span>
-                  <ProgressPill done={job.cleaner_checklist.length} total={cleaner_checklist.length} />
-                </div>
-                <Checklist items={cleaner_checklist} ticked={job.cleaner_checklist}
-                           onChange={(next) => void patch({ cleaner_checklist: next })} />
-                <Field label="Cleaning notes"
-                       hint="Anything the customer said, or anything management needs to decide on. Fill this in before you leave.">
-                  <BlurText rows={3} value={job.cleaning_notes}
-                            placeholder="What the customer mentioned, anything unexpected…"
-                            onSave={(v) => void patch({ cleaning_notes: v })} />
-                </Field>
-              </>
-            ) : null}
-
-            {sec.key === "stain_after" ? (
-              <>
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Before you leave — stainer's checklist
-                  </span>
-                  <ProgressPill done={job.stainer_checklist.length} total={stainer_checklist.length} />
-                </div>
-                <Checklist items={stainer_checklist} ticked={job.stainer_checklist}
-                           onChange={(next) => void patch({ stainer_checklist: next })} />
-                <Field label="Staining notes"
-                       hint="Anything worth knowing before we invoice or follow up.">
-                  <BlurText rows={3} value={job.staining_notes}
-                            placeholder="How it went, anything left to do…"
-                            onSave={(v) => void patch({ staining_notes: v })} />
-                </Field>
-              </>
-            ) : null}
-          </Panel>
-        );
-      })}
+      {/* The office's part first, then the cleaner's and the stainer's, each
+          boxed together so each person sees their part as one (Alan, 2026-10-16). */}
+      {renderStep("fence_scope")}
+      <RoleGroup who="cleaner">
+        {renderStep("clean_before")}
+        {renderStep("clean_after")}
+      </RoleGroup>
+      <RoleGroup who="stainer">
+        {renderStep("stain_before")}
+        {renderStep("stain_after")}
 
       {/* Almost finished — catch the customer while the crew is still there.
           Either they're home and the crew walks it with them, or the crew
@@ -1278,19 +1322,15 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                      if (v !== job.stain_gallons_bought) void patch({ stain_gallons_bought: v });
                    }} />
           </StatTile>
-          <StatTile icon={Sparkles} label="Bleach gallons used" accent={ACCENT.cyan}>
-            <Input type="number" inputMode="decimal" step="0.5"
-                   defaultValue={job.bleach_gallons_used || ""}
-                   className="h-10 text-base font-semibold tabular-nums"
-                   onBlur={(e) => {
-                     const v = parseFloat(e.target.value || "0");
-                     if (v !== job.bleach_gallons_used) void patch({ bleach_gallons_used: v });
-                   }} />
+          <StatTile icon={Sparkles} label="Bleach gallons used" accent={ACCENT.cyan} hint="The cleaner fills this in under After cleaning">
+            <ReadValue>{job.bleach_gallons_used ? `${job.bleach_gallons_used} gallons` : "Not yet"}</ReadValue>
           </StatTile>
         </div>
         <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage}
                   stain={(data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label} wood={job.wood_type} />
       </Panel>
+
+      </RoleGroup>
 
       {/* Neighbours — the cheapest lead source there is. */}
       <Panel icon={Users} accent={ACCENT.rose}
@@ -1424,7 +1464,7 @@ function LibraryPicker({ leadId, section, onClose, onAdded }: {
           <p className="py-8 text-center text-sm text-muted-foreground">No pictures on file for this customer yet. Draw the fence scope or use Measure &amp; capture first.</p>
         ) : groups.map((g) => (
           <div key={g} className="mt-3">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{g}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{g}</p>
             <div className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {items.filter((i) => i.group === g).map((i) => (
                 <LibraryThumb key={i.key} leadId={leadId} item={i} added={added.includes(i.key)} busy={busy === i.key} onPick={() => void add(i.key)} />
@@ -1477,7 +1517,7 @@ function FootageChoices({ sqft, estimates, measure, onPick }: {
   const [height, setHeight] = useState(measure?.height_ft || 6);
   const captures = measure?.captures || [];
   const totalFt = captures.reduce((t, c) => t + c.linear_feet, 0);
-  const chip = (on: boolean) => cn("rounded-full px-2 py-1 text-left text-[11px] font-semibold tabular-nums ring-1",
+  const chip = (on: boolean) => cn("min-h-10 rounded-full px-3 py-2 text-left text-xs font-semibold tabular-nums ring-1",
     on ? "bg-blue-600 text-white ring-blue-600" : "bg-background ring-border hover:bg-muted");
   const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
   const n = estimates.length;
@@ -1498,11 +1538,11 @@ function FootageChoices({ sqft, estimates, measure, onPick }: {
       ) : null}
       {captures.length ? (
         <div className="rounded-lg bg-muted/50 p-1.5">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Measure &amp; capture × fence height</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Measure &amp; capture × fence height</p>
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {HEIGHTS.map((h) => (
               <button key={h} type="button" onClick={() => setHeight(h)}
-                      className={cn("h-7 rounded-md px-2 text-[11px] font-bold ring-1", height === h ? "bg-foreground text-background ring-foreground" : "bg-background ring-border")}>
+                      className={cn("h-10 min-w-12 rounded-lg px-3 text-sm font-bold ring-1", height === h ? "bg-foreground text-background ring-foreground" : "bg-background ring-border")}>
                 {h} ft
               </button>
             ))}
@@ -1552,7 +1592,7 @@ function StainPicker({ options, value, onPick }: { options: StainOption[]; value
   }
   return (
     <div className="space-y-1">
-      <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="October Brown, Valspar, solid…" className="h-10 text-sm"
+      <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="October Brown, Valspar, solid…" className="h-10 text-base sm:text-sm"
              onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }} />
       <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background">
         {hits.length ? hits.map((o) => (
@@ -1560,13 +1600,13 @@ function StainPicker({ options, value, onPick }: { options: StainOption[]; value
                   className={cn("flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted", o.id === value && "bg-muted font-semibold")}>
             {o.id === value ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
             <span className="truncate">{o.label}</span>
-            {!o.active ? <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">off the shelf</span> : null}
+            {!o.active ? <span className="ml-auto shrink-0 text-xs text-muted-foreground">off the shelf</span> : null}
           </button>
         )) : <p className="px-3 py-2 text-xs text-muted-foreground">No stain matches. Add it on the Stain Inventory page.</p>}
       </div>
       <div className="flex justify-between">
-        {value ? <button type="button" onClick={() => { onPick(""); setOpen(false); }} className="text-xs font-semibold text-muted-foreground underline">Clear</button> : <span />}
-        <button type="button" onClick={() => setOpen(false)} className="text-xs font-semibold text-muted-foreground underline">Cancel</button>
+        {value ? <button type="button" onClick={() => { onPick(""); setOpen(false); }} className="min-h-10 px-1 text-sm font-semibold text-muted-foreground underline">Clear</button> : <span />}
+        <button type="button" onClick={() => setOpen(false)} className="min-h-10 px-1 text-sm font-semibold text-muted-foreground underline">Cancel</button>
       </div>
     </div>
   );
@@ -1605,7 +1645,7 @@ function AlmostDone({ text, defaultText, onText, phone, blocked, onMark }: {
     <div className="space-y-2">
       <p className="text-sm font-semibold">Copy this and text it to the customer from your phone{phone ? ` (${phone})` : ""}. You can change the words first.</p>
       <textarea value={text} onChange={(e) => onText(e.target.value)} rows={8}
-                className="w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-[15px] leading-relaxed shadow-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30" />
+                className="w-full resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-base leading-relaxed shadow-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30" />
       <div className="grid gap-2 sm:grid-cols-2">
         <Button size="lg" className="h-12 text-base font-semibold" onClick={() => void copy()}>
           {copied ? <Check className="mr-1.5 h-4 w-4" /> : null}{copied ? "Copied" : "1. Copy the text"}
@@ -1621,8 +1661,8 @@ function AlmostDone({ text, defaultText, onText, phone, blocked, onMark }: {
         <CheckCircle2 className="mr-1.5 h-4 w-4" /> 2. I sent it
       </Button>
       <div className="flex justify-between">
-        <button type="button" onClick={() => setMode("")} className="text-xs font-semibold text-muted-foreground underline">Back</button>
-        {text !== defaultText ? <button type="button" onClick={() => onText(defaultText)} className="text-xs font-semibold text-muted-foreground underline">Reset wording</button> : null}
+        <button type="button" onClick={() => setMode("")} className="min-h-10 px-1 text-sm font-semibold text-muted-foreground underline">Back</button>
+        {text !== defaultText ? <button type="button" onClick={() => onText(defaultText)} className="min-h-10 px-1 text-sm font-semibold text-muted-foreground underline">Reset wording</button> : null}
       </div>
     </div>
   );
@@ -1668,7 +1708,7 @@ function WhatToBring({ job, stain }: { job: CompanyCamJob; stain: string }) {
   if (!items.length) return null;
   return (
     <div className="mt-2.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2.5">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-blue-900">What to bring</p>
+      <p className="text-xs font-bold uppercase tracking-wide text-blue-900">What to bring</p>
       <ul className="mt-1 space-y-0.5 text-sm font-semibold">
         {items.map((t) => <li key={t} className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-700" />{t}</li>)}
       </ul>
@@ -1716,13 +1756,13 @@ function RepairsPanel({ job, manager, onPatch }: {
         <div className="space-y-2">
           {words.length ? (
             <ul className="space-y-1 rounded-xl bg-amber-50 px-3 py-2.5 ring-1 ring-amber-200">
-              <li className="text-[11px] font-bold uppercase tracking-wide text-amber-900">Planned by the office</li>
+              <li className="text-xs font-bold uppercase tracking-wide text-amber-900">Planned by the office</li>
               {words.map((w) => <li key={w} className="text-base font-bold">{w}</li>)}
             </ul>
           ) : null}
           {(job.repair_notes || "").trim() ? (
             <div className="rounded-xl bg-muted/50 px-3 py-2.5">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">From the office</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">From the office</p>
               <p className="whitespace-pre-wrap text-sm">{job.repair_notes}</p>
             </div>
           ) : null}
@@ -1736,7 +1776,7 @@ function RepairsPanel({ job, manager, onPatch }: {
             so the stainer replaces the right ones. If they want more than {pickets}, tell the office before you leave.
           </p>
           <Button size="lg" variant={job.pickets_marked_at ? "default" : "outline"}
-                  className={cn("mt-2 h-11 w-full text-sm font-semibold", job.pickets_marked_at && "bg-emerald-600 hover:bg-emerald-600")}
+                  className={cn("mt-2 h-auto min-h-11 w-full whitespace-normal py-2 text-sm font-semibold leading-tight", job.pickets_marked_at && "bg-emerald-600 hover:bg-emerald-600")}
                   onClick={() => onPatch({ pickets_marked: !job.pickets_marked_at })}>
             {job.pickets_marked_at
               ? <><CheckCircle2 className="mr-1.5 h-4 w-4" /> Agreed with the customer and marked{job.pickets_marked_by ? ` · ${job.pickets_marked_by}` : ""}</>
@@ -1823,7 +1863,27 @@ function SiteExtras({ job, onPatch, afterPlanned }: {
           {!editing ? <Button variant="outline" size="sm" className="h-9" onClick={() => setEditing(true)}>Change</Button> : null}
         </div>
       ) : null}
-      {confirmed && editing ? <p className="text-[11px] text-muted-foreground">Changing a count needs the customer's yes again.</p> : null}
+      {confirmed && editing ? <p className="text-xs text-muted-foreground">Changing a count needs the customer's yes again.</p> : null}
     </div>
+  );
+}
+
+/** The cleaner's steps or the stainer's, boxed together under one banner so
+ *  each person sees their part of the job as one (Alan, 2026-10-16). */
+function RoleGroup({ who, children }: { who: "cleaner" | "stainer"; children: React.ReactNode }) {
+  const look = who === "cleaner"
+    ? { title: "The cleaner's part", sub: "Before cleaning and after cleaning", Icon: Sparkles, ring: "ring-sky-200", band: "from-sky-600 to-cyan-600", bg: "bg-sky-50/40" }
+    : { title: "The stainer's part", sub: "Before staining, after staining, and finishing up", Icon: Paintbrush, ring: "ring-emerald-200", band: "from-emerald-600 to-teal-600", bg: "bg-emerald-50/40" };
+  return (
+    <section className={cn("overflow-hidden rounded-2xl ring-2", look.ring, look.bg)}>
+      <div className={cn("flex items-center gap-3 bg-gradient-to-r px-4 py-3 text-white", look.band)}>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20"><look.Icon className="h-5 w-5" /></span>
+        <span>
+          <span className="block font-heading text-lg font-bold leading-tight">{look.title}</span>
+          <span className="block text-xs text-white/85">{look.sub}</span>
+        </span>
+      </div>
+      <div className="space-y-3.5 p-2 sm:p-3">{children}</div>
+    </section>
   );
 }

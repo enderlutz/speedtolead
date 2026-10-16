@@ -15,7 +15,7 @@ export function Chips({ options, value, onChange }: {
         const on = o.key === value;
         return (
           <button key={o.key} type="button" onClick={() => onChange(o.key)} aria-pressed={on}
-            className={cn("rounded-lg px-3 py-2 text-[15px] font-semibold leading-tight transition",
+            className={cn("min-h-11 rounded-lg px-3 py-2 text-[15px] font-semibold leading-tight transition",
               on ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/75 ring-1 ring-[#15130F]/15")}>
             {o.label} <span className={cn("ml-0.5", on ? "text-white/85" : "text-[#15130F]/65")}>{formatCurrency(o.price).replace(".00", "")}</span>
           </button>

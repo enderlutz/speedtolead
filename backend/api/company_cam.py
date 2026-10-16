@@ -40,6 +40,7 @@ from services.company_cam import (
     fence_age,
     measure_options,
     sold_package,
+    sqft_per_gallon,
     color_options,
     derive_from_estimate,
     estimate_sides,
@@ -194,15 +195,16 @@ def _repairs(job: CompanyCamJob, raw: str | None = None) -> dict:
             "post_type": v.get("post_type") if v.get("post_type") in ("post6", "post7", "post8") else "post6"}
 
 
-def _job_dict(job: CompanyCamJob) -> dict:
+def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
     upsells = _json_list(job.upsells_json)
+    per_gallon = per_gallon or SQFT_PER_GALLON
     return {
         "lead_id": job.lead_id,
         "sqft": float(job.sqft or 0),
         "sqft_edited": bool(job.sqft_edited),
         "gallons_needed": float(job.gallons_needed or 0),
         "gallons_edited": bool(job.gallons_edited),
-        "sqft_per_gallon": SQFT_PER_GALLON,
+        "sqft_per_gallon": per_gallon,
         "package": job.package or "",
         "color_plan": _json_list(job.color_plan_json),
         "color": job.color or "",
@@ -304,7 +306,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
         for p in photos:
             grouped.setdefault(p.section, []).append(_photo_dict(p))
         return {
-            "job": _job_dict(job),
+            "job": _job_dict(job, sqft_per_gallon(db, job)),
             "sections": SECTIONS,
             "photos": grouped,
             "upsell_options": upsell_options(),
@@ -414,13 +416,13 @@ def update_company_cam(
             # directly — otherwise correcting the footage would silently
             # leave the crew with the old stain order.
             if not job.gallons_edited:
-                job.gallons_needed = gallons_for(job.sqft)
+                job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
         if body.gallons_needed is not None:
             job.gallons_needed = max(0.0, float(body.gallons_needed))
             job.gallons_edited = True
         if body.recalc_gallons:
             job.gallons_edited = False
-            job.gallons_needed = gallons_for(job.sqft)
+            job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
         if body.final_price is not None:
             job.final_price_cents = max(0, int(round(float(body.final_price) * 100)))
         if body.color_plan is not None:
@@ -461,6 +463,9 @@ def update_company_cam(
                 job.color = job.final_color
                 job.color_confirmed = True
             job.final_stain_id = sid
+            # Solid covers 175 sq ft a gallon, the rest 165: gallons follow.
+            if not job.gallons_edited:
+                job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
         if body.previously_stained is not None:
             v = body.previously_stained.strip().lower()
             if v not in ("yes", "no", ""):
@@ -547,7 +552,7 @@ def update_company_cam(
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
-        return {"job": _job_dict(job), "blockers": _blockers(job, photos), "estimate_sides": estimate_sides(db, lead)}
+        return {"job": _job_dict(job, sqft_per_gallon(db, job)), "blockers": _blockers(job, photos), "estimate_sides": estimate_sides(db, lead)}
     finally:
         db.close()
 

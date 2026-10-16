@@ -863,3 +863,18 @@ def test_the_office_changes_the_sides_from_company_cam(db):
     db.refresh(lead)
     fd = json.loads(lead.form_data)
     assert fd["fence_sides"] == ["Inside Front", "Outside Front", "Outside Left"] and fd["fence_age"] == "6-15 years"
+
+
+def test_a_solid_stain_divides_by_175_the_rest_by_165(db):
+    from database import StainInventoryItem
+    db.add(StainInventoryItem(id="ob", brand="Valspar", finish_type="solid", color_name="October Brown", gallons=13.5, active=True))
+    db.add(StainInventoryItem(id="cn", brand="Valspar", finish_type="semi_transparent", color_name="Cedar Natural Tone", gallons=4, active=True))
+    db.commit()
+    lead = _lead(db)
+    cc.get_company_cam(lead.id, user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(sqft=3439), user=USER)
+    assert r["job"]["gallons_needed"] == gallons_for(3439) and r["job"]["sqft_per_gallon"] == 165
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id="ob"), user=USER)
+    assert r["job"]["sqft_per_gallon"] == 175 and r["job"]["gallons_needed"] == gallons_for(3439, 175)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id="cn"), user=USER)
+    assert r["job"]["sqft_per_gallon"] == 165 and r["job"]["gallons_needed"] == gallons_for(3439)

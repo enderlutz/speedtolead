@@ -42,7 +42,7 @@ export function Panel({
   const text = (
     <div className="min-w-0 flex-1 text-left">
       <div className="font-heading text-sm font-semibold leading-tight">{title}</div>
-      {sub ? <div className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{sub}</div> : null}
+      {sub ? <div className="line-clamp-2 text-xs leading-snug text-muted-foreground">{sub}</div> : null}
     </div>
   );
   const bandCls = `flex w-full items-center gap-3 bg-gradient-to-r ${accent.band} px-3.5 py-3`;
@@ -100,13 +100,13 @@ export function Field({
   return (
     <div className={cn("space-y-1.5", className)}>
       <div className="flex items-center justify-between gap-2">
-        <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {label}
         </label>
         {right}
       </div>
       {children}
-      {hint ? <p className="text-[11px] leading-snug text-muted-foreground/80">{hint}</p> : null}
+      {hint ? <p className="text-xs leading-snug text-muted-foreground/80">{hint}</p> : null}
     </div>
   );
 }
@@ -126,7 +126,7 @@ export function StatTile({
   return (
     <div className={cn("rounded-xl border bg-card p-3", className)}>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${accent.grad} shadow-sm`}>
@@ -134,7 +134,7 @@ export function StatTile({
         </div>
       </div>
       {children}
-      {hint ? <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">{hint}</p> : null}
+      {hint ? <p className="mt-1.5 text-xs leading-snug text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function ProgressPill({ done, total }: { done: number; total: number }) {
   const all = total > 0 && done === total;
   return (
     <span className={cn(
-      "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums",
+      "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums",
       all ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground",
     )}>
       {all ? <Check className="h-2.5 w-2.5" /> : null}{done} of {total}
@@ -203,7 +203,7 @@ export function Pill({
   return (
     <span
       title={title}
-      className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold", accent.soft, className)}
+      className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold", accent.soft, className)}
     >
       {children}
     </span>

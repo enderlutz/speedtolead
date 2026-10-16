@@ -71,7 +71,7 @@ export function SidesPicker({
                   readOnly && !on && "!border-dashed !bg-background !text-muted-foreground/50 line-through !opacity-100",
                   readOnly && "cursor-default active:scale-100",
                   "flex aspect-square items-center justify-center rounded-lg border font-semibold transition active:scale-95",
-                  compact ? "text-[10px]" : "text-[11px]",
+                  compact ? "text-xs" : "text-xs",
                   on
                     ? `border-transparent bg-gradient-to-br ${accent.grad} text-white shadow-sm`
                     : taken
@@ -89,14 +89,14 @@ export function SidesPicker({
           };
           return (
             <div key={group} className={cn("rounded-xl border bg-muted/20", compact ? "p-2" : "p-2.5")}>
-              <div className="mb-1.5 flex items-center justify-between gap-1">
-                <span className={cn("text-[11px] font-bold uppercase tracking-wide", accent.text)}>{group}</span>
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5">
+                <span className={cn("text-xs font-bold uppercase tracking-wide", accent.text)}>{group}</span>
                 <div className="flex items-center gap-1.5">
                   <ProgressPill done={n} total={names.length} />
                   {readOnly ? null : <button
                     type="button"
                     onClick={() => setGroup(names, n < names.length)}
-                    className="text-[10px] font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    className="-my-2 px-2 py-2.5 text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
                     {n < names.length ? "All" : "None"}
                   </button>}
@@ -120,7 +120,7 @@ export function SidesPicker({
         })}
       </div>
       {highlight ? (
-        <p className="text-[10px] leading-snug text-muted-foreground">
+        <p className="text-xs leading-snug text-muted-foreground">
           Solid outline = on the estimate. Faint = not bought, still tappable for an on-site add-on.
           {elsewhere && elsewhere.length > 0 ? " Dotted = already in another colour row; tap to move it." : ""}
         </p>
