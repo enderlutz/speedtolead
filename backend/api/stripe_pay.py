@@ -941,6 +941,7 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             log_event(link.lead_id, "stripe_session_failed", f"{link.kind} {link.token[:6]}: {str(e)[:500]}")
             raise HTTPException(status_code=502, detail="Stripe couldn't start the payment. Try again in a minute.")
         link.stripe_session_id = session.id
+        link.checkout_started_at = datetime.now(timezone.utc).isoformat()
         db.commit()
         ua = request.headers.get("user-agent", "")[:300] if request is not None else ""
         log_event(link.lead_id, "stripe_checkout_opened", f"{link.kind} {link.token[:6]} · {ua}")

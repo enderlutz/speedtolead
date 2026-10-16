@@ -437,6 +437,26 @@ async def _estimate_delay_loop():
         await asyncio.sleep(600)  # Every 10 minutes
 
 
+async def _stuck_payment_loop():
+    """Text Alan when a customer tapped Pay and nothing came through in 10
+    minutes (Jeff, 2026-10-16). Every 2 minutes."""
+    from services.stuck_payments import check as _check
+    from database import get_db as _get_db
+    await asyncio.sleep(200)
+    while True:
+        try:
+            def _tick():
+                db = _get_db()
+                try:
+                    _check(db)
+                finally:
+                    db.close()
+            await asyncio.to_thread(_tick)
+        except Exception as e:
+            logger.error(f"Stuck payment check error: {e}")
+        await asyncio.sleep(120)
+
+
 async def _video_capture_reminder_loop():
     """FenceScope: nudge customers who got a video-capture link but never
     submitted (24h, then 72h), then auto-route to the estimator (>=96h). Each
@@ -636,6 +656,7 @@ async def lifespan(app: FastAPI):
     followup_backfill = asyncio.create_task(_followup_backfill_loop())
     map_geocoder = asyncio.create_task(_map_geocode_loop())
     video_reminders = asyncio.create_task(_video_capture_reminder_loop())
+    stuck_payments = asyncio.create_task(_stuck_payment_loop())
     # Nudge loop disabled — was spamming Alan every 5 min
     # nudger = asyncio.create_task(_nudge_loop())
     yield
@@ -665,6 +686,7 @@ async def lifespan(app: FastAPI):
     followup_backfill.cancel()
     map_geocoder.cancel()
     video_reminders.cancel()
+    stuck_payments.cancel()
 
 
 app = FastAPI(title="Sterling Fence Staining", lifespan=lifespan)

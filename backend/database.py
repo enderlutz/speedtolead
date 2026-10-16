@@ -4105,6 +4105,11 @@ class PayLink(Base):
     # 1 = Klarna switched off for this link (Alan, 2026-10-13: Klarna costs
     # him ~3% on a final invoice nobody asked to finance). NULL = allowed.
     no_financing = Column(Integer, nullable=True)
+    # The last time the customer tapped Pay and went to Stripe, and when the
+    # office was last told a tapped-but-not-paid link is stuck (Jeff,
+    # 2026-10-16: Stripe's page stayed blank on his phone).
+    checkout_started_at = Column(Text, nullable=True)
+    stuck_alerted_at = Column(Text, nullable=True)
     # When the customer opened the pay page (bots and staff previews skipped).
     first_viewed_at = Column(Text, nullable=True)
     last_viewed_at = Column(Text, nullable=True)
@@ -4306,6 +4311,10 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN credit_cents INTEGER"))
             if "no_financing" not in pl:
                 conn.execute(text("ALTER TABLE pay_links ADD COLUMN no_financing INTEGER"))
+            if "checkout_started_at" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN checkout_started_at TEXT"))
+            if "stuck_alerted_at" not in pl:
+                conn.execute(text("ALTER TABLE pay_links ADD COLUMN stuck_alerted_at TEXT"))
             for col, typ in (("first_viewed_at", "TEXT"), ("last_viewed_at", "TEXT"), ("view_count", "INTEGER"), ("option_id", "TEXT"),
                              ("after_first_viewed_at", "TEXT"), ("after_last_viewed_at", "TEXT"),
                              ("after_view_count", "INTEGER"), ("after_furthest", "TEXT"), ("door", "TEXT"),

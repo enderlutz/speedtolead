@@ -308,8 +308,44 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Phone className="h-4 w-4" /> Call
           </a>
         </div>
-        <div className="px-5 py-6">{children}</div>
+        <div className="px-5 py-6"><InAppWarning />{children}</div>
       </div>
+    </div>
+  );
+}
+
+// Facebook, Instagram, Outlook and other apps open links in their own
+// built-in browser, where Stripe's page can stay blank (Jeff, 2026-10-16).
+const IN_APP = /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger|Line\/|GSA\/|LinkedInApp|Snapchat|Twitter|TikTok|musical_ly|Outlook|; wv\)/i;
+
+function InAppWarning() {
+  const [copied, setCopied] = useState(false);
+  if (typeof navigator === "undefined" || !IN_APP.test(navigator.userAgent)) return null;
+  const android = /Android/i.test(navigator.userAgent);
+  const url = window.location.href.replace(/[?&]preview=1/, "");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      window.prompt("Copy this link, then paste it in Safari or Chrome:", url);
+    }
+  };
+  return (
+    <div className="mb-5 rounded-2xl bg-[#FFF7E6] p-4 ring-2 ring-[#C9972F]">
+      <p className="text-[17px] font-bold leading-snug">Open this page in {android ? "Chrome" : "Safari"} to pay</p>
+      <p className="mt-1 text-[15px] text-[#15130F]/80">
+        You're inside another app, and the secure payment page may not load here.
+        {android ? " Tap the button below." : " Tap ••• or the share button at the top or bottom, then \u201cOpen in Safari\u201d. Or copy the link and paste it in Safari."}
+      </p>
+      {android ? (
+        <a href={`intent://${url.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`}
+          className="mt-3 flex h-12 w-full items-center justify-center rounded-xl text-[17px] font-bold text-[#15130F]" style={{ background: GOLD }}>Open in Chrome</a>
+      ) : null}
+      <button type="button" onClick={() => void copy()}
+        className="mt-3 flex h-12 w-full items-center justify-center rounded-xl bg-white text-[17px] font-bold ring-1 ring-[#15130F]/20">
+        {copied ? "Copied. Now paste it in " + (android ? "Chrome" : "Safari") : "Copy the link"}
+      </button>
     </div>
   );
 }
