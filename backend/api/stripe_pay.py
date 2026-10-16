@@ -797,6 +797,9 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
                 link.last_viewed_at = now
                 link.view_count = (link.view_count or 0) + 1
                 db.commit()
+                # Which phone and browser, so a page that won't load on a
+                # customer's phone can be traced (Jeff, 2026-10-16).
+                log_event(link.lead_id, "pay_page_viewed", f"{link.kind} {link.token[:6]} · {request.headers.get('user-agent', '')[:300]}")
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         pay = db.query(CustomerPayment).filter(CustomerPayment.pay_link_token == link.token).first()
         return {
@@ -825,7 +828,7 @@ class SessionBody(BaseModel):
 
 
 @router.post("/pay/{token}/session")
-def start_session(token: str, body: SessionBody | None = None):
+def start_session(token: str, body: SessionBody | None = None, request: Request = None):
     """Public. A fresh Stripe Checkout session for this link; the customer
     is sent to Stripe's page. A link already paid goes to its after page."""
     db = get_db()
@@ -939,6 +942,8 @@ def start_session(token: str, body: SessionBody | None = None):
             raise HTTPException(status_code=502, detail="Stripe couldn't start the payment. Try again in a minute.")
         link.stripe_session_id = session.id
         db.commit()
+        ua = request.headers.get("user-agent", "")[:300] if request is not None else ""
+        log_event(link.lead_id, "stripe_checkout_opened", f"{link.kind} {link.token[:6]} · {ua}")
         return {"url": session.url, "paid": False}
     finally:
         db.close()

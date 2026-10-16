@@ -175,6 +175,10 @@ export default function PayLink() {
           <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
           {terms ? <TermsSheet onClose={() => setTerms(false)} /> : null}
           {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-800">{error}</p> : null}
+          {/* Stripe's page stayed blank on a customer's phone (Jeff, 2026-10-16): say what to do. */}
+          <p className="mt-4 rounded-xl bg-[#FFF7E6] px-3 py-3 text-[15px] text-[#15130F]/85 ring-1 ring-[#C9972F]/40">
+            <b>Payment page stays blank?</b> Open this link in Safari or Chrome (not inside your email or Facebook app), or call or text us at {PHONE} and we'll send another way to pay.
+          </p>
           <p className="mt-6 flex items-center justify-center gap-2 text-[13px] text-[#15130F]/65"><Lock className="h-3.5 w-3.5" /> Secure checkout by Stripe</p>
         </>
       ) : (
