@@ -18,13 +18,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
-  Droplets, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
+  Droplets, Search, Users, ShoppingCart, MessageSquare, Send, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, canSeeRevenue, type CompanyCamPayload, type CompanyCamPhoto,
+  api, canSeeRevenue, type CompanyCamPayload, type CoverageStats, type StainOption, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -792,7 +792,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           crew works from this screen. */}
       <Panel icon={Droplets} accent={ACCENT.blue} title="The job"
              sub="What we're doing and what to bring">
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
           <StatTile icon={Ruler} label="Square footage" accent={ACCENT.blue}
                     hint={!manager ? undefined : job.sqft_edited ? "✓ Set for this job" : "From the latest sent estimate. Pick one below or type it."}>
             {manager ? (<>
@@ -845,6 +845,16 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           <StatTile icon={Hourglass} label="Age of the fence" accent={ACCENT.amber}
                     hint="From the estimate">
             <p className="flex h-10 items-center text-base font-semibold">{ageLabel(data.fence_age)}</p>
+          </StatTile>
+
+          <StatTile icon={Palette} label="Stain they went with" accent={ACCENT.fuchsia}
+                    hint={manager ? "From Stain Inventory. Type to search." : undefined}>
+            {manager ? (
+              <StainPicker options={data.stain_options || []} value={job.final_stain_id}
+                           onPick={(id) => void patch({ final_stain_id: id })} />
+            ) : (
+              <ReadValue>{(data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label || job.final_color || "Not picked yet"}</ReadValue>
+            )}
           </StatTile>
         </div>
       </Panel>
@@ -973,6 +983,29 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               </div>
             ) : null}
 
+            {sec.key === "fence_scope" ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-2.5">
+                <p className="text-sm font-bold">Has this fence been stained before?</p>
+                <p className="text-[11px] text-muted-foreground">
+                  The customer said: <b className="text-foreground">{data.customer_previously_stained || "nothing"}</b>
+                  {job.previously_stained ? " · ✓ confirmed" : manager ? " · tap to confirm" : ""}
+                </p>
+                {manager ? (
+                  <div className="mt-1.5 flex gap-1.5">
+                    {([["no", "Not stained before"], ["yes", "Stained before"]] as const).map(([v, label]) => (
+                      <Button key={v} size="lg" variant={job.previously_stained === v ? "default" : "outline"}
+                              onClick={() => void patch({ previously_stained: job.previously_stained === v ? "" : v })}
+                              className="h-11 flex-1 text-sm font-semibold">
+                        {job.previously_stained === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : job.previously_stained ? (
+                  <ReadValue>{job.previously_stained === "yes" ? "Stained before" : "Not stained before"}</ReadValue>
+                ) : null}
+              </div>
+            ) : null}
+
             {/* Alan picks the scope photo; the crew only sees it (2026-10-15). */}
             {sec.key === "fence_scope" && manager ? (
               <Button variant="outline" size="lg" onClick={() => setPicking(sec.key)}
@@ -1027,6 +1060,24 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                 <span className="text-[11px]">{sec.who}</span>
               </button>
             )}
+
+            {/* The cleaner checks the wood on arrival (Alan, 2026-10-15): pine
+                and cedar take stain differently, so it goes in the coverage file. */}
+            {sec.key === "clean_before" ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-2.5">
+                <p className="text-sm font-bold">Cleaner: what's the fence made of?</p>
+                <div className="mt-1.5 flex gap-1.5">
+                  {([["pine", "Pine"], ["cedar", "Cedar"], ["other", "Something else"]] as const).map(([v, label]) => (
+                    <Button key={v} size="lg" variant={job.wood_type === v ? "default" : "outline"}
+                            onClick={() => void patch({ wood_type: job.wood_type === v ? "" : v })}
+                            className="h-11 flex-1 text-sm font-semibold">
+                      {job.wood_type === v ? <Check className="mr-1 h-4 w-4" /> : null}{label}
+                    </Button>
+                  ))}
+                </div>
+                {!job.wood_type ? <p className="mt-1 text-[11px] text-muted-foreground">Not sure? Cedar is reddish and smells like cedar. Pine is pale yellow-white.</p> : null}
+              </div>
+            ) : null}
 
             {sec.key === "clean_after" ? (
               <>
@@ -1211,7 +1262,8 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                    }} />
           </StatTile>
         </div>
-        <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage} />
+        <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage}
+                  stain={(data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label} wood={job.wood_type} />
       </Panel>
 
       {/* Neighbours — the cheapest lead source there is. */}
@@ -1283,9 +1335,8 @@ function ageLabel(v?: string) {
 
 /** What a gallon covered on this job, next to our average overall and on
  *  fences this old. Each job with gallons recorded adds to the averages. */
-function Coverage({ sqft, gallons, age, stats }: {
-  sqft: number; gallons: number; age?: string;
-  stats?: { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null };
+function Coverage({ sqft, gallons, age, stats, stain, wood }: {
+  sqft: number; gallons: number; age?: string; stats?: CoverageStats; stain?: string; wood?: string;
 }) {
   const rate = sqft > 0 && gallons > 0 ? Math.round(sqft / gallons) : null;
   return (
@@ -1295,6 +1346,12 @@ function Coverage({ sqft, gallons, age, stats }: {
       ) : (
         <p className="text-muted-foreground">Put in the square footage and the gallons used, and this shows how far a gallon went.</p>
       )}
+      {stain && stats?.match_jobs ? (
+        <p className="mt-0.5 text-xs font-semibold tabular-nums">
+          {stain}{wood ? `, ${wood}` : ""}, {ageLabel(age).toLowerCase()}: {stats.match_avg} sq ft a gallon over {stats.match_jobs} {stats.match_jobs === 1 ? "job" : "jobs"}
+        </p>
+      ) : null}
+      {!stain && rate ? <p className="mt-0.5 text-xs text-amber-700">Pick the stain they went with in The job, so this counts in the coverage file.</p> : null}
       {stats && stats.all_jobs > 0 ? (
         <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
           Our average: {stats.all_avg} sq ft a gallon over {stats.all_jobs} {stats.all_jobs === 1 ? "job" : "jobs"}
@@ -1448,4 +1505,43 @@ function FootageChoices({ sqft, estimates, measure, onPick }: {
 /** A number the crew reads but doesn't change (employee view). */
 function ReadValue({ children }: { children: React.ReactNode }) {
   return <p className="flex h-10 items-center text-base font-semibold tabular-nums">{children}</p>;
+}
+
+/** Search Stain Inventory and pick the stain they went with. */
+function StainPicker({ options, value, onPick }: { options: StainOption[]; value: string; onPick: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const picked = options.find((o) => o.id === value);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = options.filter((o) => words.every((w) => o.label.toLowerCase().includes(w))).slice(0, 40);
+  if (!open) {
+    return (
+      <button type="button" onClick={() => { setOpen(true); setQ(""); }}
+              className={cn("flex h-10 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm font-semibold",
+                picked ? "border-input bg-background" : "border-dashed border-input bg-muted/30 text-muted-foreground")}>
+        <span className="truncate">{picked ? picked.label : "Pick the stain…"}</span>
+        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="October Brown, Valspar, solid…" className="h-10 text-sm"
+             onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }} />
+      <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background">
+        {hits.length ? hits.map((o) => (
+          <button key={o.id} type="button" onClick={() => { onPick(o.id); setOpen(false); }}
+                  className={cn("flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted", o.id === value && "bg-muted font-semibold")}>
+            {o.id === value ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+            <span className="truncate">{o.label}</span>
+            {!o.active ? <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">off the shelf</span> : null}
+          </button>
+        )) : <p className="px-3 py-2 text-xs text-muted-foreground">No stain matches. Add it on the Stain Inventory page.</p>}
+      </div>
+      <div className="flex justify-between">
+        {value ? <button type="button" onClick={() => { onPick(""); setOpen(false); }} className="text-xs font-semibold text-muted-foreground underline">Clear</button> : <span />}
+        <button type="button" onClick={() => setOpen(false)} className="text-xs font-semibold text-muted-foreground underline">Cancel</button>
+      </div>
+    </div>
+  );
 }

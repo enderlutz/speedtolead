@@ -32,7 +32,10 @@ from services.company_cam import (
     STAINER_CHECKLIST,
     cleaner_color_actions,
     coverage_stats,
+    customer_previously_stained,
     estimate_options,
+    stain_options,
+    stained_answer,
     fence_age,
     measure_options,
     sold_package,
@@ -200,6 +203,9 @@ def _job_dict(job: CompanyCamJob) -> dict:
         "stain_gallons_bought": float(job.stain_gallons_bought or 0),
         "bleach_gallons_used": float(job.bleach_gallons_used or 0),
         "final_color": job.final_color or "",
+        "final_stain_id": job.final_stain_id or "",
+        "previously_stained": job.previously_stained or "",
+        "wood_type": job.wood_type or "",
         "cleaner_checklist": _json_list(job.cleaner_checklist_json),
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
@@ -296,7 +302,11 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # what a gallon has covered on our jobs, overall and on fences
             # this old (Alan, 2026-10-15).
             "fence_age": age,
-            "coverage": coverage_stats(db, age),
+            "coverage": coverage_stats(db, age, job.final_stain_id or "", stained_answer(job, lead), job.wood_type or ""),
+            "stain_options": stain_options(db),
+            # What the customer said on the form ("No", "Yes", "I don't
+            # know"), shown until someone confirms it on site.
+            "customer_previously_stained": customer_previously_stained(lead),
             "estimate_options": estimate_options(db, lead_id),
             "measure_options": measure_options(db, lead_id),
             "customer": {
@@ -331,6 +341,12 @@ class CompanyCamPatch(BaseModel):
     stain_gallons_bought: float | None = None
     bleach_gallons_used: float | None = None
     final_color: str | None = None
+    # A Stain Inventory id, or "" to clear. Sets final_color from it.
+    final_stain_id: str | None = None
+    # "yes" | "no" | "" (not confirmed).
+    previously_stained: str | None = None
+    # "pine" | "cedar" | "other" | "" — the cleaner checks on site.
+    wood_type: str | None = None
     cleaner_checklist: list[str] | None = None
     stainer_checklist: list[str] | None = None
     neighbor_interested: bool | None = None
@@ -392,6 +408,25 @@ def update_company_cam(
             v = getattr(body, field)
             if v is not None:
                 setattr(job, field, bool(v))
+        if body.final_stain_id is not None:
+            sid = body.final_stain_id.strip()
+            if sid:
+                from database import StainInventoryItem
+                item = db.query(StainInventoryItem).filter(StainInventoryItem.id == sid).first()
+                if not item:
+                    raise HTTPException(400, "That stain isn't in the inventory")
+                job.final_color = item.color_name or ""
+            job.final_stain_id = sid
+        if body.previously_stained is not None:
+            v = body.previously_stained.strip().lower()
+            if v not in ("yes", "no", ""):
+                raise HTTPException(400, "Previously stained is yes, no, or blank")
+            job.previously_stained = v
+        if body.wood_type is not None:
+            v = body.wood_type.strip().lower()
+            if v not in ("pine", "cedar", "other", ""):
+                raise HTTPException(400, "Wood is pine, cedar, other, or blank")
+            job.wood_type = v
         if body.upsells is not None:
             valid = {o["key"] for o in upsell_options()}
             job.upsells_json = json.dumps([u for u in body.upsells if u in valid])
@@ -756,5 +791,18 @@ def reset_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
         job.updated_at = _now()
         db.commit()
         return {"job": _job_dict(job)}
+    finally:
+        db.close()
+
+
+@router.get("/stain-coverage")
+def stain_coverage(user: dict = Depends(get_current_user)):
+    """The coverage file: sq ft a gallon for each stain, fence age and prior
+    stain, from every finished job with gallons recorded."""
+    del user
+    from services.company_cam import coverage_file
+    db = get_db()
+    try:
+        return coverage_file(db)
     finally:
         db.close()

@@ -505,23 +505,109 @@ def sold_package(db, lead_id: str) -> str:
     return ""
 
 
-def coverage_stats(db, age: str) -> dict:
-    """Square feet a gallon actually covered, from every job where the crew
-    recorded gallons used: across all jobs, and on fences this old. The
-    number Alan wants to learn per kind of fence (2026-10-15)."""
+def customer_previously_stained(lead) -> str:
+    """The customer's form answer to "previously stained?", as they gave it."""
+    try:
+        fd = json.loads(lead.form_data or "{}") if isinstance(lead.form_data, str) else (lead.form_data or {})
+    except (ValueError, TypeError):
+        fd = {}
+    return str(fd.get("previously_stained") or "").strip() if isinstance(fd, dict) else ""
+
+
+def stained_answer(job, lead) -> str:
+    """ "yes" | "no" | "unknown": confirmed on site first, else the form."""
+    if job.previously_stained in ("yes", "no"):
+        return job.previously_stained
+    v = customer_previously_stained(lead).lower()
+    return "yes" if v == "yes" else "no" if v == "no" else "unknown"
+
+
+def stain_options(db) -> list[dict]:
+    """Every stain in the inventory, to pick the one they went with."""
+    from database import StainInventoryItem
+
+    try:
+        rows = db.query(StainInventoryItem).order_by(StainInventoryItem.color_name, StainInventoryItem.brand).all()
+    except Exception:  # noqa: BLE001 — a missing table must not break the crew screen
+        logger.exception("stain inventory unavailable for stain options")
+        return []
+    return [{"id": r.id, "label": stain_label(r), "color_name": r.color_name or "", "brand": r.brand or "",
+             "finish_type": r.finish_type or "", "active": bool(r.active)} for r in rows]
+
+
+FINISH_LABELS = {"solid": "Solid", "semi_solid": "Semi-solid", "semi_transparent": "Semi-transparent",
+                 "transparent": "Transparent", "clear": "Clear", "oil_based": "Oil-based"}
+
+
+def stain_label(item) -> str:
+    """ "October Brown · Valspar · Solid" """
+    parts = [item.color_name or "", item.brand or "", FINISH_LABELS.get(item.finish_type or "", item.finish_type or "")]
+    return " · ".join(p.strip() for p in parts if p and p.strip())
+
+
+def _finished_jobs(db) -> list[tuple]:
+    """(job, lead, sq ft a gallon) for every job with footage and gallons used."""
     from database import CompanyCamJob, Lead
 
-    rows = (db.query(CompanyCamJob.sqft, CompanyCamJob.stain_gallons_used, Lead)
-            .join(Lead, Lead.id == CompanyCamJob.lead_id)
-            .filter(CompanyCamJob.stain_gallons_used > 0, CompanyCamJob.sqft > 0).all())
-    all_rates, same = [], []
-    for sqft, gal, lead in rows:
-        r = float(sqft) / float(gal)
+    out = []
+    for job, lead in (db.query(CompanyCamJob, Lead).join(Lead, Lead.id == CompanyCamJob.lead_id)
+                      .filter(CompanyCamJob.stain_gallons_used > 0, CompanyCamJob.sqft > 0).all()):
+        out.append((job, lead, float(job.sqft) / float(job.stain_gallons_used)))
+    return out
+
+
+def coverage_stats(db, age: str, stain_id: str = "", stained: str = "", wood: str = "") -> dict:
+    """Square feet a gallon actually covered: across all jobs, on fences this
+    old, and on this exact stain + age + prior stain (the number Alan wants to
+    learn, 2026-10-15)."""
+    all_rates, same_age, same_all = [], [], []
+    for job, lead, r in _finished_jobs(db):
         all_rates.append(r)
-        if age and fence_age(db, lead) == age:
-            same.append(r)
+        a = fence_age(db, lead)
+        if age and a == age:
+            same_age.append(r)
+            if (stain_id and job.final_stain_id == stain_id and stained_answer(job, lead) == stained
+                    and (job.wood_type or "") == wood):
+                same_all.append(r)
     avg = lambda xs: round(sum(xs) / len(xs)) if xs else None  # noqa: E731
-    return {"all_jobs": len(all_rates), "all_avg": avg(all_rates), "age_jobs": len(same), "age_avg": avg(same)}
+    return {"all_jobs": len(all_rates), "all_avg": avg(all_rates), "age_jobs": len(same_age), "age_avg": avg(same_age),
+            "match_jobs": len(same_all), "match_avg": avg(same_all)}
+
+
+def coverage_file(db) -> dict:
+    """Every finished job grouped by stain, fence age and prior stain: how
+    many jobs, total gallons, total sq ft, and sq ft one gallon covered
+    (total sq ft ÷ total gallons, so a big job counts for more than a small
+    one). Jobs with gallons but no stain picked are listed so they get fixed."""
+    from database import StainInventoryItem
+
+    items = {r.id: r for r in db.query(StainInventoryItem).all()}
+    groups: dict[tuple, dict] = {}
+    missing = []
+    for job, lead, r in _finished_jobs(db):
+        item = items.get(job.final_stain_id or "")
+        entry = {"lead_id": lead.id, "name": lead.contact_name or "", "sqft": round(float(job.sqft)),
+                 "gallons": float(job.stain_gallons_used), "sqft_per_gallon": round(r)}
+        if not item:
+            missing.append({**entry, "color": job.final_color or ""})
+            continue
+        age = fence_age(db, lead) or "Didn't say"
+        stained = stained_answer(job, lead)
+        wood = job.wood_type or "unknown"
+        key = (item.id, wood, age, stained)
+        g = groups.setdefault(key, {"stain_id": item.id, "stain": stain_label(item), "color_name": item.color_name or "",
+                                    "brand": item.brand or "", "finish_type": item.finish_type or "", "wood_type": wood, "fence_age": age,
+                                    "previously_stained": stained, "jobs": [], "gallons": 0.0, "sqft": 0})
+        g["jobs"].append(entry)
+        g["gallons"] += entry["gallons"]
+        g["sqft"] += entry["sqft"]
+    rows = []
+    for g in groups.values():
+        g["gallons"] = round(g["gallons"], 2)
+        g["sqft_per_gallon"] = round(g["sqft"] / g["gallons"]) if g["gallons"] else None
+        rows.append(g)
+    rows.sort(key=lambda g: (g["color_name"].lower(), g["brand"].lower(), g["wood_type"], g["fence_age"], g["previously_stained"]))
+    return {"rows": rows, "missing_stain": missing}
 
 
 def _height_ft(v) -> float:

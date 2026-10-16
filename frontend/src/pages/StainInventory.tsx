@@ -6,12 +6,13 @@ import {
   type StainInventoryItem,
   type StainBody,
   type StainMovement,
+  type StainCoverageFile,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { PaintBucket, Plus, Pencil, Trash2, Check, X, Search, History } from "lucide-react";
+import { PaintBucket, Plus, Pencil, Trash2, Check, X, Search, History, Ruler } from "lucide-react";
 
 // Stain Inventory — what's in the storage unit, one number per colour.
 //
@@ -218,7 +219,78 @@ export default function StainInventory() {
           )}
         </CardContent>
       </Card>
+
+      <CoverageFile />
     </div>
+  );
+}
+
+const WOOD: Record<string, string> = { pine: "Pine", cedar: "Cedar", other: "Other wood", unknown: "Wood not checked" };
+const STAINED: Record<string, string> = { yes: "Stained before", no: "Never stained", unknown: "Not sure if stained" };
+
+/** The coverage file (Alan, 2026-10-15): how far one gallon went, for each
+ * stain on each kind of fence. Every finished job with the stain and the
+ * gallons used filled in on Company Cam lands here by itself. */
+function CoverageFile() {
+  const [file, setFile] = useState<StainCoverageFile | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => { api.getStainCoverage().then(setFile).catch(() => setFile({ rows: [], missing_stain: [] })); }, []);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base"><Ruler className="h-4 w-4" /> Coverage file</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          How many square feet one gallon covered, for each stain, wood, fence age and whether it was stained before.
+          Each job lands here when Company Cam has the stain they went with and the gallons used.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {file === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+        {file && !file.rows.length ? <p className="text-sm text-muted-foreground">No finished jobs yet. The first one shows up here.</p> : null}
+        {file?.rows.map((r) => {
+          const key = `${r.stain_id}|${r.wood_type}|${r.fence_age}|${r.previously_stained}`;
+          return (
+            <div key={key} className="rounded-lg border border-border">
+              <button type="button" onClick={() => setOpen(open === key ? null : key)} className="flex w-full items-center gap-3 px-3 py-2 text-left">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{r.stain}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {WOOD[r.wood_type] || r.wood_type} · {r.fence_age} · {STAINED[r.previously_stained] || r.previously_stained}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right tabular-nums">
+                  <span className="block text-lg font-bold">{r.sqft_per_gallon ?? "?"}</span>
+                  <span className="block text-[10px] text-muted-foreground">sq ft a gallon</span>
+                </span>
+              </button>
+              <p className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground tabular-nums">
+                {r.jobs.length} {r.jobs.length === 1 ? "job" : "jobs"} · {r.sqft.toLocaleString()} sq ft · {r.gallons} gallons used
+              </p>
+              {open === key ? (
+                <ul className="border-t border-border px-3 py-1.5 text-xs">
+                  {r.jobs.map((j) => (
+                    <li key={j.lead_id} className="flex justify-between gap-2 py-0.5 tabular-nums">
+                      <a href={`/leads/${j.lead_id}`} className="truncate font-medium underline-offset-2 hover:underline">{j.name || "Customer"}</a>
+                      <span className="shrink-0 text-muted-foreground">{j.sqft.toLocaleString()} sq ft ÷ {j.gallons} gal = {j.sqft_per_gallon}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          );
+        })}
+        {file && file.missing_stain.length ? (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p className="font-semibold">Gallons recorded but no stain picked, so not counted yet:</p>
+            {file.missing_stain.map((j) => (
+              <a key={j.lead_id} href={`/leads/${j.lead_id}`} className="mt-0.5 block underline-offset-2 hover:underline">
+                {j.name || "Customer"} · {j.sqft.toLocaleString()} sq ft ÷ {j.gallons} gal{j.color ? ` · "${j.color}"` : ""}
+              </a>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 

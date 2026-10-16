@@ -739,3 +739,36 @@ def test_footage_choices_include_unsent_estimates_and_measure_and_capture(db):
     assert [(o["sqft"], o["sent"]) for o in opts] == [(3174, False), (2520, True)]  # newest first
     assert out["measure_options"]["captures"][0]["linear_feet"] == 529
     assert out["measure_options"]["height_ft"] == 6.0
+
+
+def test_the_coverage_file_groups_by_stain_wood_age_and_prior_stain(db):
+    import json
+    from database import StainInventoryItem
+    db.add(StainInventoryItem(id="ob", brand="Valspar", finish_type="solid", color_name="October Brown", gallons=13.5, active=True))
+    db.commit()
+    yogi = _lead(db, form_data=json.dumps({"fence_age": "6-15 years", "previously_stained": "No"}))
+    other = _lead(db, ghl_contact_id="ghl-2", form_data=json.dumps({"fence_age": "6-15 years", "previously_stained": "No"}))
+    loose = _lead(db, ghl_contact_id="ghl-3", form_data=json.dumps({"fence_age": "1-6 years"}))
+    for lead, sqft, gal in ((yogi, 3439, 20), (other, 1000, 5), (loose, 900, 4)):
+        cc.get_company_cam(lead.id, user=USER)
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(sqft=sqft, stain_gallons_used=gal), user=USER)
+    for lead in (yogi, other):
+        r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(final_stain_id="ob", wood_type="pine"), user=USER)
+        assert r["job"]["final_color"] == "October Brown"
+    cc.update_company_cam(yogi.id, cc.CompanyCamPatch(previously_stained="no"), user=USER)
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(yogi.id, cc.CompanyCamPatch(final_stain_id="nope"), user=USER)
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(yogi.id, cc.CompanyCamPatch(wood_type="oak"), user=USER)
+    f = cc.stain_coverage(user=USER)
+    assert len(f["rows"]) == 1
+    row = f["rows"][0]
+    assert row["stain"] == "October Brown · Valspar · Solid" and row["wood_type"] == "pine"
+    assert row["fence_age"] == "6-15 years" and row["previously_stained"] == "no"
+    assert len(row["jobs"]) == 2 and row["gallons"] == 25 and row["sqft"] == 4439
+    assert row["sqft_per_gallon"] == round(4439 / 25)  # weighted by job size
+    assert [m["name"] for m in f["missing_stain"]] == ["Test Customer"] and f["missing_stain"][0]["sqft"] == 900
+    page = cc.get_company_cam(yogi.id, user=USER)
+    assert page["customer_previously_stained"] == "No"
+    assert page["coverage"]["match_jobs"] == 2
+    assert any(o["id"] == "ob" for o in page["stain_options"])

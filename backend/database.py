@@ -1775,6 +1775,16 @@ class CompanyCamJob(Base):
     stain_gallons_bought = Column(Float, default=0.0)
     bleach_gallons_used = Column(Float, default=0.0)
     final_color = Column(Text, default="")
+    # The stain they officially went with, as a Stain Inventory row (brand +
+    # finish + colour), and whether the fence had stain on it before. Both
+    # feed the coverage file: sq ft a gallon per stain, fence age and prior
+    # stain (Alan, 2026-10-15). previously_stained: "yes" | "no" | "" (not
+    # confirmed; the customer's form answer shows instead).
+    final_stain_id = Column(Text, default="")
+    previously_stained = Column(Text, default="")
+    # What the fence is made of, set by the cleaner on site: "pine" |
+    # "cedar" | "other" | "" (not checked yet). Changes how far a gallon goes.
+    wood_type = Column(Text, default="")
 
     # Ticked keys from CLEANER_CHECKLIST / STAINER_CHECKLIST.
     cleaner_checklist_json = Column(Text, default="[]")
@@ -4505,6 +4515,9 @@ def _run_migrations():
             ("neighbor_last_name", "TEXT DEFAULT ''"),
             ("neighbor_phone", "TEXT DEFAULT ''"),
             ("neighbor_project", "TEXT DEFAULT ''"),
+            ("final_stain_id", "TEXT DEFAULT ''"),
+            ("previously_stained", "TEXT DEFAULT ''"),
+            ("wood_type", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

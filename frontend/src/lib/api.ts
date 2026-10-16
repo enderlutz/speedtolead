@@ -3690,6 +3690,8 @@ export const api = {
   },
   addCompanyCamFromLibrary: (leadId: string, key: string, section: string) =>
     request<CompanyCamPhoto>(`/api/company-cam/${leadId}/photos/from-library`, { method: "POST", body: JSON.stringify({ key, section }) }),
+  /** The coverage file: sq ft a gallon per stain, wood, fence age, prior stain. */
+  getStainCoverage: () => request<StainCoverageFile>("/api/stain-coverage"),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
@@ -3858,6 +3860,9 @@ export interface CompanyCamJob {
   stain_gallons_bought: number;
   bleach_gallons_used: number;
   final_color: string;
+  /** The stain they went with (a Stain Inventory id), prior stain confirmed
+   *  on site ("yes" | "no" | ""), and the wood the cleaner saw. */
+  final_stain_id: string; previously_stained: string; wood_type: string;
   cleaner_checklist: string[];
   stainer_checklist: string[];
   neighbor_interested: boolean;
@@ -3900,7 +3905,11 @@ export interface CompanyCamPayload {
   /** How old the fence is, from the estimate ("6-15 years"); empty if they never said. */
   fence_age?: string;
   /** Square feet a gallon covered on our jobs: all of them, and fences this old. */
-  coverage?: { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null };
+  coverage?: CoverageStats;
+  /** Every stain in the inventory, to pick the one they went with. */
+  stain_options?: StainOption[];
+  /** The customer's form answer to "previously stained?". */
+  customer_previously_stained?: string;
   /** Each estimate we sent and its square footage, to pick the job's from. */
   estimate_options?: { id: string; sent: boolean; sent_at: string; when: string; sqft: number; linear_feet: number | null; height: string }[];
   /** Feet traced on Measure & capture, and the fence height to start from. */
@@ -5795,4 +5804,13 @@ export interface ProposalLiveState {
     good_through: string; expired: boolean; extended_until: string | null;
     view_count: number; last_viewed_at: string | null;
   } | null;
+}
+
+export type CoverageStats = { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null; match_jobs?: number; match_avg?: number | null };
+export type StainOption = { id: string; label: string; color_name: string; brand: string; finish_type: string; active: boolean };
+export type CoverageJob = { lead_id: string; name: string; sqft: number; gallons: number; sqft_per_gallon: number; color?: string };
+export interface StainCoverageFile {
+  rows: { stain_id: string; stain: string; color_name: string; brand: string; finish_type: string; wood_type: string;
+    fence_age: string; previously_stained: string; jobs: CoverageJob[]; gallons: number; sqft: number; sqft_per_gallon: number | null }[];
+  missing_stain: CoverageJob[];
 }
