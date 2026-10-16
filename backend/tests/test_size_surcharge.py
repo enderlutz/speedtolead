@@ -63,3 +63,14 @@ def test_breakdown_adds_up_to_each_tier():
         {"linear_feet": 50, "fence_height": "6ft standard", "fence_age": "1-6 years"}, "77339")
     for k, v in meta["tiers"].items():
         assert est.tiers_from_breakdown(breakdown, meta["tiers"], breakdown)[k] == pytest.approx(v, abs=0.02)
+
+
+def test_no_size_quotes_less_than_the_old_band():
+    """Alan: "we're not actually charging less on anything" — every size,
+    package and age is at least what the old flat +25¢ (500–1,000) gave."""
+    for age, key in (("Brand new (less than 6 months)", "brand_new"), ("1-6 years", "1_6yr"), ("6-15 years", "6_15yr")):
+        for sqft in range(60, 3001, 6):
+            t = price(sqft, age)
+            for k, r in est.TIER_RATES[key].items():
+                old = sqft * (r + (0.25 if 500 <= sqft <= 1000 else 0))
+                assert t[k] >= old - 0.01, f"{k} {age} {sqft} sq ft: {t[k]} < {old}"

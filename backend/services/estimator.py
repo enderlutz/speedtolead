@@ -62,6 +62,8 @@ TIER_RATES: dict[str, dict[str, float] | None] = {
 SIZE_TIERS: list[dict] = [
     {"up_to": 400, "rate": 0.45},    # PDF: +$0.40–0.50
     {"up_to": 700, "rate": 0.28},    # PDF: +$0.25–0.30
+    {"up_to": 1000, "rate": 0.25},   # same as the old band, so no size
+                                     # quotes less than it used to (Alan)
     {"up_to": 1200, "rate": 0.12},   # PDF: +$0.10–0.15
 ]                                    # over 1,200: base rate
 # The least a job can come to (Essential; the other packages keep their gap
