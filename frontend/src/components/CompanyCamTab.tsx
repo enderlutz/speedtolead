@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
-  Droplets, Hammer, Search, Send, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
+  Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye,
 } from "lucide-react";
@@ -958,16 +958,6 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               {customer.name || "This job"}
             </h2>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/70">
-              {customer.address ? (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />{customer.address}
-                </span>
-              ) : null}
-              {customer.phone ? (
-                <span className="inline-flex items-center gap-1 tabular-nums">
-                  <Phone className="h-3 w-3" />{customer.phone}
-                </span>
-              ) : null}
               {customer.do_not_contact ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-red-500/25 px-2 py-0.5 font-semibold text-red-100">
                   <Ban className="h-3 w-3" /> Do not contact
@@ -976,6 +966,20 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             </div>
           </div>
           <Donut pct={donePct} />
+        </div>
+        <div className="relative">
+          {/* Tap the address for Google Maps, the number to call; Copy for
+              either (Alan, 2026-10-16). Big enough for a thumb. */}
+          <div className="mt-2 space-y-1.5">
+            {customer.address ? (
+              <ContactRow icon={MapPin} text={customer.address} label="address"
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.address)}`} external />
+            ) : null}
+            {customer.phone ? (
+              <ContactRow icon={Phone} text={prettyPhone(customer.phone)} copyText={customer.phone} label="number"
+                        href={`tel:${customer.phone.replace(/[^\d+]/g, "")}`} />
+            ) : null}
+          </div>
         </div>
 
         {/* Tap a stage to jump to it. */}
@@ -2001,5 +2005,37 @@ function RoleGroup({ who, children }: { who: "cleaner" | "stainer"; children: Re
       </div>
       <div className="space-y-3.5 p-2 sm:p-3">{children}</div>
     </section>
+  );
+}
+
+/** "+17135551234" -> "(713) 555-1234" */
+function prettyPhone(p: string) {
+  const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p;
+}
+
+/** The customer's address or number on the Company Cam header: tap it to
+ *  open Maps or call, or Copy it. */
+function ContactRow({ icon: Icon, text, copyText, href, external, label }: {
+  icon: typeof Phone; text: string; copyText?: string; href: string; external?: boolean; label: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(copyText || text); setCopied(true); setTimeout(() => setCopied(false), 1500); toast.success(`Copied the ${label}`); }
+    catch { toast.error("Couldn't copy. Press and hold it to copy."); }
+  };
+  return (
+    <div className="flex items-stretch gap-1.5">
+      <a href={href} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined}
+         className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/10 px-3 text-sm font-semibold text-white ring-1 ring-white/15 active:bg-white/20">
+        <Icon className="h-4 w-4 shrink-0 text-white/80" />
+        <span className="min-w-0 flex-1 py-1.5 leading-snug tabular-nums line-clamp-2">{text}</span>
+        <span className="shrink-0 text-xs font-bold text-amber-300">{label === "address" ? "Map" : "Call"}</span>
+      </a>
+      <button type="button" onClick={() => void copy()} aria-label={`Copy the ${label}`}
+              className="flex min-h-11 shrink-0 items-center gap-1 rounded-xl bg-white/10 px-3 text-xs font-bold text-white ring-1 ring-white/15 active:bg-white/20">
+        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
