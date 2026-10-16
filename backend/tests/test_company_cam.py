@@ -722,3 +722,20 @@ def test_everything_the_crew_fills_in_saves_and_comes_back(db):
     assert job["upsells"] == [up] and job["package"] == "signature" and job["sqft"] == 1288
     assert job["stain_gallons_used"] == 8 and job["stain_gallons_bought"] == 2 and job["bleach_gallons_used"] == 3
     assert job["gallons_needed"] == 8  # 1288 / 165, rounded up, follows the footage
+
+
+def test_footage_choices_include_unsent_estimates_and_measure_and_capture(db):
+    import json
+    from database import LeadMeasurement
+    lead = _lead(db)
+    _estimate(db, lead, linear_feet=360, height="7ft")
+    draft = _estimate(db, lead, linear_feet=529, height="6ft standard")
+    draft.status, draft.sent_at, draft.created_at = "pending", None, "2026-10-15T20:00:00Z"
+    draft.inputs = json.dumps({"linear_feet": 529, "fence_height": "6ft standard"})
+    db.add(LeadMeasurement(id="m9", lead_id=lead.id, seq=1, linear_feet=529, has_image=True))
+    db.commit()
+    out = cc.get_company_cam(lead.id, user=USER)
+    opts = out["estimate_options"]
+    assert [(o["sqft"], o["sent"]) for o in opts] == [(3174, False), (2520, True)]  # newest first
+    assert out["measure_options"]["captures"][0]["linear_feet"] == 529
+    assert out["measure_options"]["height_ft"] == 6.0

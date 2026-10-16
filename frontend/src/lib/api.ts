@@ -3902,7 +3902,9 @@ export interface CompanyCamPayload {
   /** Square feet a gallon covered on our jobs: all of them, and fences this old. */
   coverage?: { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null };
   /** Each estimate we sent and its square footage, to pick the job's from. */
-  estimate_options?: { id: string; sent_at: string; sqft: number; linear_feet: number | null; height: string }[];
+  estimate_options?: { id: string; sent: boolean; sent_at: string; when: string; sqft: number; linear_feet: number | null; height: string }[];
+  /** Feet traced on Measure & capture, and the fence height to start from. */
+  measure_options?: { captures: { id: string; label: string; linear_feet: number }[]; height_ft: number };
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
 }

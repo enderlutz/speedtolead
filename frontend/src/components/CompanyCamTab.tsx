@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, type CompanyCamPayload, type CompanyCamPhoto,
+  api, canSeeRevenue, type CompanyCamPayload, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -402,12 +402,14 @@ function ColorRow({
  * A side belongs to one row. Tapping it in another row moves it.
  */
 function ColorPlan({
-  plan, statuses, colorOptions, estimateSides, onChange,
+  plan, statuses, colorOptions, estimateSides, onChange, scopePhoto = false,
 }: {
   plan: ColorPlanRow[];
   statuses: { key: string; label: string; hint: string; wants_colors: number }[];
   colorOptions: string[];
   estimateSides: string[];
+  /** A scope photo is on file: it shows the sides, so tapping them is optional. */
+  scopePhoto?: boolean;
   onChange: (next: ColorPlanRow[]) => void;
 }) {
   // "Add a part of the fence" opens a row here first. It goes to the server
@@ -477,7 +479,13 @@ function ColorPlan({
           onRemove={() => setDrafts((d) => d.filter((_, idx) => idx !== i))}
         />
       ))}
-      {uncovered.length > 0 ? (
+      {scopePhoto ? (
+        <p className="flex items-start gap-1.5 rounded-xl border border-violet-200 bg-violet-50/60 px-2.5 py-2 text-[11px] text-violet-900">
+          <Check className="mt-0.5 h-3 w-3 shrink-0" />
+          <span><b>The scope photo shows which sides we're staining.</b> Just pick the colour. Tapping sides is optional.</span>
+        </p>
+      ) : null}
+      {uncovered.length > 0 && !scopePhoto ? (
         <div className="flex flex-wrap items-center gap-1 rounded-xl border border-amber-200 bg-amber-50/60 px-2.5 py-2 text-[11px] text-amber-900">
           <AlertTriangle className="mr-0.5 h-3 w-3 shrink-0" />
           <span className="font-semibold">On the estimate, no colour yet:</span>
@@ -763,25 +771,15 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
              sub="What we're doing and what to bring">
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile icon={Ruler} label="Square footage" accent={ACCENT.blue}
-                    hint={job.sqft_edited ? "✓ Set for this job" : "From the latest estimate. Pick one or type it."}>
+                    hint={job.sqft_edited ? "✓ Set for this job" : "From the latest sent estimate. Pick one below or type it."}>
             <Input key={job.sqft} type="number" inputMode="decimal" defaultValue={job.sqft || ""}
                    className="h-10 text-base font-semibold tabular-nums"
                    onBlur={(e) => {
                      const v = parseFloat(e.target.value || "0");
                      if (v !== job.sqft) void patch({ sqft: v });
                    }} />
-            {(data.estimate_options || []).length ? (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {(data.estimate_options || []).map((o, i, all) => (
-                  <button key={o.id} type="button" onClick={() => void patch({ sqft: o.sqft })}
-                          title={`Estimate sent ${o.sent_at ? new Date(o.sent_at).toLocaleDateString() : ""}${o.linear_feet ? ` · ${o.linear_feet} ft × ${o.height}` : ""}`}
-                          className={cn("rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums ring-1",
-                            Math.round(job.sqft) === o.sqft ? "bg-blue-600 text-white ring-blue-600" : "bg-background ring-border hover:bg-muted")}>
-                    Estimate {all.length - i}{o.sent_at ? ` · ${new Date(o.sent_at).toLocaleDateString([], { month: "short", day: "numeric" })}` : ""} · {o.sqft.toLocaleString()} sq ft
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <FootageChoices sqft={job.sqft} estimates={data.estimate_options || []} measure={data.measure_options}
+                            onPick={(v) => void patch({ sqft: v })} />
           </StatTile>
 
           <StatTile icon={Droplets} label="Gallons of stain to bring" accent={ACCENT.cyan}
@@ -840,6 +838,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           statuses={color_statuses}
           colorOptions={color_options}
           estimateSides={estimate_sides}
+          scopePhoto={(photos.fence_scope || []).length > 0}
           onChange={(next) => void patch({ color_plan: next })}
         />
 
@@ -932,7 +931,8 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
             />
 
-            {sec.key === "fence_scope" ? (
+            {/* Alan picks the scope photo; the crew only sees it (2026-10-15). */}
+            {sec.key === "fence_scope" && canSeeRevenue() ? (
               <Button variant="outline" size="lg" onClick={() => setPicking(sec.key)}
                       className="h-11 w-full border-violet-300 text-violet-800 hover:bg-violet-50 sm:w-auto">
                 <Images className="mr-1.5 h-4 w-4" /> Pick from our photos
@@ -1336,5 +1336,66 @@ function LibraryThumb({ leadId, item, added, busy, onPick }: {
         </span>
       ) : null}
     </button>
+  );
+}
+
+const HEIGHTS = [6, 6.5, 7, 8];
+
+/** Where the job's footage can come from (Alan, 2026-10-15): each estimate,
+ *  sent or only saved, and the Measure & capture feet × a height he taps. */
+function FootageChoices({ sqft, estimates, measure, onPick }: {
+  sqft: number;
+  estimates: { id: string; sent: boolean; when: string; sqft: number; linear_feet: number | null; height: string }[];
+  measure?: { captures: { id: string; label: string; linear_feet: number }[]; height_ft: number };
+  onPick: (sqft: number) => void;
+}) {
+  const [height, setHeight] = useState(measure?.height_ft || 6);
+  const captures = measure?.captures || [];
+  const totalFt = captures.reduce((t, c) => t + c.linear_feet, 0);
+  const chip = (on: boolean) => cn("rounded-full px-2 py-1 text-left text-[11px] font-semibold tabular-nums ring-1",
+    on ? "bg-blue-600 text-white ring-blue-600" : "bg-background ring-border hover:bg-muted");
+  const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
+  const n = estimates.length;
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      {n ? (
+        <div className="flex flex-wrap gap-1">
+          {estimates.map((o, i) => (
+            <button key={o.id} type="button" onClick={() => onPick(o.sqft)} className={chip(Math.round(sqft) === o.sqft)}
+                    title={o.linear_feet ? `${o.linear_feet} ft × ${o.height}` : undefined}>
+              Estimate {n - i} · {o.sent ? `sent ${day(o.when)}` : "saved, not sent"} · {o.sqft.toLocaleString()} sq ft
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {captures.length ? (
+        <div className="rounded-lg bg-muted/50 p-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Measure &amp; capture × fence height</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {HEIGHTS.map((h) => (
+              <button key={h} type="button" onClick={() => setHeight(h)}
+                      className={cn("h-7 rounded-md px-2 text-[11px] font-bold ring-1", height === h ? "bg-foreground text-background ring-foreground" : "bg-background ring-border")}>
+                {h} ft
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {captures.map((c) => {
+              const v = Math.round(c.linear_feet * height);
+              return (
+                <button key={c.id} type="button" onClick={() => onPick(v)} className={chip(Math.round(sqft) === v)}>
+                  {c.label} · {c.linear_feet} ft × {height} ft = {v.toLocaleString()} sq ft
+                </button>
+              );
+            })}
+            {captures.length > 1 ? (
+              <button type="button" onClick={() => onPick(Math.round(totalFt * height))} className={chip(Math.round(sqft) === Math.round(totalFt * height))}>
+                All photos · {totalFt} ft × {height} ft = {Math.round(totalFt * height).toLocaleString()} sq ft
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

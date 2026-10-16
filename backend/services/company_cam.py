@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -523,33 +524,48 @@ def coverage_stats(db, age: str) -> dict:
     return {"all_jobs": len(all_rates), "all_avg": avg(all_rates), "age_jobs": len(same), "age_avg": avg(same)}
 
 
+def _height_ft(v) -> float:
+    """ "6ft standard" -> 6.0, "6.5" -> 6.5; 0 when there's no number."""
+    m = re.search(r"\d+(?:\.\d+)?", str(v or ""))
+    return float(m.group()) if m else 0.0
+
+
 def estimate_options(db, lead_id: str) -> list[dict]:
-    """Every estimate we sent, newest first, with its square footage, so the
-    job's footage can be picked from one (Alan, 2026-10-15)."""
+    """Every estimate with a footage, sent or only saved, newest first, so the
+    job's footage can be picked from one (Alan, 2026-10-15: "even if I saved
+    and recalculated and didn't send it")."""
     from database import Estimate
 
     out = []
-    for est in (db.query(Estimate).filter(Estimate.lead_id == lead_id, Estimate.status == "sent")
-                .order_by(Estimate.sent_at.desc().nullslast()).all()):
+    for est in (db.query(Estimate).filter(Estimate.lead_id == lead_id, Estimate.status != "cancelled").all()):
         try:
             inputs = json.loads(est.inputs or "{}") or {}
         except (ValueError, TypeError):
             inputs = {}
-        sqft = 0.0
-        try:
-            sqft = float(inputs.get("_sqft") or 0)
-            if not sqft:
-                lf = float(inputs.get("linear_feet") or 0)
-                h = str(inputs.get("fence_height") or "").lower().replace("ft", "").strip()
-                sqft = lf * float(h) if (lf and h) else 0
-        except (TypeError, ValueError):
-            sqft = 0
-        if sqft <= 0:
-            continue
         try:
             lf = float(inputs.get("linear_feet") or 0)
         except (TypeError, ValueError):
             lf = 0
-        out.append({"id": est.id, "sent_at": est.sent_at or "", "sqft": round(sqft), "linear_feet": round(lf) if lf else None,
-                    "height": str(inputs.get("fence_height") or "")})
+        try:
+            sqft = float(inputs.get("_sqft") or 0) or lf * _height_ft(inputs.get("fence_height"))
+        except (TypeError, ValueError):
+            sqft = 0
+        if sqft <= 0:
+            continue
+        out.append({"id": est.id, "sent": est.status == "sent", "sent_at": est.sent_at or "",
+                    "when": est.sent_at or est.created_at or "", "sqft": round(sqft),
+                    "linear_feet": round(lf) if lf else None, "height": str(inputs.get("fence_height") or "")})
+    out.sort(key=lambda o: o["when"], reverse=True)
     return out
+
+
+def measure_options(db, lead_id: str) -> dict:
+    """The feet traced on Measure & capture, for footage = feet × height, and
+    the height to start from (the newest estimate's)."""
+    from database import LeadMeasurement
+
+    rows = [{"id": m.id, "label": m.label or f"Photo {m.seq}", "linear_feet": round(float(m.linear_feet))}
+            for m in db.query(LeadMeasurement).filter(LeadMeasurement.lead_id == lead_id).order_by(LeadMeasurement.seq).all()
+            if m.linear_feet]
+    heights = [_height_ft(o["height"]) for o in estimate_options(db, lead_id)]
+    return {"captures": rows, "height_ft": next((h for h in heights if h), 6.0)}

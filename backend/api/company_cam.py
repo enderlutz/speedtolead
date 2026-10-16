@@ -34,6 +34,7 @@ from services.company_cam import (
     coverage_stats,
     estimate_options,
     fence_age,
+    measure_options,
     sold_package,
     color_options,
     derive_from_estimate,
@@ -297,6 +298,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             "fence_age": age,
             "coverage": coverage_stats(db, age),
             "estimate_options": estimate_options(db, lead_id),
+            "measure_options": measure_options(db, lead_id),
             "customer": {
                 "name": lead.contact_name or "",
                 "phone": lead.contact_phone or "",
