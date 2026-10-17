@@ -1913,7 +1913,7 @@ export const api = {
       "/api/branding/logo/status"
     ),
   // ── Documents: the business's PDFs (owner-only) ──
-  listDocuments: () => request<{ documents: DocumentRow[] }>(`/api/documents`),
+  listDocuments: () => request<{ documents: DocumentRow[]; categories: DocCategory[] }>(`/api/documents`),
   uploadDocuments: async (files: File[]) => {
     const fd = new FormData();
     for (const f of files) fd.append("files", f);
@@ -1937,8 +1937,8 @@ export const api = {
     if (!res.ok) throw new Error("Couldn't open it");
     return URL.createObjectURL(await res.blob());
   },
-  renameDocument: (id: string, title: string) =>
-    request<DocumentRow>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  updateDocument: (id: string, patch: { title?: string; category?: string; blurb?: string }) =>
+    request<DocumentRow>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   removeDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
   uploadLogo: async (file: File) => {
     const fd = new FormData();
@@ -5942,4 +5942,5 @@ export type CourseModuleEdit = {
 };
 export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };
 
-export type DocumentRow = { id: string; title: string; filename: string; mime: string; size: number; created_at: string; created_by: string };
+export type DocumentRow = { id: string; title: string; filename: string; mime: string; size: number; created_at: string; created_by: string; category: string; blurb: string };
+export type DocCategory = { key: string; label: string; about: string };

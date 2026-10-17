@@ -3488,6 +3488,9 @@ class Document(Base):
     created_at = Column(Text, default="")
     created_by = Column(Text, default="")
     archived = Column(Boolean, default=False)
+    # Which section of the page it sits in, and a line on what it's for.
+    category = Column(Text, default="other")
+    blurb = Column(Text, default="")
 
 
 class TrainingModule(Base):
@@ -4350,6 +4353,13 @@ def _run_migrations():
                              ("ai_image", blob_type), ("ai_mime", "TEXT DEFAULT ''")):
                 if col not in fv:
                     conn.execute(text(f"ALTER TABLE fence_scope_versions ADD COLUMN {col} {typ}"))
+    if inspector.has_table("documents"):
+        dc = {c["name"] for c in inspector.get_columns("documents")}
+        with _engine.begin() as conn:
+            if "category" not in dc:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN category TEXT DEFAULT 'other'"))
+            if "blurb" not in dc:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN blurb TEXT DEFAULT ''"))
     if inspector.has_table("bookings"):
         bk = {c["name"] for c in inspector.get_columns("bookings")}
         if "google_event_id" not in bk:

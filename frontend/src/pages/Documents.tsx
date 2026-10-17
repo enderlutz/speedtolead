@@ -4,17 +4,19 @@ import { FileText, Image as ImageIcon, Loader2, Pencil, Search, Trash2, Upload }
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, type DocumentRow } from "@/lib/api";
+import { api, type DocCategory, type DocumentRow } from "@/lib/api";
 
 // The business's PDFs in one place (Alan, 2026-10-16: "somewhere we can store
-// all these PDFs very simply, so I can easily go back to them"). Newest first,
-// tap to open, upload many at once. Owner-only.
+// all these PDFs very simply, so I can easily go back to them"), sorted into
+// sections that follow how the company is being built: the plan, the VA, the
+// numbers, sales, marketing. Tap to open, upload many at once. Owner-only.
 
 const when = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 export default function Documents() {
   const [docs, setDocs] = useState<DocumentRow[] | null>(null);
+  const [cats, setCats] = useState<DocCategory[]>([]);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
@@ -22,7 +24,9 @@ export default function Documents() {
 
   const load = useCallback(async () => {
     try {
-      setDocs((await api.listDocuments()).documents);
+      const r = await api.listDocuments();
+      setDocs(r.documents);
+      setCats(r.categories);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't load documents");
       setDocs([]);
@@ -66,10 +70,19 @@ export default function Documents() {
     const title = window.prompt("New name", d.title);
     if (!title || title.trim() === d.title) return;
     try {
-      await api.renameDocument(d.id, title.trim());
+      await api.updateDocument(d.id, { title: title.trim() });
       load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't rename it");
+    }
+  };
+
+  const move = async (d: DocumentRow, category: string) => {
+    try {
+      await api.updateDocument(d.id, { category });
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't move it");
     }
   };
 
@@ -86,15 +99,18 @@ export default function Documents() {
 
   const shown = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return (docs || []).filter((d) => words.every((w) => `${d.title} ${d.filename}`.toLowerCase().includes(w)));
+    return (docs || []).filter((d) => words.every((w) => `${d.title} ${d.filename} ${d.blurb}`.toLowerCase().includes(w)));
   }, [docs, q]);
+  const sections = useMemo(() => cats
+    .map((c) => ({ ...c, items: shown.filter((d) => (d.category || "other") === c.key) }))
+    .filter((c) => c.items.length > 0), [cats, shown]);
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="h-6 w-6" /> Documents</h1>
-          <p className="text-sm text-muted-foreground mt-1">Plans, playbooks and numbers. Newest first. Tap one to open it.</p>
+          <p className="text-sm text-muted-foreground mt-1">Everything we’ve written to build Sterling, in the order we’re building it. Tap one to open it.</p>
         </div>
         <Button onClick={() => input.current?.click()} disabled={busy} className="h-11">
           {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Upload className="h-4 w-4 mr-1.5" />}
@@ -119,8 +135,14 @@ export default function Documents() {
           Nothing here yet. Tap <b>Add PDFs</b> and pick them all at once, e.g. from your Desktop or the Files app.
         </CardContent></Card>
       ) : (
-        <div className="space-y-2">
-          {shown.map((d) => (
+        <div className="space-y-6">
+          {sections.map((c) => (
+          <section key={c.key} className="space-y-2">
+            <div className={c.key === "older" ? "opacity-70" : ""}>
+              <h2 className="text-base font-bold">{c.label}</h2>
+              <p className="text-xs text-muted-foreground">{c.about}</p>
+            </div>
+          {c.items.map((d) => (
             <Card key={d.id} className="hover:border-primary/40 transition-colors">
               <CardContent className="p-0 flex items-center">
                 <button type="button" onClick={() => void open(d)} className="flex-1 min-w-0 flex items-center gap-3 p-3.5 text-left min-h-14">
@@ -130,14 +152,21 @@ export default function Documents() {
                       ? <ImageIcon className="h-6 w-6 text-sky-600 shrink-0" />
                       : <FileText className="h-6 w-6 text-red-600 shrink-0" />}
                   <span className="min-w-0">
-                    <span className="block font-semibold leading-tight truncate">{d.title}</span>
-                    <span className="block text-xs text-muted-foreground mt-0.5">{when(d.created_at)} · {kb(d.size)}</span>
+                    <span className="block font-semibold leading-tight">{d.title}</span>
+                    {d.blurb ? <span className="block text-sm text-muted-foreground mt-0.5 leading-snug">{d.blurb}</span> : null}
+                    <span className="block text-xs text-muted-foreground/80 mt-1">{when(d.created_at)} · {kb(d.size)}</span>
                   </span>
                 </button>
+                <select aria-label="Move to section" value={d.category || "other"} onChange={(e) => void move(d, e.target.value)}
+                  className="hidden sm:block h-9 max-w-[9rem] rounded-md border bg-background px-1.5 text-xs text-muted-foreground">
+                  {cats.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                </select>
                 <button type="button" aria-label="Rename" onClick={() => void rename(d)} className="p-3 text-muted-foreground hover:text-foreground"><Pencil className="h-4 w-4" /></button>
                 <button type="button" aria-label="Remove" onClick={() => void remove(d)} className="p-3 pr-4 text-muted-foreground hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
               </CardContent>
             </Card>
+          ))}
+          </section>
           ))}
           {shown.length === 0 && <p className="text-sm text-muted-foreground">Nothing matches.</p>}
         </div>
