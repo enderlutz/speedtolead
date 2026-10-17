@@ -311,16 +311,40 @@ export default function Contacts() {
     if (restored.current || loading || rows.length === 0) return;
     restored.current = true;
     if (!saved.anchor && !saved.scroll) return;
+    // Each customer is on the page twice, the phone card and the table row,
+    // and one of them is hidden. Aim at the one you can see: aiming at the
+    // hidden one scrolled nowhere and left Alan at the top with Peter Sanders
+    // flashing 9 rows down (2026-10-17). The stats card and fonts land after
+    // the rows and push the list down, so it re-aims for a second unless
+    // you've started scrolling yourself.
+    const visibleRow = () => saved.anchor
+      ? Array.from(document.querySelectorAll<HTMLElement>(`[data-lead-row="${saved.anchor}"]`)).find((e) => e.getClientRects().length > 0) || null
+      : null;
+    const aim = () => {
+      const el = visibleRow();
+      if (el) el.scrollIntoView({ block: "center" });
+      else scroller()?.scrollTo({ top: saved.scroll || 0 });
+      return !!el;
+    };
+    let userMoved = false;
+    const stop = () => { userMoved = true; };
+    const main = scroller();
+    main?.addEventListener("wheel", stop, { passive: true });
+    main?.addEventListener("touchmove", stop, { passive: true });
+    window.addEventListener("keydown", stop);
+    const timers: ReturnType<typeof setTimeout>[] = [];
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      const el = saved.anchor ? document.querySelector(`[data-lead-row="${saved.anchor}"]`) : null;
-      if (el) {
-        el.scrollIntoView({ block: "center" });
+      if (aim()) {
         setFlash(saved.anchor || "");
-        setTimeout(() => setFlash(""), 2000);
-      } else {
-        scroller()?.scrollTo({ top: saved.scroll || 0 });
+        timers.push(setTimeout(() => setFlash(""), 2500));
       }
+      for (const ms of [150, 400, 800, 1300]) timers.push(setTimeout(() => { if (!userMoved) aim(); }, ms));
     }));
+    timers.push(setTimeout(() => {
+      main?.removeEventListener("wheel", stop);
+      main?.removeEventListener("touchmove", stop);
+      window.removeEventListener("keydown", stop);
+    }, 1500));
   }, [loading, rows.length, saved.anchor, saved.scroll]);
 
   const isAdmin = getCurrentUser()?.role === "admin";
