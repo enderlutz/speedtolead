@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
+import LangSwitch from "@/components/LangSwitch";
 import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Map, Contact, Lightbulb, Repeat, Megaphone } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
@@ -133,6 +134,7 @@ export function MobileHeader({ onToggle }: { onToggle: () => void }) {
       {/* Houston time, to the minute, on every screen (Alan, 2026-10-09). On
           a desktop the same clock floats in the top-right corner — see App. */}
       <HoustonClock className="ml-auto" />
+      <LangSwitch compact />
       <button onClick={onToggle} className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
         <Menu className="h-5 w-5" />
       </button>

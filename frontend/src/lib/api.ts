@@ -3879,6 +3879,9 @@ export interface CompanyCamPhoto {
   seq: number;
   side: string;
   note: string;
+  /** Who wrote the note, and when. Empty on a photo with no note. */
+  note_by?: string;
+  note_at?: string;
   is_damage: boolean;
   /** CDN url when Storage is configured, otherwise our own image endpoint. */
   url: string;

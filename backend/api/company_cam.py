@@ -219,6 +219,8 @@ def _photo_dict(p: CompanyCamPhoto) -> dict:
         "seq": int(p.seq or 1),
         "side": p.side or "",
         "note": p.note or "",
+        "note_by": p.note_by or "",
+        "note_at": p.note_at or "",
         "is_damage": bool(p.is_damage),
         # A Storage url is served straight from the CDN; anything else comes
         # back through our own endpoint.
@@ -735,6 +737,8 @@ def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: d
     photo = CompanyCamPhoto(
         id=photo_id, lead_id=lead_id, section=section, seq=seq,
         side=side or "", note=note or "", is_damage=bool(is_damage),
+        note_by=(uploaded_by or _actor(user)) if (note or "").strip() else "",
+        note_at=_now() if (note or "").strip() else "",
         storage_url=url, image_data=None if url else data, has_image_data=not url,
         mime=mime, uploaded_at=_now(), uploaded_by=uploaded_by or _actor(user),
     )
@@ -894,8 +898,10 @@ def update_photo(
             raise HTTPException(404, "Photo not found")
         if body.side is not None:
             p.side = str(body.side)
-        if body.note is not None:
-            p.note = str(body.note)
+        if body.note is not None and str(body.note) != (p.note or ""):
+            p.note = str(body.note)[:1000]
+            p.note_by = _actor(user) if p.note.strip() else ""
+            p.note_at = _now() if p.note.strip() else ""
         if body.is_damage is not None:
             p.is_damage = bool(body.is_damage)
         db.commit()

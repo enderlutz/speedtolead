@@ -318,14 +318,24 @@ function ServicePhotoSection({
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {label}{items.length > 0 && <span className="ml-1 font-normal text-muted-foreground/70">({items.length})</span>}
           </span>
-          {!disabled && (
-            <label className={`inline-flex items-center gap-1 text-[11px] cursor-pointer text-primary hover:underline ${busy ? "opacity-60 pointer-events-none" : ""}`}>
-              {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-              {busy ? tr("Uploading…") : (isSpanish() ? `Agregar ${label.toLowerCase()}` : `Add ${label.toLowerCase()}`)}
-              <input type="file" accept="image/*" multiple className="hidden" disabled={busy}
-                onChange={(e) => { onUpload(task.id, phase, e.target.files); e.currentTarget.value = ""; }} />
-            </label>
-          )}
+          {/* The camera and the gallery as two buttons (Alan, 2026-10-17):
+              one picker for both opened only the gallery on a Samsung. */}
+          {!disabled && (busy ? (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> {tr("Uploading…")}</span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <label className="inline-flex min-h-[36px] cursor-pointer items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-bold text-primary-foreground">
+                <Camera className="h-3.5 w-3.5" /> {tr("Take photo")}
+                <input type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => { onUpload(task.id, phase, e.target.files); e.currentTarget.value = ""; }} />
+              </label>
+              <label className="inline-flex min-h-[36px] cursor-pointer items-center gap-1 rounded-lg border px-2.5 text-xs font-semibold">
+                <ImageIcon className="h-3.5 w-3.5" /> {tr("From gallery")}
+                <input type="file" accept="image/*" multiple className="hidden"
+                  onChange={(e) => { onUpload(task.id, phase, e.target.files); e.currentTarget.value = ""; }} />
+              </label>
+            </span>
+          ))}
         </div>
         {items.length === 0 ? (
           <p className="text-[11px] text-muted-foreground italic">{isSpanish() ? `Todavía no hay fotos de ${label.toLowerCase()}.` : `No ${label.toLowerCase()} photos yet.`}</p>

@@ -961,3 +961,26 @@ def test_journey_reads_booking_photos_done_and_stripe_invoice(db, monkeypatch):
     db.commit()
     jp = leads_api.get_lead(lead.id)["job_progress"]
     assert jp["reserved"] and jp["completed_at"] and jp["invoiced"] and not jp["invoice_paid"]
+
+
+def test_a_note_says_who_wrote_it(db):
+    """Alan, 2026-10-17: when a crew member leaves a note on a photo, the
+    office sees whose note it is, even when someone else took the photo."""
+    import asyncio
+
+    class _F:
+        content_type = "image/jpeg"
+        async def read(self): return b"JPEGDATA"
+
+    lead = _lead(db)
+    shot = asyncio.run(cc.upload_photo(lead.id, file=_F(), section="stain_after",
+                                       side="", note="", is_damage=False, user={"sub": "chris", "name": "Chris Moran", "role": "worker"}))
+    assert shot["note_by"] == ""
+    jose = {"sub": "jose", "name": "Jose Arthur", "role": "worker"}
+    out = cc.update_photo(lead.id, shot["id"], cc.PhotoPatch(note="Two pickets loose on the back"), user=jose)
+    assert out["note"] == "Two pickets loose on the back"
+    assert out["note_by"] == "Jose Arthur" and out["note_at"]
+    assert out["uploaded_by"] == "Chris Moran"
+    # Clearing the note clears whose it was.
+    out = cc.update_photo(lead.id, shot["id"], cc.PhotoPatch(note=""), user=jose)
+    assert out["note"] == "" and out["note_by"] == ""

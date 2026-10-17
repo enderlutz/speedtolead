@@ -1882,6 +1882,10 @@ class CompanyCamPhoto(Base):
     # Which side of the fence this is, in the crew's own words.
     side = Column(Text, default="")
     note = Column(Text, default="")
+    # Who wrote the note and when (Alan, 2026-10-17: "it says who left the
+    # note"). The photo's uploader can differ from whoever adds the note.
+    note_by = Column(Text, default="")
+    note_at = Column(Text, default="")
     is_damage = Column(Boolean, default=False, nullable=False)
 
     storage_url = Column(Text, default="")
@@ -4682,6 +4686,14 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE company_cam_jobs ADD COLUMN {col} {t}"))
                 logger.info(f"Migration: added company_cam_jobs.{col}")
+
+    if inspector.has_table("company_cam_photos"):
+        ccp_cols = {c["name"] for c in inspector.get_columns("company_cam_photos")}
+        for col in ("note_by", "note_at"):
+            if col not in ccp_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE company_cam_photos ADD COLUMN {col} TEXT DEFAULT ''"))
+                logger.info(f"Migration: added company_cam_photos.{col}")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

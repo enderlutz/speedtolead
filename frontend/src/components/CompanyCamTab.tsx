@@ -135,6 +135,95 @@ function BlurText({
   );
 }
 
+/** Take a photo / From the gallery. The camera is the big one: snap each
+ *  side as you finish it (Alan, 2026-10-17). */
+function PhotoDoors({ busy, big, camera, gallery }: { busy: boolean; big?: boolean; camera: () => void; gallery: () => void }) {
+  if (busy) {
+    return (
+      <div className={cn("flex w-full items-center justify-center gap-2 rounded-xl border bg-muted/30 text-sm font-semibold text-muted-foreground", big ? "h-24" : "h-12")}>
+        <Loader2 className="h-5 w-5 animate-spin" /> {tr("Uploading…")}
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-[3fr_2fr] gap-2">
+      <button type="button" onClick={camera}
+              className={cn("flex items-center justify-center gap-2 rounded-xl bg-primary px-3 font-bold text-primary-foreground shadow-sm transition active:scale-[0.98]",
+                big ? "h-24 flex-col text-base" : "h-12 text-base")}>
+        <Camera className={big ? "h-7 w-7" : "h-5 w-5"} /> {tr("Take photo")}
+      </button>
+      <button type="button" onClick={gallery}
+              className={cn("flex items-center justify-center gap-2 rounded-xl border-2 border-input bg-background px-3 font-semibold transition active:scale-[0.98]",
+                big ? "h-24 flex-col text-sm" : "h-12 text-sm")}>
+        <ImagePlus className={big ? "h-6 w-6" : "h-5 w-5"} /> {tr("From gallery")}
+      </button>
+    </div>
+  );
+}
+
+/** The note on a photo. It saves as they type (a second after they stop) and
+ *  again when they leave the box, so a note isn't lost when the phone locks
+ *  or they switch apps before tapping away: what happened on Yogi, where
+ *  every note was typed and none arrived (Alan, 2026-10-17). Says who wrote
+ *  it, for the office. */
+function NoteBox({ photo, save }: { photo: CompanyCamPhoto; save: (note: string) => void | Promise<boolean | void> }) {
+  const [value, setValue] = useState(photo.note || "");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saved = useRef(photo.note || "");
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(value);
+  useEffect(() => { latest.current = value; }, [value]);
+
+  const flush = useCallback(async () => {
+    if (pending.current) { clearTimeout(pending.current); pending.current = null; }
+    const v = latest.current;
+    if (v === saved.current) return;
+    setState("saving");
+    const ok = await save(v);
+    if (ok === false) { setState("error"); return; }
+    saved.current = v;
+    setState("saved");
+  }, [save]);
+
+  // Leaving the app or locking the phone saves too.
+  useEffect(() => {
+    const away = () => { if (document.visibilityState === "hidden") void flush(); };
+    document.addEventListener("visibilitychange", away);
+    window.addEventListener("pagehide", away);
+    return () => {
+      document.removeEventListener("visibilitychange", away);
+      window.removeEventListener("pagehide", away);
+      void flush();
+    };
+  }, [flush]);
+
+  const showBy = photo.note_by && value.trim() && value === (photo.note || "");
+  return (
+    <div>
+      <Input
+        value={value}
+        placeholder={tr("Note (optional)")}
+        onChange={(e) => {
+          latest.current = e.target.value;
+          setValue(e.target.value);
+          setState("idle");
+          if (pending.current) clearTimeout(pending.current);
+          pending.current = setTimeout(() => void flush(), 1000);
+        }}
+        onBlur={() => void flush()}
+        enterKeyHint="done"
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className="h-10 text-base sm:h-8 sm:text-xs"
+      />
+      {state === "saving" ? <p className="mt-0.5 text-xs text-muted-foreground">{tr("Saving…")}</p>
+        : state === "error" ? <p className="mt-0.5 text-xs font-semibold text-red-600">{tr("Not saved. Check your signal and try again.")}</p>
+        : state === "saved" ? <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-emerald-700"><Check className="h-3 w-3" /> {tr("Note saved")}</p>
+        : showBy ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{tr("Note by")} {photo.note_by}</p>
+        : null}
+    </div>
+  );
+}
+
 function PhotoCard({
   leadId, photo, onPatch, onDelete, bare = false,
 }: {
@@ -142,7 +231,7 @@ function PhotoCard({
   photo: CompanyCamPhoto;
   /** Just the picture, full width, nothing to fill in (the crew's scope). */
   bare?: boolean;
-  onPatch: (p: { side?: string; note?: string; is_damage?: boolean }) => void;
+  onPatch: (p: { side?: string; note?: string; is_damage?: boolean }) => void | Promise<boolean | void>;
   onDelete: () => void;
 }) {
   // A Storage photo is a public CDN url and renders directly. Anything else
@@ -208,12 +297,10 @@ function PhotoCard({
       <div className="space-y-1.5 p-2">
         {/* "Which side?" archived 2026-10-16 (Alan): not needed for now. A
             side already typed still shows on the photo. The note stays. */}
-        <Input
-          defaultValue={photo.note}
-          placeholder={tr("Note (optional)")}
-          onBlur={(e) => { if (e.target.value !== photo.note) onPatch({ note: e.target.value }); }}
-          className="h-10 text-base sm:h-8 sm:text-xs"
-        />
+        <NoteBox photo={photo} save={(note) => onPatch({ note })} />
+        {photo.uploaded_by && !photo.uploaded_by.startsWith("auto:") ? (
+          <p className="truncate text-xs text-muted-foreground">{tr("Photo by")} {photo.uploaded_by}</p>
+        ) : null}
         <div className="flex items-center justify-between gap-1">
           <button
             type="button"
@@ -720,6 +807,15 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               </div>
             ) : null}
 
+            {/* Two doors (Alan, 2026-10-17): the camera, so the crew snaps
+                each side as they finish it, and the gallery for photos
+                already taken. One picker for both opened straight to the
+                gallery on Jose's Samsung, with no camera in it. */}
+            <input
+              ref={(el) => { inputs.current[`${sec.key}:cam`] = el; }}
+              type="file" accept="image/*" capture="environment" hidden
+              onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
+            />
             <input
               ref={(el) => { inputs.current[sec.key] = el; }}
               type="file" accept="image/*" multiple hidden
@@ -794,8 +890,9 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                       onPatch={async (pp) => {
                         try {
                           await api.updateCompanyCamPhoto(leadId, p.id, pp);
-                          await load();
-                        } catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); }
+                          void load();
+                          return true;
+                        } catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); return false; }
                       }}
                       onDelete={async () => {
                         if (!confirm(tr("Delete this photo?"))) return;
@@ -806,31 +903,17 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                       }} />
                   ))}
                 </div>
-                <Button variant="outline" size="lg" disabled={busy}
-                        onClick={() => inputs.current[sec.key]?.click()}
-                        className="h-11 w-full sm:w-auto">
-                  {busy
-                    ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> {tr("Uploading…")}</>
-                    : <><Camera className="mr-1.5 h-4 w-4" /> {tr("Add more photos")}</>}
-                </Button>
+                <PhotoDoors busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
+                            gallery={() => inputs.current[sec.key]?.click()} />
               </>
             ) : (
-              // A big dashed target, because on a phone this is the one thing
-              // the crew is here to do.
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => inputs.current[sec.key]?.click()}
-                className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-input bg-muted/30 py-7 text-muted-foreground transition hover:border-primary/50 hover:bg-primary/5 hover:text-foreground disabled:opacity-60"
-              >
-                {busy
-                  ? <Loader2 className="h-7 w-7 animate-spin" />
-                  : <ImagePlus className="h-7 w-7" />}
-                <span className="text-sm font-semibold">
-                  {busy ? tr("Uploading…") : tr("Take or add photos")}
-                </span>
-                <span className="text-xs">{tr(sec.who)}</span>
-              </button>
+              // Big, because on a phone this is the one thing the crew is
+              // here to do.
+              <div className="space-y-1">
+                <PhotoDoors big busy={busy} camera={() => inputs.current[`${sec.key}:cam`]?.click()}
+                            gallery={() => inputs.current[sec.key]?.click()} />
+                <p className="text-center text-xs text-muted-foreground">{tr(sec.who)}</p>
+              </div>
             )}
 
             {/* The cleaner checks the wood on arrival (Alan, 2026-10-15): pine

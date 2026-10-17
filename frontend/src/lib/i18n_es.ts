@@ -400,4 +400,10 @@ export const ES: Record<string, string> = {
   "None": "Ninguno",
   "of": "de",
   "Worker": "Trabajador",
+  "Take photo": "Tomar foto",
+  "From gallery": "De la galería",
+  "Photo by": "Foto de",
+  "Note by": "Nota de",
+  "Note saved": "Nota guardada",
+  "Not saved. Check your signal and try again.": "No se guardó. Revisa tu señal e inténtalo otra vez.",
 };

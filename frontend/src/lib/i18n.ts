@@ -6,8 +6,26 @@
 import { getCurrentUser } from "@/lib/api";
 import { ES } from "@/lib/i18n_es";
 
-export function isSpanish(): boolean {
+// The person can flip their own screens between Spanish and English from the
+// top-right switch (Alan, 2026-10-17: Jose learns the English by seeing both).
+// Only for accounts with Español ticked; the choice stays on that phone.
+const VIEW_KEY = "at_view_lang";
+
+/** Has the office ticked Español on this account? */
+export function spanishAllowed(): boolean {
   return getCurrentUser()?.lang === "es";
+}
+
+function viewLang(): string {
+  try { return localStorage.getItem(VIEW_KEY) || ""; } catch { return ""; }
+}
+
+export function setViewLang(lang: "es" | "en"): void {
+  try { localStorage.setItem(VIEW_KEY, lang); } catch { /* private mode: stays as is */ }
+}
+
+export function isSpanish(): boolean {
+  return spanishAllowed() && viewLang() !== "en";
 }
 
 export function tr(en: string): string {
