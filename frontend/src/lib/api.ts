@@ -1913,6 +1913,9 @@ export const api = {
       "/api/branding/logo/status"
     ),
   // ── Documents: the business's PDFs (owner-only) ──
+  metaStatus: () => request<MetaStatus>(`/api/meta/status`),
+  metaInsights: (level: MetaLevel, days: number) =>
+    request<MetaInsights>(`/api/meta/insights?level=${level}&days=${days}`),
   listDocuments: () => request<{ documents: DocumentRow[]; categories: DocCategory[] }>(`/api/documents`),
   uploadDocuments: async (files: File[]) => {
     const fd = new FormData();
@@ -5942,5 +5945,9 @@ export type CourseModuleEdit = {
 };
 export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };
 
+export type MetaStatus = { connected: boolean; account_id?: string; name?: string; currency?: string; status?: number; timezone?: string; error?: string };
+export type MetaLevel = "campaign" | "adset" | "ad";
+export type MetaRow = { campaign_id: string; campaign: string; adset_id?: string; adset?: string; ad_id?: string; ad?: string; spend: number; impressions: number; clicks: number; leads: number; cost_per_lead: number | null };
+export type MetaInsights = { level: MetaLevel; since: string; until: string; rows: MetaRow[]; total: { spend: number; leads: number; cost_per_lead: number | null } };
 export type DocumentRow = { id: string; title: string; filename: string; mime: string; size: number; created_at: string; created_by: string; category: string; blurb: string };
 export type DocCategory = { key: string; label: string; about: string };
