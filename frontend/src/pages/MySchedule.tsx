@@ -11,6 +11,7 @@ import { Phone, MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, N
 import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
 import { errMessage } from "@/lib/utils";
+import { tr, isSpanish } from "@/lib/i18n";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
 // Three tabs:
@@ -55,15 +56,15 @@ function formatDateHeader(dateISO: string): string {
   if (dateISO === tomorrow) return "Tomorrow";
   if (dateISO === yesterday) return "Yesterday";
   const d = new Date(dateISO + "T00:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  return d.toLocaleDateString(isSpanish() ? "es-US" : "en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
 function statusBadge(status: string) {
   const map: Record<string, { label: string; cls: string }> = {
-    scheduled:   { label: "Not started", cls: "bg-slate-200 text-slate-800" },
-    in_progress: { label: "In progress",  cls: "bg-blue-500 text-white" },
-    completed:   { label: "Complete",     cls: "bg-green-600 text-white" },
-    cancelled:   { label: "Cancelled",    cls: "bg-red-200 text-red-900" },
+    scheduled:   { label: tr("Not started"), cls: "bg-slate-200 text-slate-800" },
+    in_progress: { label: tr("In progress"),  cls: "bg-blue-500 text-white" },
+    completed:   { label: tr("Complete"),     cls: "bg-green-600 text-white" },
+    cancelled:   { label: tr("Cancelled"),    cls: "bg-red-200 text-red-900" },
   };
   const cfg = map[status] || map.scheduled;
   return <Badge className={`${cfg.cls} text-xs`}>{cfg.label}</Badge>;
@@ -174,7 +175,7 @@ function SlideToConfirm({
       onTouchEnd={handleEnd}
     >
       <div className="absolute inset-0 flex items-center justify-center text-slate-600 font-medium text-sm pointer-events-none">
-        {confirmed ? "Confirmed!" : label}
+        {confirmed ? tr("Confirmed!") : label}
       </div>
       <div
         className={`absolute top-1 left-1 h-12 w-12 rounded-full ${colorClass} text-white flex items-center justify-center shadow-md transition-transform`}
@@ -219,9 +220,9 @@ function MaterialsEditor({
       if (bleach !== initialBleach) body.bleach_gallons = parseFloat(bleach) || 0;
       const updated = await api.updateJobMaterials(job.id, body);
       onSaved(updated);
-      toast.success("Materials saved");
+      toast.success(tr("Materials saved"));
     } catch (e) {
-      toast.error(errMessage(e, "Failed to save materials"));
+      toast.error(errMessage(e, tr("Failed to save materials")));
     } finally {
       setSaving(false);
     }
@@ -230,12 +231,12 @@ function MaterialsEditor({
   return (
     <div className="text-sm bg-amber-50 border border-amber-200 rounded px-3 py-2 space-y-2">
       <span className="text-xs font-semibold text-amber-900 uppercase tracking-wide block">
-        Materials used
+        {tr("Materials used")}
       </span>
       <div className="grid grid-cols-2 gap-2">
         <label className="text-xs">
           <span className="block text-amber-900 mb-0.5">
-            Stain used (gal)
+            {tr("Stain used (gal)")}
             {stainAssigned > 0 && (
               <span className="text-amber-700 font-normal"> · assigned {stainAssigned}</span>
             )}
@@ -251,7 +252,7 @@ function MaterialsEditor({
           />
         </label>
         <label className="text-xs">
-          <span className="block text-amber-900 mb-0.5">Bleach used (gal)</span>
+          <span className="block text-amber-900 mb-0.5">{tr("Bleach used (gal)")}</span>
           <input
             type="number"
             step="0.1"
@@ -271,7 +272,7 @@ function MaterialsEditor({
         onClick={save}
         className="w-full"
       >
-        {saving ? "Saving…" : changed ? "Save materials" : "Saved"}
+        {saving ? tr("Saving…") : changed ? tr("Save materials") : tr("Saved")}
       </Button>
     </div>
   );
@@ -288,8 +289,8 @@ function fmtStamp(iso: string): string {
 // Demo services shown on the temporary fake-schedule jobs (employeefragne) so
 // the layout is dogfoodable. Uploads are disabled for these.
 const DEMO_TASKS: MyJobTask[] = [
-  { id: "demo-stain", task_type: "stain", task_label: "Fence staining", emoji: "🎨", status: "pending", before_count: 0, after_count: 0, done: false, started_at: "", ended_at: "" },
-  { id: "demo-clean", task_type: "clean", task_label: "Fence cleaning", emoji: "🧽", status: "pending", before_count: 0, after_count: 0, done: false, started_at: "", ended_at: "" },
+  { id: "demo-stain", task_type: "stain", task_label: tr("Fence staining"), emoji: "🎨", status: "pending", before_count: 0, after_count: 0, done: false, started_at: "", ended_at: "" },
+  { id: "demo-clean", task_type: "clean", task_label: tr("Fence cleaning"), emoji: "🧽", status: "pending", before_count: 0, after_count: 0, done: false, started_at: "", ended_at: "" },
 ];
 
 // Before/After photo bucket for ONE service on a job. Uploading photos is how
@@ -320,14 +321,14 @@ function ServicePhotoSection({
           {!disabled && (
             <label className={`inline-flex items-center gap-1 text-[11px] cursor-pointer text-primary hover:underline ${busy ? "opacity-60 pointer-events-none" : ""}`}>
               {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-              {busy ? "Uploading…" : `Add ${label.toLowerCase()}`}
+              {busy ? tr("Uploading…") : (isSpanish() ? `Agregar ${label.toLowerCase()}` : `Add ${label.toLowerCase()}`)}
               <input type="file" accept="image/*" multiple className="hidden" disabled={busy}
                 onChange={(e) => { onUpload(task.id, phase, e.target.files); e.currentTarget.value = ""; }} />
             </label>
           )}
         </div>
         {items.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground italic">No {label.toLowerCase()} photos yet.</p>
+          <p className="text-[11px] text-muted-foreground italic">{isSpanish() ? `Todavía no hay fotos de ${label.toLowerCase()}.` : `No ${label.toLowerCase()} photos yet.`}</p>
         ) : (
           <div className="grid grid-cols-4 gap-1.5">
             {items.map((p) => (
@@ -336,7 +337,7 @@ function ServicePhotoSection({
                   ? <img src={blobs[p.id]} alt={label} className="h-full w-full object-cover" />
                   : <div className="h-full w-full grid place-items-center text-muted-foreground"><ImageIcon className="h-4 w-4" /></div>}
                 {!disabled && (
-                  <button onClick={() => onDelete(p.id)} title="Remove"
+                  <button onClick={() => onDelete(p.id)} title={tr("Remove")}
                     className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded p-0.5 opacity-0 group-hover:opacity-100 transition">
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -354,11 +355,11 @@ function ServicePhotoSection({
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-sm font-semibold">{task.emoji} {task.task_label}</span>
         {task.done
-          ? <Badge className="bg-green-600 text-white text-[10px] h-5 gap-0.5"><Check className="h-3 w-3" /> Done</Badge>
-          : <Badge className="bg-slate-200 text-slate-700 text-[10px] h-5">Needs before + after</Badge>}
+          ? <Badge className="bg-green-600 text-white text-[10px] h-5 gap-0.5"><Check className="h-3 w-3" /> {tr("Done")}</Badge>
+          : <Badge className="bg-slate-200 text-slate-700 text-[10px] h-5">{tr("Needs before + after")}</Badge>}
       </div>
-      {renderBucket("before", "Before")}
-      {renderBucket("after", "After")}
+      {renderBucket("before", tr("Before"))}
+      {renderBucket("after", tr("After"))}
       {(task.started_at || task.ended_at) && (
         <div className="text-[10px] text-muted-foreground flex flex-wrap gap-x-3">
           {task.started_at && <span>Started {fmtStamp(task.started_at)}</span>}
@@ -379,7 +380,7 @@ function shortDate(ymd: string): string {
   if (!ymd) return "";
   const d = new Date(ymd + "T00:00:00");
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  return d.toLocaleDateString(isSpanish() ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 // PM/admin-only controls on a job card: an INTERNAL schedule override (date /
@@ -406,10 +407,10 @@ function PmJobControls({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Sched
         pm_private_notes: notes,
       });
       onSaved(updated);
-      toast.success("Internal schedule saved");
+      toast.success(tr("Internal schedule saved"));
       setOpen(false);
     } catch (e) {
-      toast.error(errMessage(e, "Couldn't save"));
+      toast.error(errMessage(e, tr("Couldn't save")));
     } finally { setSaving(false); }
   };
   const revert = async () => {
@@ -420,8 +421,8 @@ function PmJobControls({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Sched
         internal_job_date: "", internal_arrival_time: "", internal_duration_hours: 0,
       });
       onSaved(updated);
-      toast.success("Reverted to the invite time");
-    } catch (e) { toast.error(errMessage(e, "Couldn't revert")); }
+      toast.success(tr("Reverted to the invite time"));
+    } catch (e) { toast.error(errMessage(e, tr("Couldn't revert"))); }
     finally { setSaving(false); }
   };
 
@@ -452,12 +453,12 @@ function PmJobControls({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Sched
             </label>
           </div>
           <label className="text-[11px] text-muted-foreground block">Private notes (Admin ↔ PM — workers never see these)
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Internal notes for this job…"
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={tr("Internal notes for this job…")}
               className="mt-0.5 w-full text-sm rounded border bg-background px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40" />
           </label>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
-            {hasInternal(job) && <Button size="sm" variant="ghost" onClick={revert} disabled={saving}>Revert time to invite</Button>}
+            <Button size="sm" onClick={save} disabled={saving}>{saving ? tr("Saving…") : tr("Save")}</Button>
+            {hasInternal(job) && <Button size="sm" variant="ghost" onClick={revert} disabled={saving}>{tr("Revert time to invite")}</Button>}
           </div>
         </div>
       )}
@@ -515,34 +516,34 @@ function TodayJobCard({
         if (url) setBlobs((prev) => ({ ...prev, [meta.id]: url }));
       }
       await loadTasks(); // refresh done + timestamps
-      toast.success(list.length > 1 ? `${list.length} photos uploaded` : "Photo uploaded");
+      toast.success(list.length > 1 ? (isSpanish() ? `${list.length} fotos subidas` : `${list.length} photos uploaded`) : tr("Photo uploaded"));
     } catch (e) {
-      toast.error(errMessage(e, "Upload failed"));
+      toast.error(errMessage(e, tr("Upload failed")));
     } finally {
       setUploading(null);
     }
   };
 
   const handleDelete = async (photoId: string) => {
-    if (!confirm("Remove this photo?")) return;
+    if (!confirm(tr("Remove this photo?"))) return;
     try {
       await api.deleteJobPhoto(job.id, photoId);
       setPhotos((prev) => prev.filter((p) => p.id !== photoId));
       setBlobs((prev) => { const u = prev[photoId]; if (u) URL.revokeObjectURL(u); const n = { ...prev }; delete n[photoId]; return n; });
       await loadTasks();
     } catch (e) {
-      toast.error(errMessage(e, "Delete failed"));
+      toast.error(errMessage(e, tr("Delete failed")));
     }
   };
 
   const handleNotify = async () => {
-    if (isFake) { toast.success("30-min heads-up sent (demo)"); return; }
+    if (isFake) { toast.success(tr("30-min heads-up sent (demo)")); return; }
     setNotifying(true);
     try {
       const r = await api.notifyAlmostDone(job.id);
-      toast.success(r.recipients > 0 ? "30-minute heads-up sent" : "Sent — no SMS recipients configured yet");
+      toast.success(r.recipients > 0 ? tr("30-minute heads-up sent") : tr("Sent — no SMS recipients configured yet"));
     } catch (e) {
-      toast.error(errMessage(e, "Couldn't send notification"));
+      toast.error(errMessage(e, tr("Couldn't send notification")));
     } finally {
       setNotifying(false);
     }
@@ -553,7 +554,7 @@ function TodayJobCard({
       <CardContent className="p-4 space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="font-semibold text-base truncate">{job.customer_name || "(no name)"}</div>
+            <div className="font-semibold text-base truncate">{job.customer_name || tr("(no name)")}</div>
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5 flex-wrap">
               <Clock className="h-3.5 w-3.5 shrink-0" />
               {formatArrivalTime(effArrival(job))}
@@ -561,7 +562,7 @@ function TodayJobCard({
                 <span className="font-medium text-foreground">· {shortDate(job.internal_job_date)}</span>
               )}
               {hasInternal(job) && (
-                <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 font-medium" title="Internal PM schedule — customer invite unchanged">Internal</span>
+                <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 font-medium" title={tr("Internal PM schedule — customer invite unchanged")}>{tr("Internal")}</span>
               )}
             </div>
           </div>
@@ -571,7 +572,7 @@ function TodayJobCard({
         {/* Your tasks — the services THIS worker is assigned to on this job. */}
         {tasks && tasks.length > 0 && (
           <div className="rounded-lg bg-primary/5 border border-primary/20 p-2">
-            <div className="text-[10px] uppercase tracking-wide text-primary font-bold mb-1">Your tasks</div>
+            <div className="text-[10px] uppercase tracking-wide text-primary font-bold mb-1">{tr("Your tasks")}</div>
             <div className="flex flex-wrap gap-1.5">
               {tasks.map((t) => (
                 <span key={t.id} className={`inline-flex items-center gap-1 rounded-full text-xs px-2 py-0.5 ${t.done ? "bg-green-600 text-white" : "bg-primary/10 text-primary"}`}>
@@ -591,7 +592,7 @@ function TodayJobCard({
           >
             <Phone className="h-4 w-4 text-emerald-600 shrink-0" />
             <span className="font-medium">{job.customer_phone}</span>
-            <span className="ml-auto text-xs text-emerald-700 shrink-0">Call customer</span>
+            <span className="ml-auto text-xs text-emerald-700 shrink-0">{tr("Call customer")}</span>
           </a>
         )}
 
@@ -609,7 +610,7 @@ function TodayJobCard({
 
         {job.fence_sides_label && (
           <div className="text-sm bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
-            <span className="text-xs font-semibold text-emerald-900 uppercase tracking-wide block mb-0.5">Sides to stain</span>
+            <span className="text-xs font-semibold text-emerald-900 uppercase tracking-wide block mb-0.5">{tr("Sides to stain")}</span>
             <span className="text-emerald-900">{job.fence_sides_label}</span>
           </div>
         )}
@@ -621,23 +622,23 @@ function TodayJobCard({
           <div className="text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2 space-y-1">
             {job.package_tier && (
               <div>
-                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Package: </span>
+                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">{tr("Package:")} </span>
                 <span className="capitalize">{job.package_tier}</span>
               </div>
             )}
             {job.color_choice && (
               <div>
-                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Color: </span>
+                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">{tr("Color:")} </span>
                 {job.color_choice}
               </div>
             )}
             {(job.gallons_estimate > 0 || (job.bleach_gallons || 0) > 0) && (
               <div className="flex gap-4 text-xs pt-0.5">
                 {job.gallons_estimate > 0 && (
-                  <span><span className="font-semibold text-slate-700">Stain:</span> {job.gallons_estimate} gal</span>
+                  <span><span className="font-semibold text-slate-700">{tr("Stain:")}</span> {job.gallons_estimate} gal</span>
                 )}
                 {(job.bleach_gallons || 0) > 0 && (
-                  <span><span className="font-semibold text-slate-700">Bleach:</span> {job.bleach_gallons} gal</span>
+                  <span><span className="font-semibold text-slate-700">{tr("Bleach:")}</span> {job.bleach_gallons} gal</span>
                 )}
               </div>
             )}
@@ -648,7 +649,7 @@ function TodayJobCard({
             server-side so any stray price/proposal language is stripped. */}
         {job.worker_notes && (
           <div className="text-sm bg-blue-50 border border-blue-200 rounded px-3 py-2">
-            <span className="text-xs font-semibold text-blue-900 uppercase tracking-wide block mb-0.5">Notes from the office</span>
+            <span className="text-xs font-semibold text-blue-900 uppercase tracking-wide block mb-0.5">{tr("Notes from the office")}</span>
             <span className="text-blue-900 whitespace-pre-wrap">{job.worker_notes}</span>
           </div>
         )}
@@ -669,7 +670,7 @@ function TodayJobCard({
         {tasks && tasks.length > 0 && (
           <div className="space-y-2">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold">
-              Before &amp; After Photos
+              {tr("Before & After Photos")}
             </div>
             {tasks.map((t) => (
               <ServicePhotoSection
@@ -682,7 +683,7 @@ function TodayJobCard({
         )}
         {tasks && tasks.length === 0 && !isFake && (
           <p className="text-[11px] text-muted-foreground italic">
-            No services assigned to you on this job yet — your project manager assigns these.
+            {tr("No services assigned to you on this job yet — your project manager assigns these.")}
           </p>
         )}
 
@@ -702,11 +703,11 @@ function TodayJobCard({
           <div className="flex gap-2">
             <Link to={`/sops/job/${job.id}`} className="flex-1">
               <Button variant="outline" className="w-full">
-                <ClipboardList className="h-4 w-4 mr-2" /> SOP Checklist
+                <ClipboardList className="h-4 w-4 mr-2" /> {tr("SOP Checklist")}
               </Button>
             </Link>
             <Link to={`/sops/job/${job.id}#photos`}>
-              <Button variant="outline" size="icon" aria-label="Photos">
+              <Button variant="outline" size="icon" aria-label={tr("Photos")}>
                 <Camera className="h-4 w-4" />
               </Button>
             </Link>
@@ -740,10 +741,10 @@ function ListJobCard({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Schedul
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-sm truncate">{job.customer_name || "(no name)"}</span>
+                <span className="font-semibold text-sm truncate">{job.customer_name || tr("(no name)")}</span>
                 {statusBadge(job.status)}
                 {hasInternal(job) && (
-                  <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 font-medium" title="Internal PM schedule — customer invite unchanged">Internal</span>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1 py-0.5 font-medium" title={tr("Internal PM schedule — customer invite unchanged")}>{tr("Internal")}</span>
                 )}
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
@@ -761,21 +762,21 @@ function ListJobCard({ job, onSaved }: { job: ScheduledJob; onSaved: (j: Schedul
               </div>
               {job.fence_sides_label && (
                 <div className="text-[11px] text-emerald-800 mt-1 truncate">
-                  <span className="font-semibold">Sides:</span> {job.fence_sides_label}
+                  <span className="font-semibold">{tr("Sides:")}</span> {job.fence_sides_label}
                 </div>
               )}
               {(job.package_tier || job.color_choice) && (
                 <div className="text-[11px] text-slate-700 mt-0.5 truncate">
                   {job.package_tier && (
                     <>
-                      <span className="font-semibold">Pkg:</span>{" "}
+                      <span className="font-semibold">{tr("Pkg:")}</span>{" "}
                       <span className="capitalize">{job.package_tier}</span>
                     </>
                   )}
                   {job.package_tier && job.color_choice && <span className="mx-1">·</span>}
                   {job.color_choice && (
                     <>
-                      <span className="font-semibold">Color:</span> {job.color_choice}
+                      <span className="font-semibold">{tr("Color:")}</span> {job.color_choice}
                     </>
                   )}
                 </div>
@@ -849,9 +850,9 @@ function DailyCheckInCard() {
     try {
       const r = await api.workerCheckIn();
       setShift(r.shift);
-      toast.success("Checked in — have a great day!");
+      toast.success(tr("Checked in — have a great day!"));
     } catch (e) {
-      toast.error(errMessage(e, "Couldn't check in"));
+      toast.error(errMessage(e, tr("Couldn't check in")));
     } finally { setBusy(false); }
   };
   const checkOut = async () => {
@@ -859,9 +860,9 @@ function DailyCheckInCard() {
     try {
       const r = await api.workerCheckOut();
       setShift(r.shift);
-      toast.success("Checked out — nice work today!");
+      toast.success(tr("Checked out — nice work today!"));
     } catch (e) {
-      toast.error(errMessage(e, "Couldn't check out"));
+      toast.error(errMessage(e, tr("Couldn't check out")));
     } finally { setBusy(false); }
   };
 
@@ -876,16 +877,16 @@ function DailyCheckInCard() {
     <div className="rounded-xl border p-3 mb-4 bg-card shadow-sm">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-semibold flex items-center gap-1.5">
-          <Clock className="h-4 w-4 text-muted-foreground" /> Your day
+          <Clock className="h-4 w-4 text-muted-foreground" /> {tr("Your day")}
         </span>
-        {onClock && <Badge className="bg-green-600 text-white text-[10px] h-5">On the clock</Badge>}
-        {done && <Badge className="bg-slate-500 text-white text-[10px] h-5">Day complete</Badge>}
+        {onClock && <Badge className="bg-green-600 text-white text-[10px] h-5">{tr("On the clock")}</Badge>}
+        {done && <Badge className="bg-slate-500 text-white text-[10px] h-5">{tr("Day complete")}</Badge>}
       </div>
 
       {!shift && (
         <>
-          <p className="text-xs text-muted-foreground mb-2">Check in to start your day.</p>
-          <SlideToConfirm label="Slide to check in for the day" variant="green" onConfirm={checkIn} disabled={busy} />
+          <p className="text-xs text-muted-foreground mb-2">{tr("Check in to start your day.")}</p>
+          <SlideToConfirm label={tr("Slide to check in for the day")} variant="green" onConfirm={checkIn} disabled={busy} />
         </>
       )}
       {onClock && (
@@ -900,7 +901,7 @@ function DailyCheckInCard() {
           <p className="text-xs text-muted-foreground mb-2 text-center">
             On the clock since <span className="font-medium text-foreground">{fmt(shift!.clock_in)}</span>
           </p>
-          <SlideToConfirm label="Slide to check out for the day" variant="blue" onConfirm={checkOut} disabled={busy} />
+          <SlideToConfirm label={tr("Slide to check out for the day")} variant="blue" onConfirm={checkOut} disabled={busy} />
         </>
       )}
       {done && (
@@ -922,9 +923,9 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
     .sort((a, b) => (a.date || "9").localeCompare(b.date || "9"));
   if (!shown.length) return null;
   const day = (iso: string) => {
-    if (!iso) return "Day not set yet";
+    if (!iso) return tr("Day not set yet");
     const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    return new Date(y, m - 1, d).toLocaleDateString(isSpanish() ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric" });
   };
   return (
     <div className="mb-4 space-y-2">
@@ -932,11 +933,11 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
         <Link key={j.lead_id} to={`/company-cam/${j.lead_id}`}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
           <span className={`flex h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : "bg-stone-500"}`}>
-            <span className="text-sm uppercase tracking-wide">{j.task === "staining" ? "Staining" : j.task === "cleaning" ? "Cleaning" : "Job"}</span>
+            <span className="text-sm uppercase tracking-wide">{j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Cleaning") : tr("Job")}</span>
             {tab !== "today" ? <span className="font-medium opacity-90">{day(j.date)}</span> : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base font-semibold capitalize">{(j.name || "Customer").toLowerCase()}</span>
+            <span className="block truncate text-base font-semibold capitalize">{(j.name || tr("Customer")).toLowerCase()}</span>
             {j.address ? <span className="flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{j.address}</span> : null}
           </span>
           <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
@@ -989,7 +990,7 @@ export default function MySchedule() {
       setJobs(res.jobs || []);
     } catch (e) {
       console.error(e);
-      toast.error("Failed to load schedule");
+      toast.error(tr("Failed to load schedule"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -1042,9 +1043,9 @@ export default function MySchedule() {
     <div className="p-4 max-w-md mx-auto pb-24">
       <div className="flex items-baseline justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold">My Schedule</h1>
+          <h1 className="text-2xl font-bold">{tr("My Schedule")}</h1>
           <p className="text-sm text-muted-foreground">
-            {new Date(today + "T00:00:00").toLocaleDateString("en-US", {
+            {new Date(today + "T00:00:00").toLocaleDateString(isSpanish() ? "es-US" : "en-US", {
               weekday: "long", month: "long", day: "numeric",
             })}
           </p>
@@ -1059,13 +1060,13 @@ export default function MySchedule() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">
-        {tabBtn("today", "Today")}
-        {tabBtn("upcoming", "Upcoming")}
-        {tabBtn("past", "Past")}
+        {tabBtn("today", tr("Today"))}
+        {tabBtn("upcoming", tr("Upcoming"))}
+        {tabBtn("past", tr("Past"))}
       </div>
 
       {loading ? (
-        <div className="text-center text-muted-foreground py-12">Loading…</div>
+        <div className="text-center text-muted-foreground py-12">{tr("Loading…")}</div>
       ) : tab === "today" ? (
         <>
           {todaySorted.length > 0 && (
@@ -1085,7 +1086,7 @@ export default function MySchedule() {
           {todaySorted.length === 0 && camJobs.some((j) => j.date === today) ? null : todaySorted.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
-                No jobs scheduled today. Enjoy the day off!
+                {tr("No jobs scheduled today. Enjoy the day off!")}
               </CardContent>
             </Card>
           ) : (
@@ -1102,7 +1103,7 @@ export default function MySchedule() {
           {grouped.length === 0 && camJobs.some((j) => (tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today)) ? null : grouped.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
-                {tab === "upcoming" ? "No upcoming jobs scheduled." : "No jobs in the last 30 days."}
+                {tab === "upcoming" ? tr("No upcoming jobs scheduled.") : tr("No jobs in the last 30 days.")}
               </CardContent>
             </Card>
           ) : (

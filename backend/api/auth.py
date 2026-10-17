@@ -34,6 +34,9 @@ def make_token(user: User, perms: list[str] | None = None, impersonated_by: dict
         # Effective permission keys (views + actions). The frontend gates nav,
         # routes, and buttons on these; backend require_perm checks them too.
         "perms": perms or [],
+        # Crew screens in Spanish (Alan's switch on the account). Picked up
+        # on the next app load through /auth/refresh.
+        "lang": "es" if getattr(user, "spanish", False) else "en",
         "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS),
     }
     # Impersonation session: which admin is acting as this user. Drives the

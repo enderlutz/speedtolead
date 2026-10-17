@@ -188,6 +188,7 @@ class UpdateUserBody(BaseModel):
     role: str | None = None
     see_all_jobs: bool | None = None
     no_clock_in: bool | None = None             # paid per job: no daily clock-in
+    spanish: bool | None = None                 # crew screens in Spanish
     password: str | None = None                 # optional reset
     permissions: dict[str, bool] | None = None  # full per-account override map
 
@@ -209,6 +210,7 @@ def _user_row(db, u: User) -> dict:
         "role": u.role,
         "see_all_jobs": bool(getattr(u, "see_all_jobs", False)),
         "no_clock_in": bool(getattr(u, "no_clock_in", False)),
+        "spanish": bool(getattr(u, "spanish", False)),
         "overrides": _load_overrides(u.permissions),
         "effective": effective_permissions(u.role, u.permissions, _role_override_raw(db, u.role)),
         "created_at": u.created_at or "",
@@ -321,6 +323,8 @@ def update_user(user_id: str, body: UpdateUserBody, user: dict = Depends(require
             u.see_all_jobs = bool(body.see_all_jobs)
         if body.no_clock_in is not None:
             u.no_clock_in = bool(body.no_clock_in)
+        if body.spanish is not None:
+            u.spanish = bool(body.spanish)
         if body.password:
             u.password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
         if body.permissions is not None:

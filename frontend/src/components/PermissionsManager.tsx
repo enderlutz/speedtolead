@@ -62,6 +62,8 @@ function UserRow({
   const [seeAll, setSeeAll] = useState(u.see_all_jobs);
   // Clock in to start the day: off for someone paid per job (Alan, 2026-10-16).
   const [clockIn, setClockIn] = useState(!u.no_clock_in);
+  // Crew screens in Spanish for a Spanish speaker (Alan, 2026-10-16).
+  const [spanish, setSpanish] = useState(!!u.spanish);
   // Their name as everyone sees it ("Chris Moran"); the login stays the same.
   const [displayName, setDisplayName] = useState(u.display_name || "");
   // Set a new password (a forgotten one can't be read back; it's stored scrambled).
@@ -85,7 +87,7 @@ function UserRow({
       for (const k of Object.keys(draft)) {
         if (!!draft[k] !== !!roleDefaults[k]) overrides[k] = !!draft[k];
       }
-      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username, ...(newPassword.trim() ? { password: newPassword.trim() } : {}) });
+      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, spanish, job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username, ...(newPassword.trim() ? { password: newPassword.trim() } : {}) });
       if (newPassword.trim()) { toast.success(`New password set. ${u.display_name || u.username} logs in as ${u.username}.`); setNewPassword(""); }
       toast.success(`Saved ${u.display_name || u.username}`);
       onChanged();
@@ -187,6 +189,10 @@ function UserRow({
             <label className="text-xs flex items-center gap-1.5 cursor-pointer" title="Untick for someone paid a flat amount per job, not by the hour">
               <input type="checkbox" checked={clockIn} onChange={(e) => setClockIn(e.target.checked)} className="h-3.5 w-3.5" />
               Clock in to start the day <span className="text-muted-foreground">(untick if paid per job)</span>
+            </label>
+            <label className="text-xs flex items-center gap-1.5 cursor-pointer" title="Their crew screens show in Spanish">
+              <input type="checkbox" checked={spanish} onChange={(e) => setSpanish(e.target.checked)} className="h-3.5 w-3.5" />
+              Español <span className="text-muted-foreground">(their screens in Spanish)</span>
             </label>
           </div>
 

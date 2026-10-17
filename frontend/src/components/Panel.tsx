@@ -12,6 +12,7 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Accent } from "@/lib/accents";
+import { tr } from "@/lib/i18n";
 
 export function Panel({
   id, icon: Icon, title, sub, right, accent, className, bodyClassName,
@@ -148,7 +149,7 @@ export function ProgressPill({ done, total }: { done: number; total: number }) {
       "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums",
       all ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground",
     )}>
-      {all ? <Check className="h-2.5 w-2.5" /> : null}{done} of {total}
+      {all ? <Check className="h-2.5 w-2.5" /> : null}{done} {tr("of")} {total}
     </span>
   );
 }

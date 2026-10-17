@@ -106,7 +106,7 @@ export function isImpersonating(): boolean {
   return !!getCurrentUser()?.impersonated_by;
 }
 
-export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string; see_all_jobs?: boolean; perms?: string[]; impersonated_by?: { sub: string; name: string } } | null {
+export function getCurrentUser(): { sub: string; name: string; role: string; employee_id?: string; see_all_jobs?: boolean; lang?: "en" | "es"; perms?: string[]; impersonated_by?: { sub: string; name: string } } | null {
   const token = getToken();
   if (!token) return null;
   try {
@@ -172,6 +172,7 @@ export interface AdminUser {
   see_all_jobs: boolean;
   /** Paid per job, so no daily clock-in. */
   no_clock_in?: boolean;
+  spanish?: boolean;
   overrides: Record<string, boolean>;    // per-account permission overrides
   effective: Record<string, boolean>;    // resolved effective permissions
   created_at: string;
@@ -1363,7 +1364,7 @@ export const api = {
     role?: string; see_all_jobs?: boolean; permissions?: Record<string, boolean>;
   }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (id: string, body: {
-    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean; no_clock_in?: boolean;
+    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean; no_clock_in?: boolean; spanish?: boolean;
     password?: string; permissions?: Record<string, boolean>;
   }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),

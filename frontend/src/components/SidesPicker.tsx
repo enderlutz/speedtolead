@@ -8,6 +8,7 @@ import { ACCENT, type Accent } from "@/lib/accents";
 import { ProgressPill } from "@/components/Panel";
 import { cn } from "@/lib/utils";
 import { FENCE_SIDES, type SideGroup } from "@/lib/fenceSides";
+import { tr } from "@/lib/i18n";
 
 const GROUP_ACCENT: Record<SideGroup, Accent> = {
   Inside: ACCENT.violet,
@@ -83,14 +84,14 @@ export function SidesPicker({
                           : "border-dashed border-input bg-background text-muted-foreground hover:border-foreground/40 hover:text-foreground",
                 )}
               >
-                {side}
+                {tr(side)}
               </button>
             );
           };
           return (
             <div key={group} className={cn("rounded-xl border bg-muted/20", compact ? "p-2" : "p-2.5")}>
               <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5">
-                <span className={cn("text-xs font-bold uppercase tracking-wide", accent.text)}>{group}</span>
+                <span className={cn("text-xs font-bold uppercase tracking-wide", accent.text)}>{tr(group)}</span>
                 <div className="flex items-center gap-1.5">
                   <ProgressPill done={n} total={names.length} />
                   {readOnly ? null : <button
@@ -98,7 +99,7 @@ export function SidesPicker({
                     onClick={() => setGroup(names, n < names.length)}
                     className="-my-2 px-2 py-2.5 text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
-                    {n < names.length ? "All" : "None"}
+                    {n < names.length ? tr("All") : tr("None")}
                   </button>}
                 </div>
               </div>

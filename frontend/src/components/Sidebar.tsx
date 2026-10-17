@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type KPIs, getCurrentUser, clearToken, hasPerm, getDivision, setDivision, type Division } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
+import { tr } from "@/lib/i18n";
 
 // Per-division branding for the sidebar/header. Only the `fragned` account can
 // switch to brick for now (see DivisionSwitcher); everyone else stays on fence.
@@ -194,7 +195,7 @@ function SidebarFooter() {
           </div>
           <div className="min-w-0">
             <p className="text-[11px] font-medium text-sidebar-foreground/80 truncate">{user?.name || "User"}</p>
-            <p className="text-[10px] text-sidebar-foreground/40 capitalize">{user?.role || "va"}</p>
+            <p className="text-[10px] text-sidebar-foreground/40 capitalize">{user?.role === "worker" ? tr("Worker") : user?.role || "va"}</p>
           </div>
         </div>
         <button
@@ -273,7 +274,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               }
             >
               <Icon className="h-4 w-4" />
-              {label}
+              {tr(label)}
             </NavLink>
           ))}
         </nav>

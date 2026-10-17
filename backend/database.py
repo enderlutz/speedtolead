@@ -710,6 +710,8 @@ class User(Base):
     # No daily clock-in for this person (Alan, 2026-10-16: Chris is paid a
     # flat amount per job, not by the hour).
     no_clock_in = Column(Boolean, default=False)
+    # Crew screens in Spanish for this person (Alan, 2026-10-16: Jose).
+    spanish = Column(Boolean, default=False)
     # Per-account permission overrides — JSON {permission_key: bool} layered on
     # top of the role defaults (see api/permissions.py). Empty = pure role
     # defaults. The base role still governs server-side data security.
@@ -4838,6 +4840,9 @@ def _run_migrations():
         if "no_clock_in" not in user_cols:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN no_clock_in BOOLEAN DEFAULT FALSE"))
+        if "spanish" not in user_cols:
+            with _engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN spanish BOOLEAN DEFAULT FALSE"))
         if "see_all_jobs" not in user_cols:
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN see_all_jobs BOOLEAN DEFAULT FALSE"))
