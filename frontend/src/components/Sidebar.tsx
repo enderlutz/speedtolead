@@ -98,7 +98,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
-  { to: "/social", icon: Clapperboard, label: "Social media", perm: "leads" },
+  { to: "/social", icon: Clapperboard, label: "Social media", perm: "social_media" },
   { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
   { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },
@@ -200,7 +200,7 @@ function SidebarFooter() {
           </div>
           <div className="min-w-0">
             <p className="text-[11px] font-medium text-sidebar-foreground/80 truncate">{user?.name || "User"}</p>
-            <p className="text-[10px] text-sidebar-foreground/40 capitalize">{user?.role === "worker" ? tr("Worker") : user?.role || "va"}</p>
+            <p className="text-[10px] text-sidebar-foreground/40 capitalize">{user?.role === "worker" ? tr("Worker") : user?.role === "social" ? "Social media" : user?.role || "va"}</p>
           </div>
         </div>
         <button

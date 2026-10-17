@@ -92,6 +92,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function StaffOnly({ children }: { children: React.ReactNode }) {
   const u = getCurrentUser();
   if (u?.role === "worker") return <Navigate to="/my-schedule" replace />;
+  // The content editor only has the library and the photo gallery.
+  if (u?.role === "social") return <Navigate to="/social" replace />;
   return <>{children}</>;
 }
 
@@ -121,6 +123,7 @@ function landingFor(): string {
   // the `settings` perm — so RequireView would bounce them straight back here
   // and the app would redirect forever.
   if (hasPerm("stain_inventory")) return "/stain-inventory";
+  if (hasPerm("social_media")) return "/social";
   if (hasPerm("fence_photos")) return "/fence-photos";
   return "/settings";
 }
@@ -247,7 +250,7 @@ function AppLayout() {
               <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
               <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
-              <Route path="/social" element={<StaffOnly><SocialMedia /></StaffOnly>} />
+              <Route path="/social" element={<RequireView view="social_media"><SocialMedia /></RequireView>} />
               <Route path="/meta-ads" element={<Navigate to="/marketing" replace />} />
               {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}
               <Route path="/training/archive" element={<RequireView view="training"><Training /></RequireView>} />

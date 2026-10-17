@@ -128,16 +128,18 @@ export function isAuthenticated(): boolean {
 const ROLE_DEFAULT_PERMS: Record<string, string[]> = {
   admin: [
     "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
-    "payroll", "stain_inventory", "fence_photos", "accounting", "calendar", "my_schedule", "invoice_queue",
+    "payroll", "stain_inventory", "fence_photos", "social_media", "accounting", "calendar", "my_schedule", "invoice_queue",
     "pricing", "settings", "agents",
     "manage_users", "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   va: [
     "dashboard", "leads", "painting_upsell", "analytics", "calls", "training",
-    "calendar", "invoice_queue", "pricing", "settings", "stain_inventory", "fence_photos",
+    "calendar", "invoice_queue", "pricing", "settings", "stain_inventory", "fence_photos", "social_media",
     "see_prices", "assign_crew", "mark_paid", "delete_jobs",
   ],
   worker: ["calendar", "my_schedule"],
+  // The content editor: the library and the fence photo gallery, nothing else.
+  social: ["social_media", "fence_photos"],
   estimator: ["estimator"],
 };
 
@@ -1917,6 +1919,8 @@ export const api = {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
     return request<{ items: ContentItem[]; storage_ready: boolean; can_see_price: boolean }>(`/api/content${qs ? `?${qs}` : ""}`);
   },
+  searchContentCustomers: (q: string) =>
+    request<{ results: { id: string; name: string; address: string }[] }>(`/api/content/customers?q=${encodeURIComponent(q)}`),
   signContentUpload: (body: { filename: string; mime: string; size: number; kind: string; lead_id?: string; shot_on?: string }) =>
     request<{ id: string; upload_url: string; public_url: string }>(`/api/content/sign`, { method: "POST", body: JSON.stringify(body) }),
   contentUploaded: (id: string, body: { width?: number; height?: number; duration_seconds?: number }) =>
@@ -5960,13 +5964,13 @@ export type CourseModuleEdit = {
 };
 export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };
 
-export type ContentLead = { id: string; name: string; address: string; package: string; color: string; price: number | null; job_date: string };
-export type ContentPatch = { lead_id?: string; note?: string; shot_on?: string; status?: string; customer_name?: string; package?: string; color?: string; sold_for?: number | null; clear_sold_for?: boolean; reset_from_job?: boolean };
+export type ContentLead = { id: string; name: string; address: string; job_date: string };
+export type ContentPatch = { lead_id?: string; note?: string; shot_on?: string; status?: string; customer_name?: string; address?: string; package?: string; color?: string; sold_for?: number | null; clear_sold_for?: boolean; reset_from_job?: boolean };
 export type ContentItem = {
   id: string; kind: "photo" | "video"; filename: string; mime: string; size: number; url: string;
   width: number | null; height: number | null; duration_seconds: number | null;
   lead_id: string; note: string; shot_on: string; status: "raw" | "edited" | "posted";
-  customer_name: string; package: string; color: string; sold_for: number | null;
+  customer_name: string; address: string; package: string; color: string; sold_for: number | null;
   created_at: string; created_by: string; lead: ContentLead | null;
 };
 export type MetaStatus = { connected: boolean; account_id?: string; name?: string; currency?: string; status?: number; timezone?: string; error?: string };

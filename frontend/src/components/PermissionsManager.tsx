@@ -9,6 +9,7 @@ const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
   va: "Office (VA)",
   worker: "Worker",
+  social: "Social media",
 };
 
 // A reusable views+actions toggle grid bound to a draft map.

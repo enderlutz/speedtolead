@@ -33,12 +33,12 @@ def test_tag_fills_the_card_from_the_job_and_hides_price_from_the_va(db):
     out = cc.update_content("C1", cc.ContentPatch(lead_id="L1", note="Came out beautiful"), user=ALAN)
     assert out["lead"]["name"] == "Yogi Bear" and out["lead"]["job_date"] == "2026-10-17"
     # The editor's copy, filled from the job: name, package, colour, price, and the calendar day.
-    assert out["customer_name"] == "Yogi Bear" and out["package"] == "Legacy"
+    assert out["customer_name"] == "Yogi Bear" and out["address"] == "1 Picnic Ln, Cypress" and out["package"] == "Legacy"
     assert out["color"] == "Darkest Night" and out["sold_for"] == 1840.80
     assert out["shot_on"] == "2026-10-17" and out["note"] == "Came out beautiful"
     # Editable without touching the real job.
-    out = cc.update_content("C1", cc.ContentPatch(package="Signature", color="Pecan", sold_for=1500), user=ALAN)
-    assert (out["package"], out["color"], out["sold_for"]) == ("Signature", "Pecan", 1500.0)
+    out = cc.update_content("C1", cc.ContentPatch(package="Signature", color="Pecan", sold_for=1500, address="2 Picnic Ln"), user=ALAN)
+    assert (out["package"], out["color"], out["sold_for"], out["address"]) == ("Signature", "Pecan", 1500.0, "2 Picnic Ln")
     assert db.query(ScheduledJob).filter(ScheduledJob.id == "S1").first().package_tier == "legacy"
     # And back to the job's details on request.
     out = cc.update_content("C1", cc.ContentPatch(reset_from_job=True), user=ALAN)
@@ -46,7 +46,7 @@ def test_tag_fills_the_card_from_the_job_and_hides_price_from_the_va(db):
     # The VA can edit the words but never sees or sets the money.
     listed = cc.list_content(user=VA)
     assert [i["id"] for i in listed["items"]] == ["C1"]          # the unfinished upload stays hidden
-    assert listed["items"][0]["sold_for"] is None and listed["items"][0]["lead"]["price"] is None
+    assert listed["items"][0]["sold_for"] is None and "price" not in listed["items"][0]["lead"]
     out = cc.update_content("C1", cc.ContentPatch(sold_for=5), user=VA)
     assert out["sold_for"] is None
     assert db.query(ContentItem).filter(ContentItem.id == "C1").first().sold_for == 1840.80
@@ -81,3 +81,31 @@ def test_sign_makes_the_row_and_the_link(db, monkeypatch):
     done = cc.mark_uploaded(out["id"], cc.UploadedBody(width=3840, height=2160, duration_seconds=12.5), user=ALAN)
     assert done["width"] == 3840 and done["url"] == out["public_url"]
     assert [i["id"] for i in cc.list_content(user=ALAN)["items"]] == [out["id"]]
+
+
+def test_social_role_sees_only_the_library_and_fence_photos():
+    from api.permissions import ROLE_BASELINE, VALID_ROLES, role_defaults
+    assert "social" in VALID_ROLES
+    assert ROLE_BASELINE["social"] == {"social_media", "fence_photos"}
+    d = role_defaults("social", None)
+    assert d["social_media"] and d["fence_photos"]
+    assert not d["leads"] and not d["see_prices"] and not d["calendar"] and not d["dashboard"]
+
+
+def test_customer_picker_gives_name_and_address_only(db):
+    _seed(db)
+    out = cc.content_customers(q="yogi", user=ALAN)
+    assert out["results"] == [{"id": "L1", "name": "Yogi Bear", "address": "1 Picnic Ln, Cypress"}]
+    assert cc.content_customers(q="nobody", user=ALAN)["results"] == []
+
+
+def test_a_photo_tagged_before_the_card_existed_still_reads_the_job(db):
+    _seed(db)
+    row = db.query(ContentItem).filter(ContentItem.id == "C1").first()
+    row.lead_id = "L1"          # tagged the old way: no card of its own
+    db.commit()
+    out = cc.list_content(user=ALAN)["items"][0]
+    assert out["customer_name"] == "Yogi Bear" and out["address"] == "1 Picnic Ln, Cypress"
+    assert out["package"] == "Legacy" and out["color"] == "Darkest Night"
+    assert out["sold_for"] is None      # money is never guessed; "use the job's details" fills it
+    assert set(out["lead"].keys()) == {"id", "name", "address", "job_date"}

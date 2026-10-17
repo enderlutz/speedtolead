@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.auth import REVENUE_USERS, require_staff
+from api.auth import REVENUE_USERS
+from api.permissions import require_perm
 from config import get_settings
 from database import CompanyCamJob, ContentItem, Estimate, Lead, ScheduledJob, get_db
 from services import supabase_storage as storage
@@ -85,6 +86,7 @@ def _fill_from_job(c: ContentItem, job: dict | None) -> None:
     if not job:
         return
     c.customer_name = job["name"]
+    c.address = job["address"]
     c.package = job["package"]
     c.color = job["color"]
     c.sold_for = job["price"]
@@ -93,15 +95,38 @@ def _fill_from_job(c: ContentItem, job: dict | None) -> None:
 
 
 def _item(c: ContentItem, leads: dict[str, dict], with_price: bool = True) -> dict:
+    # A blank on the item's own card reads from the job, so a photo tagged
+    # before the card existed still shows the name and address.
+    job = leads.get(c.lead_id or "") or {}
     return {
         "id": c.id, "kind": c.kind, "filename": c.filename, "mime": c.mime, "size": int(c.size or 0),
         "url": c.storage_url, "width": c.width, "height": c.height, "duration_seconds": c.duration_seconds,
         "lead_id": c.lead_id or "", "note": c.note or "", "shot_on": c.shot_on or "", "status": c.status or "raw",
-        "customer_name": c.customer_name or "", "package": c.package or "", "color": c.color or "",
+        "customer_name": c.customer_name or job.get("name", ""),
+        "address": c.address or job.get("address", ""),
+        "package": c.package or job.get("package", ""),
+        "color": c.color or job.get("color", ""),
         "sold_for": (float(c.sold_for) if c.sold_for is not None else None) if with_price else None,
         "created_at": c.created_at or "", "created_by": c.created_by or "",
-        "lead": leads.get(c.lead_id or ""),
+        "lead": {k: v for k, v in job.items() if k in ("id", "name", "address", "job_date")} if job else None,
     }
+
+
+@router.get("/content/customers")
+def content_customers(q: str = "", user: dict = Depends(require_perm("social_media"))):
+    """The customer picker for tagging: name and address only, so the
+    editor can tag a job without the leads pages."""
+    db = get_db()
+    try:
+        query = db.query(Lead.id, Lead.contact_name, Lead.address, Lead.updated_at).filter(Lead.status != "archived")
+        needle = (q or "").strip()
+        if needle:
+            pat = f"%{needle}%"
+            query = query.filter(Lead.contact_name.ilike(pat) | Lead.address.ilike(pat))
+        rows = query.order_by(Lead.updated_at.desc().nullslast()).limit(10).all()
+        return {"results": [{"id": r.id, "name": r.contact_name or "", "address": r.address or ""} for r in rows]}
+    finally:
+        db.close()
 
 
 class SignBody(BaseModel):
@@ -114,7 +139,7 @@ class SignBody(BaseModel):
 
 
 @router.post("/content/sign")
-def sign_upload(body: SignBody, user: dict = Depends(require_staff)):
+def sign_upload(body: SignBody, user: dict = Depends(require_perm("social_media"))):
     """Start an upload: the row, and the one-time URL the browser PUTs the
     file to. Nothing shows in the library until /uploaded confirms it."""
     global _bucket_ready
@@ -151,7 +176,7 @@ class UploadedBody(BaseModel):
 
 
 @router.post("/content/{item_id}/uploaded")
-def mark_uploaded(item_id: str, body: UploadedBody, user: dict = Depends(require_staff)):
+def mark_uploaded(item_id: str, body: UploadedBody, user: dict = Depends(require_perm("social_media"))):
     db = get_db()
     try:
         c = db.query(ContentItem).filter(ContentItem.id == item_id).first()
@@ -168,7 +193,7 @@ def mark_uploaded(item_id: str, body: UploadedBody, user: dict = Depends(require
 
 
 @router.get("/content")
-def list_content(status: str = "", lead_id: str = "", q: str = "", user: dict = Depends(require_staff)):
+def list_content(status: str = "", lead_id: str = "", q: str = "", user: dict = Depends(require_perm("social_media"))):
     db = get_db()
     try:
         query = db.query(ContentItem).filter(ContentItem.uploaded.is_(True), ContentItem.archived.is_(False))
@@ -194,6 +219,7 @@ class ContentPatch(BaseModel):
     shot_on: str | None = None
     status: str | None = None
     customer_name: str | None = None
+    address: str | None = None
     package: str | None = None
     color: str | None = None
     sold_for: float | None = None
@@ -203,7 +229,7 @@ class ContentPatch(BaseModel):
 
 
 @router.patch("/content/{item_id}")
-def update_content(item_id: str, body: ContentPatch, user: dict = Depends(require_staff)):
+def update_content(item_id: str, body: ContentPatch, user: dict = Depends(require_perm("social_media"))):
     db = get_db()
     try:
         c = db.query(ContentItem).filter(ContentItem.id == item_id, ContentItem.archived.is_(False)).first()
@@ -231,6 +257,8 @@ def update_content(item_id: str, body: ContentPatch, user: dict = Depends(requir
             c.status = body.status
         if body.customer_name is not None:
             c.customer_name = body.customer_name.strip()[:120]
+        if body.address is not None:
+            c.address = body.address.strip()[:200]
         if body.package is not None:
             c.package = body.package.strip()[:60]
         if body.color is not None:
@@ -246,7 +274,7 @@ def update_content(item_id: str, body: ContentPatch, user: dict = Depends(requir
 
 
 @router.delete("/content/{item_id}")
-def remove_content(item_id: str, user: dict = Depends(require_staff)):
+def remove_content(item_id: str, user: dict = Depends(require_perm("social_media"))):
     """Takes it out of the library. The file stays in storage, so a
     wrong tap loses nothing."""
     db = get_db()

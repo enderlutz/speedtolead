@@ -1925,6 +1925,7 @@ class ContentItem(Base):
     # tagged, then editable here without touching the real estimate (Alan,
     # 2026-10-17: "I can edit the package, the color, sold for").
     customer_name = Column(Text, default="")
+    address = Column(Text, default="")
     package = Column(Text, default="")
     color = Column(Text, default="")
     sold_for = Column(Float, nullable=True)
@@ -4663,8 +4664,8 @@ def _run_migrations():
 
     if inspector.has_table("content_items"):
         ci_cols = {c["name"] for c in inspector.get_columns("content_items")}
-        for col, ddl in (("customer_name", "TEXT DEFAULT ''"), ("package", "TEXT DEFAULT ''"),
-                         ("color", "TEXT DEFAULT ''"), ("sold_for", "REAL")):
+        for col, ddl in (("customer_name", "TEXT DEFAULT ''"), ("address", "TEXT DEFAULT ''"),
+                         ("package", "TEXT DEFAULT ''"), ("color", "TEXT DEFAULT ''"), ("sold_for", "REAL")):
             if col not in ci_cols:
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {col} {ddl}"))

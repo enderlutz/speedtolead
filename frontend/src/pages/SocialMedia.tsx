@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, Check, Clapperboard, Download, ImagePlus, Loader2, Search, Trash2, Video, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, canSeeRevenue, type ContentItem, type ContentPatch, type LeanLead } from "@/lib/api";
+import { api, canSeeRevenue, type ContentItem, type ContentPatch } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
 // Social media content (Alan, 2026-10-17): every photo and video from a job
@@ -21,6 +20,18 @@ const mb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(n > 1
 const when = (iso: string) => (iso ? new Date(iso + (iso.length === 10 ? "T12:00:00" : "")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
 const dur = (s: number | null) => (s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
 const today = () => new Date().toLocaleDateString("en-CA");
+
+// Who uploaded it, as a coloured tag on every tile (Alan, 2026-10-17: "red
+// for Alan, and if Alec uploads it, it says Alec"). The colour follows the
+// name, so one person is always the same colour.
+const TAG_COLORS = ["bg-blue-600", "bg-emerald-600", "bg-violet-600", "bg-amber-600", "bg-pink-600", "bg-teal-600", "bg-orange-600", "bg-indigo-600"];
+function uploaderTag(name: string): { label: string; cls: string } {
+  const label = (name || "").trim().split(/\s+/)[0] || "?";
+  if (/^alan/i.test(name)) return { label, cls: "bg-red-600" };
+  let h = 0;
+  for (const ch of name.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return { label, cls: TAG_COLORS[h % TAG_COLORS.length] };
+}
 
 /** Width, height and length, read on the phone before the upload. */
 function measure(file: File): Promise<{ width?: number; height?: number; duration_seconds?: number }> {
@@ -185,9 +196,12 @@ export default function SocialMedia() {
                 </span>
                 <span className={cn("absolute right-1.5 top-1.5 rounded-md px-1.5 py-0.5 text-xs font-bold capitalize text-white",
                   it.status === "posted" ? "bg-emerald-600" : it.status === "edited" ? "bg-blue-600" : "bg-stone-600")}>{it.status}</span>
+                {it.created_by && (() => { const t = uploaderTag(it.created_by); return (
+                  <span className={cn("absolute bottom-1.5 right-1.5 max-w-[70%] truncate rounded-md px-1.5 py-0.5 text-xs font-bold text-white shadow", t.cls)} title={`Uploaded by ${it.created_by}`}>{t.label}</span>
+                ); })()}
               </div>
               <div className="space-y-0.5 p-2">
-                <p className="truncate text-sm font-semibold">{it.customer_name || it.lead?.name || <span className="text-amber-700">Not tagged yet</span>}</p>
+                <p className="truncate text-sm font-semibold">{it.customer_name || <span className="text-amber-700">Not tagged yet</span>}</p>
                 <p className="truncate text-xs text-muted-foreground">{when(it.shot_on || it.created_at)}{it.width ? ` · ${it.width}×${it.height}` : ""} · {mb(it.size)}</p>
                 {it.note && <p className="truncate text-xs text-muted-foreground">{it.note}</p>}
               </div>
@@ -235,10 +249,10 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
   const [note, setNote] = useState(item.note);
   const [noteSaved, setNoteSaved] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({ customer_name: item.customer_name, package: item.package, color: item.color, sold_for: item.sold_for == null ? "" : String(item.sold_for) });
+  const [draft, setDraft] = useState({ customer_name: item.customer_name, address: item.address, package: item.package, color: item.color, sold_for: item.sold_for == null ? "" : String(item.sold_for) });
   const [picking, setPicking] = useState(!item.lead_id);
   const [lq, setLq] = useState("");
-  const [found, setFound] = useState<LeanLead[]>([]);
+  const [found, setFound] = useState<{ id: string; name: string; address: string }[]>([]);
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -247,7 +261,7 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
      
     setSearching(true);
     const t = setTimeout(() => {
-      (lq.trim() ? api.searchLeads(lq.trim(), 8) : api.recentLeads(8))
+      api.searchContentCustomers(lq.trim())
         .then((r) => { if (live) setFound(r.results); })
         .catch(() => { if (live) setFound([]); })
         .finally(() => { if (live) setSearching(false); });
@@ -259,7 +273,7 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
   const saveNote = async () => { setBusy(true); await onPatch({ note }); setBusy(false); setNoteSaved(true); setTimeout(() => setNoteSaved(false), 2500); };
   const saveCard = async () => {
     setBusy(true);
-    const p: ContentPatch = { customer_name: draft.customer_name, package: draft.package, color: draft.color };
+    const p: ContentPatch = { customer_name: draft.customer_name, address: draft.address, package: draft.package, color: draft.color };
     if (showPrice) {
       const n = parseFloat(draft.sold_for.replace(/[^0-9.]/g, ""));
       if (draft.sold_for.trim() === "") p.clear_sold_for = true; else if (!isNaN(n)) p.sold_for = n;
@@ -267,7 +281,7 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
     await onPatch(p);
     setBusy(false); setEditing(false);
   };
-  const startEdit = () => { setDraft({ customer_name: item.customer_name, package: item.package, color: item.color, sold_for: item.sold_for == null ? "" : String(item.sold_for) }); setEditing(true); };
+  const startEdit = () => { setDraft({ customer_name: item.customer_name, address: item.address, package: item.package, color: item.color, sold_for: item.sold_for == null ? "" : String(item.sold_for) }); setEditing(true); };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onClick={close}>
@@ -289,6 +303,7 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
               {item.width ? <span>· {item.width}×{item.height}</span> : null}
               {item.duration_seconds != null ? <span>· {dur(item.duration_seconds)}</span> : null}
               <span>· {mb(item.size)} · original file, untouched</span>
+              {item.created_by && <span>· uploaded by <b className="text-foreground">{item.created_by}</b></span>}
               <a href={download} className="ml-auto inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold text-foreground"><Download className="h-4 w-4" /> Download original</a>
             </div>
 
@@ -340,18 +355,20 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
                     {searching && found.length === 0 ? <Loader2 className="h-4 w-4 animate-spin" /> : found.map((l) => (
                       <button key={l.id} onClick={() => { void onPatch({ lead_id: l.id }); setPicking(false); }}
                         className="flex min-h-[44px] w-full flex-col justify-center rounded-lg px-2 py-1.5 text-left hover:bg-muted">
-                        <span className="text-sm font-semibold">{l.contact_name || "Customer"}</span>
+                        <span className="text-sm font-semibold">{l.name || "Customer"}</span>
                         <span className="truncate text-xs text-muted-foreground">{l.address}</span>
                       </button>
                     ))}
                     {!searching && found.length === 0 && <p className="px-2 py-1 text-sm text-muted-foreground">No customer matches that.</p>}
                   </div>
-                  {item.lead_id && <button onClick={() => setPicking(false)} className="mt-2 min-h-[40px] text-sm text-muted-foreground">Keep {item.customer_name || item.lead?.name}</button>}
+                  {item.lead_id && <button onClick={() => setPicking(false)} className="mt-2 min-h-[40px] text-sm text-muted-foreground">Keep {item.customer_name || "this customer"}</button>}
                 </div>
               ) : editing ? (
                 <div className="space-y-2 rounded-xl border bg-card p-3">
                   <label className="block text-xs text-muted-foreground">Customer name
                     <Input value={draft.customer_name} onChange={(e) => setDraft({ ...draft, customer_name: e.target.value })} className="mt-0.5 h-11" /></label>
+                  <label className="block text-xs text-muted-foreground">Address
+                    <Input value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} className="mt-0.5 h-11" /></label>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block text-xs text-muted-foreground">Package
                       <select value={["Essential", "Signature", "Legacy", "Custom", ""].includes(draft.package) ? draft.package : "other"}
@@ -375,14 +392,13 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
                 </div>
               ) : (
                 <div className="rounded-xl border bg-card p-3">
-                  <p className="font-semibold">{item.customer_name || item.lead?.name || "Customer"}</p>
-                  {item.lead?.address && <p className="truncate text-sm text-muted-foreground">{item.lead.address}</p>}
+                  <p className="font-semibold">{item.customer_name || "Customer"}</p>
+                  {item.address && <p className="text-sm text-muted-foreground">{item.address}</p>}
                   <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
                     <div><div className="text-xs text-muted-foreground">Package</div>{item.package || "—"}</div>
                     <div><div className="text-xs text-muted-foreground">Color</div>{item.color || "—"}</div>
                     {showPrice && <div><div className="text-xs text-muted-foreground">Sold for</div>{item.sold_for != null ? formatCurrency(item.sold_for) : "—"}</div>}
                   </div>
-                  {item.lead && <Link to={`/leads/${item.lead.id}`} className="mt-2 inline-block min-h-[40px] text-sm font-semibold text-primary">Open the job: scope, the crew's photos, everything →</Link>}
                 </div>
               )}
             </div>

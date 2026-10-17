@@ -50,6 +50,7 @@ VIEW_PERMS: list[tuple[str, str]] = [
     ("stain_inventory", "Stain Inventory"),
     ("company_cam", "Company Cam (crew view, no prices)"),
     ("fence_photos", "Fence Photos"),
+    ("social_media", "Social media (content library)"),
     ("accounting", "Accounting"),
     ("calendar", "Job Calendar"),
     ("my_schedule", "My Schedule"),
@@ -84,6 +85,7 @@ ROLE_BASELINE: dict[str, set[str]] = {
         "stain_inventory",
         "fence_photos",
         "company_cam",
+        "social_media",
         "see_prices", "assign_crew", "mark_paid", "delete_jobs",
     },
     # Company Cam on for every worker: they only ever see the jobs the
@@ -93,9 +95,12 @@ ROLE_BASELINE: dict[str, set[str]] = {
     # schedule + clock in/out). No prices, no leads, no calendar. The admin
     # view of that same page (drive-path map) is gated separately by role.
     "estimator": {"estimator"},
+    # Social media — the content editor (Alec, 2026-10-17). Only the content
+    # library and the fence photo gallery. No leads, no prices, no calendar.
+    "social": {"social_media", "fence_photos"},
 }
 
-VALID_ROLES = ("admin", "va", "worker", "estimator")
+VALID_ROLES = ("admin", "va", "worker", "estimator", "social")
 
 
 def _load_overrides(raw: str | None) -> dict[str, bool]:
