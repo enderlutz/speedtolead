@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Map, Contact, Lightbulb, Repeat, Megaphone } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Map, Contact, Lightbulb, Repeat, Megaphone, Clapperboard } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -98,6 +98,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
+  { to: "/social", icon: Clapperboard, label: "Social media", perm: "leads" },
   { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
   { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },

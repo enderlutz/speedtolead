@@ -1,0 +1,323 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import { Check, Clapperboard, Download, ImagePlus, Loader2, Search, Trash2, Video, X } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { api, canSeeRevenue, type ContentItem, type LeanLead } from "@/lib/api";
+import { cn, formatCurrency } from "@/lib/utils";
+
+// Social media content (Alan, 2026-10-17): every photo and video from a job
+// in one place, at the quality it was shot, tagged to the customer so the
+// editor sees the job (package, colour, price for the owners) without
+// asking. The file goes from the phone straight to storage on a one-time
+// link; nothing here resizes or re-encodes it.
+
+const STATUSES: { key: "" | "raw" | "edited" | "posted"; label: string }[] = [
+  { key: "", label: "All" }, { key: "raw", label: "Raw" }, { key: "edited", label: "Edited" }, { key: "posted", label: "Posted" },
+];
+const mb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(n > 100 * 1024 * 1024 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const when = (iso: string) => (iso ? new Date(iso + (iso.length === 10 ? "T12:00:00" : "")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
+const dur = (s: number | null) => (s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
+const today = () => new Date().toLocaleDateString("en-CA");
+
+/** Width, height and length, read on the phone before the upload. */
+function measure(file: File): Promise<{ width?: number; height?: number; duration_seconds?: number }> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const done = (v: { width?: number; height?: number; duration_seconds?: number }) => { URL.revokeObjectURL(url); resolve(v); };
+    if (file.type.startsWith("video/")) {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => done({ width: v.videoWidth, height: v.videoHeight, duration_seconds: v.duration });
+      v.onerror = () => done({});
+      v.src = url;
+    } else {
+      const img = new Image();
+      img.onload = () => done({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = () => done({});
+      img.src = url;
+    }
+  });
+}
+
+/** PUT the file to storage, byte for byte, with progress. */
+function putFile(url: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("Cache-Control", "max-age=31536000");
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Storage said ${xhr.status}. ${xhr.responseText.slice(0, 160)}`)));
+    xhr.onerror = () => reject(new Error("The upload dropped. Check your signal and try again."));
+    xhr.send(file);
+  });
+}
+
+type Job = { name: string; pct: number; state: "uploading" | "done" | "error"; error?: string };
+
+export default function SocialMedia() {
+  const [items, setItems] = useState<ContentItem[] | null>(null);
+  const [ready, setReady] = useState(true);
+  const [status, setStatus] = useState<"" | "raw" | "edited" | "posted">("");
+  const [q, setQ] = useState("");
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [open, setOpen] = useState<ContentItem | null>(null);
+  const input = useRef<HTMLInputElement | null>(null);
+  const showPrice = canSeeRevenue();
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.listContent({ status });
+      setItems(r.items);
+      setReady(r.storage_ready);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't load");
+      setItems([]);
+    }
+  }, [status]);
+   
+  useEffect(() => { load(); }, [load]);
+
+  const upload = async (list: FileList | null) => {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+    const start = jobs.length;
+    setJobs((j) => [...j, ...files.map((f) => ({ name: f.name, pct: 0, state: "uploading" as const }))]);
+    const set = (i: number, patch: Partial<Job>) => setJobs((j) => j.map((x, k) => (k === start + i ? { ...x, ...patch } : x)));
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      try {
+        const kind = f.type.startsWith("video/") ? "video" : "photo";
+        const signed = await api.signContentUpload({ filename: f.name, mime: f.type, size: f.size, kind, shot_on: new Date(f.lastModified || Date.now()).toLocaleDateString("en-CA") });
+        await putFile(signed.upload_url, f, (pct) => set(i, { pct }));
+        const dims = await measure(f);
+        await api.contentUploaded(signed.id, dims);
+        set(i, { state: "done", pct: 100 });
+      } catch (e) {
+        set(i, { state: "error", error: e instanceof Error ? e.message : "Failed" });
+      }
+    }
+    void load();
+    setTimeout(() => setJobs((j) => j.filter((x) => x.state !== "done")), 4000);
+  };
+
+  const patch = async (id: string, p: Parameters<typeof api.updateContent>[1]) => {
+    try {
+      const fresh = await api.updateContent(id, p);
+      setItems((cur) => (cur || []).map((x) => (x.id === id ? fresh : x)));
+      setOpen((cur) => (cur && cur.id === id ? fresh : cur));
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't save"); }
+  };
+
+  const shown = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return items || [];
+    return (items || []).filter((i) => `${i.note} ${i.filename} ${i.lead?.name || ""} ${i.lead?.address || ""}`.toLowerCase().includes(needle));
+  }, [items, q]);
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-4 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">Social media</h1>
+          <p className="text-sm text-muted-foreground">Raw photos and videos from jobs, kept at the quality they were shot. Tag each one to the customer.</p>
+        </div>
+        <input ref={input} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} />
+        <Button size="lg" className="h-12 font-bold" onClick={() => input.current?.click()} disabled={!ready}>
+          <ImagePlus className="mr-2 h-5 w-5" /> Add photos or videos
+        </Button>
+      </div>
+
+      {!ready && (
+        <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Storage isn't set up on the server yet, so uploads are off. Fragne adds the Supabase keys in Railway and this turns on.</p>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        For the best quality from an iPhone, pick the file through <b>Browse</b> (the Files app) rather than the photo library, or add it from a computer. The photo library can hand over a smaller copy. Big videos can take a few minutes; keep this page open.
+      </p>
+
+      {jobs.length > 0 && (
+        <div className="space-y-1.5">
+          {jobs.map((j, i) => (
+            <div key={i} className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
+              {j.state === "uploading" ? <Loader2 className="h-4 w-4 animate-spin" /> : j.state === "done" ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-red-600" />}
+              <span className="min-w-0 flex-1 truncate">{j.name}</span>
+              {j.state === "uploading" && <span className="w-20 overflow-hidden rounded-full bg-muted"><span className="block h-2 bg-primary" style={{ width: `${j.pct}%` }} /></span>}
+              {j.state === "uploading" && <span className="w-10 text-right tabular-nums">{j.pct}%</span>}
+              {j.state === "error" && <span className="text-xs text-red-600">{j.error}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {STATUSES.map((s) => (
+          <button key={s.key} onClick={() => setStatus(s.key)}
+            className={cn("min-h-[40px] rounded-full px-4 text-sm font-semibold", status === s.key ? "bg-primary text-primary-foreground" : "bg-muted")}>
+            {s.label}
+          </button>
+        ))}
+        <div className="relative ml-auto w-full sm:w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Customer, address or note" className="h-10 pl-8" />
+        </div>
+      </div>
+
+      {items === null ? <Loader2 className="h-5 w-5 animate-spin" /> : shown.length === 0 ? (
+        <Card><CardContent className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
+          <Clapperboard className="h-8 w-8" />
+          <p className="font-semibold">Nothing here yet.</p>
+          <p className="text-sm">Tap "Add photos or videos". A whole day's filming at once is fine.</p>
+        </CardContent></Card>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {shown.map((it) => (
+            <button key={it.id} type="button" onClick={() => setOpen(it)} className="overflow-hidden rounded-xl border bg-card text-left shadow-sm transition hover:shadow-md">
+              <div className="relative aspect-square bg-muted">
+                {it.kind === "video"
+                  ? <video src={`${it.url}#t=0.5`} preload="metadata" muted playsInline className="h-full w-full object-cover" />
+                  : <img src={it.url} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {it.kind === "video" ? <><Video className="h-3 w-3" /> {dur(it.duration_seconds)}</> : "Photo"}
+                </span>
+                <span className={cn("absolute right-1.5 top-1.5 rounded-md px-1.5 py-0.5 text-xs font-bold capitalize text-white",
+                  it.status === "posted" ? "bg-emerald-600" : it.status === "edited" ? "bg-blue-600" : "bg-stone-600")}>{it.status}</span>
+              </div>
+              <div className="space-y-0.5 p-2">
+                <p className="truncate text-sm font-semibold">{it.lead ? it.lead.name || "Customer" : <span className="text-amber-700">Not tagged yet</span>}</p>
+                <p className="truncate text-xs text-muted-foreground">{when(it.shot_on || it.created_at)}{it.width ? ` · ${it.width}×${it.height}` : ""} · {mb(it.size)}</p>
+                {it.note && <p className="truncate text-xs text-muted-foreground">{it.note}</p>}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <Detail item={open} showPrice={showPrice} onClose={() => setOpen(null)} onPatch={(p) => patch(open.id, p)}
+          onRemove={async () => {
+            if (!confirm("Take this out of the library? The file itself stays in storage.")) return;
+            try { await api.removeContent(open.id); setOpen(null); void load(); } catch (e) { toast.error(e instanceof Error ? e.message : "Couldn't remove"); }
+          }} />
+      )}
+    </div>
+  );
+}
+
+function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
+  item: ContentItem; showPrice: boolean; onClose: () => void;
+  onPatch: (p: { lead_id?: string; note?: string; shot_on?: string; status?: string }) => Promise<void>; onRemove: () => void;
+}) {
+  const [note, setNote] = useState(item.note);
+  const [picking, setPicking] = useState(!item.lead_id);
+  const [lq, setLq] = useState("");
+  const [found, setFound] = useState<LeanLead[]>([]);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    if (!picking) return;
+    let live = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: shows the spinner while the search runs.
+    setSearching(true);
+    const t = setTimeout(() => {
+      (lq.trim() ? api.searchLeads(lq.trim(), 8) : api.recentLeads(8))
+        .then((r) => { if (live) setFound(r.results); })
+        .catch(() => { if (live) setFound([]); })
+        .finally(() => { if (live) setSearching(false); });
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [lq, picking]);
+  const download = `${item.url}?download=${encodeURIComponent(item.filename || "file")}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-background shadow-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <p className="truncate text-sm font-semibold">{item.filename}</p>
+          <button onClick={onClose} className="rounded-md p-2 hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="bg-black">
+          {item.kind === "video"
+            ? <video src={item.url} controls playsInline className="mx-auto max-h-[55vh] w-full" />
+            : <img src={item.url} alt="" className="mx-auto max-h-[55vh] w-full object-contain" />}
+        </div>
+        <div className="space-y-4 p-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{when(item.shot_on || item.created_at)}</span>
+            {item.width ? <span>· {item.width}×{item.height}</span> : null}
+            {item.duration_seconds != null ? <span>· {dur(item.duration_seconds)}</span> : null}
+            <span>· {mb(item.size)} · original file, untouched</span>
+            <a href={download} className="ml-auto inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold text-foreground"><Download className="h-4 w-4" /> Download original</a>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Status</p>
+              <div className="flex gap-1.5">
+                {(["raw", "edited", "posted"] as const).map((s) => (
+                  <button key={s} onClick={() => void onPatch({ status: s })}
+                    className={cn("min-h-[40px] flex-1 rounded-lg text-sm font-semibold capitalize", item.status === s ? "bg-primary text-primary-foreground" : "bg-muted")}>{s}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Shot on</p>
+              <Input type="date" value={item.shot_on || today()} onChange={(e) => void onPatch({ shot_on: e.target.value })} className="h-10" />
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Note</p>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} onBlur={() => { if (note !== item.note) void onPatch({ note }); }}
+              placeholder="Black fence, came out beautiful. Good for a before/after." className="h-10" />
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Customer</p>
+            {item.lead && !picking ? (
+              <div className="rounded-xl border bg-card p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{item.lead.name || "Customer"}</p>
+                    <p className="truncate text-sm text-muted-foreground">{item.lead.address}</p>
+                  </div>
+                  <button onClick={() => setPicking(true)} className="shrink-0 text-sm font-semibold text-primary">Change</button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                  <div><div className="text-xs text-muted-foreground">Package</div>{item.lead.package || "—"}</div>
+                  <div><div className="text-xs text-muted-foreground">Color</div>{item.lead.color || "—"}</div>
+                  {showPrice && <div><div className="text-xs text-muted-foreground">Sold for</div>{item.lead.price != null ? formatCurrency(item.lead.price) : "—"}</div>}
+                </div>
+                <Link to={`/leads/${item.lead.id}`} className="mt-2 inline-block text-sm font-semibold text-primary">Open the job: scope, the crew's photos, everything →</Link>
+              </div>
+            ) : (
+              <div className="rounded-xl border bg-card p-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input autoFocus value={lq} onChange={(e) => setLq(e.target.value)} placeholder="Customer name or address" className="h-10 pl-8" />
+                </div>
+                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                  {searching && found.length === 0 ? <Loader2 className="h-4 w-4 animate-spin" /> : found.map((l) => (
+                    <button key={l.id} onClick={() => { void onPatch({ lead_id: l.id }); setPicking(false); }}
+                      className="flex w-full flex-col rounded-lg px-2 py-2 text-left hover:bg-muted">
+                      <span className="text-sm font-semibold">{l.contact_name || "Customer"}</span>
+                      <span className="truncate text-xs text-muted-foreground">{l.address}</span>
+                    </button>
+                  ))}
+                  {!searching && found.length === 0 && <p className="px-2 py-1 text-sm text-muted-foreground">No customer matches that.</p>}
+                </div>
+                {item.lead && <button onClick={() => setPicking(false)} className="mt-2 text-sm text-muted-foreground">Keep {item.lead.name}</button>}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" onClick={onRemove} className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="mr-1.5 h-4 w-4" /> Remove from library</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

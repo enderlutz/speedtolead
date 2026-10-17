@@ -1913,6 +1913,17 @@ export const api = {
       "/api/branding/logo/status"
     ),
   // ── Documents: the business's PDFs (owner-only) ──
+  listContent: (params: { status?: string; lead_id?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
+    return request<{ items: ContentItem[]; storage_ready: boolean; can_see_price: boolean }>(`/api/content${qs ? `?${qs}` : ""}`);
+  },
+  signContentUpload: (body: { filename: string; mime: string; size: number; kind: string; lead_id?: string; shot_on?: string }) =>
+    request<{ id: string; upload_url: string; public_url: string }>(`/api/content/sign`, { method: "POST", body: JSON.stringify(body) }),
+  contentUploaded: (id: string, body: { width?: number; height?: number; duration_seconds?: number }) =>
+    request<ContentItem>(`/api/content/${id}/uploaded`, { method: "POST", body: JSON.stringify(body) }),
+  updateContent: (id: string, patch: { lead_id?: string; note?: string; shot_on?: string; status?: string }) =>
+    request<ContentItem>(`/api/content/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  removeContent: (id: string) => request<{ ok: boolean }>(`/api/content/${id}`, { method: "DELETE" }),
   metaStatus: () => request<MetaStatus>(`/api/meta/status`),
   metaInsights: (level: MetaLevel, days: number) =>
     request<MetaInsights>(`/api/meta/insights?level=${level}&days=${days}`),
@@ -5949,6 +5960,13 @@ export type CourseModuleEdit = {
 };
 export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };
 
+export type ContentLead = { id: string; name: string; address: string; package: string; color: string; price: number | null };
+export type ContentItem = {
+  id: string; kind: "photo" | "video"; filename: string; mime: string; size: number; url: string;
+  width: number | null; height: number | null; duration_seconds: number | null;
+  lead_id: string; note: string; shot_on: string; status: "raw" | "edited" | "posted";
+  created_at: string; created_by: string; lead: ContentLead | null;
+};
 export type MetaStatus = { connected: boolean; account_id?: string; name?: string; currency?: string; status?: number; timezone?: string; error?: string };
 export type MetaLevel = "campaign" | "adset" | "ad";
 export type MetaRow = { campaign_id: string; campaign: string; adset_id?: string; adset?: string; ad_id?: string; ad?: string; spend: number; impressions: number; clicks: number; leads: number; cost_per_lead: number | null };

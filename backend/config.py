@@ -136,6 +136,8 @@ class Settings(BaseSettings):
     # exist + be public. Uploads are resized server-side (~250KB full,
     # ~30KB thumb) so this stays small.
     supabase_fence_photos_bucket: str = "fence-photos"
+    # Raw photos and videos for social media, kept byte for byte (Alan, 2026-10-17).
+    supabase_content_bucket: str = "content"
 
     # Server
     port: int = 8000

@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, Text, Float, Integer, LargeBinary, Boolean, Index, Numeric, UniqueConstraint, inspect, text
+from sqlalchemy import create_engine, Column, Text, Float, Integer, BigInteger, LargeBinary, Boolean, Index, Numeric, UniqueConstraint, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker, deferred
 from config import get_settings
 
@@ -1895,6 +1895,39 @@ class CompanyCamPhoto(Base):
 
     uploaded_at = Column(Text, default="")
     uploaded_by = Column(Text, default="")
+
+
+class ContentItem(Base):
+    """A photo or video for social media (Alan, 2026-10-17). The file goes
+    straight from the phone to Storage, untouched, so the quality stays
+    exactly what was shot; this row is what we know about it: which
+    customer, when, a note, raw / edited / posted."""
+    __tablename__ = "content_items"
+    __table_args__ = (
+        Index("idx_content_items_lead", "lead_id"),
+        Index("idx_content_items_created", "created_at"),
+    )
+
+    id = Column(Text, primary_key=True)
+    kind = Column(Text, default="photo")           # photo | video
+    filename = Column(Text, default="")
+    mime = Column(Text, default="")
+    size = Column(BigInteger, default=0)
+    storage_path = Column(Text, default="")
+    storage_url = Column(Text, default="")
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+    uploaded = Column(Boolean, default=False, nullable=False)
+
+    lead_id = Column(Text, nullable=True)          # the customer it was shot at
+    note = Column(Text, default="")
+    shot_on = Column(Text, default="")             # YYYY-MM-DD
+    status = Column(Text, default="raw")           # raw | edited | posted
+
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    archived = Column(Boolean, default=False, nullable=False)
 
 
 class LeadMeasurement(Base):

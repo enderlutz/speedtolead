@@ -105,3 +105,52 @@ def delete_object(bucket: str, path: str) -> bool:
     except Exception as e:
         logger.warning(f"Supabase Storage delete exception for {bucket}/{path}: {e}")
         return False
+
+
+def ensure_bucket(bucket: str, public: bool = True) -> bool:
+    """Create the bucket if it isn't there. 409 means it already is."""
+    if not _enabled():
+        return False
+    s = get_settings()
+    headers = {"Authorization": f"Bearer {s.supabase_service_key}", "Content-Type": "application/json"}
+    try:
+        with httpx.Client(timeout=15) as c:
+            r = c.post(f"{s.supabase_url.rstrip('/')}/storage/v1/bucket", headers=headers,
+                       json={"id": bucket, "name": bucket, "public": public})
+        return r.is_success or r.status_code == 409
+    except Exception as e:
+        logger.warning(f"Supabase Storage ensure_bucket {bucket}: {e}")
+        return False
+
+
+def signed_upload(bucket: str, path: str) -> Optional[dict]:
+    """A one-time URL the browser PUTs the file to, straight into Storage.
+    The bytes never touch our server, so nothing can shrink or re-encode
+    them, and the size limit is Storage's, not Railway's."""
+    if not _enabled():
+        return None
+    s = get_settings()
+    base = s.supabase_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {s.supabase_service_key}"}
+    try:
+        with httpx.Client(timeout=15) as c:
+            r = c.post(f"{base}/storage/v1/object/upload/sign/{bucket}/{path}", headers=headers)
+        if not r.is_success:
+            logger.warning(f"Supabase Storage sign failed [{r.status_code}] {bucket}/{path}: {r.text[:200]}")
+            return None
+        rel = (r.json() or {}).get("url") or ""
+        return {"url": f"{base}/storage/v1{rel}", "public_url": public_url(bucket, path)}
+    except Exception as e:
+        logger.warning(f"Supabase Storage sign exception {bucket}/{path}: {e}")
+        return None
+
+
+def object_exists(bucket: str, path: str) -> bool:
+    if not _enabled():
+        return False
+    try:
+        with httpx.Client(timeout=15) as c:
+            r = c.head(public_url(bucket, path))
+        return r.is_success
+    except Exception:
+        return False
