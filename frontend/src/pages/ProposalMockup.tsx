@@ -628,7 +628,19 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   }), [live]);
   const reserved = live?.reserved ?? null;
 
-  const [phone, setPhone] = useState(true);
+  // The staff mockup has a Phone/Full toggle. The customer's page follows
+  // their real screen: a phone stacks the packages, a laptop or tablet
+  // spreads them out like a website (Alan, 2026-10-17: "it can't be so
+  // vertical").
+  const [phoneToggle, setPhone] = useState(true);
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const on = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const phone = preview ? narrow : phoneToggle;
   const [reviews, setReviews] = useState<Reviews | null>(null);
   useEffect(() => {
     let alive = true;
@@ -637,7 +649,9 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   }, []);
   const realReviews = reviews && reviews.reviews.length > 0 ? reviews : null;
   const ratingText = realReviews?.rating ? realReviews.rating.toFixed(1) : "5.0";
-  const [withScope, setWithScope] = useState(preview ? !!dressed?.scopeUrl : true);
+  // Footage shows on the invite and the after-pay screens only when a
+  // drawing backs it up.
+  const hasDrawing = preview ? !!dressed?.scopeUrl : true;
   const [pkg, setPkg] = useState<PkgKey | null>(dressed?.reserved?.tier || null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
   const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string } | null>(null);
@@ -737,10 +751,6 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           {live ? `Dressed in ${live.name}'s real estimate` : "Sample customer"}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
-          <button type="button" onClick={() => setWithScope((v) => !v)}
-            className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">
-            {withScope ? "With scope drawing" : "No scope drawing"}
-          </button>
           <button type="button" onClick={() => setPhone((v) => !v)} title="Phone or full width"
             className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold hover:bg-white/20">
             {phone ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
@@ -775,7 +785,10 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           can never change it. On the preview link a real phone gets the page
           edge to edge; the drawn phone frame only shows on a bigger screen. */}
       <div className={cn("mx-auto bg-[#F8F3E7] text-[#15130F]",
-        preview ? "max-w-[430px] sm:mt-4 sm:overflow-hidden sm:rounded-[2rem] sm:shadow-2xl sm:shadow-black/30 sm:ring-8 sm:ring-stone-800"
+        preview
+          // A phone gets it edge to edge; a bigger screen gets a wide page
+          // with room to breathe, not a drawn phone (Alan, 2026-10-17).
+          ? (phone ? "max-w-[430px]" : "mt-4 max-w-3xl overflow-hidden rounded-2xl shadow-2xl shadow-black/30")
           : cn("mt-4 overflow-hidden shadow-2xl shadow-black/30", phone ? "max-w-[430px] rounded-[2rem] ring-8 ring-stone-800" : "max-w-3xl rounded-2xl"))}>
         {/* Top bar */}
         <div className="flex items-center justify-between gap-3 bg-[#15130F] px-4 py-3">
@@ -842,44 +855,21 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           </section>
         ) : null}
 
-        {/* Your fence: the scope drawing when we have one, the sides list when we don't. */}
-        <section className="px-4 py-5">
-          <SectionTitle kicker="Step 1" title="Your fence" />
-          {withScope ? (
-            <>
-              {live?.scopeUrl ? (
-                <div className="overflow-hidden rounded-2xl ring-1 ring-[#15130F]/10">
-                  <img src={live.scopeUrl} alt="Scope of work" className="block w-full" draggable={false} />
-                </div>
-              ) : <ScopeDrawing />}
-              {/* The real drawing carries its own colour key (Alan,
-                  2026-10-10), so the chips only explain the stand-in. */}
-              <div className="mt-3 flex flex-wrap gap-2 text-sm font-semibold">
-                {!live?.scopeUrl ? (
-                  <>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-blue-600" /> Blue = inside face</span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 ring-1 ring-[#15130F]/10"><span className="h-2.5 w-6 rounded-full bg-red-600" /> Red = both faces</span>
-                  </>
-                ) : null}
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#15130F] px-3 py-1.5 text-[#E3BE63]">About {customer.feet} ft</span>
-              </div>
-              <p className="mt-2 text-[15px] text-[#15130F]/70">This is what we'd stain. Not correct? Tap Call or text at the top.</p>
-            </>
-          ) : (
-            // No drawing for this customer: just the sides, in words. No
-            // footage: a fence we couldn't see is bid on the safe side, and a
-            // number next to it invites the wrong conversation (Alan,
-            // 2026-10-10).
-            <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
-              <p className="text-[13px] font-bold uppercase tracking-wider text-[#8C6224]">Sides included in the price</p>
-              <ul className="mt-1.5 space-y-1.5">
-                {customer.sides.map((s) => (
-                  <li key={s} className="flex items-center gap-2 text-base font-semibold"><Check className="h-4 w-4" style={{ color: GOLD }} /> {s}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[15px] text-[#15130F]/70">Not correct? Tap Call or text at the top.</p>
-            </div>
-          )}
+        {/* What's included: the sides, in words. The drawing and the footage
+            came off (Alan, 2026-10-17): they already have a photo of their
+            own fence, and the drawing made the page feel like work. No
+            footage either: a fence we couldn't see is bid on the safe side,
+            and a number next to it invites the wrong conversation (Alan,
+            2026-10-10). */}
+        <section className="px-4 pt-5 pb-1">
+          <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
+            <p className="text-[13px] font-bold uppercase tracking-wider text-[#8C6224]">Sides of fence included in the price</p>
+            <ul className="mt-1.5 space-y-1.5">
+              {customer.sides.map((s) => (
+                <li key={s} className="flex items-center gap-2 text-base font-semibold"><Check className="h-4 w-4" style={{ color: GOLD }} /> {s}</li>
+              ))}
+            </ul>
+          </div>
         </section>
 
         {/* Packages. All three on one screen, no scrolling (Alan,
@@ -889,145 +879,66 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             that each carry the whole story, the way a pricing page does. */}
         <section id="mock-packages" className="scroll-mt-14 bg-white px-3 py-6 sm:px-4">
           <div className="px-1">
-            <SectionTitle kicker="Step 2" title="Pick your package" sub="Same expert service. Three levels of protection." />
+            <SectionTitle kicker="Step 1" title="Pick your package" sub="Same expert service. Three levels of protection." />
           </div>
-          <p className="mb-3 flex items-center gap-2 rounded-xl bg-[#F8F3E7] px-3 py-2 text-sm font-semibold ring-1 ring-[#C9972F]/40">
-            <Shield className="h-4 w-4 shrink-0" style={{ color: "#8C6224" }} />
-            Every package: two coats of stain and a 1-year warranty on our work.
-          </p>
 
-          {phone ? (() => {
-            // Three photo tiles, always in view, name and price on each; the
-            // one they tap (Signature until they do) opens in full below.
-            // Pictures first, then words (Alan, 2026-10-10: "make the three
-            // packages look most appealing for somebody on their phone").
-            const show = chosen || packages[1];
-            const line = payLine(show.price);
-            const sk = SKINS[show.key];
-            const idx = packages.findIndex((x) => x.key === show.key);
-            const prev = idx > 0 ? packages[idx - 1] : null;
-            const next = idx < packages.length - 1 ? packages[idx + 1] : null;
-            return (
-              <>
-                {/* Alan's dad read the three tiles as a brochure and never
-                    tapped one (2026-10-13). Say it, in big words. */}
-                <p className="mb-2 flex items-center justify-center gap-2 text-center text-[17px] font-bold">
-                  <span aria-hidden className="text-[22px] leading-none">👇</span>
-                  {chosen ? "Tap another one to compare" : "Tap the package you want"}
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  {packages.map((p) => {
-                    const on = pkg === p.key;
-                    const shown = show.key === p.key;
-                    const s = SKINS[p.key];
-                    return (
-                      <button key={p.key} type="button" onClick={() => choose(p.key)}
-                        className={cn("relative flex flex-col overflow-hidden rounded-2xl text-left shadow-lg transition duration-200 active:scale-[0.97]",
-                          on ? cn("z-10 scale-[1.04] ring-4 shadow-2xl", s.onRing)
-                            : pkg && !shown ? cn("opacity-55 saturate-50 ring-1", s.ring)
-                            : shown ? cn("ring-2", s.ring) : cn("ring-1", s.ring))}
-                        style={s.card}>
-                        {s.frame ? <GoldFrame /> : null}
-                        {/* The photos, with nothing written on them. Two stack
-                            so both finishes show (Alan, 2026-10-10). */}
-                        <div className={cn("grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[3px]")} style={{ background: s.rule }}>
-                          {p.photos.map((src) => (
-                            <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[71px]" : "h-[145px]")} draggable={false} />
-                          ))}
-                        </div>
-                        <TierBadge pkg={p.key} small className="absolute left-1.5 top-1.5 z-20" />
-                        {/* The same four rows on every tile, each a fixed
-                            height, so the three names sit on one line across
-                            the page and so do the prices. Name first, in the
-                            tier's colour and the brand face, then the finish,
-                            the price, how long it lasts (Alan, 2026-10-10: the
-                            names felt dull and "need to be perfectly aligned"). */}
-                        <div className="w-full border-t-[3px] px-2 pb-2 pt-2" style={{ borderColor: s.rule, color: s.text }}>
-                          <p className="h-[22px] font-heading text-[18px] font-bold leading-[22px] tracking-wide" style={{ color: s.name }}>{p.short}</p>
-                          <p className="h-[34px] text-[13px] font-bold uppercase leading-[17px] tracking-[0.03em]" style={{ color: s.muted }}>{p.tag}</p>
-                          <p className="h-[20px] text-[15px] font-bold leading-[20px] tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
-                          <p className="h-[36px] text-[14px] font-semibold leading-[18px]" style={{ color: s.muted }}>Usually lasts<br />{p.lasts}*</p>
-                          {/* A choice circle, the way paper forms do it: empty
-                              and "Tap to see" until it's the one showing. */}
-                          <p className="mt-1.5 flex h-[26px] items-center gap-1.5 text-[13px] font-bold" style={{ color: s.name }}>
-                            {/* The tick means picked, never just "open" (Alan,
-                                2026-10-14: Exolei read Signature's "Showing ✓"
-                                as picked, and Klarna never opened). */}
-                            {on
-                              ? <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-4 w-4" /></span>
-                              : <span className="h-6 w-6 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
-                            {on ? "Picked" : "Tap to pick"}
+          {phone ? (
+            // Three full-width cards, stacked, each carrying its whole story:
+            // photo, name, what it is, price, how to pay. Nothing is hidden
+            // behind a tap; the tap only picks (Alan, 2026-10-17: "people
+            // don't want to click too much, they just want to see it"; the
+            // three skinny tiles made the prices too small to read).
+            <div className="grid gap-3">
+              {packages.map((p) => {
+                const on = pkg === p.key;
+                const s = SKINS[p.key];
+                return (
+                  <button key={p.key} type="button" onClick={() => choose(p.key)} aria-pressed={on}
+                    className={cn("relative flex w-full overflow-hidden rounded-2xl text-left shadow-md transition duration-200 active:scale-[0.99]",
+                      on ? cn("ring-4 shadow-xl", s.onRing) : cn(p.popular ? "ring-2" : "ring-1", s.ring))}
+                    style={{ ...s.card, color: s.text }}>
+                    {s.frame ? <GoldFrame /> : null}
+                    {/* The photos down the left, the tier's badge on top of
+                        them; two stack so both finishes show (Alan, 2026-10-10). */}
+                    <div className={cn("relative grid w-[36%] shrink-0", p.photos.length > 1 ? "grid-rows-2 gap-[3px]" : "grid-rows-1")} style={{ background: s.rule }}>
+                      {p.photos.map((src) => (
+                        <img key={src} src={src} alt="" className="h-full min-h-0 w-full object-cover" draggable={false} />
+                      ))}
+                      <TierBadge pkg={p.key} small className="absolute left-1.5 top-1.5 z-20" />
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col px-3 py-3">
+                      <h3 className="font-heading text-[22px] font-bold leading-tight" style={{ color: s.name }}>{p.name}</h3>
+                      <p className="mt-0.5 text-[13px] font-bold uppercase tracking-[0.05em]" style={{ color: s.muted }}>{p.tag}</p>
+                      <p className="text-[13px] font-semibold" style={{ color: s.muted }}>Usually lasts {p.lasts}*</p>
+                      <ul className="mt-2 space-y-1">
+                        {p.lines.map((l) => (
+                          <li key={l.text} className="flex items-start gap-1.5 text-[14px] font-medium leading-snug"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
+                        ))}
+                      </ul>
+                      <div className="mt-2.5 rounded-xl px-3 py-2" style={s.priceBox}>
+                        {discount ? (
+                          <p className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                            <span className="rounded px-1.5 py-0.5 text-[11px] font-bold uppercase" style={s.offChip}>20% off</span>
+                            <s className="opacity-75">{formatCurrency(p.regular)}</s>
                           </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div key={show.key} className={cn("mt-3 overflow-hidden rounded-2xl bg-white shadow-md ring-1", sk.ring)}>
-                  {/* The open package's header wears its tier's coat. */}
-                  <div className="relative flex items-start justify-between gap-2 px-4 py-3" style={sk.card}>
-                    {sk.frame ? <GoldFrame /> : null}
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-bold uppercase tracking-wider" style={{ color: sk.muted }}>{chosen ? "Your pick" : "Not picked yet · you're looking at"}</p>
-                      <h3 className="font-heading text-2xl font-bold leading-tight" style={{ color: sk.name }}>{show.name}</h3>
-                      <p className="text-[14px] font-bold uppercase tracking-[0.1em]" style={{ color: sk.muted }}>{show.tag}<br /><span className="whitespace-nowrap">Usually lasts {show.lasts}*</span></p>
-                    </div>
-                    <TierBadge pkg={show.key} className="shrink-0" />
-                  </div>
-                  <div className="p-4 pt-3">
-                    <div className="rounded-xl bg-[#F8F3E7] px-3 py-2 ring-1 ring-[#C9972F]/30">
-                      <p className="text-[12px] font-bold uppercase tracking-wider text-[#8C6224]">Best for</p>
-                      <p className="text-[15px] font-semibold leading-snug">{show.best}</p>
-                    </div>
-                    <ul className="mt-3 space-y-1.5">
-                      {show.lines.map((l) => {
-                        const Icon = l.icon;
-                        return <li key={l.text} className="flex items-center gap-2 text-[15px] font-medium"><Icon className="h-4 w-4 shrink-0" style={{ color: sk.accent }} />{l.text}</li>;
-                      })}
-                    </ul>
-                    <div className="mt-3 rounded-xl px-3 py-2.5" style={sk.priceBox}>
-                      {discount ? (
-                        <p className="flex flex-wrap items-center gap-1.5 text-[15px]">
-                          <span className="rounded px-1.5 py-0.5 font-bold uppercase" style={sk.offChip}>20% off</span>
-                          <s className="opacity-75">{formatCurrency(show.regular)}</s>
-                          <span className="opacity-75">· ends {customer.goodThrough}</span>
-                        </p>
-                      ) : <p className="text-[12px] opacity-75">Regular price</p>}
-                      <p className="mt-1 font-heading text-3xl font-bold leading-none" style={{ color: sk.price }}>{formatCurrency(show.price)}<span className="ml-1.5 align-middle font-sans text-[14px] font-semibold opacity-80">Tax included</span></p>
-                      <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-semibold">
-                        {line.lender === "klarna"
-                          ? <span className="rounded bg-[#FFB3C7] px-1 text-[12px] font-black text-black">Klarna.</span>
-                          : <span className="rounded bg-[#15130F] px-1 py-0.5"><img src="/affirm-white.png" alt="Affirm" className="h-2.5 w-auto" draggable={false} /></span>}
-                        {line.text} <LearnMore onClick={() => setPayFaq("klarna")} dark={show.key === "legacy"} />
+                        ) : <p className="text-[12px] opacity-75">Regular price</p>}
+                        <p className="mt-0.5 font-heading text-[30px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-1 text-[13px] font-semibold opacity-85">Tax included · or from ${monthlyFrom(p.price)}/mo</p>
+                      </div>
+                      {/* A choice circle, the way paper forms do it. The tick
+                          means picked, never just "open" (Alan, 2026-10-14). */}
+                      <p className="mt-2.5 flex items-center gap-2 text-[15px] font-bold" style={{ color: s.name }}>
+                        {on
+                          ? <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-4 w-4" /></span>
+                          : <span className="h-7 w-7 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
+                        {on ? `${p.short} is your pick` : `Tap to pick ${p.short}`}
                       </p>
                     </div>
-                    <button type="button" onClick={() => choose(show.key)}
-                      className={cn("mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold transition active:scale-[0.98]",
-                        chosen ? "bg-[#15130F] text-[#E3BE63]" : "text-[#15130F] shadow-md")}
-                      style={chosen ? undefined : { background: GOLD }}>
-                      {chosen ? <><Check className="h-5 w-5" /> {show.short} is your pick</> : `Pick ${show.short}`}
-                    </button>
-                    {/* Flip to the next one without scrolling back up. */}
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {prev ? (
-                        <button type="button" onClick={() => choose(prev.key)}
-                          className="flex h-12 items-center justify-center gap-1 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
-                          <ChevronLeft className="h-5 w-5" /> See {prev.short}
-                        </button>
-                      ) : <span />}
-                      {next ? (
-                        <button type="button" onClick={() => choose(next.key)}
-                          className="flex h-12 items-center justify-center gap-1 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/20 active:scale-[0.98]">
-                          See {next.short} <ChevronRight className="h-5 w-5" />
-                        </button>
-                      ) : <span />}
-                    </div>
-                  </div>
-                </div>
-              </>
-            );
-          })() : (
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
             <div className="grid gap-3 sm:grid-cols-3">
               {packages.map((p) => {
                 const on = pkg === p.key;
@@ -1097,7 +1008,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               })}
             </div>
           )}
-          <p className="mt-3 text-center text-sm text-[#15130F]/75">Choose based on the condition of your wood and the look you want.</p>
+          <p className="mt-3 text-center text-sm text-[#15130F]/75">Every package: two coats of stain and a 1-year warranty on our work. Choose based on the condition of your wood and the look you want.</p>
         </section>
 
         {/* Colours: a gallery to look at, not a decision to make here. Tap
@@ -1105,7 +1016,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             made with us on the phone (Alan, 2026-10-10, after a competitor's
             page did it this way). */}
         <section id="mock-color" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 3" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
+          <SectionTitle kicker="Step 2" title="See the colors" sub="Tap any color to see it up close and read about it. We'll help you choose." />
           {/* The two tabs are the two packages, not two words: the package's
               own photo behind the name, the first few colours fanned out, and
               the one that's open shines (Alan, 2026-10-10: "give it a little
@@ -1308,7 +1219,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
         {/* How to pay: the deposit, or the whole job over time. Both go to
             the same Stripe checkout; Klarna is picked there. */}
         <section id="mock-pay" className="scroll-mt-14 px-4 py-6">
-          <SectionTitle kicker="Step 4" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${option ? ` · ${option.label}` : ""}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
+          <SectionTitle kicker="Step 3" title="How would you like to pay?" sub={chosen ? `Your price: ${formatCurrency(total)} · ${chosen.name}${option ? ` · ${option.label}` : ""}${repairs ? " plus repairs" : ""}` : "Pick a package above to see your price."} />
           {/* The 20% off ends with the month and the price goes back up. Booking
               now locks it even if the job happens later; paying over time is
               how someone does that without the cash today (Alan, 2026-10-10). */}
@@ -1502,7 +1413,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           firstName={customer.name.split(" ")[0]}
           address={customer.address}
           pkgName={chosen?.name || packages[1].name}
-          feet={withScope ? customer.feet : 0}
+          feet={hasDrawing ? customer.feet : 0}
           total={total || packages[1].price}
           repairs={repairs}
           staff={!preview || staffPeek}
@@ -1517,7 +1428,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           pkgName={chosen?.name || packages[1].name}
           color="Pecan"
           sides={customer.sides}
-          feet={withScope ? customer.feet : 0}
+          feet={hasDrawing ? customer.feet : 0}
           total={(chosen?.price || packages[1].price) + repairs}
           date={inviteDate}
           staff
@@ -1793,37 +1704,3 @@ const STEPS: { icon: React.ElementType; day?: string; head: string; body: string
   { icon: Sparkles, head: "Clean jobsite", body: "Labor and cleanup included." },
 ];
 
-
-/** A stand-in for the real scope drawing: the lot from above, the house, and
- *  the fence runs in the editor's colours. The real one is the customer's
- *  satellite photo with the traced lines. */
-function ScopeDrawing() {
-  return (
-    <div className="overflow-hidden rounded-2xl ring-1 ring-[#15130F]/10">
-      <svg viewBox="0 0 400 260" className="block w-full" role="img" aria-label="Scope drawing">
-        <defs>
-          <pattern id="grass" width="8" height="8" patternUnits="userSpaceOnUse">
-            <rect width="8" height="8" fill="#6b8f4e" />
-            <circle cx="2" cy="2" r="0.8" fill="#5c7f42" /><circle cx="6" cy="6" r="0.8" fill="#79a05a" />
-          </pattern>
-        </defs>
-        <rect width="400" height="260" fill="url(#grass)" />
-        <rect x="0" y="212" width="400" height="48" fill="#8f8f8a" />
-        <rect x="0" y="232" width="400" height="2" fill="#f1f1ea" opacity="0.6" />
-        <rect x="120" y="120" width="160" height="92" fill="#d9d2c3" stroke="#a89f8c" strokeWidth="2" />
-        <rect x="120" y="120" width="160" height="22" fill="#b3a68f" />
-        <rect x="170" y="180" width="60" height="32" fill="#c9c1b0" />
-        <path d="M60 40 L340 40 L340 150" fill="none" stroke="#2563eb" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M60 40 L60 150" fill="none" stroke="#2563eb" strokeWidth="6" strokeLinecap="round" />
-        <path d="M60 150 L120 150" fill="none" stroke="#dc2626" strokeWidth="6" strokeLinecap="round" />
-        <path d="M280 150 L340 150" fill="none" stroke="#dc2626" strokeWidth="6" strokeLinecap="round" />
-        {[[60, 40], [340, 40], [340, 150], [60, 150], [120, 150], [280, 150]].map(([x, y]) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="5" fill="#fff" stroke="#15130F" strokeWidth="2" />
-        ))}
-        <text x="200" y="30" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff" stroke="#15130F" strokeWidth="0.4">Back · 280 ft</text>
-        <text x="90" y="166" textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff" stroke="#15130F" strokeWidth="0.4">Gate</text>
-        <text x="310" y="166" textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff" stroke="#15130F" strokeWidth="0.4">Gate</text>
-      </svg>
-    </div>
-  );
-}
