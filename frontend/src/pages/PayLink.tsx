@@ -155,7 +155,19 @@ export default function PayLink() {
       try {
         // Staff open their own links with ?preview=1 so it never counts as the customer's view.
         const preview = new URLSearchParams(window.location.search).get("preview") === "1" ? "?preview=1" : "";
-        const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}${preview}`);
+        // A server restart (a deploy) takes about a minute. Keep trying
+        // through it instead of telling the customer the link is dead
+        // (Alan hit exactly that on Jeff's link, 2026-10-17). Only a real
+        // 404 or 410 is final.
+        let r: Response | null = null;
+        for (let attempt = 0; attempt < 8 && alive; attempt++) {
+          try {
+            r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}${preview}`);
+            if (r.ok || r.status === 404 || r.status === 410) break;
+          } catch { r = null; }
+          await new Promise((res) => setTimeout(res, 1500 + attempt * 1500));
+        }
+        if (!r) throw new Error("offline");
         if (!r.ok) {
           if (r.status === 410) {
             const why = (await r.json().catch(() => ({}))) as { detail?: string };
@@ -182,10 +194,19 @@ export default function PayLink() {
     setBusy(true);
     setError("");
     try {
-      const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/session`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method }),
-      });
-      const data = (await r.json()) as { url?: string; detail?: string };
+      // Same patience on the Pay tap: a restart mid-tap retries, not errors.
+      let r: Response | null = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token || "")}/session`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method, preview: isPreview }),
+          });
+          if (r.status < 500) break;
+        } catch { r = null; }
+        await new Promise((res) => setTimeout(res, 2000));
+      }
+      if (!r) throw new Error("Can't reach the server right now. Give it a few seconds and tap again.");
+      const data = (await r.json().catch(() => ({}))) as { url?: string; detail?: string };
       if (!r.ok || !data.url) throw new Error(data.detail || "Stripe couldn't start the payment.");
       window.location.assign(data.url);
     } catch (e) {
@@ -204,7 +225,7 @@ export default function PayLink() {
     );
   }
   if (info === "loading") {
-    return <Shell><p className="text-[17px] font-semibold text-[#15130F]/75">One moment…</p></Shell>;
+    return <Shell><p className="flex items-center gap-2 text-[17px] font-semibold text-[#15130F]/75"><span className="h-5 w-5 animate-spin rounded-full border-[3px] border-[#15130F]/10 border-t-[#C9972F]" /> Loading your secure payment page…</p></Shell>;
   }
   const deposit = info.kind === "deposit";
   // Apply for Klarna (Alan, 2026-10-14): Exolei landed on "here's what's due"
