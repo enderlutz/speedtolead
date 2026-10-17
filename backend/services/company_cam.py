@@ -420,7 +420,11 @@ def cleaner_color_actions(plan: list[dict]) -> list[str]:
 # own time, so what "done properly" means has to be written down rather than
 # assumed.
 CLEANER_CHECKLIST: list[dict] = [
-    {"key": "rocks_back", "label": "Rocks and landscaping pushed back where they were"},
+    # The cleaner pulls the rocks and plants away so the stainer can reach the
+    # whole board, down to the ground; the stainer puts them back (Alan,
+    # 2026-10-17). New key: a tick on the old "pushed back" item meant the
+    # opposite job.
+    {"key": "rocks_pulled", "label": "Rocks and landscaping pulled back from the fence, so the whole board can be stained"},
     {"key": "plants_watered", "label": "All plants watered really well"},
     {"key": "fence_rinsed", "label": "All residue rinsed off the fence"},
     {"key": "hose_rolled", "label": "Customer's water hose turned off and rolled back up"},
@@ -430,7 +434,11 @@ STAINER_CHECKLIST: list[dict] = [
     {"key": "two_coats", "label": "Two coats of stain"},
     {"key": "hinges_clean", "label": "All hinges checked — no stain on them"},
     {"key": "under_rails", "label": "Checked underneath all the 2x4s"},
-    {"key": "two_walkarounds", "label": "Two full walkarounds done"},
+    {"key": "rocks_back", "label": "Rocks and landscaping pushed back where they were"},
+    {"key": "lights_back", "label": "Lights and anything else that was hanging on the fence hung back up"},
+    {"key": "trash_picked_up", "label": "All trash picked up"},
+    # Four, not two (Alan, 2026-10-17). New key so an old "two" tick doesn't count.
+    {"key": "four_walkarounds", "label": "Four full walkarounds of the property done"},
     {
         "key": "customer_satisfied",
         "label": "Customer has seen it and is completely satisfied",

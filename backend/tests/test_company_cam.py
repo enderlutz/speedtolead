@@ -605,11 +605,11 @@ def test_checklists_accept_only_known_items(db):
     """A stale client must not be able to store junk as a completed step."""
     lead = _lead(db)
     r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(
-        cleaner_checklist=["rocks_back", "made_it_up"],
-        stainer_checklist=["two_coats", "rocks_back"],
+        cleaner_checklist=["rocks_pulled", "made_it_up"],
+        stainer_checklist=["two_coats", "rocks_pulled"],
     ), user=USER)
-    assert r["job"]["cleaner_checklist"] == ["rocks_back"]
-    # rocks_back is a cleaner item, so it is not valid on the stainer list.
+    assert r["job"]["cleaner_checklist"] == ["rocks_pulled"]
+    # rocks_pulled is a cleaner item, so it is not valid on the stainer list.
     assert r["job"]["stainer_checklist"] == ["two_coats"]
 
 
@@ -618,9 +618,11 @@ def test_both_checklists_are_offered_with_their_items(db):
     out = cc.get_company_cam(lead.id, user=USER)
     cleaner = {i["key"] for i in out["cleaner_checklist"]}
     stainer = {i["key"] for i in out["stainer_checklist"]}
-    assert {"rocks_back", "plants_watered", "fence_rinsed", "hose_rolled"} <= cleaner
-    assert {"two_coats", "hinges_clean", "under_rails",
-            "two_walkarounds", "customer_satisfied"} <= stainer
+    assert {"rocks_pulled", "plants_watered", "fence_rinsed", "hose_rolled"} <= cleaner
+    assert {"two_coats", "hinges_clean", "under_rails", "rocks_back", "lights_back",
+            "trash_picked_up", "four_walkarounds", "customer_satisfied"} <= stainer
+    # The cleaner pulls the rocks away; putting them back is the stainer's job.
+    assert "rocks_back" not in cleaner and "two_walkarounds" not in stainer
 
 
 # --- the referral ---
