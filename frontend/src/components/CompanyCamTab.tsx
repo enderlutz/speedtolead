@@ -725,7 +725,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
 
             <input
               ref={(el) => { inputs.current[sec.key] = el; }}
-              type="file" accept="image/*" multiple capture="environment" hidden
+              type="file" accept="image/*" multiple hidden
               onChange={(e) => { void upload(sec.key, e.target.files); e.target.value = ""; }}
             />
 

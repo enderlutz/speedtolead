@@ -321,7 +321,7 @@ function ServicePhotoSection({
             <label className={`inline-flex items-center gap-1 text-[11px] cursor-pointer text-primary hover:underline ${busy ? "opacity-60 pointer-events-none" : ""}`}>
               {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
               {busy ? "Uploading…" : `Add ${label.toLowerCase()}`}
-              <input type="file" accept="image/*" capture="environment" multiple className="hidden" disabled={busy}
+              <input type="file" accept="image/*" multiple className="hidden" disabled={busy}
                 onChange={(e) => { onUpload(task.id, phase, e.target.files); e.currentTarget.value = ""; }} />
             </label>
           )}
