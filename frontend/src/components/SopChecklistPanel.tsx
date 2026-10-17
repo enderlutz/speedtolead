@@ -615,7 +615,6 @@ function StepCard({
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-               
                 multiple={isMultiPhoto}
                 onChange={async (e) => {
                   const files = Array.from(e.target.files || []);

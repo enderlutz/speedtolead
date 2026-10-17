@@ -410,7 +410,6 @@ export default function JobSops() {
                     ref={(el) => { fileInputs.current[step.step_id] = el; }}
                     type="file"
                     accept="image/*"
-                   
                     className="hidden"
                     onChange={(e) => handlePhotoPick(step, e.target.files?.[0] || null)}
                   />
