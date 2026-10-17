@@ -206,12 +206,8 @@ function PhotoCard({
         ) : null}
       </div>
       <div className="space-y-1.5 p-2">
-        <Input
-          defaultValue={photo.side}
-          placeholder={tr("Which side? (back, left, front gate…)")}
-          onBlur={(e) => { if (e.target.value !== photo.side) onPatch({ side: e.target.value }); }}
-          className="h-10 text-base sm:h-8 sm:text-xs"
-        />
+        {/* "Which side?" archived 2026-10-16 (Alan): not needed for now. A
+            side already typed still shows on the photo. The note stays. */}
         <Input
           defaultValue={photo.note}
           placeholder={tr("Note (optional)")}
