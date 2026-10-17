@@ -636,3 +636,31 @@ def test_an_unpaid_invoice_can_be_edited_in_place_and_an_open_checkout_is_closed
     plain = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="extra", amount=50), STAFF)
     with pytest.raises(HTTPException):
         sp.edit_invoice(plain["token"], sp.EditInvoiceBody(items=[sp.InvoiceItem(name="X", amount=5)]), STAFF)
+
+
+def test_embedded_session_stays_on_our_page(db, monkeypatch):
+    """Alan, 2026-10-17: Stripe's form shows on the pay page itself. The
+    session is made in embedded mode with a return address, the page gets
+    the client secret, and loading the form is not a tap on Pay."""
+    _settings(monkeypatch)
+    lead = _lead(db)
+    seen = []
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create",
+                        lambda **p: seen.append(p) or SimpleNamespace(id="cs_e", url=None, client_secret="cs_e_secret_x"))
+    out = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=1750), STAFF)
+    got = sp.start_session(out["token"], sp.SessionBody(embedded=True))
+    assert got == {"client_secret": "cs_e_secret_x", "paid": False}
+    p = seen[-1]
+    assert p["ui_mode"] == "embedded" and "/after/" in p["return_url"]
+    assert "success_url" not in p and "cancel_url" not in p
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
+    assert link.stripe_session_id == "cs_e" and not link.checkout_started_at
+    # The hosted jump still works the old way.
+    monkeypatch.setattr(sp.stripe.checkout.Session, "create",
+                        lambda **p: seen.append(p) or SimpleNamespace(id="cs_h", url="https://stripe.test/cs_h"))
+    got = sp.start_session(out["token"])
+    assert got == {"url": "https://stripe.test/cs_h", "paid": False}
+    assert "success_url" in seen[-1] and "ui_mode" not in seen[-1]
+    db.expire_all()
+    link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
+    assert link.checkout_started_at

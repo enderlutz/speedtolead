@@ -815,6 +815,11 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             # Made by Apply for Klarna: the page is the Klarna walk-through.
             "klarna": link.kind != "deposit" and not link.no_financing and (link.door or "") == "finance",
             "paid_at": link.paid_at or "", "method": (pay.method if pay else "") or "",
+            # Public by design: it lets the page show Stripe's own payment
+            # form in place, so the customer sees Apple Pay, Google Pay and
+            # the card fields right here (Alan, 2026-10-17: a bare Pay
+            # button "looks scammy").
+            "publishable_key": (getattr(get_settings(), "stripe_publishable_key", "") or "").strip(),
         }
     finally:
         db.close()
@@ -825,6 +830,11 @@ class SessionBody(BaseModel):
     # there's no "now find Klarna" step (Alan, 2026-10-14). Anything else:
     # every method switched on for the link.
     method: str = ""
+    # The form on our page (Stripe's embedded Checkout) instead of a jump
+    # to Stripe's page. The page falls back to the jump if it can't load.
+    embedded: bool = False
+    # Staff looking at their own link: no event, no "tapped Pay" alert.
+    preview: bool = False
 
 
 @router.post("/pay/{token}/session")
@@ -834,10 +844,16 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
     db = get_db()
     try:
         link = _live_link(db, token)
+        embedded = bool(body is not None and body.embedded)
         if link.status == "paid":
             return {"url": f"{_base()}/after/{link.token}", "paid": True}
         lead = db.query(Lead).filter(Lead.id == link.lead_id).first()
         s = _stripe()
+
+        def _out(session) -> dict:
+            if embedded:
+                return {"client_secret": session.client_secret, "paid": False}
+            return {"url": session.url, "paid": False}
         items = link_items(link)
         if items and not link.credit_cents and all(i["amount"] > 0 for i in items):
             # Each line on Stripe's page and receipt, as on our pay page. A
@@ -914,6 +930,12 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             params["payment_method_types"] = ["klarna"]
         if lead and lead.contact_email:
             params["customer_email"] = lead.contact_email
+        if embedded:
+            # Stripe's form inside our page; after paying it comes back to
+            # the same after-page the hosted version does.
+            params["ui_mode"] = "embedded"
+            params["return_url"] = params.pop("success_url")
+            params.pop("cancel_url", None)
         try:
             try:
                 session = s.checkout.Session.create(**params)
@@ -926,7 +948,7 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
                     session = s.checkout.Session.create(**params)
                     link.stripe_session_id = session.id
                     db.commit()
-                    return {"url": session.url, "paid": False}
+                    return _out(session)
                 # The terms line must never be what stops a payment: if Stripe
                 # refuses the request, try once more without it (the pay page
                 # and the proposal still show the agreement line).
@@ -941,11 +963,18 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
             log_event(link.lead_id, "stripe_session_failed", f"{link.kind} {link.token[:6]}: {str(e)[:500]}")
             raise HTTPException(status_code=502, detail="Stripe couldn't start the payment. Try again in a minute.")
         link.stripe_session_id = session.id
-        link.checkout_started_at = datetime.now(timezone.utc).isoformat()
-        db.commit()
         ua = request.headers.get("user-agent", "")[:300] if request is not None else ""
-        log_event(link.lead_id, "stripe_checkout_opened", f"{link.kind} {link.token[:6]} · {ua}")
-        return {"url": session.url, "paid": False}
+        if embedded:
+            # The form loading on the page is not a tap on Pay: no
+            # checkout_started_at, so the "NOT PAID YET" alert doesn't fire
+            # on everyone who merely opened the link.
+            if not (body is not None and body.preview):
+                log_event(link.lead_id, "stripe_form_shown", f"{link.kind} {link.token[:6]} · {ua}")
+        else:
+            link.checkout_started_at = datetime.now(timezone.utc).isoformat()
+            log_event(link.lead_id, "stripe_checkout_opened", f"{link.kind} {link.token[:6]} · {ua}")
+        db.commit()
+        return _out(session)
     finally:
         db.close()
 

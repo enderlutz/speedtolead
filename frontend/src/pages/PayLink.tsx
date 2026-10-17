@@ -5,9 +5,9 @@
 //
 // Raw fetch on purpose: the dashboard's API client bounces a 401 to the
 // staff login, which is the wrong place to drop a customer.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Lock, Phone } from "lucide-react";
+import { Lock, Phone, ShieldCheck, Star } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { TermsBody } from "@/components/proposal/TermsBody";
 import { dueText } from "@/lib/due";
@@ -31,7 +31,105 @@ export type Info = {
   due_date?: string | null;
   /** Made by the proposal's Apply for Klarna button: this page walks them through Klarna. */
   klarna?: boolean;
+  /** Stripe's public key, so the payment form can show on this page. */
+  publishable_key?: string;
 };
+
+// Stripe.js, loaded from Stripe when the page needs it.
+type StripeJs = { initEmbeddedCheckout: (o: { fetchClientSecret: () => Promise<string> }) => Promise<{ mount: (el: HTMLElement) => void; destroy: () => void }> };
+declare global { interface Window { Stripe?: (pk: string) => StripeJs } }
+function loadStripeJs(): Promise<void> {
+  if (window.Stripe) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src^="https://js.stripe.com/v3"]');
+    const tag = existing || Object.assign(document.createElement("script"), { src: "https://js.stripe.com/v3/", async: true });
+    tag.addEventListener("load", () => (window.Stripe ? resolve() : reject(new Error("Stripe didn't load"))));
+    tag.addEventListener("error", () => reject(new Error("Stripe didn't load")));
+    if (!existing) document.head.appendChild(tag);
+  });
+}
+
+/** Stripe's own payment form, on this page: Apple Pay, Google Pay, the card
+ *  fields, Cash App, bank, all visible at once with Stripe's name on it. If
+ *  it can't load (an in-app browser, a blocked script), the page falls back
+ *  to the one-button jump to Stripe's page. */
+function EmbeddedCheckout({ token, pk, preview, onFail }: { token: string; pk: string; preview: boolean; onFail: () => void }) {
+  const box = useRef<HTMLDivElement | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let dead = false;
+    let mounted = false;
+    let checkout: { destroy: () => void } | null = null;
+    const giveUp = setTimeout(() => { if (!dead && !mounted) onFail(); }, 15000);
+    (async () => {
+      try {
+        await loadStripeJs();
+        const stripe = window.Stripe!(pk);
+        const c = await stripe.initEmbeddedCheckout({
+          fetchClientSecret: async () => {
+            const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token)}/session`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ embedded: true, preview }),
+            });
+            const data = (await r.json()) as { client_secret?: string; url?: string; detail?: string };
+            if (data.url && !data.client_secret) { window.location.assign(data.url); return ""; }
+            if (!r.ok || !data.client_secret) throw new Error(data.detail || "Stripe couldn't start the payment.");
+            return data.client_secret;
+          },
+        });
+        if (dead) { c.destroy(); return; }
+        checkout = c;
+        if (box.current) c.mount(box.current);
+        mounted = true;
+        setReady(true);
+      } catch {
+        if (!dead) onFail();
+      }
+    })();
+    return () => { dead = true; clearTimeout(giveUp); checkout?.destroy(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mounts once per link
+  }, [token, pk]);
+  return (
+    <div className="relative min-h-[320px]">
+      {!ready && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[15px] text-[#15130F]/70">
+          <span className="h-8 w-8 animate-spin rounded-full border-4 border-[#15130F]/10 border-t-[#C9972F]" />
+          Loading secure checkout…
+        </div>
+      )}
+      <div ref={box} className={ready ? "" : "opacity-0"} />
+    </div>
+  );
+}
+
+// The ways to pay, so nobody has to guess what the form will offer.
+const METHODS: { label: string; cls: string }[] = [
+  { label: "VISA", cls: "bg-[#1A1F71] text-white italic tracking-wide" },
+  { label: "Mastercard", cls: "bg-[#222] text-white" },
+  { label: "AMEX", cls: "bg-[#016FD0] text-white" },
+  { label: "Discover", cls: "bg-[#FF6000] text-white" },
+  { label: " Pay", cls: "bg-black text-white" },
+  { label: "G Pay", cls: "bg-white text-[#3c4043] ring-1 ring-[#dadce0]" },
+  { label: "Cash App", cls: "bg-[#00D632] text-white" },
+  { label: "Bank", cls: "bg-[#F1EDE3] text-[#15130F] ring-1 ring-[#15130F]/15" },
+];
+
+function TrustStrip({ deposit }: { deposit: boolean }) {
+  const [reviews, setReviews] = useState<{ rating: number | null; total: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`${BASE}/api/public/reviews`).then((r) => (r.ok ? r.json() : null))
+      .then((d: { rating: number | null; total: number } | null) => { if (live && d && d.total) setReviews({ rating: d.rating, total: d.total }); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  return (
+    <div className="mt-5 space-y-3 text-[14px] text-[#15130F]/80">
+      <p className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#2F5137]" /><span><b className="text-[#15130F]">Your payment is handled by Stripe</b>, the same company behind payments for Amazon, Target and millions of businesses. Your card details go to Stripe, never to us.</span></p>
+      {deposit ? <p className="flex items-start gap-2"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-[#2F5137]" /><span><b className="text-[#15130F]">The deposit comes off your total</b> and holds your dates. Once your dates are set it isn't refundable, because we've turned other work away for them.</span></p> : null}
+      <p className="flex items-start gap-2"><Star className="mt-0.5 h-4 w-4 shrink-0 text-[#C9972F]" /><span><b className="text-[#15130F]">Sterling Fence Staining</b>, the fence-staining sister company of A&amp;T Pressure Washing, Houston.{reviews ? <> {reviews.rating ? `${reviews.rating.toFixed(1)} stars` : ""} from {reviews.total} Google reviews.</> : null} Call the office any time: {PHONE}.</span></p>
+    </div>
+  );
+}
 
 export default function PayLink() {
   const { token } = useParams<{ token: string }>();
@@ -41,6 +139,9 @@ export default function PayLink() {
   const [terms, setTerms] = useState(false);
   // A deposit link lives 7 days; the API says so with a 410 and a sentence.
   const [goneWhy, setGoneWhy] = useState("");
+  // Stripe's form on the page; when it can't load, the one-button jump.
+  const [embedFailed, setEmbedFailed] = useState(false);
+  const isPreview = new URLSearchParams(window.location.search).get("preview") === "1";
 
   useEffect(() => {
     let alive = true;
@@ -149,6 +250,7 @@ export default function PayLink() {
       </Shell>
     );
   }
+  const canEmbed = info.configured && !!info.publishable_key && !embedFailed;
   return (
     <Shell>
       <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#8C6224" }}>{info.label}</p>
@@ -157,29 +259,52 @@ export default function PayLink() {
       </h1>
       {!deposit && info.items?.length ? <InvoiceDoc info={info} /> : (
         <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
-          <p className="text-[15px] text-[#15130F]/75">{deposit ? "Deposit today" : "Due today"}</p>
-          <p className="font-heading text-5xl font-bold leading-none tabular-nums">{formatCurrency(info.amount)}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[15px] text-[#15130F]/75">{deposit ? "Deposit today" : "Due today"}</p>
+              <p className="font-heading text-5xl font-bold leading-none tabular-nums">{formatCurrency(info.amount)}</p>
+            </div>
+            <span className="mt-1 inline-flex shrink-0 items-center gap-1 rounded-full bg-[#E6EEE2] px-2.5 py-1 text-[12px] font-bold text-[#2F5137]"><Lock className="h-3 w-3" /> Secure</span>
+          </div>
           {info.address ? <p className="mt-3 text-[15px] text-[#15130F]/80">{info.address}</p> : null}
           {info.description ? <p className="mt-1 text-[15px] text-[#15130F]/80">{info.description}</p> : null}
+          {deposit ? <p className="mt-2 text-[14px] text-[#15130F]/70">Comes off your total. Holds your dates.</p> : null}
         </div>
       )}
+
       {info.configured ? (
         <>
-          <button type="button" onClick={() => void pay()} disabled={busy}
-            className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[18px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-60" style={{ background: GOLD }}>
-            <Lock className="h-5 w-5" /> {busy ? "Opening secure checkout…" : `Pay ${formatCurrency(info.amount)}`}
-          </button>
-          <p className="mt-2 text-center text-[14px] text-[#15130F]/75">
-            {deposit ? "Card, Apple Pay, Google Pay, bank account or Cash App. The deposit is not refundable once your dates are set." : info.financing === false ? "Card, Apple Pay, Google Pay, bank account or Cash App. You pick on the next screen." : "Card, Apple Pay, Google Pay, bank account, or pay over time with Klarna. You pick on the next screen."}
-          </p>
-          <p className="mt-1 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
+          <div className="mt-4 overflow-hidden rounded-2xl bg-white ring-1 ring-[#15130F]/10">
+            <div className="flex items-center justify-between gap-2 border-b border-[#15130F]/10 px-4 py-3">
+              <p className="flex items-center gap-2 text-[15px] font-bold"><Lock className="h-4 w-4 text-[#2F5137]" /> Secure checkout</p>
+              <span className="text-[13px] font-semibold text-[#15130F]/65">Powered by <span className="font-black text-[#635BFF]">stripe</span></span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+              {METHODS.map((m) => <span key={m.label} className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${m.cls}`}>{m.label}</span>)}
+              {deposit || info.financing === false ? null : <span className="rounded-md bg-[#FFB3C7] px-2 py-0.5 text-[11px] font-black text-black">Klarna.</span>}
+            </div>
+            <div className="p-3 sm:p-4">
+              {canEmbed ? (
+                <EmbeddedCheckout key={token} token={token || ""} pk={info.publishable_key!} preview={isPreview} onFail={() => setEmbedFailed(true)} />
+              ) : (
+                <>
+                  <button type="button" onClick={() => void pay()} disabled={busy}
+                    className="flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[18px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-60" style={{ background: GOLD }}>
+                    <Lock className="h-5 w-5" /> {busy ? "Opening secure checkout…" : `Pay ${formatCurrency(info.amount)}`}
+                  </button>
+                  <p className="mt-2 text-center text-[14px] text-[#15130F]/75">Opens Stripe's secure payment page. You pick how to pay there.</p>
+                  {/* Stripe's page stayed blank on a customer's phone (Jeff, 2026-10-16): say what to do. */}
+                  <p className="mt-3 rounded-xl bg-[#FFF7E6] px-3 py-3 text-[14px] text-[#15130F]/85 ring-1 ring-[#C9972F]/40">
+                    <b>Payment page stays blank?</b> Open this link in Safari or Chrome (not inside your email or Facebook app), or call or text us at {PHONE} and we'll send another way to pay.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+          <p className="mt-3 text-center text-[14px] text-[#15130F]/75">By paying, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold text-[#8C6224] underline underline-offset-2">Terms</button>.</p>
           {terms ? <TermsSheet onClose={() => setTerms(false)} /> : null}
           {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[15px] font-semibold text-rose-800">{error}</p> : null}
-          {/* Stripe's page stayed blank on a customer's phone (Jeff, 2026-10-16): say what to do. */}
-          <p className="mt-4 rounded-xl bg-[#FFF7E6] px-3 py-3 text-[15px] text-[#15130F]/85 ring-1 ring-[#C9972F]/40">
-            <b>Payment page stays blank?</b> Open this link in Safari or Chrome (not inside your email or Facebook app), or call or text us at {PHONE} and we'll send another way to pay.
-          </p>
-          <p className="mt-6 flex items-center justify-center gap-2 text-[13px] text-[#15130F]/65"><Lock className="h-3.5 w-3.5" /> Secure checkout by Stripe</p>
+          <TrustStrip deposit={deposit} />
         </>
       ) : (
         <p className="mt-4 rounded-xl bg-[#FFF7E6] px-3 py-3 text-[15px] ring-1 ring-[#C9972F]/50">Online payments are being set up. Call or text us and we'll take care of it.</p>
