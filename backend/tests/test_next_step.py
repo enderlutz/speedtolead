@@ -103,3 +103,33 @@ def test_a_refill_starts_the_journey_over_and_stop_means_stop(db):
     db.commit()
     assert _one(db, lead)["key"] == "stopped"
     assert next_steps(db, [], last_send={}) == {}
+
+
+def test_a_call_back_day_on_the_call_is_the_next_step(db):
+    # Marie Reed (2026-10-17): "I'll call you back Monday", then the estimate
+    # went out and she opened it. Don't call before Monday; on Monday, call.
+    from database import CallTranscript
+    from services.callback_promise import find_promise
+    sat = datetime(2026, 10, 17, 18, 11, tzinfo=timezone.utc)
+    lead = _lead(db)
+    rec = CallRecording(id=str(uuid.uuid4()), lead_id=lead.id, duration_seconds=86, is_voicemail=False,
+                        created_at=sat.isoformat(), status="analyzed")
+    db.add(rec)
+    db.add(CallTranscript(id=str(uuid.uuid4()), recording_id=rec.id, lead_id=lead.id,
+                          full_text="Can I call you back, sir? I'm in the middle of a serious situation. "
+                                    "I'll call you back Monday. Okay? Sounds good.", created_at=sat.isoformat()))
+    db.commit()
+    lead.proposal_viewed_at = (sat + timedelta(minutes=48)).isoformat()
+    db.commit()
+    sent = {lead.id: sat + timedelta(minutes=5)}
+    s = _one(db, lead, last_send=sent, now=sat + timedelta(hours=2))
+    assert s["key"] == "callback" and s["tone"] == "cold" and "Mon 10/19" in s["next"] and "Don't call" in s["next"]
+    s = _one(db, lead, last_send=sent, now=datetime(2026, 10, 19, 15, tzinfo=timezone.utc))
+    assert s["key"] == "callback" and s["tone"] == "hot" and "Call them" in s["next"]
+    # She texts first: answering her wins.
+    _inbound(db, lead, sat + timedelta(hours=3), "what about thursday")
+    assert _one(db, lead, last_send=sent, now=sat + timedelta(hours=4))["key"] == "replied"
+    # The phrase reader on its own.
+    assert find_promise("just call me tomorrow", sat)["day"].isoformat() == "2026-10-18"
+    assert find_promise("I'll send it after the call in a few minutes", sat) is None
+    assert find_promise("call me next week", sat)["day"].isoformat() == "2026-10-19"

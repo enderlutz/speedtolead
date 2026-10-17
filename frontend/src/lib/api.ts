@@ -604,6 +604,8 @@ export interface BookingState {
   message: string;
   has_email: boolean;
   has_phone: boolean;
+  /** Already paid, e.g. a deposit sent from Payment links: the text confirms the day. */
+  deposit_paid?: { amount: number; kind: string; paid_at: string | null } | null;
 }
 
 export interface LeadDetail extends Lead {

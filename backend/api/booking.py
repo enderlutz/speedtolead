@@ -77,7 +77,13 @@ def discount_cents(price_cents: int, kind: str, value: float) -> int:
     return max(0, min(off, price_cents - 100))
 
 
-def default_message(lead: Lead, iso: str) -> str:
+def default_message(lead: Lead, iso: str, paid: PayLink | None = None) -> str:
+    if paid is not None:
+        # Paid before the invite went out, e.g. a deposit sent from Payment
+        # links (Alan, 2026-10-17, Charlotte): confirm, don't ask again.
+        what = "payment" if paid.kind == "full" else "$250 deposit"
+        return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. Your {what} is in, so you're "
+                f"booked for {DAY}. Here's your booking with your package, color and what's left to pay: {LINK}")
     return (f"Hi {_first(lead)}, it's Alan with Sterling Fence Staining. I'm holding {DAY} "
             f"for your fence. Here's your booking, and the $250 deposit locks it in: {LINK}")
 
@@ -168,10 +174,15 @@ def _services(b: Booking) -> list[dict]:
 
 def _state(db, lead: Lead) -> dict:
     draft = _booking_draft(lead)
+    paid = _confirmed(db, lead)
     return {
         "draft": draft,
         "booking": _staff_dict(db, lead, _active(db, lead.id)),
-        "message": default_message(lead, draft["date"]) if draft.get("date") else "",
+        "message": default_message(lead, draft["date"], paid) if draft.get("date") else "",
+        # Already paid (a Payment links deposit counts): the card says so and
+        # the text confirms the day instead of asking for the deposit.
+        "deposit_paid": {"amount": (paid.amount_cents or 0) / 100, "kind": paid.kind,
+                         "paid_at": paid.paid_at} if paid else None,
         "has_email": bool((lead.contact_email or "").strip()),
         "has_phone": bool((lead.contact_phone or "").strip()),
     }
@@ -284,14 +295,19 @@ class SendBody(BaseModel):
     notify: bool = True
 
 
-def _email_html(lead: Lead, b: Booking, url: str) -> str:
+def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None) -> str:
     note = (f"<p style=\"background:#FFF8E6;border:1px solid #E8CF8E;border-radius:10px;padding:12px 14px\">"
             f"<b>A note from Alan</b><br>{html.escape(b.notes).replace(chr(10), '<br>')}</p>") if (b.notes or "").strip() else ""
     return (
         f"<div style=\"font-family:Arial,sans-serif;font-size:16px;line-height:1.5;color:#15130F;max-width:520px\">"
         f"<p>Hi {html.escape(_first(lead))},</p>"
-        f"<p>We're holding <b>{_long(b.date)}</b> for your fence staining at {html.escape(lead.address or 'your home')}.</p>"
-        f"<p>Your booking page has everything: the date, your package and color, and the $250 deposit that confirms your spot.</p>"
+        + (f"<p>Your {'payment' if paid.kind == 'full' else '$250 deposit'} is in, so you're booked for <b>{_long(b.date)}</b> "
+           f"for your fence staining at {html.escape(lead.address or 'your home')}.</p>"
+           f"<p>Your booking page has everything: the date, your package and color, and what's left to pay after the job.</p>"
+           if paid is not None else
+           f"<p>We're holding <b>{_long(b.date)}</b> for your fence staining at {html.escape(lead.address or 'your home')}.</p>"
+           f"<p>Your booking page has everything: the date, your package and color, and the $250 deposit that confirms your spot.</p>")
+        +
         f"<p><a href=\"{url}\" style=\"background:#C9972F;color:#15130F;font-weight:bold;padding:12px 20px;"
         f"text-decoration:none;border-radius:8px;display:inline-block\">See my booking</a></p>"
         f"{note}"
@@ -387,11 +403,13 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             db.rollback()
             raise HTTPException(status_code=502, detail="The text didn't go through. Try again.")
         emailed = False
+        paid_now = _confirmed(db, lead)
         if body.email and (lead.contact_email or "").strip():
             try:
                 emailed = bool(ghl.send_email(contact_id=lead.ghl_contact_id,
-                                              subject=f"Your date is held: fence staining on {_long(b.date)}",
-                                              html_body=_email_html(lead, b, url),
+                                              subject=(f"You're booked: fence staining on {_long(b.date)}" if paid_now
+                                                       else f"Your date is held: fence staining on {_long(b.date)}"),
+                                              html_body=_email_html(lead, b, url, paid_now),
                                               location_id=lead.ghl_location_id or None))
             except Exception as e:  # noqa: BLE001
                 logger.warning("booking email failed for %s: %s", lead.id, e)

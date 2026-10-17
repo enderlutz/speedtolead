@@ -287,3 +287,21 @@ def test_a_second_estimate_can_be_booked_and_the_one_they_closed_on_is_the_defau
 
 def _later(iso):
     return (datetime.fromisoformat(iso.replace("Z", "+00:00")) + timedelta(minutes=20)).isoformat()
+
+
+def test_a_deposit_paid_from_payment_links_first_makes_the_invite_a_confirmation(db, ghl):
+    # Charlotte (2026-10-17): the $250 went out from Payment links before the
+    # invite. The invite confirms her day and never asks for the deposit again.
+    import secrets as _s
+    from database import PayLink
+    lead, _ = _ready(db, email="charlotte@example.com")
+    db.add(PayLink(token=_s.token_urlsafe(12), lead_id=lead.id, kind="deposit", amount_cents=25000, status="paid",
+                   created_at=datetime.now(timezone.utc).isoformat(), paid_at=datetime.now(timezone.utc).isoformat()))
+    db.commit()
+    st = bk.get_booking(lead.id, STAFF)
+    assert st["deposit_paid"]["amount"] == 250.0
+    assert "deposit is in" in st["message"] and "locks it in" not in st["message"]
+    out = bk.send_booking(lead.id, bk.SendBody(message=st["message"]), STAFF)
+    assert out["booking"]["status"] == "confirmed"
+    assert "deposit is in" in ghl[0][1]
+    assert ghl[1][0] == "email" and "booked for" in ghl[1][2] and "confirms your spot" not in ghl[1][2]

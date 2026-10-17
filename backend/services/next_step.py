@@ -15,7 +15,9 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 
-from database import CallDisposition, CallRecording, Lead, Message, PayLink, ScheduledJob
+from clock import to_ct
+from database import CallDisposition, CallRecording, CallTranscript, Lead, Message, PayLink, ScheduledJob
+from services.callback_promise import find_promise
 from services.followup_status import TALKED_OUTCOMES
 from services.intake import last_intakes
 
@@ -23,6 +25,8 @@ from services.intake import last_intakes
 WAIT_DAYS = 2
 # A call counts as a conversation on the same rule as the discovery call.
 TALK_SECONDS = 30
+# A call-back day agreed on a call stops counting a week after it passes.
+PROMISE_STALE_DAYS = 7
 
 
 def _ts(value) -> datetime | None:
@@ -78,6 +82,23 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
         d = _ts(t)
         if d and (lid not in talked or d > talked[lid]):
             talked[lid] = d
+    # The last real call's transcript, for a call-back day agreed on it
+    # (Alan, 2026-10-17, Marie Reed: "call me back Monday").
+    promises: dict[str, tuple[datetime, dict]] = {}
+    for lid, created, text in (
+        db.query(CallRecording.lead_id, CallRecording.created_at, CallTranscript.full_text)
+        .join(CallTranscript, CallTranscript.recording_id == CallRecording.id)
+        .filter(CallRecording.lead_id.in_(lead_ids), CallRecording.is_voicemail.is_(False),
+                CallRecording.duration_seconds >= TALK_SECONDS,
+                CallRecording.created_at >= (now - timedelta(days=21)).isoformat())
+        .order_by(CallRecording.created_at.desc()).all()
+    ):
+        if lid in promises:
+            continue
+        at = _ts(created)
+        p = find_promise(text or "", created) if at else None
+        promises[lid] = (at, p) if p else (at, {})
+    today = to_ct(now).date()
     paid = {
         lid for (lid,) in
         db.query(PayLink.lead_id)
@@ -113,6 +134,21 @@ def next_steps(db, lead_ids: list[str], *, last_send: dict[str, datetime],
             continue
         if lid in paid or (lead.deposit_status or "") == "paid":
             out[lid] = _step("booked", "Deposit paid", "Schedule the job.", "hot")
+            continue
+        at, promise = promises.get(lid, (None, {}))
+        replied_after = last_in.get(lid)
+        if (promise and since(at) and not (replied_after and replied_after > at)
+                and (today - promise["day"]).days <= PROMISE_STALE_DAYS):
+            day = promise["day"]
+            label = f"{day.strftime('%a')} {day.month}/{day.day}"
+            if today < day:
+                out[lid] = _step("callback", f"On the call: {'they will call' if promise['they_call'] else 'call them'} {label}",
+                                 f"Wait. {'They said they would call' if promise['they_call'] else 'They asked for a call'} {label}. Don't call before then.",
+                                 "cold")
+            else:
+                out[lid] = _step("callback", f"Call-back day: {label}",
+                                 f"They said {label}. Call them if they haven't called." if promise["they_call"]
+                                 else f"Call them today. They asked for a call {label}.", "hot")
             continue
         sent = last_send.get(lid)
         if since(sent):

@@ -92,8 +92,11 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const [msgEdited, setMsgEdited] = useState(false);
   const [email, setEmail] = useState(true);
 
-  const presetFor = () =>
-    `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${DAY} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
+  // Paid already (a deposit from Payment links counts): confirm the day,
+  // don't ask for the deposit again (Alan, 2026-10-17, Charlotte).
+  const presetFor = () => st?.deposit_paid
+    ? `Hi ${first}, it's Alan with Sterling Fence Staining. Your ${st.deposit_paid.kind === "full" ? "payment" : "$250 deposit"} is in, so you're booked for ${DAY}. Here's your booking with your package, color and what's left to pay: ${LINK}`
+    : `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${DAY} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
 
   useEffect(() => {
     let alive = true;
@@ -512,6 +515,12 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       {/* Send. The text is theirs to edit; [link] becomes their booking link. */}
       <div className="space-y-2 rounded-xl border border-gold/50 bg-gold/5 p-3">
         <p className="text-sm font-semibold">{sent ? `Send again to ${first} (same link, updated date and details)` : `Send to ${first}`}</p>
+        {st?.deposit_paid ? (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200">
+            <b>{st.deposit_paid.kind === "full" ? "Paid in full" : "Deposit already paid"}: {formatCurrency(st.deposit_paid.amount)}</b>
+            {st.deposit_paid.paid_at ? ` on ${shortWhen(st.deposit_paid.paid_at)}` : ""}. This confirms {first}'s day. It won't ask for the deposit again.
+          </p>
+        ) : null}
         <textarea value={text} rows={5} maxLength={1400} onChange={(e) => { setMsg(e.target.value); setMsgEdited(true); }}
           className="w-full rounded-lg border border-input bg-background px-3 py-2 text-base" />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -555,6 +564,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           repairsDiscountLabel={draft.rlabel}
           services={serviceLines}
           staff
+          initial={st?.deposit_paid ? "confirmed" : undefined}
+          paidAmount={st?.deposit_paid?.amount}
           onClose={() => setPreview(false)}
           onSave={changed ? () => { void onSave(); } : () => setPreview(false)}
           saveLabel={busy === "save" ? "Saving…" : changed ? "Save draft" : "Saved · close"}
