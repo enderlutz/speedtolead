@@ -109,3 +109,15 @@ def test_a_photo_tagged_before_the_card_existed_still_reads_the_job(db):
     assert out["package"] == "Legacy" and out["color"] == "Darkest Night"
     assert out["sold_for"] is None      # money is never guessed; "use the job's details" fills it
     assert set(out["lead"].keys()) == {"id", "name", "address", "job_date"}
+
+
+def test_only_the_owner_can_remove(db):
+    _seed(db)
+    alec = {"sub": "alecw", "name": "Alec", "role": "social"}
+    with pytest.raises(HTTPException) as e:
+        cc.remove_content("C1", user=alec)
+    assert e.value.status_code == 403
+    with pytest.raises(HTTPException):
+        cc.remove_content("C1", user=VA)
+    assert db.query(ContentItem).filter(ContentItem.id == "C1").first().archived is False
+    assert cc.remove_content("C1", user=ALAN) == {"ok": True}

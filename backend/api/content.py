@@ -276,7 +276,10 @@ def update_content(item_id: str, body: ContentPatch, user: dict = Depends(requir
 @router.delete("/content/{item_id}")
 def remove_content(item_id: str, user: dict = Depends(require_perm("social_media"))):
     """Takes it out of the library. The file stays in storage, so a
-    wrong tap loses nothing."""
+    wrong tap loses nothing. Owners only (Alan, 2026-10-17: an outside
+    editor can add, never remove)."""
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Only the owner can remove content")
     db = get_db()
     try:
         c = db.query(ContentItem).filter(ContentItem.id == item_id).first()

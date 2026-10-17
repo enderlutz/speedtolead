@@ -4,7 +4,7 @@ import { ArrowLeft, Check, Clapperboard, Download, ImagePlus, Loader2, Search, T
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, canSeeRevenue, type ContentItem, type ContentPatch } from "@/lib/api";
+import { api, canSeeRevenue, getCurrentUser, type ContentItem, type ContentPatch } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
 // Social media content (Alan, 2026-10-17): every photo and video from a job
@@ -413,7 +413,10 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
             </div>
 
             <div className="flex items-center justify-between gap-2 pb-2">
-              <Button variant="ghost" size="sm" onClick={onRemove} className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="mr-1.5 h-4 w-4" /> Remove</Button>
+              {/* Owners only. An outside editor adds, never removes (Alan, 2026-10-17). */}
+              {getCurrentUser()?.role === "admin"
+                ? <Button variant="ghost" size="sm" onClick={onRemove} className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="mr-1.5 h-4 w-4" /> Remove</Button>
+                : <span />}
               <Button onClick={close} className="h-12 min-w-[120px] font-bold">Done</Button>
             </div>
           </div>
