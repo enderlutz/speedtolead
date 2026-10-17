@@ -1818,6 +1818,22 @@ export default function LeadDetail() {
             collapsed={!isOpen("inputs", inputsDefault)}
             onToggle={() => toggle("inputs", inputsDefault)}
             bodyClassName="space-y-4 p-3.5"
+            // The same New estimate as on the Estimate card, up here too
+            // (Alan, 2026-10-17), so a changed scope starts a fresh one
+            // right where the inputs get edited.
+            right={(lead?.estimates?.length ?? 0) > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={handleCreateNewEstimate}
+                disabled={creatingNewEstimate}
+                title="Start a fresh estimate from the last one's inputs — for when the scope changed or the first one was off. The sent one stays in the history."
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                {creatingNewEstimate ? "Starting…" : "New estimate"}
+              </Button>
+            ) : undefined}
           >
               {/* The customer's timeline: their answer, read-only. */}
               {timeline ? (() => {
@@ -2030,24 +2046,6 @@ export default function LeadDetail() {
                 {saving ? "Recalculating..." : "Save & Recalculate"}
               </Button>
           </Panel>
-
-          {/* "New estimate" with no estimate to hang it on yet. With one, the
-              button sits in the Estimate card's header. */}
-          {!estimate && lead?.estimates && (
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={handleCreateNewEstimate}
-                disabled={creatingNewEstimate}
-                title="Start a fresh estimate from this one's inputs — for when the scope of work changed or the first one was off. The sent one stays in the history."
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                {creatingNewEstimate ? "Starting…" : "New estimate"}
-              </Button>
-            </div>
-          )}
 
           {/* Tier prices */}
           {estimate && estimate.tiers && (
