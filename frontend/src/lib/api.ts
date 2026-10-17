@@ -1928,6 +1928,7 @@ export const api = {
   updateContent: (id: string, patch: ContentPatch) =>
     request<ContentItem>(`/api/content/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   removeContent: (id: string) => request<{ ok: boolean }>(`/api/content/${id}`, { method: "DELETE" }),
+  moneyAudit: (start: string, end: string) => request<MoneyAudit>(`/api/money/audit?start=${start}&end=${end}`),
   metaStatus: () => request<MetaStatus>(`/api/meta/status`),
   metaInsights: (level: MetaLevel, days: number) =>
     request<MetaInsights>(`/api/meta/insights?level=${level}&days=${days}`),
@@ -5972,6 +5973,13 @@ export type ContentItem = {
   lead_id: string; note: string; shot_on: string; status: "raw" | "edited" | "posted";
   customer_name: string; address: string; package: string; color: string; sold_for: number | null;
   created_at: string; created_by: string; lead: ContentLead | null;
+};
+export type MoneyRow = { date: string; type: string; direction: "in" | "out" | "move"; amount: number; account: string; pay_type: string; payee: string; category: string; memo: string };
+export type MoneyAudit = {
+  start: string; end: string; rows: MoneyRow[];
+  accounts: { name: string; type: string; subtype: string; balance: number }[];
+  summary: { spent: number; came_in: number; refunds: number; transfers: number; uncategorized: number; count: number;
+    by_category: { name: string; amount: number }[]; by_payee: { name: string; amount: number }[]; by_account: { name: string; amount: number }[] };
 };
 export type MetaStatus = { connected: boolean; account_id?: string; name?: string; currency?: string; status?: number; timezone?: string; error?: string };
 export type MetaLevel = "campaign" | "adset" | "ad";

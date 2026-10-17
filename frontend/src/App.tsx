@@ -55,6 +55,7 @@ import Revenue from "@/pages/Revenue";
 import Documents from "@/pages/Documents";
 import MetaAds from "@/pages/MetaAds";
 import SocialMedia from "@/pages/SocialMedia";
+import MoneyAudit from "@/pages/MoneyAudit";
 import DailyTasks from "@/pages/DailyTasks";
 import Contacts from "@/pages/Contacts";
 import Accounting from "@/pages/Accounting";
@@ -250,6 +251,7 @@ function AppLayout() {
               <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
               <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
+              <Route path="/money-audit" element={<RevenueOnly><MoneyAudit /></RevenueOnly>} />
               <Route path="/social" element={<RequireView view="social_media"><SocialMedia /></RequireView>} />
               <Route path="/meta-ads" element={<Navigate to="/marketing" replace />} />
               {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}

@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
 import clock
-from api import content, documents, meta_ads, training_course, webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts, company_cam, proposal_preview, stripe_pay, proposal_live, reviews, booking, referral
+from api import content, money_audit, documents, meta_ads, training_course, webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts, company_cam, proposal_preview, stripe_pay, proposal_live, reviews, booking, referral
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
@@ -758,6 +758,7 @@ app.include_router(training_course.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(meta_ads.router, prefix="/api")
 app.include_router(content.router, prefix="/api")
+app.include_router(money_audit.router, prefix="/api")
 app.include_router(exterior.router, prefix="/api")
 app.include_router(video_estimate.router, prefix="/api")
 app.include_router(customer_upsell.router, prefix="/api")

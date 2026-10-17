@@ -98,6 +98,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
   { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/marketing", icon: Megaphone, label: "Marketing", restrictToAny: ["fragned", "alanbonner"] },
+  { to: "/money-audit", icon: DollarSign, label: "Where the money went", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/social", icon: Clapperboard, label: "Social media", perm: "social_media" },
   { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
