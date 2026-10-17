@@ -250,7 +250,11 @@ export default function PayLink() {
       </Shell>
     );
   }
-  const canEmbed = info.configured && !!info.publishable_key && !embedFailed;
+  // Stripe's in-page form showed "Something went wrong" on a customer's
+  // phone (Jeff, 2026-10-17) while the hosted page works, so the hosted
+  // jump is the default until the form is proven; ?embed=1 tries the form.
+  const wantEmbed = new URLSearchParams(window.location.search).get("embed") === "1";
+  const canEmbed = wantEmbed && info.configured && !!info.publishable_key && !embedFailed;
   return (
     <Shell>
       <p className="text-[13px] font-bold uppercase tracking-[0.2em]" style={{ color: "#8C6224" }}>{info.label}</p>
@@ -285,7 +289,13 @@ export default function PayLink() {
             </div>
             <div className="p-3 sm:p-4">
               {canEmbed ? (
-                <EmbeddedCheckout key={token} token={token || ""} pk={info.publishable_key!} preview={isPreview} onFail={() => setEmbedFailed(true)} />
+                <>
+                  <EmbeddedCheckout key={token} token={token || ""} pk={info.publishable_key!} preview={isPreview} onFail={() => setEmbedFailed(true)} />
+                  <button type="button" onClick={() => void pay()} disabled={busy}
+                    className="mt-2 flex min-h-[44px] w-full items-center justify-center text-[14px] font-semibold text-[#15130F]/75 underline underline-offset-2">
+                    Form not loading? Open the secure payment page instead
+                  </button>
+                </>
               ) : (
                 <>
                   <button type="button" onClick={() => void pay()} disabled={busy}
