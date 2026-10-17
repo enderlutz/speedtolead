@@ -42,7 +42,8 @@ export default function MetaAds() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
-      <h1 className="text-2xl font-bold">Meta ads</h1>
+      <h1 className="text-2xl font-bold">Marketing</h1>
+      <h2 className="text-lg font-semibold">Meta ads</h2>
 
       {!status ? (
         <Loader2 className="h-5 w-5 animate-spin" />

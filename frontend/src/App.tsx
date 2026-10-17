@@ -241,7 +241,8 @@ function AppLayout() {
               <Route path="/calls" element={<RequireView view="calls"><Calls /></RequireView>} />
               <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
               <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
-              <Route path="/meta-ads" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
+              <Route path="/marketing" element={<RevenueOnly><MetaAds /></RevenueOnly>} />
+              <Route path="/meta-ads" element={<Navigate to="/marketing" replace />} />
               {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}
               <Route path="/training/archive" element={<RequireView view="training"><Training /></RequireView>} />
               <Route path="/training/:moduleId" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
