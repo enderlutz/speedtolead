@@ -877,61 +877,60 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             the top, then short rows that line up — lasts, price, best for,
             what you get — and three Pick buttons. At full width, three cards
             that each carry the whole story, the way a pricing page does. */}
-        <section id="mock-packages" className="scroll-mt-14 bg-white px-3 py-6 sm:px-4">
+        <section id="mock-packages" className="scroll-mt-14 bg-white px-2 py-6 sm:px-4">
           <div className="px-1">
             <SectionTitle kicker="Step 1" title="Pick your package" sub="Same expert service. Three levels of protection." />
           </div>
 
           {phone ? (
-            // Three full-width cards, stacked, each carrying its whole story:
-            // photo, name, what it is, price, how to pay. Nothing is hidden
-            // behind a tap; the tap only picks (Alan, 2026-10-17: "people
-            // don't want to click too much, they just want to see it"; the
-            // three skinny tiles made the prices too small to read).
-            <div className="grid gap-3">
+            // Three columns, side by side, like the printed proposal (Alan,
+            // 2026-10-17: "they can't be on top of each other, they need to be
+            // next to each other, 1, 2, 3"). Each column carries its whole
+            // story — photo, name, what it is, the two benefits, 20% off, the
+            // price as the biggest thing, the monthly — so nothing hides
+            // behind a tap. The tap only picks. Same rows in the same order
+            // on all three so the names and the prices line up.
+            <div className="grid grid-cols-3 gap-1.5">
               {packages.map((p) => {
                 const on = pkg === p.key;
                 const s = SKINS[p.key];
                 return (
                   <button key={p.key} type="button" onClick={() => choose(p.key)} aria-pressed={on}
-                    className={cn("relative flex w-full overflow-hidden rounded-2xl text-left shadow-md transition duration-200 active:scale-[0.99]",
+                    className={cn("relative flex flex-col overflow-hidden rounded-2xl text-left shadow-md transition duration-200 active:scale-[0.98]",
                       on ? cn("ring-4 shadow-xl", s.onRing) : cn(p.popular ? "ring-2" : "ring-1", s.ring))}
                     style={{ ...s.card, color: s.text }}>
                     {s.frame ? <GoldFrame /> : null}
-                    {/* The photos down the left, the tier's badge on top of
-                        them; two stack so both finishes show (Alan, 2026-10-10). */}
-                    <div className={cn("relative grid w-[36%] shrink-0", p.photos.length > 1 ? "grid-rows-2 gap-[3px]" : "grid-rows-1")} style={{ background: s.rule }}>
+                    <div className={cn("relative grid w-full", p.photos.length > 1 && "grid-rows-2 gap-[2px]")} style={{ background: s.rule }}>
                       {p.photos.map((src) => (
-                        <img key={src} src={src} alt="" className="h-full min-h-0 w-full object-cover" draggable={false} />
+                        <img key={src} src={src} alt="" className={cn("w-full object-cover", p.photos.length > 1 ? "h-[52px]" : "h-[106px]")} draggable={false} />
                       ))}
-                      <TierBadge pkg={p.key} small className="absolute left-1.5 top-1.5 z-20" />
+                      <TierBadge pkg={p.key} small className="absolute left-1 top-1 z-20" />
                     </div>
-                    <div className="flex min-w-0 flex-1 flex-col px-3 py-3">
-                      <h3 className="font-heading text-[22px] font-bold leading-tight" style={{ color: s.name }}>{p.name}</h3>
-                      <p className="mt-0.5 text-[13px] font-bold uppercase tracking-[0.05em]" style={{ color: s.muted }}>{p.tag}</p>
-                      <p className="text-[13px] font-semibold" style={{ color: s.muted }}>Usually lasts {p.lasts}*</p>
-                      <ul className="mt-2 space-y-1">
+                    <div className="flex flex-1 flex-col px-1.5 pb-2 pt-1.5">
+                      <p className="font-heading text-[18px] font-bold leading-[20px]" style={{ color: s.name }}>{p.short}</p>
+                      <p className="mt-0.5 text-[12px] font-bold uppercase leading-[14px] tracking-[0.02em]" style={{ color: s.muted }}>{p.tag}</p>
+                      <p className="text-[12px] font-semibold leading-[14px]" style={{ color: s.muted }}>Lasts {p.lasts}*</p>
+                      <ul className="mt-1.5 flex-1 space-y-1">
                         {p.lines.map((l) => (
-                          <li key={l.text} className="flex items-start gap-1.5 text-[14px] font-medium leading-snug"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
+                          <li key={l.text} className="flex items-start gap-1 text-[12px] font-medium leading-[15px]"><Check className="mt-0.5 h-3 w-3 shrink-0" style={{ color: p.key === "legacy" ? s.name : s.accent }} />{l.text}</li>
                         ))}
                       </ul>
-                      <div className="mt-2.5 rounded-xl px-3 py-2" style={s.priceBox}>
+                      <div className="mt-1.5 rounded-lg px-1.5 py-1.5" style={s.priceBox}>
                         {discount ? (
-                          <p className="flex flex-wrap items-center gap-1.5 text-[13px]">
-                            <span className="rounded px-1.5 py-0.5 text-[11px] font-bold uppercase" style={s.offChip}>20% off</span>
+                          <p className="flex flex-wrap items-center gap-1 text-[12px] leading-[14px]">
+                            <span className="rounded px-1 py-px text-[11px] font-bold uppercase" style={s.offChip}>20% off</span>
                             <s className="opacity-75">{formatCurrency(p.regular)}</s>
                           </p>
-                        ) : <p className="text-[12px] opacity-75">Regular price</p>}
-                        <p className="mt-0.5 font-heading text-[30px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
-                        <p className="mt-1 text-[13px] font-semibold opacity-85">Tax included · or from ${monthlyFrom(p.price)}/mo</p>
+                        ) : <p className="text-[12px] leading-[14px] opacity-75">Regular price</p>}
+                        <p className="mt-1 font-heading text-[21px] font-bold leading-none tabular-nums" style={{ color: s.price }}>{formatCurrency(p.price)}</p>
+                        <p className="mt-1 text-[12px] font-semibold leading-[14px] opacity-85">or ${monthlyFrom(p.price)}/mo</p>
                       </div>
-                      {/* A choice circle, the way paper forms do it. The tick
-                          means picked, never just "open" (Alan, 2026-10-14). */}
-                      <p className="mt-2.5 flex items-center gap-2 text-[15px] font-bold" style={{ color: s.name }}>
+                      {/* The tick means picked, never just "open" (Alan, 2026-10-14). */}
+                      <p className="mt-1.5 flex items-center gap-1.5 text-[12px] font-bold leading-[14px]" style={{ color: s.name }}>
                         {on
-                          ? <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-4 w-4" /></span>
-                          : <span className="h-7 w-7 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
-                        {on ? `${p.short} is your pick` : `Tap to pick ${p.short}`}
+                          ? <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#15130F] text-[#E3BE63] ring-2 ring-[#C9972F]"><Check className="h-3.5 w-3.5" /></span>
+                          : <span className="h-6 w-6 shrink-0 rounded-full border-2 bg-white/80" style={{ borderColor: s.muted }} />}
+                        {on ? "Picked" : "Tap to pick"}
                       </p>
                     </div>
                   </button>
@@ -1008,7 +1007,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               })}
             </div>
           )}
-          <p className="mt-3 text-center text-sm text-[#15130F]/75">Every package: two coats of stain and a 1-year warranty on our work. Choose based on the condition of your wood and the look you want.</p>
+          <p className="mt-3 text-center text-sm text-[#15130F]/75">Every price includes tax. Every package: two coats of stain and a 1-year warranty on our work. Choose based on the condition of your wood and the look you want.</p>
         </section>
 
         {/* Colours: a gallery to look at, not a decision to make here. Tap
