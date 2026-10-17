@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from api.auth import REVENUE_USERS, require_staff
 from config import get_settings
-from database import CompanyCamJob, ContentItem, Estimate, Lead, get_db
+from database import CompanyCamJob, ContentItem, Estimate, Lead, ScheduledJob, get_db
 from services import supabase_storage as storage
 
 router = APIRouter()
@@ -42,22 +42,37 @@ def _safe_name(name: str) -> str:
 
 
 def _leads(db, ids: set[str], with_price: bool) -> dict[str, dict]:
-    """What the editor needs to know about each tagged job."""
+    """What the editor needs to know about each tagged job: the booked job
+    first (its calendar day, package, price), the estimate as a fallback,
+    the colour from Company Cam."""
     ids = {i for i in ids if i}
     if not ids:
         return {}
     out: dict[str, dict] = {}
     for l in db.query(Lead.id, Lead.contact_name, Lead.address).filter(Lead.id.in_(ids)).all():
-        out[l.id] = {"id": l.id, "name": l.contact_name or "", "address": l.address or "", "package": "", "color": "", "price": None}
+        out[l.id] = {"id": l.id, "name": l.contact_name or "", "address": l.address or "",
+                     "package": "", "color": "", "price": None, "job_date": ""}
+    jobs = (db.query(ScheduledJob.lead_id, ScheduledJob.job_date, ScheduledJob.package_tier, ScheduledJob.closed_price)
+            .filter(ScheduledJob.lead_id.in_(ids)).order_by(ScheduledJob.job_date.desc()).all())
+    seen: set[str] = set()
+    for j in jobs:
+        if j.lead_id in seen or j.lead_id not in out:
+            continue
+        seen.add(j.lead_id)
+        out[j.lead_id]["job_date"] = j.job_date or ""
+        out[j.lead_id]["package"] = (j.package_tier or "").replace("_", " ").title()
+        if with_price and j.closed_price:
+            out[j.lead_id]["price"] = float(j.closed_price)
     ests = (db.query(Estimate.lead_id, Estimate.closed_tier, Estimate.closed_price, Estimate.created_at)
             .filter(Estimate.lead_id.in_(ids)).order_by(Estimate.created_at.desc()).all())
-    seen: set[str] = set()
+    seen_e: set[str] = set()
     for e in ests:
-        if e.lead_id in seen or e.lead_id not in out:
+        if e.lead_id in seen_e or e.lead_id not in out:
             continue
-        seen.add(e.lead_id)
-        out[e.lead_id]["package"] = (e.closed_tier or "").replace("_", " ").title()
-        if with_price and e.closed_price:
+        seen_e.add(e.lead_id)
+        if not out[e.lead_id]["package"]:
+            out[e.lead_id]["package"] = (e.closed_tier or "").replace("_", " ").title()
+        if with_price and out[e.lead_id]["price"] is None and e.closed_price:
             out[e.lead_id]["price"] = float(e.closed_price)
     for j in db.query(CompanyCamJob.lead_id, CompanyCamJob.final_color).filter(CompanyCamJob.lead_id.in_(ids)).all():
         if j.lead_id in out:
@@ -65,11 +80,25 @@ def _leads(db, ids: set[str], with_price: bool) -> dict[str, dict]:
     return out
 
 
-def _item(c: ContentItem, leads: dict[str, dict]) -> dict:
+def _fill_from_job(c: ContentItem, job: dict | None) -> None:
+    """Copy the job's details onto the item (the editor's copy)."""
+    if not job:
+        return
+    c.customer_name = job["name"]
+    c.package = job["package"]
+    c.color = job["color"]
+    c.sold_for = job["price"]
+    if job["job_date"]:
+        c.shot_on = job["job_date"]
+
+
+def _item(c: ContentItem, leads: dict[str, dict], with_price: bool = True) -> dict:
     return {
         "id": c.id, "kind": c.kind, "filename": c.filename, "mime": c.mime, "size": int(c.size or 0),
         "url": c.storage_url, "width": c.width, "height": c.height, "duration_seconds": c.duration_seconds,
         "lead_id": c.lead_id or "", "note": c.note or "", "shot_on": c.shot_on or "", "status": c.status or "raw",
+        "customer_name": c.customer_name or "", "package": c.package or "", "color": c.color or "",
+        "sold_for": (float(c.sold_for) if c.sold_for is not None else None) if with_price else None,
         "created_at": c.created_at or "", "created_by": c.created_by or "",
         "lead": leads.get(c.lead_id or ""),
     }
@@ -133,7 +162,7 @@ def mark_uploaded(item_id: str, body: UploadedBody, user: dict = Depends(require
         c.uploaded = True
         c.width, c.height, c.duration_seconds = body.width, body.height, body.duration_seconds
         db.commit()
-        return _item(c, _leads(db, {c.lead_id or ""}, _revenue(user)))
+        return _item(c, _leads(db, {c.lead_id or ""}, _revenue(user)), _revenue(user))
     finally:
         db.close()
 
@@ -149,7 +178,7 @@ def list_content(status: str = "", lead_id: str = "", q: str = "", user: dict = 
             query = query.filter(ContentItem.lead_id == lead_id)
         rows = query.order_by(ContentItem.shot_on.desc(), ContentItem.created_at.desc()).limit(1000).all()
         leads = _leads(db, {r.lead_id or "" for r in rows}, _revenue(user))
-        items = [_item(r, leads) for r in rows]
+        items = [_item(r, leads, _revenue(user)) for r in rows]
         if q.strip():
             needle = q.strip().lower()
             items = [i for i in items if needle in (i["note"] + " " + i["filename"] + " "
@@ -164,6 +193,13 @@ class ContentPatch(BaseModel):
     note: str | None = None
     shot_on: str | None = None
     status: str | None = None
+    customer_name: str | None = None
+    package: str | None = None
+    color: str | None = None
+    sold_for: float | None = None
+    clear_sold_for: bool = False
+    # Pull the job's details back onto the item after edits.
+    reset_from_job: bool = False
 
 
 @router.patch("/content/{item_id}")
@@ -173,10 +209,18 @@ def update_content(item_id: str, body: ContentPatch, user: dict = Depends(requir
         c = db.query(ContentItem).filter(ContentItem.id == item_id, ContentItem.archived.is_(False)).first()
         if not c:
             raise HTTPException(404, "Not found")
+        rev = _revenue(user)
         if body.lead_id is not None:
             if body.lead_id and not db.query(Lead.id).filter(Lead.id == body.lead_id).first():
                 raise HTTPException(404, "That customer wasn't found")
+            changed = (body.lead_id or None) != (c.lead_id or None)
             c.lead_id = body.lead_id or None
+            if changed and c.lead_id:
+                # A new customer: the card describes them now, and the shoot
+                # date becomes the job's calendar day.
+                _fill_from_job(c, _leads(db, {c.lead_id}, True).get(c.lead_id))
+        if body.reset_from_job and c.lead_id:
+            _fill_from_job(c, _leads(db, {c.lead_id}, True).get(c.lead_id))
         if body.note is not None:
             c.note = body.note.strip()[:2000]
         if body.shot_on is not None:
@@ -185,8 +229,18 @@ def update_content(item_id: str, body: ContentPatch, user: dict = Depends(requir
             if body.status not in STATUSES:
                 raise HTTPException(400, "status must be raw, edited or posted")
             c.status = body.status
+        if body.customer_name is not None:
+            c.customer_name = body.customer_name.strip()[:120]
+        if body.package is not None:
+            c.package = body.package.strip()[:60]
+        if body.color is not None:
+            c.color = body.color.strip()[:80]
+        if rev and body.clear_sold_for:
+            c.sold_for = None
+        elif rev and body.sold_for is not None:
+            c.sold_for = max(0.0, float(body.sold_for))
         db.commit()
-        return _item(c, _leads(db, {c.lead_id or ""}, _revenue(user)))
+        return _item(c, _leads(db, {c.lead_id or ""}, rev), rev)
     finally:
         db.close()
 

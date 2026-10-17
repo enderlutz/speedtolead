@@ -1921,7 +1921,7 @@ export const api = {
     request<{ id: string; upload_url: string; public_url: string }>(`/api/content/sign`, { method: "POST", body: JSON.stringify(body) }),
   contentUploaded: (id: string, body: { width?: number; height?: number; duration_seconds?: number }) =>
     request<ContentItem>(`/api/content/${id}/uploaded`, { method: "POST", body: JSON.stringify(body) }),
-  updateContent: (id: string, patch: { lead_id?: string; note?: string; shot_on?: string; status?: string }) =>
+  updateContent: (id: string, patch: ContentPatch) =>
     request<ContentItem>(`/api/content/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   removeContent: (id: string) => request<{ ok: boolean }>(`/api/content/${id}`, { method: "DELETE" }),
   metaStatus: () => request<MetaStatus>(`/api/meta/status`),
@@ -5960,11 +5960,13 @@ export type CourseModuleEdit = {
 };
 export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };
 
-export type ContentLead = { id: string; name: string; address: string; package: string; color: string; price: number | null };
+export type ContentLead = { id: string; name: string; address: string; package: string; color: string; price: number | null; job_date: string };
+export type ContentPatch = { lead_id?: string; note?: string; shot_on?: string; status?: string; customer_name?: string; package?: string; color?: string; sold_for?: number | null; clear_sold_for?: boolean; reset_from_job?: boolean };
 export type ContentItem = {
   id: string; kind: "photo" | "video"; filename: string; mime: string; size: number; url: string;
   width: number | null; height: number | null; duration_seconds: number | null;
   lead_id: string; note: string; shot_on: string; status: "raw" | "edited" | "posted";
+  customer_name: string; package: string; color: string; sold_for: number | null;
   created_at: string; created_by: string; lead: ContentLead | null;
 };
 export type MetaStatus = { connected: boolean; account_id?: string; name?: string; currency?: string; status?: number; timezone?: string; error?: string };

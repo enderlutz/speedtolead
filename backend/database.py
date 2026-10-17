@@ -1921,8 +1921,15 @@ class ContentItem(Base):
     uploaded = Column(Boolean, default=False, nullable=False)
 
     lead_id = Column(Text, nullable=True)          # the customer it was shot at
+    # The job as the editor should read it. Filled from the lead when it's
+    # tagged, then editable here without touching the real estimate (Alan,
+    # 2026-10-17: "I can edit the package, the color, sold for").
+    customer_name = Column(Text, default="")
+    package = Column(Text, default="")
+    color = Column(Text, default="")
+    sold_for = Column(Float, nullable=True)
     note = Column(Text, default="")
-    shot_on = Column(Text, default="")             # YYYY-MM-DD
+    shot_on = Column(Text, default="")             # YYYY-MM-DD, the job's calendar day when tagged
     status = Column(Text, default="raw")           # raw | edited | posted
 
     created_at = Column(Text, default="")
@@ -4653,6 +4660,15 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(ddl))
                 logger.info(f"Migration: added call_analyses.{new_col}")
+
+    if inspector.has_table("content_items"):
+        ci_cols = {c["name"] for c in inspector.get_columns("content_items")}
+        for col, ddl in (("customer_name", "TEXT DEFAULT ''"), ("package", "TEXT DEFAULT ''"),
+                         ("color", "TEXT DEFAULT ''"), ("sold_for", "REAL")):
+            if col not in ci_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE content_items ADD COLUMN {col} {ddl}"))
+                logger.info(f"Migration: added content_items.{col}")
 
     if inspector.has_table("call_recordings"):
         call_rec_cols = {c["name"] for c in inspector.get_columns("call_recordings")}

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Check, Clapperboard, Download, ImagePlus, Loader2, Search, Trash2, Video, X } from "lucide-react";
+import { ArrowLeft, Check, Clapperboard, Download, ImagePlus, Loader2, Search, Trash2, Video, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, canSeeRevenue, type ContentItem, type LeanLead } from "@/lib/api";
+import { api, canSeeRevenue, type ContentItem, type ContentPatch, type LeanLead } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
 // Social media content (Alan, 2026-10-17): every photo and video from a job
@@ -104,7 +104,7 @@ export default function SocialMedia() {
     setTimeout(() => setJobs((j) => j.filter((x) => x.state !== "done")), 4000);
   };
 
-  const patch = async (id: string, p: Parameters<typeof api.updateContent>[1]) => {
+  const patch = async (id: string, p: ContentPatch) => {
     try {
       const fresh = await api.updateContent(id, p);
       setItems((cur) => (cur || []).map((x) => (x.id === id ? fresh : x)));
@@ -187,7 +187,7 @@ export default function SocialMedia() {
                   it.status === "posted" ? "bg-emerald-600" : it.status === "edited" ? "bg-blue-600" : "bg-stone-600")}>{it.status}</span>
               </div>
               <div className="space-y-0.5 p-2">
-                <p className="truncate text-sm font-semibold">{it.lead ? it.lead.name || "Customer" : <span className="text-amber-700">Not tagged yet</span>}</p>
+                <p className="truncate text-sm font-semibold">{it.customer_name || it.lead?.name || <span className="text-amber-700">Not tagged yet</span>}</p>
                 <p className="truncate text-xs text-muted-foreground">{when(it.shot_on || it.created_at)}{it.width ? ` · ${it.width}×${it.height}` : ""} · {mb(it.size)}</p>
                 {it.note && <p className="truncate text-xs text-muted-foreground">{it.note}</p>}
               </div>
@@ -209,17 +209,42 @@ export default function SocialMedia() {
 
 function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
   item: ContentItem; showPrice: boolean; onClose: () => void;
-  onPatch: (p: { lead_id?: string; note?: string; shot_on?: string; status?: string }) => Promise<void>; onRemove: () => void;
+  onPatch: (p: ContentPatch) => Promise<void>; onRemove: () => void;
 }) {
+  // The phone's back swipe (and the Back button) closes this, not the page
+  // (Alan, 2026-10-17: "to back out I have to swipe left, it looks unprofessional").
+  const closing = useRef(false);
+  useEffect(() => {
+    window.history.pushState({ sheet: item.id }, "");
+    const onPop = () => { closing.current = true; onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("keydown", onKey);
+      if (!closing.current && window.history.state?.sheet === item.id) window.history.back();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per opened item
+  }, [item.id]);
+  const close = () => {
+    if (window.history.state?.sheet === item.id) { closing.current = true; window.history.back(); }
+    onClose();
+  };
+
   const [note, setNote] = useState(item.note);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ customer_name: item.customer_name, package: item.package, color: item.color, sold_for: item.sold_for == null ? "" : String(item.sold_for) });
   const [picking, setPicking] = useState(!item.lead_id);
   const [lq, setLq] = useState("");
   const [found, setFound] = useState<LeanLead[]>([]);
   const [searching, setSearching] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!picking) return;
     let live = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: shows the spinner while the search runs.
+     
     setSearching(true);
     const t = setTimeout(() => {
       (lq.trim() ? api.searchLeads(lq.trim(), 8) : api.recentLeads(8))
@@ -231,90 +256,141 @@ function Detail({ item, showPrice, onClose, onPatch, onRemove }: {
   }, [lq, picking]);
   const download = `${item.url}?download=${encodeURIComponent(item.filename || "file")}`;
 
+  const saveNote = async () => { setBusy(true); await onPatch({ note }); setBusy(false); setNoteSaved(true); setTimeout(() => setNoteSaved(false), 2500); };
+  const saveCard = async () => {
+    setBusy(true);
+    const p: ContentPatch = { customer_name: draft.customer_name, package: draft.package, color: draft.color };
+    if (showPrice) {
+      const n = parseFloat(draft.sold_for.replace(/[^0-9.]/g, ""));
+      if (draft.sold_for.trim() === "") p.clear_sold_for = true; else if (!isNaN(n)) p.sold_for = n;
+    }
+    await onPatch(p);
+    setBusy(false); setEditing(false);
+  };
+  const startEdit = () => { setDraft({ customer_name: item.customer_name, package: item.package, color: item.color, sold_for: item.sold_for == null ? "" : String(item.sold_for) }); setEditing(true); };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onClick={onClose}>
-      <div className="max-h-[95vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-background shadow-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-          <p className="truncate text-sm font-semibold">{item.filename}</p>
-          <button onClick={onClose} className="rounded-md p-2 hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onClick={close}>
+      <div className="flex max-h-[96vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-background shadow-2xl sm:max-h-[92vh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b px-2 py-2">
+          <button onClick={close} className="inline-flex min-h-[44px] items-center gap-1 rounded-lg px-3 text-base font-semibold hover:bg-muted"><ArrowLeft className="h-5 w-5" /> Back</button>
+          <p className="min-w-0 flex-1 truncate text-center text-sm font-semibold">{item.filename}</p>
+          <button onClick={close} className="rounded-lg p-2.5 hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
         </div>
-        <div className="bg-black">
-          {item.kind === "video"
-            ? <video src={item.url} controls playsInline className="mx-auto max-h-[55vh] w-full" />
-            : <img src={item.url} alt="" className="mx-auto max-h-[55vh] w-full object-contain" />}
-        </div>
-        <div className="space-y-4 p-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{when(item.shot_on || item.created_at)}</span>
-            {item.width ? <span>· {item.width}×{item.height}</span> : null}
-            {item.duration_seconds != null ? <span>· {dur(item.duration_seconds)}</span> : null}
-            <span>· {mb(item.size)} · original file, untouched</span>
-            <a href={download} className="ml-auto inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold text-foreground"><Download className="h-4 w-4" /> Download original</a>
+        <div className="overflow-y-auto">
+          <div className="bg-black">
+            {item.kind === "video"
+              ? <video src={item.url} controls playsInline className="mx-auto max-h-[45vh] w-full" />
+              : <img src={item.url} alt="" className="mx-auto max-h-[45vh] w-full object-contain" />}
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Status</p>
-              <div className="flex gap-1.5">
-                {(["raw", "edited", "posted"] as const).map((s) => (
-                  <button key={s} onClick={() => void onPatch({ status: s })}
-                    className={cn("min-h-[40px] flex-1 rounded-lg text-sm font-semibold capitalize", item.status === s ? "bg-primary text-primary-foreground" : "bg-muted")}>{s}</button>
-                ))}
-              </div>
+          <div className="space-y-4 p-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{when(item.shot_on || item.created_at)}</span>
+              {item.width ? <span>· {item.width}×{item.height}</span> : null}
+              {item.duration_seconds != null ? <span>· {dur(item.duration_seconds)}</span> : null}
+              <span>· {mb(item.size)} · original file, untouched</span>
+              <a href={download} className="ml-auto inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold text-foreground"><Download className="h-4 w-4" /> Download original</a>
             </div>
-            <div>
-              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Shot on</p>
-              <Input type="date" value={item.shot_on || today()} onChange={(e) => void onPatch({ shot_on: e.target.value })} className="h-10" />
-            </div>
-          </div>
 
-          <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Note</p>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} onBlur={() => { if (note !== item.note) void onPatch({ note }); }}
-              placeholder="Black fence, came out beautiful. Good for a before/after." className="h-10" />
-          </div>
-
-          <div>
-            <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Customer</p>
-            {item.lead && !picking ? (
-              <div className="rounded-xl border bg-card p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-semibold">{item.lead.name || "Customer"}</p>
-                    <p className="truncate text-sm text-muted-foreground">{item.lead.address}</p>
-                  </div>
-                  <button onClick={() => setPicking(true)} className="shrink-0 text-sm font-semibold text-primary">Change</button>
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-                  <div><div className="text-xs text-muted-foreground">Package</div>{item.lead.package || "—"}</div>
-                  <div><div className="text-xs text-muted-foreground">Color</div>{item.lead.color || "—"}</div>
-                  {showPrice && <div><div className="text-xs text-muted-foreground">Sold for</div>{item.lead.price != null ? formatCurrency(item.lead.price) : "—"}</div>}
-                </div>
-                <Link to={`/leads/${item.lead.id}`} className="mt-2 inline-block text-sm font-semibold text-primary">Open the job: scope, the crew's photos, everything →</Link>
-              </div>
-            ) : (
-              <div className="rounded-xl border bg-card p-3">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input autoFocus value={lq} onChange={(e) => setLq(e.target.value)} placeholder="Customer name or address" className="h-10 pl-8" />
-                </div>
-                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
-                  {searching && found.length === 0 ? <Loader2 className="h-4 w-4 animate-spin" /> : found.map((l) => (
-                    <button key={l.id} onClick={() => { void onPatch({ lead_id: l.id }); setPicking(false); }}
-                      className="flex w-full flex-col rounded-lg px-2 py-2 text-left hover:bg-muted">
-                      <span className="text-sm font-semibold">{l.contact_name || "Customer"}</span>
-                      <span className="truncate text-xs text-muted-foreground">{l.address}</span>
-                    </button>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Status</p>
+                <div className="flex gap-1.5">
+                  {(["raw", "edited", "posted"] as const).map((s) => (
+                    <button key={s} onClick={() => void onPatch({ status: s })}
+                      className={cn("min-h-[44px] flex-1 rounded-lg text-sm font-semibold capitalize", item.status === s ? "bg-primary text-primary-foreground" : "bg-muted")}>{s}</button>
                   ))}
-                  {!searching && found.length === 0 && <p className="px-2 py-1 text-sm text-muted-foreground">No customer matches that.</p>}
                 </div>
-                {item.lead && <button onClick={() => setPicking(false)} className="mt-2 text-sm text-muted-foreground">Keep {item.lead.name}</button>}
               </div>
-            )}
-          </div>
+              <div>
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Shot on <span className="font-normal normal-case">(the job's calendar day once tagged)</span></p>
+                <Input type="date" value={item.shot_on || today()} onChange={(e) => void onPatch({ shot_on: e.target.value })} className="h-11" />
+              </div>
+            </div>
 
-          <div className="flex justify-end">
-            <Button variant="ghost" size="sm" onClick={onRemove} className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="mr-1.5 h-4 w-4" /> Remove from library</Button>
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Note</p>
+              <div className="flex gap-2">
+                <Input value={note} onChange={(e) => { setNote(e.target.value); setNoteSaved(false); }}
+                  placeholder="Black fence, came out beautiful. Good for a before/after." className="h-11 flex-1" />
+                <Button onClick={() => void saveNote()} disabled={busy || note === item.note} className="h-11 min-w-[88px] font-bold">
+                  {noteSaved ? <><Check className="mr-1 h-4 w-4" /> Saved</> : "Save"}
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Customer and job</p>
+                {item.lead_id && !picking && !editing && (
+                  <div className="flex gap-3 text-sm font-semibold text-primary">
+                    <button onClick={startEdit}>Edit details</button>
+                    <button onClick={() => setPicking(true)}>Change customer</button>
+                  </div>
+                )}
+              </div>
+
+              {picking ? (
+                <div className="rounded-xl border bg-card p-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input autoFocus value={lq} onChange={(e) => setLq(e.target.value)} placeholder="Customer name or address" className="h-11 pl-8" />
+                  </div>
+                  <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                    {searching && found.length === 0 ? <Loader2 className="h-4 w-4 animate-spin" /> : found.map((l) => (
+                      <button key={l.id} onClick={() => { void onPatch({ lead_id: l.id }); setPicking(false); }}
+                        className="flex min-h-[44px] w-full flex-col justify-center rounded-lg px-2 py-1.5 text-left hover:bg-muted">
+                        <span className="text-sm font-semibold">{l.contact_name || "Customer"}</span>
+                        <span className="truncate text-xs text-muted-foreground">{l.address}</span>
+                      </button>
+                    ))}
+                    {!searching && found.length === 0 && <p className="px-2 py-1 text-sm text-muted-foreground">No customer matches that.</p>}
+                  </div>
+                  {item.lead_id && <button onClick={() => setPicking(false)} className="mt-2 min-h-[40px] text-sm text-muted-foreground">Keep {item.customer_name || item.lead?.name}</button>}
+                </div>
+              ) : editing ? (
+                <div className="space-y-2 rounded-xl border bg-card p-3">
+                  <label className="block text-xs text-muted-foreground">Customer name
+                    <Input value={draft.customer_name} onChange={(e) => setDraft({ ...draft, customer_name: e.target.value })} className="mt-0.5 h-11" /></label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-xs text-muted-foreground">Package
+                      <select value={["Essential", "Signature", "Legacy", "Custom", ""].includes(draft.package) ? draft.package : "other"}
+                        onChange={(e) => setDraft({ ...draft, package: e.target.value === "other" ? draft.package : e.target.value })}
+                        className="mt-0.5 h-11 w-full rounded-md border bg-background px-2 text-sm text-foreground">
+                        <option value="">—</option><option>Essential</option><option>Signature</option><option>Legacy</option><option>Custom</option>
+                        {!["Essential", "Signature", "Legacy", "Custom", ""].includes(draft.package) && <option value="other">{draft.package}</option>}
+                      </select></label>
+                    <label className="block text-xs text-muted-foreground">Color
+                      <Input value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} className="mt-0.5 h-11" /></label>
+                  </div>
+                  {showPrice && (
+                    <label className="block text-xs text-muted-foreground">Sold for ($)
+                      <Input inputMode="decimal" value={draft.sold_for} onChange={(e) => setDraft({ ...draft, sold_for: e.target.value })} className="mt-0.5 h-11" /></label>
+                  )}
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button onClick={() => void saveCard()} disabled={busy} className="h-11 font-bold">Save</Button>
+                    <Button variant="outline" onClick={() => setEditing(false)} className="h-11">Cancel</Button>
+                    {item.lead_id && <button onClick={() => { void onPatch({ reset_from_job: true }); setEditing(false); }} className="ml-auto text-sm text-muted-foreground">Use the job's details</button>}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border bg-card p-3">
+                  <p className="font-semibold">{item.customer_name || item.lead?.name || "Customer"}</p>
+                  {item.lead?.address && <p className="truncate text-sm text-muted-foreground">{item.lead.address}</p>}
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                    <div><div className="text-xs text-muted-foreground">Package</div>{item.package || "—"}</div>
+                    <div><div className="text-xs text-muted-foreground">Color</div>{item.color || "—"}</div>
+                    {showPrice && <div><div className="text-xs text-muted-foreground">Sold for</div>{item.sold_for != null ? formatCurrency(item.sold_for) : "—"}</div>}
+                  </div>
+                  {item.lead && <Link to={`/leads/${item.lead.id}`} className="mt-2 inline-block min-h-[40px] text-sm font-semibold text-primary">Open the job: scope, the crew's photos, everything →</Link>}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pb-2">
+              <Button variant="ghost" size="sm" onClick={onRemove} className="text-red-600 hover:bg-red-50 hover:text-red-700"><Trash2 className="mr-1.5 h-4 w-4" /> Remove</Button>
+              <Button onClick={close} className="h-12 min-w-[120px] font-bold">Done</Button>
+            </div>
           </div>
         </div>
       </div>
