@@ -28,7 +28,7 @@ export default function MetaAds() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: fetches on mount.
+   
   useEffect(() => { api.metaStatus().then(setStatus).catch((e) => setStatus({ connected: false, error: String(e?.message || e) })); }, []);
 
   const load = useCallback(async () => {
@@ -37,7 +37,7 @@ export default function MetaAds() {
     catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load from Meta"); setData(null); }
     finally { setLoading(false); }
   }, [level, days]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- deliberate: refetch when the view changes.
+   
   useEffect(() => { if (status?.connected) load(); }, [status, load]);
 
   return (
