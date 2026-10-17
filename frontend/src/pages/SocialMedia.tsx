@@ -88,7 +88,7 @@ export default function SocialMedia() {
       toast.error(e instanceof Error ? e.message : "Couldn't load");
       setItems([]);
     }
-  }, [status]);
+  }, []);
    
   useEffect(() => { load(); }, [load]);
 
