@@ -81,7 +81,7 @@ export default function SocialMedia() {
 
   const load = useCallback(async () => {
     try {
-      const r = await api.listContent({ status });
+      const r = await api.listContent({});
       setItems(r.items);
       setReady(r.storage_ready);
     } catch (e) {
@@ -125,9 +125,18 @@ export default function SocialMedia() {
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return items || [];
-    return (items || []).filter((i) => `${i.note} ${i.filename} ${i.lead?.name || ""} ${i.lead?.address || ""}`.toLowerCase().includes(needle));
-  }, [items, q]);
+    return (items || []).filter((i) => (!status || i.status === status)
+      && (!needle || `${i.note} ${i.filename} ${i.customer_name} ${i.address}`.toLowerCase().includes(needle)));
+  }, [items, q, status]);
+  // "Raw (1 video)", "All (3 photos · 2 videos)": how much is in here, at a
+  // glance (Alan, 2026-10-17).
+  const tally = (key: string) => {
+    const pool = (items || []).filter((i) => !key || i.status === key);
+    const photos = pool.filter((i) => i.kind === "photo").length;
+    const videos = pool.length - photos;
+    const parts = [photos ? `${photos} photo${photos === 1 ? "" : "s"}` : "", videos ? `${videos} video${videos === 1 ? "" : "s"}` : ""].filter(Boolean);
+    return parts.length ? parts.join(" · ") : "0";
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -167,8 +176,8 @@ export default function SocialMedia() {
       <div className="flex flex-wrap items-center gap-2">
         {STATUSES.map((s) => (
           <button key={s.key} onClick={() => setStatus(s.key)}
-            className={cn("min-h-[40px] rounded-full px-4 text-sm font-semibold", status === s.key ? "bg-primary text-primary-foreground" : "bg-muted")}>
-            {s.label}
+            className={cn("min-h-[40px] rounded-full px-3.5 text-sm font-semibold", status === s.key ? "bg-primary text-primary-foreground" : "bg-muted")}>
+            {s.label} <span className={cn("font-normal", status === s.key ? "opacity-80" : "text-muted-foreground")}>({tally(s.key)})</span>
           </button>
         ))}
         <div className="relative ml-auto w-full sm:w-72">
