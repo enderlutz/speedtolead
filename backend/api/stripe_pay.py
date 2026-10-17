@@ -933,7 +933,9 @@ def start_session(token: str, body: SessionBody | None = None, request: Request 
         if embedded:
             # Stripe's form inside our page; after paying it comes back to
             # the same after-page the hosted version does.
-            params["ui_mode"] = "embedded"
+            # Stripe renamed this (2026-10-17: "`embedded` is no longer
+            # supported. Use `embedded_page` instead.").
+            params["ui_mode"] = "embedded_page"
             params["return_url"] = params.pop("success_url")
             params.pop("cancel_url", None)
         try:

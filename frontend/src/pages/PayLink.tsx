@@ -70,9 +70,14 @@ function EmbeddedCheckout({ token, pk, preview, onFail }: { token: string; pk: s
             const r = await fetch(`${BASE}/api/pay/${encodeURIComponent(token)}/session`, {
               method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ embedded: true, preview }),
             });
-            const data = (await r.json()) as { client_secret?: string; url?: string; detail?: string };
+            const data = (await r.json().catch(() => ({}))) as { client_secret?: string; url?: string; detail?: string };
             if (data.url && !data.client_secret) { window.location.assign(data.url); return ""; }
-            if (!r.ok || !data.client_secret) throw new Error(data.detail || "Stripe couldn't start the payment.");
+            if (!r.ok || !data.client_secret) {
+              // Stripe would show its own "Something went wrong" in the
+              // frame (Jeff, 2026-10-17); hand the page to the button instead.
+              onFail();
+              throw new Error(data.detail || "Stripe couldn't start the payment.");
+            }
             return data.client_secret;
           },
         });

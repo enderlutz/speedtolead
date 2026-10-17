@@ -651,7 +651,7 @@ def test_embedded_session_stays_on_our_page(db, monkeypatch):
     got = sp.start_session(out["token"], sp.SessionBody(embedded=True))
     assert got == {"client_secret": "cs_e_secret_x", "paid": False}
     p = seen[-1]
-    assert p["ui_mode"] == "embedded" and "/after/" in p["return_url"]
+    assert p["ui_mode"] == "embedded_page" and "/after/" in p["return_url"]
     assert "success_url" not in p and "cancel_url" not in p
     link = db.query(sp.PayLink).filter(sp.PayLink.token == out["token"]).first()
     assert link.stripe_session_id == "cs_e" and not link.checkout_started_at
