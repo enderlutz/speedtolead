@@ -95,6 +95,7 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/analytics", icon: BarChart3, label: "Analytics", perm: "analytics", divisions: ["fence"] },
   { to: "/calls", icon: Mic, label: "Call Coach", perm: "calls", divisions: ["fence"] },
   { to: "/training", icon: Brain, label: "Training", perm: "training", divisions: ["fence"] },
+  { to: "/documents", icon: FileText, label: "Documents", restrictToAny: ["fragned", "alanbonner"] },
   { to: "/crew", icon: HardHat, label: "Payroll", perm: "payroll", divisions: ["fence"] },
   { to: "/company-cam", icon: Camera, label: "Company Cam", perm: "company_cam", divisions: ["fence"] },
   { to: "/stain-inventory", icon: PaintBucket, label: "Stain Inventory", perm: "stain_inventory", divisions: ["fence"] },

@@ -1912,6 +1912,34 @@ export const api = {
     request<{ has_logo: boolean; filename: string; updated_at: string | null; updated_by: string }>(
       "/api/branding/logo/status"
     ),
+  // ── Documents: the business's PDFs (owner-only) ──
+  listDocuments: () => request<{ documents: DocumentRow[] }>(`/api/documents`),
+  uploadDocuments: async (files: File[]) => {
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/documents`, {
+      method: "POST", body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new Error(j.detail || "Upload failed");
+    }
+    return res.json() as Promise<{ documents: DocumentRow[] }>;
+  },
+  /** The file as a blob: URL, to open in a new tab. */
+  documentBlobUrl: async (id: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/documents/${id}/file`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error("Couldn't open it");
+    return URL.createObjectURL(await res.blob());
+  },
+  renameDocument: (id: string, title: string) =>
+    request<DocumentRow>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  removeDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
   uploadLogo: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -5913,3 +5941,5 @@ export type CourseModuleEdit = {
   status: "draft" | "published" | "archived";
 };
 export type CourseDraft = { summary: string; steps: string; mistakes: string; checklist: string[]; quiz: CourseQuizQ[] };
+
+export type DocumentRow = { id: string; title: string; filename: string; mime: string; size: number; created_at: string; created_by: string };

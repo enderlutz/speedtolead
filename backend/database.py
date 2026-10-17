@@ -3471,6 +3471,25 @@ class SystemConfig(Base):
         db.commit()
 
 
+class Document(Base):
+    """A PDF or file Alan keeps for the business: plans, playbooks, the
+    numbers (Alan, 2026-10-16: "somewhere we can store all these PDFs very
+    simply"). Owner-only: some hold customer names and money. Kept in the
+    database, not public storage, for the same reason."""
+    __tablename__ = "documents"
+    __table_args__ = (Index("idx_documents_created", "created_at"),)
+
+    id = Column(Text, primary_key=True)
+    title = Column(Text, nullable=False, default="")
+    filename = Column(Text, default="")
+    mime = Column(Text, default="application/pdf")
+    size = Column(Integer, default=0)
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(Text, default="")
+    created_by = Column(Text, default="")
+    archived = Column(Boolean, default=False)
+
+
 class TrainingModule(Base):
     """One lesson in the VA training course (Alan, 2026-10-16): a screen
     recording of him doing the task (Loom), the steps written out from it, the

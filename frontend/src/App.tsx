@@ -51,6 +51,7 @@ import { TrainingModeProvider } from "@/lib/training_mode_context";
 import JobSops from "@/pages/JobSops";
 import InvoiceQueue from "@/pages/InvoiceQueue";
 import Revenue from "@/pages/Revenue";
+import Documents from "@/pages/Documents";
 import DailyTasks from "@/pages/DailyTasks";
 import Contacts from "@/pages/Contacts";
 import Accounting from "@/pages/Accounting";
@@ -238,6 +239,7 @@ function AppLayout() {
               <Route path="/analytics" element={<RequireView view="analytics"><Analytics /></RequireView>} />
               <Route path="/calls" element={<RequireView view="calls"><Calls /></RequireView>} />
               <Route path="/training" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
+              <Route path="/documents" element={<RevenueOnly><Documents /></RevenueOnly>} />
               {/* The old call simulator, archived 2026-10-16 (Alan: start from scratch). */}
               <Route path="/training/archive" element={<RequireView view="training"><Training /></RequireView>} />
               <Route path="/training/:moduleId" element={<RequireView view="training"><TrainingCourse /></RequireView>} />
