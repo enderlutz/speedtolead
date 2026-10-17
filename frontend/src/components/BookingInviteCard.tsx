@@ -26,6 +26,8 @@ type Draft = {
   rtype: "amount" | "percent"; rval: string; rlabel: string;
   /** Other services booked with the fence (Alan, 2026-10-16), price as typed. */
   services: { name: string; price: string; description: string }[];
+  /** Which estimate's prices; "" = the default (the one they closed on). */
+  estimateId: string;
 };
 // One tap adds the line; the price is typed (it comes from their estimate).
 const SERVICE_PICKS = ["House soft wash", "Driveway, walkways & front porch", "Back patio cleaning", "Gutter cleaning", "Window cleaning", "Roof soft wash"];
@@ -43,6 +45,14 @@ const DAY = "[day]";
 const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 /** The next two weeks as tap targets, weekday on each, so a day is never
  *  picked off the iPhone wheel by mistake. */
+/** "Oct 17, 2:13 PM" in Houston time. */
+function shortWhen(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function nextDays(n = 14): string[] {
   const out: string[] = [];
   const d = new Date();
@@ -55,7 +65,7 @@ function nextThursday(): string {
   d.setDate(d.getDate() + (((4 - d.getDay() + 7) % 7) || 7));
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [] });
+const blank = (): Draft => ({ date: nextThursday(), tier: "signature", color: "", notes: "", klarna: false, dtype: "amount", dval: "", dlabel: "", counts: {}, picketType: PICKETS[0].key, postType: POSTS[0].key, rtype: "amount", rval: "", rlabel: "", services: [], estimateId: "" });
 
 /** The discount in dollars, the same rule as the server: never the whole price. */
 function discountOff(price: number, d: Draft): number {
@@ -98,19 +108,23 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
         rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
         services: (d.services || []).map((x) => ({ name: x.name, price: String(x.price), description: x.description || "" })),
+        estimateId: d.estimate_id || "",
       }));
     }).catch(() => { /* nothing saved yet */ });
     return () => { alive = false; };
   }, [lead.id]);
   const text = msgEdited ? msg : presetFor();
 
-  // The prices are the ones on the estimate that went out.
-  const tiers = useMemo(() => {
-    const ests = [...(lead.estimates || [])].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-    const est = ests.find((e) => e.status === "sent") || ests[0];
-    const t = est?.tiers as Record<string, number> | undefined;
-    return t && t.signature ? t : null;
-  }, [lead.estimates]);
+  // Every estimate that has prices, newest first. A lead can get more than
+  // one (Charlotte: $2,160, then $1,734 after a side came off), so the office
+  // picks; with no pick, the one they closed on, then the newest sent, the
+  // same rule as the server.
+  const priceSets = useMemo(() => [...(lead.estimates || [])]
+    .filter((e) => e.tiers && e.tiers.essential && e.tiers.signature && e.tiers.legacy)
+    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")), [lead.estimates]);
+  const defaultSet = priceSets.find((e) => e.status === "closed") || priceSets.find((e) => e.status === "sent") || priceSets[0];
+  const chosenSet = priceSets.find((e) => e.id === draft.estimateId) || defaultSet;
+  const tiers = (chosenSet?.tiers as Record<string, number> | undefined) || null;
   const fd = (lead.form_data || {}) as Record<string, unknown>;
   const rawSides = fd.fence_sides;
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
@@ -135,7 +149,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const bump = (key: string, by: number) =>
     setDraft((d) => ({ ...d, counts: { ...d.counts, [key]: Math.max(0, (d.counts[key] || 0) + by) } }));
   const saved = st?.draft?.updated_at ? st.draft : null;
-  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
+  const pickedId = chosenSet && chosenSet.id !== defaultSet?.id ? chosenSet.id : "";
+  const changed = !saved || saved.date !== draft.date || saved.tier !== draft.tier || (saved.estimate_id || "") !== pickedId || (saved.color || "") !== draft.color || (saved.notes || "") !== draft.notes || !!saved.klarna !== draft.klarna
     || (saved.discount_value || 0) !== (Number(draft.dval) || 0)
     || ((saved.discount_value ? saved.discount_type : "") || "") !== (Number(draft.dval) ? draft.dtype : "")
     || (saved.discount_label || "") !== (Number(draft.dval) ? draft.dlabel : "")
@@ -160,6 +175,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       repairs_discount_type: roff ? draft.rtype : "", repairs_discount_value: roff ? Number(draft.rval) || 0 : 0,
       repairs_discount_label: roff ? draft.rlabel : "",
       services: serviceLines,
+      estimate_id: pickedId,
     });
     setSt((s) => (s ? { ...s, draft: d } : s));
     return d;
@@ -293,6 +309,27 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         </label>
       </div>
       <div>
+        {priceSets.length > 1 ? (
+          <div className="mb-3">
+            <p className="text-sm font-semibold">Which estimate? <span className="font-normal text-muted-foreground">({priceSets.length} sent)</span></p>
+            <div className="mt-1 space-y-1.5">
+              {priceSets.map((e) => {
+                const on = chosenSet?.id === e.id;
+                return (
+                  <button key={e.id} type="button" onClick={() => setDraft({ ...draft, estimateId: e.id })}
+                    className={cn("flex min-h-11 w-full flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg border px-3 py-2 text-left text-sm",
+                      on ? "border-bronze bg-gold/15 ring-1 ring-gold" : "border-input hover:bg-muted")}>
+                    <span className="font-semibold">{shortWhen(e.sent_at || e.created_at)}{e.label ? ` · ${e.label}` : ""}</span>
+                    {e.status === "closed" ? <span className="rounded bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-800">Closed on this</span> : null}
+                    <span className="tabular-nums text-muted-foreground">
+                      {TIERS.map((t) => `${t.name} ${formatCurrency(e.tiers[t.key])}`).join(" · ")}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <p className="text-sm font-semibold">Package</p>
         <div className="mt-1 grid grid-cols-3 gap-2">
           {TIERS.map((t) => (

@@ -265,3 +265,25 @@ def test_other_services_are_booked_with_the_fence_and_charged_everywhere(db, ghl
     assert stripe_pay._booked_services(db, lead.id)[0]["description"] == "All 4 sides, gutters and soffits"
     with pytest.raises(HTTPException):
         pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature", services=[{"name": "Gutters", "price": 0}]), STAFF)
+
+
+def test_a_second_estimate_can_be_booked_and_the_one_they_closed_on_is_the_default(db, ghl):
+    # Charlotte (2026-10-17): $2,160 went out, then $1,734 after a side came
+    # off, and she paid on the second. The invite must not fall back to $2,160.
+    lead = _lead(db, contact_name="Charlotte Robertson", contact_phone="+17135550101", contact_email="")
+    first = _estimate(db, lead, {"essential": 1900.8, "signature": 2160.0, "legacy": 2700.0})
+    second = _estimate(db, lead, {"essential": 1525.92, "signature": 1734.0, "legacy": 2167.5}, status="closed")
+    second.created_at = _later(first.created_at)
+    db.commit()
+    day = (date.today() + timedelta(days=5)).isoformat()
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="signature"), STAFF)
+    out = bk.send_booking(lead.id, bk.SendBody(), STAFF)
+    assert out["booking"]["total"] == 1734.0
+    # Picking the first estimate on purpose books its price.
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="legacy", estimate_id=first.id), STAFF)
+    out = bk.send_booking(lead.id, bk.SendBody(), STAFF)
+    assert out["booking"]["total"] == 2700.0
+
+
+def _later(iso):
+    return (datetime.fromisoformat(iso.replace("Z", "+00:00")) + timedelta(minutes=20)).isoformat()

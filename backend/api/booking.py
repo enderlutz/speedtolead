@@ -98,8 +98,30 @@ def _hold_until(b: Booking) -> str:
     return max(end, sent).isoformat()
 
 
-def _tiers(db, lead: Lead) -> dict | None:
+def _est_tiers(e: Estimate) -> dict | None:
+    try:
+        t = json.loads(e.tiers or "{}")
+    except Exception:
+        return None
+    if not all(isinstance(t.get(k), (int, float)) and t.get(k) for k in TIERS):
+        return None
+    return {k: float(t[k]) for k in TIERS}
+
+
+def _tiers(db, lead: Lead, estimate_id: str = "") -> dict | None:
+    """The package prices the booking uses. A lead can be sent more than one
+    estimate (Charlotte: $2,160, then $1,734 after a side came off), so the
+    office picks which one; with no pick, the one they closed on, then the
+    usual sent estimate."""
     ests = db.query(Estimate).filter(Estimate.lead_id == lead.id).all()
+    if estimate_id:
+        e = next((x for x in ests if x.id == estimate_id), None)
+        if e is not None and _est_tiers(e):
+            return _est_tiers(e)
+    closed = sorted((x for x in ests if x.status == "closed" and _est_tiers(x)),
+                    key=lambda x: x.created_at or "", reverse=True)
+    if closed:
+        return _est_tiers(closed[0])
     return preview_payload(lead, ests).get("tiers")
 
 
@@ -296,7 +318,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             raise HTTPException(status_code=400, detail="Pick a package first, then save the draft.")
         if _day(d["date"]) < _now().date():
             raise HTTPException(status_code=400, detail="That day has already passed.")
-        tiers = _tiers(db, lead)
+        tiers = _tiers(db, lead, d.get("estimate_id") or "")
         if not tiers or not tiers.get(d["tier"]):
             raise HTTPException(status_code=400, detail="This lead has no price for that package yet.")
         b = _active(db, lead.id)

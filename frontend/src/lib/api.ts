@@ -571,6 +571,8 @@ export interface BookingDraft {
   repairs_discount_label?: string;
   /** Other services booked with the fence, each with its price. */
   services?: BookingService[];
+  /** Which estimate's prices; blank = the one they closed on, then the sent one. */
+  estimate_id?: string;
   updated_at?: string;
   updated_by?: string;
 }
@@ -2250,7 +2252,7 @@ export const api = {
     request<{ ok: boolean }>(`/api/leads/${leadId}/objections/${objectionId}`, { method: "DELETE" }),
   /** The booking invite drafted on the lead (date, package, colour, notes). */
   getBookingDraft: (leadId: string) => request<BookingDraft>(`/api/leads/${leadId}/booking-draft`),
-  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label" | "repairs" | "repair_counts" | "picket_type" | "post_type" | "repairs_discount_type" | "repairs_discount_value" | "repairs_discount_label" | "services">) =>
+  saveBookingDraft: (leadId: string, d: Pick<BookingDraft, "date" | "tier" | "color" | "notes" | "klarna" | "discount_type" | "discount_value" | "discount_label" | "repairs" | "repair_counts" | "picket_type" | "post_type" | "repairs_discount_type" | "repairs_discount_value" | "repairs_discount_label" | "services" | "estimate_id">) =>
     request<BookingDraft>(`/api/leads/${leadId}/booking-draft`, { method: "PUT", body: JSON.stringify(d) }),
   clearBookingDraft: (leadId: string) => request<Record<string, never>>(`/api/leads/${leadId}/booking-draft`, { method: "DELETE" }),
   getBooking: (leadId: string) => request<BookingState>(`/api/leads/${leadId}/booking`),

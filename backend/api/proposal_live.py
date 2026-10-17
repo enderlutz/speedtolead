@@ -553,6 +553,9 @@ class BookingDraftBody(BaseModel):
     # Other services booked with the fence (house wash, driveway, patio…),
     # one line each with its price (Alan, 2026-10-16).
     services: list[dict] = []
+    # Which estimate's prices the booking uses, when more than one went out
+    # (Alan, 2026-10-17: Charlotte got $2,160 then $1,734). Blank = the default.
+    estimate_id: str = ""
 
 
 def clean_services(raw) -> list[dict]:
@@ -652,6 +655,7 @@ def save_booking_draft(lead_id: str, body: BookingDraftBody, user: dict = Depend
             "repairs_discount_type": rtype, "repairs_discount_value": rval,
             "repairs_discount_label": (body.repairs_discount_label or "").strip()[:60] if rtype else "",
             "services": services,
+            "estimate_id": (body.estimate_id or "").strip()[:64],
             "updated_at": _now().isoformat(), "updated_by": user.get("name") or user.get("sub") or "",
         }
         lead.form_data = json.dumps(fd)
