@@ -19,7 +19,8 @@ def meta_status(user: dict = Depends(require_revenue)):
     try:
         info = meta_ads.account_info()
     except meta_ads.MetaError as e:
-        return {"connected": False, "account_id": meta_ads.account_id(), "error": str(e)}
+        return {"connected": False, "account_id": meta_ads.account_id(),
+                "error": f"{e} {meta_ads.token_shape()}"}
     return {"connected": True, "account_id": meta_ads.account_id(), "name": info.get("name"),
             "currency": info.get("currency"), "status": info.get("account_status"),
             "timezone": info.get("timezone_name")}

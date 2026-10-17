@@ -24,7 +24,28 @@ class MetaError(Exception):
 
 
 def _token() -> str:
-    return (os.getenv("META_ACCESS_TOKEN") or "").strip()
+    # Forgive the usual paste damage: quotes around it, a "Bearer " in front,
+    # a line break or space in the middle.
+    raw = (os.getenv("META_ACCESS_TOKEN") or "").strip().strip("'\"").strip()
+    if raw.lower().startswith("bearer "):
+        raw = raw[7:]
+    return "".join(raw.split())
+
+
+def token_shape() -> str:
+    """What's wrong with the stored token, without showing it: Meta tokens
+    start with "EAA" and run ~150-250 characters, letters and digits only."""
+    t = _token()
+    if not t:
+        return "There's no token in Railway."
+    notes = [f"The token in Railway is {len(t)} characters"]
+    if not t.startswith("EAA"):
+        notes.append('it should start with "EAA" and doesn\'t, so it\'s probably the wrong thing (an app secret or ID?)')
+    if len(t) < 100:
+        notes.append("that's too short; the copy was likely cut off")
+    if not t.isalnum():
+        notes.append("it has characters a token never has")
+    return ", ".join(notes) + "."
 
 
 def account_id() -> str:

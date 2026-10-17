@@ -54,3 +54,9 @@ def test_error_message_surfaces(monkeypatch):
         assert False
     except meta_ads.MetaError as e:
         assert "bad perms" in str(e) and "SECRET" not in str(e)
+
+
+def test_paste_damage_forgiven(monkeypatch):
+    monkeypatch.setenv("META_ACCESS_TOKEN", ' "Bearer EAAabc\n def" ')
+    assert meta_ads._token() == "EAAabcdef"
+    assert "too short" in meta_ads.token_shape() and "EAAabc" not in meta_ads.token_shape()
