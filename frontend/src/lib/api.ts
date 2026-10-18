@@ -3967,6 +3967,8 @@ export interface ColorPlanRow {
 
 export interface CompanyCamJob {
   lead_id: string;
+  /** Brand-new or already clean fence: no cleaning step (Alan, 2026-10-18). */
+  no_cleaning?: boolean;
   sqft: number;
   sqft_edited: boolean;
   gallons_needed: number;

@@ -1855,6 +1855,9 @@ class CompanyCamJob(Base):
     # "Job done" step of the customer journey and tells Alan to invoice.
     completed_at = Column(Text, default="")
     completed_by = Column(Text, default="")
+    # Brand-new or freshly cleaned fence (Alan, 2026-10-18: exolei's is new):
+    # no cleaning step, the crew see only the staining side.
+    no_cleaning = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -4804,6 +4807,7 @@ def _run_migrations():
             ("extras_confirmed_by", "TEXT DEFAULT ''"),
             ("completed_at", "TEXT DEFAULT ''"),
             ("completed_by", "TEXT DEFAULT ''"),
+            ("no_cleaning", "BOOLEAN DEFAULT FALSE"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

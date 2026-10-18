@@ -196,3 +196,24 @@ def test_a_helpers_order_follows_the_main_tech(db, monkeypatch):
     import api.permissions as perms
     monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
     assert [r["name"] for r in cc.company_cam_jobs("", user={"sub": "Alfredo", "role": "worker"})] == ["exolei Morales", "Laura Henderson"]
+
+
+def test_a_fence_that_needs_no_cleaning(db, monkeypatch):
+    """exolei's fence is brand new: no cleaning photos owed, cleaning counts as
+    done in the progress, and only the office can say so."""
+    _seed(db)
+    monkeypatch.setattr(cc, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(cc, "_sees_all", lambda u: u.get("role") in ("admin", "va"))
+    import api.permissions as perms
+    monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
+    db.add(CompanyCamJob(id="J", lead_id="Y", crew_json="[]")); db.commit()
+    job = db.query(CompanyCamJob).filter_by(lead_id="Y").first()
+    assert any("Before-cleaning" in b for b in cc._blockers(job, []))
+    with pytest.raises(HTTPException):
+        cc.update_company_cam("Y", cc.CompanyCamPatch(no_cleaning=True), user=CHRIS)
+    cc.update_company_cam("Y", cc.CompanyCamPatch(no_cleaning=True), user=ALAN)
+    db.refresh(job)
+    assert job.no_cleaning is True
+    assert not any("cleaning photos" in b.lower() for b in cc._blockers(job, []))
+    assert pm.progress(job)["percent"] == 40 and pm.progress(job)["stage"] == "Cleaned, ready to stain"
+    assert cc._job_dict(job)["no_cleaning"] is True

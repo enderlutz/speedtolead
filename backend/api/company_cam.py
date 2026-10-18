@@ -357,6 +357,7 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "almost_done_how": job.almost_done_how or "",
         "completed_at": job.completed_at or "",
         "completed_by": job.completed_by or "",
+        "no_cleaning": bool(getattr(job, "no_cleaning", False)),
         "updated_at": job.updated_at or "",
     }
 
@@ -376,10 +377,11 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
     # other is mandatory so nobody arrives not knowing the job.
     if not by_section.get("fence_scope") and not (job.scope_explanation or "").strip():
         out.append("Fence scope: add a photo, or write out what we're doing.")
-    if not by_section.get("clean_before"):
-        out.append("Before-cleaning photos: every side of the fence, plus any damage.")
-    if not by_section.get("clean_after"):
-        out.append("After-cleaning photos: every side.")
+    if not getattr(job, "no_cleaning", False):
+        if not by_section.get("clean_before"):
+            out.append("Before-cleaning photos: every side of the fence, plus any damage.")
+        if not by_section.get("clean_after"):
+            out.append("After-cleaning photos: every side.")
     if not by_section.get("stain_after"):
         out.append("After-staining photos: every side, plus any damage.")
     plan = _json_list(job.color_plan_json)
@@ -544,6 +546,7 @@ class CompanyCamPatch(BaseModel):
     neighbor_phone: str | None = None
     neighbor_project: str | None = None
     neighbor_notes: str | None = None
+    no_cleaning: bool | None = None
 
 
 @router.patch("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
@@ -612,6 +615,10 @@ def update_company_cam(
             # Solid covers 175 sq ft a gallon, the rest 165: gallons follow.
             if not job.gallons_edited:
                 job.gallons_needed = gallons_for(job.sqft, sqft_per_gallon(db, job))
+        if body.no_cleaning is not None:
+            if not _sees_all(user):
+                raise HTTPException(403, "Only the office decides a fence doesn't need cleaning")
+            job.no_cleaning = bool(body.no_cleaning)
         if body.previously_stained is not None:
             v = body.previously_stained.strip().lower()
             if v not in ("yes", "no", ""):

@@ -1217,6 +1217,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             </div> : <ReadValue>{job.gallons_needed ? `${job.gallons_needed} ${isSpanish() ? "galones" : "gallons"}` : tr("Not set yet")}</ReadValue>}
           </StatTile>
 
+          {job.no_cleaning ? null : (
           <StatTile icon={Sparkles} label={tr("Gallons of bleach to bring")} accent={ACCENT.cyan}
                     hint={manager ? tr("For the cleaner. Your call for this job.") : tr("For the cleaner")}>
             {manager ? (
@@ -1231,6 +1232,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               <ReadValue>{job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} ${isSpanish() ? "galones" : "gallons"}` : tr("Not set yet")}</ReadValue>
             )}
           </StatTile>
+          )}
 
           <StatTile icon={Package} label={tr("Package")} accent={ACCENT.violet}
                     hint={!manager ? undefined : job.package ? tr("From what they paid the deposit on, or picked here") : tr("Tap the one they bought")}>
@@ -1261,7 +1263,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
             )}
           </StatTile>
         </div>
-        <WhatToBring job={job} stain={chosenStain} />
+        <WhatToBring job={job} stain={chosenStain} noCleaning={!!job.no_cleaning} />
       </Panel>
 
       {/* Repairs (Alan, 2026-10-15): the office counts them; the crew sees them
@@ -1327,7 +1329,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
           </>
         ) : null}
 
-        {cleaner_actions.length > 0 ? (
+        {cleaner_actions.length > 0 && !job.no_cleaning ? (
           <div className="overflow-hidden rounded-xl border border-sky-300 bg-gradient-to-br from-sky-50 to-cyan-50">
             <p className="flex items-center gap-2 border-b border-sky-200/70 bg-sky-500/10 px-3 py-2 text-xs font-bold uppercase tracking-wide text-sky-900">
               <Palette className="h-3.5 w-3.5" /> {tr("Cleaner, when you arrive")}
@@ -1369,10 +1371,30 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
       {/* The office's part first, then the cleaner's and the stainer's, each
           boxed together so each person sees their part as one (Alan, 2026-10-16). */}
       {renderStep("fence_scope")}
-      <RoleGroup who="cleaner">
-        {renderStep("clean_before")}
-        {renderStep("clean_after")}
-      </RoleGroup>
+      {/* Brand-new or already clean fence (Alan, 2026-10-18): the office flips
+          it; the crew then see no cleaning step and go straight to staining. */}
+      {manager ? (
+        <label className={cn("flex min-h-12 cursor-pointer items-start gap-3 rounded-2xl border p-3",
+          job.no_cleaning ? "border-emerald-300 bg-emerald-50" : "border-border bg-card")}>
+          <input type="checkbox" className="mt-1 h-5 w-5 accent-emerald-600" checked={!!job.no_cleaning}
+                 onChange={(e) => void patch({ no_cleaning: e.target.checked })} />
+          <span>
+            <span className="block text-sm font-bold">{tr("This fence doesn't need cleaning")}</span>
+            <span className="block text-xs text-muted-foreground">{tr("Brand new, or already clean. The crew skip the cleaning step and go straight to staining.")}</span>
+          </span>
+        </label>
+      ) : null}
+      {job.no_cleaning ? (
+        <p className="flex items-start gap-2 rounded-2xl bg-emerald-50 px-3 py-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+          {tr("No cleaning on this job. The fence is already clean: go straight to staining.")}
+        </p>
+      ) : (
+        <RoleGroup who="cleaner">
+          {renderStep("clean_before")}
+          {renderStep("clean_after")}
+        </RoleGroup>
+      )}
       <RoleGroup who="stainer">
         {renderStep("stain_before")}
         {renderStep("stain_after")}
@@ -1957,12 +1979,12 @@ function repairWords(r: Repairs): string[] {
  *  2026-10-16). The cleaner: bleach, and spray paint when there are pickets
  *  to mark. The stainer: stain, every picket (planned + agreed on site), four
  *  screw nails a picket, a saw, and the office's repair note. */
-function WhatToBring({ job, stain }: { job: CompanyCamJob; stain: string }) {
+function WhatToBring({ job, stain, noCleaning = false }: { job: CompanyCamJob; stain: string; noCleaning?: boolean }) {
   const planned = job.repairs || NO_REPAIRS;
   const extras: Repairs = job.extras_confirmed_at ? (job.extras || NO_REPAIRS) : NO_REPAIRS;
   const sum: Repairs = { ...planned, counts: Object.fromEntries(["pickets", "rotboard", "cap", "rail", "posts"].map((k) => [k, (planned.counts[k] || 0) + (extras.counts[k] || 0)])) };
   const pickets = sum.counts.pickets || 0;
-  const cleaner = [
+  const cleaner = noCleaning ? [] : [
     job.bleach_gallons_to_bring ? (isSpanish() ? `${job.bleach_gallons_to_bring} galones de cloro` : `${job.bleach_gallons_to_bring} gallons of bleach`) : "",
     planned.counts.pickets ? tr("Spray paint, to mark the pickets with the customer") : "",
   ].filter(Boolean);
@@ -1986,7 +2008,7 @@ function WhatToBring({ job, stain }: { job: CompanyCamJob; stain: string }) {
   );
   return (
     <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
-      {list(tr("The cleaner brings"), cleaner, "border-sky-200 bg-sky-50/60 text-sky-950", Sparkles)}
+      {noCleaning ? null : list(tr("The cleaner brings"), cleaner, "border-sky-200 bg-sky-50/60 text-sky-950", Sparkles)}
       {list(tr("The stainer brings"), stainer, "border-emerald-200 bg-emerald-50/60 text-emerald-950", Paintbrush, <>
         {pickets && job.pickets_marked_at ? <p className="mt-1 text-xs">{tr("The pickets to replace are marked with spray paint.")}</p> : null}
         {(job.repair_notes || "").trim() ? (

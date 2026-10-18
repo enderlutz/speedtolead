@@ -55,6 +55,8 @@ def _ticks(raw: str | None, keys: list[dict]) -> tuple[int, int]:
 def progress(job: CompanyCamJob) -> dict:
     """{percent, cleaning: [done, of], staining: [done, of], stage}."""
     c_done, c_of = _ticks(job.cleaner_checklist_json, CLEANER_CHECKLIST)
+    if getattr(job, "no_cleaning", False):
+        c_done = c_of  # nothing to clean: that part is done
     s_done, s_of = _ticks(job.stainer_checklist_json, STAINER_CHECKLIST)
     pct = round(40 * c_done / (c_of or 1) + 50 * s_done / (s_of or 1))
     if (job.almost_done_sent_at or "").strip():

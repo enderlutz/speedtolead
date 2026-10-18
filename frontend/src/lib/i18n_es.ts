@@ -418,4 +418,8 @@ export const ES: Record<string, string> = {
   "Note by": "Nota de",
   "Note saved": "Nota guardada",
   "Not saved. Check your signal and try again.": "No se guardó. Revisa tu señal e inténtalo otra vez.",
+  // No cleaning needed (Alan, 2026-10-18)
+  "This fence doesn't need cleaning": "Esta cerca no necesita limpieza",
+  "Brand new, or already clean. The crew skip the cleaning step and go straight to staining.": "Nueva o ya limpia. El equipo se salta la limpieza y pasa directo a teñir.",
+  "No cleaning on this job. The fence is already clean: go straight to staining.": "No hay limpieza en este trabajo. La cerca ya está limpia: pasen directo a teñir.",
 };
