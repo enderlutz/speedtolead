@@ -2327,7 +2327,7 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm tabular-nums">
               {feet ? <><span className="font-bold">{feet.toLocaleString()} ft</span> × {height} ft = <span className="text-base font-extrabold">{sqft.toLocaleString()} sq ft</span></>
-                : <span className="text-muted-foreground">Capture a measurement to get the square footage.</span>}
+                : <span className="text-muted-foreground">Trace the fence, then tap "Save this measurement" above.</span>}
               {current ? <span className="ml-2 text-xs text-muted-foreground">Now: {Math.round(current).toLocaleString()} sq ft</span> : null}
             </p>
             <Button disabled={!sqft} onClick={() => onUse(sqft)} className="min-h-11">

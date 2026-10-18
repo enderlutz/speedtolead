@@ -1493,7 +1493,11 @@ export default function SatelliteMeasureCard({
         >
           {capturing
             ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Capturing…</>
-            : <><Camera className="h-4 w-4 mr-2" /> Capture → Scope of Work</>}
+            : forJob
+              // Company Cam's job measurement (Alan, 2026-10-18): this saves
+              // the traced feet for the square footage, nothing to do with scope.
+              ? <><Check className="h-4 w-4 mr-2" /> Save this measurement{viewTotal > 0 ? ` · ${Math.round(viewTotal)} ft` : ""}</>
+              : <><Camera className="h-4 w-4 mr-2" /> Capture → Scope of Work</>}
         </Button>
 
         {/* Google refused the image. Shown here rather than only as a toast,
