@@ -15,7 +15,7 @@
 // and each stage of the job carries its own colour the whole way down —
 // scope is violet, before-cleaning amber, after-cleaning cyan, after-staining
 // green. Done is always green, missing is always amber, damage is always red.
-import { Link } from "react-router-dom";
+import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
@@ -646,6 +646,8 @@ function Checklist({
 
 export default function CompanyCamTab({ leadId }: { leadId: string }) {
   const [data, setData] = useState<CompanyCamPayload | null>(null);
+  // The office's job measurement pop-up (Alan, 2026-10-18).
+  const [measuring, setMeasuring] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState<string>("");
@@ -1198,10 +1200,15 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                 Measure & capture (Google Earth, Street View for the height);
                 the back arrow there comes right back here, and a new
                 measurement shows up above as a choice. */}
-            <Link to={`/leads/${leadId}?focus=measure`}
-                  className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
-              <Ruler className="h-4 w-4" />{tr("Double-check on Measure & capture")}
-            </Link>
+            <button type="button" onClick={() => setMeasuring(true)}
+                    className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
+              <Ruler className="h-4 w-4" />{tr("Measure this job")}
+            </button>
+            {measuring ? (
+              <JobMeasureDialog leadId={leadId} startHeight={data.measure_options?.height_ft || 6} current={job.sqft}
+                                onClose={() => setMeasuring(false)}
+                                onUse={(v) => { setMeasuring(false); void patch({ sqft: v }); toast.success(`${v.toLocaleString()} sq ft saved for this job`); }} />
+            ) : null}
             </>) : <ReadValue>{job.sqft ? `${Math.round(job.sqft).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"}` : tr("Not set yet")}</ReadValue>}
           </StatTile>
 
@@ -2260,6 +2267,75 @@ function CrewPayPicker({ username, value, onSave }: { username: string; value?: 
           <span className="text-muted-foreground">{kind === "hourly" ? tr("an hour") : tr("for the job")}</span>
         </label>
       ) : null}
+    </div>
+  );
+}
+
+
+/** The office's final measurement for the crew (Alan, 2026-10-18): Measure &
+ *  capture in a pop-up, full screen on a phone, saved apart from the
+ *  estimator's photos. Trace each side you stain (a fence stained both sides
+ *  is traced twice), open Maps for Street View if the height needs checking,
+ *  pick the height, and the total feet × height replaces the job's square
+ *  footage. */
+function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
+  leadId: string; startHeight: number; current: number; onClose: () => void; onUse: (sqft: number) => void;
+}) {
+  const [lead, setLead] = useState<{ lat: number; lng: number; address: string; zip: string; name: string } | null>(null);
+  const [feet, setFeet] = useState<number | null>(null);
+  const [height, setHeight] = useState(HEIGHTS.includes(startHeight) ? startHeight : 6);
+  useEffect(() => {
+    api.getLead(leadId)
+      .then((l) => setLead({ lat: l.lat || 0, lng: l.lng || 0, address: l.address || "", zip: l.zip_code || "", name: l.contact_name || "" }))
+      .catch((e) => toast.error(errMessage(e, "Couldn't open the map")));
+  }, [leadId]);
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  const sqft = feet ? Math.round(feet * height) : 0;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 sm:p-4" role="dialog" aria-modal="true" aria-label="Measure this job">
+      <div className="flex h-full flex-col overflow-hidden bg-background sm:mx-auto sm:max-w-5xl sm:rounded-2xl sm:shadow-2xl">
+        <div className="flex items-center gap-2 border-b px-3 py-2">
+          <Ruler className="h-5 w-5 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-bold">Measure this job{lead?.name ? `: ${lead.name}` : ""}</p>
+            <p className="truncate text-[11px] text-muted-foreground">Trace each side you stain. Both sides of a run? Trace it twice. Only the office sees these.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 sm:p-3">
+          {lead ? (
+            <SatelliteMeasureCard leadId={leadId} purpose="job" onTotal={setFeet} onChange={() => {}}
+                                  lat={lead.lat} lng={lead.lng} address={lead.address} zipCode={lead.zip} collapsed={false} />
+          ) : <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}
+        </div>
+        <div className="border-t bg-card px-3 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground">Height</span>
+            {HEIGHTS.map((h) => (
+              <button key={h} type="button" onClick={() => setHeight(h)}
+                      className={cn("h-10 min-w-12 rounded-lg px-3 text-sm font-bold ring-1",
+                        height === h ? "bg-foreground text-background ring-foreground" : "bg-background ring-border")}>
+                {h} ft
+              </button>
+            ))}
+            <span className="text-[11px] text-muted-foreground">Not sure? Open Maps above for Street View.</span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm tabular-nums">
+              {feet ? <><span className="font-bold">{feet.toLocaleString()} ft</span> × {height} ft = <span className="text-base font-extrabold">{sqft.toLocaleString()} sq ft</span></>
+                : <span className="text-muted-foreground">Capture a measurement to get the square footage.</span>}
+              {current ? <span className="ml-2 text-xs text-muted-foreground">Now: {Math.round(current).toLocaleString()} sq ft</span> : null}
+            </p>
+            <Button disabled={!sqft} onClick={() => onUse(sqft)} className="min-h-11">
+              <Check className="mr-1 h-4 w-4" />Use {sqft ? `${sqft.toLocaleString()} sq ft` : "it"}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

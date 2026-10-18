@@ -59,6 +59,12 @@ interface Props {
   /** Folded by the page once the estimate has gone out; a tap opens it. */
   collapsed?: boolean;
   onToggle?: () => void;
+  /** "job": the office's final measurement from Company Cam (Alan,
+   *  2026-10-18). Saved apart from the estimator's photos, never touches
+   *  Linear feet or the fence scope, no upload, no jump to the scope editor. */
+  purpose?: "" | "job";
+  /** The saved photos' total feet, whenever it changes. */
+  onTotal?: (feet: number | null) => void;
 }
 
 const EARTH_FT = 20902231; // mean Earth radius in feet
@@ -305,8 +311,9 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal,
 }: Props) {
+  const forJob = purpose === "job";
   const navigate = useNavigate();
   const mapDivRef = useRef<HTMLDivElement>(null);
   // The square the VA sees. The map div inside it is twice its size and
@@ -380,13 +387,14 @@ export default function SatelliteMeasureCard({
 
   const loadPhotos = useCallback(async () => {
     try {
-      const d = await api.listMeasurements(leadId);
+      const d = await api.listMeasurements(leadId, purpose);
       setPhotos(d.measurements);
       setJobTotal(d.total_linear_feet);
+      onTotal?.(d.total_linear_feet);
     } catch {
       /* non-fatal: the map is still usable without the strip */
     }
-  }, [leadId]);
+  }, [leadId, purpose, onTotal]);
 
   useEffect(() => { void loadPhotos(); }, [loadPhotos]);
 
@@ -1027,7 +1035,8 @@ export default function SatelliteMeasureCard({
         zoom: Math.round(zoomFine() * 100) / 100,
         rotation: Math.round(viewRef.current.rot * 10) / 10,
         size: `${px}x${px}`,
-        also_scope: true,
+        also_scope: !forJob,
+        purpose,
         linear_feet: viewTotal > 0 ? Math.round(viewTotal) : null,
         replace_id: replaceId || null,
         // Send the traced runs so the saved photo carries the lines, in the
@@ -1113,7 +1122,7 @@ export default function SatelliteMeasureCard({
     // change (Alan, 2026-10-09). Capture already made it the scope's
     // source image, and Linear Feet is saved on the server, so nothing is
     // lost by leaving. The editor's back arrow returns to this customer.
-    if (saved) navigate(`/leads/${leadId}/scope`);
+    if (saved && !forJob) navigate(`/leads/${leadId}/scope`);
   }
 
   // For the cases the map can't serve — a new build Google Earth hasn't
@@ -1171,7 +1180,7 @@ export default function SatelliteMeasureCard({
       // measuring, like Exolei and Bijan) showed a blank box (Alan, 2026-10-14).
       keepMounted
       icon={Ruler}
-      title="Measure & capture"
+      title={forJob ? "Measure this job" : "Measure & capture"}
       // One line (Alan, 2026-10-09: the page had too many words). Each
       // control carries its own tip.
       sub={IS_TOUCH
@@ -1557,7 +1566,7 @@ export default function SatelliteMeasureCard({
             {jobTotal ? (
               <span className="text-sm font-semibold tabular-nums">{jobTotal} ft total</span>
             ) : null}
-            <Button
+            {forJob ? null : <Button
               variant="outline" size="sm" className={`ml-auto ${IS_TOUCH ? "h-11" : "h-7"} text-xs`}
               onClick={() => uploadRef.current?.click()}
               disabled={uploading}
@@ -1565,7 +1574,7 @@ export default function SatelliteMeasureCard({
             >
               {uploading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
               Upload a screenshot
-            </Button>
+            </Button>}
             <input
               ref={uploadRef}
               type="file"

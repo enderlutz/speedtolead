@@ -664,7 +664,7 @@ def measure_options(db, lead_id: str) -> dict:
     from database import LeadMeasurement
 
     rows = [{"id": m.id, "label": m.label or f"Photo {m.seq}", "linear_feet": round(float(m.linear_feet))}
-            for m in db.query(LeadMeasurement).filter(LeadMeasurement.lead_id == lead_id).order_by(LeadMeasurement.seq).all()
+            for m in db.query(LeadMeasurement).filter(LeadMeasurement.lead_id == lead_id, LeadMeasurement.purpose.is_distinct_from("job")).order_by(LeadMeasurement.seq).all()
             if m.linear_feet]
     heights = [_height_ft(o["height"]) for o in estimate_options(db, lead_id)]
     return {"captures": rows, "height_ft": next((h for h in heights if h), 6.0)}

@@ -1971,6 +1971,10 @@ class LeadMeasurement(Base):
     # silently rename the photo someone wrote a note about.
     seq = Column(Integer, default=1)
     label = Column(Text, default="")              # optional override of "Photo N"
+    # "" = the estimator's measurement; "job" = the office's final measurement
+    # for the crew's square footage (Alan, 2026-10-18), never seen by the
+    # estimator and never touching the lead's linear feet.
+    purpose = Column(Text, default="")
     # Deferred: listing endpoints must not drag the bytes along.
     image_data = deferred(Column(LargeBinary, nullable=True))
     has_image = Column(Boolean, default=False, nullable=False)
@@ -4679,6 +4683,10 @@ def _run_migrations():
         with _engine.begin() as conn:
             conn.execute(text("ALTER TABLE lead_measurements ADD COLUMN estimate_id TEXT"))
         logger.info("Migration: added lead_measurements.estimate_id")
+    if "purpose" not in measurement_cols:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE lead_measurements ADD COLUMN purpose TEXT DEFAULT ''"))
+        logger.info("Migration: added lead_measurements.purpose")
 
     scan_cols = {c["name"] for c in inspector.get_columns("objection_scans")}
     if "kind" not in scan_cols:

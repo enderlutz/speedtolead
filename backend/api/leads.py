@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import defer
 from database import get_db, Lead, Estimate, Message, Proposal, GhlFieldMapping, ScheduledJob, EstimatorVisit, JobAssignment, Employee, QuickbooksInvoice, LeadMeasurement
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from services.estimator import calculate_estimate, parse_priority, determine_kanban_column
 from services.activity_log import log_event
 from services.service_area import service_area_for_zip
@@ -2309,6 +2309,14 @@ def _estimate_labels(db, lead_id: str, rows: list) -> dict:
     return out
 
 
+def _of_purpose(purpose: str = ""):
+    """Measurements for the estimator ("") or the office's job check ("job").
+    Rows written before the split have no purpose: they are the estimator's."""
+    if purpose == "job":
+        return LeadMeasurement.purpose == "job"
+    return or_(LeadMeasurement.purpose.is_(None), LeadMeasurement.purpose != "job")
+
+
 @router.post("/leads/{lead_id}/measurement")
 async def upload_measurement(
     lead_id: str,
@@ -2343,7 +2351,7 @@ async def upload_measurement(
         # One more photo in the list, beside the satellite captures.
         top = (
             db.query(func.max(LeadMeasurement.seq))
-            .filter(LeadMeasurement.lead_id == lead_id)
+            .filter(LeadMeasurement.lead_id == lead_id, _of_purpose(""))
             .scalar()
         ) or 0
         shot = LeadMeasurement(
@@ -2401,6 +2409,9 @@ class SatelliteCaptureBody(BaseModel):
     # Fill the fence-scope source as well, which is the whole point: one
     # press should leave the VA ready to draw the scope.
     also_scope: bool = True
+    # "job": the office's final measurement for the crew's square footage
+    # (Company Cam). Kept apart from the estimator's photos and linear feet.
+    purpose: str = ""
     # Footage traced in THIS view, not the job total — the backend sums the
     # views to get the total.
     linear_feet: float | None = None
@@ -2667,6 +2678,7 @@ def capture_satellite_measurement(
             else None
         )
 
+        job_purpose = "job" if body.purpose == "job" else ""
         # Append a numbered photo, or replace one when re-capturing the same
         # view. Re-measuring a run you already shot must not add its footage
         # to the total a second time.
@@ -2688,7 +2700,7 @@ def capture_satellite_measurement(
             # purpose, so "Photo 3" keeps meaning the same photo.
             top = (
                 db.query(func.max(LeadMeasurement.seq))
-                .filter(LeadMeasurement.lead_id == lead_id)
+                .filter(LeadMeasurement.lead_id == lead_id, _of_purpose(job_purpose))
                 .scalar()
             ) or 0
             shot = LeadMeasurement(
@@ -2697,6 +2709,7 @@ def capture_satellite_measurement(
                 seq=int(top) + 1,
                 created_at=stamp,
                 created_by=actor,
+                purpose=job_purpose,
             )
             db.add(shot)
 
@@ -2708,8 +2721,23 @@ def capture_satellite_measurement(
         shot.center_lng = body.lng
         shot.zoom = zoom if plain else int(round(requested_zoom))
         shot.source = "satellite_capture"
-        if not shot.estimate_id:
+        if not shot.estimate_id and not job_purpose:
             shot.estimate_id = _current_estimate_id(db, lead_id)
+
+        # A job check stops here: it never touches the estimator's picture,
+        # the fence scope or the lead's linear feet.
+        if job_purpose:
+            db.flush()
+            jt = db.query(func.sum(LeadMeasurement.linear_feet)).filter(
+                LeadMeasurement.lead_id == lead_id, _of_purpose("job")).scalar()
+            db.commit()
+            return {
+                "measurement_uploaded": True, "measurement_id": shot.id, "seq": shot.seq,
+                "label": f"Photo {shot.seq}", "measurement_filename": "", "measurement_uploaded_at": stamp,
+                "measurement_uploaded_by": actor, "scope_source_set": False, "linear_feet": feet,
+                "total_linear_feet": round(float(jt)) if jt else None,
+                "zoom": shot.zoom, "requested_zoom": requested_zoom,
+            }
 
         # The legacy single-image columns keep mirroring the newest capture,
         # so the Measurement card and anything else reading them is unaffected.
@@ -2734,7 +2762,7 @@ def capture_satellite_measurement(
         # input gets the total without anyone adding it up by hand.
         total = (
             db.query(func.sum(LeadMeasurement.linear_feet))
-            .filter(LeadMeasurement.lead_id == lead_id)
+            .filter(LeadMeasurement.lead_id == lead_id, _of_purpose(""))
             .scalar()
         )
         total_feet = round(float(total)) if total else None
@@ -2780,7 +2808,7 @@ def capture_satellite_measurement(
 
 
 @router.get("/leads/{lead_id}/measurements")
-def list_measurements(lead_id: str, user: dict = Depends(get_current_user)):
+def list_measurements(lead_id: str, purpose: str = "", user: dict = Depends(get_current_user)):
     """Every measurement photo for the lead, oldest first, without the bytes.
 
     `total_linear_feet` is the number that belongs in Linear Feet — the sum
@@ -2791,7 +2819,7 @@ def list_measurements(lead_id: str, user: dict = Depends(get_current_user)):
     try:
         rows = (
             db.query(LeadMeasurement)
-            .filter(LeadMeasurement.lead_id == lead_id)
+            .filter(LeadMeasurement.lead_id == lead_id, _of_purpose("job" if purpose == "job" else ""))
             .order_by(LeadMeasurement.seq.asc())
             .all()
         )
@@ -2852,17 +2880,18 @@ def delete_measurement_photo(
         if not row:
             raise HTTPException(status_code=404, detail="No such photo")
         seq = row.seq
+        was_job = (row.purpose or "") == "job"
         db.delete(row)
         db.flush()
 
         total = (
             db.query(func.sum(LeadMeasurement.linear_feet))
-            .filter(LeadMeasurement.lead_id == lead_id)
+            .filter(LeadMeasurement.lead_id == lead_id, _of_purpose("job" if was_job else ""))
             .scalar()
         )
         total_feet = round(float(total)) if total else None
 
-        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        lead = None if was_job else db.query(Lead).filter(Lead.id == lead_id).first()
         if lead:
             fd = lead.to_dict()["form_data"]
             # Only ever correct a figure this flow put there. A hand-typed

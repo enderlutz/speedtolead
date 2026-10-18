@@ -1683,6 +1683,8 @@ export const api = {
        *  ground area the VA just measured. Max 640 per side. */
       size?: string;
       also_scope?: boolean;
+      /** "job": the office's final measurement (Company Cam), kept apart. */
+      purpose?: "" | "job";
       /** Footage traced in THIS view; the backend sums the views. */
       linear_feet?: number | null;
       /** Re-shoot an existing photo instead of adding one. */
@@ -1716,11 +1718,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
   /** Every retained measurement photo, oldest first, without the bytes. */
-  listMeasurements: (leadId: string) =>
+  listMeasurements: (leadId: string, purpose: "" | "job" = "") =>
     request<{
       measurements: MeasurementPhoto[];
       total_linear_feet: number | null;
-    }>(`/api/leads/${leadId}/measurements`),
+    }>(`/api/leads/${leadId}/measurements${purpose ? `?purpose=${purpose}` : ""}`),
   deleteMeasurementPhoto: (leadId: string, measurementId: string) =>
     request<{ deleted: boolean; total_linear_feet: number | null }>(
       `/api/leads/${leadId}/measurements/${measurementId}`,
