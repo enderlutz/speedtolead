@@ -3793,6 +3793,16 @@ export const api = {
   /** The coverage file: sq ft a gallon per stain, wood, fence age, prior stain. */
   getStainCoverage: () => request<StainCoverageFile>("/api/stain-coverage"),
   /** The crew's Company Cam list: booked customers, or a search. No prices. */
+  // PM HQ (Alan, 2026-10-18): the project manager's job calendar.
+  getPmHqCalendar: (start: string, end: string) =>
+    request<{ days: PmDay[]; crew_options: { username: string; name: string }[]; can_edit: boolean; today: string }>(
+      `/api/pm-hq/calendar?start=${start}&end=${end}`),
+  getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[] }>(`/api/pm-hq/today`),
+  getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),
+  pmHqAssign: (b: { lead_id: string; date: string; username: string; task: "" | "cleaning" | "staining" }) =>
+    request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
+  pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
+    request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>
     request<{ lead_id: string; name: string; address: string; date: string; task?: string; pay_type?: CrewPay["pay_type"]; pay?: number }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
@@ -6022,3 +6032,19 @@ export type MetaCacRow = MetaRow & { our_leads: number; customers: number; reven
 export type MetaCac = { since: string; until: string; rows: MetaCacRow[]; total: { spend: number; leads: number; customers: number; revenue: number; cac: number | null; close_rate: number | null; roas: number | null } };
 export type DocumentRow = { id: string; title: string; filename: string; mime: string; size: number; created_at: string; created_by: string; category: string; blurb: string };
 export type DocCategory = { key: string; label: string; about: string };
+
+
+// ── PM HQ calendar ───────────────────────────────────────────────────────
+export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string }
+export interface PmDay {
+  lead_id: string; name: string; address: string; date: string; username: string; person: string;
+  task: "" | "cleaning" | "staining"; progress: PmProgress; color: string; completed_at: string; updated_at: string;
+}
+export interface PmTodayJob {
+  lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;
+  updated_at: string; photos_today: number; crew: { person: string; username: string; task: string }[];
+}
+export interface PmPastJob {
+  lead_id: string; name: string; address: string; first_day: string; last_day: string; completed_at: string;
+  completed_by: string; color: string; progress: PmProgress; crew: { person: string; date: string; task: string }[];
+}

@@ -956,7 +956,7 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
         </p>
       ) : null}
       {shown.map((j) => (
-        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}`}
+        <Link key={`${j.lead_id}-${j.date}-${j.task || ""}`} to={`/company-cam/${j.lead_id}`}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
           <span className={`flex h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : "bg-stone-500"}`}>
             <span className="text-sm uppercase tracking-wide">{j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Cleaning") : tr("Job")}</span>

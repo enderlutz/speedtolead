@@ -1,0 +1,101 @@
+"""PM HQ calendar (Alan, 2026-10-18): days put on a job here are the same
+crew days the customer's Company Cam profile edits; only admins add them;
+progress comes from the crew's checklists and buttons."""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import pytest  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+
+from api import company_cam as cc  # noqa: E402
+from api import pm_calendar as pm  # noqa: E402
+from database import CompanyCamJob, Lead, User  # noqa: E402
+
+ALAN = {"sub": "alanbonner", "name": "Alan", "role": "admin"}
+OLGA = {"sub": "olga", "name": "Olga", "role": "va"}
+CHRIS = {"sub": "Chris", "name": "Chris", "role": "worker"}
+
+
+def _seed(db):
+    db.add(Lead(id="Y", contact_name="YOGI", address="1 Oak St, Cypress", status="closed"))
+    db.add(Lead(id="T", contact_name="Taiyeb", address="2 Elm St, Cypress", status="closed"))
+    db.add(User(id="u1", username="Chris", display_name="Chris", role="worker", password_hash="x"))
+    db.add(User(id="u2", username="BrentBrown", display_name="Brent", role="worker", password_hash="x"))
+    db.commit()
+
+
+def _days(db, lead_id):
+    return [(e["username"], e["date"], e["task"]) for e in cc._crew_entries(db.query(CompanyCamJob).filter_by(lead_id=lead_id).first())]
+
+
+def test_a_day_added_in_pm_hq_is_the_jobs_crew_day(db, monkeypatch):
+    _seed(db)
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-20", username="chris", task="cleaning"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-21", username="Chris", task="staining"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-21", username="Chris", task="staining"), user=ALAN)  # twice = once
+    assert _days(db, "Y") == [("Chris", "2026-10-20", "cleaning"), ("Chris", "2026-10-21", "staining")]
+    cal = pm.calendar("2026-10-01", "2026-10-31", user=ALAN)
+    assert [(d["name"], d["date"], d["person"], d["task"]) for d in cal["days"]] == [
+        ("YOGI", "2026-10-20", "Chris", "cleaning"), ("YOGI", "2026-10-21", "Chris", "staining")]
+    assert cal["can_edit"] is True
+    pm.unassign(pm.DayBody(lead_id="Y", date="2026-10-20", username="Chris", task="cleaning"), user=ALAN)
+    assert _days(db, "Y") == [("Chris", "2026-10-21", "staining")]
+
+
+def test_only_admins_add_days_and_the_crew_cant_open_it():
+    from api.auth import require_admin
+    with pytest.raises(HTTPException):
+        require_admin(OLGA)
+    with pytest.raises(HTTPException):
+        pm._office(CHRIS)
+    assert pm._office(OLGA) == OLGA
+
+
+def test_the_crew_sees_each_of_their_days_on_a_job(db, monkeypatch):
+    _seed(db)
+    db.add(CompanyCamJob(id="J", lead_id="Y", crew_json=json.dumps([
+        {"username": "Chris", "date": "2026-10-20", "task": "cleaning", "pay_type": "flat", "pay": 100},
+        {"username": "Chris", "date": "2026-10-21", "task": "staining", "pay_type": "flat", "pay": 100},
+        {"username": "BrentBrown", "date": "2026-10-21", "task": "staining"}])))
+    db.commit()
+    monkeypatch.setattr(cc, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(cc, "_sees_all", lambda u: u.get("role") in ("admin", "va"))
+    import api.permissions as perms
+    monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
+    rows = cc.company_cam_jobs("", user=CHRIS)
+    assert [(r["date"], r["task"], r["pay"]) for r in rows] == [("2026-10-20", "cleaning", 100.0), ("2026-10-21", "staining", 100.0)]
+
+
+def test_progress_follows_the_checklists_and_buttons():
+    j = CompanyCamJob(cleaner_checklist_json="[]", stainer_checklist_json="[]")
+    assert pm.progress(j)["percent"] == 0 and pm.progress(j)["stage"] == "Not started"
+    j.cleaner_checklist_json = json.dumps([i["key"] for i in pm.CLEANER_CHECKLIST])
+    assert pm.progress(j)["percent"] == 40 and pm.progress(j)["stage"] == "Cleaned, ready to stain"
+    j.stainer_checklist_json = json.dumps([pm.STAINER_CHECKLIST[0]["key"], "junk"])
+    p = pm.progress(j)
+    assert p["stage"] == "Staining" and 40 < p["percent"] < 50
+    j.almost_done_sent_at = "2026-10-18T20:00:00"
+    assert pm.progress(j)["percent"] == 90
+    j.completed_at = "2026-10-18T21:00:00"
+    assert pm.progress(j) | {} == pm.progress(j) and pm.progress(j)["percent"] == 100
+
+
+def test_today_and_past(db, monkeypatch):
+    _seed(db)
+    db.add(CompanyCamJob(id="J1", lead_id="Y", crew_json=json.dumps([{"username": "Chris", "date": "2026-10-18", "task": "cleaning"}])))
+    db.add(CompanyCamJob(id="J2", lead_id="T", completed_at="2026-10-17T22:00:00", final_color="Darkest Night",
+                         crew_json=json.dumps([{"username": "Chris", "date": "2026-10-16", "task": "cleaning"},
+                                               {"username": "BrentBrown", "date": "2026-10-17", "task": "staining"}])))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(pm, "_today_ct", lambda: "2026-10-18")
+    t = pm.today(user=ALAN)
+    assert [(c["name"], [x["person"] for x in c["crew"]]) for c in t["jobs"]] == [("YOGI", ["Chris"])]
+    past = pm.past(user=ALAN)
+    assert [p["name"] for p in past] == ["Taiyeb"]
+    assert past[0]["color"] == "Darkest Night" and [c["person"] for c in past[0]["crew"]] == ["Chris", "Brent"]

@@ -119,7 +119,8 @@ def _crew_options(db) -> list[dict]:
     """Crew accounts (not admins or VAs), so the office can put them on a job."""
     from database import User
     return [{"username": u.username, "name": u.display_name or u.username}
-            for u in db.query(User).filter(User.role.notin_(["admin", "va"])).order_by(User.display_name).all()
+            # Not the social media account either (Alan, 2026-10-18: Alec isn't crew).
+            for u in db.query(User).filter(User.role.notin_(["admin", "va", "social"])).order_by(User.display_name).all()
             if not getattr(u, "disabled", False)]
 
 
@@ -656,16 +657,18 @@ def update_company_cam(
             for c in body.crew:
                 e = {"username": c} if isinstance(c, str) else dict(c or {})
                 name = names.get(str(e.get("username") or "").lower())
-                if not name or any(x["username"] == name for x in entries):
-                    continue
                 day = str(e.get("date") or "")[:10]
+                task = e.get("task") if e.get("task") in ("cleaning", "staining") else ""
+                # Several days per person are allowed (PM HQ, Alan 2026-10-18:
+                # clean Monday, stain Tuesday); the same day and task twice isn't.
+                if not name or any(x["username"] == name and x["date"] == day and x["task"] == task for x in entries):
+                    continue
                 if day:
                     try:
                         datetime.strptime(day, "%Y-%m-%d")
                     except ValueError:
                         raise HTTPException(400, "The day isn't a real date")
-                entries.append({"username": name, "date": day,
-                                "task": e.get("task") if e.get("task") in ("cleaning", "staining") else "",
+                entries.append({"username": name, "date": day, "task": task,
                                 **old_pay.get(name, {"pay_type": "", "pay": 0.0})})
             job.crew_json = json.dumps(entries)
         if body.crew_pay is not None:
@@ -673,13 +676,14 @@ def update_company_cam(
                 raise HTTPException(403, "Only the office sets crew pay")
             who = str(body.crew_pay.get("username") or "").lower()
             entries = _crew_entries(job)
-            hit = next((e for e in entries if e["username"].lower() == who), None)
-            if hit is None:
+            hits = [e for e in entries if e["username"].lower() == who]
+            if not hits:
                 raise HTTPException(400, "Put them on the job first, then set their pay")
             pay = _pay_of(body.crew_pay)
             if pay["pay"] < 0 or pay["pay"] > 5000:
                 raise HTTPException(400, "Pay has to be between $0 and $5,000")
-            hit.update(pay)
+            for hit in hits:  # pay is per person per job, on every day they're on it
+                hit.update(pay)
             job.crew_json = json.dumps(entries)
         neighbor_alert = ""
         if body.neighbor_status is not None:
@@ -1258,24 +1262,27 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
                 row.update({"name": lead.contact_name or "", "address": lead.address or ""})
         if not _sees_all(user):
             me = (user.get("sub") or "").lower()
-            mine = {}
+            mine: dict[str, list[dict]] = {}
             for j in db.query(CompanyCamJob).all():
                 for e in _crew_entries(j):
                     if e["username"].lower() == me:
-                        mine[j.lead_id] = e
+                        mine.setdefault(j.lead_id, []).append(e)
             out = {k: v for k, v in out.items() if k in mine}
             if not term:
                 for lid in set(mine) - set(out):
                     lead = db.query(Lead).filter(Lead.id == lid).first()
                     if lead:
                         out[lid] = {"lead_id": lid, "name": lead.contact_name or "", "address": lead.address or "", "date": ""}
-            # The crew's own day and task for each job.
+            # The crew's own day and task, one row per day they're on the job
+            # (clean Monday, stain Tuesday = two rows), with their own pay
+            # (flat or hourly, never the job's price).
+            rows = []
             for lid, row in out.items():
-                row["date"] = mine[lid]["date"] or row.get("date", "")
-                row["task"] = mine[lid]["task"]
-                # Their own pay for it, flat or hourly (never the job's price).
-                row["pay_type"], row["pay"] = mine[lid]["pay_type"], mine[lid]["pay"]
-        rows = list(out.values())
+                for e in mine[lid]:
+                    rows.append({**row, "date": e["date"] or row.get("date", ""), "task": e["task"],
+                                 "pay_type": e["pay_type"], "pay": e["pay"]})
+        else:
+            rows = list(out.values())
         rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r["name"].lower()))
         return rows
     finally:

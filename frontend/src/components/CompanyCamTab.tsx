@@ -1039,6 +1039,13 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                         </button>
                       ))}
                       <CrewPayPicker username={mine.username} value={data.crew_pay?.[mine.username]} onSave={(v) => void patch({ crew_pay: { username: mine.username, ...v } })} />
+                      {/* More days for the same person, set from PM HQ's calendar (Alan, 2026-10-18). */}
+                      {crew.filter((x) => x !== mine && x.username.toLowerCase() === c.username.toLowerCase()).map((x, i) => (
+                        <span key={i} className="w-full text-xs font-semibold text-emerald-800">
+                          {tr("Also")}: {x.date ? new Date(x.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : tr("no day")}
+                          {x.task ? ` · ${x.task === "cleaning" ? tr("Cleaning") : tr("Staining")}` : ""}
+                        </span>
+                      ))}
                     </div>
                   ) : null}
                 </div>
