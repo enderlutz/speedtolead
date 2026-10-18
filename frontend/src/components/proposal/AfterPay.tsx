@@ -27,7 +27,7 @@ export type PayMethod = "card" | "klarna" | "affirm";
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 // Already the review link the dashboard texts customers (api/customer_upsell.py).
-const REVIEW_URL = "https://maps.app.goo.gl/xR56n81cjxNwt7R78";
+const REVIEW_URL = "https://g.page/r/CSqFYMG3SFFFEBM/review";
 // Alan's list in the spec, minus fence repairs: "if we've already stained
 // their fence it's too late now, usually" (2026-10-10).
 const SERVICES = ["House wash", "Driveway & concrete", "Window cleaning", "Roof washing", "Gutter cleaning", "Sprinkler repair", "Landscaping", "Other"];

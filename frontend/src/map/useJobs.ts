@@ -24,7 +24,7 @@ function saveOverrides(ovr: Record<string, JobOverride>) {
   }
 }
 
-export const REVIEW_LINK = "https://g.page/r/CSqFYMG3SFFFEBE/review";
+export const REVIEW_LINK = "https://g.page/r/CSqFYMG3SFFFEBM/review";
 export const REVIEW_REQUEST_TEXT =
   "Hey! Thanks so much for choosing us for your fence staining project. " +
   "If you have a minute, would you mind leaving us a quick Google review? " +

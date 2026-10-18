@@ -37,7 +37,7 @@ router = APIRouter()
 # The single fixed Google review URL Alan provided (2026-06-15).
 # Hardcoded for now — if they ever change platforms (Yelp, BBB) we
 # move this to env or pricing_config.
-GOOGLE_REVIEW_URL = "https://maps.app.goo.gl/xR56n81cjxNwt7R78"
+GOOGLE_REVIEW_URL = "https://g.page/r/CSqFYMG3SFFFEBM/review"
 
 # Standard review-SMS template. {first_name} is the only placeholder.
 # Kept here (not in the analyzer prompt) so it's stable + auditable —

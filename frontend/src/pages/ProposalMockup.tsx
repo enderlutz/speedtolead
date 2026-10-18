@@ -1209,7 +1209,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
               <ReviewCard key={text} author={who} photo="" text={text} when={when} phone={phone} />
             ))}
           </div>
-          <a href="https://maps.app.goo.gl/xR56n81cjxNwt7R78" target="_blank" rel="noopener noreferrer"
+          <a href="https://g.page/r/CSqFYMG3SFFFEBM/review" target="_blank" rel="noopener noreferrer"
             className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-white text-[15px] font-semibold ring-1 ring-[#15130F]/15">
             See all our reviews on Google
           </a>
