@@ -16,7 +16,7 @@
  */
 import { Zap } from "lucide-react";
 
-const COMPANY_LEGAL = "A&T's Fence Staining LLC";
+const COMPANY_LEGAL = "Sterling Fence Staining LLC";
 const COMPANY_BRAND = "Sterling Fence Staining";
 const SUPPORT_EMAIL = "bonneralan25@gmail.com";
 const LAST_UPDATED = "October 18, 2026";
