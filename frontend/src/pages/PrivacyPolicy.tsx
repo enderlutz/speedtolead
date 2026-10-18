@@ -8,13 +8,18 @@
  * Accounting API to create Invoice records on behalf of the connected
  * QuickBooks Online company, and we do not sell, share, or repurpose
  * QuickBooks data.
+ *
+ * Also covers the Plaid bank connection (Alan, 2026-10-18): the owner
+ * connects the Company's OWN bank and card accounts, read-only, for
+ * "Where the money went". No customer or end user ever connects an
+ * account. Plaid reads this page during production-access review.
  */
 import { Zap } from "lucide-react";
 
 const COMPANY_LEGAL = "A&T's Fence Staining LLC";
 const COMPANY_BRAND = "Sterling Fence Staining";
 const SUPPORT_EMAIL = "bonneralan25@gmail.com";
-const LAST_UPDATED = "May 8, 2026";
+const LAST_UPDATED = "October 18, 2026";
 
 export default function PrivacyPolicy() {
   return (
@@ -73,8 +78,27 @@ export default function PrivacyPolicy() {
             <li>OAuth refresh and access tokens for the connected QuickBooks company</li>
           </ul>
           <p className="mt-2">
-            We do <strong>not</strong> access bank account data, payroll data, or any QuickBooks data
-            outside the Accounting scope strictly necessary to support invoicing.
+            Through QuickBooks we do <strong>not</strong> access payroll data or any data outside the
+            Accounting scope strictly necessary to support invoicing. Bank account data reaches the
+            Service only through the separate Plaid connection described next.
+          </p>
+
+          <h3 className="text-sm font-bold mt-4 mb-1">From Plaid (the Company's own bank accounts)</h3>
+          <p>
+            The Company's owner may connect the Company's <strong>own</strong> business bank and credit
+            card accounts to the Service through Plaid, a licensed financial data network, so that
+            Company spending can be tracked and categorized for bookkeeping. This connection is
+            read-only. When it is active, we receive for those Company accounts only:
+          </p>
+          <ul className="list-disc list-inside space-y-1 mt-2 ml-2">
+            <li>The financial institution's name and each account's name, type, and last four digits</li>
+            <li>Current and available balances</li>
+            <li>Transaction history: date, amount, merchant or description, pending status, and Plaid's category</li>
+            <li>An access token for the connection, which we store encrypted</li>
+          </ul>
+          <p className="mt-2">
+            No customer, prospective customer, or other end user ever connects a bank account to the
+            Service, and the Service cannot initiate payments or transfers from any account.
           </p>
 
           <h3 className="text-sm font-bold mt-4 mb-1">From employees</h3>
@@ -100,6 +124,7 @@ export default function PrivacyPolicy() {
             <li>Generate accurate fence-staining and pressure-washing estimates for prospective customers.</li>
             <li>Schedule and coordinate field crews for customer jobs.</li>
             <li>Create QuickBooks invoices and track when they are paid by customers.</li>
+            <li>Categorize the Company's own bank and card transactions and report on Company spending.</li>
             <li>Send transactional text messages (such as estimate links and appointment confirmations) via GoHighLevel.</li>
             <li>Operate, maintain, and improve the Service.</li>
             <li>Comply with legal obligations.</li>
@@ -114,9 +139,10 @@ export default function PrivacyPolicy() {
           </p>
           <ul className="list-disc list-inside space-y-1 mt-2 ml-2">
             <li><strong>Intuit QuickBooks Online</strong> — to create invoices and read payment status. QuickBooks data we access stays within QuickBooks; we do not redistribute it.</li>
+            <li><strong>Plaid</strong> — to retrieve balances and transactions from the Company's own bank and card accounts, read-only. Plaid's own handling of that data is described in Plaid's End User Privacy Policy at <a href="https://plaid.com/legal/#end-user-privacy-policy" className="text-primary hover:underline">plaid.com/legal</a>.</li>
             <li><strong>GoHighLevel</strong> — to send and receive customer text messages and sync lead pipeline status.</li>
             <li><strong>Google Calendar</strong> — to write scheduled job events to the Company's connected Google Calendar.</li>
-            <li><strong>Anthropic (Claude API)</strong> — for analysis features (e.g., generating the weekly business briefing). Lead and operational data may be sent in prompts; Anthropic does not use this data to train models per their commercial API terms.</li>
+            <li><strong>Anthropic (Claude API)</strong> — for analysis features (e.g., generating the weekly business briefing and sorting the Company's own bank transactions into spending categories). Lead and operational data, and the date, amount and description of Company bank transactions, may be sent in prompts; Anthropic does not use this data to train models per their commercial API terms.</li>
             <li><strong>Hosting providers</strong> — Railway (US-based application hosting) and Supabase (US-based managed PostgreSQL database).</li>
             <li><strong>Twilio (via GoHighLevel)</strong> — for SMS message delivery.</li>
           </ul>
@@ -141,12 +167,28 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">5. Data Security</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">5. Plaid Data Use Disclosure</h2>
+          <p>
+            Specific to our Plaid integration:
+          </p>
+          <ul className="list-disc list-inside space-y-1 mt-2 ml-2">
+            <li>We use only Plaid's Transactions product, which also returns account balances. We do not request identity, income, assets, liabilities, or payment-initiation products.</li>
+            <li>Only the Company's own accounts are ever connected, and only by the Company's owner. The connection is read-only and cannot move money.</li>
+            <li>Bank data is used solely to track and categorize Company spending for bookkeeping and tax purposes. We do not share, sell, or transfer it to any third party other than the integrated services listed above for the limited purposes stated, and we do not use it for advertising or marketing analytics.</li>
+            <li>Plaid access tokens are stored encrypted at the application level, with the encryption key held only in the hosting environment.</li>
+            <li>Disconnecting a bank in the Service revokes the connection at Plaid and deletes the stored accounts and transactions for that connection from our database.</li>
+            <li>The Company may request deletion of Plaid-related data at any time by contacting us at the address below.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-bold mt-6 mb-2">6. Data Security</h2>
           <p>
             All traffic to and from the Service is encrypted in transit using TLS (HTTPS). Data at rest
             is stored on managed infrastructure (Railway and Supabase) with provider-level encryption.
             Access to administrative data requires authentication, and sensitive operations are
-            restricted by role.
+            restricted by role. Bank data is visible only to the Company's owner role, and bank access
+            tokens are additionally encrypted at the application level.
           </p>
           <p className="mt-2">
             No system can be guaranteed 100% secure. If you believe your account has been compromised,
@@ -155,17 +197,19 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">6. Data Retention</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">7. Data Retention</h2>
           <p>
             Customer lead and job data is retained for as long as it is needed to operate the
             Company's business and to comply with legal obligations (typically the duration of the
             customer relationship plus seven years for tax records). QuickBooks tokens are deleted
-            immediately upon disconnection. Server logs are retained for up to 90 days.
+            immediately upon disconnection. Company bank transactions from Plaid are retained for
+            bookkeeping while the bank connection is active and are deleted, along with the Plaid
+            access token, when the bank is disconnected. Server logs are retained for up to 90 days.
           </p>
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">7. Your Rights</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">8. Your Rights</h2>
           <p>
             Depending on the laws of your jurisdiction, you may have rights to access, correct,
             delete, or restrict the processing of your personal information. To exercise any of
@@ -175,7 +219,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">8. Children's Privacy</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">9. Children's Privacy</h2>
           <p>
             The Service is not intended for use by children under 13 years of age, and we do not
             knowingly collect personal information from children.
@@ -183,7 +227,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">9. International Users</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">10. International Users</h2>
           <p>
             The Service is operated from and hosted in the United States. If you access the Service
             from outside the U.S., your information will be transferred to and processed in the U.S.
@@ -191,7 +235,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">10. Changes to This Policy</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">11. Changes to This Policy</h2>
           <p>
             We may update this Privacy Policy from time to time. The revised version will be posted
             on this page with a new "Last updated" date. Material changes will be communicated to
@@ -200,7 +244,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold mt-6 mb-2">11. Contact</h2>
+          <h2 className="text-lg font-bold mt-6 mb-2">12. Contact</h2>
           <p>
             Questions, requests, or concerns about this Privacy Policy can be sent to{" "}
             <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
