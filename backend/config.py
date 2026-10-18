@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     stripe_publishable_key: str = ""
     stripe_webhook_secret: str = ""
 
+    # Plaid (read-only bank connection for "Where the money went",
+    # services/plaid_client.py). Set in Railway, never in a file, never
+    # logged. PLAID_ENV is sandbox or production.
+    plaid_client_id: str = ""
+    plaid_secret: str = ""
+    plaid_env: str = "sandbox"
+
     # Google Maps
     # Server key — geocoding lead addresses (server-side only).
     google_maps_api_key: str = ""

@@ -1933,6 +1933,17 @@ export const api = {
     request<ContentItem>(`/api/content/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   removeContent: (id: string) => request<{ ok: boolean }>(`/api/content/${id}`, { method: "DELETE" }),
   moneyAudit: (start: string, end: string) => request<MoneyAudit>(`/api/money/audit?start=${start}&end=${end}`),
+  bankStatus: () => request<BankStatus>("/api/bank/status"),
+  bankLinkToken: (itemId = "") => request<{ link_token: string }>("/api/bank/link-token", { method: "POST", body: JSON.stringify({ item_id: itemId }) }),
+  bankExchange: (publicToken: string, institutionName: string) =>
+    request<{ id: string; institution_name: string }>("/api/bank/exchange", { method: "POST", body: JSON.stringify({ public_token: publicToken, institution_name: institutionName }) }),
+  bankSync: () => request<{ unsorted?: number; skipped?: string }>("/api/bank/sync", { method: "POST" }),
+  bankSummary: (start: string, end: string) => request<BankSummary>(`/api/bank/summary?start=${start}&end=${end}`),
+  bankTransactions: (q: { start?: string; end?: string; category?: string; needsReview?: boolean }) =>
+    request<BankTx[]>(`/api/bank/transactions?start=${q.start || ""}&end=${q.end || ""}&category=${encodeURIComponent(q.category || "")}&needs_review=${q.needsReview ? "true" : "false"}`),
+  bankSetCategory: (id: string, category: string, remember: boolean) =>
+    request<{ transaction: BankTx; also_moved: number }>(`/api/bank/transactions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ category, remember }) }),
+  bankRemove: (id: string) => request<{ ok: boolean }>(`/api/bank/items/${id}`, { method: "DELETE" }),
   metaStatus: () => request<MetaStatus>(`/api/meta/status`),
   metaInsights: (level: MetaLevel, days: number) =>
     request<MetaInsights>(`/api/meta/insights?level=${level}&days=${days}`),
@@ -5984,6 +5995,19 @@ export type MoneyAudit = {
   accounts: { name: string; type: string; subtype: string; balance: number }[];
   summary: { spent: number; came_in: number; refunds: number; transfers: number; uncategorized: number; count: number;
     by_category: { name: string; amount: number }[]; by_payee: { name: string; amount: number }[]; by_account: { name: string; amount: number }[] };
+};
+export type BankStatus = {
+  configured: boolean; env: string; categories: string[]; last_synced_at: string;
+  items: { id: string; institution_name: string; created_at: string; last_synced_at: string; error: string; accounts: number }[];
+};
+export type BankAccountRow = { account_id: string; bank: string; name: string; mask: string; type: string; subtype: string; current_balance: number | null; available_balance: number | null; updated_at: string };
+export type BankSummary = {
+  start: string; end: string; spent: number; came_in: number; refunds: number; transfers: number; unsorted: number; count: number; needs_review: number;
+  by_category: { name: string; amount: number; count: number }[]; accounts: BankAccountRow[];
+};
+export type BankTx = {
+  transaction_id: string; account_id: string; account: string; date: string; name: string; merchant_name: string;
+  amount: number; pending: boolean; plaid_category: string; category: string | null; category_source: string; confidence: number | null; reviewed: boolean;
 };
 export type MetaStatus = { connected: boolean; account_id?: string; name?: string; currency?: string; status?: number; timezone?: string; error?: string };
 export type MetaLevel = "campaign" | "adset" | "ad";

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import BankSection from "@/components/BankSection";
 import { api, type MoneyAudit as Audit } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
 
 // Where the money went (Alan, 2026-10-17): this month's money in and out of
-// QuickBooks, read-only. Owner-only.
+// QuickBooks, read-only. Owner-only. Below it, the bank lines themselves
+// through Plaid (components/BankSection.tsx), for the same dates.
 
 const firstOfMonth = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toLocaleDateString("en-CA"); };
 const today = () => new Date().toLocaleDateString("en-CA");
@@ -82,6 +84,7 @@ export default function MoneyAudit() {
           </CardContent></Card>
         </>
       )}
+      <div className="border-t pt-4"><BankSection start={start} end={end} /></div>
     </div>
   );
 }

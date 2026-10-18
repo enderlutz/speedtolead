@@ -4320,6 +4320,80 @@ class CustomerPayment(Base):
     created_at = Column(Text, default="")
 
 
+class BankItem(Base):
+    """One bank login connected through Plaid, read-only ("Where the money
+    went", Alan, 2026-10-17). The access token is Fernet-encrypted with the
+    same helper the QuickBooks tokens use; `cursor` is where the last
+    /transactions/sync stopped."""
+    __tablename__ = "bank_items"
+
+    id = Column(Text, primary_key=True)
+    item_id = Column(Text, unique=True, nullable=False)   # Plaid's item_id
+    institution_name = Column(Text, default="")
+    access_token_enc = Column(Text, nullable=False)
+    cursor = Column(Text, default="")
+    created_at = Column(Text, default="")
+    last_synced_at = Column(Text, default="")
+    error = Column(Text, default="")                      # last sync error, in plain words; empty = fine
+
+
+class BankAccount(Base):
+    """A checking, savings or card account under a connected bank, with the
+    balance as of the last sync."""
+    __tablename__ = "bank_accounts"
+    __table_args__ = (Index("idx_bank_accounts_item", "item_id"),)
+
+    account_id = Column(Text, primary_key=True)           # Plaid's account_id
+    item_id = Column(Text, nullable=False)                # Plaid's item_id
+    name = Column(Text, default="")
+    mask = Column(Text, default="")                       # last 4
+    type = Column(Text, default="")                       # depository | credit | loan ...
+    subtype = Column(Text, default="")
+    current_balance = Column(Float, nullable=True)
+    available_balance = Column(Float, nullable=True)
+    updated_at = Column(Text, default="")
+
+
+class BankTransaction(Base):
+    """One bank or card line from Plaid. `amount` keeps Plaid's sign:
+    positive = money out, negative = money in. `category` is ours (the list
+    in services/bank.py), set by a rule, by Claude, or by hand."""
+    __tablename__ = "bank_transactions"
+    __table_args__ = (
+        Index("idx_bank_tx_date", "date"),
+        Index("idx_bank_tx_account", "account_id"),
+    )
+
+    transaction_id = Column(Text, primary_key=True)       # Plaid's, unique
+    account_id = Column(Text, nullable=False)
+    date = Column(Text, default="")                       # YYYY-MM-DD, posted
+    authorized_date = Column(Text, default="")
+    name = Column(Text, default="")
+    merchant_name = Column(Text, default="")
+    amount = Column(Float, nullable=False, default=0)
+    pending = Column(Boolean, default=False, nullable=False)
+    plaid_category = Column(Text, default="")             # personal_finance_category "PRIMARY/DETAILED"
+    category = Column(Text, nullable=True)                # ours; NULL = not sorted yet
+    category_source = Column(Text, default="")            # rule | claude | manual
+    confidence = Column(Float, nullable=True)
+    reviewed = Column(Boolean, default=False, nullable=False)
+    created_at = Column(Text, default="")
+    updated_at = Column(Text, default="")
+
+
+class BankRule(Base):
+    """"Always put this one under that": a lowercased piece of the merchant
+    or description, matched as a substring, and the category it means.
+    Made when a fix is saved with "remember"."""
+    __tablename__ = "bank_rules"
+
+    id = Column(Text, primary_key=True)
+    match = Column(Text, unique=True, nullable=False)
+    category = Column(Text, nullable=False)
+    created_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+
 def init_db():
     global _engine, _SessionLocal
     settings = get_settings()
