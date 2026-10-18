@@ -15,6 +15,7 @@
 // and each stage of the job carries its own colour the whole way down —
 // scope is violet, before-cleaning amber, after-cleaning cyan, after-staining
 // green. Done is always green, missing is always amber, damage is always red.
+import { Link } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
@@ -1193,6 +1194,14 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                    }} />
             <FootageChoices sqft={job.sqft} estimates={data.estimate_options || []} measure={data.measure_options}
                             onPick={(v) => void patch({ sqft: v })} />
+            {/* Double-check it (Alan, 2026-10-18): straight to the customer's
+                Measure & capture (Google Earth, Street View for the height);
+                the back arrow there comes right back here, and a new
+                measurement shows up above as a choice. */}
+            <Link to={`/leads/${leadId}?focus=measure`}
+                  className="mt-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
+              <Ruler className="h-4 w-4" />{tr("Double-check on Measure & capture")}
+            </Link>
             </>) : <ReadValue>{job.sqft ? `${Math.round(job.sqft).toLocaleString()} ${isSpanish() ? "pies²" : "sq ft"}` : tr("Not set yet")}</ReadValue>}
           </StatTile>
 

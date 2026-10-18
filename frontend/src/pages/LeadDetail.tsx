@@ -785,13 +785,17 @@ export default function LeadDetail() {
   // Estimate tab and bring the Estimator Input into view once it's drawn.
   const focusedRef = useRef(false);
   useEffect(() => {
-    if (focusedRef.current || !lead || urlParams.get("focus") !== "inputs") return;
+    // ?focus=measure (from Company Cam's square footage, Alan 2026-10-18):
+    // the same, onto Measure & capture, opened.
+    const focus = urlParams.get("focus");
+    if (focusedRef.current || !lead || (focus !== "inputs" && focus !== "measure")) return;
     focusedRef.current = true;
     setActiveTab("estimate");
+    if (focus === "measure") setPanelOpen((p) => ({ ...p, [`${id}:measure`]: true }));
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      document.getElementById("est-inputs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById(focus === "measure" ? "est-measure" : "est-inputs")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }));
-  }, [lead, urlParams]);
+  }, [lead, urlParams, id]);
 
   // Logged call outcomes, for the "Heard back" step of the customer journey.
   const [dispositions, setDispositions] = useState<CallDispositionEntry[]>([]);
