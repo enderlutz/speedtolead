@@ -77,8 +77,14 @@ def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
         if isinstance(x, str) and x.strip():
             out.append({"username": x.strip(), "date": "", "task": "", "pay_type": "", "pay": 0.0})
         elif isinstance(x, dict) and str(x.get("username") or "").strip():
+            try:
+                order = int(x.get("order") or 0)
+            except (TypeError, ValueError):
+                order = 0
             out.append({"username": str(x["username"]).strip(), "date": str(x.get("date") or "")[:10],
                         "task": x.get("task") if x.get("task") in ("cleaning", "staining") else "",
+                        # Which job comes first that day (PM HQ, Alan 2026-10-18). 0 = not set.
+                        "order": order,
                         **_pay_of(x)})
     return out
 
@@ -653,6 +659,8 @@ def update_company_cam(
             # The crew list comes back without pay (nobody's pay is in the
             # shared job), so keep what each person was already set to.
             old_pay = {e["username"]: _pay_of(e) for e in _crew_entries(job)}
+            # The day's running order set in PM HQ stays when the profile saves.
+            old_order = {(e["username"], e["date"]): e["order"] for e in _crew_entries(job)}
             entries = []
             for c in body.crew:
                 e = {"username": c} if isinstance(c, str) else dict(c or {})
@@ -668,7 +676,7 @@ def update_company_cam(
                         datetime.strptime(day, "%Y-%m-%d")
                     except ValueError:
                         raise HTTPException(400, "The day isn't a real date")
-                entries.append({"username": name, "date": day, "task": task,
+                entries.append({"username": name, "date": day, "task": task, "order": old_order.get((name, day), 0),
                                 **old_pay.get(name, {"pay_type": "", "pay": 0.0})})
             job.crew_json = json.dumps(entries)
         if body.crew_pay is not None:
@@ -1279,11 +1287,12 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
             rows = []
             for lid, row in out.items():
                 for e in mine[lid]:
-                    rows.append({**row, "date": e["date"] or row.get("date", ""), "task": e["task"],
+                    rows.append({**row, "date": e["date"] or row.get("date", ""), "task": e["task"], "order": e["order"],
                                  "pay_type": e["pay_type"], "pay": e["pay"]})
         else:
             rows = list(out.values())
-        rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r["name"].lower()))
+        # Within a day, the order the office set in PM HQ (unset ones last).
+        rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r.get("order") or 999, r["name"].lower()))
         return rows
     finally:
         db.close()

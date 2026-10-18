@@ -99,3 +99,33 @@ def test_today_and_past(db, monkeypatch):
     past = pm.past(user=ALAN)
     assert [p["name"] for p in past] == ["Taiyeb"]
     assert past[0]["color"] == "Darkest Night" and [c["person"] for c in past[0]["crew"]] == ["Chris", "Brent"]
+
+
+def test_the_days_order_is_set_kept_and_followed_by_the_crew(db, monkeypatch):
+    """Alan, 2026-10-18: Jose stains exolei's fence first, then Laura's."""
+    _seed(db)
+    db.add(Lead(id="E", contact_name="exolei Morales", address="811 Remwick Dr", status="closed"))
+    db.add(Lead(id="L", contact_name="Laura Henderson", address="33202 Big Spruce Dr", status="closed"))
+    db.add(User(id="u3", username="Jose Arthur", display_name="Jose Arthur", role="worker", password_hash="x"))
+    db.commit()
+    for mod in (pm, cc):
+        monkeypatch.setattr(mod, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    pm.assign(pm.DayBody(lead_id="L", date="2026-10-19", username="Jose Arthur", task="staining"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="E", date="2026-10-19", username="Jose Arthur", task="staining"), user=ALAN)
+    names = lambda: [d["name"] for d in pm.calendar("2026-10-19", "2026-10-19", user=ALAN)["days"]]  # noqa: E731
+    assert names() == ["Laura Henderson", "exolei Morales"]  # in the order they were added
+    pm.reorder(pm.OrderBody(date="2026-10-19", lead_ids=["E", "L"]), user=ALAN)
+    assert names() == ["exolei Morales", "Laura Henderson"]
+    # The profile saving its crew list keeps the order.
+    job = db.query(CompanyCamJob).filter_by(lead_id="E").first()
+    monkeypatch.setattr(cc, "_sees_all", lambda u: u.get("role") in ("admin", "va"))
+    import api.permissions as perms
+    monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
+    cc.update_company_cam("E", cc.CompanyCamPatch(crew=[{"username": "Jose Arthur", "date": "2026-10-19", "task": "staining"}]), user=ALAN)
+    db.refresh(job)
+    assert cc._crew_entries(job)[0]["order"] == 1
+    assert names() == ["exolei Morales", "Laura Henderson"]
+    # The crew's own list runs in the same order.
+    jose = {"sub": "Jose Arthur", "role": "worker"}
+    assert [r["name"] for r in cc.company_cam_jobs("", user=jose)] == ["exolei Morales", "Laura Henderson"]

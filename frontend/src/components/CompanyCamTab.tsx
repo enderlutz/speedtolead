@@ -654,6 +654,8 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   // flip to exactly what the crew sees. The crew only ever gets employee view.
   const canManage = canSeeRevenue();
   const [view, setViewState] = useState<"manager" | "employee">(() => {
+    // PM HQ opens a job straight in the manager view (Alan, 2026-10-18).
+    if (new URLSearchParams(window.location.search).get("view") === "manager") return "manager";
     try { return localStorage.getItem("cc_view") === "employee" ? "employee" : "manager"; } catch { return "manager"; }
   });
   const setView = (v: "manager" | "employee") => { setViewState(v); try { localStorage.setItem("cc_view", v); } catch { /* private mode */ } };

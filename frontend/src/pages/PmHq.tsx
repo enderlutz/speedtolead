@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
 import { api, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,7 +119,7 @@ function TodayView() {
       {data.jobs.length === 0 ? (
         <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No jobs on today. Add one from the Calendar tab.</p>
       ) : data.jobs.map((j) => (
-        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}`} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
+        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}?view=manager&from=pm-hq`} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="font-semibold">{j.name}</p>
@@ -232,6 +232,15 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
     return [...m.values()];
   }, [items]);
 
+  // Running order for the day: first card is where the crew starts in the morning.
+  const move = async (i: number, dir: -1 | 1) => {
+    const ids = byJob.map((rows) => rows[0].lead_id);
+    const j = i + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    try { await api.pmHqOrder(day, ids); onChange(); } catch (e) { toast.error(errMessage(e, "Couldn't change the order")); }
+  };
+
   const remove = async (x: PmDay) => {
     try { await api.pmHqUnassign({ lead_id: x.lead_id, date: x.date, username: x.username, task: x.task }); onChange(); }
     catch (e) { toast.error(errMessage(e, "Something went wrong")); }
@@ -245,10 +254,23 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
       </div>
       {adding ? <AddToDay day={day} crew={crew} onDone={() => { setAdding(false); onChange(); }} onCancel={() => setAdding(false)} /> : null}
       {byJob.length === 0 && !adding ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
-      {byJob.map((rows) => (
-        <div key={rows[0].lead_id} className="rounded-xl bg-muted/40 p-3">
+      {byJob.length > 1 ? <p className="text-[11px] text-muted-foreground">In order: the crew starts with number 1. Use the arrows to change it.</p> : null}
+      {byJob.map((rows, idx) => (
+        <div key={rows[0].lead_id} className="flex gap-2 rounded-xl bg-muted/40 p-3">
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{idx + 1}</span>
+            {canEdit && byJob.length > 1 ? (
+              <>
+                <button type="button" onClick={() => void move(idx, -1)} disabled={idx === 0} aria-label="Move up"
+                        className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+                <button type="button" onClick={() => void move(idx, 1)} disabled={idx === byJob.length - 1} aria-label="Move down"
+                        className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+              </>
+            ) : null}
+          </div>
+          <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <Link to={`/company-cam/${rows[0].lead_id}`} className="font-semibold hover:underline">{rows[0].name}</Link>
+            <Link to={`/company-cam/${rows[0].lead_id}?view=manager&from=pm-hq`} className="font-semibold text-primary hover:underline">{rows[0].name} ›</Link>
             <span className="text-xs font-semibold tabular-nums text-muted-foreground">{rows[0].progress.percent}% · {rows[0].progress.stage}</span>
           </div>
           <p className="text-xs text-muted-foreground">{rows[0].address}</p>
@@ -262,6 +284,7 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
                 ) : <span className="w-1" />}
               </span>
             ))}
+          </div>
           </div>
         </div>
       ))}
@@ -367,7 +390,7 @@ function PastView() {
   return (
     <div className="space-y-3">
       {jobs.map((j) => (
-        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}`} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
+        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}?view=manager&from=pm-hq`} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="font-semibold">{j.name}</p>

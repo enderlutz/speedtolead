@@ -3801,6 +3801,8 @@ export const api = {
   getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),
   pmHqAssign: (b: { lead_id: string; date: string; username: string; task: "" | "cleaning" | "staining" }) =>
     request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
+  pmHqOrder: (date: string, lead_ids: string[]) =>
+    request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids }) }),
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>
@@ -6038,7 +6040,7 @@ export type DocCategory = { key: string; label: string; about: string };
 export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string }
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
-  task: "" | "cleaning" | "staining"; progress: PmProgress; color: string; completed_at: string; updated_at: string;
+  task: "" | "cleaning" | "staining"; order: number; progress: PmProgress; color: string; completed_at: string; updated_at: string;
 }
 export interface PmTodayJob {
   lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;

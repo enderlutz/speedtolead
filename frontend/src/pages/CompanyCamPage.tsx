@@ -22,9 +22,16 @@ export default function CompanyCamPage() {
   if (leadId) {
     return (
       <div className="mx-auto max-w-3xl space-y-3 p-3 sm:p-5">
-        <Link to="/company-cam" className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="h-4 w-4" /> {tr("All jobs")}
-        </Link>
+        {/* Back to where they came from: PM HQ, or the Company Cam list. */}
+        {new URLSearchParams(window.location.search).get("from") === "pm-hq" ? (
+          <Link to="/pm-hq" className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-4 w-4" /> {tr("Project Manager")}
+          </Link>
+        ) : (
+          <Link to="/company-cam" className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-4 w-4" /> {tr("All jobs")}
+          </Link>
+        )}
         <CompanyCamTab leadId={leadId} />
       </div>
     );

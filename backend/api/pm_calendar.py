@@ -98,10 +98,10 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
             out.append({
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "date": day, "username": e["username"], "person": names.get(e["username"].lower(), e["username"]),
-                "task": e["task"], "progress": prog, "color": j.final_color or "",
+                "task": e["task"], "order": e["order"], "progress": prog, "color": j.final_color or "",
                 "completed_at": j.completed_at or "", "updated_at": j.updated_at or "",
             })
-    out.sort(key=lambda r: (r["date"], r["name"].lower(), r["task"], r["person"].lower()))
+    out.sort(key=lambda r: (r["date"], r["order"] or 999, r["name"].lower(), r["task"], r["person"].lower()))
     return out
 
 
@@ -150,7 +150,9 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
         if blank:
             blank.update({"date": body.date[:10], "task": body.task})
         elif not any(e["username"].lower() == u.username.lower() and e["date"] == body.date[:10] and e["task"] == body.task for e in entries):
-            entries.append({"username": u.username, "date": body.date[:10], "task": body.task, **pay})
+            # A new job on a day goes after the ones already in order.
+            last = max((r["order"] for r in _rows(db, body.date[:10], body.date[:10])), default=0)
+            entries.append({"username": u.username, "date": body.date[:10], "task": body.task, "order": last + 1, **pay})
         job.crew_json = json.dumps(entries)
         job.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()
@@ -179,6 +181,31 @@ def unassign(body: DayBody, user: dict = Depends(require_admin)):
         db.close()
 
 
+class OrderBody(BaseModel):
+    date: str
+    lead_ids: list[str]
+
+
+@router.post("/pm-hq/order")
+def reorder(body: OrderBody, user: dict = Depends(require_admin)):
+    """The running order of a day's jobs (Alan, 2026-10-18: exolei first, the
+    one the crew starts in the morning). First in the list is 1."""
+    day = body.date[:10]
+    db = get_db()
+    try:
+        rank = {lid: i + 1 for i, lid in enumerate(body.lead_ids)}
+        for job in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(list(rank))).all():
+            entries = _crew_entries(job)
+            for e in entries:
+                if e["date"] == day:
+                    e["order"] = rank[job.lead_id]
+            job.crew_json = json.dumps(entries)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
 @router.get("/pm-hq/today")
 def today(user: dict = Depends(_office)):
     """Today's jobs, one card per customer, with who's there and how far along."""
@@ -197,7 +224,10 @@ def today(user: dict = Depends(_office)):
             c = cards.setdefault(r["lead_id"], {k: r[k] for k in ("lead_id", "name", "address", "progress", "color", "completed_at", "updated_at")}
                                  | {"crew": [], "photos_today": photos_today.get(r["lead_id"], 0)})
             c["crew"].append({"person": r["person"], "username": r["username"], "task": r["task"]})
-        return {"today": day, "jobs": sorted(cards.values(), key=lambda c: c["name"].lower())}
+        first = {}
+        for r in rows:
+            first.setdefault(r["lead_id"], r["order"] or 999)
+        return {"today": day, "jobs": sorted(cards.values(), key=lambda c: (first[c["lead_id"]], c["name"].lower()))}
     finally:
         db.close()
 
