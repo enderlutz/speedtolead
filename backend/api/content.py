@@ -149,7 +149,9 @@ def sign_upload(body: SignBody, user: dict = Depends(require_perm("social_media"
     if not _bucket_ready:
         _bucket_ready = storage.ensure_bucket(_bucket(), public=True)
     if not _bucket_ready:
-        raise HTTPException(503, "Photo storage isn't set up on the server yet. Ask Fragne to add the Supabase keys.")
+        if not storage._enabled():
+            raise HTTPException(503, "Photo storage isn't set up on the server yet. Ask Fragne to add the Supabase keys.")
+        raise HTTPException(502, "Couldn't reach photo storage. Try again in a minute.")
     item_id = str(uuid.uuid4())
     path = f"{(body.shot_on or _now()[:10])}/{item_id}-{_safe_name(body.filename)}"
     signed = storage.signed_upload(_bucket(), path)

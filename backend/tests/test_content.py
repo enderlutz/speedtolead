@@ -121,3 +121,54 @@ def test_only_the_owner_can_remove(db):
         cc.remove_content("C1", user=VA)
     assert db.query(ContentItem).filter(ContentItem.id == "C1").first().archived is False
     assert cc.remove_content("C1", user=ALAN) == {"ok": True}
+
+
+class _Resp:
+    def __init__(self, status, text=""):
+        self.status_code = status
+        self.text = text
+        self.is_success = 200 <= status < 300
+
+
+def _fake_client(get_status, post_resp, calls):
+    class C:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, headers=None):
+            calls.append(("GET", url)); return _Resp(get_status)
+        def post(self, url, headers=None, json=None):
+            calls.append(("POST", url)); return post_resp
+    return C
+
+
+def _keys(monkeypatch):
+    from services import supabase_storage as ss
+    monkeypatch.setattr(ss, "_enabled", lambda: True)
+    monkeypatch.setattr(ss, "get_settings", lambda: type("S", (), {"supabase_url": "https://x.supabase.co", "supabase_service_key": "k"})())
+    return ss
+
+
+def test_a_bucket_that_already_exists_is_ready_without_creating_it(monkeypatch):
+    """What Alan hit: the bucket existed, the keys were set, and every upload
+    after a restart said storage wasn't set up."""
+    ss = _keys(monkeypatch); calls = []
+    monkeypatch.setattr(ss.httpx, "Client", _fake_client(200, _Resp(500), calls))
+    assert ss.ensure_bucket("content") is True
+    assert [c[0] for c in calls] == ["GET"]
+
+
+def test_supabase_duplicate_answer_counts_as_ready(monkeypatch):
+    ss = _keys(monkeypatch); calls = []
+    dup = _Resp(400, '{"statusCode":"409","error":"Duplicate","message":"The resource already exists"}')
+    monkeypatch.setattr(ss.httpx, "Client", _fake_client(404, dup, calls))
+    assert ss.ensure_bucket("content") is True
+
+
+def test_a_real_storage_error_is_not_called_missing_keys(db, monkeypatch):
+    monkeypatch.setattr(cc.storage, "ensure_bucket", lambda *a, **k: False)
+    monkeypatch.setattr(cc.storage, "_enabled", lambda: True)
+    cc._bucket_ready = False
+    with pytest.raises(HTTPException) as e:
+        cc.sign_upload(cc.SignBody(filename="a.mov", mime="video/quicktime", size=10), user=ALAN)
+    assert e.value.status_code == 502

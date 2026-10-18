@@ -852,6 +852,7 @@ def health():
             "google_maps": bool((_os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()),
             "meta_ads": meta_ads_svc.is_configured(),
             "plaid": plaid_client.is_configured(),
+            "storage": __import__("services.supabase_storage", fromlist=["_enabled"])._enabled(),
         },
     }
 

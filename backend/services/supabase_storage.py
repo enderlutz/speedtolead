@@ -108,16 +108,30 @@ def delete_object(bucket: str, path: str) -> bool:
 
 
 def ensure_bucket(bucket: str, public: bool = True) -> bool:
-    """Create the bucket if it isn't there. 409 means it already is."""
+    """Create the bucket if it isn't there.
+
+    Asks first, then creates. Supabase answers a create for a bucket that
+    already exists with HTTP 400 and {"statusCode": "409", "error":
+    "Duplicate"} in the body, not a 409 status, so checking only the status
+    refused every Social media upload after a server restart (Alan,
+    2026-10-18: "Photo storage isn't set up" with the keys in place)."""
     if not _enabled():
         return False
     s = get_settings()
+    base = s.supabase_url.rstrip("/")
     headers = {"Authorization": f"Bearer {s.supabase_service_key}", "Content-Type": "application/json"}
     try:
         with httpx.Client(timeout=15) as c:
-            r = c.post(f"{s.supabase_url.rstrip('/')}/storage/v1/bucket", headers=headers,
+            if c.get(f"{base}/storage/v1/bucket/{bucket}", headers=headers).is_success:
+                return True
+            r = c.post(f"{base}/storage/v1/bucket", headers=headers,
                        json={"id": bucket, "name": bucket, "public": public})
-        return r.is_success or r.status_code == 409
+        if r.is_success or r.status_code == 409:
+            return True
+        if "duplicate" in r.text.lower() or "already exists" in r.text.lower():
+            return True
+        logger.warning(f"Supabase Storage ensure_bucket {bucket} [{r.status_code}]: {r.text[:200]}")
+        return False
     except Exception as e:
         logger.warning(f"Supabase Storage ensure_bucket {bucket}: {e}")
         return False
