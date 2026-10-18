@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CoverageStats, type StainOption, type CompanyCamPhoto,
+  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type StainOption, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -678,14 +678,14 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
   useEffect(() => { void load(); }, [load]);
 
   const patch = async (
-    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean },
+    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew_pay?: { username: string } & CrewPay },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
     setData((d) => (d ? { ...d, job: { ...d.job, ...p } as CompanyCamJob } : d));
     try {
       const r = await api.updateCompanyCam(leadId, p);
-      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers } : d));
+      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers, crew_pay: r.crew_pay ?? d.crew_pay } : d));
     } catch (e) {
       toast.error(errMessage(e, tr("Couldn't save")));
       void load();
@@ -1038,6 +1038,7 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
                           {t === "cleaning" ? tr("Cleaning") : tr("Staining")}
                         </button>
                       ))}
+                      <CrewPayPicker username={mine.username} value={data.crew_pay?.[mine.username]} onSave={(v) => void patch({ crew_pay: { username: mine.username, ...v } })} />
                     </div>
                   ) : null}
                 </div>
@@ -2184,6 +2185,41 @@ function ContactRow({ icon: Icon, text, copyText, href, external, label }: {
               className="flex min-h-11 shrink-0 items-center gap-1 rounded-xl bg-white/10 px-3 text-xs font-bold text-white ring-1 ring-white/15 active:bg-white/20">
         {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? tr("Copied") : tr("Copy")}
       </button>
+    </div>
+  );
+}
+
+
+/** How this person is paid on this job (Alan, 2026-10-17): flat for the job,
+ *  or hourly at a rate. Only the office sets it; the worker sees only their
+ *  own, next to the job on their schedule. */
+function CrewPayPicker({ username, value, onSave }: { username: string; value?: CrewPay; onSave: (v: CrewPay) => void }) {
+  const [kind, setKind] = useState<CrewPay["pay_type"]>(value?.pay_type || "");
+  const [amount, setAmount] = useState(value?.pay ? String(value.pay) : "");
+  const save = (k: CrewPay["pay_type"], a: string) => {
+    const n = Math.round((Number(a) || 0) * 100) / 100;
+    if (k === (value?.pay_type || "") && n === (value?.pay || 0)) return;
+    onSave({ pay_type: k, pay: k ? n : 0 });
+  };
+  return (
+    <div className="flex w-full flex-wrap items-center gap-1.5">
+      <span className="text-sm font-semibold">{tr("Pay")}</span>
+      {(["flat", "hourly"] as const).map((k) => (
+        <button key={k} type="button" aria-pressed={kind === k}
+                onClick={() => { const next = kind === k ? "" : k; setKind(next); save(next, amount); }}
+                className={cn("min-h-11 rounded-lg px-3 text-sm font-semibold ring-1", kind === k ? "bg-ink text-gold-light ring-ink" : "bg-background ring-border")}>
+          {k === "flat" ? tr("Flat for the job") : tr("Hourly")}
+        </button>
+      ))}
+      {kind ? (
+        <label className="flex min-h-11 items-center gap-1 rounded-lg bg-background px-2.5 text-sm ring-1 ring-border">
+          <span className="font-semibold">$</span>
+          <input inputMode="decimal" value={amount} placeholder={kind === "flat" ? "100" : "16"} aria-label={`Pay for ${username}`}
+                 onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} onBlur={() => save(kind, amount)}
+                 className="h-9 w-20 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
+          <span className="text-muted-foreground">{kind === "hourly" ? tr("an hour") : tr("for the job")}</span>
+        </label>
+      ) : null}
     </div>
   );
 }

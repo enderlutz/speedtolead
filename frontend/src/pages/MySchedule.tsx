@@ -924,7 +924,14 @@ function DailyCheckInCard() {
   );
 }
 
-type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string };
+type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; pay_type?: "" | "flat" | "hourly"; pay?: number };
+
+/** "$100" for a flat job, "$16/hr" hourly, "" when the office hasn't set it. */
+function payLabel(j: CamJob): string {
+  if (!j.pay_type || !j.pay) return "";
+  const n = `$${j.pay % 1 ? j.pay.toFixed(2) : j.pay}`;
+  return j.pay_type === "hourly" ? `${n}/${tr("hr")}` : n;
+}
 
 /** The Company Cam jobs the office put this person on, for the tab's days
  *  (Alan, 2026-10-16: "Cleaning · Yogi" on the day, tap to open it). */
@@ -932,6 +939,9 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
   const shown = jobs.filter((j) => (tab === "today" ? j.date === today : tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today))
     .sort((a, b) => (a.date || "9").localeCompare(b.date || "9"));
   if (!shown.length) return null;
+  // What the flat jobs on this tab add up to (Alan, 2026-10-17: they should
+  // see the week's jobs and exactly what each one pays).
+  const flatTotal = shown.reduce((t, j) => t + (j.pay_type === "flat" ? j.pay || 0 : 0), 0);
   const day = (iso: string) => {
     if (!iso) return tr("Day not set yet");
     const [y, m, d] = iso.split("-").map(Number);
@@ -939,6 +949,12 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
   };
   return (
     <div className="mb-4 space-y-2">
+      {flatTotal > 0 ? (
+        <p className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200">
+          <span>{tab === "today" ? tr("Today's flat pay") : tab === "upcoming" ? tr("Coming up, flat pay") : tr("Flat pay, past jobs")}</span>
+          <span className="text-base tabular-nums">${flatTotal % 1 ? flatTotal.toFixed(2) : flatTotal}</span>
+        </p>
+      ) : null}
       {shown.map((j) => (
         <Link key={j.lead_id} to={`/company-cam/${j.lead_id}`}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
@@ -950,6 +966,7 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
             <span className="block truncate text-base font-semibold capitalize">{(j.name || tr("Customer")).toLowerCase()}</span>
             {j.address ? <span className="flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{j.address}</span> : null}
           </span>
+          {payLabel(j) ? <span className="shrink-0 rounded-lg bg-emerald-100 px-2 py-1 text-sm font-bold tabular-nums text-emerald-900">{payLabel(j)}</span> : null}
           <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
         </Link>
       ))}

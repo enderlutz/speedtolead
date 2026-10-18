@@ -3794,7 +3794,7 @@ export const api = {
   getStainCoverage: () => request<StainCoverageFile>("/api/stain-coverage"),
   /** The crew's Company Cam list: booked customers, or a search. No prices. */
   getCompanyCamJobs: (q = "") =>
-    request<{ lead_id: string; name: string; address: string; date: string; task?: string }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
+    request<{ lead_id: string; name: string; address: string; date: string; task?: string; pay_type?: CrewPay["pay_type"]; pay?: number }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
@@ -3806,13 +3806,14 @@ export const api = {
       fence_sides?: string[];
       neighbor_send?: boolean;
       crew?: CrewEntry[];
+      crew_pay?: { username: string } & CrewPay;
       recalc_gallons?: boolean;
       color_plan?: ColorPlanRow[];
       cleaner_checklist?: string[];
       stainer_checklist?: string[];
     },
   ) =>
-    request<{ job: CompanyCamJob; blockers: string[]; estimate_sides?: string[] }>(`/api/company-cam/${leadId}`, {
+    request<{ job: CompanyCamJob; blockers: string[]; estimate_sides?: string[]; crew_pay?: Record<string, CrewPay> }>(`/api/company-cam/${leadId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
@@ -4025,6 +4026,8 @@ export interface CompanyCamSection {
 
 export interface CompanyCamPayload {
   job: CompanyCamJob;
+  /** Pay per person on the job: every line for the office, only your own for crew. */
+  crew_pay?: Record<string, CrewPay>;
   sections: CompanyCamSection[];
   photos: Record<string, CompanyCamPhoto[]>;
   upsell_options: { key: string; label: string }[];
@@ -5961,6 +5964,8 @@ export interface StainCoverageFile {
 }
 
 export type CrewEntry = { username: string; date: string; task: "" | "cleaning" | "staining" };
+/** How one person is paid on one job: a flat amount, or hourly at a rate. */
+export type CrewPay = { pay_type: "" | "flat" | "hourly"; pay: number };
 
 export type CourseVideo = { label: string; url: string };
 export type CourseQuizQ = { q: string; options: string[]; answer?: number };

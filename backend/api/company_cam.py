@@ -75,11 +75,41 @@ def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
     out = []
     for x in v if isinstance(v, list) else []:
         if isinstance(x, str) and x.strip():
-            out.append({"username": x.strip(), "date": "", "task": ""})
+            out.append({"username": x.strip(), "date": "", "task": "", "pay_type": "", "pay": 0.0})
         elif isinstance(x, dict) and str(x.get("username") or "").strip():
             out.append({"username": str(x["username"]).strip(), "date": str(x.get("date") or "")[:10],
-                        "task": x.get("task") if x.get("task") in ("cleaning", "staining") else ""})
+                        "task": x.get("task") if x.get("task") in ("cleaning", "staining") else "",
+                        **_pay_of(x)})
     return out
+
+
+# How each person on a job is paid (Alan, 2026-10-17): a flat amount for the
+# job ("I told Brent $100"), or hourly at a rate. Stored on the crew entry, but
+# never in the job everyone on it can read: the office sees every line, a
+# crew member sees only their own.
+PAY_TYPES = ("flat", "hourly")
+
+
+def _pay_of(x: dict) -> dict:
+    kind = x.get("pay_type") if x.get("pay_type") in PAY_TYPES else ""
+    try:
+        amount = round(float(x.get("pay") or 0), 2)
+    except (TypeError, ValueError):
+        amount = 0.0
+    return {"pay_type": kind, "pay": amount if kind else 0.0}
+
+
+def _public_crew(entries: list[dict]) -> list[dict]:
+    return [{k: e[k] for k in ("username", "date", "task")} for e in entries]
+
+
+def _crew_pay(job: CompanyCamJob | None, user: dict) -> dict:
+    """username -> {pay_type, pay}: every line for the office, only your own
+    for the crew. Crew pay only, never the job's price."""
+    me = (user.get("sub") or "").lower()
+    office = _sees_all(user)
+    return {e["username"]: {"pay_type": e["pay_type"], "pay": e["pay"]}
+            for e in _crew_entries(job) if office or e["username"].lower() == me}
 
 
 def _crew_of(job: CompanyCamJob | None) -> list[str]:
@@ -297,7 +327,7 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "stainer_checklist": _json_list(job.stainer_checklist_json),
         "neighbor_interested": bool(job.neighbor_interested),
         "neighbor_status": job.neighbor_status or "",
-        "crew": _crew_entries(job),
+        "crew": _public_crew(_crew_entries(job)),
         "neighbor_sent_at": job.neighbor_sent_at or "",
         "neighbor_first_name": job.neighbor_first_name or "",
         "neighbor_last_name": job.neighbor_last_name or "",
@@ -423,6 +453,8 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             "estimate_options": estimate_options(db, lead_id),
             # Crew accounts the office can put on this job.
             "crew_options": _crew_options(db) if _sees_all(user) else [],
+            # Pay per person on the job: all of it for the office, yours only for crew.
+            "crew_pay": _crew_pay(job, user),
             "measure_options": measure_options(db, lead_id),
             "customer": {
                 "name": lead.contact_name or "",
@@ -487,6 +519,8 @@ class CompanyCamPatch(BaseModel):
     # Crew on this job (office only): usernames, or {username, date, task}
     # with task "cleaning" | "staining".
     crew: list | None = None
+    # One person's pay on this job: {"username", "pay_type": flat|hourly|"", "pay"}.
+    crew_pay: dict | None = None
     neighbor_first_name: str | None = None
     neighbor_last_name: str | None = None
     neighbor_phone: str | None = None
@@ -615,6 +649,9 @@ def update_company_cam(
                 raise HTTPException(403, "Only the office puts crew on a job")
             from database import User
             names = {u.username.lower(): u.username for u in db.query(User).all()}
+            # The crew list comes back without pay (nobody's pay is in the
+            # shared job), so keep what each person was already set to.
+            old_pay = {e["username"]: _pay_of(e) for e in _crew_entries(job)}
             entries = []
             for c in body.crew:
                 e = {"username": c} if isinstance(c, str) else dict(c or {})
@@ -628,7 +665,21 @@ def update_company_cam(
                     except ValueError:
                         raise HTTPException(400, "The day isn't a real date")
                 entries.append({"username": name, "date": day,
-                                "task": e.get("task") if e.get("task") in ("cleaning", "staining") else ""})
+                                "task": e.get("task") if e.get("task") in ("cleaning", "staining") else "",
+                                **old_pay.get(name, {"pay_type": "", "pay": 0.0})})
+            job.crew_json = json.dumps(entries)
+        if body.crew_pay is not None:
+            if not _sees_all(user):
+                raise HTTPException(403, "Only the office sets crew pay")
+            who = str(body.crew_pay.get("username") or "").lower()
+            entries = _crew_entries(job)
+            hit = next((e for e in entries if e["username"].lower() == who), None)
+            if hit is None:
+                raise HTTPException(400, "Put them on the job first, then set their pay")
+            pay = _pay_of(body.crew_pay)
+            if pay["pay"] < 0 or pay["pay"] > 5000:
+                raise HTTPException(400, "Pay has to be between $0 and $5,000")
+            hit.update(pay)
             job.crew_json = json.dumps(entries)
         neighbor_alert = ""
         if body.neighbor_status is not None:
@@ -687,7 +738,8 @@ def update_company_cam(
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
-        return {"job": _job_dict(job, sqft_per_gallon(db, job)), "blockers": _blockers(job, photos), "estimate_sides": estimate_sides(db, lead)}
+        return {"job": _job_dict(job, sqft_per_gallon(db, job)), "blockers": _blockers(job, photos),
+                "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(job, user)}
     finally:
         db.close()
 
@@ -1221,6 +1273,8 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
             for lid, row in out.items():
                 row["date"] = mine[lid]["date"] or row.get("date", "")
                 row["task"] = mine[lid]["task"]
+                # Their own pay for it, flat or hourly (never the job's price).
+                row["pay_type"], row["pay"] = mine[lid]["pay_type"], mine[lid]["pay"]
         rows = list(out.values())
         rows.sort(key=lambda r: (r["date"] == "", r["date"] or "", r["name"].lower()))
         return rows

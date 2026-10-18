@@ -986,3 +986,41 @@ def test_a_note_says_who_wrote_it(db):
     # Clearing the note clears whose it was.
     out = cc.update_photo(lead.id, shot["id"], cc.PhotoPatch(note=""), user=jose)
     assert out["note"] == "" and out["note_by"] == ""
+
+
+def test_crew_pay_is_set_by_the_office_and_each_worker_sees_only_their_own(db, monkeypatch):
+    # Alan (2026-10-17): "for that one I just told him $100", shown next to
+    # the job on Brent's schedule, and nobody else's.
+    from database import User
+    from api import permissions as perms
+    monkeypatch.setattr(perms, "get_db", lambda: db)
+    monkeypatch.setattr(cc, "get_db", lambda: db)
+    db.close = lambda: None
+    for uid, name in (("w1", "BrentBrown"), ("w2", "JoseR")):
+        db.add(User(id=uid, username=name, display_name=name, password_hash="x", role="worker",
+                    permissions='{"company_cam": true}', created_at=""))
+    db.commit()
+    lead = _lead(db, name="Tayeb Diouri", address="4934 Morning Stream Dr")
+    cc.get_company_cam(lead.id, user=USER)
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[
+        {"username": "BrentBrown", "date": "2026-10-18", "task": "staining"},
+        {"username": "JoseR", "date": "2026-10-17", "task": "cleaning"}]), user=USER)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "brentbrown", "pay_type": "flat", "pay": 100}), user=USER)
+    assert r["crew_pay"]["BrentBrown"] == {"pay_type": "flat", "pay": 100.0}
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "JoseR", "pay_type": "hourly", "pay": 16}), user=USER)
+    # The shared job never carries pay.
+    assert "pay" not in str(r["job"]["crew"])
+    brent = {"sub": "BrentBrown", "role": "worker", "perms": []}
+    assert cc.get_company_cam(lead.id, user=brent)["crew_pay"] == {"BrentBrown": {"pay_type": "flat", "pay": 100.0}}
+    row = cc.company_cam_jobs(user=brent)[0]
+    assert row["pay_type"] == "flat" and row["pay"] == 100.0
+    # Re-saving the crew list keeps everyone's pay.
+    cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew=[
+        {"username": "BrentBrown", "date": "2026-10-19", "task": "staining"},
+        {"username": "JoseR", "date": "2026-10-17", "task": "cleaning"}]), user=USER)
+    assert cc.get_company_cam(lead.id, user=USER)["crew_pay"]["JoseR"] == {"pay_type": "hourly", "pay": 16.0}
+    # The crew can't set pay, and pay needs them on the job.
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "BrentBrown", "pay_type": "flat", "pay": 900}), user=brent)
+    with pytest.raises(HTTPException):
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(crew_pay={"username": "Nobody", "pay_type": "flat", "pay": 5}), user=USER)
