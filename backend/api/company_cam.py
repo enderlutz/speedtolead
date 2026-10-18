@@ -85,6 +85,9 @@ def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
                         "task": x.get("task") if x.get("task") in ("cleaning", "staining") else "",
                         # Which job comes first that day (PM HQ, Alan 2026-10-18). 0 = not set.
                         "order": order,
+                        # A helper rides with the main tech (Alan, 2026-10-18: Alfredo goes
+                        # with Jose and translates); their order follows the tech's.
+                        "helper": bool(x.get("helper")),
                         **_pay_of(x)})
     return out
 
@@ -94,6 +97,14 @@ def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
 # never in the job everyone on it can read: the office sees every line, a
 # crew member sees only their own.
 PAY_TYPES = ("flat", "hourly")
+
+
+def effective_order(entries: list[dict], e: dict) -> int:
+    """A helper's place in the day is the main tech's on that job."""
+    if not e.get("helper"):
+        return e.get("order") or 0
+    leads = [x.get("order") or 0 for x in entries if x["date"] == e["date"] and not x.get("helper") and x.get("order")]
+    return min(leads) if leads else (e.get("order") or 0)
 
 
 def _pay_of(x: dict) -> dict:
@@ -661,6 +672,7 @@ def update_company_cam(
             old_pay = {e["username"]: _pay_of(e) for e in _crew_entries(job)}
             # The day's running order set in PM HQ stays when the profile saves.
             old_order = {(e["username"], e["date"]): e["order"] for e in _crew_entries(job)}
+            old_helper = {(e["username"], e["date"]): e["helper"] for e in _crew_entries(job)}
             entries = []
             for c in body.crew:
                 e = {"username": c} if isinstance(c, str) else dict(c or {})
@@ -677,6 +689,7 @@ def update_company_cam(
                     except ValueError:
                         raise HTTPException(400, "The day isn't a real date")
                 entries.append({"username": name, "date": day, "task": task, "order": old_order.get((name, day), 0),
+                                "helper": old_helper.get((name, day), False),
                                 **old_pay.get(name, {"pay_type": "", "pay": 0.0})})
             job.crew_json = json.dumps(entries)
         if body.crew_pay is not None:
@@ -1285,9 +1298,11 @@ def company_cam_jobs(q: str = "", user: dict = Depends(get_current_user)):
             # (clean Monday, stain Tuesday = two rows), with their own pay
             # (flat or hourly, never the job's price).
             rows = []
+            jobs_by_lead = {j.lead_id: j for j in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(list(mine))).all()} if mine else {}
             for lid, row in out.items():
                 for e in mine[lid]:
-                    rows.append({**row, "date": e["date"] or row.get("date", ""), "task": e["task"], "order": e["order"],
+                    rows.append({**row, "date": e["date"] or row.get("date", ""), "task": e["task"],
+                                 "order": effective_order(_crew_entries(jobs_by_lead.get(lid)), e),
                                  "pay_type": e["pay_type"], "pay": e["pay"]})
         else:
             rows = list(out.values())

@@ -234,8 +234,9 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
   const lanes = useMemo(() => {
     const m = new Map<string, PmDay[]>();
     for (const x of items) { if (!m.has(x.username)) m.set(x.username, []); m.get(x.username)!.push(x); }
-    return [...m.entries()].map(([username, rows]) => ({ username, person: rows[0].person, rows }))
-      .sort((a, b) => a.person.localeCompare(b.person));
+    // Main techs first, helpers after.
+    return [...m.entries()].map(([username, rows]) => ({ username, person: rows[0].person, rows, helper: rows.every((r) => r.helper) }))
+      .sort((a, b) => Number(a.helper) - Number(b.helper) || a.person.localeCompare(b.person));
   }, [items]);
 
   return (
@@ -268,6 +269,10 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
   );
   const ids = list.map((x) => `${x.lead_id}|${x.task}`);
+  // A helper's order follows whoever they ride with, so their list isn't dragged.
+  const helper = list.every((x) => x.helper);
+  const drag = canEdit && !helper;
+  const goesWith = [...new Set(list.flatMap((x) => x.with))];
 
   const onDragEnd = async (e: DragEndEvent) => {
     const from = ids.indexOf(String(e.active.id));
@@ -288,13 +293,15 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
 
   return (
     <div className="rounded-xl bg-muted/40 p-2.5">
-      <p className="mb-2 flex items-center gap-1.5 px-1 text-sm font-bold"><HardHat className="h-4 w-4 text-primary" />{person}
-        <span className="text-xs font-normal text-muted-foreground">· {list.length} job{list.length === 1 ? "" : "s"}</span></p>
+      <p className="mb-2 flex flex-wrap items-center gap-1.5 px-1 text-sm font-bold"><HardHat className="h-4 w-4 text-primary" />{person}
+        <span className="text-xs font-normal text-muted-foreground">· {list.length} job{list.length === 1 ? "" : "s"}</span>
+        {helper ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200">
+          Helper{goesWith.length ? ` · goes with ${goesWith.join(" and ")}` : ""}</span> : null}</p>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void onDragEnd(e)}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <div className="space-y-2">
             {list.map((x, i) => (
-              <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} canEdit={canEdit} onRemove={() => void remove(x)} crew={crew} onChange={onChange}
+              <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} canEdit={canEdit} drag={drag} onRemove={() => void remove(x)} crew={crew} onChange={onChange}
                        mates={dayItems.filter((d) => d.lead_id === x.lead_id && d.username !== x.username)} />
             ))}
           </div>
@@ -304,18 +311,19 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
   );
 }
 
-function JobCard({ id, n, x, canEdit, onRemove, crew, mates, onChange }: {
-  id: string; n: number; x: PmDay; canEdit: boolean; onRemove: () => void;
+function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
+  id: string; n: number; x: PmDay; canEdit: boolean; drag: boolean; onRemove: () => void;
   crew: { username: string; name: string }[]; mates: PmDay[]; onChange: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !canEdit });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !drag });
   // A second person on the same job (Alan, 2026-10-18: Jose and Alfredo stain together).
   const [picking, setPicking] = useState(false);
   const onIt = new Set([x.username.toLowerCase(), ...mates.map((m) => m.username.toLowerCase())]);
   const free = crew.filter((c) => !onIt.has(c.username.toLowerCase()));
   const addMate = async (username: string) => {
     try {
-      await api.pmHqAssign({ lead_id: x.lead_id, date: x.date, username, task: x.task });
+      // Added onto someone's job = a helper who rides with them.
+      await api.pmHqAssign({ lead_id: x.lead_id, date: x.date, username, task: x.task, helper: true });
       setPicking(false);
       onChange();
     } catch (e) { toast.error(errMessage(e, "Couldn't add them")); }
@@ -323,7 +331,7 @@ function JobCard({ id, n, x, canEdit, onRemove, crew, mates, onChange }: {
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
          className={cn("flex items-stretch gap-2 rounded-lg bg-background p-2 ring-1 ring-border", isDragging && "z-10 shadow-lg ring-2 ring-primary")}>
-      {canEdit ? (
+      {drag ? (
         <button type="button" {...attributes} {...listeners} aria-label={`Drag ${x.name}`}
                 className="flex w-8 shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing">
           <GripVertical className="h-5 w-5" />
@@ -337,7 +345,7 @@ function JobCard({ id, n, x, canEdit, onRemove, crew, mates, onChange }: {
           <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>{TASK_LABEL[x.task]}</span>
           <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{x.progress.percent}% · {x.progress.stage}</span>
         </div>
-        {mates.length ? <p className="mt-1 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person))].join(" and ")}</p> : null}
+        {mates.length ? <p className="mt-1 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person + (m.helper ? " (helper)" : "")))].join(" and ")}</p> : null}
         {canEdit && free.length ? (
           picking ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -372,6 +380,7 @@ function AddToDay({ day, crew, onDone, onCancel }: {
   const [options, setOptions] = useState<{ lead_id: string; name: string; address: string }[]>([]);
   const [customer, setCustomer] = useState<{ lead_id: string; name: string; address: string } | null>(null);
   const [who, setWho] = useState<Record<string, Task | undefined>>({});
+  const [helpers, setHelpers] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -390,7 +399,9 @@ function AddToDay({ day, crew, onDone, onCancel }: {
     if (!customer || !chosen.length) return;
     setSaving(true);
     try {
-      for (const [username, task] of chosen) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username, task });
+      // Main techs first so a helper has someone to follow.
+      const ordered = [...chosen].sort(([a], [b]) => Number(helpers.has(a)) - Number(helpers.has(b)));
+      for (const [username, task] of ordered) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username, task, helper: helpers.has(username) });
       toast.success(`${customer.name} is on ${fmtDay(day)}`);
       onDone();
     } catch (e) { toast.error(errMessage(e, "Something went wrong")); } finally { setSaving(false); }
@@ -424,6 +435,7 @@ function AddToDay({ day, crew, onDone, onCancel }: {
             <button type="button" onClick={() => { setCustomer(null); setWho({}); }} className="text-xs font-semibold text-primary">Change</button>
           </div>
           <p className="text-sm font-semibold">2. Who, and are they cleaning or staining?</p>
+          <p className="text-[11px] text-muted-foreground">Tap Helper for someone who rides along (like Alfredo): their order follows the main tech's.</p>
           {!crew.length ? <p className="text-xs text-muted-foreground">No crew accounts yet. Make one in Settings, Permissions.</p> : null}
           <div className="space-y-1.5">
             {crew.map((c) => {
@@ -438,6 +450,13 @@ function AddToDay({ day, crew, onDone, onCancel }: {
                       {TASK_LABEL[k]}
                     </button>
                   ))}
+                  {t !== undefined ? (
+                    <button type="button" onClick={() => setHelpers((h) => { const n = new Set(h); if (n.has(c.username)) n.delete(c.username); else n.add(c.username); return n; })}
+                            className={cn("min-h-10 rounded-lg px-3 text-sm font-semibold ring-1",
+                              helpers.has(c.username) ? "bg-amber-500 text-white ring-amber-500" : "bg-background ring-border")}>
+                      Helper
+                    </button>
+                  ) : null}
                 </div>
               );
             })}

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.auth import get_current_user, require_admin
-from api.company_cam import _crew_entries, _crew_options, _sees_all
+from api.company_cam import _crew_entries, _crew_options, _sees_all, effective_order
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
 from services.company_cam import CLEANER_CHECKLIST, STAINER_CHECKLIST
 
@@ -91,14 +91,18 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
         if not lead:
             continue
         prog = progress(j)
-        for e in _crew_entries(j):
+        entries = _crew_entries(j)
+        for e in entries:
             day = e["date"]
             if not day or (start and day < start) or (end and day > end):
                 continue
             out.append({
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "date": day, "username": e["username"], "person": names.get(e["username"].lower(), e["username"]),
-                "task": e["task"], "order": e["order"], "progress": prog, "color": j.final_color or "",
+                "task": e["task"], "order": effective_order(entries, e), "helper": e["helper"],
+                "with": [names.get(x["username"].lower(), x["username"]) for x in entries
+                         if x["date"] == day and x["username"] != e["username"] and not x["helper"]],
+                "progress": prog, "color": j.final_color or "",
                 "completed_at": j.completed_at or "", "updated_at": j.updated_at or "",
             })
     out.sort(key=lambda r: (r["date"], r["order"] or 999, r["name"].lower(), r["task"], r["person"].lower()))
@@ -120,6 +124,7 @@ class DayBody(BaseModel):
     date: str
     username: str
     task: str = ""
+    helper: bool = False
 
 
 def _job_for(db, lead_id: str) -> CompanyCamJob:
@@ -148,13 +153,14 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
         # A day with no day picked yet (set on the profile) is this one, not a second line.
         blank = next((e for e in entries if e["username"].lower() == u.username.lower() and not e["date"]), None)
         if blank:
-            blank.update({"date": body.date[:10], "task": body.task})
+            blank.update({"date": body.date[:10], "task": body.task, "helper": body.helper})
         elif not any(e["username"].lower() == u.username.lower() and e["date"] == body.date[:10] and e["task"] == body.task for e in entries):
             # A new job on a day goes after the ones already in order.
             # Each worker has their own running order for the day; a new job goes last in theirs.
             last = max((r["order"] for r in _rows(db, body.date[:10], body.date[:10])
                         if r["username"].lower() == u.username.lower()), default=0)
-            entries.append({"username": u.username, "date": body.date[:10], "task": body.task, "order": last + 1, **pay})
+            entries.append({"username": u.username, "date": body.date[:10], "task": body.task, "order": last + 1,
+                            "helper": body.helper, **pay})
         job.crew_json = json.dumps(entries)
         job.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()

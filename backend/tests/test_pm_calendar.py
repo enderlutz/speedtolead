@@ -170,3 +170,29 @@ def test_two_people_can_stain_the_same_job_together(db, monkeypatch):
     monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
     assert cc.crew_guard("E", user={"sub": "Alfredo", "role": "worker"})["sub"] == "Alfredo"
     assert [r["name"] for r in cc.company_cam_jobs("", user={"sub": "Alfredo", "role": "worker"})] == ["exolei Morales"]
+
+
+def test_a_helpers_order_follows_the_main_tech(db, monkeypatch):
+    """Alfredo rides with Jose: drag Jose's jobs and Alfredo's list follows."""
+    _seed(db)
+    for lid, name in (("E", "exolei Morales"), ("L", "Laura Henderson")):
+        db.add(Lead(id=lid, contact_name=name, address="x", status="closed"))
+    db.add(User(id="u3", username="Jose Arthur", display_name="Jose Arthur", role="worker", password_hash="x"))
+    db.add(User(id="u4", username="Alfredo", display_name="Alfredo", role="worker", password_hash="x"))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    for lid in ("L", "E"):
+        pm.assign(pm.DayBody(lead_id=lid, date="2026-10-19", username="Jose Arthur", task="staining"), user=ALAN)
+        pm.assign(pm.DayBody(lead_id=lid, date="2026-10-19", username="Alfredo", task="staining", helper=True), user=ALAN)
+    def lane(who):
+        return [d["name"] for d in pm.calendar("2026-10-19", "2026-10-19", user=ALAN)["days"] if d["username"] == who]
+    assert lane("Alfredo") == lane("Jose Arthur") == ["Laura Henderson", "exolei Morales"]
+    pm.reorder(pm.OrderBody(date="2026-10-19", lead_ids=["E", "L"], username="Jose Arthur"), user=ALAN)
+    assert lane("Alfredo") == lane("Jose Arthur") == ["exolei Morales", "Laura Henderson"]
+    alf = [d for d in pm.calendar("2026-10-19", "2026-10-19", user=ALAN)["days"] if d["username"] == "Alfredo"][0]
+    assert alf["helper"] is True and alf["with"] == ["Jose Arthur"]
+    monkeypatch.setattr(cc, "_sees_all", lambda u: u.get("role") in ("admin", "va"))
+    import api.permissions as perms
+    monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
+    assert [r["name"] for r in cc.company_cam_jobs("", user={"sub": "Alfredo", "role": "worker"})] == ["exolei Morales", "Laura Henderson"]
