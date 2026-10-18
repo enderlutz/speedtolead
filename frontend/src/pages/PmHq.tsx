@@ -248,14 +248,16 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
       {lanes.length === 0 && !adding ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
       {lanes.length && canEdit ? <p className="text-[11px] text-muted-foreground">Hold the dots on a job and drag it up or down. Number 1 is where they start in the morning.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {lanes.map((l) => <WorkerLane key={l.username} day={day} username={l.username} person={l.person} rows={l.rows} canEdit={canEdit} onChange={onChange} />)}
+        {lanes.map((l) => <WorkerLane key={l.username} day={day} username={l.username} person={l.person} rows={l.rows} canEdit={canEdit} onChange={onChange}
+                                      crew={crew} dayItems={items} />)}
       </div>
     </div>
   );
 }
 
-function WorkerLane({ day, username, person, rows, canEdit, onChange }: {
+function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayItems }: {
   day: string; username: string; person: string; rows: PmDay[]; canEdit: boolean; onChange: () => void;
+  crew: { username: string; name: string }[]; dayItems: PmDay[];
 }) {
   // Local copy so a drop shows instantly; the server catches up behind it.
   const [list, setList] = useState(rows);
@@ -291,7 +293,10 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange }: {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void onDragEnd(e)}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <div className="space-y-2">
-            {list.map((x, i) => <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} canEdit={canEdit} onRemove={() => void remove(x)} />)}
+            {list.map((x, i) => (
+              <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} canEdit={canEdit} onRemove={() => void remove(x)} crew={crew} onChange={onChange}
+                       mates={dayItems.filter((d) => d.lead_id === x.lead_id && d.username !== x.username)} />
+            ))}
           </div>
         </SortableContext>
       </DndContext>
@@ -299,8 +304,22 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange }: {
   );
 }
 
-function JobCard({ id, n, x, canEdit, onRemove }: { id: string; n: number; x: PmDay; canEdit: boolean; onRemove: () => void }) {
+function JobCard({ id, n, x, canEdit, onRemove, crew, mates, onChange }: {
+  id: string; n: number; x: PmDay; canEdit: boolean; onRemove: () => void;
+  crew: { username: string; name: string }[]; mates: PmDay[]; onChange: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !canEdit });
+  // A second person on the same job (Alan, 2026-10-18: Jose and Alfredo stain together).
+  const [picking, setPicking] = useState(false);
+  const onIt = new Set([x.username.toLowerCase(), ...mates.map((m) => m.username.toLowerCase())]);
+  const free = crew.filter((c) => !onIt.has(c.username.toLowerCase()));
+  const addMate = async (username: string) => {
+    try {
+      await api.pmHqAssign({ lead_id: x.lead_id, date: x.date, username, task: x.task });
+      setPicking(false);
+      onChange();
+    } catch (e) { toast.error(errMessage(e, "Couldn't add them")); }
+  };
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
          className={cn("flex items-stretch gap-2 rounded-lg bg-background p-2 ring-1 ring-border", isDragging && "z-10 shadow-lg ring-2 ring-primary")}>
@@ -318,6 +337,25 @@ function JobCard({ id, n, x, canEdit, onRemove }: { id: string; n: number; x: Pm
           <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>{TASK_LABEL[x.task]}</span>
           <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{x.progress.percent}% · {x.progress.stage}</span>
         </div>
+        {mates.length ? <p className="mt-1 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person))].join(" and ")}</p> : null}
+        {canEdit && free.length ? (
+          picking ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {free.map((c) => (
+                <button key={c.username} type="button" onClick={() => void addMate(c.username)}
+                        className="min-h-9 rounded-full bg-primary/10 px-3 text-xs font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/20">
+                  + {c.name}
+                </button>
+              ))}
+              <button type="button" onClick={() => setPicking(false)} className="text-xs text-muted-foreground">Cancel</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setPicking(true)}
+                    className="mt-1.5 inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
+              <Plus className="h-3.5 w-3.5" />Add someone {x.task ? `to ${TASK_LABEL[x.task].toLowerCase()}` : ""}
+            </button>
+          )
+        ) : null}
       </div>
       {canEdit ? (
         <button type="button" onClick={onRemove} aria-label={`Take ${x.person} off ${x.name}`}

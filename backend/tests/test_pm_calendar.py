@@ -150,3 +150,23 @@ def test_each_worker_has_their_own_order_for_the_day(db, monkeypatch):
     pm.reorder(pm.OrderBody(date="2026-10-19", lead_ids=["J", "C"], username="Chris"), user=ALAN)
     assert lane("Chris") == ["Jerry Tuyo", "Christopher"]
     assert lane("Jose Arthur") == ["exolei Morales", "Laura Henderson"]
+
+
+def test_two_people_can_stain_the_same_job_together(db, monkeypatch):
+    """Alan, 2026-10-18: Jose and Alfredo stain exolei's fence together."""
+    _seed(db)
+    db.add(Lead(id="E", contact_name="exolei Morales", address="x", status="closed"))
+    db.add(User(id="u3", username="Jose Arthur", display_name="Jose Arthur", role="worker", password_hash="x"))
+    db.add(User(id="u4", username="Alfredo", display_name="Alfredo", role="worker", password_hash="x"))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    pm.assign(pm.DayBody(lead_id="E", date="2026-10-19", username="Jose Arthur", task="staining"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="E", date="2026-10-19", username="Alfredo", task="staining"), user=ALAN)
+    days = pm.calendar("2026-10-19", "2026-10-19", user=ALAN)["days"]
+    assert sorted((d["person"], d["task"]) for d in days) == [("Alfredo", "staining"), ("Jose Arthur", "staining")]
+    monkeypatch.setattr(cc, "_sees_all", lambda u: u.get("role") in ("admin", "va"))
+    import api.permissions as perms
+    monkeypatch.setattr(perms, "require_perm", lambda *_a, **_k: (lambda u: u))
+    assert cc.crew_guard("E", user={"sub": "Alfredo", "role": "worker"})["sub"] == "Alfredo"
+    assert [r["name"] for r in cc.company_cam_jobs("", user={"sub": "Alfredo", "role": "worker"})] == ["exolei Morales"]
