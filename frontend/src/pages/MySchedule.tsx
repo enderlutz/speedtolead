@@ -924,7 +924,7 @@ function DailyCheckInCard() {
   );
 }
 
-type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; pay_type?: "" | "flat" | "hourly"; pay?: number };
+type CamJob = { lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: "" | "flat" | "hourly"; pay?: number };
 
 /** "$100" for a flat job, "$16/hr" hourly, "" when the office hasn't set it. */
 function payLabel(j: CamJob): string {
@@ -937,8 +937,16 @@ function payLabel(j: CamJob): string {
  *  (Alan, 2026-10-16: "Cleaning · Yogi" on the day, tap to open it). */
 function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string }) {
   const shown = jobs.filter((j) => (tab === "today" ? j.date === today : tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today))
-    .sort((a, b) => (a.date || "9").localeCompare(b.date || "9"));
+    // Same day: the order the office set in PM HQ (Alan, 2026-10-18).
+    .sort((a, b) => (a.date || "9").localeCompare(b.date || "9") || (a.order || 999) - (b.order || 999));
   if (!shown.length) return null;
+  // "1st", "2nd" within a day, only when there's more than one job that day.
+  const nth = (j: CamJob) => {
+    const same = shown.filter((x) => x.date && x.date === j.date);
+    if (same.length < 2) return "";
+    const i = same.indexOf(j) + 1;
+    return isSpanish() ? `${i}º` : `${i}${i === 1 ? "st" : i === 2 ? "nd" : i === 3 ? "rd" : "th"}`;
+  };
   // What the flat jobs on this tab add up to (Alan, 2026-10-17: they should
   // see the week's jobs and exactly what each one pays).
   const flatTotal = shown.reduce((t, j) => t + (j.pay_type === "flat" ? j.pay || 0 : 0), 0);
@@ -959,6 +967,7 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
         <Link key={`${j.lead_id}-${j.date}-${j.task || ""}`} to={`/company-cam/${j.lead_id}`}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
           <span className={`flex h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : "bg-stone-500"}`}>
+            {nth(j) ? <span className="text-[11px] font-extrabold">{nth(j)}</span> : null}
             <span className="text-sm uppercase tracking-wide">{j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Cleaning") : tr("Job")}</span>
             {tab !== "today" ? <span className="font-medium opacity-90">{day(j.date)}</span> : null}
           </span>

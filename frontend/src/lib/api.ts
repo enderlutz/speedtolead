@@ -3806,7 +3806,7 @@ export const api = {
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>
-    request<{ lead_id: string; name: string; address: string; date: string; task?: string; pay_type?: CrewPay["pay_type"]; pay?: number }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
+    request<{ lead_id: string; name: string; address: string; date: string; task?: string; order?: number; pay_type?: CrewPay["pay_type"]; pay?: number }[]>(`/api/company-cam-jobs?q=${encodeURIComponent(q)}`),
   getCompanyCam: (leadId: string) =>
     request<CompanyCamPayload>(`/api/company-cam/${leadId}`),
   updateCompanyCam: (
