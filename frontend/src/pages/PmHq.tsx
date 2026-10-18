@@ -11,8 +11,11 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import { CalendarDays, GripVertical, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
 import { api, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -226,68 +229,100 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
   day: string; items: PmDay[]; crew: { username: string; name: string }[]; canEdit: boolean; onChange: () => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const byJob = useMemo(() => {
+  // One column per worker (Alan, 2026-10-18): their jobs top to bottom in the
+  // order they'll do them. Each worker's order is their own.
+  const lanes = useMemo(() => {
     const m = new Map<string, PmDay[]>();
-    for (const x of items) { if (!m.has(x.lead_id)) m.set(x.lead_id, []); m.get(x.lead_id)!.push(x); }
-    return [...m.values()];
+    for (const x of items) { if (!m.has(x.username)) m.set(x.username, []); m.get(x.username)!.push(x); }
+    return [...m.entries()].map(([username, rows]) => ({ username, person: rows[0].person, rows }))
+      .sort((a, b) => a.person.localeCompare(b.person));
   }, [items]);
 
-  // Running order for the day: first card is where the crew starts in the morning.
-  const move = async (i: number, dir: -1 | 1) => {
-    const ids = byJob.map((rows) => rows[0].lead_id);
-    const j = i + dir;
-    if (j < 0 || j >= ids.length) return;
-    [ids[i], ids[j]] = [ids[j], ids[i]];
-    try { await api.pmHqOrder(day, ids); onChange(); } catch (e) { toast.error(errMessage(e, "Couldn't change the order")); }
-  };
-
-  const remove = async (x: PmDay) => {
-    try { await api.pmHqUnassign({ lead_id: x.lead_id, date: x.date, username: x.username, task: x.task }); onChange(); }
-    catch (e) { toast.error(errMessage(e, "Something went wrong")); }
-  };
-
   return (
-    <div className="space-y-2 rounded-2xl border bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
+    <div className="space-y-3 rounded-2xl border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="font-semibold">{fmtDay(day, { weekday: "long", month: "long", day: "numeric" })}</p>
         {canEdit && !adding ? <Button size="sm" onClick={() => setAdding(true)}><Plus className="mr-1 h-4 w-4" />Add a customer to this day</Button> : null}
       </div>
       {adding ? <AddToDay day={day} crew={crew} onDone={() => { setAdding(false); onChange(); }} onCancel={() => setAdding(false)} /> : null}
-      {byJob.length === 0 && !adding ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
-      {byJob.length > 1 ? <p className="text-[11px] text-muted-foreground">In order: the crew starts with number 1. Use the arrows to change it.</p> : null}
-      {byJob.map((rows, idx) => (
-        <div key={rows[0].lead_id} className="flex gap-2 rounded-xl bg-muted/40 p-3">
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{idx + 1}</span>
-            {canEdit && byJob.length > 1 ? (
-              <>
-                <button type="button" onClick={() => void move(idx, -1)} disabled={idx === 0} aria-label="Move up"
-                        className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
-                <button type="button" onClick={() => void move(idx, 1)} disabled={idx === byJob.length - 1} aria-label="Move down"
-                        className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
-              </>
-            ) : null}
+      {lanes.length === 0 && !adding ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
+      {lanes.length && canEdit ? <p className="text-[11px] text-muted-foreground">Hold the dots on a job and drag it up or down. Number 1 is where they start in the morning.</p> : null}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {lanes.map((l) => <WorkerLane key={l.username} day={day} username={l.username} person={l.person} rows={l.rows} canEdit={canEdit} onChange={onChange} />)}
+      </div>
+    </div>
+  );
+}
+
+function WorkerLane({ day, username, person, rows, canEdit, onChange }: {
+  day: string; username: string; person: string; rows: PmDay[]; canEdit: boolean; onChange: () => void;
+}) {
+  // Local copy so a drop shows instantly; the server catches up behind it.
+  const [list, setList] = useState(rows);
+  const [prev, setPrev] = useState(rows);
+  if (prev !== rows) { setPrev(rows); setList(rows); }
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
+  );
+  const ids = list.map((x) => `${x.lead_id}|${x.task}`);
+
+  const onDragEnd = async (e: DragEndEvent) => {
+    const from = ids.indexOf(String(e.active.id));
+    const to = e.over ? ids.indexOf(String(e.over.id)) : -1;
+    if (from < 0 || to < 0 || from === to) return;
+    const next = arrayMove(list, from, to);
+    setList(next);
+    try {
+      await api.pmHqOrder(day, [...new Set(next.map((x) => x.lead_id))], username);
+      onChange();
+    } catch (err) { setList(rows); toast.error(errMessage(err, "Couldn't change the order")); }
+  };
+
+  const remove = async (x: PmDay) => {
+    try { await api.pmHqUnassign({ lead_id: x.lead_id, date: x.date, username: x.username, task: x.task }); onChange(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't take them off")); }
+  };
+
+  return (
+    <div className="rounded-xl bg-muted/40 p-2.5">
+      <p className="mb-2 flex items-center gap-1.5 px-1 text-sm font-bold"><HardHat className="h-4 w-4 text-primary" />{person}
+        <span className="text-xs font-normal text-muted-foreground">· {list.length} job{list.length === 1 ? "" : "s"}</span></p>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void onDragEnd(e)}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          <div className="space-y-2">
+            {list.map((x, i) => <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} canEdit={canEdit} onRemove={() => void remove(x)} />)}
           </div>
-          <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <Link to={`/company-cam/${rows[0].lead_id}?view=manager&from=pm-hq`} className="font-semibold text-primary hover:underline">{rows[0].name} ›</Link>
-            <span className="text-xs font-semibold tabular-nums text-muted-foreground">{rows[0].progress.percent}% · {rows[0].progress.stage}</span>
-          </div>
-          <p className="text-xs text-muted-foreground">{rows[0].address}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {rows.map((x, i) => (
-              <span key={i} className={cn("inline-flex items-center gap-1 rounded-full py-1 pl-2.5 pr-1 text-xs font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>
-                {TASK_LABEL[x.task]} · {x.person}
-                {canEdit ? (
-                  <button type="button" onClick={() => void remove(x)} aria-label={`Take ${x.person} off this day`}
-                          className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"><X className="h-3.5 w-3.5" /></button>
-                ) : <span className="w-1" />}
-              </span>
-            ))}
-          </div>
-          </div>
+        </SortableContext>
+      </DndContext>
+    </div>
+  );
+}
+
+function JobCard({ id, n, x, canEdit, onRemove }: { id: string; n: number; x: PmDay; canEdit: boolean; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !canEdit });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
+         className={cn("flex items-stretch gap-2 rounded-lg bg-background p-2 ring-1 ring-border", isDragging && "z-10 shadow-lg ring-2 ring-primary")}>
+      {canEdit ? (
+        <button type="button" {...attributes} {...listeners} aria-label={`Drag ${x.name}`}
+                className="flex w-8 shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing">
+          <GripVertical className="h-5 w-5" />
+        </button>
+      ) : null}
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{n}</span>
+      <div className="min-w-0 flex-1">
+        <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate font-semibold text-primary hover:underline">{x.name} ›</Link>
+        <p className="truncate text-xs text-muted-foreground">{x.address}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>{TASK_LABEL[x.task]}</span>
+          <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{x.progress.percent}% · {x.progress.stage}</span>
         </div>
-      ))}
+      </div>
+      {canEdit ? (
+        <button type="button" onClick={onRemove} aria-label={`Take ${x.person} off ${x.name}`}
+                className="self-start rounded-full p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+      ) : null}
     </div>
   );
 }

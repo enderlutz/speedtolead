@@ -3801,8 +3801,8 @@ export const api = {
   getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),
   pmHqAssign: (b: { lead_id: string; date: string; username: string; task: "" | "cleaning" | "staining" }) =>
     request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
-  pmHqOrder: (date: string, lead_ids: string[]) =>
-    request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids }) }),
+  pmHqOrder: (date: string, lead_ids: string[], username = "") =>
+    request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids, username }) }),
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>

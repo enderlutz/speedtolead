@@ -151,7 +151,9 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
             blank.update({"date": body.date[:10], "task": body.task})
         elif not any(e["username"].lower() == u.username.lower() and e["date"] == body.date[:10] and e["task"] == body.task for e in entries):
             # A new job on a day goes after the ones already in order.
-            last = max((r["order"] for r in _rows(db, body.date[:10], body.date[:10])), default=0)
+            # Each worker has their own running order for the day; a new job goes last in theirs.
+            last = max((r["order"] for r in _rows(db, body.date[:10], body.date[:10])
+                        if r["username"].lower() == u.username.lower()), default=0)
             entries.append({"username": u.username, "date": body.date[:10], "task": body.task, "order": last + 1, **pay})
         job.crew_json = json.dumps(entries)
         job.updated_at = datetime.now(timezone.utc).isoformat()
@@ -184,12 +186,15 @@ def unassign(body: DayBody, user: dict = Depends(require_admin)):
 class OrderBody(BaseModel):
     date: str
     lead_ids: list[str]
+    # Whose list this is (Alan, 2026-10-18: Chris does Jerry then Christopher,
+    # Jose does exolei then Laura). Blank = everyone on those jobs that day.
+    username: str = ""
 
 
 @router.post("/pm-hq/order")
 def reorder(body: OrderBody, user: dict = Depends(require_admin)):
-    """The running order of a day's jobs (Alan, 2026-10-18: exolei first, the
-    one the crew starts in the morning). First in the list is 1."""
+    """One worker's running order for a day (Alan, 2026-10-18): the first job
+    is where they start in the morning. First in the list is 1."""
     day = body.date[:10]
     db = get_db()
     try:
@@ -197,7 +202,7 @@ def reorder(body: OrderBody, user: dict = Depends(require_admin)):
         for job in db.query(CompanyCamJob).filter(CompanyCamJob.lead_id.in_(list(rank))).all():
             entries = _crew_entries(job)
             for e in entries:
-                if e["date"] == day:
+                if e["date"] == day and (not body.username or e["username"].lower() == body.username.lower()):
                     e["order"] = rank[job.lead_id]
             job.crew_json = json.dumps(entries)
         db.commit()

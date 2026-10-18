@@ -129,3 +129,24 @@ def test_the_days_order_is_set_kept_and_followed_by_the_crew(db, monkeypatch):
     # The crew's own list runs in the same order.
     jose = {"sub": "Jose Arthur", "role": "worker"}
     assert [r["name"] for r in cc.company_cam_jobs("", user=jose)] == ["exolei Morales", "Laura Henderson"]
+
+
+
+def test_each_worker_has_their_own_order_for_the_day(db, monkeypatch):
+    """Monday: Chris cleans Jerry then Christopher; Jose stains exolei then Laura.
+    Moving Chris's jobs leaves Jose's alone."""
+    _seed(db)
+    for lid, name in (("J", "Jerry Tuyo"), ("C", "Christopher"), ("E", "exolei Morales"), ("L", "Laura Henderson")):
+        db.add(Lead(id=lid, contact_name=name, address="x", status="closed"))
+    db.add(User(id="u3", username="Jose Arthur", display_name="Jose Arthur", role="worker", password_hash="x"))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    for lid, who, task in (("C", "Chris", "cleaning"), ("J", "Chris", "cleaning"), ("E", "Jose Arthur", "staining"), ("L", "Jose Arthur", "staining")):
+        pm.assign(pm.DayBody(lead_id=lid, date="2026-10-19", username=who, task=task), user=ALAN)
+    def lane(who):
+        return [d["name"] for d in pm.calendar("2026-10-19", "2026-10-19", user=ALAN)["days"] if d["username"] == who]
+    assert lane("Chris") == ["Christopher", "Jerry Tuyo"] and lane("Jose Arthur") == ["exolei Morales", "Laura Henderson"]
+    pm.reorder(pm.OrderBody(date="2026-10-19", lead_ids=["J", "C"], username="Chris"), user=ALAN)
+    assert lane("Chris") == ["Jerry Tuyo", "Christopher"]
+    assert lane("Jose Arthur") == ["exolei Morales", "Laura Henderson"]
