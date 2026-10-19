@@ -2756,6 +2756,22 @@ export const api = {
   fencePhotoStorageStatus: () =>
     request<Record<string, unknown>>("/api/fence-photos/storage-status"),
 
+  // --- On call for new leads (2026-10-19) ---
+  onCallNow: () => request<{ in_hours: boolean; on_call: OnCallPerson[] }>("/api/on-call/now"),
+  onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
+  onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),
+  onCallSchedule: (start: string, end: string) =>
+    request<{ shifts: OnCallShift[]; people: OnCallPerson[]; open_min: number; close_min: number }>(`/api/on-call/schedule?start=${start}&end=${end}`),
+  onCallSetDay: (date: string, shifts: { username: string; start_min: number; end_min: number }[]) =>
+    request<{ date: string; shifts: OnCallShift[] }>(`/api/on-call/schedule/${date}`, { method: "PUT", body: JSON.stringify({ shifts }) }),
+  onCallCopyWeek: (from_start: string, to_start: string) =>
+    request<{ copied: number }>("/api/on-call/schedule/copy-week", { method: "POST", body: JSON.stringify({ from_start, to_start }) }),
+  onCallPeople: () => request<{ people: OnCallPerson[] }>("/api/on-call/people"),
+  onCallSetPerson: (username: string, body: { phone: string; alert_channel: string; ghl_user_id: string }) =>
+    request<OnCallPerson>(`/api/on-call/people/${encodeURIComponent(username)}`, { method: "PUT", body: JSON.stringify(body) }),
+  onCallGhlUsers: () => request<{ users: { id: string; name: string; email: string; phone: string }[]; error?: string }>("/api/on-call/ghl-users"),
+  onCallTest: (username: string) => request<{ ok: boolean }>(`/api/on-call/people/${encodeURIComponent(username)}/test`, { method: "POST" }),
+  onCallScorecard: (start: string, end: string) => request<{ rows: OnCallScore[] }>(`/api/on-call/scorecard?start=${start}&end=${end}`),
   // --- Materials: receipts, shelf count, prices, job costing (2026-10-19) ---
   logMaterialPurchase: async (form: FormData) => {
     const token = getToken();
@@ -6156,3 +6172,12 @@ export interface PmPastJob {
   lead_id: string; name: string; address: string; first_day: string; last_day: string; completed_at: string;
   completed_by: string; color: string; progress: PmProgress; crew: { person: string; date: string; task: string }[];
 }
+
+// --- On call (2026-10-19) ---
+export interface OnCallPerson { username: string; name: string; role: string; phone: string; alert_channel: string; ghl_user_id: string; ready: boolean }
+export interface OnCallShift { id: string; username: string; date: string; start_min: number; end_min: number }
+export interface OnCallLead {
+  lead_id: string; name: string; phone: string; address: string; clock_started: string; waiting_for_morning: boolean;
+  on_call: string; fence_height: string; fence_age: string; timeline: string; sides: string | string[]; late_alerted: boolean;
+}
+export interface OnCallScore { username: string; name: string; leads: number; called: number; within_5_pct: number; avg_minutes: number | null; missed: number; won: number; close_pct: number }

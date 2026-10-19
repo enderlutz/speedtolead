@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Map, Contact, Lightbulb, Repeat, Megaphone, Clapperboard } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Map, Contact, Lightbulb, Repeat, Megaphone, Clapperboard, PhoneCall } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -81,6 +81,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // avoid showing fence data. Reveal each as it gets scoped for brick.
   { to: "/", icon: LayoutDashboard, label: "Dashboard", perm: "dashboard", divisions: ["fence"] },
   { to: "/daily-tasks", icon: ListChecks, label: "The Hit List", perm: "dashboard" },  // division-scoped → both
+  // Who's on call for new leads, the 5-minute clock, scorecard (2026-10-19).
+  { to: "/on-call", icon: PhoneCall, label: "On call" },  // no perm = admin + VAs only
   // Mirror of the whole GHL contact list — above the boards on purpose, since
   // the boards are a subset of it (they only show people with an opportunity
   // card; 469 of 1,972 contacts had none on 2026-09-29).
@@ -264,6 +266,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
             if (item.perm) return hasPerm(item.perm);
+            if (item.to === "/on-call") return u?.role === "admin" || u?.role === "va";
             // Items without a perm default to admin + va, hidden from workers.
             return u?.role !== "worker";
           }).map(({ to, icon: Icon, label }) => (

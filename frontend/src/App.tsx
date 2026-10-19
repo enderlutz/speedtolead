@@ -24,6 +24,7 @@ import Pricing from "@/pages/Pricing";
 import CrewToday from "@/pages/CrewToday";
 import CrewSchedule from "@/pages/CrewSchedule";
 import PmHq from "@/pages/PmHq";
+import OnCall from "@/pages/OnCall";
 import CrewStats from "@/pages/CrewStats";
 import QuickApprove from "@/pages/QuickApprove";
 import AiFenceEstimation from "@/pages/AiFenceEstimation";
@@ -130,6 +131,13 @@ function landingFor(): string {
 
 // Gate a route on a view permission. Bounces to the user's landing page when
 // they lack it (covers both nav-hidden and direct-URL access).
+// On call (2026-10-19): the office team only — admin and VAs.
+function RequireOffice({ children }: { children: React.ReactNode }) {
+  const role = getCurrentUser()?.role;
+  if (role !== "admin" && role !== "va") return <Navigate to={landingFor()} replace />;
+  return <>{children}</>;
+}
+
 function RequireView({ view, children }: { view: string; children: React.ReactNode }) {
   if (!hasPerm(view)) return <Navigate to={landingFor()} replace />;
   return <>{children}</>;
@@ -267,6 +275,7 @@ function AppLayout() {
               <Route path="/estimator/day/:date" element={<RequireView view="estimator"><EstimatorDay /></RequireView>} />
               <Route path="/crew-schedule" element={<StaffOnly><CrewSchedule /></StaffOnly>} />
               <Route path="/pm-hq" element={<RequireView view="assign_crew"><PmHq /></RequireView>} />
+              <Route path="/on-call" element={<RequireOffice><OnCall /></RequireOffice>} />
               <Route path="/crew-stats" element={<StaffOnly><CrewStats /></StaffOnly>} />
               <Route path="/job-map" element={<StaffOnly><MapTab /></StaffOnly>} />
               {/* Legacy bookmark redirect — old worker links pointed at /my-day */}

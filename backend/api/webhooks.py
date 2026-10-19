@@ -135,6 +135,13 @@ def _process_lead(lead_id: str, lead_data: dict):
 
             # Notify Alan + Olga
             notify_new_lead(lead.to_dict())
+            # Hand it to whoever is on call and start the 5-minute clock
+            # (Alan, 2026-10-19). A repeat form fill starts a fresh one.
+            try:
+                from services.on_call import start_clock
+                start_clock(lead_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"On call: start_clock failed for {lead_id}: {e}")
             if approval_status == "red" and meta.get("approval_reason"):
                 notify_new_lead_red(lead.to_dict(), meta["approval_reason"])
 

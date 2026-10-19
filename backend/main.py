@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from database import init_db, get_db
 from config import get_settings
 import clock
-from api import materials, pm_calendar, bank, content, money_audit, documents, meta_ads, training_course, webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts, company_cam, proposal_preview, stripe_pay, proposal_live, reviews, booking, referral
+from api import materials, on_call, pm_calendar, bank, content, money_audit, documents, meta_ads, training_course, webhooks, leads, estimates, analytics, pdf_templates, proposals, notifications, settings, auth, fence_ai, chatbot, calls, crew, crew_app, scheduling, estimate_delays, time_logs, accounting, quickbooks, wrapped, sops, call_script, operator, followups, internal, call_list, call_dispositions, payments, training, exterior, customer_upsell, painting_upsell, permissions, estimator, daily_tasks, qb_invoices, worker_shift, video_estimate, stain_inventory, fence_photos, identity, fence_scope, branding, contacts, company_cam, proposal_preview, stripe_pay, proposal_live, reviews, booking, referral
 from api.training import training_ws_handler
 from services.poller import poll_ghl_contacts, poll_ghl_messages
 from services.call_poller import poll_ghl_call_recordings
@@ -506,6 +506,19 @@ async def _video_capture_reminder_loop():
         await asyncio.sleep(1800)  # every 30 minutes
 
 
+async def _on_call_loop():
+    """Every minute: overnight leads to whoever is on at 8 AM, first calls
+    spotted in GHL, and Alan's text when 5 minutes pass with no call."""
+    from services.on_call import tick as on_call_tick
+    await asyncio.sleep(45)
+    while True:
+        try:
+            await asyncio.to_thread(on_call_tick)
+        except Exception as e:
+            logger.error(f"On-call tick error: {e}")
+        await asyncio.sleep(60)
+
+
 async def _followup_engine_loop():
     """Background task: advance due follow-up runs every 5 minutes.
     Master-toggle gated — exits fast when off."""
@@ -655,6 +668,7 @@ async def lifespan(app: FastAPI):
     objection_scan = asyncio.create_task(_objection_scan_loop())
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
+    on_call_loop = asyncio.create_task(_on_call_loop())  # noqa: F841 — runs for the app's life
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     # Sprint 4 T4.B (2026-06-08). Call recording poller re-enabled now
     # that T4.A's GHL fetcher is shipping. Gated on the config flag so
@@ -775,6 +789,7 @@ app.include_router(time_logs.router, prefix="/api")
 app.include_router(accounting.router, prefix="/api")
 app.include_router(stain_inventory.router, prefix="/api")
 app.include_router(materials.router, prefix="/api")
+app.include_router(on_call.router, prefix="/api")
 app.include_router(identity.router, prefix="/api")
 app.include_router(fence_photos.router, prefix="/api")
 app.include_router(quickbooks.router, prefix="/api")

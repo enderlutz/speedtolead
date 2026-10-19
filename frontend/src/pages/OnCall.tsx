@@ -1,0 +1,356 @@
+// On call for new leads (Alan, 2026-10-19): somebody owns every new lead
+// 8 AM–8 PM and calls within 5 minutes. Now = who's on and the leads
+// waiting, with a clock; Schedule = the week (changes week to week);
+// Scorecard = speed to lead per person; Team = where alerts go (admin).
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import { Check, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, Phone, PhoneCall, Plus, Send, Trash2 } from "lucide-react";
+import {
+  api, getCurrentUser,
+  type OnCallLead, type OnCallPerson, type OnCallScore, type OnCallShift,
+} from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { errMessage } from "@/lib/utils";
+
+type Tab = "now" | "schedule" | "score" | "team";
+
+const ymd = (d: Date) => d.toLocaleDateString("en-CA");
+function monday(d: Date) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const hhmm = (m: number) => {
+  const h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? "pm" : "am";
+  return `${((h + 11) % 12) + 1}${mm ? `:${String(mm).padStart(2, "0")}` : ""}${ap}`;
+};
+const TIMES = Array.from({ length: 33 }, (_, i) => 6 * 60 + i * 30);   // 6am–10pm, half hours
+
+export default function OnCall() {
+  const isAdmin = getCurrentUser()?.role === "admin";
+  const [tab, setTab] = useState<Tab>("now");
+  const btn = (k: Tab, label: string) => (
+    <button key={k} type="button" onClick={() => setTab(k)}
+            className={`min-h-10 flex-1 rounded-md px-2 text-sm font-semibold ${tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>
+      {label}
+    </button>
+  );
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold"><PhoneCall className="h-5 w-5 text-primary" /> On call</h1>
+        <p className="text-sm text-muted-foreground">Every new lead 8 AM–8 PM goes to whoever is on call. Call within 5 minutes.</p>
+      </div>
+      <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
+        {btn("now", "Now")}
+        {btn("schedule", "Schedule")}
+        {btn("score", "Scorecard")}
+        {isAdmin ? btn("team", "Team") : null}
+      </div>
+      {tab === "now" ? <NowPanel /> : null}
+      {tab === "schedule" ? <SchedulePanel isAdmin={isAdmin} /> : null}
+      {tab === "score" ? <ScorePanel /> : null}
+      {tab === "team" && isAdmin ? <TeamPanel /> : null}
+    </div>
+  );
+}
+
+function Clock({ since, now }: { since: string; now: number }) {
+  const secs = Math.max(0, Math.floor((now - new Date(since).getTime()) / 1000));
+  const late = secs >= 300;
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return (
+    <span className={`rounded-lg px-2 py-1 text-sm font-bold tabular-nums ${late ? "bg-rose-600 text-white" : secs >= 180 ? "bg-amber-400 text-amber-950" : "bg-emerald-600 text-white"}`}>
+      {m}:{String(s).padStart(2, "0")}
+    </span>
+  );
+}
+
+function NowPanel() {
+  const [who, setWho] = useState<{ in_hours: boolean; on_call: OnCallPerson[] } | null>(null);
+  const [leads, setLeads] = useState<OnCallLead[] | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let live = true;
+    api.onCallNow().then((r) => { if (live) setWho(r); }).catch(() => {});
+    api.onCallQueue().then((r) => { if (live) setLeads(r.leads); }).catch(() => { if (live) setLeads([]); });
+    return () => { live = false; };
+  }, [tick]);
+  useEffect(() => {
+    const a = setInterval(() => setNow(Date.now()), 1000);
+    const b = setInterval(() => setTick((x) => x + 1), 15000);
+    return () => { clearInterval(a); clearInterval(b); };
+  }, []);
+  const called = async (id: string) => {
+    try { await api.onCallCalled(id); setLeads((l) => (l || []).filter((x) => x.lead_id !== id)); toast.success("Clock stopped"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't save")); }
+  };
+  const waitingNow = (leads || []).filter((l) => !l.waiting_for_morning);
+  const morning = (leads || []).filter((l) => l.waiting_for_morning);
+
+  return (
+    <div className="space-y-3">
+      <div className={`rounded-xl p-3 text-sm font-semibold ${!who ? "bg-muted" : !who.in_hours ? "bg-slate-800 text-white" : who.on_call.length ? "bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200" : "bg-rose-50 text-rose-900 ring-1 ring-rose-200"}`}>
+        {!who ? "Loading…" : !who.in_hours ? "After hours. New leads wait for the 8 AM list."
+          : who.on_call.length ? `On call now: ${who.on_call.map((p) => p.name).join(" & ")}` : "Nobody is on call right now. Add someone on the Schedule tab."}
+      </div>
+      {leads === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+      {leads && !leads.length ? <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Every new lead has been called. 🎉</p> : null}
+      {waitingNow.map((l) => (
+        <div key={l.lead_id} className={`rounded-xl border p-3 ${l.late_alerted ? "border-rose-300 bg-rose-50/50" : "border-border bg-card"}`}>
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <Link to={`/leads/${l.lead_id}`} className="block truncate text-base font-semibold capitalize underline-offset-2 hover:underline">{(l.name || "New lead").toLowerCase()}</Link>
+              {l.address ? <p className="flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{l.address}</p> : null}
+              <p className="text-xs text-muted-foreground">
+                {[l.fence_height, l.fence_age, l.timeline].filter(Boolean).join(" · ")}{l.on_call ? ` · on call: ${l.on_call}` : ""}
+              </p>
+            </div>
+            {l.clock_started ? <Clock since={l.clock_started} now={now} /> : null}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {l.phone ? (
+              <a href={`tel:${l.phone.replace(/[^\d+]/g, "")}`} className="flex min-h-11 items-center justify-center gap-1 rounded-lg border text-sm font-semibold"><Phone className="h-4 w-4" /> Call</a>
+            ) : <span />}
+            <Link to={`/leads/${l.lead_id}`} className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-semibold">Profile</Link>
+            <Button className="min-h-11" onClick={() => called(l.lead_id)}><Check className="mr-1 h-4 w-4" /> I called</Button>
+          </div>
+        </div>
+      ))}
+      {morning.length ? (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Waiting for 8 AM ({morning.length})</CardTitle></CardHeader>
+          <CardContent className="space-y-1">
+            {morning.map((l) => (
+              <div key={l.lead_id} className="flex items-center gap-2 text-sm">
+                <Link to={`/leads/${l.lead_id}`} className="flex-1 truncate font-semibold capitalize underline-offset-2 hover:underline">{(l.name || "Lead").toLowerCase()}</Link>
+                <span className="text-xs text-muted-foreground">{l.phone}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
+  );
+}
+
+function SchedulePanel({ isAdmin }: { isAdmin: boolean }) {
+  const [week, setWeek] = useState(() => monday(new Date()));
+  const [shifts, setShifts] = useState<OnCallShift[]>([]);
+  const [people, setPeople] = useState<OnCallPerson[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ username: string; start_min: number; end_min: number }[]>([]);
+  const [tick, setTick] = useState(0);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(week, i)), [week]);
+  const load = useCallback(() => setTick((x) => x + 1), []);
+  useEffect(() => {
+    let live = true;
+    api.onCallSchedule(ymd(days[0]), ymd(days[6])).then((r) => { if (live) { setShifts(r.shifts); setPeople(r.people); } }).catch(() => {});
+    return () => { live = false; };
+  }, [days, tick]);
+  const name = (u: string) => people.find((p) => p.username === u)?.name || u;
+
+  const startEdit = (d: string) => {
+    setEditing(d);
+    const mine = shifts.filter((s) => s.date === d).map((s) => ({ username: s.username, start_min: s.start_min, end_min: s.end_min }));
+    setDraft(mine.length ? mine : [{ username: people[0]?.username || "", start_min: 480, end_min: 1200 }]);
+  };
+  const saveDay = async () => {
+    if (!editing) return;
+    try { await api.onCallSetDay(editing, draft.filter((s) => s.username)); setEditing(null); load(); toast.success("Saved"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't save")); }
+  };
+  const copyLast = async () => {
+    if (!confirm("Copy last week's schedule onto this week? This week's shifts are replaced.")) return;
+    try { const r = await api.onCallCopyWeek(ymd(addDays(week, -7)), ymd(week)); load(); toast.success(`Copied ${r.copied} shifts`); }
+    catch (e) { toast.error(errMessage(e, "Couldn't copy")); }
+  };
+  const sel = "h-10 rounded-md border border-input bg-background px-2 text-sm";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setWeek(addDays(week, -7))}><ChevronLeft className="h-4 w-4" /></Button>
+          <CardTitle className="text-sm">Week of {week.toLocaleDateString([], { month: "short", day: "numeric" })}</CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => setWeek(addDays(week, 7))}><ChevronRight className="h-4 w-4" /></Button>
+        </div>
+        {isAdmin ? <Button variant="outline" size="sm" className="mt-1" onClick={copyLast}><Copy className="mr-1 h-3.5 w-3.5" /> Copy last week</Button> : null}
+      </CardHeader>
+      <CardContent className="divide-y">
+        {days.map((d) => {
+          const key = ymd(d);
+          const todays = shifts.filter((s) => s.date === key);
+          const covered = todays.length > 0;
+          return (
+            <div key={key} className="py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold">{d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}</span>
+                {isAdmin && editing !== key ? <Button size="sm" variant="ghost" onClick={() => startEdit(key)}>Edit</Button> : null}
+              </div>
+              {editing === key ? (
+                <div className="mt-2 space-y-2">
+                  {draft.map((s, i) => (
+                    <div key={i} className="flex flex-wrap items-center gap-2">
+                      <select className={sel} value={s.username} onChange={(e) => setDraft(draft.map((x, j) => (j === i ? { ...x, username: e.target.value } : x)))}>
+                        <option value="">Who?</option>
+                        {people.map((p) => <option key={p.username} value={p.username}>{p.name}</option>)}
+                      </select>
+                      <select className={sel} value={s.start_min} onChange={(e) => setDraft(draft.map((x, j) => (j === i ? { ...x, start_min: Number(e.target.value) } : x)))}>
+                        {TIMES.map((t) => <option key={t} value={t}>{hhmm(t)}</option>)}
+                      </select>
+                      <span className="text-xs">to</span>
+                      <select className={sel} value={s.end_min} onChange={(e) => setDraft(draft.map((x, j) => (j === i ? { ...x, end_min: Number(e.target.value) } : x)))}>
+                        {TIMES.map((t) => <option key={t} value={t}>{hhmm(t)}</option>)}
+                      </select>
+                      <button type="button" onClick={() => setDraft(draft.filter((_, j) => j !== i))} className="p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setDraft([...draft, { username: "", start_min: 840, end_min: 1200 }])}><Plus className="mr-1 h-3.5 w-3.5" /> Add someone</Button>
+                    <Button size="sm" onClick={saveDay}>Save day</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                  </div>
+                </div>
+              ) : covered ? (
+                <ul className="mt-1 space-y-0.5">
+                  {todays.map((s) => <li key={s.id} className="text-sm tabular-nums">{name(s.username)} · {hhmm(s.start_min)}–{hhmm(s.end_min)}</li>)}
+                </ul>
+              ) : <p className="mt-1 text-sm font-semibold text-rose-700">Nobody on call</p>}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScorePanel() {
+  const ranges = useMemo(() => {
+    const today = new Date(), mon = monday(today);
+    return {
+      "This week": [ymd(mon), ymd(addDays(mon, 6))],
+      "Last week": [ymd(addDays(mon, -7)), ymd(addDays(mon, -1))],
+      "This month": [ymd(new Date(today.getFullYear(), today.getMonth(), 1)), ymd(today)],
+    } as Record<string, [string, string]>;
+  }, []);
+  const [pick, setPick] = useState("This week");
+  const [rows, setRows] = useState<OnCallScore[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    const [a, b] = ranges[pick];
+    api.onCallScorecard(a, b).then((r) => { if (live) setRows(r.rows); }).catch(() => { if (live) setRows([]); });
+    return () => { live = false; };
+  }, [pick, ranges]);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap gap-2">
+          {Object.keys(ranges).map((k) => (
+            <button key={k} type="button" onClick={() => setPick(k)}
+                    className={`min-h-9 rounded-full border px-3 text-sm font-semibold ${pick === k ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>{k}</button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows === null ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+        {rows && !rows.length ? <p className="text-sm text-muted-foreground">No leads handed out yet in this range.</p> : null}
+        {(rows || []).map((r) => (
+          <div key={r.username} className="rounded-xl border p-3">
+            <p className="text-base font-semibold">{r.name}</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
+              {([["Leads", String(r.leads)], ["Called ≤5 min", `${r.within_5_pct}%`], ["Avg to call", r.avg_minutes === null ? "–" : `${r.avg_minutes} min`],
+                 ["Missed", String(r.missed)], ["Close rate", `${r.close_pct}%`]] as const).map(([l, v]) => (
+                <div key={l} className="rounded-lg bg-muted/50 p-2">
+                  <p className="text-[11px] font-semibold uppercase text-muted-foreground">{l}</p>
+                  <p className={`text-lg font-bold tabular-nums ${l === "Called ≤5 min" ? (r.within_5_pct >= 80 ? "text-emerald-700" : "text-rose-700") : ""}`}>{v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="text-xs text-muted-foreground">Missed = no call within an hour. Close rate = leads that paid.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TeamPanel() {
+  const [people, setPeople] = useState<OnCallPerson[]>([]);
+  const [ghl, setGhl] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [ghlError, setGhlError] = useState("");
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let live = true;
+    api.onCallPeople().then((r) => { if (live) setPeople(r.people); }).catch(() => {});
+    api.onCallGhlUsers().then((r) => { if (live) { setGhl(r.users); setGhlError(r.error || ""); } }).catch(() => {});
+    return () => { live = false; };
+  }, [tick]);
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Where each person gets new-lead alerts. The VAs have Honduran numbers, so use WhatsApp. Link their GoHighLevel login so new leads
+        are assigned to them in GHL and the GHL app on their phone notifies them too. Everyone keeps getting the usual copy of every lead.
+      </p>
+      {ghlError ? <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{ghlError}</p> : null}
+      {people.map((p) => <PersonRow key={p.username} p={p} ghl={ghl} onSaved={() => setTick((x) => x + 1)} />)}
+    </div>
+  );
+}
+
+function PersonRow({ p, ghl, onSaved }: { p: OnCallPerson; ghl: { id: string; name: string; email: string }[]; onSaved: () => void }) {
+  const [phone, setPhone] = useState(p.phone);
+  const [channel, setChannel] = useState(p.alert_channel || "whatsapp");
+  const [ghlId, setGhlId] = useState(p.ghl_user_id);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try { await api.onCallSetPerson(p.username, { phone, alert_channel: channel, ghl_user_id: ghlId }); toast.success(`${p.name} saved`); onSaved(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't save")); } finally { setBusy(false); }
+  };
+  const test = async () => {
+    try { await api.onCallTest(p.username); toast.success(`Test sent to ${p.name}`); }
+    catch (e) { toast.error(errMessage(e, "Test didn't go through")); }
+  };
+  return (
+    <Card>
+      <CardContent className="space-y-2 pt-4">
+        <p className="text-base font-semibold">{p.name} <span className="text-xs font-normal text-muted-foreground">{p.role}</span></p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="text-xs font-semibold text-muted-foreground">Phone (with country code)
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+504 9597 6304" className="mt-1 h-10 text-base" />
+          </label>
+          <div className="text-xs font-semibold text-muted-foreground">Alert by
+            <div className="mt-1 flex gap-2">
+              {(["whatsapp", "sms"] as const).map((c) => (
+                <button key={c} type="button" onClick={() => setChannel(c)}
+                        className={`h-10 flex-1 rounded-lg border text-sm font-semibold ${channel === c ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>
+                  {c === "whatsapp" ? "WhatsApp" : "Text"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <label className="block text-xs font-semibold text-muted-foreground">GoHighLevel login
+          {ghl.length ? (
+            <select value={ghlId} onChange={(e) => setGhlId(e.target.value)} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
+              <option value="">Not linked</option>
+              {ghl.map((g) => <option key={g.id} value={g.id}>{g.name}{g.email ? ` · ${g.email}` : ""}</option>)}
+            </select>
+          ) : (
+            <Input value={ghlId} onChange={(e) => setGhlId(e.target.value)} placeholder="GHL user ID" className="mt-1 h-10" />
+          )}
+        </label>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={save} disabled={busy}>{busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}Save</Button>
+          <Button size="sm" variant="outline" onClick={test} disabled={!p.ready}><Send className="mr-1 h-3.5 w-3.5" /> Send a test</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

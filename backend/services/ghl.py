@@ -1269,3 +1269,31 @@ def parse_webhook_payload(payload: dict) -> dict:
         "location_id": location_id,
         "form_name": str(form_name).strip(),
     }
+
+
+# --- On call (Alan, 2026-10-19) ---
+
+def assign_contact(contact_id: str, ghl_user_id: str, location_id: str | None = None) -> bool:
+    """Give a contact to a GHL user. GHL's own phone app then notifies that
+    person ("New contact assigned"), on the phone they call from."""
+    if not contact_id or not ghl_user_id:
+        return False
+    try:
+        r = _client.put(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(location_id),
+                        json={"assignedTo": ghl_user_id}, timeout=10)
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"GHL assign_contact failed for {contact_id}: {e}")
+        return False
+
+
+def list_users(location_id: str | None = None) -> list[dict]:
+    """The location's GHL users [{id, name, email, phone}], to link each
+    team member's dashboard login to their GHL login. Raises on an API
+    error so the caller can say why (e.g. the token lacks users.readonly)."""
+    loc = location_id or get_settings().ghl_location_id
+    r = _client.get(f"{GHL_BASE}/users/", params={"locationId": loc}, headers=_headers(loc), timeout=15)
+    r.raise_for_status()
+    return [{"id": u.get("id", ""), "name": u.get("name") or f"{u.get('firstName', '')} {u.get('lastName', '')}".strip(),
+             "email": u.get("email", ""), "phone": u.get("phone", "")} for u in (r.json() or {}).get("users", [])]

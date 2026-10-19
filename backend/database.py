@@ -108,6 +108,14 @@ class Lead(Base):
     proposal_view_count = Column(Integer, default=0)
     ghl_created_at = Column(Text, default="")
     dashboard_synced_at = Column(Text, default="")
+    # Speed to lead (Alan, 2026-10-19): the on-call person a new lead was
+    # given to, when the 5-minute clock started, when they first called
+    # (seen in GHL or tapped "I called"), and when Alan was told nobody had.
+    oncall_to = Column(Text, default="")           # users.username
+    oncall_at = Column(Text, default="")           # ISO UTC, clock start
+    first_call_at = Column(Text, default="")
+    first_call_by = Column(Text, default="")
+    oncall_late_at = Column(Text, default="")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -719,7 +727,33 @@ class User(Base):
     # Archived / offboarded account — blocks login without deleting the row
     # (so history + linked data stay intact). Flip back to False to re-enable.
     disabled = Column(Boolean, default=False)
+    # On call (Alan, 2026-10-19): where this person gets new-lead alerts.
+    # The VAs have Honduran numbers, so WhatsApp, not SMS/iMessage.
+    phone = Column(Text, default="")               # E.164, e.g. +50495976304
+    alert_channel = Column(Text, default="whatsapp")   # whatsapp | sms
+    ghl_user_id = Column(Text, default="")         # GHL user: leads get assigned to them in GHL
+    ghl_contact_id = Column(Text, default="")      # their own GHL contact, used to message them
     created_at = Column(Text, default="")
+
+
+class OnCallShift(Base):
+    """Who answers new leads when (Alan, 2026-10-19). One row per person per
+    block of a day; the schedule changes week to week. Minutes from
+    midnight, Houston time."""
+    __tablename__ = "on_call_shifts"
+    __table_args__ = (Index("idx_on_call_shifts_date", "date"),)
+
+    id = Column(Text, primary_key=True)
+    username = Column(Text, default="")
+    date = Column(Text, default="")                # YYYY-MM-DD, Houston
+    start_min = Column(Integer, default=480)       # 8:00
+    end_min = Column(Integer, default=1200)        # 20:00
+    created_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "username": self.username or "", "date": self.date or "",
+                "start_min": int(self.start_min or 0), "end_min": int(self.end_min or 0)}
 
 
 class RolePermission(Base):
@@ -4966,6 +5000,18 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE"))
             logger.info("Migration: added users.disabled (archived/offboarded accounts blocked from login)")
+        for col, ddl in (("phone", "TEXT DEFAULT ''"), ("alert_channel", "TEXT DEFAULT 'whatsapp'"),
+                         ("ghl_user_id", "TEXT DEFAULT ''"), ("ghl_contact_id", "TEXT DEFAULT ''")):
+            if col not in user_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
+                logger.info(f"Migration: added users.{col}")
+
+    for col in ("oncall_to", "oncall_at", "first_call_at", "first_call_by", "oncall_late_at"):
+        if col not in existing:
+            with _engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''"))
+            logger.info(f"Migration: added leads.{col}")
 
     # leads.lead_source — marketing attribution. Default "ad" since virtually
     # all incoming leads are paid ads; admin overrides on lead detail.
