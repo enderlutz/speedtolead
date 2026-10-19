@@ -15,6 +15,7 @@ export const ES: Record<string, string> = {
   "for the job": "por el trabajo",
   "hr": "hr",
   "Today's flat pay": "Pago fijo de hoy",
+  "Don't forget: call and text each customer when you're 30 minutes away from their house.": "No olvides: llama y manda un mensaje a cada cliente cuando estés a 30 minutos de su casa.",
   "Coming up, flat pay": "Pago fijo de lo que viene",
   "Flat pay, past jobs": "Pago fijo, trabajos pasados",
   "A saw, to cut pickets and boards to size": "Un serrucho, para cortar tablas a la medida",

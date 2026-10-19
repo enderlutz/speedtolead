@@ -963,6 +963,13 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
           <span className="text-base tabular-nums">${flatTotal % 1 ? flatTotal.toFixed(2) : flatTotal}</span>
         </p>
       ) : null}
+      {tab === "today" ? (
+        // Alan, 2026-10-19: every customer gets a heads-up before the crew arrives.
+        <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-950 ring-1 ring-amber-200">
+          <Phone className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{tr("Don't forget: call and text each customer when you're 30 minutes away from their house.")}</span>
+        </p>
+      ) : null}
       {shown.map((j) => (
         <Link key={`${j.lead_id}-${j.date}-${j.task || ""}`} to={`/company-cam/${j.lead_id}`}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
@@ -996,10 +1003,18 @@ export default function MySchedule() {
   const today = useMemo(() => ctISO(0), []);
   // Company Cam jobs the office put this person on, with their day and task.
   const [camJobs, setCamJobs] = useState<CamJob[]>([]);
+  const [camReady, setCamReady] = useState(() => !hasPerm("company_cam"));
   useEffect(() => {
     if (!hasPerm("company_cam")) return;
-    api.getCompanyCamJobs().then((r) => setCamJobs(user?.role === "worker" ? r : r.filter((j) => j.task))).catch(() => setCamJobs([]));
+    api.getCompanyCamJobs()
+      .then((r) => setCamJobs(user?.role === "worker" ? r : r.filter((j) => j.task)))
+      .catch(() => setCamJobs([]))
+      .finally(() => setCamReady(true));
   }, [user]);
+  // Flat pay is per job, so a day that's all flat jobs needs no shift clock
+  // (Alan, 2026-10-19). Any hourly or unset job today keeps "Your day".
+  const todaysCam = camJobs.filter((j) => j.date === today);
+  const allFlatToday = todaysCam.length > 0 && todaysCam.every((j) => j.pay_type === "flat");
 
   const load = useCallback(async (which: Tab) => {
     setLoading(true);
@@ -1092,7 +1107,7 @@ export default function MySchedule() {
       </div>
 
       {/* General daily check-in / check-out for the day */}
-      <DailyCheckInCard />
+      {camReady && !allFlatToday ? <DailyCheckInCard /> : null}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">
