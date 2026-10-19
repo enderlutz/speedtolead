@@ -1293,13 +1293,11 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           </StatTile>
 
           <StatTile icon={Palette} label={tr("Stain they went with")} accent={ACCENT.fuchsia}
-                    hint={manager ? tr("From Stain Inventory. Type to search.") : undefined}>
-            {manager ? (
-              <StainPicker options={data.stain_options || []} value={job.final_stain_id}
-                           onPick={(id) => void patch({ final_stain_id: id })} onAdded={() => void load()} />
-            ) : (
-              <ReadValue>{(data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label || job.final_color || tr("Not picked yet")}</ReadValue>
-            )}
+                    hint={tr("From Stain Inventory. Type to search.")}>
+            {/* The crew can change it too: customers switch colours on site
+                (Alan, 2026-10-19, Chris: Redwood → Cedar Naturaltone). */}
+            <StainPicker options={data.stain_options || []} value={job.final_stain_id}
+                         onPick={(id) => void patch({ final_stain_id: id })} onAdded={() => void load()} />
           </StatTile>
         </div>
         <WhatToBring job={job} stain={chosenStain} noCleaning={!!job.no_cleaning} />
@@ -1318,20 +1316,16 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             Same field as "Stain they went with" in The job. */}
         <Field label={tr("What stain did they choose?")}
                hint={manager ? tr("Colour, brand and opacity, from Stain Inventory. Still deciding? Leave it and use the rows below.") : undefined}>
-          {manager ? (
-            <StainPicker options={data.stain_options || []} value={job.final_stain_id}
-                         onPick={(id) => void patch({ final_stain_id: id })} onAdded={() => void load()} />
-          ) : (
-            <ReadValue>{chosenStain || tr("Not chosen yet")}</ReadValue>
-          )}
+          <StainPicker options={data.stain_options || []} value={job.final_stain_id}
+                       onPick={(id) => void patch({ final_stain_id: id })} onAdded={() => void load()} />
         </Field>
 
         {chosenStain ? (
           <div className="space-y-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 p-2.5">
-            {manager || !job.color_all_sides ? (
+            {(
               <p className="text-sm font-bold">{isSpanish() ? `¿${chosenStain} va en todos los lados del alcance de la cerca?` : `Does ${chosenStain} go on every side in the fence scope?`}</p>
-            ) : null}
-            {manager ? (
+            )}
+            {(
               <div className="flex gap-1.5">
                 {([["yes", tr("Yes, every side")], ["no", tr("No, some are different")]] as const).map(([v, label]) => (
                   <Button key={v} size="lg" variant={job.color_all_sides === v ? "default" : "outline"}
@@ -1341,11 +1335,11 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                   </Button>
                 ))}
               </div>
-            ) : null}
+            )}
             {job.color_all_sides === "yes" ? (
               <p className="flex items-start gap-1.5 text-sm font-semibold text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {isSpanish() ? `${chosenStain} en todos los lados del alcance de la cerca. No hay nada más que decidir.` : `${chosenStain} on every side in the fence scope. Nothing else to settle.`}</p>
             ) : job.color_all_sides === "no" ? (
-              <p className="text-xs text-muted-foreground">{manager ? tr("Add a row for each part that gets a different stain, and tap its sides.") : isSpanish() ? `${chosenStain}, excepto las partes de abajo.` : `${chosenStain}, except the parts below.`}</p>
+              <p className="text-xs text-muted-foreground">{tr("Add a row for each part that gets a different stain, and tap its sides.")}</p>
             ) : null}
           </div>
         ) : null}
