@@ -30,6 +30,7 @@ import {
   api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type StainOption, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow,
 } from "@/lib/api";
+import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -716,16 +717,28 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const upload = async (section: string, files: FileList | null) => {
     if (!files?.length) return;
     setUploading(section);
+    // One bad signal shouldn't lose the rest: each photo is shrunk, tried
+    // twice, and the others keep going (Chris on 5G, 2026-10-19).
     let ok = 0;
+    let lastErr: unknown = null;
     try {
       for (const f of Array.from(files)) {
-        await api.uploadCompanyCamPhoto(leadId, f, { section });
-        ok += 1;
+        const small = await shrinkPhoto(f);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await api.uploadCompanyCamPhoto(leadId, small, { section });
+            ok += 1;
+            break;
+          } catch (e) {
+            lastErr = e;
+            if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
       }
-      toast.success(`${ok} photo${ok === 1 ? "" : "s"} added`);
-      await load();
-    } catch (e) {
-      toast.error(errMessage(e, tr("Upload failed")));
+      const failed = files.length - ok;
+      if (ok) toast.success(`${ok} photo${ok === 1 ? "" : "s"} added`);
+      if (failed) toast.error(`${failed} ${tr("didn't go up — weak signal. Try those again.")}`
+        + (ok ? "" : ` (${errMessage(lastErr, tr("Upload failed"))})`));
       if (ok) await load();
     } finally { setUploading(""); }
   };

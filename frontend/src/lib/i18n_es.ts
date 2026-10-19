@@ -308,6 +308,7 @@ export const ES: Record<string, string> = {
   "Undo this? Only if it was tapped by mistake or there's a second visit.": "¿Deshacer esto? Solo si se tocó por error o hay una segunda visita.",
   "Upcoming": "Próximos",
   "Upload failed": "No se pudo subir",
+  "didn't go up — weak signal. Try those again.": "no se subieron — señal débil. Inténtalas otra vez.",
   "Uploading…": "Subiendo…",
   "View": "Vista",
   "Walked it with the customer": "Se revisó con el cliente",
