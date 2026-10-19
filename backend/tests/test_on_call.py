@@ -95,9 +95,15 @@ def test_after_hours_waits_for_8am_list(db, sent):
 
 
 def test_nobody_on_call_tells_alan(db, sent):
+    _shift(db, "olga", start=14 * 60, end=20 * 60)          # a gap at 10 AM
     lead = _lead(db)
     assert oc.start_clock(lead.id, TEN_AM) == ""
     assert sent["alan"] and "Nobody is on call" in sent["alan"][0]
+
+
+def test_no_schedule_that_day_skips_the_extra_text(db, sent):
+    lead = _lead(db)
+    assert oc.start_clock(lead.id, TEN_AM) == "" and not sent["alan"]
 
 
 def test_ghl_call_stops_the_clock_and_late_alert_fires_once(db, sent):

@@ -171,8 +171,14 @@ def start_clock(lead_id: str, when: datetime | None = None) -> str:
         # hears about it now rather than at 5 minutes.
         lead.oncall_to, lead.oncall_at = "", _iso(when)
         db.commit()
-        _alan(f"Nobody is on call right now. New lead: {lead.contact_name or 'a customer'}. "
-              f"{get_settings().frontend_url}/leads/{lead.id}")
+        # A gap in a day that has a schedule is worth a text now; a day with
+        # no schedule at all just gets the usual 5-minute warning, so an
+        # empty week doesn't double every alert.
+        from database import OnCallShift
+        day = when.astimezone(HOUSTON).strftime("%Y-%m-%d")
+        if db.query(OnCallShift.id).filter(OnCallShift.date == day).first():
+            _alan(f"Nobody is on call right now. New lead: {lead.contact_name or 'a customer'}. "
+                  f"{get_settings().frontend_url}/leads/{lead.id}")
         return ""
     finally:
         db.close()
