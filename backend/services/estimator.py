@@ -184,7 +184,12 @@ def parse_age_bracket(age_str: str) -> str:
         return "1_6yr"
     if "6-15" in s or "6\u201315" in s:
         return "6_15yr"
-    return "15plus"
+    if "15" in s or "older" in s:
+        return "15plus"
+    # Blank or "I don't know" (Alan, 2026-10-18): price 1–6 years. A customer
+    # with a really old fence knows it. This used to fall through to 15+,
+    # which left those leads with no price at all.
+    return "1_6yr"
 
 
 def parse_priority(timeline_str: str) -> str:
@@ -212,11 +217,12 @@ def get_approval_status(
         red_reasons.append("Outside service zone")
     if 0 < sqft < MIN_SQFT_AUTO:
         red_reasons.append(f"Job too small ({sqft:.0f} sqft)")
-    if age_bracket == "15plus":
-        red_reasons.append("Fence 15+ years old")
-
     if red_reasons:
         return "red", "; ".join(red_reasons)
+    # Older than 15 years (Alan, 2026-10-19): we still do it, priced as 6–15
+    # years. It usually needs repairs, which is where the money is.
+    if age_bracket == "15plus":
+        return "yellow", "Fence 15+ years old: priced as 6-15 years, walk the repairs"
     if has_addons:
         return "yellow", "Add-on services requested"
     return "green", "All criteria met"
@@ -291,6 +297,8 @@ def calculate_fence_staining(
     approval_status, approval_reason = get_approval_status(age_bracket, zone, sqft, has_addons, confident)
 
     rates = tier_rates.get(age_bracket)
+    if rates is None and age_bracket == "15plus":
+        rates = tier_rates.get("6_15yr")
     if rates is None:
         meta = {
             "zone": zone, "zone_surcharge": zone_surcharge_rate,
