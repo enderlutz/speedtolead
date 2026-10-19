@@ -1858,6 +1858,13 @@ class CompanyCamJob(Base):
     # Brand-new or freshly cleaned fence (Alan, 2026-10-18: exolei's is new):
     # no cleaning step, the crew see only the staining side.
     no_cleaning = Column(Boolean, default=False, nullable=False)
+    # Job costing (Alan, 2026-10-19). "Job done" takes the stain and bleach
+    # used out of inventory once and prices them at the running average cost
+    # per gallon right then. `materials_logged_at` makes that happen once; an
+    # undo of "Job done" puts the gallons back and clears it.
+    materials_logged_at = Column(Text, default="")
+    stain_cost = Column(Float, default=0)       # dollars
+    bleach_cost = Column(Float, default=0)      # dollars
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -3341,6 +3348,12 @@ class StainInventoryItem(Base):
     gallons = Column(Float, default=0)             # what's on hand right now
     notes = Column(Text, default="")
     active = Column(Boolean, default=True)         # toggle off without losing the row
+    # Running average cost per gallon (Alan, 2026-10-19): each receipt-backed
+    # purchase blends its price into what's on the shelf, so a job is costed
+    # at what that stain really cost us. Each purchase keeps its own price in
+    # material_purchases for the by-store comparison.
+    avg_cost = Column(Float, default=0)
+    last_counted_at = Column(Text, default="")     # the 2-week shelf count
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -3351,6 +3364,8 @@ class StainInventoryItem(Base):
             "finish_type": self.finish_type or "",
             "color_name": self.color_name or "",
             "gallons": round(float(self.gallons or 0), 2),
+            "avg_cost": round(float(self.avg_cost or 0), 2),
+            "last_counted_at": self.last_counted_at or "",
             "notes": self.notes or "",
             "active": bool(self.active),
             "created_at": self.created_at or "",
@@ -3461,6 +3476,51 @@ class FencePhoto(Base):
         }
 
 
+class MaterialPurchase(Base):
+    """One receipt: stain, bleach or shop supplies bought on the company card
+    (Alan, 2026-10-19). A receipt photo is required. Stain and bleach add
+    gallons to the shelf and blend their price into the item's average cost;
+    shop supplies (tips, tape, tarps) don't touch the shelf and get spread
+    across the month's jobs in job costing. Each row keeps its own price per
+    gallon and store, so Lowe's vs Home Depot vs Sherwin-Williams is visible."""
+    __tablename__ = "material_purchases"
+    __table_args__ = (Index("idx_material_purchases_date", "purchased_on"),)
+
+    id = Column(Text, primary_key=True)
+    category = Column(Text, default="stain")       # stain | bleach | supplies
+    stain_id = Column(Text, default="")            # the shelf item (stain or bleach)
+    store = Column(Text, default="")               # lowes | home_depot | sherwin_williams | gulf_coast | other
+    gallons = Column(Float, default=0)
+    total_cost = Column(Float, default=0)          # dollars, tax included, as on the receipt
+    purchased_on = Column(Text, default="")        # YYYY-MM-DD
+    description = Column(Text, default="")
+    lead_id = Column(Text, default="")             # bought for this job, if any
+    receipt_data = deferred(Column(LargeBinary, nullable=True))
+    has_receipt = Column(Boolean, default=False)
+    receipt_mime = Column(Text, default="image/jpeg")
+    created_by = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        gal = float(self.gallons or 0)
+        cost = float(self.total_cost or 0)
+        return {
+            "id": self.id,
+            "category": self.category or "stain",
+            "stain_id": self.stain_id or "",
+            "store": self.store or "",
+            "gallons": round(gal, 2),
+            "total_cost": round(cost, 2),
+            "cost_per_gallon": round(cost / gal, 2) if gal > 0 else 0.0,
+            "purchased_on": self.purchased_on or "",
+            "description": self.description or "",
+            "lead_id": self.lead_id or "",
+            "has_receipt": bool(self.has_receipt),
+            "created_by": self.created_by or "",
+            "created_at": self.created_at or "",
+        }
+
+
 class StainMovement(Base):
     """Audit row for every change to a stain's gallon count.
 
@@ -3473,17 +3533,21 @@ class StainMovement(Base):
 
     id = Column(Text, primary_key=True)
     stain_id = Column(Text, default="")
-    action = Column(Text, default="")              # added | updated | removed
+    action = Column(Text, default="")              # added | updated | removed | purchased | used | returned | counted
     previous_gallons = Column(Float, default=0)
     delta_gallons = Column(Float, default=0)       # signed
     resulting_gallons = Column(Float, default=0)
     actor = Column(Text, default="")               # display name of whoever did it
     note = Column(Text, default="")
+    lead_id = Column(Text, default="")             # the job it was used on, or bought for
+    unit_cost = Column(Float, default=0)           # $ per gallon at the time
     created_at = Column(Text, default="")
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "lead_id": self.lead_id or "",
+            "unit_cost": round(float(self.unit_cost or 0), 2),
             "stain_id": self.stain_id or "",
             "action": self.action or "",
             "previous_gallons": float(self.previous_gallons or 0),
@@ -4816,6 +4880,9 @@ def _run_migrations():
             ("completed_at", "TEXT DEFAULT ''"),
             ("completed_by", "TEXT DEFAULT ''"),
             ("no_cleaning", "BOOLEAN DEFAULT FALSE"),
+            ("materials_logged_at", "TEXT DEFAULT ''"),
+            ("stain_cost", "DOUBLE PRECISION DEFAULT 0"),
+            ("bleach_cost", "DOUBLE PRECISION DEFAULT 0"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl
@@ -5346,6 +5413,19 @@ def _run_migrations():
             with _engine.begin() as conn:
                 conn.execute(text("ALTER TABLE stain_movements ADD COLUMN previous_gallons FLOAT DEFAULT 0"))
             logger.info("Migration: added stain_movements.previous_gallons")
+        for col, ddl in (("lead_id", "TEXT DEFAULT ''"), ("unit_cost", "FLOAT DEFAULT 0")):
+            if col not in sm_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE stain_movements ADD COLUMN {col} {ddl}"))
+                logger.info(f"Migration: added stain_movements.{col}")
+
+    if inspector.has_table("stain_inventory"):
+        si_cols = {c["name"] for c in inspector.get_columns("stain_inventory")}
+        for col, ddl in (("avg_cost", "FLOAT DEFAULT 0"), ("last_counted_at", "TEXT DEFAULT ''")):
+            if col not in si_cols:
+                with _engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE stain_inventory ADD COLUMN {col} {ddl}"))
+                logger.info(f"Migration: added stain_inventory.{col}")
 
     # ── Identity spine ────────────────────────────────────────────────
     # Lookup keys so a spoken or typed name resolves to a stable id instead of

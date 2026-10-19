@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   api,
+  getCurrentUser,
   STAIN_FINISH_TYPES,
   stainFinishLabel,
   type StainInventoryItem,
@@ -12,7 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { PaintBucket, Plus, Pencil, Trash2, Check, X, Search, History, Ruler } from "lucide-react";
+import { PaintBucket, Plus, Pencil, Trash2, Check, X, Search, History, Ruler, ClipboardCheck } from "lucide-react";
+import { JobCostsPanel, ReceiptsPanel, ShelfCountPanel } from "@/components/MaterialsPanels";
+
+type Tab = "stock" | "receipts" | "count" | "costs";
+const COUNT_EVERY_DAYS = 14;
 
 // Stain Inventory — what's in the storage unit, one number per colour.
 //
@@ -102,6 +107,24 @@ export default function StainInventory() {
 
   const groups = useMemo(() => groupStains(items), [items]);
   const filtered = Boolean(search.trim() || finishFilter);
+  const [tab, setTab] = useState<Tab>("stock");
+  const isAdmin = getCurrentUser()?.role === "admin";
+  // The 2-week shelf count (Alan, 2026-10-19): due when the oldest count of
+  // an active item is over 14 days old, or it was never counted.
+  const [now] = useState(() => Date.now());
+  const countDue = useMemo(() => {
+    const active = items.filter((i) => i.active);
+    if (!active.length) return false;
+    const oldest = Math.min(...active.map((i) => (i.last_counted_at ? new Date(i.last_counted_at).getTime() : 0)));
+    return now - oldest > COUNT_EVERY_DAYS * 864e5;
+  }, [items, now]);
+  const shelfValue = useMemo(() => items.reduce((t, i) => t + Math.max(0, i.gallons) * (i.avg_cost || 0), 0), [items]);
+  const tabBtn = (key: Tab, label: string) => (
+    <button key={key} type="button" onClick={() => setTab(key)}
+            className={`min-h-10 flex-1 rounded-md px-2 text-sm font-semibold transition-colors ${tab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>
+      {label}
+    </button>
+  );
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-3xl">
@@ -111,7 +134,7 @@ export default function StainInventory() {
             <PaintBucket className="h-5 w-5 text-primary" /> Stain Inventory
           </h1>
           <p className="text-sm text-muted-foreground">
-            How many gallons of each stain are in the storage unit. Edit the number, hit Save.
+            Stain and bleach in the storage unit, what it cost, and what each job used.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)}>
@@ -121,6 +144,25 @@ export default function StainInventory() {
 
       {showHistory && <MovementHistory />}
 
+      <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
+        {tabBtn("stock", "On hand")}
+        {tabBtn("receipts", "Receipts")}
+        {tabBtn("count", "Shelf count")}
+        {isAdmin ? tabBtn("costs", "Job costs") : null}
+      </div>
+
+      {countDue && tab !== "count" ? (
+        <button type="button" onClick={() => setTab("count")}
+                className="flex w-full items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-left text-sm font-semibold text-amber-950">
+          <ClipboardCheck className="h-4 w-4 shrink-0" /> Shelf count due: it's been over 2 weeks. Tap to count.
+        </button>
+      ) : null}
+
+      {tab === "receipts" ? <ReceiptsPanel items={items} onChanged={load} /> : null}
+      {tab === "count" ? <ShelfCountPanel items={items} onChanged={load} /> : null}
+      {tab === "costs" && isAdmin ? <JobCostsPanel /> : null}
+
+      {tab === "stock" ? (<>
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -217,10 +259,17 @@ export default function StainInventory() {
               <span className="text-lg font-semibold tabular-nums">{num(totalGallons)} gallons</span>
             </div>
           )}
+          {!loading && shelfValue > 0 && (
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs text-muted-foreground">Worth on the shelf (at what we paid)</span>
+              <span className="text-sm font-semibold tabular-nums">${shelfValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <CoverageFile />
+      </>) : null}
     </div>
   );
 }
@@ -346,6 +395,8 @@ function StainRow({ item, onChanged }: { item: StainInventoryItem; onChanged: ()
       <span className="flex-1 text-sm truncate" title={item.color_name}>
         {item.color_name}
         {item.notes && <span className="text-xs text-muted-foreground ml-2">{item.notes}</span>}
+        {item.avg_cost > 0 && <span className="text-xs text-muted-foreground ml-2 tabular-nums">${item.avg_cost.toFixed(2)}/gal</span>}
+        {item.gallons < 0 && <span className="text-xs font-semibold text-destructive ml-2">count it</span>}
       </span>
 
       <Input

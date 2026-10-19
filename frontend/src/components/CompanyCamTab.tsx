@@ -16,13 +16,14 @@
 // scope is violet, before-cleaning amber, after-cleaning cyan, after-staining
 // green. Done is always green, missing is always amber, damage is always red.
 import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
+import { LogReceiptForm } from "@/components/MaterialsPanels";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
-  Package, Hash, Hourglass, Images, Plus, X, Eye,
+  Package, Hash, Hourglass, Images, Plus, X, Eye, Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -649,6 +650,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const [data, setData] = useState<CompanyCamPayload | null>(null);
   // The office's job measurement pop-up (Alan, 2026-10-18).
   const [measuring, setMeasuring] = useState(false);
+  const [loggingReceipt, setLoggingReceipt] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState<string>("");
@@ -1530,6 +1532,19 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         </div>
         <Coverage sqft={job.sqft} gallons={job.stain_gallons_used} age={data.fence_age} stats={data.coverage}
                   stain={(data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label} wood={job.wood_type} />
+        {/* Bought something on the company card for this job? The receipt
+            goes in here and the gallons go onto the shelf (Alan, 2026-10-19). */}
+        {loggingReceipt ? (
+          <div className="mt-3">
+            <LogReceiptForm leadId={leadId}
+                            stains={(data.stain_options || []).filter((o) => o.active).map((o) => ({ id: o.id, label: o.label }))}
+                            onCancel={() => setLoggingReceipt(false)} onSaved={() => setLoggingReceipt(false)} />
+          </div>
+        ) : (
+          <Button type="button" variant="outline" className="mt-3 h-11 w-full text-base" onClick={() => setLoggingReceipt(true)}>
+            <Receipt className="mr-2 h-4 w-4" /> {tr("Bought stain, bleach or supplies? Log the receipt")}
+          </Button>
+        )}
       </Panel>
 
       </RoleGroup>

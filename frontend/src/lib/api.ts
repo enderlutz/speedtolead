@@ -2756,6 +2756,35 @@ export const api = {
   fencePhotoStorageStatus: () =>
     request<Record<string, unknown>>("/api/fence-photos/storage-status"),
 
+  // --- Materials: receipts, shelf count, prices, job costing (2026-10-19) ---
+  logMaterialPurchase: async (form: FormData) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/material-purchases`, {
+      method: "POST", body: form, headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let msg = text;
+      try { msg = JSON.parse(text).detail || text; } catch { /* plain text */ }
+      throw new Error(msg || `Couldn't save (${res.status})`);
+    }
+    return (await res.json()) as MaterialPurchase & { avg_cost: number };
+  },
+  listMaterialPurchases: (month?: string) =>
+    request<{ purchases: MaterialPurchase[]; total: number }>(`/api/material-purchases${month ? `?month=${month}` : ""}`),
+  deleteMaterialPurchase: (id: string) => request<{ ok: boolean }>(`/api/material-purchases/${id}`, { method: "DELETE" }),
+  /** The receipt as an object URL (needs the auth header). Caller revokes. */
+  fetchReceiptUrl: async (id: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/api/material-purchases/${id}/receipt`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  },
+  getMaterialPrices: () => request<{ prices: MaterialPrice[] }>("/api/material-prices"),
+  shelfCount: (counts: { id: string; gallons: number }[], note = "") =>
+    request<{ counted: number; differences: { id: string; label: string; difference: number; value: number }[]; difference_value: number }>(
+      "/api/stain-inventory/count", { method: "POST", body: JSON.stringify({ counts, note }) }),
+  getJobCosting: (month: string) => request<JobCosting>(`/api/job-costing?month=${month}`),
   listStainMovements: (params?: { stain_id?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.stain_id) qs.set("stain_id", params.stain_id);
@@ -5605,6 +5634,7 @@ export const STAIN_FINISH_TYPES: { value: string; label: string }[] = [
   { value: "transparent", label: "Transparent" },
   { value: "clear", label: "Clear" },
   { value: "oil_based", label: "Oil-Based" },
+  { value: "bleach", label: "Bleach" },
 ];
 
 export function stainFinishLabel(value: string): string {
@@ -5618,10 +5648,80 @@ export interface StainInventoryItem {
   finish_type: string;
   color_name: string;
   gallons: number;
+  /** Running average $ per gallon from receipts. */
+  avg_cost: number;
+  last_counted_at: string;
   notes: string;
   active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** One receipt: stain, bleach or shop supplies (Alan, 2026-10-19). */
+export interface MaterialPurchase {
+  id: string;
+  category: "stain" | "bleach" | "supplies";
+  stain_id: string;
+  item_label: string;
+  store: string;
+  store_label: string;
+  gallons: number;
+  total_cost: number;
+  cost_per_gallon: number;
+  purchased_on: string;
+  description: string;
+  lead_id: string;
+  customer?: string;
+  has_receipt: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+export const MATERIAL_STORES: { value: string; label: string }[] = [
+  { value: "lowes", label: "Lowe's" },
+  { value: "home_depot", label: "Home Depot" },
+  { value: "sherwin_williams", label: "Sherwin-Williams" },
+  { value: "gulf_coast", label: "Gulf Coast Wood Products" },
+  { value: "other", label: "Other" },
+];
+
+export interface MaterialPrice {
+  stain_id: string;
+  item_label: string;
+  store: string;
+  store_label: string;
+  receipts: number;
+  gallons: number;
+  avg_per_gallon: number;
+  last_per_gallon: number;
+  last_date: string;
+}
+
+export interface JobCostRow {
+  lead_id: string;
+  customer: string;
+  completed_on: string;
+  package: string;
+  price: number;
+  crew_pay: number;
+  hourly_crew: string[];
+  stain_gallons: number;
+  stain_cost: number;
+  bleach_gallons: number;
+  bleach_cost: number;
+  supplies: number;
+  fees: number;
+  gross_profit: number;
+  margin_pct: number;
+  estimated: boolean;
+}
+
+export interface JobCosting {
+  month: string;
+  jobs: JobCostRow[];
+  totals: { price: number; crew_pay: number; stain_cost: number; bleach_cost: number; supplies: number; fees: number; gross_profit: number; margin_pct: number };
+  supplies_total: number;
+  card_fee_rate: number;
 }
 
 export interface StainBody {
@@ -5640,7 +5740,9 @@ export interface StainMovement {
   id: string;
   stain_id: string;
   stain_label: string;
-  action: string;              // added | updated | removed
+  action: string;              // added | updated | removed | purchased | used | returned | counted
+  lead_id?: string;
+  unit_cost?: number;
   previous_gallons: number;
   delta_gallons: number;       // signed
   resulting_gallons: number;

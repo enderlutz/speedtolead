@@ -760,6 +760,14 @@ def update_company_cam(
             valid = {o["key"] for o in upsell_options()}
             job.upsells_json = json.dumps([u for u in body.upsells if u in valid])
 
+        # Gallons or the stain corrected after "Job done": re-cost the job so
+        # the shelf and the job's materials cost follow (Alan, 2026-10-19).
+        if job.materials_logged_at and any(v is not None for v in (
+                body.stain_gallons_used, body.bleach_gallons_used, body.final_stain_id)):
+            from api.materials import apply_job_materials, reverse_job_materials
+            reverse_job_materials(db, job, _actor(user))
+            apply_job_materials(db, job, _actor(user))
+
         job.updated_at = _now()
         db.commit()
         if newly_confirmed:
@@ -1227,6 +1235,13 @@ def mark_job_done(lead_id: str, user: dict = Depends(get_current_user)):
             job.completed_at = _now()
             job.completed_by = _actor(user)
             job.updated_at = _now()
+            # The stain and bleach used come off the shelf, priced at the
+            # running average cost (Alan, 2026-10-19).
+            try:
+                from api.materials import apply_job_materials
+                apply_job_materials(db, job, job.completed_by)
+            except Exception as e:  # noqa: BLE001 — never block "Job done" on costing
+                logger.warning("job done: materials not logged for %s: %s", lead_id, e)
             db.commit()
             log_event(lead_id, "company_cam_job_done", f"Job done, marked by {job.completed_by}",
                       {"actor": job.completed_by})
@@ -1252,6 +1267,8 @@ def reset_job_done(lead_id: str, user: dict = Depends(get_current_user)):
         job = _get_or_create(db, lead)
         job.completed_at = ""
         job.completed_by = ""
+        from api.materials import reverse_job_materials
+        reverse_job_materials(db, job, _actor(user))
         job.updated_at = _now()
         db.commit()
         return {"job": _job_dict(job)}

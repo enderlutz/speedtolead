@@ -289,7 +289,8 @@ def color_options(db) -> list[str]:
     from database import StainInventoryItem
 
     try:
-        rows = (db.query(StainInventoryItem).filter(StainInventoryItem.active.is_(True))
+        rows = (db.query(StainInventoryItem).filter(StainInventoryItem.active.is_(True),
+                                                    StainInventoryItem.finish_type != "bleach")
                 .order_by(StainInventoryItem.color_name, StainInventoryItem.brand).all())
     except Exception:  # noqa: BLE001 — a missing table must not break the crew screen
         logger.exception("stain inventory unavailable for colour options")
@@ -528,7 +529,8 @@ def stain_options(db) -> list[dict]:
     from database import StainInventoryItem
 
     try:
-        rows = db.query(StainInventoryItem).order_by(StainInventoryItem.color_name, StainInventoryItem.brand).all()
+        rows = (db.query(StainInventoryItem).filter(StainInventoryItem.finish_type != "bleach")
+                .order_by(StainInventoryItem.color_name, StainInventoryItem.brand).all())
     except Exception:  # noqa: BLE001 — a missing table must not break the crew screen
         logger.exception("stain inventory unavailable for stain options")
         return []
@@ -537,7 +539,8 @@ def stain_options(db) -> list[dict]:
 
 
 FINISH_LABELS = {"solid": "Solid", "semi_solid": "Semi-solid", "semi_transparent": "Semi-transparent",
-                 "transparent": "Transparent", "clear": "Clear", "oil_based": "Oil-based"}
+                 "transparent": "Transparent", "clear": "Clear", "oil_based": "Oil-based",
+                 "bleach": "Bleach"}
 
 
 def stain_label(item) -> str:

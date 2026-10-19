@@ -43,6 +43,10 @@ FINISH_TYPES = (
     "transparent",
     "clear",
     "oil_based",
+    # Bleach for cleaning (Alan, 2026-10-19): 5-gallon pails filled at the
+    # store and kept in the storage unit. Same shelf, same counts and costs,
+    # but never offered as a stain colour.
+    "bleach",
 )
 _FINISH_RANK = {name: i for i, name in enumerate(FINISH_TYPES)}
 
