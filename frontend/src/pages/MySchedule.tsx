@@ -971,7 +971,13 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
           <Phone className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             <b className="block">{tr("First thing this morning: text each customer below when you'll get there.")}</b>
-            <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house today between [time] and [time].\"")}</span>
+            {/* The wording follows the job: clean or stain (Alan, 2026-10-19). */}
+            {shown.some((j) => j.task !== "staining") ? (
+              <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to clean your fence.\"")}</span>
+            ) : null}
+            {shown.some((j) => j.task === "staining") ? (
+              <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to stain your fence.\"")}</span>
+            ) : null}
           </span>
         </div>
       ) : null}
