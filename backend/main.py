@@ -519,6 +519,38 @@ async def _on_call_loop():
         await asyncio.sleep(60)
 
 
+async def _fast_sync_loop():
+    """Every minute: who had a call or text since the last look (one GHL
+    search), call-backs coming up, call-back times read from new calls and
+    texted to whoever's on. See services/fast_sync.py."""
+    from database import get_db as _gdb
+    from services import fast_sync
+    await asyncio.sleep(30)
+    while True:
+        db = _gdb()
+        try:
+            r = await asyncio.to_thread(fast_sync.minute, db)
+            if any(r.values()):
+                logger.info(f"[fast sync] {r}")
+        except Exception as e:
+            logger.error(f"Fast sync error: {e}")
+        finally:
+            db.close()
+        await asyncio.sleep(60)
+
+
+async def _fast_pull_worker():
+    """Pulls the queued customers as they come due, a few seconds apart."""
+    from services import fast_sync
+    await asyncio.sleep(35)
+    while True:
+        try:
+            await asyncio.to_thread(fast_sync.run_due)
+        except Exception as e:
+            logger.error(f"Fast pull error: {e}")
+        await asyncio.sleep(3)
+
+
 async def _followup_engine_loop():
     """Background task: advance due follow-up runs every 5 minutes.
     Master-toggle gated — exits fast when off."""
@@ -669,6 +701,8 @@ async def lifespan(app: FastAPI):
     sms_worker = asyncio.create_task(_sms_worker_loop())
     weekly = asyncio.create_task(_weekly_reminder_loop())
     on_call_loop = asyncio.create_task(_on_call_loop())  # noqa: F841 — runs for the app's life
+    fast_sync_loop = asyncio.create_task(_fast_sync_loop())  # noqa: F841
+    fast_pull = asyncio.create_task(_fast_pull_worker())  # noqa: F841
     wrapped_loop = asyncio.create_task(_wrapped_dispatcher_loop())
     # Sprint 4 T4.B (2026-06-08). Call recording poller re-enabled now
     # that T4.A's GHL fetcher is shipping. Gated on the config flag so

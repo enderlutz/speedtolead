@@ -116,6 +116,12 @@ class Lead(Base):
     first_call_at = Column(Text, default="")
     first_call_by = Column(Text, default="")
     oncall_late_at = Column(Text, default="")
+    # A call-back promised on a call, with the time when one was said
+    # (Alan, 2026-10-19: "call me back at 5" → text whoever's on at 5).
+    callback_at = Column(Text, default="")         # ISO UTC
+    callback_note = Column(Text, default="")       # "asked for a call at 5:00 PM"
+    callback_source = Column(Text, default="")     # recording id it came from
+    callback_alerted_at = Column(Text, default="")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -5030,7 +5036,8 @@ def _run_migrations():
                     conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
                 logger.info(f"Migration: added users.{col}")
 
-    for col in ("oncall_to", "oncall_at", "first_call_at", "first_call_by", "oncall_late_at"):
+    for col in ("oncall_to", "oncall_at", "first_call_at", "first_call_by", "oncall_late_at",
+                "callback_at", "callback_note", "callback_source", "callback_alerted_at"):
         if col not in existing:
             with _engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''"))

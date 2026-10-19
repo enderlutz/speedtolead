@@ -809,6 +809,19 @@ export default function LeadDetail() {
     return () => { cancelled = true; };
   }, [id]);
 
+  // Opening a customer pulls their latest texts and calls from GHL right
+  // then (Alan, 2026-10-19), instead of waiting for the background rounds.
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    api.refreshContactHistory(id).then((r) => {
+      if (!alive || !(r.new_messages || r.new_recordings)) return;
+      api.getMessages(id).then((m) => { if (alive) setMessages(m); }).catch(() => {});
+      api.getLead(id).then((l) => { if (alive) setLead(l); }).catch(() => {});
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [id]);
+
   // Real-time: update if customer replies or views proposal for THIS lead
   useSSE(useCallback((event) => {
     if (!id) return;

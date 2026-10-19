@@ -141,6 +141,9 @@ def track_view(db, proposal, lead, request: Request, preview: bool = False) -> b
         proposal.last_viewed_at = now_iso
         lead.proposal_view_count = proposal.view_count
         lead.proposal_last_viewed_at = now_iso
+        # They're looking: have their latest texts and calls in hand for the call.
+        from services import fast_sync
+        fast_sync.want(lead.id)
 
         # First-view side effects: status flip, badge, SSE event, activity log
         if proposal.status == "sent":

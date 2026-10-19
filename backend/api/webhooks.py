@@ -427,6 +427,11 @@ async def ghl_message_webhook(request: Request):
 
         db.commit()
 
+        if lead:
+            # Pull the whole thread + any call right away (services/fast_sync.py).
+            from services import fast_sync
+            fast_sync.want(lead.id, again=True)
+
         if lead and direction == "inbound":
             log_event(lead_id, "customer_replied", f"Customer reply: {body_text[:100]}")
             publish("customer_reply", {
@@ -468,6 +473,31 @@ async def ghl_message_webhook(request: Request):
         return {"status": "error", "detail": str(e)}
     finally:
         db.close()
+
+
+@router.post("/webhook/ghl/activity")
+async def ghl_activity_webhook(request: Request):
+    """Instant pull (Alan, 2026-10-19). A GHL workflow ("Customer replied",
+    "Call status", outbound message...) posts here with the contact; we pull
+    that customer's texts and calls within seconds, and again 3 minutes later
+    for the recording. Any payload shape GHL sends: contact_id, contactId,
+    id, or contact.id."""
+    _verify_webhook_token(request)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    contact = payload.get("contact") if isinstance(payload.get("contact"), dict) else {}
+    cid = (payload.get("contact_id") or payload.get("contactId") or contact.get("id") or payload.get("id") or "")
+    if not cid:
+        return {"status": "ignored", "reason": "no contact id"}
+    from services import fast_sync
+    db = get_db()
+    try:
+        lead_id = fast_sync.want_contact(db, str(cid))
+    finally:
+        db.close()
+    return {"status": "queued" if lead_id else "no lead", "lead_id": lead_id}
 
 
 @router.post("/webhook/ghl/message-status")

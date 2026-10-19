@@ -53,3 +53,65 @@ def find_promise(text: str, called_at) -> dict | None:
     they = bool(_THEY_CALL.search(text[start:last.end()]))
     word = last.group(3)
     return {"day": _resolve(word, called.date()), "word": word.strip().capitalize(), "they_call": they}
+
+
+# ── The time, when one was said (Alan, 2026-10-19) ──────────────────────────
+# "call me back at 5", "give me a call around 6:30", "call me in an hour".
+# Same plain matching: the words after a call phrase, within a few seconds of
+# talk. Business hours read 1–7 as PM and 8–11 as AM.
+
+_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+        "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "a": 1, "an": 1, "half an": 0.5, "thirty": 30,
+        "fifteen": 15, "twenty": 20, "forty five": 45, "forty-five": 45}
+_CALL_ANY = re.compile(r"\b(call|ring|talk|get back to|reach out|text)\b", re.I)
+_CLOCK = re.compile(r"\b(?:at|around|about|after|by|like)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+                    r"(?:[:.](\d{2}))?(?:\s*(a\.?m\.?|p\.?m\.?|o'clock|in the (?:morning|afternoon|evening)))?", re.I)
+_IN = re.compile(r"\bin\s+(half an|an|a|one|two|three|\d{1,3}|thirty|fifteen|twenty|forty[- ]five)\s+(hours?|minutes?|mins?)\b", re.I)
+
+
+def _num(w: str) -> float:
+    w = w.lower().strip()
+    return float(w) if w.replace(".", "").isdigit() else float(_NUM.get(w, 0))
+
+
+def find_callback_time(text: str, called_at) -> dict | None:
+    """{"at": datetime (Houston), "they_call": bool, "words": "..."} for the
+    last call phrase followed by a time, or None. A day word in the same
+    breath ("Monday at 5") moves it to that day; a bare time that's already
+    passed means tomorrow."""
+    from datetime import datetime as _dt
+    called = to_ct(called_at)
+    if not text or called is None:
+        return None
+    best = None
+    for m in _CALL_ANY.finditer(text):
+        window = text[m.start(): m.end() + 70]
+        t = _CLOCK.search(window) or _IN.search(window)
+        if t:
+            best = (m, t, window)
+    if not best:
+        return None
+    m, t, window = best
+    they = bool(_THEY_CALL.search(text[max(0, m.start() - 20): m.end() + 15]))
+    if t.re is _IN:
+        n, unit = _num(t.group(1)), t.group(2).lower()
+        at = called + timedelta(hours=n) if unit.startswith("hour") else called + timedelta(minutes=n)
+        return {"at": at, "they_call": they, "words": t.group(0)}
+    hour = int(_num(t.group(1)))
+    minute = int(t.group(2) or 0)
+    if not 1 <= hour <= 12 or minute > 59:
+        return None
+    ampm = (t.group(3) or "").lower()
+    if ampm.startswith("p") or "afternoon" in ampm or "evening" in ampm:
+        hour = hour % 12 + 12
+    elif ampm.startswith("a") or "morning" in ampm:
+        hour = hour % 12
+    elif hour <= 7 or hour == 12:
+        hour = hour % 12 + 12                      # "at 5" in business hours
+    day_word = re.search(_WHEN, window, re.I)
+    day = _resolve(day_word.group(1), called.date()) if day_word else called.date()
+    at = called.replace(year=day.year, month=day.month, day=day.day, hour=hour, minute=minute, second=0, microsecond=0)
+    if not day_word and at <= called:
+        at += timedelta(days=1)
+    del _dt
+    return {"at": at, "they_call": they, "words": t.group(0)}

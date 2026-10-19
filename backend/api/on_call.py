@@ -205,14 +205,26 @@ def todo(user: dict = Depends(require_staff)):
         steps = next_steps(db, ids, last_send=_last_send_times(db, ids),
                            scheduled=scheduled, overdue=overdue, stopped=stops | dnc)
         estimates, follow = [], []
+        now = oc.now_utc()
+        today = now.astimezone(oc.HOUSTON).date()
         for l in leads:
             st = steps.get(l.id)
             if not st:
                 continue
+            # A call-back with a time said on the call (services/fast_sync.py)
+            # beats the day-only reading: due ones first, soonest first.
+            cb = oc._parse(l.callback_at or "")
+            if cb and st["key"] not in ("stopped", "done", "scheduled", "booked") \
+                    and cb.astimezone(oc.HOUSTON).date() <= today and now - cb < timedelta(days=1):
+                at = oc.fmt_min(cb.astimezone(oc.HOUSTON).hour * 60 + cb.astimezone(oc.HOUSTON).minute)
+                due = cb <= now
+                st = {"key": "callback", "stage": "Call-backs due now" if due else "Call-backs later today",
+                      "next": f"{at}: {l.callback_note or 'asked for a call'}.", "tone": "hot" if due else "warm",
+                      "at": l.callback_at}
             row = {"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
                    "ghl_contact_id": l.ghl_contact_id or "", "ghl_location_id": l.ghl_location_id or "",
                    "address": l.address or "", "created_at": l.created_at or "",
-                   "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"]}
+                   "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"], "at": st.get("at", "")}
             if st["key"] in _ESTIMATE_ORDER:
                 estimates.append(row)
             elif st["key"] in _FOLLOW_ORDER and st["tone"] != "cold":
@@ -221,7 +233,7 @@ def todo(user: dict = Depends(require_staff)):
         estimates.sort(key=newest, reverse=True)
         estimates.sort(key=lambda r: _ESTIMATE_ORDER[r["key"]])
         follow.sort(key=newest, reverse=True)
-        follow.sort(key=lambda r: _FOLLOW_ORDER[r["key"]])
+        follow.sort(key=lambda r: (_FOLLOW_ORDER[r["key"]], r["stage"] != "Call-backs due now", r.get("at", "")))
         return {"estimates": estimates, "follow_ups": follow}
     finally:
         db.close()

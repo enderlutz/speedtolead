@@ -715,6 +715,29 @@ def get_conversations(contact_id: str, location_id: str | None = None, api_key: 
         return []
 
 
+def recent_conversations(location_id: str, since_ms: int, max_pages: int = 5) -> list[dict]:
+    """Every conversation in the location whose last message or call is newer
+    than `since_ms`, newest first. One request per 100 conversations, so a
+    normal minute costs a single call (Alan, 2026-10-19: pull who changed,
+    not everyone in turn)."""
+    out: list[dict] = []
+    after = None
+    for _ in range(max_pages):
+        params = {"locationId": location_id, "limit": 100, "sortBy": "last_message_date", "sort": "desc"}
+        if after:
+            params["startAfterDate"] = after
+        _rate_limit()
+        r = _client.get(f"{GHL_BASE}/conversations/search", headers=_headers(location_id), params=params, timeout=20)
+        r.raise_for_status()
+        rows = r.json().get("conversations", []) or []
+        fresh = [c for c in rows if int(c.get("lastMessageDate") or 0) > since_ms]
+        out.extend(fresh)
+        if len(fresh) < len(rows) or len(rows) < 100:
+            break
+        after = rows[-1].get("lastMessageDate")
+    return out
+
+
 def get_conversation_messages(conversation_id: str, location_id: str | None = None, api_key: str | None = None) -> list[dict]:
     """Fetch messages from a specific conversation."""
     try:
