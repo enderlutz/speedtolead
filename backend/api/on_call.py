@@ -260,8 +260,21 @@ def test_alert(username: str, user: dict = Depends(require_admin)):
 
 # ── Scorecard ───────────────────────────────────────────────────────────
 
+@router.get("/on-call/report")
+def report(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_admin)):
+    """Admin only: every lead with its time to call and a flag."""
+    del user
+    a = datetime.strptime(_day(start), "%Y-%m-%d").replace(tzinfo=oc.HOUSTON)
+    b = datetime.strptime(_day(end), "%Y-%m-%d").replace(tzinfo=oc.HOUSTON) + timedelta(days=1)
+    db = get_db()
+    try:
+        return {"leads": oc.lead_log(db, a, b)}
+    finally:
+        db.close()
+
+
 @router.get("/on-call/scorecard")
-def scorecard(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_staff)):
+def scorecard(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_admin)):
     del user
     a = datetime.strptime(_day(start), "%Y-%m-%d").replace(tzinfo=oc.HOUSTON)
     b = datetime.strptime(_day(end), "%Y-%m-%d").replace(tzinfo=oc.HOUSTON) + timedelta(days=1)

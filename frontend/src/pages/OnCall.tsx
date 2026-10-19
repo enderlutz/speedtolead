@@ -8,14 +8,14 @@ import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, Phone, PhoneCall, Plus, Send, Trash2 } from "lucide-react";
 import {
   api, getCurrentUser,
-  type OnCallLead, type OnCallPerson, type OnCallScore, type OnCallShift,
+  type OnCallLead, type OnCallLogRow, type OnCallPerson, type OnCallScore, type OnCallShift,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/utils";
 
-type Tab = "now" | "schedule" | "score" | "team";
+type Tab = "now" | "schedule" | "score" | "report" | "team";
 
 const ymd = (d: Date) => d.toLocaleDateString("en-CA");
 function monday(d: Date) {
@@ -28,6 +28,17 @@ const hhmm = (m: number) => {
   const h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? "pm" : "am";
   return `${((h + 11) % 12) + 1}${mm ? `:${String(mm).padStart(2, "0")}` : ""}${ap}`;
 };
+/** Stretches of 8 AM–8 PM nobody covers, as [start, end] minute pairs. */
+function coverageGaps(shifts: { start_min: number; end_min: number }[]): [number, number][] {
+  const out: [number, number][] = [];
+  let t = 8 * 60;
+  for (const s of [...shifts].sort((a, b) => a.start_min - b.start_min)) {
+    if (s.start_min > t && t < 20 * 60) out.push([t, Math.min(s.start_min, 20 * 60)]);
+    t = Math.max(t, s.end_min);
+  }
+  if (t < 20 * 60) out.push([t, 20 * 60]);
+  return out;
+}
 const TIMES = Array.from({ length: 33 }, (_, i) => 6 * 60 + i * 30);   // 6am–10pm, half hours
 
 export default function OnCall() {
@@ -48,12 +59,14 @@ export default function OnCall() {
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
         {btn("now", "Now")}
         {btn("schedule", "Schedule")}
-        {btn("score", "Scorecard")}
+        {isAdmin ? btn("score", "Scorecard") : null}
+        {isAdmin ? btn("report", "Report") : null}
         {isAdmin ? btn("team", "Team") : null}
       </div>
       {tab === "now" ? <NowPanel /> : null}
       {tab === "schedule" ? <SchedulePanel isAdmin={isAdmin} /> : null}
-      {tab === "score" ? <ScorePanel /> : null}
+      {tab === "score" && isAdmin ? <ScorePanel /> : null}
+      {tab === "report" && isAdmin ? <ReportPanel /> : null}
       {tab === "team" && isAdmin ? <TeamPanel /> : null}
     </div>
   );
@@ -187,6 +200,7 @@ function SchedulePanel({ isAdmin }: { isAdmin: boolean }) {
           const key = ymd(d);
           const todays = shifts.filter((s) => s.date === key);
           const covered = todays.length > 0;
+          const gaps = coverageGaps(todays);
           return (
             <div key={key} className="py-2.5">
               <div className="flex items-center justify-between gap-2">
@@ -218,9 +232,12 @@ function SchedulePanel({ isAdmin }: { isAdmin: boolean }) {
                   </div>
                 </div>
               ) : covered ? (
-                <ul className="mt-1 space-y-0.5">
-                  {todays.map((s) => <li key={s.id} className="text-sm tabular-nums">{name(s.username)} · {hhmm(s.start_min)}–{hhmm(s.end_min)}</li>)}
-                </ul>
+                <>
+                  <ul className="mt-1 space-y-0.5">
+                    {todays.map((s) => <li key={s.id} className="text-sm tabular-nums">{name(s.username)} · {hhmm(s.start_min)}–{hhmm(s.end_min)}</li>)}
+                  </ul>
+                  {gaps.map(([a, b]) => <p key={a} className="text-sm font-semibold text-rose-700">Gap: nobody on {hhmm(a)}–{hhmm(b)}</p>)}
+                </>
               ) : <p className="mt-1 text-sm font-semibold text-rose-700">Nobody on call</p>}
             </div>
           );
@@ -275,6 +292,99 @@ function ScorePanel() {
           </div>
         ))}
         <p className="text-xs text-muted-foreground">Missed = no call within an hour. Close rate = leads that paid.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+const FLAG: Record<OnCallLogRow["flag"], { label: string; cls: string }> = {
+  on_time: { label: "On time", cls: "bg-emerald-100 text-emerald-900" },
+  late: { label: "Late", cls: "bg-amber-100 text-amber-900" },
+  missed: { label: "Missed", cls: "bg-rose-600 text-white" },
+  waiting: { label: "Waiting", cls: "bg-slate-200 text-slate-800" },
+};
+
+/** Admin only (Cruz, 2026-10-19): every lead, its time to the first call,
+ *  and a flag when it went past 5 minutes, like a drive-thru timer. */
+function ReportPanel() {
+  const ranges = useMemo(() => {
+    const today = new Date(), mon = monday(today);
+    return {
+      Today: [ymd(today), ymd(today)],
+      "This week": [ymd(mon), ymd(addDays(mon, 6))],
+      "Last week": [ymd(addDays(mon, -7)), ymd(addDays(mon, -1))],
+      "This month": [ymd(new Date(today.getFullYear(), today.getMonth(), 1)), ymd(today)],
+    } as Record<string, [string, string]>;
+  }, []);
+  const [pick, setPick] = useState("Today");
+  const [only, setOnly] = useState<"all" | "flagged">("all");
+  const [rows, setRows] = useState<OnCallLogRow[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    const [a, b] = ranges[pick];
+    api.onCallReport(a, b).then((r) => { if (live) setRows(r.leads); }).catch(() => { if (live) setRows([]); });
+    return () => { live = false; };
+  }, [pick, ranges]);
+  const counts = useMemo(() => {
+    const c = { on_time: 0, late: 0, missed: 0, waiting: 0 };
+    for (const r of rows || []) c[r.flag] += 1;
+    return c;
+  }, [rows]);
+  const flaggedBy = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of rows || []) if (r.flag === "late" || r.flag === "missed") m[r.on_call] = (m[r.on_call] || 0) + 1;
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+  const shown = (rows || []).filter((r) => only === "all" || r.flag === "late" || r.flag === "missed");
+  const total = (rows || []).length;
+  const when = (iso: string) => (iso ? new Date(iso).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "");
+
+  return (
+    <Card>
+      <CardHeader className="space-y-2 pb-2">
+        <div className="flex flex-wrap gap-2">
+          {Object.keys(ranges).map((k) => (
+            <button key={k} type="button" onClick={() => setPick(k)}
+                    className={`min-h-9 rounded-full border px-3 text-sm font-semibold ${pick === k ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>{k}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {(["on_time", "late", "missed", "waiting"] as const).map((f) => (
+            <div key={f} className={`rounded-lg p-2 ${FLAG[f].cls}`}>
+              <p className="text-[11px] font-semibold uppercase">{FLAG[f].label}</p>
+              <p className="text-lg font-bold tabular-nums">{counts[f]}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm font-semibold">
+          {total ? `${Math.round((counts.on_time / total) * 100)}% of ${total} leads called within 5 minutes` : "No leads in this range yet."}
+        </p>
+        {flaggedBy.length ? (
+          <p className="text-sm text-rose-800">Flags: {flaggedBy.map(([who, n]) => `${who} ${n}`).join(" · ")}</p>
+        ) : null}
+        <div className="flex gap-2">
+          {(["all", "flagged"] as const).map((o) => (
+            <button key={o} type="button" onClick={() => setOnly(o)}
+                    className={`min-h-9 rounded-lg border px-3 text-sm font-semibold ${only === o ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>
+              {o === "all" ? "All leads" : "Only flagged"}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="divide-y">
+        {rows === null ? <p className="py-2 text-sm text-muted-foreground">Loading…</p> : null}
+        {shown.map((r) => (
+          <div key={`${r.lead_id}-${r.came_in}`} className="flex items-center gap-3 py-2">
+            <span className={`w-16 shrink-0 rounded-md px-1.5 py-1 text-center text-[11px] font-bold ${FLAG[r.flag].cls}`}>{FLAG[r.flag].label}</span>
+            <span className="min-w-0 flex-1">
+              <Link to={`/leads/${r.lead_id}`} className="block truncate text-sm font-semibold capitalize underline-offset-2 hover:underline">{(r.name || "Lead").toLowerCase()}</Link>
+              <span className="block text-xs text-muted-foreground">
+                Came in {when(r.came_in)} · on call: {r.on_call}{r.called_by && r.called_by !== r.on_call ? ` · called by ${r.called_by}` : ""}
+              </span>
+            </span>
+            <span className="shrink-0 text-sm font-bold tabular-nums">{r.minutes === null ? "–" : `${r.minutes} min`}</span>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

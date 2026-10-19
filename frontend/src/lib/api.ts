@@ -2771,6 +2771,7 @@ export const api = {
     request<OnCallPerson>(`/api/on-call/people/${encodeURIComponent(username)}`, { method: "PUT", body: JSON.stringify(body) }),
   onCallGhlUsers: () => request<{ users: { id: string; name: string; email: string; phone: string }[]; error?: string }>("/api/on-call/ghl-users"),
   onCallTest: (username: string) => request<{ ok: boolean }>(`/api/on-call/people/${encodeURIComponent(username)}/test`, { method: "POST" }),
+  onCallReport: (start: string, end: string) => request<{ leads: OnCallLogRow[] }>(`/api/on-call/report?start=${start}&end=${end}`),
   onCallScorecard: (start: string, end: string) => request<{ rows: OnCallScore[] }>(`/api/on-call/scorecard?start=${start}&end=${end}`),
   // --- Materials: receipts, shelf count, prices, job costing (2026-10-19) ---
   logMaterialPurchase: async (form: FormData) => {
@@ -6179,5 +6180,9 @@ export interface OnCallShift { id: string; username: string; date: string; start
 export interface OnCallLead {
   lead_id: string; name: string; phone: string; address: string; clock_started: string; waiting_for_morning: boolean;
   on_call: string; fence_height: string; fence_age: string; timeline: string; sides: string | string[]; late_alerted: boolean;
+}
+export interface OnCallLogRow {
+  lead_id: string; name: string; phone: string; on_call: string; came_in: string; first_call: string;
+  minutes: number | null; called_by: string; flag: "on_time" | "late" | "missed" | "waiting";
 }
 export interface OnCallScore { username: string; name: string; leads: number; called: number; within_5_pct: number; avg_minutes: number | null; missed: number; won: number; close_pct: number }

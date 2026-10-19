@@ -158,6 +158,13 @@ def start_clock(lead_id: str, when: datetime | None = None) -> str:
         lead.first_call_at = ""
         lead.first_call_by = ""
         lead.oncall_late_at = ""
+        # The clock starts when the customer filled the form (Cruz, 2026-10-19:
+        # "from the moment the lead comes in"), not when we noticed: the
+        # 5-minute poller can be minutes behind GHL. A repeat form fill keeps
+        # its old created time, so only a recent one counts.
+        came_in = _parse(lead.ghl_created_at or lead.created_at or "")
+        if came_in and timedelta(0) <= when - came_in <= timedelta(minutes=30) and in_hours(came_in):
+            when = came_in
         if not in_hours(when):
             lead.oncall_to, lead.oncall_at = MORNING, ""
             db.commit()
@@ -269,6 +276,31 @@ def won_lead_ids(db, lead_ids: set[str]) -> set[str]:
             if lid:
                 won.add(lid)
     return won
+
+
+def lead_log(db, start: datetime, end: datetime) -> list[dict]:
+    """Every lead handed out in the range, with its time to first call and a
+    flag: on time (≤5 min), late, missed (nothing within an hour), or still
+    waiting. Admin only (Cruz, 2026-10-19: "a flag that this person wasn't
+    contacted")."""
+    from database import Lead, User
+    names = {u.username: (u.display_name or u.username) for u in db.query(User).all()}
+    leads = (db.query(Lead).filter(Lead.oncall_at >= _iso(start), Lead.oncall_at < _iso(end))
+             .order_by(Lead.oncall_at.desc()).all())
+    now = now_utc()
+    out = []
+    for l in leads:
+        a, c = _parse(l.oncall_at), _parse(l.first_call_at)
+        mins = round((c - a).total_seconds() / 60, 1) if a and c else None
+        if mins is not None:
+            flag = "on_time" if mins <= 5 else ("missed" if mins > 60 else "late")
+        else:
+            flag = "missed" if a and now - a > timedelta(hours=1) else ("late" if a and now - a > LATE_AFTER else "waiting")
+        out.append({"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
+                    "on_call": names.get(l.oncall_to, l.oncall_to or "Nobody on call"),
+                    "came_in": l.oncall_at, "first_call": l.first_call_at or "", "minutes": mins,
+                    "called_by": names.get(l.first_call_by, l.first_call_by or ""), "flag": flag})
+    return out
 
 
 def scorecard(db, start: datetime, end: datetime) -> list[dict]:

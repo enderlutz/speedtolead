@@ -148,3 +148,29 @@ def test_scorecard(db, sent):
     rows = oc.scorecard(db, TEN_AM - timedelta(hours=1), TEN_AM + timedelta(hours=1))
     r = rows[0]
     assert r["leads"] == 2 and r["within_5_pct"] == 50 and r["missed"] == 1 and r["avg_minutes"] == 46.5
+
+
+def test_clock_starts_when_the_lead_came_in(db, sent):
+    """The poller can notice a lead minutes late; the clock still starts at the form fill."""
+    _user(db, "olga")
+    _shift(db, "olga")
+    lead = _lead(db)
+    lead.ghl_created_at = "2026-10-20T14:57:00+00:00"       # 3 min before we processed it
+    db.commit()
+    oc.start_clock(lead.id, TEN_AM)
+    assert _get(db, lead).oncall_at.startswith("2026-10-20T14:57")
+
+
+def test_lead_log_flags(db, sent, monkeypatch):
+    _user(db, "olga")
+    _shift(db, "olga")
+    a, b, c = _lead(db, "OnTime"), _lead(db, "Late"), _lead(db, "Missed")
+    for x in (a, b, c):
+        oc.start_clock(x.id, TEN_AM)
+    oc.record_call(db, _get(db, a), "2026-10-20T15:04:00+00:00", "olga")
+    db.commit()
+    oc.record_call(db, _get(db, b), "2026-10-20T15:20:00+00:00", "olga")
+    db.commit()
+    monkeypatch.setattr(oc, "now_utc", lambda: TEN_AM + timedelta(hours=2))
+    flags = {r["name"]: r["flag"] for r in oc.lead_log(db, TEN_AM - timedelta(hours=1), TEN_AM + timedelta(hours=3))}
+    assert flags == {"OnTime": "on_time", "Late": "late", "Missed": "missed"}
