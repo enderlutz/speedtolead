@@ -79,6 +79,7 @@ def queue(user: dict = Depends(require_staff)):
             fd = oc._form(l)
             out.append({
                 "lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
+                "ghl_contact_id": l.ghl_contact_id or "", "ghl_location_id": l.ghl_location_id or "",
                 "address": l.address or "", "clock_started": l.oncall_at or "",
                 "waiting_for_morning": l.oncall_to == oc.MORNING,
                 "on_call": names.get(l.oncall_to, "") if l.oncall_to != oc.MORNING else "",
@@ -136,6 +137,7 @@ def todo(user: dict = Depends(require_staff)):
             if not st:
                 continue
             row = {"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
+                   "ghl_contact_id": l.ghl_contact_id or "", "ghl_location_id": l.ghl_location_id or "",
                    "address": l.address or "", "created_at": l.created_at or "",
                    "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"]}
             if st["key"] in _ESTIMATE_ORDER:

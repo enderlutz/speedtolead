@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { errMessage } from "@/lib/utils";
+import { officeCallLink } from "@/lib/ghlLink";
 
 type Tab = "now" | "schedule" | "score" | "report" | "team";
 
@@ -128,9 +129,8 @@ function NowPanel() {
             {l.clock_started ? <Clock since={l.clock_started} now={now} /> : null}
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            {l.phone ? (
-              <a href={`tel:${l.phone.replace(/[^\d+]/g, "")}`} className="flex min-h-11 items-center justify-center gap-1 rounded-lg border text-sm font-semibold"><Phone className="h-4 w-4" /> Call</a>
-            ) : <span />}
+            <CallButton phone={l.phone} loc={l.ghl_location_id} contact={l.ghl_contact_id} name={l.name}
+                        className="flex min-h-11 items-center justify-center gap-1 rounded-lg border text-sm font-semibold" label="Call" />
             <Link to={`/leads/${l.lead_id}`} className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-semibold">Profile</Link>
             <Button className="min-h-11" onClick={() => called(l.lead_id)}><Check className="mr-1 h-4 w-4" /> I called</Button>
           </div>
@@ -151,6 +151,20 @@ function NowPanel() {
       ) : null}
       <TodoLists />
     </div>
+  );
+}
+
+/** Calls go through GoHighLevel on the business line, not a personal phone. */
+function CallButton({ phone, loc, contact, name, className, label }: {
+  phone: string; loc?: string; contact?: string; name: string; className: string; label?: string;
+}) {
+  const c = officeCallLink(phone, loc || "", contact || "");
+  if (!c.href) return <span />;
+  return (
+    <a href={c.href} target={c.ghl ? "_blank" : undefined} rel="noreferrer" className={className}
+       aria-label={`Call ${name}`} title={c.ghl ? "Opens them in GoHighLevel: call from 346-589-7877" : `Call ${phone}`}>
+      <Phone className="h-4 w-4" />{label ? ` ${label}` : null}
+    </a>
   );
 }
 
@@ -246,10 +260,8 @@ function TodoColumn({ title, sub, rows, accent }: { title: string; sub: string; 
                   <Link to={`/leads/${r.lead_id}`} className="block truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
                   <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>
                 </div>
-                {r.phone ? (
-                  <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} aria-label={`Call ${r.name}`}
-                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border hover:bg-muted"><Phone className="h-4 w-4" /></a>
-                ) : null}
+                <CallButton phone={r.phone} loc={r.ghl_location_id} contact={r.ghl_contact_id} name={r.name}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border hover:bg-muted" />
               </div>
             ))}
           </div>

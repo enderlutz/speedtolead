@@ -6182,12 +6182,13 @@ export interface OnCallMyShiftBlock { start_min: number; end_min: number; starts
 export interface OnCallMyShift { date: string; shifts: OnCallMyShiftBlock[]; current: OnCallMyShiftBlock | null; next: OnCallMyShiftBlock | null }
 export interface OnCallTodoRow {
   lead_id: string; name: string; phone: string; address: string; created_at: string;
-  stage: string; next: string; tone: string; key: string;
+  stage: string; next: string; tone: string; key: string; ghl_contact_id?: string; ghl_location_id?: string;
 }
 export interface OnCallShift { id: string; username: string; date: string; start_min: number; end_min: number }
 export interface OnCallLead {
   lead_id: string; name: string; phone: string; address: string; clock_started: string; waiting_for_morning: boolean;
   on_call: string; fence_height: string; fence_age: string; timeline: string; sides: string | string[]; late_alerted: boolean;
+  ghl_contact_id?: string; ghl_location_id?: string;
 }
 export interface OnCallLogRow {
   lead_id: string; name: string; phone: string; on_call: string; came_in: string; first_call: string;

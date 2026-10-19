@@ -27,3 +27,13 @@ export function ghlContactUrl(locationId: string, contactId: string): string {
   if (!loc || !contact) return "";
   return `${GHL_APP_ORIGIN}/v2/location/${encodeURIComponent(loc)}/contacts/detail/${encodeURIComponent(contact)}`;
 }
+
+/** The office's call button (Alan, 2026-10-19): open the customer in
+ *  GoHighLevel and call from there, so it goes out on the business line
+ *  (346-589-7877) and lands in the call log, not from a personal phone.
+ *  Falls back to the phone's dialer only when the lead isn't in GHL. */
+export function officeCallLink(phone: string, locationId: string, contactId: string): { href: string; ghl: boolean } {
+  const url = ghlContactUrl(locationId, contactId);
+  if (url) return { href: url, ghl: true };
+  return { href: phone ? `tel:${phone.replace(/[^\d+]/g, "")}` : "", ghl: false };
+}

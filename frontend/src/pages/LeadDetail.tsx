@@ -1,3 +1,4 @@
+import { officeCallLink } from "@/lib/ghlLink";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useNow } from "@/hooks/useNow";
@@ -1716,7 +1717,9 @@ export default function LeadDetail() {
                     <EditableFact icon={Phone} accent={ACCENT.emerald} label="Phone"
                       value={lead.contact_phone || ""} inputMode="tel"
                       right={lead.contact_phone ? (
-                        <a href={`tel:${lead.contact_phone}`} title="Call" className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary">
+                        <a {...(() => { const c = officeCallLink(lead.contact_phone || "", lead.ghl_location_id || "", lead.ghl_contact_id || "");
+                              return c.ghl ? { href: c.href, target: "_blank", rel: "noreferrer", title: "Call in GoHighLevel (346-589-7877)" } : { href: c.href, title: "Call" }; })()}
+                           className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-primary">
                           <Phone className="h-3.5 w-3.5" />
                         </a>
                       ) : undefined}
