@@ -19,6 +19,7 @@ fresh clock.
 from __future__ import annotations
 
 import json
+import uuid
 import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -353,3 +354,78 @@ def scorecard(db, start: datetime, end: datetime) -> list[dict]:
         })
     rows.sort(key=lambda r: -r["leads"])
     return rows
+
+
+# ── Breaks: "can someone cover me for 25 minutes?" (Alan, 2026-10-19) ──────
+
+def fmt_min(m: int) -> str:
+    h, mm = divmod(int(m) % (24 * 60), 60)
+    return f"{(h + 11) % 12 + 1}:{mm:02d} {'AM' if h < 12 else 'PM'}"
+
+
+def _local(when: datetime) -> tuple[str, int]:
+    local = when.astimezone(HOUSTON)
+    return local.strftime("%Y-%m-%d"), local.hour * 60 + local.minute
+
+
+def request_break(db, username: str, minutes: int, when: datetime | None = None):
+    """Ask the team to cover the next `minutes` of my shift. Until someone
+    takes it, leads keep coming to me. The caller commits."""
+    from database import OnCallBreak, OnCallShift, User
+    when = when or now_utc()
+    day, m = _local(when)
+    mine = [s for s in db.query(OnCallShift).filter(OnCallShift.date == day, OnCallShift.username == username).all()
+            if s.start_min <= m < s.end_min]
+    if not mine:
+        raise ValueError("You're not on call right now")
+    for b in db.query(OnCallBreak).filter(OnCallBreak.date == day, OnCallBreak.username == username,
+                                          OnCallBreak.status == "open").all():
+        b.status = "cancelled"                      # one open ask at a time
+    end = min(m + max(5, int(minutes)), max(s.end_min for s in mine))
+    b = OnCallBreak(id=str(uuid.uuid4()), username=username, date=day, start_min=m, end_min=end,
+                    status="open", created_at=_iso(when))
+    db.add(b)
+    me = db.query(User).filter(User.username == username).first()
+    who = (me.display_name or username) if me else username
+    text = (f"{who} needs a break: can you take new leads {fmt_min(m)}–{fmt_min(end)}?\n"
+            f"Tap \"I'll take it\" on {get_settings().frontend_url}/on-call")
+    for u in db.query(User).filter(User.role.in_(("admin", "va"))).all():
+        if u.username != username and not u.disabled and (u.phone or u.ghl_contact_id):
+            message_person(db, u, text)
+    return b
+
+
+def take_break(db, break_id: str, taker: str, when: datetime | None = None):
+    """Someone takes the break: they're on for what's left of the window and
+    the requester is back on after it. The caller commits."""
+    from database import OnCallBreak, OnCallShift, User
+    when = when or now_utc()
+    b = db.query(OnCallBreak).filter(OnCallBreak.id == break_id).first()
+    if not b or b.status != "open":
+        raise ValueError("Someone already took it, or it was cancelled")
+    if taker == b.username:
+        raise ValueError("That's your own break")
+    day, m = _local(when)
+    start = max(b.start_min, m) if day == b.date else b.start_min
+    if start >= b.end_min:
+        b.status = "cancelled"
+        raise ValueError("That break is already over")
+    # Cut the window out of the requester's shifts.
+    for s in db.query(OnCallShift).filter(OnCallShift.date == b.date, OnCallShift.username == b.username).all():
+        if s.end_min <= start or s.start_min >= b.end_min:
+            continue
+        before, after = (s.start_min, start), (b.end_min, s.end_min)
+        db.delete(s)
+        for a, z in (before, after):
+            if a < z:
+                db.add(OnCallShift(id=str(uuid.uuid4()), username=b.username, date=b.date, start_min=a, end_min=z,
+                                   created_by=taker, created_at=_iso(when)))
+    db.add(OnCallShift(id=str(uuid.uuid4()), username=taker, date=b.date, start_min=start, end_min=b.end_min,
+                       created_by=taker, created_at=_iso(when)))
+    b.status, b.taken_by, b.taken_at = "taken", taker, _iso(when)
+    t = db.query(User).filter(User.username == taker).first()
+    me = db.query(User).filter(User.username == b.username).first()
+    if me:
+        message_person(db, me, f"{(t.display_name or taker) if t else taker} is covering new leads "
+                               f"{fmt_min(start)}–{fmt_min(b.end_min)}. You're back on at {fmt_min(b.end_min)}.")
+    return b

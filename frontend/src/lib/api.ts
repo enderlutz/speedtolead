@@ -2758,6 +2758,10 @@ export const api = {
 
   // --- On call for new leads (2026-10-19) ---
   onCallNow: () => request<{ in_hours: boolean; on_call: OnCallPerson[]; me?: OnCallMyShift }>("/api/on-call/now"),
+  onCallBreaks: () => request<{ breaks: OnCallBreak[] }>("/api/on-call/breaks"),
+  onCallAskBreak: (minutes: number) => request<OnCallBreak>("/api/on-call/breaks", { method: "POST", body: JSON.stringify({ minutes }) }),
+  onCallTakeBreak: (id: string) => request<OnCallBreak>(`/api/on-call/breaks/${id}/take`, { method: "POST" }),
+  onCallCancelBreak: (id: string) => request<{ ok: boolean }>(`/api/on-call/breaks/${id}/cancel`, { method: "POST" }),
   onCallTodo: () => request<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] }>("/api/on-call/todo"),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
   onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),
@@ -6180,6 +6184,10 @@ export interface PmPastJob {
 export interface OnCallPerson { username: string; name: string; role: string; phone: string; alert_channel: string; ghl_user_id: string; ready: boolean }
 export interface OnCallMyShiftBlock { start_min: number; end_min: number; starts_at: string; ends_at: string }
 export interface OnCallMyShift { date: string; shifts: OnCallMyShiftBlock[]; current: OnCallMyShiftBlock | null; next: OnCallMyShiftBlock | null }
+export interface OnCallBreak {
+  id: string; username: string; date: string; start_min: number; end_min: number;
+  status: "open" | "taken" | "cancelled"; taken_by: string; name?: string; taken_by_name?: string;
+}
 export interface OnCallTodoRow {
   lead_id: string; name: string; phone: string; address: string; created_at: string;
   stage: string; next: string; tone: string; key: string; ghl_contact_id?: string; ghl_location_id?: string;

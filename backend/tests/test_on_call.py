@@ -183,3 +183,22 @@ def test_my_shift_says_how_long_is_left(db):
     assert me["current"]["end_min"] == 20 * 60 and me["current"]["ends_at"].startswith("2026-10-21T01:00")
     noon = datetime(2026, 10, 20, 17, 0, tzinfo=timezone.utc)
     assert oc.my_shift(db, "alan", noon)["current"] is None and oc.my_shift(db, "alan", noon)["next"]["start_min"] == 960
+
+
+def test_break_is_covered_then_back_to_me(db, sent):
+    from database import OnCallBreak
+    _user(db, "alan")
+    _user(db, "olga")
+    _shift(db, "alan", start=16 * 60, end=20 * 60)
+    five_pm = datetime(2026, 10, 20, 22, 0, tzinfo=timezone.utc)
+    b = oc.request_break(db, "alan", 25, five_pm)
+    db.commit()
+    assert any("needs a break" in t for u, t in sent["person"] if u == "olga")
+    assert [u.username for u in oc.on_call_now(db, five_pm + timedelta(minutes=10))] == ["alan"]   # nobody took it yet
+    oc.take_break(db, b.id, "olga", five_pm + timedelta(minutes=2))
+    db.commit()
+    assert [u.username for u in oc.on_call_now(db, five_pm + timedelta(minutes=10))] == ["olga"]
+    assert [u.username for u in oc.on_call_now(db, five_pm + timedelta(minutes=30))] == ["alan"]
+    assert db.query(OnCallBreak).first().status == "taken"
+    with pytest.raises(ValueError):
+        oc.take_break(db, b.id, "olga", five_pm + timedelta(minutes=3))

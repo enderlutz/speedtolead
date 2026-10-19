@@ -11,6 +11,7 @@
     GET  /api/on-call/ghl-users              GHL logins to link to (admin)
     POST /api/on-call/people/{username}/test send them a test alert (admin)
     GET  /api/on-call/scorecard?start=&end=  speed to lead per person
+    GET  /api/on-call/breaks                 today's break asks; POST asks, /{id}/take covers it
     GET  /api/on-call/todo                   need an estimate / follow up lists
 """
 from __future__ import annotations
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from api.auth import require_admin, require_staff
-from database import Lead, OnCallShift, User, get_db
+from database import Lead, OnCallBreak, OnCallShift, User, get_db
 from services import on_call as oc
 
 router = APIRouter()
@@ -102,6 +103,78 @@ def called(lead_id: str, user: dict = Depends(require_staff)):
         oc.record_call(db, lead, oc._iso(oc.now_utc()), user.get("sub", ""))
         db.commit()
         return {"ok": True, "first_call_at": lead.first_call_at}
+    finally:
+        db.close()
+
+
+# ── Breaks ──────────────────────────────────────────────────────────────
+
+class BreakIn(BaseModel):
+    minutes: int = 25
+
+
+def _break_rows(db, day: str) -> list[dict]:
+    names = {u.username: (u.display_name or u.username) for u in db.query(User).all()}
+    out = []
+    for b in db.query(OnCallBreak).filter(OnCallBreak.date == day, OnCallBreak.status != "cancelled") \
+            .order_by(OnCallBreak.start_min).all():
+        d = b.to_dict()
+        d["name"], d["taken_by_name"] = names.get(b.username, b.username), names.get(b.taken_by, b.taken_by)
+        out.append(d)
+    return out
+
+
+@router.get("/on-call/breaks")
+def breaks(user: dict = Depends(require_staff)):
+    del user
+    db = get_db()
+    try:
+        day, m = oc._local(oc.now_utc())
+        return {"breaks": [b for b in _break_rows(db, day) if b["end_min"] > m]}
+    finally:
+        db.close()
+
+
+@router.post("/on-call/breaks")
+def ask_break(body: BreakIn, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        try:
+            b = oc.request_break(db, user.get("sub", ""), body.minutes)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        db.commit()
+        return b.to_dict()
+    finally:
+        db.close()
+
+
+@router.post("/on-call/breaks/{break_id}/take")
+def take(break_id: str, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        try:
+            b = oc.take_break(db, break_id, user.get("sub", ""))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        db.commit()
+        return b.to_dict()
+    finally:
+        db.close()
+
+
+@router.post("/on-call/breaks/{break_id}/cancel")
+def cancel_break(break_id: str, user: dict = Depends(require_staff)):
+    db = get_db()
+    try:
+        b = db.query(OnCallBreak).filter(OnCallBreak.id == break_id).first()
+        if not b or b.status != "open":
+            raise HTTPException(400, "Nothing to cancel")
+        if b.username != user.get("sub") and user.get("role") != "admin":
+            raise HTTPException(403, "Not your break")
+        b.status = "cancelled"
+        db.commit()
+        return {"ok": True}
     finally:
         db.close()
 

@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, PhoneCall, Plus, Send, Trash2 } from "lucide-react";
 import {
   api, getCurrentUser,
-  type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift,
+  type OnCallBreak, type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -109,6 +109,7 @@ function NowPanel() {
   return (
     <div className="space-y-3">
       {who?.me ? <MyShift me={who.me} now={now} /> : null}
+      <Breaks onCallNow={!!who?.me?.current} tick={tick} onChanged={() => setTick((x) => x + 1)} />
       <div className={`rounded-xl p-3 text-sm font-semibold ${!who ? "bg-muted" : !who.in_hours ? "bg-slate-800 text-white" : who.on_call.length ? "bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200" : "bg-rose-50 text-rose-900 ring-1 ring-rose-200"}`}>
         {!who ? "Loading…" : !who.in_hours ? "After hours. New leads wait for the 8 AM list."
           : who.on_call.length ? `On call now: ${who.on_call.map((p) => p.name).join(" & ")}` : "Nobody is on call right now. Add someone on the Schedule tab."}
@@ -191,6 +192,64 @@ function MyShift({ me, now }: { me: OnCallMyShift; now: number }) {
     <div className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">
       {me.shifts.length ? `Your shift is over for today (${all}).` : "You're not on the schedule today."}
     </div>
+  );
+}
+
+/** "Can someone cover me?" (Alan, 2026-10-19). Ask for 15–60 minutes; the
+ *  team gets a text; whoever taps "I'll take it" is on for the window and
+ *  the leads come back to you after it. Until someone takes it, they're yours. */
+function Breaks({ onCallNow, tick, onChanged }: { onCallNow: boolean; tick: number; onChanged: () => void }) {
+  const me = getCurrentUser()?.sub || "";
+  const [rows, setRows] = useState<OnCallBreak[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.onCallBreaks().then((r) => { if (live) setRows(r.breaks); }).catch(() => {});
+    return () => { live = false; };
+  }, [tick]);
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true);
+    try { await fn(); toast.success(ok); onChanged(); }
+    catch (e) { toast.error(errMessage(e, "Something went wrong")); } finally { setBusy(false); }
+  };
+  const mine = rows.find((b) => b.username === me && b.status === "open");
+  const mineTaken = rows.find((b) => b.username === me && b.status === "taken");
+  const others = rows.filter((b) => b.username !== me && b.status === "open");
+  const covering = rows.filter((b) => b.taken_by === me);
+  return (
+    <>
+      {others.map((b) => (
+        <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-100 p-3 text-amber-950 ring-1 ring-amber-300">
+          <p className="flex-1 text-sm font-semibold">{b.name} needs a break. Can you take new leads {fmtMin(b.start_min)}–{fmtMin(b.end_min)}?</p>
+          <Button disabled={busy} className="min-h-11" onClick={() => run(() => api.onCallTakeBreak(b.id), `You're on until ${fmtMin(b.end_min)}`)}>
+            <Check className="mr-1 h-4 w-4" /> I'll take it
+          </Button>
+        </div>
+      ))}
+      {covering.map((b) => (
+        <p key={b.id} className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-200">
+          You're covering for {b.name} until {fmtMin(b.end_min)}. New leads come to you.
+        </p>
+      ))}
+      {mineTaken ? (
+        <p className="rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-950 ring-1 ring-emerald-200">
+          {mineTaken.taken_by_name} is covering you until {fmtMin(mineTaken.end_min)}. Leads come back to you after that.
+        </p>
+      ) : mine ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-muted p-3">
+          <p className="flex-1 text-sm"><span className="font-semibold">Asked for cover {fmtMin(mine.start_min)}–{fmtMin(mine.end_min)}.</span> Waiting for someone to take it. Until then, new leads are still yours.</p>
+          <Button variant="outline" disabled={busy} onClick={() => run(() => api.onCallCancelBreak(mine.id), "Break cancelled")}>Cancel</Button>
+        </div>
+      ) : onCallNow ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3">
+          <span className="text-sm font-semibold">Need a break?</span>
+          {[15, 25, 30, 60].map((m) => (
+            <Button key={m} size="sm" variant="outline" disabled={busy} className="min-h-10"
+                    onClick={() => run(() => api.onCallAskBreak(m), "Asked the team to cover you")}>{m} min</Button>
+          ))}
+        </div>
+      ) : null}
+    </>
   );
 }
 

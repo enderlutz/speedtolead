@@ -756,6 +756,29 @@ class OnCallShift(Base):
                 "start_min": int(self.start_min or 0), "end_min": int(self.end_min or 0)}
 
 
+class OnCallBreak(Base):
+    """"I need a break, can someone cover?" (Alan, 2026-10-19). Open until
+    someone on the team taps "I'll take it"; then the schedule is split so
+    they're on for the window and the requester is back on after it."""
+    __tablename__ = "on_call_breaks"
+    __table_args__ = (Index("idx_on_call_breaks_date", "date"),)
+
+    id = Column(Text, primary_key=True)
+    username = Column(Text, default="")            # who needs the break
+    date = Column(Text, default="")                # YYYY-MM-DD, Houston
+    start_min = Column(Integer, default=0)
+    end_min = Column(Integer, default=0)
+    status = Column(Text, default="open")          # open | taken | cancelled
+    taken_by = Column(Text, default="")
+    taken_at = Column(Text, default="")
+    created_at = Column(Text, default="")
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "username": self.username or "", "date": self.date or "",
+                "start_min": int(self.start_min or 0), "end_min": int(self.end_min or 0),
+                "status": self.status or "open", "taken_by": self.taken_by or ""}
+
+
 class RolePermission(Base):
     """Per-role permission default overrides. One row per role (admin|va|worker)
     holding a JSON {permission_key: bool} map applied on top of the code
