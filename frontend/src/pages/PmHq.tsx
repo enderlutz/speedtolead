@@ -320,6 +320,8 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
   const [picking, setPicking] = useState(false);
   const onIt = new Set([x.username.toLowerCase(), ...mates.map((m) => m.username.toLowerCase())]);
   const free = crew.filter((c) => !onIt.has(c.username.toLowerCase()));
+  // This day's part is finished: no helpers to add.
+  const finished = !!x.completed_at || (x.task === "cleaning" && !!x.progress.cleaning_done);
   const addMate = async (username: string) => {
     try {
       // Added onto someone's job = a helper who rides with them.
@@ -339,14 +341,11 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
       ) : null}
       <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{n}</span>
       <div className="min-w-0 flex-1">
-        <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate font-semibold text-primary hover:underline">{x.name} ›</Link>
+        <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate text-base font-semibold text-primary hover:underline">{x.name} ›</Link>
         <p className="truncate text-xs text-muted-foreground">{x.address}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>{TASK_LABEL[x.task]}</span>
-          <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{x.progress.percent}% · {x.progress.stage}</span>
-        </div>
-        {mates.length ? <p className="mt-1 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person + (m.helper ? " (helper)" : "")))].join(" and ")}</p> : null}
-        {canEdit && free.length ? (
+        <JobStatus x={x} canEdit={canEdit} crew={crew} onChange={onChange} />
+        {mates.length ? <p className="mt-1.5 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person + (m.helper ? " (helper)" : "")))].join(" and ")}</p> : null}
+        {canEdit && free.length && !finished ? (
           picking ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               {free.map((c) => (
@@ -355,12 +354,12 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
                   + {c.name}
                 </button>
               ))}
-              <button type="button" onClick={() => setPicking(false)} className="text-xs text-muted-foreground">Cancel</button>
+              <button type="button" onClick={() => setPicking(false)} className="min-h-9 px-2 text-xs text-muted-foreground">Cancel</button>
             </div>
           ) : (
             <button type="button" onClick={() => setPicking(true)}
-                    className="mt-1.5 inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
-              <Plus className="h-3.5 w-3.5" />Add someone {x.task ? `to ${TASK_LABEL[x.task].toLowerCase()}` : ""}
+                    className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary">
+              <Plus className="h-3.5 w-3.5" />Add a helper
             </button>
           )
         ) : null}
@@ -369,6 +368,83 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
         <button type="button" onClick={onRemove} aria-label={`Take ${x.person} off ${x.name}`}
                 className="self-start rounded-full p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
       ) : null}
+    </div>
+  );
+}
+
+function addDays(d: string, n: number): string {
+  const t = new Date(d + "T12:00:00"); t.setDate(t.getDate() + n); return iso(t);
+}
+
+/** Where this job stands, in words, and the next step (Alan, 2026-10-19:
+ *  "cleaning is finished and I can do the scheduling for staining"). */
+function JobStatus({ x, canEdit, crew, onChange }: {
+  x: PmDay; canEdit: boolean; crew: { username: string; name: string }[]; onChange: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(() => addDays(x.date, 1));
+  const [saving, setSaving] = useState(false);
+  const p = x.progress;
+  const booked = x.staining_days || [];
+
+  if (x.completed_at) {
+    return <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-2.5 py-1.5 text-sm font-semibold text-emerald-900"><CheckCircle2 className="h-4 w-4" />Job done</p>;
+  }
+  if (x.task === "cleaning" && p.cleaning_done) {
+    const book = async (username: string) => {
+      setSaving(true);
+      try {
+        await api.pmHqAssign({ lead_id: x.lead_id, date, username, task: "staining" });
+        toast.success(`${x.name}: staining on ${fmtDay(date)}`);
+        setOpen(false);
+        onChange();
+      } catch (e) { toast.error(errMessage(e, "Couldn't book the staining")); } finally { setSaving(false); }
+    };
+    return (
+      <div className="mt-2 space-y-2">
+        <p className="flex items-center gap-1.5 rounded-lg bg-emerald-100 px-2.5 py-1.5 text-sm font-semibold text-emerald-900">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />Cleaning finished
+        </p>
+        {booked.length ? (
+          <p className="flex flex-wrap items-center gap-1.5 text-sm">
+            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1", TASK_CLS.staining)}>Staining</span>
+            <span className="font-semibold">{booked.map((b) => `${fmtDay(b.date)} · ${b.person}`).join(", ")}</span>
+          </p>
+        ) : !canEdit ? (
+          <p className="text-xs font-semibold text-amber-800">Ready to stain. Staining isn't booked yet.</p>
+        ) : !open ? (
+          <Button size="sm" onClick={() => setOpen(true)} className="h-10 w-full bg-emerald-600 font-semibold text-white hover:bg-emerald-700">
+            <CalendarDays className="mr-1.5 h-4 w-4" />Schedule staining
+          </Button>
+        ) : (
+          <div className="space-y-2 rounded-lg bg-emerald-50 p-2.5 ring-1 ring-emerald-200">
+            <label className="block text-xs font-semibold">Which day?
+              <Input type="date" value={date} min={x.date} onChange={(e) => setDate(e.target.value)} className="mt-1 h-10 text-base sm:text-sm" />
+            </label>
+            <p className="text-xs font-semibold">Who's staining?</p>
+            <div className="flex flex-wrap gap-1.5">
+              {crew.map((c) => (
+                <button key={c.username} type="button" disabled={saving || !date} onClick={() => void book(c.username)}
+                        className="min-h-10 rounded-full bg-background px-3 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-300 hover:bg-emerald-100 disabled:opacity-50">
+                  {c.name}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setOpen(false)} className="min-h-9 text-xs text-muted-foreground">Cancel</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className={cn("rounded-full px-2.5 py-0.5 font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>{TASK_LABEL[x.task]}</span>
+        <span className="font-semibold text-muted-foreground">{p.stage} · <span className="tabular-nums">{p.percent}%</span></span>
+      </div>
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", p.percent >= 40 ? "bg-emerald-500" : "bg-sky-500")} style={{ width: `${Math.max(p.percent, 3)}%` }} />
+      </div>
     </div>
   );
 }

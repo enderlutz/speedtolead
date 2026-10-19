@@ -52,11 +52,24 @@ def _ticks(raw: str | None, keys: list[dict]) -> tuple[int, int]:
     return len(got & valid), len(valid)
 
 
-def progress(job: CompanyCamJob) -> dict:
-    """{percent, cleaning: [done, of], staining: [done, of], stage}."""
+def _cleaned(db, lead_ids) -> set[str]:
+    """Jobs with after-cleaning photos in: the cleaner's last step."""
+    ids = list(lead_ids)
+    if not ids:
+        return set()
+    rows = (db.query(CompanyCamPhoto.lead_id)
+            .filter(CompanyCamPhoto.lead_id.in_(ids), CompanyCamPhoto.section == "clean_after").distinct().all())
+    return {r[0] for r in rows}
+
+
+def progress(job: CompanyCamJob, cleaned: bool = False) -> dict:
+    """{percent, cleaning: [done, of], staining: [done, of], stage, cleaning_done}.
+
+    After-cleaning photos count as cleaning finished even with a box left
+    unticked (Alan, 2026-10-19: Chris finished two, both showed 30%)."""
     c_done, c_of = _ticks(job.cleaner_checklist_json, CLEANER_CHECKLIST)
-    if getattr(job, "no_cleaning", False):
-        c_done = c_of  # nothing to clean: that part is done
+    if getattr(job, "no_cleaning", False) or cleaned:
+        c_done = c_of  # nothing to clean, or the after photos are in: that part is done
     s_done, s_of = _ticks(job.stainer_checklist_json, STAINER_CHECKLIST)
     pct = round(40 * c_done / (c_of or 1) + 50 * s_done / (s_of or 1))
     if (job.almost_done_sent_at or "").strip():
@@ -75,7 +88,8 @@ def progress(job: CompanyCamJob) -> dict:
         stage = "Cleaning"
     else:
         stage = "Not started"
-    return {"percent": min(pct, 100), "cleaning": [c_done, c_of], "staining": [s_done, s_of], "stage": stage}
+    return {"percent": min(pct, 100), "cleaning": [c_done, c_of], "staining": [s_done, s_of], "stage": stage,
+            "cleaning_done": bool(c_of) and c_done == c_of}
 
 
 def _names(db) -> dict[str, str]:
@@ -87,13 +101,17 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
     names = _names(db)
     jobs = db.query(CompanyCamJob).filter(CompanyCamJob.crew_json.isnot(None), CompanyCamJob.crew_json != "[]").all()
     leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_([j.lead_id for j in jobs])).all()} if jobs else {}
+    cleaned = _cleaned(db, leads)
     out = []
     for j in jobs:
         lead = leads.get(j.lead_id)
         if not lead:
             continue
-        prog = progress(j)
+        prog = progress(j, j.lead_id in cleaned)
         entries = _crew_entries(j)
+        # When staining is booked, so a finished clean can say so.
+        staining = sorted({(e["date"], names.get(e["username"].lower(), e["username"]))
+                           for e in entries if e["task"] == "staining" and e["date"] and not e["helper"]})
         for e in entries:
             day = e["date"]
             if not day or (start and day < start) or (end and day > end):
@@ -105,6 +123,7 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
                 "with": [names.get(x["username"].lower(), x["username"]) for x in entries
                          if x["date"] == day and x["username"] != e["username"] and not x["helper"]],
                 "progress": prog, "color": j.final_color or "",
+                "staining_days": [{"date": d, "person": p} for d, p in staining],
                 "completed_at": j.completed_at or "", "updated_at": j.updated_at or "",
             })
     out.sort(key=lambda r: (r["date"], r["order"] or 999, r["name"].lower(), r["task"], r["person"].lower()))
@@ -254,7 +273,9 @@ def past(user: dict = Depends(_office)):
         day = _today_ct()
         names = _names(db)
         out = []
-        for j in db.query(CompanyCamJob).all():
+        all_jobs = db.query(CompanyCamJob).all()
+        cleaned = _cleaned(db, [j.lead_id for j in all_jobs])
+        for j in all_jobs:
             entries = [e for e in _crew_entries(j) if e["date"]]
             if not entries:
                 continue
@@ -268,7 +289,7 @@ def past(user: dict = Depends(_office)):
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "first_day": min(e["date"] for e in entries), "last_day": last,
                 "completed_at": j.completed_at or "", "completed_by": j.completed_by or "",
-                "color": j.final_color or "", "progress": progress(j),
+                "color": j.final_color or "", "progress": progress(j, j.lead_id in cleaned),
                 "crew": [{"person": names.get(e["username"].lower(), e["username"]), "date": e["date"], "task": e["task"]}
                          for e in sorted(entries, key=lambda e: e["date"])],
             })

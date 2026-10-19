@@ -217,3 +217,12 @@ def test_a_fence_that_needs_no_cleaning(db, monkeypatch):
     assert not any("cleaning photos" in b.lower() for b in cc._blockers(job, []))
     assert pm.progress(job)["percent"] == 40 and pm.progress(job)["stage"] == "Cleaned, ready to stain"
     assert cc._job_dict(job)["no_cleaning"] is True
+
+
+def test_after_cleaning_photos_finish_the_clean():
+    """Chris (2026-10-19): photos in, one box left unticked: cleaning is still finished."""
+    from api.pm_calendar import progress
+    job = CompanyCamJob(cleaner_checklist_json='["plants_watered", "fence_rinsed", "hose_rolled"]', stainer_checklist_json="[]")
+    assert progress(job)["stage"] == "Cleaning" and not progress(job)["cleaning_done"]
+    p = progress(job, cleaned=True)
+    assert p["cleaning_done"] and p["stage"] == "Cleaned, ready to stain" and p["percent"] == 40

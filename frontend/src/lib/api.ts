@@ -6160,10 +6160,11 @@ export type DocCategory = { key: string; label: string; about: string };
 
 
 // ── PM HQ calendar ───────────────────────────────────────────────────────
-export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string }
+export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string; cleaning_done?: boolean }
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
   task: "" | "cleaning" | "staining"; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
+  staining_days?: { date: string; person: string }[];
 }
 export interface PmTodayJob {
   lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;
