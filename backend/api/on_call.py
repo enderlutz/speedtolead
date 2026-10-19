@@ -43,7 +43,7 @@ def _team(db) -> list[User]:
 def _person(u: User) -> dict:
     return {"username": u.username, "name": u.display_name or u.username, "role": u.role,
             "phone": u.phone or "", "alert_channel": u.alert_channel or "whatsapp",
-            "ghl_user_id": u.ghl_user_id or "", "ready": bool(u.phone)}
+            "ghl_user_id": u.ghl_user_id or "", "ready": bool(u.phone or u.ghl_contact_id)}
 
 
 @router.get("/on-call/now")
@@ -247,7 +247,7 @@ def test_alert(username: str, user: dict = Depends(require_admin)):
     db = get_db()
     try:
         u = db.query(User).filter(User.username == username).first()
-        if not u or not u.phone:
+        if not u or not (u.phone or u.ghl_contact_id):
             raise HTTPException(400, "Add their phone first")
         ok = oc.message_person(db, u, "Test from the Sterling dashboard: this is where new leads will reach you.")
         db.commit()
