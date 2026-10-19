@@ -425,13 +425,22 @@ CLEANER_CHECKLIST: list[dict] = [
     # whole board, down to the ground; the stainer puts them back (Alan,
     # 2026-10-17). New key: a tick on the old "pushed back" item meant the
     # opposite job.
-    {"key": "rocks_pulled", "label": "Rocks and landscaping pulled back from the fence, so the whole board can be stained"},
+    # Before washing, so the boards behind get cleaned too (Alan, 2026-10-19:
+    # pulled back later, the dirt behind lands on a clean fence).
+    {"key": "rocks_pulled", "label": "Before washing: rocks, plants and flower beds pulled back from the fence, so the whole board gets cleaned and stained"},
     {"key": "plants_watered", "label": "All plants watered really well"},
     {"key": "fence_rinsed", "label": "All residue rinsed off the fence"},
     {"key": "hose_rolled", "label": "Customer's water hose turned off and rolled back up"},
 ]
 
 STAINER_CHECKLIST: list[dict] = [
+    # The stainer's pre-check, first thing (Alan, 2026-10-19): the cleaner
+    # pulls everything back; the stainer makes sure before the first coat.
+    {
+        "key": "precheck_pulled_back",
+        "label": "Before you start: everything is pulled back from the fence (rocks, plants, flower beds)",
+        "hint": "The cleaner should have done it. If not, pull it back, take a photo, and tell the office.",
+    },
     {"key": "two_coats", "label": "Two coats of stain"},
     {"key": "hinges_clean", "label": "All hinges checked — no stain on them"},
     {"key": "under_rails", "label": "Checked underneath all the 2x4s"},
