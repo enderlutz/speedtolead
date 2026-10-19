@@ -168,12 +168,12 @@ def message_for(link: PayLink, lead: Lead | None) -> str:
                 "Card, Apple Pay or Google Pay. Reply here with any questions.")
     if link.kind == "balance":
         how = "Card, Apple Pay or bank account." if link.no_financing else "Card, or split it with Klarna."
-        return (f"Hi {first}, your fence is done! Here's the link for your balance of {amt}: {url}\n"
+        return (f"Hi {first}, your fence staining is done! Here's the link for your balance of {amt}: {url}\n"
                 f"{how} Thank you for choosing Sterling.")
     if link.kind == "extra":
         return f"Hi {first}, it's Sterling Fence Staining. Here's the link for the extra work we talked about, {amt}: {url}"
     if link.kind == "done":
-        return (f"Hi {first}, your fence is done and you're all paid up. Thank you! "
+        return (f"Hi {first}, your fence staining is done and you're all paid up. Thank you! "
                 f"One quick thing when you have a minute: {after_url(link.token)}")
     return (f"Hi {first}, it's Sterling Fence Staining. Here's your link to pay for your fence staining, {amt}: {url}\n"
             + ("Card, Apple Pay or bank account." if link.no_financing else "Card, or pay over time with Klarna."))
