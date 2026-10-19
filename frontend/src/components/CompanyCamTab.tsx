@@ -17,6 +17,7 @@
 // green. Done is always green, missing is always amber, damage is always red.
 import SatelliteMeasureCard from "@/components/SatelliteMeasureCard";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
@@ -644,7 +645,7 @@ function Checklist({
   );
 }
 
-export default function CompanyCamTab({ leadId }: { leadId: string }) {
+export default function CompanyCamTab({ leadId, profileLink = false }: { leadId: string; profileLink?: boolean }) {
   const [data, setData] = useState<CompanyCamPayload | null>(null);
   // The office's job measurement pop-up (Alan, 2026-10-18).
   const [measuring, setMeasuring] = useState(false);
@@ -1072,7 +1073,14 @@ export default function CompanyCamTab({ leadId }: { leadId: string }) {
               {tr("Company Cam")}
             </p>
             <h2 className="font-heading truncate text-xl font-semibold sm:text-2xl">
-              {customer.name || tr("This job")}
+              {/* On the Company Cam page the office taps the name for the full
+                  customer page (estimate and all); its back arrow returns here
+                  (Alan, 2026-10-19). Never for the crew: that page shows prices. */}
+              {profileLink && manager ? (
+                <Link to={`/leads/${leadId}`} className="underline decoration-white/40 underline-offset-4 hover:decoration-white">
+                  {customer.name || tr("This job")}
+                </Link>
+              ) : (customer.name || tr("This job"))}
             </h2>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/70">
               {customer.do_not_contact ? (

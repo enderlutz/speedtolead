@@ -32,7 +32,7 @@ export default function CompanyCamPage() {
             <ChevronLeft className="h-4 w-4" /> {tr("All jobs")}
           </Link>
         )}
-        <CompanyCamTab leadId={leadId} />
+        <CompanyCamTab leadId={leadId} profileLink />
       </div>
     );
   }
