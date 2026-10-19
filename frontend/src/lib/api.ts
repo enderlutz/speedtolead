@@ -2757,7 +2757,8 @@ export const api = {
     request<Record<string, unknown>>("/api/fence-photos/storage-status"),
 
   // --- On call for new leads (2026-10-19) ---
-  onCallNow: () => request<{ in_hours: boolean; on_call: OnCallPerson[] }>("/api/on-call/now"),
+  onCallNow: () => request<{ in_hours: boolean; on_call: OnCallPerson[]; me?: OnCallMyShift }>("/api/on-call/now"),
+  onCallTodo: () => request<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] }>("/api/on-call/todo"),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
   onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),
   onCallSchedule: (start: string, end: string) =>
@@ -6177,6 +6178,12 @@ export interface PmPastJob {
 
 // --- On call (2026-10-19) ---
 export interface OnCallPerson { username: string; name: string; role: string; phone: string; alert_channel: string; ghl_user_id: string; ready: boolean }
+export interface OnCallMyShiftBlock { start_min: number; end_min: number; starts_at: string; ends_at: string }
+export interface OnCallMyShift { date: string; shifts: OnCallMyShiftBlock[]; current: OnCallMyShiftBlock | null; next: OnCallMyShiftBlock | null }
+export interface OnCallTodoRow {
+  lead_id: string; name: string; phone: string; address: string; created_at: string;
+  stage: string; next: string; tone: string; key: string;
+}
 export interface OnCallShift { id: string; username: string; date: string; start_min: number; end_min: number }
 export interface OnCallLead {
   lead_id: string; name: string; phone: string; address: string; clock_started: string; waiting_for_morning: boolean;

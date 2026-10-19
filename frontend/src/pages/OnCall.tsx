@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Copy, Loader2, MapPin, Phone, PhoneCall, Plus, Send, Trash2 } from "lucide-react";
 import {
   api, getCurrentUser,
-  type OnCallLead, type OnCallLogRow, type OnCallPerson, type OnCallScore, type OnCallShift,
+  type OnCallLead, type OnCallLogRow, type OnCallMyShift, type OnCallTodoRow, type OnCallPerson, type OnCallScore, type OnCallShift,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,7 +51,7 @@ export default function OnCall() {
     </button>
   );
   return (
-    <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+    <div className={`mx-auto space-y-4 p-4 sm:p-6 ${tab === "now" ? "max-w-6xl" : "max-w-3xl"}`}>
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-semibold"><PhoneCall className="h-5 w-5 text-primary" /> On call</h1>
         <p className="text-sm text-muted-foreground">Every new lead 8 AM–8 PM goes to whoever is on call. Call within 5 minutes.</p>
@@ -84,7 +84,7 @@ function Clock({ since, now }: { since: string; now: number }) {
 }
 
 function NowPanel() {
-  const [who, setWho] = useState<{ in_hours: boolean; on_call: OnCallPerson[] } | null>(null);
+  const [who, setWho] = useState<{ in_hours: boolean; on_call: OnCallPerson[]; me?: OnCallMyShift } | null>(null);
   const [leads, setLeads] = useState<OnCallLead[] | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [tick, setTick] = useState(0);
@@ -108,6 +108,7 @@ function NowPanel() {
 
   return (
     <div className="space-y-3">
+      {who?.me ? <MyShift me={who.me} now={now} /> : null}
       <div className={`rounded-xl p-3 text-sm font-semibold ${!who ? "bg-muted" : !who.in_hours ? "bg-slate-800 text-white" : who.on_call.length ? "bg-emerald-50 text-emerald-950 ring-1 ring-emerald-200" : "bg-rose-50 text-rose-900 ring-1 ring-rose-200"}`}>
         {!who ? "Loading…" : !who.in_hours ? "After hours. New leads wait for the 8 AM list."
           : who.on_call.length ? `On call now: ${who.on_call.map((p) => p.name).join(" & ")}` : "Nobody is on call right now. Add someone on the Schedule tab."}
@@ -148,6 +149,112 @@ function NowPanel() {
           </CardContent>
         </Card>
       ) : null}
+      <TodoLists />
+    </div>
+  );
+}
+
+const fmtMin = (m: number) => {
+  const h = Math.floor(m / 60), mm = m % 60, h12 = ((h + 11) % 12) + 1;
+  return `${h12}${mm ? `:${String(mm).padStart(2, "0")}` : ""} ${h < 12 || h === 24 ? "AM" : "PM"}`;
+};
+const fmtLeft = (ms: number) => {
+  const mins = Math.max(0, Math.ceil(ms / 60000)), h = Math.floor(mins / 60), m = mins % 60;
+  return h ? `${h}h ${m}m` : `${m} min`;
+};
+
+/** My shift today and how long is left (Alan, 2026-10-19). */
+function MyShift({ me, now }: { me: OnCallMyShift; now: number }) {
+  const all = me.shifts.map((s) => `${fmtMin(s.start_min)}–${fmtMin(s.end_min)}`).join(", ");
+  if (me.current) {
+    const start = new Date(me.current.starts_at).getTime(), end = new Date(me.current.ends_at).getTime();
+    const pct = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+    return (
+      <div className="rounded-xl bg-primary/10 p-3 ring-1 ring-primary/30">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-semibold">You're on call · {fmtMin(me.current.start_min)}–{fmtMin(me.current.end_min)}</p>
+          <p className="text-2xl font-bold tabular-nums text-primary">{fmtLeft(end - now)} <span className="text-sm font-semibold text-muted-foreground">left</span></p>
+        </div>
+        <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-background">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        {me.next ? <p className="mt-1.5 text-xs text-muted-foreground">Back on at {fmtMin(me.next.start_min)}.</p> : null}
+      </div>
+    );
+  }
+  if (me.next) {
+    return (
+      <div className="rounded-xl bg-muted p-3 text-sm">
+        <span className="font-semibold">Your shift starts at {fmtMin(me.next.start_min)}</span>
+        <span className="text-muted-foreground"> · in {fmtLeft(new Date(me.next.starts_at).getTime() - now)} · today: {all}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">
+      {me.shifts.length ? `Your shift is over for today (${all}).` : "You're not on the schedule today."}
+    </div>
+  );
+}
+
+const TONE_DOT: Record<string, string> = { hot: "bg-rose-500", warm: "bg-amber-400", cold: "bg-slate-300", off: "bg-slate-300" };
+
+/** Between calls: who needs an estimate (left) and who to follow up with
+ *  (right). Same next steps as the Contacts page; last 30 days. */
+function TodoLists() {
+  const [data, setData] = useState<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] } | null>(null);
+  const load = useCallback(() => {
+    api.onCallTodo().then(setData).catch((e) => toast.error(errMessage(e, "Couldn't load the to-do lists")));
+  }, []);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 120_000);
+    return () => clearInterval(t);
+  }, [load]);
+  if (!data) return <p className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />Loading your to-do lists…</p>;
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <TodoColumn title="Need an estimate" sub="Talked but not priced first, then new leads, then no address." rows={data.estimates} accent="border-t-sky-500" />
+      <TodoColumn title="Follow up" sub="Call-back days first, then replies, then opened it, then not opened." rows={data.follow_ups} accent="border-t-emerald-500" />
+    </div>
+  );
+}
+
+function TodoColumn({ title, sub, rows, accent }: { title: string; sub: string; rows: OnCallTodoRow[]; accent: string }) {
+  // Grouped by where they are, in the order the server ranked them.
+  const groups = useMemo(() => {
+    const m = new Map<string, OnCallTodoRow[]>();
+    for (const r of rows) { if (!m.has(r.stage)) m.set(r.stage, []); m.get(r.stage)!.push(r); }
+    return [...m.entries()];
+  }, [rows]);
+  return (
+    <div className={`flex flex-col rounded-xl border border-t-4 bg-card ${accent}`}>
+      <div className="border-b p-3">
+        <p className="text-base font-semibold">{title} <span className="text-sm font-normal text-muted-foreground">({rows.length})</span></p>
+        <p className="text-xs text-muted-foreground">{sub}</p>
+      </div>
+      <div className="max-h-[70vh] overflow-y-auto">
+        {!rows.length ? <p className="p-6 text-center text-sm text-muted-foreground">Nothing here. 🎉</p> : null}
+        {groups.map(([stage, list]) => (
+          <div key={stage}>
+            <p className="sticky top-0 z-[1] flex items-center gap-1.5 bg-muted/90 px-3 py-1.5 text-xs font-semibold backdrop-blur">
+              <span className={`h-2 w-2 rounded-full ${TONE_DOT[list[0].tone] ?? TONE_DOT.cold}`} />{stage} · {list.length}
+            </p>
+            {list.map((r) => (
+              <div key={r.lead_id} className="flex items-center gap-2 border-b px-3 py-2 last:border-b-0">
+                <div className="min-w-0 flex-1">
+                  <Link to={`/leads/${r.lead_id}`} className="block truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
+                  <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>
+                </div>
+                {r.phone ? (
+                  <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} aria-label={`Call ${r.name}`}
+                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border hover:bg-muted"><Phone className="h-4 w-4" /></a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -174,3 +174,12 @@ def test_lead_log_flags(db, sent, monkeypatch):
     monkeypatch.setattr(oc, "now_utc", lambda: TEN_AM + timedelta(hours=2))
     flags = {r["name"]: r["flag"] for r in oc.lead_log(db, TEN_AM - timedelta(hours=1), TEN_AM + timedelta(hours=3))}
     assert flags == {"OnTime": "on_time", "Late": "late", "Missed": "missed"}
+
+
+def test_my_shift_says_how_long_is_left(db):
+    _shift(db, "alan", start=16 * 60, end=20 * 60)
+    five_pm = datetime(2026, 10, 20, 22, 0, tzinfo=timezone.utc)   # 5 PM Houston
+    me = oc.my_shift(db, "alan", five_pm)
+    assert me["current"]["end_min"] == 20 * 60 and me["current"]["ends_at"].startswith("2026-10-21T01:00")
+    noon = datetime(2026, 10, 20, 17, 0, tzinfo=timezone.utc)
+    assert oc.my_shift(db, "alan", noon)["current"] is None and oc.my_shift(db, "alan", noon)["next"]["start_min"] == 960

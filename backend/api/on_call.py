@@ -11,6 +11,7 @@
     GET  /api/on-call/ghl-users              GHL logins to link to (admin)
     POST /api/on-call/people/{username}/test send them a test alert (admin)
     GET  /api/on-call/scorecard?start=&end=  speed to lead per person
+    GET  /api/on-call/todo                   need an estimate / follow up lists
 """
 from __future__ import annotations
 
@@ -48,12 +49,12 @@ def _person(u: User) -> dict:
 
 @router.get("/on-call/now")
 def now(user: dict = Depends(require_staff)):
-    del user
     db = get_db()
     try:
         t = oc.now_utc()
         people = oc.on_call_now(db, t)
-        return {"in_hours": oc.in_hours(t), "on_call": [_person(u) for u in people]}
+        return {"in_hours": oc.in_hours(t), "on_call": [_person(u) for u in people],
+                "me": oc.my_shift(db, user.get("sub", ""), t)}
     finally:
         db.close()
 
@@ -100,6 +101,53 @@ def called(lead_id: str, user: dict = Depends(require_staff)):
         oc.record_call(db, lead, oc._iso(oc.now_utc()), user.get("sub", ""))
         db.commit()
         return {"ok": True, "first_call_at": lead.first_call_at}
+    finally:
+        db.close()
+
+
+# ── The to-do lists ─────────────────────────────────────────────────────
+
+# Next-step keys (services/next_step.py) for each list, best first.
+_ESTIMATE_ORDER = {"price": 0, "discovery": 1, "address": 2, "overdue": 3}
+_FOLLOW_ORDER = {"callback": 0, "replied": 1, "viewed": 2, "sent": 3}
+TODO_DAYS = 30
+
+
+@router.get("/on-call/todo")
+def todo(user: dict = Depends(require_staff)):
+    """What to work on between calls (Alan, 2026-10-19): customers who still
+    need an estimate on one side, customers to follow up with on the other.
+    Same rules as the Contacts page's next step; leads from the last 30 days."""
+    del user
+    from api.contacts import _last_send_times, _scheduled_send_state, _stops
+    from services.next_step import next_steps
+    db = get_db()
+    try:
+        since = oc._iso(oc.now_utc() - timedelta(days=TODO_DAYS))
+        leads = db.query(Lead).filter(Lead.created_at >= since).all()
+        ids = [l.id for l in leads]
+        scheduled, overdue = _scheduled_send_state(db, ids)
+        stops, dnc = _stops(db, ids)
+        steps = next_steps(db, ids, last_send=_last_send_times(db, ids),
+                           scheduled=scheduled, overdue=overdue, stopped=stops | dnc)
+        estimates, follow = [], []
+        for l in leads:
+            st = steps.get(l.id)
+            if not st:
+                continue
+            row = {"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
+                   "address": l.address or "", "created_at": l.created_at or "",
+                   "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"]}
+            if st["key"] in _ESTIMATE_ORDER:
+                estimates.append(row)
+            elif st["key"] in _FOLLOW_ORDER and st["tone"] != "cold":
+                follow.append(row)
+        newest = lambda r: r["created_at"]  # noqa: E731
+        estimates.sort(key=newest, reverse=True)
+        estimates.sort(key=lambda r: _ESTIMATE_ORDER[r["key"]])
+        follow.sort(key=newest, reverse=True)
+        follow.sort(key=lambda r: _FOLLOW_ORDER[r["key"]])
+        return {"estimates": estimates, "follow_ups": follow}
     finally:
         db.close()
 

@@ -75,6 +75,24 @@ def on_call_now(db, when: datetime | None = None) -> list:
     return sorted(users, key=lambda u: (load.get(u.username, 0), u.username.lower()))
 
 
+def my_shift(db, username: str, when: datetime | None = None) -> dict:
+    """The person's own shifts today and the one they're in (Alan,
+    2026-10-19: "show me my schedule and how much time is left")."""
+    from database import OnCallShift
+    when = when or now_utc()
+    local = when.astimezone(HOUSTON)
+    day, m = local.strftime("%Y-%m-%d"), local.hour * 60 + local.minute
+    rows = (db.query(OnCallShift).filter(OnCallShift.date == day, OnCallShift.username == username)
+            .order_by(OnCallShift.start_min).all())
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    shifts = [{"start_min": s.start_min, "end_min": s.end_min,
+               "starts_at": _iso(midnight + timedelta(minutes=s.start_min)),
+               "ends_at": _iso(midnight + timedelta(minutes=s.end_min))} for s in rows]
+    current = next((s for s in shifts if s["start_min"] <= m < s["end_min"]), None)
+    upcoming = next((s for s in shifts if s["start_min"] > m), None)
+    return {"date": day, "shifts": shifts, "current": current, "next": upcoming}
+
+
 def _form(lead) -> dict:
     try:
         return json.loads(lead.form_data or "{}") if isinstance(lead.form_data, str) else (lead.form_data or {})
