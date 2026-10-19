@@ -337,11 +337,20 @@ def request_correction(token: str, body: CorrectionRequestBody, request: Request
         db.close()
 
 
+def _no_pdf_for_interactive(db, token: str) -> None:
+    """An interactive proposal has no PDF and the customer can't get one
+    (Alan, 2026-10-18), not even regenerated on demand."""
+    p = db.query(Proposal.proposal_version).filter(Proposal.token == token).first()
+    if p is not None and (p[0] or "") == "interactive":
+        raise HTTPException(status_code=404, detail="This proposal is online only")
+
+
 @router.get("/proposal/{token}/page/{page_num}")
 def get_proposal_page(token: str, page_num: int):
     """Serve a pre-rasterized JPEG page. Cached aggressively for instant loading."""
     db = get_db()
     try:
+        _no_pdf_for_interactive(db, token)
         page = (
             db.query(ProposalPage)
             .filter(ProposalPage.token == token, ProposalPage.page_num == page_num)
@@ -367,6 +376,7 @@ def get_proposal_pdf(token: str):
     """Serve the filled PDF for download. Regenerates on-demand if cleared."""
     db = get_db()
     try:
+        _no_pdf_for_interactive(db, token)
         proposal = db.query(Proposal).filter(Proposal.token == token).first()
         if not proposal:
             raise HTTPException(status_code=404, detail="Proposal not found")

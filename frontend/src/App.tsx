@@ -21,7 +21,6 @@ import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import EditPdf from "@/pages/EditPdf";
 import Pricing from "@/pages/Pricing";
-import ProposalView from "@/pages/ProposalView";
 import CrewToday from "@/pages/CrewToday";
 import CrewSchedule from "@/pages/CrewSchedule";
 import PmHq from "@/pages/PmHq";
@@ -196,7 +195,7 @@ function AppLayout() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/proposal/:token" element={<ProposalView />} />
+        <Route path="/proposal/:token" element={<ProposalLive />} />
         <Route path="/p/:token" element={<ProposalLive />} />
         <Route path="/crew-app/:token" element={<CrewToday />} />
         <Route path="/approve/:token" element={<QuickApprove />} />

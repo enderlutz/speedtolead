@@ -869,9 +869,13 @@ def _approve_estimate_background(
             return
 
         # ── PDF generation ────────────────────────────────────────────
+        # An interactive proposal is only the interactive page (Alan,
+        # 2026-10-18): no PDF, no page pictures. They were 51 MB + ~13 MB a
+        # customer that nobody saw, and slowed the send.
+        interactive = (proposal.proposal_version or "") == "interactive"
         pdf_bytes = None
         template = get_cached_template()
-        if template and template["pdf_data"]:
+        if template and template["pdf_data"] and not interactive:
             try:
                 field_map = json.loads(template["field_map"]) if isinstance(template["field_map"], str) else template["field_map"]
                 tiers = est.to_dict()["tiers"]
@@ -958,7 +962,8 @@ def _approve_estimate_background(
         # A page-less proposal means PDF gen or rasterization failed above
         # (already logged + alerted there) — never text a customer a link
         # to a proposal page that has nothing on it.
-        if send_sms_flag and page_count == 0:
+        ready = interactive or page_count > 0
+        if send_sms_flag and not ready:
             _alert_team_pipeline_failure(
                 "Proposal has 0 pages — customer SMS withheld to avoid sending a broken link",
                 customer_name=lead.contact_name or "(unnamed)",
@@ -968,7 +973,7 @@ def _approve_estimate_background(
             )
 
         # ── Customer SMS (immediate or queued) ────────────────────────
-        if send_sms_flag and page_count > 0 and lead.ghl_contact_id and lead.contact_phone:
+        if send_sms_flag and ready and lead.ghl_contact_id and lead.contact_phone:
             customer_msg = (
                 f"Here it is!\n"
                 f"Sterling Fence Staining - Your Estimate\n\n"

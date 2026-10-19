@@ -42,7 +42,7 @@ async function door(token: string, which: "reserve" | "finance", tier: PkgKey, o
 
 export default function ProposalLive() {
   const { token } = useParams<{ token: string }>();
-  const [state, setState] = useState<{ live: Live } | "loading" | "pdf">("loading");
+  const [state, setState] = useState<{ live: Live } | "loading" | "pdf" | "error">("loading");
 
   useEffect(() => {
     let alive = true;
@@ -51,6 +51,8 @@ export default function ProposalLive() {
         // The dashboard opens this with ?preview=1 so staff never count as a view.
         const preview = new URLSearchParams(window.location.search).get("preview") === "1" ? "?preview=1" : "";
         const r = await fetch(`${BASE}/api/public/proposal/${encodeURIComponent(token || "")}/live${preview}`);
+        // 404 = not an interactive proposal: an older PDF one, shown as before.
+        if (r.status === 404) { if (alive) setState("pdf"); return; }
         if (!r.ok) throw new Error(String(r.status));
         const p = (await r.json()) as Payload;
         if (!alive) return;
@@ -68,7 +70,8 @@ export default function ProposalLive() {
           },
         });
       } catch {
-        if (alive) setState("pdf");
+        // No PDF fallback for an interactive proposal (Alan, 2026-10-18).
+        if (alive) setState("error");
       }
     })();
     return () => { alive = false; };
@@ -79,6 +82,16 @@ export default function ProposalLive() {
   }, [state]);
 
   if (state === "pdf") return <ProposalView />;
+  if (state === "error") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#F8F3E7] p-6 text-center text-[#15130F]">
+        <p className="text-[19px] font-semibold">Your plan didn't open just now.</p>
+        <p className="max-w-sm text-[15px] text-[#15130F]/70">Check your signal and tap below to try again, or text us and we'll send it right over.</p>
+        <button type="button" onClick={() => window.location.reload()}
+                className="mt-2 rounded-full bg-[#15130F] px-6 py-3 text-[15px] font-semibold text-[#F8F3E7]">Try again</button>
+      </div>
+    );
+  }
   if (state === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F8F3E7] p-6 text-center text-[#15130F]">
