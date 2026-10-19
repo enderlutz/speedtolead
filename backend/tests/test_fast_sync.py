@@ -53,18 +53,22 @@ def _call(db, lead, text, minutes_ago=30):
     return rid
 
 
-def test_newest_call_sets_and_clears(db):
+def test_later_call_without_a_time_keeps_it(db):
+    """Clarence: "I'll call you at seven", then he rang back to confirm a
+    detail. The 7 PM call still stands."""
     lead = _lead(db)
-    _call(db, lead, "sure, call me back in an hour", minutes_ago=50)
+    _call(db, lead, "I'll give you a call right around seven then", minutes_ago=50)
+    _call(db, lead, "yeah just confirming the color, thanks", minutes_ago=5)
     assert fs.update_callbacks(db) == 1
     db.commit()
     db.refresh(lead)
-    assert lead.callback_at and "asked for a call" in lead.callback_note
-    _call(db, lead, "ok we're all set, thanks", minutes_ago=5)
-    fs.update_callbacks(db)
-    db.commit()
-    db.refresh(lead)
-    assert lead.callback_at == ""
+    assert lead.callback_at and "asked for a call at" in lead.callback_note
+
+
+def test_same_time_tomorrow():
+    r = find_callback_time("will you want me to call you back tomorrow evening around this time? Tomorrow, please",
+                           "2026-10-19T22:18:22+00:00")
+    assert r["at"].strftime("%a %H:%M") == "Tue 17:15"
 
 
 def test_due_callback_texts_whoever_is_on(db, monkeypatch):
@@ -94,3 +98,8 @@ def test_queue_pulls_when_due(monkeypatch):
     fs._due["L1|again"] = 0
     fs.run_due()
     assert pulled[-1] == ("L1", True)
+
+
+def test_same_time_false_alarms():
+    assert find_callback_time("I'm not able to take your call at this time. Please leave", TWO_PM) is None
+    assert find_callback_time("I will talk with them and see if that could work at the same time as you", TWO_PM) is None

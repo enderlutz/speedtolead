@@ -166,41 +166,45 @@ def run_due(max_pulls: int = 20) -> int:
 TALK_SECONDS = 30
 
 
-def update_callbacks(db, lead_ids=None, hours: int = 6) -> int:
-    """Read each customer's newest real call (transcribed in the last few
-    hours) for "call me back at 5". A newer call replaces the old promise,
-    with or without a new one. The caller commits."""
+def update_callbacks(db, lead_ids=None, hours: int = 36) -> int:
+    """Read each customer's calls (newest first, last day and a half) for a
+    call-back with a time. The newest call that HAS one sets it. A later
+    call without one leaves it alone (Alan, 2026-10-19, Clarence: he called
+    back to confirm something, the 7 PM call still stood). The caller commits."""
     from datetime import timedelta
     from database import CallRecording, CallTranscript
     from services.callback_promise import find_callback_time
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(hours=hours)).isoformat()
     q = (db.query(CallRecording.id, CallRecording.lead_id, CallRecording.created_at, CallTranscript.full_text)
          .join(CallTranscript, CallTranscript.recording_id == CallRecording.id)
          .filter(CallRecording.is_voicemail.is_(False), CallRecording.duration_seconds >= TALK_SECONDS,
-                 CallRecording.created_at >= since))
+                 CallRecording.created_at >= since)
+         .order_by(CallRecording.created_at.desc()))
     if lead_ids is not None:
         q = q.filter(CallRecording.lead_id.in_(list(lead_ids)))
-    newest: dict[str, tuple] = {}
-    for rid, lid, created, text in q.all():
-        if lid and (lid not in newest or (created or "") > (newest[lid][1] or "")):
-            newest[lid] = (rid, created, text)
+    seen: set[str] = set()
     n = 0
-    for lid, (rid, created, text) in newest.items():
+    for rid, lid, created, text in q.all():
+        if not lid or lid in seen:
+            continue
+        p = find_callback_time(text or "", created)
+        if not p:
+            continue
+        seen.add(lid)                                   # newest call with a time wins
         lead = db.query(Lead).filter(Lead.id == lid).first()
         if not lead or lead.callback_source == rid:
             continue
+        if p["at"] < now - timedelta(hours=2):
+            continue                                    # long gone, nothing to remind
         lead.callback_source = rid
-        p = find_callback_time(text or "", created)
-        if p:
-            lead.callback_at = p["at"].astimezone(timezone.utc).isoformat()
-            when = p["at"].strftime("%-I:%M %p").replace(":00 ", " ")
-            day = "" if p["at"].date() == datetime.now(p["at"].tzinfo).date() else p["at"].strftime(" %a %-m/%-d")
-            lead.callback_note = (f"said they'd call you at {when}{day}" if p["they_call"]
-                                  else f"asked for a call at {when}{day}")
-            lead.callback_alerted_at = ""
-            n += 1
-        else:
-            lead.callback_at, lead.callback_note, lead.callback_alerted_at = "", "", ""
+        lead.callback_at = p["at"].astimezone(timezone.utc).isoformat()
+        when = p["at"].strftime("%-I:%M %p").replace(":00 ", " ")
+        day = "" if p["at"].date() == datetime.now(p["at"].tzinfo).date() else p["at"].strftime(" %a %-m/%-d")
+        lead.callback_note = (f"said they'd call you at {when}{day}" if p["they_call"]
+                              else f"asked for a call at {when}{day}")
+        lead.callback_alerted_at = ""
+        n += 1
     return n
 
 

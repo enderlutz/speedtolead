@@ -66,6 +66,8 @@ _NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven":
 _CALL_ANY = re.compile(r"\b(call|ring|talk|get back to|reach out|text)\b", re.I)
 _CLOCK = re.compile(r"\b(?:at|around|about|after|by|like)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
                     r"(?:[:.](\d{2}))?(?:\s*(a\.?m\.?|p\.?m\.?|o'clock|in the (?:morning|afternoon|evening)))?", re.I)
+# "call you back tomorrow around this time" / "same time": the time of THIS call.
+_SAME = re.compile(r"\b(?:at|around|about)?\s*(?:the\s+)?(?:same|this)\s+time\b", re.I)
 _IN = re.compile(r"\bin\s+(half an|an|a|one|two|three|\d{1,3}|thirty|fifteen|twenty|forty[- ]five)\s+(hours?|minutes?|mins?)\b", re.I)
 
 
@@ -87,12 +89,27 @@ def find_callback_time(text: str, called_at) -> dict | None:
     for m in _CALL_ANY.finditer(text):
         window = text[m.start(): m.end() + 70]
         t = _CLOCK.search(window) or _IN.search(window)
+        if not t:
+            # "same/this time" only right after "call you/me (back)", never
+            # "take your call at this time" or "at the same time as you".
+            same = _SAME.search(window)
+            lead_in = window[:same.start()] if same else ""
+            if (same and re.search(r"\bcall\s+(?:you|me)\b|\bcall\s+back\b|\bgive you a call\b", lead_in, re.I)
+                    and not re.search(r"take\s+your\s+call", text[max(0, m.start() - 20): m.end()], re.I)
+                    and not re.match(r"\s+as\b", window[same.end():])):
+                t = same
         if t:
             best = (m, t, window)
     if not best:
         return None
     m, t, window = best
     they = bool(_THEY_CALL.search(text[max(0, m.start() - 20): m.end() + 15]))
+    if t.re is _SAME:
+        day_word = re.search(_WHEN, window, re.I)
+        day = _resolve(day_word.group(1), called.date()) if day_word else called.date() + timedelta(days=1)
+        at = called.replace(year=day.year, month=day.month, day=day.day, second=0, microsecond=0)
+        at = at.replace(minute=at.minute - at.minute % 15)
+        return {"at": at, "they_call": they, "words": t.group(0)}
     if t.re is _IN:
         n, unit = _num(t.group(1)), t.group(2).lower()
         at = called + timedelta(hours=n) if unit.startswith("hour") else called + timedelta(minutes=n)
