@@ -34,14 +34,24 @@ PURPLE_ZONE_ZIPS = {
     "77009", "77003", "77004", "77006", "77019", "77027", "77056", "77025",
     "77030", "77074", "77036", "77063", "77096", "77044", "77396", "77345",
     "77346", "77338", "77339", "77373",
-    # Added 2026-10-19 (Alan): Porter, Roman Forest, inner loop, Bellaire.
+    # Added 2026-10-19 (Alan): Porter, Roman Forest, inner loop, Bellaire,
+    # and the closer south/east Houston zips (~35 min).
     "77365", "77357", "77005", "77401", "77002",
+    "77047", "77048", "77033", "77051", "77530",
+}
+
+# Far zone (Alan, 2026-10-19): 50–75+ min out, south and east. We still take
+# them, at +20¢ a square foot for the drive.
+FAR_ZONE_ZIPS = {
+    "77535", "77515", "77523", "77539", "77573", "77583", "77521",
+    "77578", "77581", "77584", "77536", "77532", "77545",
 }
 
 ZONE_SURCHARGES: dict[str, float | None] = {
     "Base": 0.00,
     "Blue": 0.08,     # 30–45 min drive (Alan, 2026-10-16; was 0.02)
     "Purple": 0.12,   # 45–75 min drive (Alan, 2026-10-16; was 0.05)
+    "Far": 0.20,      # 50–75+ min, south and east (Alan, 2026-10-19)
     "Outside": None,
 }
 
@@ -112,6 +122,13 @@ def _get_zone_zips() -> tuple[set, set, set]:
     return BASE_ZONE_ZIPS, BLUE_ZONE_ZIPS, PURPLE_ZONE_ZIPS
 
 
+def _get_far_zips() -> set:
+    cfg = _load_pricing_config()
+    if cfg and "zones" in cfg and "far" in cfg["zones"]:
+        return set(cfg["zones"]["far"])
+    return FAR_ZONE_ZIPS
+
+
 def _get_tier_rates() -> dict[str, dict[str, float] | None]:
     """Return tier rates from DB config or defaults."""
     cfg = _load_pricing_config()
@@ -168,6 +185,8 @@ def get_zone(zip_code: str) -> str:
         return "Blue"
     if z in purple:
         return "Purple"
+    if z in _get_far_zips():
+        return "Far"
     return "Outside"
 
 

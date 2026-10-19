@@ -24,7 +24,7 @@ def _now() -> str:
 def get_pricing():
     """Return full pricing config with defaults for fence_staining."""
     from services.estimator import (
-        BASE_ZONE_ZIPS, BLUE_ZONE_ZIPS, PURPLE_ZONE_ZIPS,
+        BASE_ZONE_ZIPS, BLUE_ZONE_ZIPS, PURPLE_ZONE_ZIPS, FAR_ZONE_ZIPS,
         TIER_RATES, SIZE_TIERS, MIN_JOB_PRICE, ZONE_SURCHARGES,
     )
     # Zone add-ons are priced from the code, so show those (a saved copy
@@ -42,6 +42,8 @@ def get_pricing():
                 data = {k: v for k, v in data.items() if k != "surcharge"}
                 data.setdefault("size_tiers", SIZE_TIERS)
                 data.setdefault("min_job_price", MIN_JOB_PRICE)
+                if isinstance(data.get("zones"), dict):
+                    data["zones"].setdefault("far", sorted(FAR_ZONE_ZIPS))
                 return {"service_type": "fence_staining", "config": {**data, **live}}
 
         # Return defaults
@@ -53,6 +55,7 @@ def get_pricing():
                     "base": sorted(BASE_ZONE_ZIPS),
                     "blue": sorted(BLUE_ZONE_ZIPS),
                     "purple": sorted(PURPLE_ZONE_ZIPS),
+                    "far": sorted(FAR_ZONE_ZIPS),
                 },
                 **live,
                 "size_tiers": SIZE_TIERS,

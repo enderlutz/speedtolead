@@ -14,7 +14,7 @@ interface TierRates {
 
 interface PricingConfig {
   tier_rates: Record<string, TierRates | null>;
-  zones: { base: string[]; blue: string[]; purple: string[] };
+  zones: { base: string[]; blue: string[]; purple: string[]; far: string[] };
   zone_surcharges: Record<string, number>;
   /** "Up to N sq ft adds R per sq ft"; over the last tier adds nothing. */
   size_tiers: { up_to: number; rate: number }[];
@@ -29,22 +29,27 @@ const AGE_LABELS: Record<string, string> = {
   "15plus": "15+ Years (Manual Review)",
 };
 
-const ZONE_META: { key: "base" | "blue" | "purple"; label: string; desc: string; driveTime: string; dotCls: string; bgCls: string; chipCls: string; surchargeKey: string }[] = [
+type ZoneKey = "base" | "blue" | "purple" | "far";
+const ZONE_META: { key: ZoneKey; label: string; desc: string; driveTime: string; dotCls: string; bgCls: string; chipCls: string; surchargeKey: string }[] = [
   { key: "base", label: "Base Zone", desc: "Home base area — Cypress and surrounding. No surcharge applied.", driveTime: "0-30 min drive", dotCls: "bg-green-500", bgCls: "from-green-800 to-green-700", chipCls: "bg-green-700 text-green-100", surchargeKey: "Base" },
   { key: "blue", label: "Blue Zone", desc: "Extended service area — includes The Woodlands, Katy, Memorial area.", driveTime: "30-45 min drive", dotCls: "bg-blue-500", bgCls: "from-blue-800 to-blue-700", chipCls: "bg-blue-700 text-blue-100", surchargeKey: "Blue" },
   { key: "purple", label: "Purple Zone", desc: "Outer service area — Sugar Land, Conroe, inner Houston, Humble/Kingwood.", driveTime: "45-75 min drive", dotCls: "bg-purple-500", bgCls: "from-purple-800 to-purple-700", chipCls: "bg-purple-700 text-purple-100", surchargeKey: "Purple" },
+  { key: "far", label: "Far Zone", desc: "South and east — Pearland, Manvel, League City, Baytown, Crosby, Dayton.", driveTime: "50-75+ min drive", dotCls: "bg-orange-500", bgCls: "from-orange-800 to-orange-700", chipCls: "bg-orange-700 text-orange-100", surchargeKey: "Far" },
 ];
 
 export default function Pricing() {
   const [config, setConfig] = useState<PricingConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [newZip, setNewZip] = useState({ base: "", blue: "", purple: "" });
+  const [newZip, setNewZip] = useState({ base: "", blue: "", purple: "", far: "" });
   const [zipSearch, setZipSearch] = useState("");
 
   useEffect(() => {
     api.getPricing()
-      .then((data) => setConfig((data as unknown as { config: PricingConfig }).config))
+      .then((data) => {
+        const c = (data as unknown as { config: PricingConfig }).config;
+        setConfig({ ...c, zones: { ...c.zones, far: c.zones.far || [] } });
+      })
       .catch(() => toast.error("Failed to load pricing"))
       .finally(() => setLoading(false));
   }, []);
@@ -67,7 +72,7 @@ export default function Pricing() {
     setConfig({ ...config, tier_rates: rates });
   };
 
-  const addZip = (zone: "base" | "blue" | "purple") => {
+  const addZip = (zone: ZoneKey) => {
     if (!config || !newZip[zone].trim()) return;
     const zip = newZip[zone].trim();
     if (zip.length !== 5 || !/^\d{5}$/.test(zip)) { toast.error("ZIP must be 5 digits"); return; }
@@ -76,19 +81,20 @@ export default function Pricing() {
     zones.base = zones.base.filter((z) => z !== zip);
     zones.blue = zones.blue.filter((z) => z !== zip);
     zones.purple = zones.purple.filter((z) => z !== zip);
+    zones.far = zones.far.filter((z) => z !== zip);
     zones[zone] = [...zones[zone], zip].sort();
     setConfig({ ...config, zones });
     setNewZip({ ...newZip, [zone]: "" });
   };
 
-  const removeZip = (zone: "base" | "blue" | "purple", zip: string) => {
+  const removeZip = (zone: ZoneKey, zip: string) => {
     if (!config) return;
     const zones = { ...config.zones };
     zones[zone] = zones[zone].filter((z) => z !== zip);
     setConfig({ ...config, zones });
   };
 
-  const totalZips = config ? config.zones.base.length + config.zones.blue.length + config.zones.purple.length : 0;
+  const totalZips = config ? config.zones.base.length + config.zones.blue.length + config.zones.purple.length + config.zones.far.length : 0;
 
   if (loading || !config) {
     return (
@@ -161,7 +167,7 @@ export default function Pricing() {
       </Card>
 
       {/* Zone Stats Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="rounded-xl bg-green-800 p-4 text-center text-white">
           <p className="text-2xl font-bold">{config.zones.base.length}</p>
           <p className="text-[10px] uppercase tracking-widest opacity-80">Base Zone</p>
@@ -173,6 +179,10 @@ export default function Pricing() {
         <div className="rounded-xl bg-purple-800 p-4 text-center text-white">
           <p className="text-2xl font-bold">{config.zones.purple.length}</p>
           <p className="text-[10px] uppercase tracking-widest opacity-80">Purple Zone</p>
+        </div>
+        <div className="rounded-xl bg-orange-800 p-4 text-center text-white">
+          <p className="text-2xl font-bold">{config.zones.far.length}</p>
+          <p className="text-[10px] uppercase tracking-widest opacity-80">Far Zone</p>
         </div>
         <div className="rounded-xl bg-gray-700 p-4 text-center text-white">
           <p className="text-2xl font-bold">{totalZips}</p>
@@ -252,7 +262,7 @@ export default function Pricing() {
           <span className="text-white/80 text-xs">Requires Alan's approval</span>
         </div>
         <CardContent className="pt-3 pb-3">
-          <p className="text-xs text-muted-foreground">Any zip code not in Base, Blue, or Purple requires manual review and approval.</p>
+          <p className="text-xs text-muted-foreground">Any zip code not in Base, Blue, Purple or Far requires manual review and approval.</p>
         </CardContent>
       </Card>
 
