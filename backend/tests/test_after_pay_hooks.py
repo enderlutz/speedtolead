@@ -222,3 +222,22 @@ def test_a_custom_deposit_needs_a_total(db, ghl_log):
         sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom"), staff)
     ok = sp.create_pay_link(lead.id, sp.CreateLinkBody(kind="deposit", tier="custom", job_total=2100), staff)
     assert ok["job_total"] == 2100
+
+
+def test_stars_alert_only_on_the_rating_they_leave(db, ghl_log, monkeypatch):
+    """Bijan tapped 1, 2, 3, 4, 5 in two seconds: one 5-star review, no texts.
+    Morales left it on 1: one text."""
+    import json
+    alerts = []
+    monkeypatch.setattr(hooks, "alert_alan", lambda text: alerts.append(text))
+    monkeypatch.setattr(hooks, "_settle_stars", lambda lead_id, delay=None: None)   # run the check by hand
+    happy, unhappy = _lead(db, contact_name="Bijan"), _lead(db, contact_name="Morales")
+    a, b = _link(db, happy, kind="balance", status="paid"), _link(db, unhappy, kind="balance", status="paid")
+    for n in (1, 2, 3, 4, 5):
+        hooks.on_answer(happy.id, "stars", n)
+    a.answers, a.answered_at = json.dumps({"stars": 5}), "2026-10-18T19:20:40"
+    b.answers, b.answered_at = json.dumps({"stars": 1}), "2026-10-19T23:50:47"
+    db.commit()
+    assert alerts == []
+    assert hooks.low_stars_check(happy.id) is False and alerts == []
+    assert hooks.low_stars_check(unhappy.id) is True and "Morales gave us 1/5" in alerts[0]

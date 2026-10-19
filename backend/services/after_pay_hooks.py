@@ -13,6 +13,7 @@ nothing here and Alan makes the link from the lead page as before.
 """
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -263,6 +264,47 @@ def on_paid(lead_id: str, kind: str, amount: float, method: str) -> None:
 
 # ── After each tap on the after screens ───────────────────────────────────
 
+STARS_SETTLE_SECONDS = 90
+_star_timers: dict = {}
+
+
+def _settle_stars(lead_id: str, delay: float | None = None) -> None:
+    import threading
+    old = _star_timers.pop(lead_id, None)
+    if old:
+        old.cancel()
+    t = threading.Timer(STARS_SETTLE_SECONDS if delay is None else delay, low_stars_check, args=(lead_id,))
+    t.daemon = True
+    _star_timers[lead_id] = t
+    t.start()
+
+
+def low_stars_check(lead_id: str) -> bool:
+    """The rating they left it on. 1–3 texts Alan to call (they were told he
+    would); 4–5 says nothing. Reads the saved answers, not the tap."""
+    _star_timers.pop(lead_id, None)
+    db = get_db()
+    try:
+        link = (db.query(PayLink).filter(PayLink.lead_id == lead_id, PayLink.answers.isnot(None))
+                .order_by(PayLink.answered_at.desc()).first())
+        try:
+            answers = json.loads(link.answers or "{}") if link else {}
+        except ValueError:
+            answers = {}
+        stars = answers.get("stars")
+        if not isinstance(stars, (int, float)) or int(stars) > 3:
+            return False
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        name = (lead.contact_name if lead else "") or "A customer"
+        comment = answers.get("comment").strip() if isinstance(answers.get("comment"), str) else ""
+        alert_alan(f"⚠️ {name} gave us {int(stars)}/5 stars after the job. They were told you'll call today to make it right."
+                   + (f' They said: "{comment}"' if comment else "")
+                   + (f"\n{lead.contact_phone}" if lead and lead.contact_phone else ""))
+        return True
+    finally:
+        db.close()
+
+
 def on_answer(lead_id: str, field: str, value, answers: dict | None = None) -> None:
     db = get_db()
     try:
@@ -285,11 +327,11 @@ def on_answer(lead_id: str, field: str, value, answers: dict | None = None) -> N
             stars = max(1, min(5, int(value)))
             _tag(lead, f"stars_{stars}")
             _tag(lead, "nps_promoter" if stars == 5 else "nps_passive" if stars == 4 else "nps_detractor")
-            if stars <= 3:
-                comment = (answers.get("comment") or "").strip() if isinstance(answers.get("comment"), str) else ""
-                alert_alan(f"⚠️ {name} gave us {stars}/5 stars after the job. They were told you'll call today to make it right."
-                           + (f' They said: "{comment}"' if comment else "")
-                           + (f"\n{lead.contact_phone}" if lead and lead.contact_phone else ""))
+            # Wait until they stop tapping (Alan, 2026-10-19): Bijan tapped
+            # 1, 2, 3, 4, 5 in two seconds and Alan got three "low score"
+            # texts for a 5-star review. Each tap restarts the wait; only the
+            # rating they leave it on counts.
+            _settle_stars(lead_id)
         elif field == "comment" and isinstance(value, str) and value.strip():
             _note(lead, f"After the job, {name} said: \"{value.strip()}\"")
         elif field == "review_clicked" and value:
