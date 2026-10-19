@@ -964,11 +964,16 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
         </p>
       ) : null}
       {tab === "today" ? (
-        // Alan, 2026-10-19: every customer gets a heads-up before the crew arrives.
-        <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-950 ring-1 ring-amber-200">
+        // Alan, 2026-10-19: customers kept calling "what time are you coming?".
+        // First thing in the morning, text every customer on today's list a
+        // time window, so nobody has to ask.
+        <div className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-950 ring-1 ring-amber-200">
           <Phone className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{tr("Don't forget: call and text each customer when you're 30 minutes away from their house.")}</span>
-        </p>
+          <span>
+            <b className="block">{tr("First thing this morning: text each customer below when you'll get there.")}</b>
+            <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house today between [time] and [time].\"")}</span>
+          </span>
+        </div>
       ) : null}
       {shown.map((j) => (
         <Link key={`${j.lead_id}-${j.date}-${j.task || ""}`} to={`/company-cam/${j.lead_id}`}
