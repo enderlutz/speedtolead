@@ -8,7 +8,7 @@ import { ACCENT } from "@/lib/accents";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
+  Camera, Check, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
   ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair, ExternalLink, LocateFixed } from "lucide-react";
 
 /**
