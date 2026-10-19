@@ -8,7 +8,7 @@ import { ACCENT } from "@/lib/accents";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Camera, Check, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
+  Camera, Loader2, Ruler, Search, Undo2, Trash2, Plus, X, RefreshCw,
   ArrowUp, ZoomIn, ZoomOut, Upload, FileText, RotateCcw, RotateCw, Crosshair, ExternalLink, LocateFixed } from "lucide-react";
 
 /**
@@ -65,6 +65,9 @@ interface Props {
   purpose?: "" | "job";
   /** The saved photos' total feet, whenever it changes. */
   onTotal?: (feet: number | null) => void;
+  /** Feet traced on the map right now, not saved yet (job mode: confirming
+   *  the square footage needs no photo, Alan 2026-10-18). */
+  onTraced?: (feet: number) => void;
 }
 
 const EARTH_FT = 20902231; // mean Earth radius in feet
@@ -311,7 +314,7 @@ function runFeet(run: Run): number {
 }
 
 export default function SatelliteMeasureCard({
-  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal,
+  leadId, lat, lng, address, zipCode, onLinearFeet, onChange, collapsed, onToggle, purpose = "", onTotal, onTraced,
 }: Props) {
   const forJob = purpose === "job";
   const navigate = useNavigate();
@@ -378,6 +381,7 @@ export default function SatelliteMeasureCard({
   const [locateNote, setLocateNote] = useState("");
 
   const viewTotal = runs.reduce((s, r) => s + runFeet(r), 0);
+  useEffect(() => { onTraced?.(Math.round(viewTotal)); }, [viewTotal, onTraced]);
   const anyPoints = runs.some((r) => r.points.length > 0);
 
   // Google rejecting the key beats everything else: the script loads, the
@@ -1060,9 +1064,11 @@ export default function SatelliteMeasureCard({
           .filter((r) => r.points.length >= 2),
       });
       toast.success(
-        res.total_linear_feet
-          ? `${res.label} saved — job total ${res.total_linear_feet} ft. Opening the scope editor…`
-          : `${res.label} saved. Opening the scope editor…`,
+        forJob
+          ? `${res.label} saved for this job${res.total_linear_feet ? ` (${res.total_linear_feet} ft saved)` : ""}`
+          : res.total_linear_feet
+            ? `${res.label} saved — job total ${res.total_linear_feet} ft. Opening the scope editor…`
+            : `${res.label} saved. Opening the scope editor…`,
       );
       // Google has no imagery-date parameter, so the one thing we control is
       // detail: capturing below the framed zoom means a wider, coarser image
@@ -1489,6 +1495,7 @@ export default function SatelliteMeasureCard({
         <Button
           onClick={() => void capture()}
           disabled={capturing || status !== "ready"}
+          variant={forJob ? "outline" : "default"}
           className={IS_TOUCH ? "h-12 w-full text-base" : "w-full"}
         >
           {capturing
@@ -1496,7 +1503,7 @@ export default function SatelliteMeasureCard({
             : forJob
               // Company Cam's job measurement (Alan, 2026-10-18): this saves
               // the traced feet for the square footage, nothing to do with scope.
-              ? <><Check className="h-4 w-4 mr-2" /> Save this measurement{viewTotal > 0 ? ` · ${Math.round(viewTotal)} ft` : ""}</>
+              ? <><Camera className="h-4 w-4 mr-2" /> Save a photo of this view (optional)</>
               : <><Camera className="h-4 w-4 mr-2" /> Capture → Scope of Work</>}
         </Button>
 

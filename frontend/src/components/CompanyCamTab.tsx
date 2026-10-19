@@ -2282,7 +2282,11 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
   leadId: string; startHeight: number; current: number; onClose: () => void; onUse: (sqft: number) => void;
 }) {
   const [lead, setLead] = useState<{ lat: number; lng: number; address: string; zip: string; name: string } | null>(null);
-  const [feet, setFeet] = useState<number | null>(null);
+  // Saved photos' feet plus what's traced on the map right now: confirming
+  // the square footage needs no photo (Alan, 2026-10-18).
+  const [savedFeet, setSavedFeet] = useState<number | null>(null);
+  const [traced, setTraced] = useState(0);
+  const feet = (savedFeet || 0) + traced || null;
   const [height, setHeight] = useState(HEIGHTS.includes(startHeight) ? startHeight : 6);
   useEffect(() => {
     api.getLead(leadId)
@@ -2302,13 +2306,13 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
           <Ruler className="h-5 w-5 text-primary" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold">Measure this job{lead?.name ? `: ${lead.name}` : ""}</p>
-            <p className="truncate text-[11px] text-muted-foreground">Trace each side you stain. Both sides of a run? Trace it twice. Only the office sees these.</p>
+            <p className="truncate text-[11px] text-muted-foreground">Trace each side you stain (both sides of a run: trace it twice), pick the height, tap Use. A photo is optional.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted"><X className="h-5 w-5" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 sm:p-3">
           {lead ? (
-            <SatelliteMeasureCard leadId={leadId} purpose="job" onTotal={setFeet} onChange={() => {}}
+            <SatelliteMeasureCard leadId={leadId} purpose="job" onTotal={setSavedFeet} onTraced={setTraced} onChange={() => {}}
                                   lat={lead.lat} lng={lead.lng} address={lead.address} zipCode={lead.zip} collapsed={false} />
           ) : <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}
         </div>
@@ -2326,8 +2330,9 @@ function JobMeasureDialog({ leadId, startHeight, current, onClose, onUse }: {
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm tabular-nums">
-              {feet ? <><span className="font-bold">{feet.toLocaleString()} ft</span> × {height} ft = <span className="text-base font-extrabold">{sqft.toLocaleString()} sq ft</span></>
-                : <span className="text-muted-foreground">Trace the fence, then tap "Save this measurement" above.</span>}
+              {feet ? <><span className="font-bold">{feet.toLocaleString()} ft</span> × {height} ft = <span className="text-base font-extrabold">{sqft.toLocaleString()} sq ft</span>
+                  {savedFeet && traced ? <span className="ml-1 text-xs text-muted-foreground">({traced} traced + {savedFeet} saved)</span> : null}</>
+                : <span className="text-muted-foreground">Trace the fence on the map. The feet show up here.</span>}
               {current ? <span className="ml-2 text-xs text-muted-foreground">Now: {Math.round(current).toLocaleString()} sq ft</span> : null}
             </p>
             <Button disabled={!sqft} onClick={() => onUse(sqft)} className="min-h-11">
