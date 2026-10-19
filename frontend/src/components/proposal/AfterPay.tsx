@@ -344,11 +344,11 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
       body = (
         <>
           <h2 className="font-heading text-3xl font-bold leading-tight">How did we do?</h2>
-          <p className="text-[16px]">Tap the stars.</p>
+          <p className="text-[16px]">Tap a star: 5 is the best. Then press Send.</p>
           <div className="flex justify-between gap-1">
             {[1, 2, 3, 4, 5].map((n) => (
               <button key={n} type="button" aria-label={`${n} star${n === 1 ? "" : "s"}`}
-                onClick={() => { setStars(n); answer("stars", n); if (n > 3) setCallback(false); }}
+                onClick={() => { setStars(n); if (n > 3) setCallback(false); }}
                 className="flex h-16 flex-1 items-center justify-center rounded-xl bg-white ring-1 ring-[#15130F]/15 active:scale-95">
                 <Star className={cn("h-10 w-10", stars !== null && n <= stars ? "fill-[#C9972F] text-[#C9972F]" : "text-[#15130F]/25")} />
               </button>
@@ -362,7 +362,15 @@ export function AfterPay({ flow, method, paidUpFront, firstName, address, pkgNam
           </label>
         </>
       );
-      foot = next("Continue");
+      // Nothing is saved until Send (Alan, 2026-10-19): a single stray tap on
+      // the first star had texted Alan a 1-star "call them" for a happy customer.
+      foot = (
+        <button type="button" disabled={stars === null}
+          onClick={() => { if (stars === null) return; answer("stars", stars); if (comment.trim()) answer("comment", comment.trim()); go(step + 1); }}
+          className="flex h-14 w-full items-center justify-center rounded-xl bg-[#15130F] text-[17px] font-bold text-[#E3BE63] active:scale-[0.98] disabled:opacity-40">
+          {stars === null ? "Tap a star first" : `Send ${stars} star${stars === 1 ? "" : "s"}`}
+        </button>
+      );
       break;
     case "sorry":
       body = (
