@@ -723,3 +723,114 @@ def sqft_per_gallon(db, job) -> float:
     from database import StainInventoryItem
     item = db.query(StainInventoryItem).filter(StainInventoryItem.id == job.final_stain_id).first()
     return SQFT_PER_GALLON_SOLID if item and (item.finish_type or "") == "solid" else SQFT_PER_GALLON
+
+
+# --- pressure washing ---
+#
+# A third kind of crew job (Alan, 2026-10-19: Brent does one tomorrow
+# morning). No fence scope, stain or sides: the office ticks which services
+# the customer bought, and the crew photographs each one before and after.
+# Keys are stable: photo sections are named after them.
+PW_TASK = "pressure_washing"
+CREW_TASKS: tuple[str, ...] = ("cleaning", "staining", PW_TASK)
+FENCE_TASKS: tuple[str, ...] = ("cleaning", "staining")
+
+PW_SERVICES: list[dict] = [
+    {"key": "house_wash", "label": "House wash"},
+    {"key": "windows", "label": "Window cleaning"},
+    {"key": "pool_deck", "label": "Pool deck"},
+    {"key": "driveway", "label": "Driveway & sidewalks"},
+    {"key": "patio", "label": "Patio"},
+    {"key": "gutters", "label": "Gutters"},
+    {"key": "roof", "label": "Roof"},
+    {"key": "fence", "label": "Fence wash"},
+]
+PW_SERVICE_KEYS: tuple[str, ...] = tuple(s["key"] for s in PW_SERVICES)
+PW_SERVICE_LABELS: dict[str, str] = {s["key"]: s["label"] for s in PW_SERVICES}
+
+
+def normalize_pw_services(raw) -> list[str]:
+    """Known service keys only, no repeats, in the list's own order so the
+    crew always sees the services the same way round."""
+    want = {str(x or "").strip() for x in (raw or []) if isinstance(x, str)}
+    return [k for k in PW_SERVICE_KEYS if k in want]
+
+
+def pw_services_of(job) -> list[str]:
+    """The services picked on a job, never an exception."""
+    try:
+        v = json.loads((getattr(job, "pw_services_json", None) if job else None) or "[]")
+    except (ValueError, TypeError):
+        v = []
+    return normalize_pw_services(v if isinstance(v, list) else [])
+
+
+def pw_section_key(service: str, phase: str) -> str:
+    return f"pw_{service}_{phase}"
+
+
+PW_SECTION_KEYS: tuple[str, ...] = tuple(
+    pw_section_key(s, phase) for s in PW_SERVICE_KEYS for phase in ("before", "after")
+)
+
+
+def pw_sections(services: list[str]) -> list[dict]:
+    """Two photo sections per picked service, the same shape as SECTIONS so
+    the screen's photo section handles them unchanged. Before: every side,
+    and anything already damaged marked as damage, so nobody blames us for
+    it later."""
+    out: list[dict] = []
+    for key in normalize_pw_services(services):
+        label = PW_SERVICE_LABELS[key]
+        out.append({
+            "key": pw_section_key(key, "before"),
+            "label": f"{label} · Before",
+            "who": "Before you start",
+            "hint": "Every side before you start; mark anything already damaged.",
+            "wants_damage": True,
+            "service": key,
+            "phase": "before",
+        })
+        out.append({
+            "key": pw_section_key(key, "after"),
+            "label": f"{label} · After",
+            "who": "When it's done",
+            "hint": "Same spots after, every side.",
+            "wants_damage": True,
+            "service": key,
+            "phase": "after",
+        })
+    return out
+
+
+def valid_section(key: str) -> bool:
+    """A fence section, or a before/after section of a known washing service."""
+    return key in SECTION_KEYS or key in PW_SECTION_KEYS
+
+
+def is_pw_job(job, entries: list[dict]) -> bool:
+    """A pure pressure-washing job: washing on it (a crew day or services
+    picked) and no cleaning or staining days."""
+    tasks = {e.get("task") for e in entries}
+    if tasks & set(FENCE_TASKS):
+        return False
+    return PW_TASK in tasks or bool(pw_services_of(job))
+
+
+# How the crew finished a washing job (Alan, 2026-10-19): the customer was
+# home and is happy, or wasn't and got a call and photos of everything. A
+# comeback isn't paid extra, so this is checked before they drive away.
+PW_FINISH_CHOICES: list[dict] = [
+    {"key": "home_happy", "label": "Customer is home: I checked with them and they're happy"},
+    {"key": "called_sent_photos", "label": "Customer isn't home: I called them and sent photos of everything"},
+]
+PW_FINISH_KEYS: tuple[str, ...] = tuple(c["key"] for c in PW_FINISH_CHOICES)
+
+
+def pw_progress(services: list[str], sections_with_photos: set[str]) -> tuple[int, int]:
+    """(services with both before and after photos, services picked)."""
+    picked = normalize_pw_services(services)
+    done = sum(1 for s in picked
+               if pw_section_key(s, "before") in sections_with_photos
+               and pw_section_key(s, "after") in sections_with_photos)
+    return done, len(picked)

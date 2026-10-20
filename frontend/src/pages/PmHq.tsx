@@ -16,13 +16,13 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import { CalendarDays, GripVertical, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
-import { api, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
+import { api, type CrewTask, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
 
 type Tab = "today" | "calendar" | "past";
-type Task = "" | "cleaning" | "staining";
+type Task = CrewTask;
 
 function ctToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -41,12 +41,30 @@ function ago(ts: string): string {
   if (m < 60 * 24) return `${Math.round(m / 60)} h ago`;
   return fmtDay(ts.slice(0, 10));
 }
-const TASK_LABEL: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", "": "On the job" };
+// Pressure washing is the third kind of day (Alan, 2026-10-19).
+const TASK_LABEL: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", "": "On the job" };
 const TASK_CLS: Record<string, string> = {
   cleaning: "bg-sky-100 text-sky-900 ring-sky-200",
   staining: "bg-emerald-100 text-emerald-900 ring-emerald-200",
+  pressure_washing: "bg-indigo-100 text-indigo-900 ring-indigo-200",
   "": "bg-muted text-foreground ring-border",
 };
+const TASK_ON: Record<string, string> = {
+  cleaning: "bg-sky-600 text-white ring-sky-600",
+  staining: "bg-emerald-700 text-white ring-emerald-700",
+  pressure_washing: "bg-indigo-600 text-white ring-indigo-600",
+};
+const TASK_DOT: Record<string, string> = { cleaning: "bg-sky-500", staining: "bg-emerald-600", pressure_washing: "bg-indigo-500" };
+
+/** The services on a washing job, as small chips. */
+function PwServices({ list }: { list?: string[] }) {
+  if (!list?.length) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {list.map((s) => <span key={s} className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-900 ring-1 ring-indigo-200">{s}</span>)}
+    </div>
+  );
+}
 
 export default function PmHq() {
   const [tab, setTab] = useState<Tab>("today");
@@ -56,7 +74,7 @@ export default function PmHq() {
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
           <HardHat className="h-5 w-5 text-primary" /> Project Manager HQ
         </h1>
-        <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning or staining.</p>
+        <p className="text-xs text-muted-foreground">Your job calendar. Separate from Google Calendar: put a customer on a day and pick who's cleaning, staining or pressure washing.</p>
       </div>
       <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
         {([["today", "Today", Sun], ["calendar", "Calendar", CalendarDays], ["past", "Past jobs", History]] as const).map(([k, label, Icon]) => (
@@ -84,7 +102,8 @@ function ProgressBar({ p }: { p: PmProgress }) {
              style={{ width: `${Math.max(p.percent, 2)}%` }} />
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-        Cleaning checklist {p.cleaning[0]}/{p.cleaning[1]} · Staining checklist {p.staining[0]}/{p.staining[1]}
+        {p.pw ? `Services with before + after photos ${p.pw[0]}/${p.pw[1]}`
+          : `Cleaning checklist ${p.cleaning[0]}/${p.cleaning[1]} · Staining checklist ${p.staining[0]}/${p.staining[1]}`}
       </p>
     </div>
   );
@@ -131,6 +150,7 @@ function TodayView() {
             {j.completed_at ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />Done</span> : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">{j.crew.map((c, i) => <TaskChip key={i} task={c.task} who={c.person} />)}</div>
+          <PwServices list={j.pw_services} />
           <div className="mt-3"><ProgressBar p={j.progress} /></div>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {j.photos_today ? `${j.photos_today} photo${j.photos_today === 1 ? "" : "s"} today · ` : "No photos yet today · "}
@@ -204,7 +224,7 @@ function CalendarView() {
                     d === today && "bg-primary text-primary-foreground")}>{Number(d.slice(8))}</span>
                   {/* Phones: a dot per crew day. Wider screens: the words. */}
                   <div className="mt-0.5 flex flex-wrap gap-0.5 sm:hidden">
-                    {items.map((x, i) => <span key={i} className={cn("h-2 w-2 rounded-full", x.task === "staining" ? "bg-emerald-600" : x.task === "cleaning" ? "bg-sky-500" : "bg-zinc-400")} />)}
+                    {items.map((x, i) => <span key={i} className={cn("h-2 w-2 rounded-full", TASK_DOT[x.task] ?? "bg-zinc-400")} />)}
                   </div>
                   <div className="mt-0.5 hidden space-y-0.5 sm:block">
                     {items.slice(0, 3).map((x, i) => (
@@ -343,6 +363,7 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
       <div className="min-w-0 flex-1">
         <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate text-base font-semibold text-primary hover:underline">{x.name} ›</Link>
         <p className="truncate text-xs text-muted-foreground">{x.address}</p>
+        {x.task === "pressure_washing" || !x.task ? <PwServices list={x.pw_services} /> : null}
         <JobStatus x={x} canEdit={canEdit} crew={crew} onChange={onChange} />
         {mates.length ? <p className="mt-1.5 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person + (m.helper ? " (helper)" : "")))].join(" and ")}</p> : null}
         {canEdit && free.length && !finished ? (
@@ -510,7 +531,7 @@ function AddToDay({ day, crew, onDone, onCancel }: {
             <div><p className="text-sm font-semibold">{customer.name}</p><p className="text-xs text-muted-foreground">{customer.address}</p></div>
             <button type="button" onClick={() => { setCustomer(null); setWho({}); }} className="text-xs font-semibold text-primary">Change</button>
           </div>
-          <p className="text-sm font-semibold">2. Who, and are they cleaning or staining?</p>
+          <p className="text-sm font-semibold">2. Who, and are they cleaning, staining or pressure washing?</p>
           <p className="text-[11px] text-muted-foreground">Tap Helper for someone who rides along (like Alfredo): their order follows the main tech's.</p>
           {!crew.length ? <p className="text-xs text-muted-foreground">No crew accounts yet. Make one in Settings, Permissions.</p> : null}
           <div className="space-y-1.5">
@@ -519,10 +540,10 @@ function AddToDay({ day, crew, onDone, onCancel }: {
               return (
                 <div key={c.username} className={cn("flex flex-wrap items-center gap-1.5 rounded-lg p-1.5", t !== undefined && "bg-background ring-1 ring-border")}>
                   <span className="w-28 truncate text-sm font-semibold">{c.name}</span>
-                  {(["cleaning", "staining"] as const).map((k) => (
+                  {(["cleaning", "staining", "pressure_washing"] as const).map((k) => (
                     <button key={k} type="button" onClick={() => setWho((w) => ({ ...w, [c.username]: w[c.username] === k ? undefined : k }))}
-                            className={cn("min-h-10 rounded-lg px-3 text-sm font-semibold ring-1",
-                              t === k ? (k === "cleaning" ? "bg-sky-600 text-white ring-sky-600" : "bg-emerald-700 text-white ring-emerald-700") : "bg-background ring-border")}>
+                            className={cn("min-h-11 rounded-lg px-3 text-sm font-semibold ring-1",
+                              t === k ? TASK_ON[k] : "bg-background ring-border")}>
                       {TASK_LABEL[k]}
                     </button>
                   ))}
@@ -575,6 +596,7 @@ function PastView() {
                 <span className="font-semibold">{TASK_LABEL[c.task]}</span> · {c.person}</p>
             ))}
           </div>
+          <PwServices list={j.pw_services} />
           {j.color ? <p className="mt-2 text-xs text-muted-foreground">Color: <span className="font-semibold text-foreground">{j.color}</span></p> : null}
         </Link>
       ))}

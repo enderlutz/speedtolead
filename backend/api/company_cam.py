@@ -24,6 +24,16 @@ from database import (
 from api.auth import get_current_user
 from services.company_cam import (
     CLEANER_CHECKLIST,
+    CREW_TASKS,
+    PW_FINISH_CHOICES,
+    PW_FINISH_KEYS,
+    PW_SERVICES,
+    PW_TASK,
+    is_pw_job,
+    normalize_pw_services,
+    pw_sections,
+    pw_services_of,
+    valid_section,
     COLOR_AREA_SUGGESTIONS,
     COLOR_STATUSES,
     SECTION_KEYS,
@@ -82,7 +92,8 @@ def _crew_entries(job: CompanyCamJob | None) -> list[dict]:
             except (TypeError, ValueError):
                 order = 0
             out.append({"username": str(x["username"]).strip(), "date": str(x.get("date") or "")[:10],
-                        "task": x.get("task") if x.get("task") in ("cleaning", "staining") else "",
+                        # Pressure washing is the third (Alan, 2026-10-19).
+                        "task": x.get("task") if x.get("task") in CREW_TASKS else "",
                         # Which job comes first that day (PM HQ, Alan 2026-10-18). 0 = not set.
                         "order": order,
                         # A helper rides with the main tech (Alan, 2026-10-18: Alfredo goes
@@ -131,6 +142,23 @@ def _crew_pay(job: CompanyCamJob | None, user: dict) -> dict:
 
 def _crew_of(job: CompanyCamJob | None) -> list[str]:
     return [e["username"] for e in _crew_entries(job)]
+
+
+def _pw_view(job: CompanyCamJob | None, user: dict) -> bool:
+    """Does this person get the pressure-washing screen? Yes when their own
+    task on the job (today's, or any day's when they're not on it today) is
+    pressure washing, or the job is washing only (Alan, 2026-10-19)."""
+    if job is None:
+        return False
+    entries = _crew_entries(job)
+    me = (user.get("sub") or "").lower()
+    mine = [e for e in entries if e["username"].lower() == me]
+    if mine:
+        from api.pm_calendar import _today_ct
+        today = [e for e in mine if e["date"] == _today_ct()]
+        if any(e["task"] == PW_TASK for e in (today or mine)):
+            return True
+    return is_pw_job(job, entries)
 
 def _crew_options(db) -> list[dict]:
     """Crew accounts (not admins or VAs), so the office can put them on a job."""
@@ -358,6 +386,8 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "completed_at": job.completed_at or "",
         "completed_by": job.completed_by or "",
         "no_cleaning": bool(getattr(job, "no_cleaning", False)),
+        "pw_services": pw_services_of(job),
+        "pw_finished_how": getattr(job, "pw_finished_how", "") or "",
         "updated_at": job.updated_at or "",
     }
 
@@ -373,6 +403,16 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
         by_section[p.section] = by_section.get(p.section, 0) + 1
 
     out = []
+    # A washing job has no scope, stain or sides: what's owed is a before and
+    # an after for each service the office picked (Alan, 2026-10-19).
+    if is_pw_job(job, _crew_entries(job)):
+        services = pw_services_of(job)
+        if not services:
+            out.append("No services picked yet: the office ticks what we're washing.")
+        for sec in pw_sections(services):
+            if not by_section.get(sec["key"]):
+                out.append(f"{sec['label']} photos.")
+        return out
     # Alan's rule: a scope photo, or failing that a written scope. One or the
     # other is mandatory so nobody arrives not knowing the job.
     if not by_section.get("fence_scope") and not (job.scope_explanation or "").strip():
@@ -482,6 +522,13 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
                 "address": lead.address or "",
                 "do_not_contact": bool(lead.do_not_contact),
             },
+            # Pressure washing (Alan, 2026-10-19): every service the office
+            # can tick, the before/after sections of the ticked ones, whether
+            # this person gets the washing screen, and the two ways to finish.
+            "pw_service_options": PW_SERVICES,
+            "pw_sections": pw_sections(pw_services_of(job)),
+            "pw_mode": _pw_view(job, user),
+            "pw_finish_choices": PW_FINISH_CHOICES,
         }
     finally:
         db.close()
@@ -547,6 +594,8 @@ class CompanyCamPatch(BaseModel):
     neighbor_project: str | None = None
     neighbor_notes: str | None = None
     no_cleaning: bool | None = None
+    # Pressure-washing services on the job (office only): keys from PW_SERVICES.
+    pw_services: list[str] | None = None
 
 
 @router.patch("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
@@ -619,6 +668,10 @@ def update_company_cam(
             if not _sees_all(user):
                 raise HTTPException(403, "Only the office decides a fence doesn't need cleaning")
             job.no_cleaning = bool(body.no_cleaning)
+        if body.pw_services is not None:
+            if not _sees_all(user):
+                raise HTTPException(403, "Only the office picks the services")
+            job.pw_services_json = json.dumps(normalize_pw_services(body.pw_services))
         if body.previously_stained is not None:
             v = body.previously_stained.strip().lower()
             if v not in ("yes", "no", ""):
@@ -685,7 +738,7 @@ def update_company_cam(
                 e = {"username": c} if isinstance(c, str) else dict(c or {})
                 name = names.get(str(e.get("username") or "").lower())
                 day = str(e.get("date") or "")[:10]
-                task = e.get("task") if e.get("task") in ("cleaning", "staining") else ""
+                task = e.get("task") if e.get("task") in CREW_TASKS else ""
                 # Several days per person are allowed (PM HQ, Alan 2026-10-18:
                 # clean Monday, stain Tuesday); the same day and task twice isn't.
                 if not name or any(x["username"] == name and x["date"] == day and x["task"] == task for x in entries):
@@ -779,7 +832,9 @@ def update_company_cam(
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
         return {"job": _job_dict(job, sqft_per_gallon(db, job)), "blockers": _blockers(job, photos),
-                "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(job, user)}
+                "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(job, user),
+                # Ticking a service or a washing day can switch the screen.
+                "pw_mode": _pw_view(job, user), "pw_sections": pw_sections(pw_services_of(job))}
     finally:
         db.close()
 
@@ -925,8 +980,8 @@ class FromLibraryBody(BaseModel):
 
 @router.post("/company-cam/{lead_id}/photos/from-library", dependencies=[Depends(crew_guard)])
 def photo_from_library(lead_id: str, body: FromLibraryBody, user: dict = Depends(get_current_user)):
-    if body.section not in SECTION_KEYS:
-        raise HTTPException(400, f"Unknown section. Expected one of: {', '.join(SECTION_KEYS)}")
+    if not valid_section(body.section):
+        raise HTTPException(400, f"Unknown section. Expected one of: {', '.join(SECTION_KEYS)}, or a washing service's before/after")
     db = get_db()
     try:
         lead = _lead_or_404(db, lead_id)
@@ -949,8 +1004,8 @@ async def upload_photo(
     is_damage: bool = Form(False),
     user: dict = Depends(get_current_user),
 ):
-    if section not in SECTION_KEYS:
-        raise HTTPException(400, f"Unknown section. Expected one of: {', '.join(SECTION_KEYS)}")
+    if not valid_section(section):
+        raise HTTPException(400, f"Unknown section. Expected one of: {', '.join(SECTION_KEYS)}, or a washing service's before/after")
     data = await file.read()
     if not data:
         raise HTTPException(400, "That file was empty")
@@ -1222,18 +1277,33 @@ def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depend
         db.close()
 
 
+class DoneBody(BaseModel):
+    # Pressure washing: "home_happy" | "called_sent_photos" (PW_FINISH_CHOICES).
+    how: str | None = None
+
+
 @router.post("/company-cam/{lead_id}/done", dependencies=[Depends(crew_guard)])
-def mark_job_done(lead_id: str, user: dict = Depends(get_current_user)):
+def mark_job_done(lead_id: str, body: DoneBody | None = None, user: dict = Depends(get_current_user)):
     """The crew is finished and packing up (Alan, 2026-10-16). Ticks "Job
-    done" on the customer journey and tells Alan the invoice can go."""
+    done" on the customer journey and tells Alan the invoice can go.
+
+    On a pressure-washing job "I'm finished" first asks how the customer
+    signed off (Alan, 2026-10-19): home and happy, or called and sent photos
+    of everything. Required there, and kept with the stamp."""
     from services.activity_log import log_event
+    how = ((body.how if body else None) or "").strip()
+    if how and how not in PW_FINISH_KEYS:
+        raise HTTPException(400, "Finished how? Customer home and happy, or called and sent photos")
     db = get_db()
     try:
         lead = _lead_or_404(db, lead_id)
         job = _get_or_create(db, lead)
+        if not job.completed_at and not how and _pw_view(job, user):
+            raise HTTPException(400, "Say how the customer signed off first: home and happy, or called and sent photos")
         if not job.completed_at:
             job.completed_at = _now()
             job.completed_by = _actor(user)
+            job.pw_finished_how = how
             job.updated_at = _now()
             # The stain and bleach used come off the shelf, priced at the
             # running average cost (Alan, 2026-10-19).
@@ -1247,9 +1317,14 @@ def mark_job_done(lead_id: str, user: dict = Depends(get_current_user)):
                       {"actor": job.completed_by})
             try:
                 from services.after_pay_hooks import alert_alan
-                used = f" Used {job.stain_gallons_used:g} gallons of stain." if job.stain_gallons_used else ""
-                alert_alan(f"{lead.contact_name or 'A customer'}'s fence is done ({job.completed_by or 'the crew'}).{used} "
-                           f"Time to send the final invoice (Payment links).")
+                if how:
+                    said = next(c["label"] for c in PW_FINISH_CHOICES if c["key"] == how)
+                    alert_alan(f"{lead.contact_name or 'A customer'}'s pressure washing is done ({job.completed_by or 'the crew'}). "
+                               f"{said}. Time to send the final invoice (Payment links).")
+                else:
+                    used = f" Used {job.stain_gallons_used:g} gallons of stain." if job.stain_gallons_used else ""
+                    alert_alan(f"{lead.contact_name or 'A customer'}'s fence is done ({job.completed_by or 'the crew'}).{used} "
+                               f"Time to send the final invoice (Payment links).")
             except Exception as e:  # noqa: BLE001
                 logger.warning("job done: alert failed for %s: %s", lead_id, e)
         photos = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all()
@@ -1267,6 +1342,7 @@ def reset_job_done(lead_id: str, user: dict = Depends(get_current_user)):
         job = _get_or_create(db, lead)
         job.completed_at = ""
         job.completed_by = ""
+        job.pw_finished_how = ""
         from api.materials import reverse_job_materials
         reverse_job_materials(db, job, _actor(user))
         job.updated_at = _now()

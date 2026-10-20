@@ -23,12 +23,12 @@ import {
   Camera, Loader2, Trash2, AlertTriangle, CheckCircle2, Palette,
   Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
-  Package, Hash, Hourglass, Images, Plus, X, Eye, Receipt,
+  Package, Hash, Hourglass, Images, Plus, X, Eye, Receipt, Waves,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type StainOption, type CompanyCamPhoto,
-  type CompanyCamJob, type ColorPlanRow,
+  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewTask, type PwFinishHow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { Card } from "@/components/ui/card";
@@ -55,8 +55,30 @@ const SECTION_LOOK: Record<string, { icon: React.ElementType; accent: Accent }> 
   stain_after:  { icon: Paintbrush, accent: ACCENT.emerald },
 };
 
+// A washing service's before is amber like any before, its after green
+// (pw_<service>_before / pw_<service>_after, Alan 2026-10-19).
 const sectionLook = (key: string) =>
-  SECTION_LOOK[key] || { icon: Camera, accent: ACCENT.slate };
+  SECTION_LOOK[key]
+  || (key.startsWith("pw_") && key.endsWith("_before") ? { icon: Camera, accent: ACCENT.amber }
+    : key.startsWith("pw_") && key.endsWith("_after") ? { icon: Sparkles, accent: ACCENT.emerald }
+    : { icon: Camera, accent: ACCENT.slate });
+
+/** The crew's kinds of day: cleaning, staining, and pressure washing (Alan, 2026-10-19). */
+const TASKS: Exclude<CrewTask, "">[] = ["cleaning", "staining", "pressure_washing"];
+const taskLabel = (t: string) =>
+  t === "cleaning" ? tr("Cleaning") : t === "staining" ? tr("Staining") : t === "pressure_washing" ? tr("Pressure washing") : "";
+const TASK_ON: Record<string, string> = {
+  cleaning: "bg-sky-600 text-white ring-sky-600",
+  staining: "bg-emerald-700 text-white ring-emerald-700",
+  pressure_washing: "bg-indigo-600 text-white ring-indigo-600",
+};
+
+/** "House wash · Before", in the crew's language. */
+function pwSectionLabel(sec: CompanyCamSection, options: { key: string; label: string }[]) {
+  const service = options.find((o) => o.key === sec.service)?.label;
+  if (!service || !sec.phase) return sec.label;
+  return `${tr(service)} · ${sec.phase === "before" ? tr("Before") : tr("After")}`;
+}
 
 /** How much of the job is on file. Reads at arm's length in sunlight, which a
  *  row of numbers does not. */
@@ -694,7 +716,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     setData((d) => (d ? { ...d, job: { ...d.job, ...p } as CompanyCamJob } : d));
     try {
       const r = await api.updateCompanyCam(leadId, p);
-      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers, crew_pay: r.crew_pay ?? d.crew_pay } : d));
+      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers, crew_pay: r.crew_pay ?? d.crew_pay,
+                            pw_mode: r.pw_mode ?? d.pw_mode, pw_sections: r.pw_sections ?? d.pw_sections } : d));
     } catch (e) {
       toast.error(errMessage(e, tr("Couldn't save")));
       void load();
@@ -776,7 +799,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   // Progress across the four stages. The scope stage counts as done when the
   // job is written out instead, because that is the agreed substitute for a
   // drawing — every other stage needs an actual photo.
-  const steps = sections.map((sec) => {
+  // A pressure-washing job (Alan, 2026-10-19): the steps are a before and an
+  // after for each service the office picked, nothing about a fence.
+  const pwMode = !!data.pw_mode;
+  const pwOptions = data.pw_service_options || [];
+  const pwSecs = (data.pw_sections || []).map((sec) => ({ ...sec, label: pwSectionLabel(sec, pwOptions) }));
+  const steps = (pwMode ? pwSecs : sections).map((sec) => {
     const n = (photos[sec.key] || []).length;
     const written = sec.key === "fence_scope" && !!job.scope_explanation.trim();
     return { ...sec, ...sectionLook(sec.key), n, done: n > 0 || written, written };
@@ -1027,7 +1055,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {manager ? (
         <div className="rounded-2xl border border-border bg-card p-3">
           <p className="text-sm font-bold">{tr("Who's on this job?")}</p>
-          <p className="text-xs text-muted-foreground">{tr("Tap a name, then their day and whether they're cleaning or staining. It shows on their My Schedule. Crew only see the jobs they're on.")}</p>
+          <p className="text-xs text-muted-foreground">{tr("Tap a name, then their day and whether they're cleaning, staining or pressure washing. It shows on their My Schedule. Crew only see the jobs they're on.")}</p>
           <div className="mt-2 space-y-2">
             {(data.crew_options || []).map((c) => {
               const crew = job.crew || [];
@@ -1052,11 +1080,11 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                                className="h-9 bg-transparent text-base tabular-nums outline-none sm:text-sm" />
                       </label>
                       {!mine.date ? <span className="w-full text-xs font-semibold text-amber-700">{tr("Pick their day, or it won't show under Today on their schedule.")}</span> : null}
-                      {(["cleaning", "staining"] as const).map((t) => (
+                      {TASKS.map((t) => (
                         <button key={t} type="button" onClick={() => setMine({ task: mine.task === t ? "" : t })}
                                 className={cn("min-h-11 rounded-lg px-3.5 text-sm font-semibold ring-1",
-                                  mine.task === t ? (t === "cleaning" ? "bg-sky-600 text-white ring-sky-600" : "bg-emerald-700 text-white ring-emerald-700") : "bg-background ring-border")}>
-                          {t === "cleaning" ? tr("Cleaning") : tr("Staining")}
+                                  mine.task === t ? TASK_ON[t] : "bg-background ring-border")}>
+                          {taskLabel(t)}
                         </button>
                       ))}
                       <CrewPayPicker username={mine.username} value={data.crew_pay?.[mine.username]} onSave={(v) => void patch({ crew_pay: { username: mine.username, ...v } })} />
@@ -1064,7 +1092,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                       {crew.filter((x) => x !== mine && x.username.toLowerCase() === c.username.toLowerCase()).map((x, i) => (
                         <span key={i} className="w-full text-xs font-semibold text-emerald-800">
                           {tr("Also")}: {x.date ? new Date(x.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : tr("no day")}
-                          {x.task ? ` · ${x.task === "cleaning" ? tr("Cleaning") : tr("Staining")}` : ""}
+                          {x.task ? ` · ${taskLabel(x.task)}` : ""}
                         </span>
                       ))}
                     </div>
@@ -1201,6 +1229,42 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         </Card>
       )}
 
+      {/* Pressure washing (Alan, 2026-10-19). The office can tick services on
+          any job (that's what turns a job with no fence days into a washing
+          job); the crew sees only the ones picked. */}
+      {manager || pwMode ? (
+        <PwServicesPanel options={pwOptions} picked={job.pw_services || []} manager={manager} pwMode={pwMode}
+                         onChange={(next) => void patch({ pw_services: next })} />
+      ) : null}
+
+      {pwMode ? (
+        <>
+          {/* No scope, stain, gallons, sides or checklists on a washing job:
+              a before and an after for each service, then "I'm finished". */}
+          {pwSecs.length ? (
+            <section className="overflow-hidden rounded-2xl bg-indigo-50/40 ring-2 ring-indigo-200">
+              <div className="flex items-center gap-3 bg-gradient-to-r from-indigo-600 to-sky-600 px-4 py-3 text-white">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20"><Waves className="h-5 w-5" /></span>
+                <span>
+                  <span className="block font-heading text-lg font-bold leading-tight">{tr("Pressure washing")}</span>
+                  <span className="block text-xs text-white/85">{tr("A before and an after photo of each service")}</span>
+                </span>
+              </div>
+              <div className="space-y-3.5 p-2 sm:p-3">{pwSecs.map((sec) => renderStep(sec.key))}</div>
+            </section>
+          ) : null}
+          <PwFinish job={job} blockers={blockers} choices={data.pw_finish_choices}
+                    onFinish={async (how) => {
+                      const r = await api.markCompanyCamDone(leadId, how);
+                      setData((d) => (d ? { ...d, job: r.job, blockers: r.blockers } : d));
+                      toast.success(tr("Finished. Alan's been told. Nice work!"));
+                    }}
+                    onUndo={async () => {
+                      const r = await api.resetCompanyCamDone(leadId);
+                      setData((d) => (d ? { ...d, job: r.job } : d));
+                    }} />
+        </>
+      ) : (<>
       {/* The job card (Alan, 2026-10-15): the real footage, the gallons the
           crew actually used, the package and the fence's age. Together they
           teach us what a gallon covers on each kind of fence. No price: the
@@ -1665,10 +1729,127 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           </Button>
         )}
       </Panel>
+      </>)}
       {picking ? (
         <LibraryPicker leadId={leadId} section={picking} onClose={() => setPicking(null)} onAdded={() => void load()} />
       ) : null}
     </div>
+  );
+}
+
+/** Which washing services are on the job (Alan, 2026-10-19). The office
+ *  ticks them; the crew sees the list. Folded away on a fence job until
+ *  someone opens it, so it doesn't crowd the fence screen. */
+function PwServicesPanel({ options, picked, manager, pwMode, onChange }: {
+  options: { key: string; label: string }[]; picked: string[]; manager: boolean; pwMode: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(pwMode || picked.length > 0);
+  const names = options.filter((o) => picked.includes(o.key));
+  return (
+    <Panel icon={Waves} accent={ACCENT.blue} title={tr("Pressure washing services")}
+           sub={manager ? tr("Tick what the customer bought. The crew sees only these, each with a before and after photo.") : tr("What we're washing")}
+           collapsed={manager && !open} onToggle={manager ? () => setOpen((o) => !o) : undefined}
+           right={names.length ? <Pill accent={ACCENT.blue}>{names.length}</Pill> : null}>
+      {manager ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {options.map((o) => {
+            const on = picked.includes(o.key);
+            return (
+              <label key={o.key} className={cn("flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-base font-semibold",
+                on ? "border-indigo-300 bg-indigo-50 text-indigo-950" : "border-border bg-card")}>
+                <input type="checkbox" className="h-5 w-5 shrink-0 accent-indigo-600" checked={on}
+                       onChange={() => onChange(on ? picked.filter((k) => k !== o.key) : [...picked, o.key])} />
+                {o.label}
+              </label>
+            );
+          })}
+        </div>
+      ) : names.length ? (
+        <ul className="space-y-1.5">
+          {names.map((o) => (
+            <li key={o.key} className="flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-base font-semibold text-indigo-950 ring-1 ring-indigo-200">
+              <Check className="h-4 w-4 shrink-0" /> {tr(o.label)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-xl bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900 ring-1 ring-amber-200">
+          {tr("The office hasn't picked the services yet. Call the office before you start.")}
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+const PW_FINISH_FALLBACK: { key: PwFinishHow; label: string }[] = [
+  { key: "home_happy", label: "Customer is home: I checked with them and they're happy" },
+  { key: "called_sent_photos", label: "Customer isn't home: I called them and sent photos of everything" },
+];
+
+/** The last tap on a washing job (Alan, 2026-10-19). Before it counts, the
+ *  crew says how the customer signed off: home and happy, or called and sent
+ *  photos of everything. A comeback isn't paid extra, so it's said out loud. */
+function PwFinish({ job, blockers, choices, onFinish, onUndo }: {
+  job: CompanyCamJob; blockers: string[]; choices?: { key: PwFinishHow; label: string }[];
+  onFinish: (how: PwFinishHow) => Promise<void>; onUndo: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<PwFinishHow | "">("");
+  const list = choices?.length ? choices : PW_FINISH_FALLBACK;
+  const finish = async (how: PwFinishHow) => {
+    if (blockers.length && !confirm(isSpanish()
+      ? `Todavía falta:\n\n• ${blockers.map(tr).join("\n• ")}\n\n¿Terminar de todos modos?`
+      : `Still missing:\n\n• ${blockers.join("\n• ")}\n\nFinish anyway?`)) return;
+    setBusy(how);
+    try { await onFinish(how); setOpen(false); }
+    catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); }
+    finally { setBusy(""); }
+  };
+  const said = list.find((c) => c.key === job.pw_finished_how)?.label;
+  return (
+    <Panel icon={CheckCircle2} accent={ACCENT.emerald} title={tr("I'm finished")}
+           sub={tr("Tap this when every service is done and photographed")}>
+      {job.completed_at ? (
+        <div className="space-y-2 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-3">
+          <p className="flex items-center gap-1.5 text-base font-semibold text-emerald-900">
+            <CheckCircle2 className="h-5 w-5 shrink-0" /> {tr("Finished")}
+            <span className="text-sm font-normal text-emerald-800">
+              {new Date(job.completed_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              {job.completed_by ? ` · ${job.completed_by}` : ""}
+            </span>
+          </p>
+          {said ? <p className="text-sm text-emerald-900">{tr(said)}</p> : null}
+          <Button variant="outline" size="lg" className="h-11"
+                  onClick={async () => {
+                    if (!confirm(tr("Undo \"I'm finished\"? Only if it was tapped by mistake."))) return;
+                    try { await onUndo(); } catch (e) { toast.error(errMessage(e, tr("Couldn't undo"))); }
+                  }}>
+            <RotateCcw className="mr-1.5 h-4 w-4" /> {tr("Undo")}
+          </Button>
+        </div>
+      ) : !open ? (
+        <Button size="lg" onClick={() => setOpen(true)}
+                className="h-auto min-h-14 w-full whitespace-normal bg-gradient-to-r from-emerald-600 to-teal-600 py-3 text-lg font-bold hover:from-emerald-600 hover:to-teal-700">
+          <CheckCircle2 className="mr-2 h-6 w-6" /> {tr("I'm finished")}
+        </Button>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-base font-bold">{tr("Before you leave, how did the customer sign off?")}</p>
+          {list.map((c) => (
+            <Button key={c.key} size="lg" variant="outline" disabled={!!busy} onClick={() => void finish(c.key)}
+                    className="h-auto min-h-14 w-full justify-start whitespace-normal border-2 border-emerald-300 py-3 text-left text-base font-semibold leading-snug hover:bg-emerald-50">
+              {busy === c.key ? <Loader2 className="mr-2 h-5 w-5 shrink-0 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5 shrink-0 text-emerald-700" />}
+              {tr(c.label)}
+            </Button>
+          ))}
+          <p className="flex items-start gap-1.5 rounded-xl bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-900 ring-1 ring-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {tr("If we have to come back, it isn't paid extra.")}
+          </p>
+          <button type="button" onClick={() => setOpen(false)} className="min-h-11 px-1 text-sm font-semibold text-muted-foreground underline">{tr("Cancel")}</button>
+        </div>
+      )}
+    </Panel>
   );
 }
 

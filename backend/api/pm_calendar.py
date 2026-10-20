@@ -10,7 +10,9 @@ Calendar: nothing here writes a calendar invite.
 Only admins add or remove days ("only me for now"); the office can look.
 Progress comes from what the crew already record: the cleaner checklist is
 worth 40%, the stainer checklist 50%, "almost done" sent lifts it to 90% and
-"Job done" to 100%. No prices anywhere in this module.
+"Job done" to 100%. A pressure-washing job (Alan, 2026-10-19) is the share
+of its services with both a before and an after photo, 100% on "Job done".
+No prices anywhere in this module.
 """
 import json
 from datetime import datetime, timedelta, timezone
@@ -21,11 +23,14 @@ from pydantic import BaseModel
 from api.auth import get_current_user, require_admin
 from api.company_cam import _crew_entries, _crew_options, _sees_all, effective_order
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
-from services.company_cam import CLEANER_CHECKLIST, STAINER_CHECKLIST
+from services.company_cam import (
+    CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICE_LABELS, STAINER_CHECKLIST, is_pw_job, pw_progress, pw_services_of,
+)
 
 router = APIRouter()
 
-TASKS = ("cleaning", "staining")
+# Pressure washing is the third (Alan, 2026-10-19).
+TASKS = CREW_TASKS
 
 
 def _today_ct() -> str:
@@ -62,11 +67,50 @@ def _cleaned(db, lead_ids) -> set[str]:
     return {r[0] for r in rows}
 
 
-def progress(job: CompanyCamJob, cleaned: bool = False) -> dict:
+def _pw_photos(db, lead_ids) -> dict[str, set[str]]:
+    """lead id -> the washing sections that have a photo in."""
+    ids = list(lead_ids)
+    if not ids:
+        return {}
+    out: dict[str, set[str]] = {}
+    for lid, sec in (db.query(CompanyCamPhoto.lead_id, CompanyCamPhoto.section)
+                     .filter(CompanyCamPhoto.lead_id.in_(ids), CompanyCamPhoto.section.like("pw_%"))
+                     .distinct().all()):
+        out.setdefault(lid, set()).add(sec)
+    return out
+
+
+def _pw_labels(job: CompanyCamJob) -> list[str]:
+    return [PW_SERVICE_LABELS[k] for k in pw_services_of(job)]
+
+
+def pw_job_progress(job: CompanyCamJob, sections: set[str]) -> dict:
+    """A washing job: the share of picked services with a before and an
+    after photo; "Job done" is 100%. Same shape as the fence progress."""
+    done, of = pw_progress(pw_services_of(job), sections)
+    pct = round(100 * done / of) if of else 0
+    finished = bool((job.completed_at or "").strip())
+    if finished:
+        pct, stage = 100, "Done"
+    elif of and done == of:
+        pct, stage = min(pct, 95), "Photos in, not marked finished"
+    elif sections:
+        stage = "Washing"
+    else:
+        stage = "Not started"
+    return {"percent": pct, "cleaning": [0, 0], "staining": [0, 0], "pw": [done, of], "stage": stage,
+            "cleaning_done": False}
+
+
+def progress(job: CompanyCamJob, cleaned: bool = False, pw_sections: set[str] | None = None) -> dict:
     """{percent, cleaning: [done, of], staining: [done, of], stage, cleaning_done}.
 
     After-cleaning photos count as cleaning finished even with a box left
-    unticked (Alan, 2026-10-19: Chris finished two, both showed 30%)."""
+    unticked (Alan, 2026-10-19: Chris finished two, both showed 30%).
+
+    A pressure-washing job goes by its photos instead (pw_job_progress)."""
+    if is_pw_job(job, _crew_entries(job)):
+        return pw_job_progress(job, pw_sections or set())
     c_done, c_of = _ticks(job.cleaner_checklist_json, CLEANER_CHECKLIST)
     if getattr(job, "no_cleaning", False) or cleaned:
         c_done = c_of  # nothing to clean, or the after photos are in: that part is done
@@ -102,12 +146,13 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
     jobs = db.query(CompanyCamJob).filter(CompanyCamJob.crew_json.isnot(None), CompanyCamJob.crew_json != "[]").all()
     leads = {l.id: l for l in db.query(Lead).filter(Lead.id.in_([j.lead_id for j in jobs])).all()} if jobs else {}
     cleaned = _cleaned(db, leads)
+    pw = _pw_photos(db, leads)
     out = []
     for j in jobs:
         lead = leads.get(j.lead_id)
         if not lead:
             continue
-        prog = progress(j, j.lead_id in cleaned)
+        prog = progress(j, j.lead_id in cleaned, pw.get(j.lead_id))
         entries = _crew_entries(j)
         # When staining is booked, so a finished clean can say so.
         staining = sorted({(e["date"], names.get(e["username"].lower(), e["username"]))
@@ -123,6 +168,8 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
                 "with": [names.get(x["username"].lower(), x["username"]) for x in entries
                          if x["date"] == day and x["username"] != e["username"] and not x["helper"]],
                 "progress": prog, "color": j.final_color or "",
+                # The services on a washing job, for the day card.
+                "pw_services": _pw_labels(j),
                 "staining_days": [{"date": d, "person": p} for d, p in staining],
                 "completed_at": j.completed_at or "", "updated_at": j.updated_at or "",
             })
@@ -160,7 +207,7 @@ def assign(body: DayBody, user: dict = Depends(require_admin)):
     except ValueError:
         raise HTTPException(400, "Pick a real day")
     if body.task and body.task not in TASKS:
-        raise HTTPException(400, "Cleaning or staining")
+        raise HTTPException(400, "Cleaning, staining or pressure washing")
     db = get_db()
     try:
         u = next((x for x in db.query(User).all() if x.username.lower() == body.username.strip().lower()), None)
@@ -253,7 +300,7 @@ def today(user: dict = Depends(_office)):
                     photos_today[p.lead_id] = photos_today.get(p.lead_id, 0) + 1
         cards: dict[str, dict] = {}
         for r in rows:
-            c = cards.setdefault(r["lead_id"], {k: r[k] for k in ("lead_id", "name", "address", "progress", "color", "completed_at", "updated_at")}
+            c = cards.setdefault(r["lead_id"], {k: r[k] for k in ("lead_id", "name", "address", "progress", "color", "completed_at", "updated_at", "pw_services")}
                                  | {"crew": [], "photos_today": photos_today.get(r["lead_id"], 0)})
             c["crew"].append({"person": r["person"], "username": r["username"], "task": r["task"]})
         first = {}
@@ -275,6 +322,7 @@ def past(user: dict = Depends(_office)):
         out = []
         all_jobs = db.query(CompanyCamJob).all()
         cleaned = _cleaned(db, [j.lead_id for j in all_jobs])
+        pw = _pw_photos(db, [j.lead_id for j in all_jobs])
         for j in all_jobs:
             entries = [e for e in _crew_entries(j) if e["date"]]
             if not entries:
@@ -289,7 +337,8 @@ def past(user: dict = Depends(_office)):
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "first_day": min(e["date"] for e in entries), "last_day": last,
                 "completed_at": j.completed_at or "", "completed_by": j.completed_by or "",
-                "color": j.final_color or "", "progress": progress(j, j.lead_id in cleaned),
+                "color": j.final_color or "", "progress": progress(j, j.lead_id in cleaned, pw.get(j.lead_id)),
+                "pw_services": _pw_labels(j),
                 "crew": [{"person": names.get(e["username"].lower(), e["username"]), "date": e["date"], "task": e["task"]}
                          for e in sorted(entries, key=lambda e: e["date"])],
             })

@@ -1930,6 +1930,15 @@ class CompanyCamJob(Base):
     materials_logged_at = Column(Text, default="")
     stain_cost = Column(Float, default=0)       # dollars
     bleach_cost = Column(Float, default=0)      # dollars
+    # Pressure washing (Alan, 2026-10-19): the services the office ticked,
+    # as keys from services/company_cam.py PW_SERVICES (["house_wash", ...]).
+    # The crew photographs each one before and after.
+    pw_services_json = Column(Text, default="[]")
+    # How a washing job was finished, picked when they tapped "I'm finished":
+    # "home_happy" (checked with the customer, they're happy) |
+    # "called_sent_photos" (not home: called and sent photos) | "".
+    # When is completed_at / completed_by, the same "Job done" stamp.
+    pw_finished_how = Column(Text, default="")
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -1951,7 +1960,8 @@ class CompanyCamPhoto(Base):
 
     id = Column(Text, primary_key=True)
     lead_id = Column(Text, nullable=False)
-    # fence_scope | clean_before | clean_after | stain_after
+    # fence_scope | clean_before | clean_after | stain_before | stain_after,
+    # or pw_<service>_before | pw_<service>_after on a pressure-washing job
     section = Column(Text, nullable=False)
     seq = Column(Integer, default=1)
     # Which side of the fence this is, in the crew's own words.
@@ -4948,6 +4958,9 @@ def _run_migrations():
             ("materials_logged_at", "TEXT DEFAULT ''"),
             ("stain_cost", "DOUBLE PRECISION DEFAULT 0"),
             ("bleach_cost", "DOUBLE PRECISION DEFAULT 0"),
+            # Pressure washing (Alan, 2026-10-19).
+            ("pw_services_json", "TEXT DEFAULT '[]'"),
+            ("pw_finished_how", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

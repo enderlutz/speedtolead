@@ -3853,7 +3853,7 @@ export const api = {
       `/api/pm-hq/calendar?start=${start}&end=${end}`),
   getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[] }>(`/api/pm-hq/today`),
   getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),
-  pmHqAssign: (b: { lead_id: string; date: string; username: string; task: "" | "cleaning" | "staining"; helper?: boolean }) =>
+  pmHqAssign: (b: { lead_id: string; date: string; username: string; task: CrewTask; helper?: boolean }) =>
     request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
   pmHqOrder: (date: string, lead_ids: string[], username = "") =>
     request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids, username }) }),
@@ -3879,7 +3879,8 @@ export const api = {
       stainer_checklist?: string[];
     },
   ) =>
-    request<{ job: CompanyCamJob; blockers: string[]; estimate_sides?: string[]; crew_pay?: Record<string, CrewPay> }>(`/api/company-cam/${leadId}`, {
+    request<{ job: CompanyCamJob; blockers: string[]; estimate_sides?: string[]; crew_pay?: Record<string, CrewPay>;
+              pw_mode?: boolean; pw_sections?: CompanyCamSection[] }>(`/api/company-cam/${leadId}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
@@ -3894,8 +3895,10 @@ export const api = {
       { method: "POST", body: JSON.stringify({ message: message || null }) }),
   resetCompanyCamAlmostDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/almost-done/reset`, { method: "POST" }),
-  markCompanyCamDone: (leadId: string) =>
-    request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`, { method: "POST" }),
+  /** `how` is required on a pressure-washing job: how the customer signed off. */
+  markCompanyCamDone: (leadId: string, how?: PwFinishHow) =>
+    request<{ job: CompanyCamJob; blockers: string[] }>(`/api/company-cam/${leadId}/done`,
+      how ? { method: "POST", body: JSON.stringify({ how }) } : { method: "POST" }),
   resetCompanyCamDone: (leadId: string) =>
     request<{ job: CompanyCamJob }>(`/api/company-cam/${leadId}/done/reset`, { method: "POST" }),
   updateCompanyCamPhoto: (leadId: string, photoId: string,
@@ -4081,8 +4084,15 @@ export interface CompanyCamJob {
   neighbor_notes: string;
   almost_done_sent_at: string;
   almost_done_sent_by: string;
+  /** Pressure washing (Alan, 2026-10-19): the services the office ticked
+   *  (keys of pw_service_options), and how the customer signed off when the
+   *  crew tapped "I'm finished". */
+  pw_services?: string[];
+  pw_finished_how?: PwFinishHow | "";
   updated_at: string;
 }
+
+export type PwFinishHow = "home_happy" | "called_sent_photos";
 
 export interface CompanyCamSection {
   key: string;
@@ -4090,6 +4100,9 @@ export interface CompanyCamSection {
   who: string;
   hint: string;
   wants_damage: boolean;
+  /** Washing sections only: which service, and before or after. */
+  service?: string;
+  phase?: "before" | "after";
 }
 
 export interface CompanyCamPayload {
@@ -4128,6 +4141,13 @@ export interface CompanyCamPayload {
   measure_options?: { captures: { id: string; label: string; linear_feet: number }[]; height_ft: number };
   blockers: string[];
   customer: { name: string; phone: string; address: string; do_not_contact: boolean };
+  /** Every washing service the office can tick. */
+  pw_service_options?: { key: string; label: string }[];
+  /** Before/after photo sections of the ticked services. */
+  pw_sections?: CompanyCamSection[];
+  /** This person gets the pressure-washing screen. */
+  pw_mode?: boolean;
+  pw_finish_choices?: { key: PwFinishHow; label: string }[];
 }
 
 export interface ContactPage {
@@ -6104,7 +6124,9 @@ export interface StainCoverageFile {
   missing_stain: CoverageJob[];
 }
 
-export type CrewEntry = { username: string; date: string; task: "" | "cleaning" | "staining" };
+/** Pressure washing is the third kind of crew day (Alan, 2026-10-19). */
+export type CrewTask = "" | "cleaning" | "staining" | "pressure_washing";
+export type CrewEntry = { username: string; date: string; task: CrewTask };
 /** How one person is paid on one job: a flat amount, or hourly at a rate. */
 export type CrewPay = { pay_type: "" | "flat" | "hourly"; pay: number };
 
@@ -6166,19 +6188,24 @@ export type DocCategory = { key: string; label: string; about: string };
 
 
 // ── PM HQ calendar ───────────────────────────────────────────────────────
-export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string; cleaning_done?: boolean }
+/** `pw`: a pressure-washing job's services with both photos in, of those picked. */
+export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string; cleaning_done?: boolean; pw?: [number, number] }
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
-  task: "" | "cleaning" | "staining"; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
+  task: CrewTask; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
   staining_days?: { date: string; person: string }[];
+  /** Washing services on the job, as labels ("House wash"). */
+  pw_services?: string[];
 }
 export interface PmTodayJob {
   lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;
   updated_at: string; photos_today: number; crew: { person: string; username: string; task: string }[];
+  pw_services?: string[];
 }
 export interface PmPastJob {
   lead_id: string; name: string; address: string; first_day: string; last_day: string; completed_at: string;
   completed_by: string; color: string; progress: PmProgress; crew: { person: string; date: string; task: string }[];
+  pw_services?: string[];
 }
 
 // --- On call (2026-10-19) ---

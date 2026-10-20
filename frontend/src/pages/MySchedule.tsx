@@ -972,11 +972,14 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
           <span>
             <b className="block">{tr("First thing this morning: text each customer below when you'll get there.")}</b>
             {/* The wording follows the job: clean or stain (Alan, 2026-10-19). */}
-            {shown.some((j) => j.task !== "staining") ? (
+            {shown.some((j) => j.task !== "staining" && j.task !== "pressure_washing") ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to clean your fence.\"")}</span>
             ) : null}
             {shown.some((j) => j.task === "staining") ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to stain your fence.\"")}</span>
+            ) : null}
+            {shown.some((j) => j.task === "pressure_washing") ? (
+              <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] for your pressure washing.\"")}</span>
             ) : null}
           </span>
         </div>
@@ -984,9 +987,12 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
       {shown.map((j) => (
         <Link key={`${j.lead_id}-${j.date}-${j.task || ""}`} to={`/company-cam/${j.lead_id}`}
               className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
-          <span className={`flex h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : "bg-stone-500"}`}>
+          <span className={`flex min-h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg py-1 text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : j.task === "pressure_washing" ? "bg-indigo-600" : "bg-stone-500"}`}>
             {nth(j) ? <span className="text-[11px] font-extrabold">{nth(j)}</span> : null}
-            <span className="text-sm uppercase tracking-wide">{j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Cleaning") : tr("Job")}</span>
+            {/* Pressure washing (Alan, 2026-10-19): two words, so it wraps instead of shrinking. */}
+            <span className={j.task === "pressure_washing" ? "text-xs uppercase tracking-wide" : "text-sm uppercase tracking-wide"}>
+              {j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Cleaning") : j.task === "pressure_washing" ? tr("Pressure washing") : tr("Job")}
+            </span>
             {tab !== "today" ? <span className="font-medium opacity-90">{day(j.date)}</span> : null}
           </span>
           <span className="min-w-0 flex-1">
