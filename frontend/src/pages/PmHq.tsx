@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { getCurrentUser, hasPerm } from "@/lib/api";
 import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -141,7 +142,7 @@ function TodayView() {
       {data.jobs.length === 0 ? (
         <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No jobs on today. Add one from the Calendar tab.</p>
       ) : data.jobs.map((j) => (
-        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}?view=manager&from=pm-hq`} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
+        <JobLink key={j.lead_id} leadId={j.lead_id} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="font-semibold">{j.name}</p>
@@ -156,7 +157,7 @@ function TodayView() {
             {j.photos_today ? `${j.photos_today} photo${j.photos_today === 1 ? "" : "s"} today · ` : "No photos yet today · "}
             last update {ago(j.updated_at) || "none"}{j.color ? ` · ${j.color}` : ""}
           </p>
-        </Link>
+        </JobLink>
       ))}
     </div>
   );
@@ -276,9 +277,22 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
   );
 }
 
+/** The office (admins, VAs, anyone who sees prices) opens jobs and sees pay.
+ *  A view-only PM HQ login (Alec, 2026-10-20) sees the jobs and nothing else. */
+function isOffice(): boolean {
+  const role = getCurrentUser()?.role;
+  return role === "admin" || role === "va" || hasPerm("see_prices");
+}
+
+function JobLink({ leadId, className, children }: { leadId: string; className: string; children: React.ReactNode }) {
+  if (!isOffice()) return <div className={className}>{children}</div>;
+  return <Link to={`/company-cam/${leadId}?view=manager&from=pm-hq`} className={className}>{children}</Link>;
+}
+
 /** What this person is paid on this job (Alan, 2026-10-19), set on the
  *  customer's Company Cam profile. Amber when nobody has set it yet. */
 function PayChip({ x }: { x: PmDay }) {
+  if (!isOffice()) return null;
   const amount = x.pay ? `$${Number(x.pay).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "";
   const text = !x.pay_type ? "Pay not set"
     : x.pay_type === "hourly" ? (amount ? `${amount}/hr` : "Hourly") : `${amount || "$0"} flat`;
@@ -375,7 +389,9 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
       ) : null}
       <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">{n}</span>
       <div className="min-w-0 flex-1">
-        <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate text-base font-semibold text-primary hover:underline">{x.name} ›</Link>
+        {isOffice()
+          ? <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate text-base font-semibold text-primary hover:underline">{x.name} ›</Link>
+          : <p className="truncate text-base font-semibold">{x.name}</p>}
         <p className="truncate text-xs text-muted-foreground">{x.address}</p>
         <PayChip x={x} />
         {x.task === "pressure_washing" || !x.task ? <PwServices list={x.pw_services} /> : null}
@@ -594,7 +610,7 @@ function PastView() {
   return (
     <div className="space-y-3">
       {jobs.map((j) => (
-        <Link key={j.lead_id} to={`/company-cam/${j.lead_id}?view=manager&from=pm-hq`} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
+        <JobLink key={j.lead_id} leadId={j.lead_id} className="block rounded-2xl border bg-card p-4 transition-colors hover:bg-muted/40">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="font-semibold">{j.name}</p>
@@ -613,7 +629,7 @@ function PastView() {
           </div>
           <PwServices list={j.pw_services} />
           {j.color ? <p className="mt-2 text-xs text-muted-foreground">Color: <span className="font-semibold text-foreground">{j.color}</span></p> : null}
-        </Link>
+        </JobLink>
       ))}
     </div>
   );

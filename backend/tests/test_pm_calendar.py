@@ -226,3 +226,33 @@ def test_after_cleaning_photos_finish_the_clean():
     assert progress(job)["stage"] == "Cleaning" and not progress(job)["cleaning_done"]
     p = progress(job, cleaned=True)
     assert p["cleaning_done"] and p["stage"] == "Cleaned, ready to stain" and p["percent"] == 40
+
+
+def test_a_view_only_login_sees_the_jobs_but_no_pay(db, monkeypatch):
+    """Alec (social media, 2026-10-20) is given PM HQ to look at: the jobs and
+    who's on them, never anyone's pay, no changes."""
+    from api import permissions
+    _seed(db)
+    db.add(User(id="u9", username="AlecWigderson", display_name="Alec Wigderson", role="social", password_hash="x",
+                permissions=json.dumps({"pm_hq": True})))
+    db.add(User(id="u8", username="Nobody", display_name="Nobody", role="social", password_hash="x"))
+    db.commit()
+    for mod in (pm, cc, permissions):
+        monkeypatch.setattr(mod, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-20", username="Chris", task="cleaning"), user=ALAN)
+    job = db.query(CompanyCamJob).filter_by(lead_id="Y").first()
+    entries = json.loads(job.crew_json or "[]")
+    for e in entries:
+        e["pay_type"], e["pay"] = "flat", 73.0
+    job.crew_json = json.dumps(entries)
+    db.commit()
+    alec = {"sub": "AlecWigderson", "name": "Alec Wigderson", "role": "social"}
+    assert pm._office(alec) == alec
+    cal = pm.calendar("2026-10-01", "2026-10-31", user=alec)
+    assert [d["name"] for d in cal["days"]] == ["YOGI"]
+    assert cal["days"][0]["pay"] == 0.0 and cal["days"][0]["pay_type"] == ""
+    assert cal["can_edit"] is False and cal["show_pay"] is False
+    assert pm.calendar("2026-10-01", "2026-10-31", user=ALAN)["days"][0]["pay"] == 73.0
+    with pytest.raises(HTTPException):
+        pm._office({"sub": "Nobody", "name": "Nobody", "role": "social"})

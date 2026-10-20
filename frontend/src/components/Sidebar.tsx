@@ -110,6 +110,8 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   { to: "/calendar", icon: Calendar, label: "Job Calendar", perm: "calendar" },
   // { to: "/crew-schedule", icon: HardHat, label: "Crew Schedule", perm: "calendar" }, // archived 2026-07-18 — replaced by Project Manager (PM HQ). Route/page kept.
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "assign_crew" },
+  // The same page to look at only: the jobs, no pay, no changes (Alec, 2026-10-20).
+  { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "pm_hq" },
   { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
@@ -265,6 +267,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             if (item.divisions && !item.divisions.includes(getDivision())) return false;
             if (item.restrictToAny) return !!u && item.restrictToAny.includes((u.sub || "").toLowerCase());
             if (item.restrictTo) return u?.sub === item.restrictTo;
+            if (item.perm === "pm_hq") return hasPerm("pm_hq") && !hasPerm("assign_crew");
             if (item.perm) return hasPerm(item.perm);
             if (item.to === "/on-call") return u?.role === "admin" || u?.role === "va";
             // Items without a perm default to admin + va, hidden from workers.

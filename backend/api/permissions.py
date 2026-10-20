@@ -59,6 +59,9 @@ VIEW_PERMS: list[tuple[str, str]] = [
     ("pricing", "Pricing"),
     ("settings", "Settings"),
     ("agents", "AI Agents"),
+    # See the jobs going on, nothing else: no pay, no changes, no job pages
+    # (Alan, 2026-10-20: Alec, the social media guy, to see what's on).
+    ("pm_hq", "Project Manager (view the jobs only)"),
 ]
 
 ACTION_PERMS: list[tuple[str, str]] = [

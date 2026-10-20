@@ -43,9 +43,20 @@ def _today_ct() -> str:
 
 
 def _office(user: dict = Depends(get_current_user)) -> dict:
-    if not _sees_all(user):
+    if not _sees_all(user) and not _viewer(user):
         raise HTTPException(403, "PM HQ is for the office")
     return user
+
+
+def _viewer(user: dict) -> bool:
+    """Someone given PM HQ to look at only (Alec, 2026-10-20): the jobs, who's
+    on them and how far along. Never anyone's pay."""
+    from api.permissions import require_perm
+    try:
+        require_perm("pm_hq")(user)
+        return True
+    except HTTPException:
+        return False
 
 
 def _ticks(raw: str | None, keys: list[dict]) -> tuple[int, int]:
@@ -184,7 +195,11 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
 def calendar(start: str, end: str, user: dict = Depends(_office)):
     db = get_db()
     try:
-        return {"days": _rows(db, start[:10], end[:10]), "crew_options": _crew_options(db),
+        rows = _rows(db, start[:10], end[:10])
+        if not _sees_all(user):
+            for r in rows:
+                r["pay_type"], r["pay"] = "", 0.0
+        return {"days": rows, "crew_options": _crew_options(db), "show_pay": _sees_all(user),
                 "can_edit": user.get("role") == "admin", "today": _today_ct()}
     finally:
         db.close()

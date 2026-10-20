@@ -289,7 +289,7 @@ function AppLayout() {
               <Route path="/estimator" element={<RequireView view="estimator"><Estimator /></RequireView>} />
               <Route path="/estimator/day/:date" element={<RequireView view="estimator"><EstimatorDay /></RequireView>} />
               <Route path="/crew-schedule" element={<StaffOnly><CrewSchedule /></StaffOnly>} />
-              <Route path="/pm-hq" element={<RequireView view="assign_crew"><PmHq /></RequireView>} />
+              <Route path="/pm-hq" element={<RequireView view={hasPerm("assign_crew") ? "assign_crew" : "pm_hq"}><PmHq /></RequireView>} />
               <Route path="/on-call" element={<RequireOffice><OnCall /></RequireOffice>} />
               <Route path="/crew-stats" element={<StaffOnly><CrewStats /></StaffOnly>} />
               <Route path="/job-map" element={<StaffOnly><MapTab /></StaffOnly>} />
