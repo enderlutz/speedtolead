@@ -1987,6 +1987,10 @@ class CompanyCamPhoto(Base):
 
     uploaded_at = Column(Text, default="")
     uploaded_by = Column(Text, default="")
+    # When the camera took it, from the phone (Alan, 2026-10-20: "so I can
+    # see when they arrived at the job"). Differs from uploaded_at on a
+    # photo picked from the gallery or sent later on a weak signal.
+    taken_at = Column(Text, default="")
 
 
 class ContentItem(Base):
@@ -4978,7 +4982,7 @@ def _run_migrations():
 
     if inspector.has_table("company_cam_photos"):
         ccp_cols = {c["name"] for c in inspector.get_columns("company_cam_photos")}
-        for col in ("note_by", "note_at"):
+        for col in ("note_by", "note_at", "taken_at"):
             if col not in ccp_cols:
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE company_cam_photos ADD COLUMN {col} TEXT DEFAULT ''"))

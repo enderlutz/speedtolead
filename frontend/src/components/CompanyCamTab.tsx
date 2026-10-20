@@ -31,6 +31,7 @@ import {
   type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
+import { photoTakenAt, stampText } from "@/lib/photoTime";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -315,10 +316,11 @@ function PhotoCard({
           </span>
         ) : null}
         {photo.side ? (
-          <span className="absolute bottom-1.5 left-1.5 max-w-[90%] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+          <span className="absolute bottom-8 left-1.5 max-w-[90%] truncate rounded-md bg-black/55 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
             {photo.side}
           </span>
         ) : null}
+        <PhotoStamp photo={photo} />
       </div>
       <div className="space-y-1.5 p-2">
         {/* "Which side?" archived 2026-10-16 (Alan): not needed for now. A
@@ -746,10 +748,11 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
     let lastErr: unknown = null;
     try {
       for (const f of Array.from(files)) {
+        const takenAt = await photoTakenAt(f); // before shrinking drops the EXIF
         const small = await shrinkPhoto(f);
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            await api.uploadCompanyCamPhoto(leadId, small, { section });
+            await api.uploadCompanyCamPhoto(leadId, small, { section, takenAt });
             ok += 1;
             break;
           } catch (e) {
@@ -795,6 +798,20 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const totalPhotos = Object.values(photos).reduce((n, arr) => n + arr.length, 0);
   const chosenStain = (data.stain_options || []).find((o) => o.id === job.final_stain_id)?.label || (job.final_stain_id ? job.final_color : "");
   const damage = Object.values(photos).flat().filter((p) => p.is_damage).length;
+  // The first photo the crew took each day = when they got there (Alan,
+  // 2026-10-20). Not the office's scope drawing or the auto-imported ones.
+  const arrivals = (() => {
+    const first = new Map<string, CompanyCamPhoto>();
+    for (const p of Object.values(photos).flat()) {
+      if (p.section === "fence_scope" || p.uploaded_by.startsWith("auto:")) continue;
+      const at = p.taken_at || p.uploaded_at;
+      if (!at) continue;
+      const day = new Date(at).toDateString();
+      const had = first.get(day);
+      if (!had || at < (had.taken_at || had.uploaded_at)) first.set(day, p);
+    }
+    return [...first.values()].sort((a, b) => ((b.taken_at || b.uploaded_at) < (a.taken_at || a.uploaded_at) ? -1 : 1)).slice(0, 3);
+  })();
 
   // Progress across the four stages. The scope stage counts as done when the
   // job is written out instead, because that is the agreed substitute for a
@@ -1289,6 +1306,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                   <Ban className="h-3 w-3" /> {tr("Do not contact")}
                 </span>
               ) : null}
+              {arrivals.map((p) => (
+                <span key={p.id} className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 font-semibold text-white"
+                      title={tr("The first photo taken that day")}>
+                  🕒 {tr("Arrived")} {stampText(p.taken_at || p.uploaded_at)}{p.uploaded_by ? ` · ${p.uploaded_by}` : ""}
+                </span>
+              ))}
             </div>
           </div>
           <Donut pct={donePct} />
@@ -2013,6 +2036,23 @@ function LibraryPicker({ leadId, section, onClose, onAdded }: {
         <Button size="lg" className="mt-4 h-11 w-full" onClick={onClose}>{tr("Done")}</Button>
       </div>
     </div>
+  );
+}
+
+/** The time on every photo (Alan, 2026-10-20: "so I can see when they
+ *  arrived at the job"). When it went up much later than it was taken (a
+ *  gallery pick, a weak signal), both times show, the upload in amber. */
+function PhotoStamp({ photo }: { photo: CompanyCamPhoto }) {
+  const taken = photo.taken_at || photo.uploaded_at;
+  const text = stampText(taken);
+  if (!text) return null;
+  const late = photo.uploaded_at && taken
+    && new Date(photo.uploaded_at).getTime() - new Date(taken).getTime() > 30 * 60_000;
+  return (
+    <span className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-end gap-x-2 bg-black/65 px-2 py-1 text-xs font-bold tabular-nums text-white">
+      <span>🕒 {text}</span>
+      {late ? <span className="font-semibold text-amber-300">{tr("sent")} {stampText(photo.uploaded_at)}</span> : null}
+    </span>
   );
 }
 

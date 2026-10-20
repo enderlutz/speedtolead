@@ -11,7 +11,7 @@ import json
 import re
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
@@ -307,7 +307,24 @@ def _photo_dict(p: CompanyCamPhoto) -> dict:
         "from_storage": bool(p.storage_url),
         "uploaded_at": p.uploaded_at or "",
         "uploaded_by": p.uploaded_by or "",
+        # Every photo shows a time (Alan, 2026-10-20); older ones only have the upload's.
+        "taken_at": p.taken_at or p.uploaded_at or "",
     }
+
+
+def _taken_at(raw: str, now: datetime) -> str:
+    """The phone's camera time as UTC ISO, or "" when it's missing or
+    impossible (in the future, or before the phone could have been there)."""
+    try:
+        d = datetime.fromisoformat((raw if isinstance(raw, str) else "").strip().replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if d.tzinfo is None:
+        return ""
+    d = d.astimezone(timezone.utc)
+    if d > now + timedelta(minutes=5) or d < now - timedelta(days=365):
+        return ""
+    return d.isoformat()
 
 
 def _json_list(raw: str | None) -> list:
@@ -889,7 +906,8 @@ def mark_color_shown(lead_id: str, user: dict = Depends(get_current_user)):
 
 
 def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: dict | None, *,
-                 side: str = "", note: str = "", is_damage: bool = False, uploaded_by: str | None = None) -> CompanyCamPhoto:
+                 side: str = "", note: str = "", is_damage: bool = False, uploaded_by: str | None = None,
+                 taken_at: str = "") -> CompanyCamPhoto:
     """Adds a photo to a section, next in line. Storage first; a BLOB when it
     isn't configured, which is how local dev runs. Never lose the photo over
     a missing env var. The caller commits."""
@@ -915,7 +933,7 @@ def _store_photo(db, lead_id: str, section: str, data: bytes, mime: str, user: d
         note_by=(uploaded_by or _actor(user)) if (note or "").strip() else "",
         note_at=_now() if (note or "").strip() else "",
         storage_url=url, image_data=None if url else data, has_image_data=not url,
-        mime=mime, uploaded_at=_now(), uploaded_by=uploaded_by or _actor(user),
+        mime=mime, uploaded_at=_now(), uploaded_by=uploaded_by or _actor(user), taken_at=taken_at or "",
     )
     db.add(photo)
     return photo
@@ -1030,6 +1048,7 @@ async def upload_photo(
     side: str = Form(""),
     note: str = Form(""),
     is_damage: bool = Form(False),
+    taken_at: str = Form(""),
     user: dict = Depends(get_current_user),
 ):
     if not valid_section(section):
@@ -1044,7 +1063,8 @@ async def upload_photo(
     try:
         _lead_or_404(db, lead_id)
         photo = _store_photo(db, lead_id, section, data, file.content_type or "image/jpeg", user,
-                             side=side, note=note, is_damage=is_damage)
+                             side=side, note=note, is_damage=is_damage,
+                             taken_at=_taken_at(taken_at, datetime.now(timezone.utc)))
         db.commit()
         return _photo_dict(photo)
     finally:

@@ -3799,9 +3799,10 @@ export const api = {
   uploadCompanyCamPhoto: async (
     leadId: string,
     file: File,
-    opts: { section: string; side?: string; note?: string; isDamage?: boolean },
+    opts: { section: string; side?: string; note?: string; isDamage?: boolean; takenAt?: string },
   ) => {
     const fd = new FormData();
+    fd.append("taken_at", opts.takenAt || "");
     fd.append("file", file);
     fd.append("section", opts.section);
     fd.append("side", opts.side || "");
@@ -3991,6 +3992,8 @@ export interface CompanyCamPhoto {
   from_storage: boolean;
   uploaded_at: string;
   uploaded_by: string;
+  /** When the camera took it (falls back to uploaded_at on older photos). */
+  taken_at?: string;
 }
 
 /** Where the customer is on colour, per area of the fence. A single colour
