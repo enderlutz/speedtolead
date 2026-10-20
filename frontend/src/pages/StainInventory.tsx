@@ -328,6 +328,23 @@ function CoverageFile() {
             </div>
           );
         })}
+        {file?.bleach?.length ? (
+          <div className="rounded-lg border border-cyan-200 bg-cyan-50/50 px-3 py-2">
+            <p className="text-sm font-semibold">Bleach: sq ft one gallon cleaned, by fence age</p>
+            <p className="text-xs text-muted-foreground">
+              After {file.bleach_min_jobs ?? 10} cleanings on fences that age, the cleaner is told how much bleach to bring.
+            </p>
+            {file.bleach.map((b) => (
+              <div key={b.fence_age} className="mt-1.5 flex items-center justify-between gap-2 text-xs tabular-nums">
+                <span className="font-medium">{b.fence_age}</span>
+                <span className="text-muted-foreground">
+                  {b.jobs.length} {b.jobs.length === 1 ? "cleaning" : "cleanings"} · {b.sqft.toLocaleString()} sq ft · {b.gallons} gal ·{" "}
+                  <b className="text-foreground">{b.sqft_per_gallon ?? "?"} sq ft a gallon</b>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {file && file.missing_stain.length ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             <p className="font-semibold">Gallons recorded but no stain picked, so not counted yet:</p>

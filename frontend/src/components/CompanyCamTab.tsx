@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type StainOption, type CompanyCamPhoto,
+  api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type BleachStats, type StainOption, type CompanyCamPhoto,
   type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewTask, type PwFinishHow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
@@ -1509,8 +1509,11 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
                        if (v !== (job.bleach_gallons_to_bring || 0)) void patch({ bleach_gallons_to_bring: v });
                      }} />
             ) : (
-              <ReadValue>{job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} ${isSpanish() ? "galones" : "gallons"}` : tr("Not set yet")}</ReadValue>
+              <ReadValue>{job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} ${isSpanish() ? "galones" : "gallons"}`
+                : data.bleach?.suggest ? `${data.bleach.suggest.gallons} ${isSpanish() ? "galones" : "gallons"}` : tr("Not set yet")}</ReadValue>
             )}
+            <BleachLine stats={data.bleach} age={data.fence_age} set={job.bleach_gallons_to_bring} manager={manager}
+                        onUse={(g) => void patch({ bleach_gallons_to_bring: g })} />
           </StatTile>
           )}
 
@@ -1903,6 +1906,39 @@ function ageLabel(v?: string) {
 
 /** What a gallon covered on this job, next to our average overall and on
  *  fences this old. Each job with gallons recorded adds to the averages. */
+/** What we've learned about bleach (Alan, 2026-10-19): sq ft one gallon
+ *  cleans, and once there are enough cleanings, how much to bring. */
+function BleachLine({ stats, age, set, manager, onUse }: {
+  stats?: BleachStats; age?: string; set: number; manager: boolean; onUse: (g: number) => void;
+}) {
+  if (!stats) return null;
+  const s = stats.suggest;
+  if (!s) {
+    return (
+      <p className="mt-1.5 text-xs text-muted-foreground tabular-nums">
+        {isSpanish() ? `Aprendiendo: ${stats.all_jobs} de ${stats.min_jobs} limpiezas con el cloro anotado.`
+          : `Learning: ${stats.all_jobs} of ${stats.min_jobs} cleanings have their bleach recorded.`}
+        {stats.all_avg ? (isSpanish() ? ` Hasta ahora ${stats.all_avg} pies² por galón.` : ` So far ${stats.all_avg} sq ft a gallon.`) : ""}
+      </p>
+    );
+  }
+  const where = s.basis === "age" ? ageLabel(age).toLowerCase() : (isSpanish() ? "todas las cercas" : "all fences");
+  return (
+    <div className="mt-1.5 text-xs tabular-nums">
+      <p className="text-muted-foreground">
+        {isSpanish() ? `Nuestro promedio (${where}, ${s.jobs} limpiezas): ${s.rate} pies² por galón → ${s.gallons} galones.`
+          : `Our average (${where}, ${s.jobs} cleanings): ${s.rate} sq ft a gallon → ${s.gallons} gallons.`}
+      </p>
+      {manager && set !== s.gallons ? (
+        <button type="button" onClick={() => onUse(s.gallons)}
+                className="mt-1 inline-flex min-h-9 items-center rounded-lg px-2.5 text-xs font-semibold text-primary ring-1 ring-primary/30 hover:bg-primary/10">
+          Use {s.gallons} gallons
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function Coverage({ sqft, gallons, age, stats, stain, wood }: {
   sqft: number; gallons: number; age?: string; stats?: CoverageStats; stain?: string; wood?: string;
 }) {

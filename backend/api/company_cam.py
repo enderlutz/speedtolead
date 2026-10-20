@@ -43,6 +43,8 @@ from services.company_cam import (
     STAINER_CHECKLIST,
     cleaner_color_actions,
     coverage_stats,
+    bleach_stats,
+    bleach_suggestion,
     customer_previously_stained,
     estimate_options,
     stain_label,
@@ -335,6 +337,11 @@ def _repairs(job: CompanyCamJob, raw: str | None = None) -> dict:
 _MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?k?", re.I)
 
 
+def _bleach_payload(db, job, age: str) -> dict:
+    stats = bleach_stats(db, age)
+    return {**stats, "suggest": bleach_suggestion(float(job.sqft or 0), stats)}
+
+
 def _no_money(d: dict) -> dict:
     """The crew never sees a job's price or costs (Alan, 2026-10-19: "make
     sure none of my employees can see job costs"). Money fields are already
@@ -523,6 +530,9 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # this old (Alan, 2026-10-15).
             "fence_age": age,
             "coverage": coverage_stats(db, age, job.final_stain_id or "", stained_answer(job, lead), job.wood_type or ""),
+            # What a gallon of bleach cleans, and how much to bring once we've
+            # learned it (Alan, 2026-10-19).
+            "bleach": _bleach_payload(db, job, age),
             "stain_options": stain_options(db),
             # What the customer said on the form ("No", "Yes", "I don't
             # know"), shown until someone confirms it on site.

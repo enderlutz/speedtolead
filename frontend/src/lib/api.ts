@@ -4130,6 +4130,8 @@ export interface CompanyCamPayload {
   fence_age?: string;
   /** Square feet a gallon covered on our jobs: all of them, and fences this old. */
   coverage?: CoverageStats;
+  /** Sq ft a gallon of bleach cleans, and how much to bring once learned (Alan, 2026-10-19). */
+  bleach?: BleachStats;
   /** Every stain in the inventory, to pick the one they went with. */
   stain_options?: StainOption[];
   /** The customer's form answer to "previously stained?". */
@@ -6119,10 +6121,16 @@ export interface ProposalLiveState {
 export type CoverageStats = { all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null; match_jobs?: number; match_avg?: number | null };
 export type StainOption = { id: string; label: string; color_name: string; brand: string; finish_type: string; active: boolean };
 export type CoverageJob = { lead_id: string; name: string; sqft: number; gallons: number; sqft_per_gallon: number; color?: string };
+export interface BleachStats {
+  all_jobs: number; all_avg: number | null; age_jobs: number; age_avg: number | null; min_jobs: number;
+  suggest: { gallons: number; rate: number; jobs: number; basis: "age" | "all" } | null;
+}
+export interface BleachFileRow { fence_age: string; jobs: CoverageJob[]; sqft: number; gallons: number; sqft_per_gallon: number | null }
 export interface StainCoverageFile {
   rows: { stain_id: string; stain: string; color_name: string; brand: string; finish_type: string; wood_type: string;
     fence_age: string; previously_stained: string; jobs: CoverageJob[]; gallons: number; sqft: number; sqft_per_gallon: number | null }[];
   missing_stain: CoverageJob[];
+  bleach?: BleachFileRow[]; bleach_min_jobs?: number;
 }
 
 /** Pressure washing is the third kind of crew day (Alan, 2026-10-19). */

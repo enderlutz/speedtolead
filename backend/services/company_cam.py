@@ -620,7 +620,69 @@ def coverage_file(db) -> dict:
         g["sqft_per_gallon"] = round(g["sqft"] / g["gallons"]) if g["gallons"] else None
         rows.append(g)
     rows.sort(key=lambda g: (g["color_name"].lower(), g["brand"].lower(), g["wood_type"], g["fence_age"], g["previously_stained"]))
-    return {"rows": rows, "missing_stain": missing}
+    return {"rows": rows, "missing_stain": missing, "bleach": bleach_file(db), "bleach_min_jobs": BLEACH_MIN_JOBS}
+
+
+# Bleach (Alan, 2026-10-19): the same learning as stain. Every cleaning with
+# its footage and the bleach the cleaner used teaches us sq ft a gallon of
+# bleach, by fence age; once there are enough cleanings the cleaner is told
+# how much to bring without anyone working it out.
+BLEACH_MIN_JOBS = 10
+
+
+def _bleach_jobs(db) -> list[tuple]:
+    """(lead, sq ft, gallons) for every cleaning with footage and bleach used.
+    A washing job's bleach (pw_bleach_gallons) is a different job and isn't here."""
+    from database import CompanyCamJob, Lead
+
+    return [(lead, float(job.sqft), float(job.bleach_gallons_used))
+            for job, lead in (db.query(CompanyCamJob, Lead).join(Lead, Lead.id == CompanyCamJob.lead_id)
+                              .filter(CompanyCamJob.bleach_gallons_used > 0, CompanyCamJob.sqft > 0).all())]
+
+
+def bleach_stats(db, age: str = "") -> dict:
+    """Sq ft one gallon of bleach cleaned, over every cleaning and on fences
+    this old. Total sq ft ÷ total gallons, so a big fence counts for more."""
+    tot, same = [0.0, 0.0, 0], [0.0, 0.0, 0]
+    for lead, sqft, gal in _bleach_jobs(db):
+        for bucket, hit in ((tot, True), (same, bool(age) and fence_age(db, lead) == age)):
+            if hit:
+                bucket[0] += sqft
+                bucket[1] += gal
+                bucket[2] += 1
+    rate = lambda b: round(b[0] / b[1]) if b[1] else None  # noqa: E731
+    return {"all_jobs": tot[2], "all_avg": rate(tot), "age_jobs": same[2], "age_avg": rate(same),
+            "min_jobs": BLEACH_MIN_JOBS}
+
+
+def bleach_suggestion(sqft: float, stats: dict) -> dict | None:
+    """Gallons of bleach to bring, once we've learned it: fences this old
+    first, every fence when this age hasn't got enough cleanings yet. Rounded
+    up to the half gallon, like the stain."""
+    if not sqft or sqft <= 0:
+        return None
+    for basis, jobs, rate in (("age", stats["age_jobs"], stats["age_avg"]), ("all", stats["all_jobs"], stats["all_avg"])):
+        if jobs >= BLEACH_MIN_JOBS and rate:
+            return {"gallons": gallons_for(sqft, rate), "rate": rate, "jobs": jobs, "basis": basis}
+    return None
+
+
+def bleach_file(db) -> list[dict]:
+    """Bleach by fence age: cleanings, total sq ft, total gallons, sq ft a gallon."""
+    groups: dict[str, dict] = {}
+    for lead, sqft, gal in _bleach_jobs(db):
+        age = fence_age(db, lead) or "Didn't say"
+        g = groups.setdefault(age, {"fence_age": age, "jobs": [], "sqft": 0, "gallons": 0.0})
+        g["jobs"].append({"lead_id": lead.id, "name": lead.contact_name or "", "sqft": round(sqft), "gallons": gal,
+                          "sqft_per_gallon": round(sqft / gal)})
+        g["sqft"] += round(sqft)
+        g["gallons"] += gal
+    out = []
+    for g in groups.values():
+        g["gallons"] = round(g["gallons"], 2)
+        g["sqft_per_gallon"] = round(g["sqft"] / g["gallons"]) if g["gallons"] else None
+        out.append(g)
+    return sorted(out, key=lambda g: g["fence_age"])
 
 
 def _height_ft(v) -> float:
