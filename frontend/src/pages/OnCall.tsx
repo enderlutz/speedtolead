@@ -539,6 +539,7 @@ function ReportPanel() {
   const shown = (rows || []).filter((r) => only === "all" || r.flag === "late" || r.flag === "missed");
   const total = (rows || []).length;
   const when = (iso: string) => (iso ? new Date(iso).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "");
+  const dur = (m: number) => (m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`);
 
   return (
     <Card>
@@ -579,11 +580,29 @@ function ReportPanel() {
             <span className={`w-16 shrink-0 rounded-md px-1.5 py-1 text-center text-[11px] font-bold ${FLAG[r.flag].cls}`}>{FLAG[r.flag].label}</span>
             <span className="min-w-0 flex-1">
               <Link to={`/leads/${r.lead_id}`} className="block truncate text-sm font-semibold capitalize underline-offset-2 hover:underline">{(r.name || "Lead").toLowerCase()}</Link>
+              {/* The real form time, and how long they'd already waited
+                  before the clock started (Alan, 2026-10-20: overnight leads
+                  showed "came in 8:00 AM"). */}
               <span className="block text-xs text-muted-foreground">
-                Came in {when(r.came_in)} · on call: {r.on_call}{r.called_by && r.called_by !== r.on_call ? ` · called by ${r.called_by}` : ""}
+                Filled the form {when(r.filled_at || r.came_in)}
+                {r.waited_before_start ? ` · waited ${dur(r.waited_before_start)} before the clock started ${new Date(r.came_in).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {r.text_sent_at
+                  ? <span className="font-semibold text-emerald-700">✓ Auto text {new Date(r.text_sent_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                  : <span className="font-semibold text-amber-700">No auto text found</span>}
+                {" · "}on call: {r.on_call}{r.called_by && r.called_by !== r.on_call ? ` · called by ${r.called_by}` : ""}
               </span>
             </span>
-            <span className="shrink-0 text-sm font-bold tabular-nums">{r.minutes === null ? "–" : `${r.minutes} min`}</span>
+            <span className="shrink-0 text-right tabular-nums">
+              <span className="block text-sm font-bold">
+                {r.minutes !== null ? dur(r.minutes) : r.minutes_so_far != null ? `${dur(r.minutes_so_far)} so far` : "–"}
+              </span>
+              <span className="block text-[11px] text-muted-foreground">after the clock started</span>
+              {r.minutes_total != null && r.waited_before_start ? (
+                <span className="block text-[11px] font-semibold text-rose-700">{dur(r.minutes_total)} since the form</span>
+              ) : null}
+            </span>
           </div>
         ))}
       </CardContent>

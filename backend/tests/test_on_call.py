@@ -254,3 +254,22 @@ def test_shift_reminder_ten_minutes_before_once(db, sent):
     assert oc.tick(TEN_AM)["reminded"] == 1
     assert "starting in 8 minutes" in sent["person"][-1][1]
     assert oc.tick(TEN_AM + timedelta(minutes=1))["reminded"] == 0
+
+
+def test_report_shows_the_real_form_time_and_both_waits(db, sent):
+    """Alan, 2026-10-20: overnight leads read "came in 8:00 AM". The report
+    keeps minutes after the clock started, and adds the real fill time, the
+    wait before the clock started, the whole wait, and the auto text."""
+    _user(db, "olga")
+    _shift(db, "olga")
+    lead = _lead(db, "Overnight")
+    lead.created_at = lead.ghl_created_at = "2026-10-20T11:00:00+00:00"          # 6:00 AM
+    lead.oncall_to, lead.oncall_at = "olga", "2026-10-20T13:00:00+00:00"          # 8:00 AM
+    lead.first_call_at = "2026-10-20T13:10:00+00:00"
+    db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, direction="outbound", message_type="TYPE_SMS",
+                   body="Hi! this is Amy with Sterling", created_at="2026-10-20T11:01:00+00:00"))
+    db.commit()
+    day = datetime(2026, 10, 20, tzinfo=oc.HOUSTON)
+    r = oc.lead_log(db, day, day + timedelta(days=1))[0]
+    assert r["minutes"] == 10.0 and r["waited_before_start"] == 120.0 and r["minutes_total"] == 130.0
+    assert r["filled_at"].startswith("2026-10-20T11:00") and r["text_sent_at"].startswith("2026-10-20T11:01")

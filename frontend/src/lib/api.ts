@@ -6241,5 +6241,9 @@ export interface OnCallLead {
 export interface OnCallLogRow {
   lead_id: string; name: string; phone: string; on_call: string; came_in: string; first_call: string;
   minutes: number | null; called_by: string; flag: "on_time" | "late" | "missed" | "waiting";
+  /** When they really filled the form; came_in is when the clock started (8 AM for overnight). */
+  filled_at?: string; waited_before_start?: number; minutes_total?: number | null; minutes_so_far?: number | null;
+  /** Our automatic text after the fill, as proof it went out. */
+  text_sent_at?: string;
 }
 export interface OnCallScore { username: string; name: string; leads: number; called: number; within_5_pct: number; avg_minutes: number | null; missed: number; won: number; close_pct: number }

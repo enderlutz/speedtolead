@@ -388,15 +388,36 @@ def lead_log(db, start: datetime, end: datetime) -> list[dict]:
     flag: on time (≤5 min), late, missed (nothing within an hour), or still
     waiting. Admin only (Cruz, 2026-10-19: "a flag that this person wasn't
     contacted")."""
-    from database import Lead, User
+    from database import Lead, Message, User
+    from services.intake import fills_by_lead
     names = {u.username: (u.display_name or u.username) for u in db.query(User).all()}
     leads = (db.query(Lead).filter(Lead.oncall_at >= _iso(start), Lead.oncall_at < _iso(end))
              .order_by(Lead.oncall_at.desc()).all())
+    fills = fills_by_lead(db, [l.id for l in leads]) if leads else {}
     now = now_utc()
     out = []
     for l in leads:
         a, c = _parse(l.oncall_at), _parse(l.first_call_at)
         mins = round((c - a).total_seconds() / 60, 1) if a and c else None
+        # When they really filled the form (Alan, 2026-10-20): an overnight
+        # lead is handed out at 8 AM, but the customer has been waiting since
+        # the fill. Both numbers: minutes after the clock started, and the
+        # whole wait from the fill.
+        filled = max([f for f in fills.get(l.id, []) if a and f <= a + timedelta(minutes=1)],
+                     default=None) or _parse(l.ghl_created_at or l.created_at or "")
+        if filled and a and filled > a:
+            filled = a
+        waited_before = round((a - filled).total_seconds() / 60, 1) if a and filled and a - filled > timedelta(minutes=1) else 0.0
+        upto = c or now
+        total = round((upto - filled).total_seconds() / 60, 1) if filled else None
+        so_far = round((now - a).total_seconds() / 60, 1) if a and not c else None
+        # Proof the automatic text went out: our first text after the fill.
+        text = None
+        if filled:
+            text = (db.query(Message.created_at).filter(
+                Message.lead_id == l.id, Message.direction == "outbound", Message.message_type.ilike("%SMS%"),
+                Message.created_at >= _iso(filled - timedelta(minutes=2)),
+                Message.created_at <= _iso(filled + timedelta(hours=2))).order_by(Message.created_at).first())
         if mins is not None:
             flag = "on_time" if mins <= 5 else ("missed" if mins > 60 else "late")
         else:
@@ -404,6 +425,9 @@ def lead_log(db, start: datetime, end: datetime) -> list[dict]:
         out.append({"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
                     "on_call": names.get(l.oncall_to, l.oncall_to or "Nobody on call"),
                     "came_in": l.oncall_at, "first_call": l.first_call_at or "", "minutes": mins,
+                    "filled_at": _iso(filled) if filled else "", "waited_before_start": waited_before,
+                    "minutes_total": total, "minutes_so_far": so_far,
+                    "text_sent_at": text[0] if text else "",
                     "called_by": names.get(l.first_call_by, l.first_call_by or ""), "flag": flag})
     return out
 
