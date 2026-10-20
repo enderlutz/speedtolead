@@ -123,12 +123,16 @@ def test_a_new_form_fill_pulls_leads_now_and_once_more(monkeypatch):
     gate = threading.Event()
     monkeypatch.setattr(poller, "poll_ghl_contacts", lambda: (calls.append(1), gate.wait(2)))
     monkeypatch.setattr(fs, "NEW_LEAD_AGAIN_SECONDS", 0)
+    monkeypatch.setattr(fs, "_new_lead_last", [0.0])
     assert fs.new_lead_soon() is True
     assert fs.new_lead_soon() is False
     gate.set()
     for t in [t for t in threading.enumerate() if t.name == "new-lead-pull"]:
         t.join(5)
     assert len(calls) == 2
+    # Right after a pull, the next one waits out the gap instead of being dropped.
+    monkeypatch.setattr(fs, "NEW_LEAD_MIN_GAP_SECONDS", 0.3)
     assert fs.new_lead_soon() is True
     for t in [t for t in threading.enumerate() if t.name == "new-lead-pull"]:
         t.join(5)
+    assert len(calls) == 4

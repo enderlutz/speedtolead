@@ -57,7 +57,13 @@ def want(lead_id: str, delay: float = 0.0, *, again: bool = False) -> None:
 
 
 NEW_LEAD_AGAIN_SECONDS = 45     # GHL's card can land after the form webhook
+# Texts from people who aren't leads (crew, vendors, spam, a VA replying
+# "on") also ping as "someone we don't have". A full lead pull at most this
+# often keeps those from hammering GHL; a real form fill still lands in
+# seconds because its own ping comes first (Alan, 2026-10-19).
+NEW_LEAD_MIN_GAP_SECONDS = 120
 _new_lead_pending = threading.Event()
+_new_lead_last = [0.0]
 
 
 def new_lead_soon() -> bool:
@@ -68,13 +74,19 @@ def new_lead_soon() -> bool:
     if _new_lead_pending.is_set():
         return False
     _new_lead_pending.set()
+    # Too soon after the last pull: wait out the gap rather than drop it, so
+    # a real lead right behind a crew text is late by two minutes at most.
+    wait = max(0.0, NEW_LEAD_MIN_GAP_SECONDS - (time.time() - _new_lead_last[0]))
 
     def run():
         from services.poller import poll_ghl_contacts
         try:
+            if wait:
+                time.sleep(wait)
             for i in range(2):
                 if i:
                     time.sleep(NEW_LEAD_AGAIN_SECONDS)
+                _new_lead_last[0] = time.time()
                 try:
                     poll_ghl_contacts()
                 except Exception as e:  # noqa: BLE001
