@@ -1,6 +1,8 @@
 import { toast } from "sonner";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE } from "@/lib/apiBase";
+
+const BASE = API_BASE;
 
 // --- Training mode mutation guard ----------------------------------------
 // When the rep flips on Training Mode (see lib/training_mode_context.tsx),

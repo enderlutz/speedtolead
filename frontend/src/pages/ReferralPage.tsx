@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Check, Phone } from "lucide-react";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 const GOLD = "#C9972F";
 
 export default function ReferralPage() {

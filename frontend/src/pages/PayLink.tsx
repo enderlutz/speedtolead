@@ -12,7 +12,7 @@ import { formatCurrency } from "@/lib/utils";
 import { TermsBody } from "@/components/proposal/TermsBody";
 import { dueText } from "@/lib/due";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 const GOLD = "#C9972F";
 const PHONE = "346-589-7877";
 

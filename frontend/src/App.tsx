@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { api, isAuthenticated, getCurrentUser, hasPerm, canSeeRevenue, setToken, getDivision } from "@/lib/api";
@@ -8,38 +8,38 @@ import LangSwitch from "@/components/LangSwitch";
 import { isBrickAllowedPath } from "@/lib/brickNav";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
 import UpdateBanner from "@/components/UpdateBanner";
-import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
-import Leads from "@/pages/Leads";
-import LeadsV2 from "@/pages/LeadsV2";
-import LeadsB from "@/pages/LeadsB";
-import LeadsBrick from "@/pages/LeadsBrick";
-import LeadsPaintingUpsell from "@/pages/LeadsPaintingUpsell";
-import LeadDetail from "@/pages/LeadDetail";
-import SentLog from "@/pages/SentLog";
-import Analytics from "@/pages/Analytics";
-import Settings from "@/pages/Settings";
-import EditPdf from "@/pages/EditPdf";
-import Pricing from "@/pages/Pricing";
-import CrewToday from "@/pages/CrewToday";
-import CrewSchedule from "@/pages/CrewSchedule";
-import PmHq from "@/pages/PmHq";
-import OnCall from "@/pages/OnCall";
-import CrewStats from "@/pages/CrewStats";
-import QuickApprove from "@/pages/QuickApprove";
-import AiFenceEstimation from "@/pages/AiFenceEstimation";
-import Calls from "@/pages/Calls";
-import Training from "@/pages/Training";
-import TrainingCourse from "@/pages/TrainingCourse";
-import ExteriorCapture from "@/pages/ExteriorCapture";
-import VideoEstimate from "@/pages/VideoEstimate";
-import VideoEstimates from "@/pages/VideoEstimates";
-import Crew from "@/pages/Crew";
-import CrewEmployee from "@/pages/CrewEmployee";
-import CalendarPage from "@/pages/Calendar";
-import MySchedule from "@/pages/MySchedule";
-import Estimator from "@/pages/Estimator";
-import EstimatorDay from "@/pages/EstimatorDay";
+const Login = lazy(() => import("@/pages/Login"));
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Leads = lazy(() => import("@/pages/Leads"));
+const LeadsV2 = lazy(() => import("@/pages/LeadsV2"));
+const LeadsB = lazy(() => import("@/pages/LeadsB"));
+const LeadsBrick = lazy(() => import("@/pages/LeadsBrick"));
+const LeadsPaintingUpsell = lazy(() => import("@/pages/LeadsPaintingUpsell"));
+const LeadDetail = lazy(() => import("@/pages/LeadDetail"));
+const SentLog = lazy(() => import("@/pages/SentLog"));
+const Analytics = lazy(() => import("@/pages/Analytics"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const EditPdf = lazy(() => import("@/pages/EditPdf"));
+const Pricing = lazy(() => import("@/pages/Pricing"));
+const CrewToday = lazy(() => import("@/pages/CrewToday"));
+const CrewSchedule = lazy(() => import("@/pages/CrewSchedule"));
+const PmHq = lazy(() => import("@/pages/PmHq"));
+const OnCall = lazy(() => import("@/pages/OnCall"));
+const CrewStats = lazy(() => import("@/pages/CrewStats"));
+const QuickApprove = lazy(() => import("@/pages/QuickApprove"));
+const AiFenceEstimation = lazy(() => import("@/pages/AiFenceEstimation"));
+const Calls = lazy(() => import("@/pages/Calls"));
+const Training = lazy(() => import("@/pages/Training"));
+const TrainingCourse = lazy(() => import("@/pages/TrainingCourse"));
+const ExteriorCapture = lazy(() => import("@/pages/ExteriorCapture"));
+const VideoEstimate = lazy(() => import("@/pages/VideoEstimate"));
+const VideoEstimates = lazy(() => import("@/pages/VideoEstimates"));
+const Crew = lazy(() => import("@/pages/Crew"));
+const CrewEmployee = lazy(() => import("@/pages/CrewEmployee"));
+const CalendarPage = lazy(() => import("@/pages/Calendar"));
+const MySchedule = lazy(() => import("@/pages/MySchedule"));
+const Estimator = lazy(() => import("@/pages/Estimator"));
+const EstimatorDay = lazy(() => import("@/pages/EstimatorDay"));
 import CallListPanel from "@/components/CallListPanel";
 
 const CALL_LIST_ON = false;
@@ -49,36 +49,45 @@ import CallBar from "@/components/training/CallBar";
 import CallSession from "@/components/training/CallSession";
 import TrainingSummaryModal from "@/components/training/TrainingSummaryModal";
 import { TrainingModeProvider } from "@/lib/training_mode_context";
-import JobSops from "@/pages/JobSops";
-import InvoiceQueue from "@/pages/InvoiceQueue";
-import Revenue from "@/pages/Revenue";
-import Documents from "@/pages/Documents";
-import MetaAds from "@/pages/MetaAds";
-import SocialMedia from "@/pages/SocialMedia";
-import MoneyAudit from "@/pages/MoneyAudit";
-import DailyTasks from "@/pages/DailyTasks";
-import Contacts from "@/pages/Contacts";
-import Accounting from "@/pages/Accounting";
-import StainInventory from "@/pages/StainInventory";
-import CompanyCamPage from "@/pages/CompanyCamPage";
-import FencePhotos from "@/pages/FencePhotos";
-import Agents from "@/pages/Agents";
-import Internal from "@/pages/Internal";
-import ProposalProject from "@/pages/ProposalProject";
-import ProposalMockup from "@/pages/ProposalMockup";
-import CardoneFollowUps from "@/pages/CardoneFollowUps";
-import ProposalPreview from "@/pages/ProposalPreview";
-import TermsPage from "@/pages/TermsPage";
-import ProposalLive from "@/pages/ProposalLive";
-import PayLink from "@/pages/PayLink";
-import AfterPayPage from "@/pages/AfterPayPage";
-import BookingPage from "@/pages/BookingPage";
-import ReferralPage from "@/pages/ReferralPage";
-import ReceiptPage from "@/pages/ReceiptPage";
-import MapTab from "@/map/MapTab";
-import FenceScopeEditorPage from "@/pages/FenceScopeEditor";
-import Eula from "@/pages/Eula";
-import PrivacyPolicy from "@/pages/PrivacyPolicy";
+const JobSops = lazy(() => import("@/pages/JobSops"));
+const InvoiceQueue = lazy(() => import("@/pages/InvoiceQueue"));
+const Revenue = lazy(() => import("@/pages/Revenue"));
+const Documents = lazy(() => import("@/pages/Documents"));
+const MetaAds = lazy(() => import("@/pages/MetaAds"));
+const SocialMedia = lazy(() => import("@/pages/SocialMedia"));
+const MoneyAudit = lazy(() => import("@/pages/MoneyAudit"));
+const DailyTasks = lazy(() => import("@/pages/DailyTasks"));
+const Contacts = lazy(() => import("@/pages/Contacts"));
+const Accounting = lazy(() => import("@/pages/Accounting"));
+const StainInventory = lazy(() => import("@/pages/StainInventory"));
+const CompanyCamPage = lazy(() => import("@/pages/CompanyCamPage"));
+const FencePhotos = lazy(() => import("@/pages/FencePhotos"));
+const Agents = lazy(() => import("@/pages/Agents"));
+const Internal = lazy(() => import("@/pages/Internal"));
+const ProposalProject = lazy(() => import("@/pages/ProposalProject"));
+const ProposalMockup = lazy(() => import("@/pages/ProposalMockup"));
+const CardoneFollowUps = lazy(() => import("@/pages/CardoneFollowUps"));
+const ProposalPreview = lazy(() => import("@/pages/ProposalPreview"));
+const TermsPage = lazy(() => import("@/pages/TermsPage"));
+const ProposalLive = lazy(() => import("@/pages/ProposalLive"));
+const PayLink = lazy(() => import("@/pages/PayLink"));
+const AfterPayPage = lazy(() => import("@/pages/AfterPayPage"));
+const BookingPage = lazy(() => import("@/pages/BookingPage"));
+const ReferralPage = lazy(() => import("@/pages/ReferralPage"));
+const ReceiptPage = lazy(() => import("@/pages/ReceiptPage"));
+const MapTab = lazy(() => import("@/map/MapTab"));
+const FenceScopeEditorPage = lazy(() => import("@/pages/FenceScopeEditor"));
+const Eula = lazy(() => import("@/pages/Eula"));
+const PrivacyPolicy = lazy(() => import("@/pages/PrivacyPolicy"));
+
+/** Shown for the moment a page's code is on its way. */
+function PageLoading() {
+  return (
+    <div className="flex h-dvh items-center justify-center bg-background text-sm text-muted-foreground">
+      Loading…
+    </div>
+  );
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -200,7 +209,11 @@ function AppLayout() {
   }
 
   if (isPublic) {
+    // Each page's code loads only when it's opened, so a customer's phone
+    // gets the estimate or booking page alone, not the whole dashboard
+    // (Alan, 2026-10-20: Russ Schamun's estimate stayed a white screen).
     return (
+      <Suspense fallback={<PageLoading />}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/proposal/:token" element={<ProposalLive />} />
@@ -219,6 +232,7 @@ function AppLayout() {
         <Route path="/legal/privacy" element={<PrivacyPolicy />} />
         <Route path="/legal/terms" element={<TermsPage />} />
       </Routes>
+      </Suspense>
     );
   }
 
@@ -237,6 +251,7 @@ function AppLayout() {
             <HoustonClock />
           </div>
           <main className="flex-1 overflow-y-auto">
+            <Suspense fallback={<PageLoading />}>
             <Routes>
               <Route path="/" element={<RequireView view="dashboard"><Dashboard /></RequireView>} />
               <Route path="/daily-tasks" element={<RequireView view="dashboard"><DailyTasks /></RequireView>} />
@@ -292,6 +307,7 @@ function AppLayout() {
               <Route path="/agents" element={<RequireView view="agents"><Agents /></RequireView>} />
               <Route path="/internal" element={<FragnedOnly><Internal /></FragnedOnly>} />
             </Routes>
+            </Suspense>
           </main>
         </div>
         {/* Archived 2026-10-13: the floating Call List button sat on top of

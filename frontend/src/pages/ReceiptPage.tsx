@@ -11,7 +11,7 @@ import { Download, MessageSquare, Share2, Check } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { InvoiceDoc, type Info } from "@/pages/PayLink";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 const GOLD = "#C9972F";
 
 type Receipt = Info & { paid_at?: string; method?: string };

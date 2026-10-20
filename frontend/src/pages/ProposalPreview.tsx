@@ -13,7 +13,7 @@ import { useParams } from "react-router-dom";
 import ProposalMockup, { type Live } from "@/pages/ProposalMockup";
 import { sidesInWords } from "@/lib/fenceSides";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 
 type Payload = {
   name: string; address: string; feet: number; sides: string[];

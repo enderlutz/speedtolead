@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { BookingInvite } from "@/components/proposal/BookingInvite";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 
 type Booking = {
   status: "held" | "confirmed" | "cancelled";

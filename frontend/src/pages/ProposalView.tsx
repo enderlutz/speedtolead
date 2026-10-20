@@ -14,7 +14,7 @@ function formatDateShort(iso: string): string {
   }
 }
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 
 function PageSkeleton() {
   return (

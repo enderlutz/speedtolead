@@ -16,7 +16,7 @@ import ProposalMockup, { type Live, type PkgKey } from "@/pages/ProposalMockup";
 import ProposalView from "@/pages/ProposalView";
 import { sidesInWords } from "@/lib/fenceSides";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 
 type Payload = {
   name: string; address: string; feet: number; sides: string[];

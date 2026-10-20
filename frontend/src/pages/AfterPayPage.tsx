@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { AfterPay, type PayFlow, type PayMethod } from "@/components/proposal/AfterPay";
 
-const BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE as BASE } from "@/lib/apiBase";
 
 type After = {
   paid: boolean; kind: string; flow: "A" | "B"; amount: number; method: string; paid_total: number;
