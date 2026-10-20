@@ -757,6 +757,7 @@ class OnCallShift(Base):
     end_min = Column(Integer, default=1200)        # 20:00
     created_by = Column(Text, default="")
     created_at = Column(Text, default="")
+    reminded_at = Column(Text, default="")         # the 10-minutes-before text went out
 
     def to_dict(self) -> dict:
         return {"id": self.id, "username": self.username or "", "date": self.date or "",
@@ -5036,6 +5037,12 @@ def _run_migrations():
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
                 logger.info(f"Migration: added users.{col}")
+
+    if "on_call_shifts" in inspector.get_table_names() and \
+            "reminded_at" not in {c["name"] for c in inspector.get_columns("on_call_shifts")}:
+        with _engine.begin() as conn:
+            conn.execute(text("ALTER TABLE on_call_shifts ADD COLUMN reminded_at TEXT DEFAULT ''"))
+        logger.info("Migration: added on_call_shifts.reminded_at")
 
     for col in ("oncall_to", "oncall_at", "first_call_at", "first_call_by", "oncall_late_at",
                 "callback_at", "callback_note", "callback_source", "callback_alerted_at", "callback_owner"):

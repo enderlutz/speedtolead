@@ -257,6 +257,8 @@ const TONE_DOT: Record<string, string> = { hot: "bg-rose-500", warm: "bg-amber-4
 
 /** Between calls: who needs an estimate (left) and who to follow up with
  *  (right). Same next steps as the Contacts page; last 30 days. */
+const URGENT_KEYS = new Set(["callback", "replied"]);
+
 function TodoLists() {
   const [data, setData] = useState<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] } | null>(null);
   const load = useCallback(() => {
@@ -271,10 +273,15 @@ function TodoLists() {
     estimates: d.estimates.filter((r) => r.lead_id !== id), follow_ups: d.follow_ups.filter((r) => r.lead_id !== id),
   });
   if (!data) return <p className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />Loading your to-do lists…</p>;
+  // Who works what (Alan, 2026-10-19): promised call-backs and people who
+  // talked to us are Alan's and Olga's; never replied is Geoconda's.
+  const urgent = data.follow_ups.filter((r) => URGENT_KEYS.has(r.key));
+  const quiet = data.follow_ups.filter((r) => !URGENT_KEYS.has(r.key));
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <TodoColumn title="Need an estimate" sub="Talked but not priced first, then new leads, then no address." rows={data.estimates} accent="border-t-sky-500" onRemoved={drop} />
-      <TodoColumn title="Follow up" sub="Call-back days first, then replies, then opened it, then not opened." rows={data.follow_ups} accent="border-t-emerald-500" onRemoved={drop} />
+    <div className="grid gap-3 lg:grid-cols-3">
+      <TodoColumn title="Need an estimate" sub="New leads first, then talked but not priced, then no address." rows={data.estimates} accent="border-t-sky-500" onRemoved={drop} />
+      <TodoColumn title="Urgent · Alan & Olga" sub="Promised call-backs, then people who replied and went quiet." rows={urgent} accent="border-t-rose-500" onRemoved={drop} />
+      <TodoColumn title="No reply yet · Geoconda" sub="Estimate sent, never answered. Opened it first, then not opened." rows={quiet} accent="border-t-emerald-500" onRemoved={drop} />
     </div>
   );
 }

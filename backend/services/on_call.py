@@ -7,9 +7,10 @@ A new lead goes to whoever is on the schedule right now:
   * they get a WhatsApp (the VAs have Honduran numbers) or a text with the
     customer and a link to the profile;
   * everybody still gets the usual new-lead copy (notify_new_lead).
-The 5-minute clock starts then. The first outbound call GHL logs for that
-lead stops it, or the person taps "I called". At 5 minutes with no call,
-Alan gets a text, always.
+The 5-minute clock starts then; everyone else on the team hears whose lead it
+is ("not yours"). The first outbound call GHL logs for that lead stops it, or
+the person taps "I called". At 5 minutes with no call, the whole team and
+Alan hear about it. Ten minutes before a shift, its person gets a reminder.
 
 Outside 8–8 nobody is woken: the lead waits, and at 8 AM everything that came
 in overnight goes to whoever is on first, with one list, and the clock starts
@@ -32,6 +33,8 @@ HOUSTON = ZoneInfo("America/Chicago")
 OPEN_MIN, CLOSE_MIN = 8 * 60, 20 * 60
 LATE_AFTER = timedelta(minutes=5)
 MORNING = "__morning__"          # oncall_to for a lead that arrived after hours
+REFILL_WINDOW = timedelta(minutes=30)   # a repeat form fill this recent starts a clock
+REMIND_BEFORE = 10                      # minutes before a shift starts
 
 
 def now_utc() -> datetime:
@@ -150,6 +153,16 @@ def _alan(text: str) -> None:
         logger.warning("on call: alert to Alan failed: %s", e)
 
 
+def _team(db, skip: tuple[str, ...] = ()) -> list:
+    """Everyone who gets team alerts, minus `skip` and minus Alan's own
+    contact (he already hears through alert_alan / notify_new_lead)."""
+    from database import User
+    owner = (get_settings().owner_ghl_contact_id or "").strip()
+    return [u for u in db.query(User).filter(User.role.in_(("admin", "va"))).all()
+            if not u.disabled and (u.phone or u.ghl_contact_id) and u.username not in skip
+            and not (owner and u.ghl_contact_id == owner)]
+
+
 def _give(db, lead, user, when: datetime, *, alert: bool = True) -> None:
     """Hand a lead to one person: GHL assignment + their alert. Caller commits."""
     lead.oncall_to = user.username
@@ -162,9 +175,14 @@ def _give(db, lead, user, when: datetime, *, alert: bool = True) -> None:
             logger.warning("on call: GHL assignment failed for %s: %s", lead.id, e)
     if alert:
         message_person(db, user, "NEW LEAD for you. Call within 5 minutes.\n" + lead_card(lead))
+        # Everyone else knows it came in and whose it is (Alan, 2026-10-19).
+        who = user.display_name or user.username
+        for u in _team(db, skip=(user.username,)):
+            message_person(db, u, f"New lead: {lead.contact_name or 'a customer'}. It's {who}'s, not yours. "
+                                  f"If nobody calls in 5 minutes you'll hear about it.")
 
 
-def start_clock(lead_id: str, when: datetime | None = None) -> str:
+def start_clock(lead_id: str, when: datetime | None = None, came_in: datetime | None = None) -> str:
     """A new lead (or a repeat form fill) arrived. Returns who got it,
     MORNING if it waits for 8 AM, or "" when nobody was on call."""
     from database import Lead, get_db
@@ -181,7 +199,7 @@ def start_clock(lead_id: str, when: datetime | None = None) -> str:
         # "from the moment the lead comes in"), not when we noticed: the
         # 5-minute poller can be minutes behind GHL. A repeat form fill keeps
         # its old created time, so only a recent one counts.
-        came_in = _parse(lead.ghl_created_at or lead.created_at or "")
+        came_in = came_in or _parse(lead.ghl_created_at or lead.created_at or "")
         if came_in and timedelta(0) <= when - came_in <= timedelta(minutes=30) and in_hours(came_in):
             when = came_in
         if not in_hours(when):
@@ -219,10 +237,15 @@ def record_call(db, lead, at: str, by: str) -> None:
 
 
 def tick(when: datetime | None = None) -> dict:
-    """Every minute: morning hand-off, spot first calls in GHL, warn Alan."""
+    """Every minute: repeat form fills, shift reminders, morning hand-off,
+    spot first calls in GHL, warn everyone at 5 minutes."""
     from database import CallRecording, Lead, Message, get_db
     when = when or now_utc()
-    out = {"morning": 0, "called": 0, "late": 0}
+    out = {"refills": 0, "reminded": 0, "morning": 0, "called": 0, "late": 0}
+    for lead_id, fill in _fresh_refills(when):
+        start_clock(lead_id, when, came_in=fill)
+        out["refills"] += 1
+    out["reminded"] = _remind_shifts(when)
     db = get_db()
     try:
         # 1. 8 AM: overnight leads go to whoever is on first, one list.
@@ -271,9 +294,72 @@ def tick(when: datetime | None = None) -> dict:
             who = lead.oncall_to or "nobody on call"
             _alan(f"5 minutes, no call yet: {lead.contact_name or 'a lead'} ({lead.contact_phone or 'no phone'}). "
                   f"On call: {who}. {get_settings().frontend_url}/leads/{lead.id}")
+            # Everybody, loud (Alan, 2026-10-19: "it needs to tell everybody").
+            for u in _team(db):
+                message_person(db, u, f"🚨 5 MINUTES and nobody has called {lead.contact_name or 'a new lead'} "
+                                      f"({lead.contact_phone or 'no phone'}). It's {who}'s. Anyone free: call now.\n"
+                                      f"{get_settings().frontend_url}/leads/{lead.id}")
             out["late"] += 1
         db.commit()
         return out
+    finally:
+        db.close()
+
+
+def _fresh_refills(when: datetime) -> list[tuple[str, datetime]]:
+    """Customers we already had who filled the form again in the last half
+    hour and haven't been handed out for it (Joaquin Newton, 2026-10-19: the
+    clock only ever started for brand-new leads). The fill counts once the
+    intake text follows the card (services/intake.py)."""
+    from database import Lead, Message, get_db
+    from services.intake import latest_intake
+    out = []
+    db = get_db()
+    try:
+        ids = {lid for (lid,) in db.query(Message.lead_id).filter(
+            Message.message_type == "TYPE_ACTIVITY_OPPORTUNITY", Message.body == "Opportunity created",
+            Message.created_at >= _iso(when - REFILL_WINDOW)).all() if lid}
+        for lead in db.query(Lead).filter(Lead.id.in_(ids)).all() if ids else []:
+            if lead.status in ("archived", "contact") or lead.oncall_to == MORNING:
+                continue
+            fill = latest_intake(db, lead)
+            if not fill or not timedelta(0) <= when - fill <= REFILL_WINDOW:
+                continue
+            born = _parse(lead.created_at or "")
+            if born and fill - born < timedelta(hours=24):
+                continue                        # the first fill: handed out when it was made
+            started = _parse(lead.oncall_at or "")
+            if started and started >= fill - timedelta(minutes=1):
+                continue                        # already handed out for this fill
+            out.append((lead.id, fill))
+        return out
+    finally:
+        db.close()
+
+
+def _remind_shifts(when: datetime) -> int:
+    """Ten minutes before a shift starts, its person hears about it, once.
+    A shift that just continues an earlier one the same day doesn't count."""
+    from database import OnCallShift, User, get_db
+    day, m = _local(when)
+    db = get_db()
+    sent = 0
+    try:
+        shifts = db.query(OnCallShift).filter(OnCallShift.date == day).all()
+        for s in shifts:
+            if s.reminded_at or not (m < s.start_min <= m + REMIND_BEFORE):
+                continue
+            s.reminded_at = _iso(when)
+            if any(o.username == s.username and o.end_min == s.start_min for o in shifts):
+                continue
+            u = db.query(User).filter(User.username == s.username).first()
+            if u and not u.disabled:
+                message_person(db, u, f"Heads up: you're on call {fmt_min(s.start_min)}–{fmt_min(s.end_min)}, "
+                                      f"starting in {s.start_min - m} minutes. Reply \"on\" here when you're ready.\n"
+                                      f"{get_settings().frontend_url}/on-call")
+                sent += 1
+        db.commit()
+        return sent
     finally:
         db.close()
 

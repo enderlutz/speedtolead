@@ -202,3 +202,55 @@ def test_break_is_covered_then_back_to_me(db, sent):
     assert db.query(OnCallBreak).first().status == "taken"
     with pytest.raises(ValueError):
         oc.take_break(db, b.id, "olga", five_pm + timedelta(minutes=3))
+
+
+def test_everyone_else_hears_whose_lead_it_is(db, sent):
+    _user(db, "olga")
+    _user(db, "geoconda")
+    _shift(db, "olga")
+    lead = _lead(db)
+    oc.start_clock(lead.id, TEN_AM)
+    texts = dict(sent["person"])
+    assert "for you" in texts["olga"]
+    assert "Olga's, not yours" in texts["geoconda"]
+
+
+def test_five_minutes_tells_the_whole_team(db, sent):
+    _user(db, "olga")
+    _user(db, "geoconda")
+    _shift(db, "olga")
+    lead = _lead(db, "Silent")
+    oc.start_clock(lead.id, TEN_AM)
+    sent["person"].clear()
+    oc.tick(TEN_AM + timedelta(minutes=6))
+    late = [(u, t) for u, t in sent["person"] if "5 MINUTES" in t]
+    assert {u for u, _ in late} == {"olga", "geoconda"} and "Silent" in late[0][1]
+
+
+def test_a_repeat_form_fill_starts_the_clock_on_its_own(db, sent):
+    """Joaquin Newton, 2026-10-19: priced in September, filled again, and
+    nobody was handed him."""
+    _user(db, "olga")
+    _shift(db, "olga")
+    lead = _lead(db, "Joaquin")
+    lead.created_at, lead.status = "2026-09-27T16:44:05+00:00", "sent"
+    db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, direction="outbound",
+                   message_type="TYPE_ACTIVITY_OPPORTUNITY", body="Opportunity created",
+                   created_at="2026-10-20T14:58:00+00:00"))
+    db.add(Message(id=str(uuid.uuid4()), lead_id=lead.id, direction="outbound", message_type="TYPE_SMS",
+                   body="Hi Joaquin! this is Amy with Sterling Fence Staining. I just received your information!",
+                   created_at="2026-10-20T14:59:00+00:00"))
+    db.commit()
+    r = oc.tick(TEN_AM)
+    got = _get(db, lead)
+    assert r["refills"] == 1 and got.oncall_to == "olga" and got.oncall_at.startswith("2026-10-20T14:58")
+    assert oc.tick(TEN_AM + timedelta(minutes=1))["refills"] == 0     # once per fill
+
+
+def test_shift_reminder_ten_minutes_before_once(db, sent):
+    _user(db, "olga")
+    _shift(db, "olga", start=10 * 60 + 8, end=14 * 60)       # 10:08 AM
+    _shift(db, "olga", start=14 * 60, end=16 * 60)           # continues it: no second text
+    assert oc.tick(TEN_AM)["reminded"] == 1
+    assert "starting in 8 minutes" in sent["person"][-1][1]
+    assert oc.tick(TEN_AM + timedelta(minutes=1))["reminded"] == 0
