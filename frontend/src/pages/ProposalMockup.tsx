@@ -60,7 +60,7 @@ export type PkgKey = "essential" | "signature" | "legacy";
  *  prints them (Alan, 2026-10-12: "remove the number of reviews"). Null
  *  until fetched; sample cards show until then and when there are none. */
 type Reviews = { rating: number | null; total: number; five_star: number; reviews: { id: string; author: string; photo: string; rating: number; text: string; when: string; photos?: string[] }[] };
-const API_BASE = import.meta.env.VITE_API_URL || "";
+import { API_BASE } from "@/lib/apiBase";
 
 function Avatar({ name, photo }: { name: string; photo: string }) {
   const [broken, setBroken] = useState(false);
