@@ -192,3 +192,10 @@ def test_the_almost_done_text_talks_about_the_washing():
                             pw_services_json="[]")
     assert "pressure washing" in _almost_done_text(pw, lead) and "Jimmy" in _almost_done_text(pw, lead)
     assert "your fence" in _almost_done_text(fence, lead)
+
+
+def test_the_crew_never_sees_a_dollar_figure_in_a_note():
+    """Alan, 2026-10-19: none of my employees can see job costs."""
+    from api.company_cam import _no_money
+    out = _no_money({"repair_notes": "the customer agreed $400 for the repairs, $1,250.50 total", "sqft": 900.0})
+    assert "$" not in out["repair_notes"] and "[price hidden]" in out["repair_notes"] and out["sqft"] == 900.0

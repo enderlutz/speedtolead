@@ -276,6 +276,20 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
   );
 }
 
+/** What this person is paid on this job (Alan, 2026-10-19), set on the
+ *  customer's Company Cam profile. Amber when nobody has set it yet. */
+function PayChip({ x }: { x: PmDay }) {
+  const amount = x.pay ? `$${Number(x.pay).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "";
+  const text = !x.pay_type ? "Pay not set"
+    : x.pay_type === "hourly" ? (amount ? `${amount}/hr` : "Hourly") : `${amount || "$0"} flat`;
+  return (
+    <span className={cn("mt-1 inline-flex min-h-6 items-center rounded-full px-2 text-xs font-semibold ring-1",
+                        x.pay_type ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-amber-50 text-amber-900 ring-amber-200")}>
+      {x.person}: {text}
+    </span>
+  );
+}
+
 function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayItems }: {
   day: string; username: string; person: string; rows: PmDay[]; canEdit: boolean; onChange: () => void;
   crew: { username: string; name: string }[]; dayItems: PmDay[];
@@ -363,6 +377,7 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
       <div className="min-w-0 flex-1">
         <Link to={`/company-cam/${x.lead_id}?view=manager&from=pm-hq`} className="block truncate text-base font-semibold text-primary hover:underline">{x.name} ›</Link>
         <p className="truncate text-xs text-muted-foreground">{x.address}</p>
+        <PayChip x={x} />
         {x.task === "pressure_washing" || !x.task ? <PwServices list={x.pw_services} /> : null}
         <JobStatus x={x} canEdit={canEdit} crew={crew} onChange={onChange} />
         {mates.length ? <p className="mt-1.5 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person + (m.helper ? " (helper)" : "")))].join(" and ")}</p> : null}

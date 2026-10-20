@@ -6197,6 +6197,8 @@ export interface PmDay {
   staining_days?: { date: string; person: string }[];
   /** Washing services on the job, as labels ("House wash"). */
   pw_services?: string[];
+  /** This person's pay on the job: "flat" | "hourly" | "" (not set). Office only. */
+  pay_type?: string; pay?: number;
 }
 export interface PmTodayJob {
   lead_id: string; name: string; address: string; progress: PmProgress; color: string; completed_at: string;

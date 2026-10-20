@@ -165,6 +165,9 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
                 "lead_id": j.lead_id, "name": lead.contact_name or "", "address": lead.address or "",
                 "date": day, "username": e["username"], "person": names.get(e["username"].lower(), e["username"]),
                 "task": e["task"], "order": effective_order(entries, e), "helper": e["helper"],
+                # What this person is paid on this job (Alan, 2026-10-19). PM HQ
+                # is office-only; the crew never sees this module.
+                "pay_type": e.get("pay_type") or "", "pay": e.get("pay") or 0.0,
                 "with": [names.get(x["username"].lower(), x["username"]) for x in entries
                          if x["date"] == day and x["username"] != e["username"] and not x["helper"]],
                 "progress": prog, "color": j.final_color or "",

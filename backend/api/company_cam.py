@@ -8,6 +8,7 @@ than off a scheduled job.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -331,7 +332,23 @@ def _repairs(job: CompanyCamJob, raw: str | None = None) -> dict:
             "post_type": v.get("post_type") if v.get("post_type") in ("post6", "post7", "post8") else "post6"}
 
 
-def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
+_MONEY = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?k?", re.I)
+
+
+def _no_money(d: dict) -> dict:
+    """The crew never sees a job's price or costs (Alan, 2026-10-19: "make
+    sure none of my employees can see job costs"). Money fields are already
+    left out; this catches a dollar figure typed into a note ("the customer
+    agreed $400 for the repairs" sat in Jerry Tullos's repair notes)."""
+    return {k: (_MONEY.sub("[price hidden]", v) if isinstance(v, str) else v) for k, v in d.items()}
+
+
+def _job_dict(job: CompanyCamJob, per_gallon: float | None = None, user: dict | None = None) -> dict:
+    d = _job_dict_raw(job, per_gallon)
+    return _no_money(d) if user is not None and not _sees_all(user) else d
+
+
+def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
     upsells = _json_list(job.upsells_json)
     per_gallon = per_gallon or SQFT_PER_GALLON
     return {
@@ -481,7 +498,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
         for p in photos:
             grouped.setdefault(p.section, []).append(_photo_dict(p))
         return {
-            "job": _job_dict(job, sqft_per_gallon(db, job)),
+            "job": _job_dict(job, sqft_per_gallon(db, job), user),
             "sections": SECTIONS,
             "photos": grouped,
             "upsell_options": upsell_options(),
@@ -832,7 +849,7 @@ def update_company_cam(
             db.query(CompanyCamPhoto)
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
-        return {"job": _job_dict(job, sqft_per_gallon(db, job)), "blockers": _blockers(job, photos),
+        return {"job": _job_dict(job, sqft_per_gallon(db, job), user), "blockers": _blockers(job, photos),
                 "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(job, user),
                 # Ticking a service or a washing day can switch the screen.
                 "pw_mode": _pw_view(job, user), "pw_sections": pw_sections(pw_services_of(job))}
@@ -856,7 +873,7 @@ def mark_color_shown(lead_id: str, user: dict = Depends(get_current_user)):
         job.color_shown_by = _actor(user)
         job.updated_at = _now()
         db.commit()
-        return {"job": _job_dict(job)}
+        return {"job": _job_dict(job, user=user)}
     finally:
         db.close()
 
@@ -1193,7 +1210,7 @@ def send_almost_done(
         log_event(lead_id, "almost_done_sms_sent",
                   "Told the customer we're almost finished",
                   {"actor": _actor(user), "edited": bool(edited)})
-        return {"ok": True, "message": message, "job": _job_dict(job)}
+        return {"ok": True, "message": message, "job": _job_dict(job, user=user)}
     finally:
         db.close()
 
@@ -1210,7 +1227,7 @@ def reset_almost_done(lead_id: str, user: dict = Depends(get_current_user)):
         job.almost_done_how = ""
         job.updated_at = _now()
         db.commit()
-        return {"job": _job_dict(job)}
+        return {"job": _job_dict(job, user=user)}
     finally:
         db.close()
 
@@ -1287,7 +1304,7 @@ def mark_almost_done(lead_id: str, body: AlmostDoneMarkBody, user: dict = Depend
         job.almost_done_how = how
         job.updated_at = _now()
         db.commit()
-        return {"job": _job_dict(job)}
+        return {"job": _job_dict(job, user=user)}
     finally:
         db.close()
 
@@ -1343,7 +1360,7 @@ def mark_job_done(lead_id: str, body: DoneBody | None = None, user: dict = Depen
             except Exception as e:  # noqa: BLE001
                 logger.warning("job done: alert failed for %s: %s", lead_id, e)
         photos = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead_id).all()
-        return {"job": _job_dict(job), "blockers": _blockers(job, photos)}
+        return {"job": _job_dict(job, user=user), "blockers": _blockers(job, photos)}
     finally:
         db.close()
 
@@ -1362,7 +1379,7 @@ def reset_job_done(lead_id: str, user: dict = Depends(get_current_user)):
         reverse_job_materials(db, job, _actor(user))
         job.updated_at = _now()
         db.commit()
-        return {"job": _job_dict(job)}
+        return {"job": _job_dict(job, user=user)}
     finally:
         db.close()
 
