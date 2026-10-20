@@ -166,6 +166,27 @@ def run_due(max_pulls: int = 20) -> int:
 TALK_SECONDS = 30
 
 
+# Names callers use on the phone → their login (Alan, 2026-10-19: "Clarence,
+# it should be me that's following up with him"). Amy is Olga's call name.
+CALL_NAMES = {"alan": "alanbonner", "allen": "alanbonner", "amy": "olga", "olga": "olga",
+              "lily": "Geoconda", "gioconda": "Geoconda", "geoconda": "Geoconda"}
+
+
+def caller_of(db, recording_id: str, text: str) -> str:
+    """Who made the call: the GHL login on the recording, else "this is
+    Alan" in the first moments of the transcript. "" when unknown."""
+    import re
+    from database import CallRecording, User
+    rec = db.query(CallRecording.recorded_by).filter(CallRecording.id == recording_id).first()
+    uid = (rec[0] if rec else "") or ""
+    if uid:
+        u = db.query(User).filter(User.ghl_user_id == uid).first()
+        if u:
+            return u.username
+    m = re.search(r"\b(?:this is|it's|my name is)\s+(alan|allen|amy|olga|lily|gioconda|geoconda)\b", (text or "")[:1200], re.I)
+    return CALL_NAMES.get(m.group(1).lower(), "") if m else ""
+
+
 def update_callbacks(db, lead_ids=None, hours: int = 36) -> int:
     """Read each customer's calls (newest first, last day and a half) for a
     call-back with a time. The newest call that HAS one sets it. A later
@@ -204,6 +225,7 @@ def update_callbacks(db, lead_ids=None, hours: int = 36) -> int:
         lead.callback_note = (f"said they'd call you at {when}{day}" if p["they_call"]
                               else f"asked for a call at {when}{day}")
         lead.callback_alerted_at = ""
+        lead.callback_owner = caller_of(db, rid, text)
         n += 1
     return n
 
@@ -221,7 +243,11 @@ def alert_due_callbacks(db) -> int:
         link = f"{get_settings().frontend_url}/leads/{lead.id}"
         text = (f"CALL-BACK NOW: {lead.contact_name or 'A customer'} {lead.callback_note}. "
                 f"{lead.contact_phone or ''}\n{link}")
-        people = oc.on_call_now(db, now)
+        # The person who promised it makes it; whoever is on call if we
+        # can't tell who that was.
+        from database import User
+        owner = db.query(User).filter(User.username == lead.callback_owner).first() if lead.callback_owner else None
+        people = [owner] if owner and (owner.phone or owner.ghl_contact_id) else oc.on_call_now(db, now)
         if people:
             for u in people:
                 oc.message_person(db, u, text)

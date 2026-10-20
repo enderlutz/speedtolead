@@ -122,6 +122,7 @@ class Lead(Base):
     callback_note = Column(Text, default="")       # "asked for a call at 5:00 PM"
     callback_source = Column(Text, default="")     # recording id it came from
     callback_alerted_at = Column(Text, default="")
+    callback_owner = Column(Text, default="")      # users.username who promised it
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -5037,7 +5038,7 @@ def _run_migrations():
                 logger.info(f"Migration: added users.{col}")
 
     for col in ("oncall_to", "oncall_at", "first_call_at", "first_call_by", "oncall_late_at",
-                "callback_at", "callback_note", "callback_source", "callback_alerted_at"):
+                "callback_at", "callback_note", "callback_source", "callback_alerted_at", "callback_owner"):
         if col not in existing:
             with _engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''"))

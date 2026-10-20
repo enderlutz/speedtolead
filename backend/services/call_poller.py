@@ -690,6 +690,7 @@ def _ingest_calls_for_lead(db, lead) -> dict:
                 duration_seconds=duration,
                 call_direction=(msg.get("direction") or "outbound"),
                 caller_name="",  # T4.D will resolve userId → User.name later
+                recorded_by=str(msg.get("userId") or ""),   # the GHL login that made the call
                 status="pending",
                 created_at=msg.get("dateAdded") or _now(),
             )

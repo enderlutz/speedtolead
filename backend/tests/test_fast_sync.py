@@ -103,3 +103,12 @@ def test_queue_pulls_when_due(monkeypatch):
 def test_same_time_false_alarms():
     assert find_callback_time("I'm not able to take your call at this time. Please leave", TWO_PM) is None
     assert find_callback_time("I will talk with them and see if that could work at the same time as you", TWO_PM) is None
+
+
+def test_callback_owner_from_the_call(db):
+    lead = _lead(db)
+    _call(db, lead, "Hey mister Clarence, this is Alan again. Okay, I'll give you a call at seven then.", minutes_ago=20)
+    fs.update_callbacks(db)
+    db.commit()
+    db.refresh(lead)
+    assert lead.callback_owner == "alanbonner"
