@@ -3853,7 +3853,7 @@ export const api = {
       `/api/pm-hq/calendar?start=${start}&end=${end}`),
   getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[] }>(`/api/pm-hq/today`),
   getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),
-  pmHqAssign: (b: { lead_id: string; date: string; username: string; task: CrewTask; helper?: boolean }) =>
+  pmHqAssign: (b: { lead_id: string; date: string; username: string; task: CrewDayTask; helper?: boolean }) =>
     request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
   pmHqOrder: (date: string, lead_ids: string[], username = "") =>
     request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids, username }) }),
@@ -6134,8 +6134,8 @@ export interface StainCoverageFile {
 }
 
 /** Pressure washing is the third kind of crew day (Alan, 2026-10-19). */
-export type CrewTask = "" | "cleaning" | "staining" | "pressure_washing";
-export type CrewEntry = { username: string; date: string; task: CrewTask };
+export type CrewDayTask = "" | "cleaning" | "staining" | "pressure_washing";
+export type CrewEntry = { username: string; date: string; task: CrewDayTask };
 /** How one person is paid on one job: a flat amount, or hourly at a rate. */
 export type CrewPay = { pay_type: "" | "flat" | "hourly"; pay: number };
 
@@ -6201,7 +6201,7 @@ export type DocCategory = { key: string; label: string; about: string };
 export interface PmProgress { percent: number; cleaning: [number, number]; staining: [number, number]; stage: string; cleaning_done?: boolean; pw?: [number, number] }
 export interface PmDay {
   lead_id: string; name: string; address: string; date: string; username: string; person: string;
-  task: CrewTask; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
+  task: CrewDayTask; order: number; helper: boolean; with: string[]; progress: PmProgress; color: string; completed_at: string; updated_at: string;
   staining_days?: { date: string; person: string }[];
   /** Washing services on the job, as labels ("House wash"). */
   pw_services?: string[];

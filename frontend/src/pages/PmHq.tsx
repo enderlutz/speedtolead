@@ -16,13 +16,13 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import { CalendarDays, GripVertical, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
-import { api, type CrewTask, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
+import { api, type CrewDayTask, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
 
 type Tab = "today" | "calendar" | "past";
-type Task = CrewTask;
+type Task = CrewDayTask;
 
 function ctToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());

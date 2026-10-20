@@ -28,7 +28,7 @@ import {
 import { toast } from "sonner";
 import {
   api, canSeeRevenue, STAIN_FINISH_TYPES, type CompanyCamPayload, type CrewEntry, type CrewPay, type CoverageStats, type BleachStats, type StainOption, type CompanyCamPhoto,
-  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewTask, type PwFinishHow,
+  type CompanyCamJob, type ColorPlanRow, type CompanyCamSection, type CrewDayTask, type PwFinishHow,
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { Card } from "@/components/ui/card";
@@ -64,7 +64,7 @@ const sectionLook = (key: string) =>
     : { icon: Camera, accent: ACCENT.slate });
 
 /** The crew's kinds of day: cleaning, staining, and pressure washing (Alan, 2026-10-19). */
-const TASKS: Exclude<CrewTask, "">[] = ["cleaning", "staining", "pressure_washing"];
+const TASKS: Exclude<CrewDayTask, "">[] = ["cleaning", "staining", "pressure_washing"];
 const taskLabel = (t: string) =>
   t === "cleaning" ? tr("Cleaning") : t === "staining" ? tr("Staining") : t === "pressure_washing" ? tr("Pressure washing") : "";
 const TASK_ON: Record<string, string> = {
@@ -1512,7 +1512,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               <ReadValue>{job.bleach_gallons_to_bring ? `${job.bleach_gallons_to_bring} ${isSpanish() ? "galones" : "gallons"}`
                 : data.bleach?.suggest ? `${data.bleach.suggest.gallons} ${isSpanish() ? "galones" : "gallons"}` : tr("Not set yet")}</ReadValue>
             )}
-            <BleachLine stats={data.bleach} age={data.fence_age} set={job.bleach_gallons_to_bring} manager={manager}
+            <BleachLine stats={data.bleach} age={data.fence_age} set={job.bleach_gallons_to_bring || 0} manager={manager}
                         onUse={(g) => void patch({ bleach_gallons_to_bring: g })} />
           </StatTile>
           )}
