@@ -421,7 +421,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
               <span className="text-[15px] font-semibold">Repairs</span>
               <span className="font-heading text-xl font-bold tabular-nums">
                 {roff ? <span className="mr-2 text-base text-white/60 line-through">{formatCurrency(repairs)}</span> : null}
-                {repairs ? `+ ${formatCurrency(repairs - roff)}` : formatCurrency(0)}
+                {repairs ? `+ ${formatCurrency(repairs - roff)}` : "$0"}
               </span>
             </div>
             <button type="button" onClick={() => setRepairsOpen(false)}
@@ -430,7 +430,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         ) : lines.length ? (
           <ul className="space-y-0.5 border-t px-3 py-2 text-sm">
             {lines.map((l) => (
-              <li key={l.key} className="flex justify-between gap-2"><span>{l.name} × {l.qty} @ {formatCurrency(l.unit_price)}</span><span className="font-semibold tabular-nums">{formatCurrency(l.qty * l.unit_price)}</span></li>
+              <li key={l.key} className="flex justify-between gap-2"><span>{l.name} × {l.qty} @ {formatCurrency(l.unit_price).replace(".00", "")}</span><span className="font-semibold tabular-nums">{formatCurrency(l.qty * l.unit_price)}</span></li>
             ))}
           </ul>
         ) : null}

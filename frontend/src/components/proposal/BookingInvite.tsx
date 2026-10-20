@@ -232,7 +232,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button type="button" onClick={pay} disabled={paying || financing}
                       className="flex h-14 items-center justify-center gap-1.5 rounded-xl text-[16px] font-bold text-[#15130F] shadow-md active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
-                      <Lock className="h-4 w-4" /> {paying ? "Opening…" : `Reserve · ${formatCurrency(DEPOSIT)}`}
+                      <Lock className="h-4 w-4" /> {paying ? "Opening…" : `Reserve · ${formatCurrency(DEPOSIT).replace(".00", "")}`}
                     </button>
                     <button type="button" onClick={() => void finance()} disabled={paying || financing}
                       className="flex h-14 items-center justify-center gap-1.5 rounded-xl bg-[#FFB3C7] text-[16px] font-bold text-black shadow-md active:scale-[0.98] disabled:opacity-70">
@@ -323,7 +323,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 {/* Each repair on its own line, the way it was agreed on the phone. */}
                 {repairs?.map((r) => (
                   <div key={r.name} className="flex justify-between gap-3">
-                    <dt className="text-[#15130F]/75">{r.name} <span className="whitespace-nowrap">× {r.qty} @ {formatCurrency(r.unit_price)}</span></dt>
+                    <dt className="text-[#15130F]/75">{r.name} <span className="whitespace-nowrap">× {r.qty} @ {formatCurrency(r.unit_price).replace(".00", "")}</span></dt>
                     <dd className="whitespace-nowrap text-right font-semibold tabular-nums">{formatCurrency(r.qty * r.unit_price)}</dd>
                   </div>
                 ))}

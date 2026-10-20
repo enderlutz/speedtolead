@@ -17,7 +17,7 @@ export function Chips({ options, value, onChange }: {
           <button key={o.key} type="button" onClick={() => onChange(o.key)} aria-pressed={on}
             className={cn("min-h-11 rounded-lg px-3 py-2 text-[15px] font-semibold leading-tight transition",
               on ? "bg-[#15130F] text-[#E3BE63]" : "bg-white text-[#15130F]/75 ring-1 ring-[#15130F]/15")}>
-            {o.label} <span className={cn("ml-0.5", on ? "text-white/85" : "text-[#15130F]/65")}>{formatCurrency(o.price)}</span>
+            {o.label} <span className={cn("ml-0.5", on ? "text-white/85" : "text-[#15130F]/65")}>{formatCurrency(o.price).replace(".00", "")}</span>
           </button>
         );
       })}
@@ -36,7 +36,7 @@ export function Counter({ label, what, unit, price, n, onChange, art, children, 
       <div className="min-w-0 flex-1">
         <p className="text-base font-bold leading-tight">{label}</p>
         {what ? <p className="text-[15px] leading-snug text-[#15130F]/75">{what}</p> : null}
-        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price)} per {unit}</p>
+        <p className="text-[15px] font-semibold text-[#15130F]/75">{formatCurrency(price).replace(".00", "")} per {unit}</p>
         {children ? <div className="mt-1">{children}</div> : null}
       </div>
       <div className={cn("flex items-center gap-1", stack && "ml-auto w-full justify-end")}>

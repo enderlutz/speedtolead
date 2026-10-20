@@ -1101,7 +1101,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           </div>
           <div className="mt-3 flex items-center justify-between rounded-xl bg-[#15130F] px-4 py-3 text-white">
             <span className="flex items-center gap-2 text-[15px] font-semibold"><Hammer className="h-4 w-4" style={{ color: "#E3BE63" }} /> Repairs</span>
-            <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : formatCurrency(0)}</span>
+            <span className="font-heading text-xl font-bold tabular-nums">{repairs ? `+ ${formatCurrency(repairs)}` : "$0"}</span>
           </div>
         </section>
 
@@ -1153,7 +1153,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             <Users className="mt-0.5 h-6 w-6 shrink-0" style={{ color: "#E3BE63" }} />
             <div>
               <p className="font-heading text-lg font-bold leading-tight">Know a neighbor who needs it too?</p>
-              <p className="mt-1 text-[15px] text-white/85">You both get an extra $100.00 off. No deadline. Just tell us.</p>
+              <p className="mt-1 text-[15px] text-white/85">You both get an extra $100 off. No deadline. Just tell us.</p>
             </div>
           </div>
         </section>
@@ -1238,18 +1238,18 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           {reserved ? (
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Check className="h-5 w-5" style={{ color: "#E3BE63" }} /> You're reserved</p>
-              <p className="mt-1 text-[15px] text-white/80">{reserved.kind === "full" ? "Your job is paid in full." : "Your $250.00 deposit is in."} {reserved.tier ? `${packages.find((p) => p.key === reserved.tier)?.name || ""} it is.` : ""} We'll be in touch about your dates.</p>
+              <p className="mt-1 text-[15px] text-white/80">{reserved.kind === "full" ? "Your job is paid in full." : "Your $250 deposit is in."} {reserved.tier ? `${packages.find((p) => p.key === reserved.tier)?.name || ""} it is.` : ""} We'll be in touch about your dates.</p>
               <a href={reserved.afterUrl} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg" style={{ background: GOLD }}>What happens next</a>
             </div>
           ) : (
           <div className="space-y-3">
             <div className="rounded-2xl bg-[#15130F] p-4 text-white ring-1 ring-[#C9972F]/50">
               <p className="flex items-center gap-2 font-heading text-lg font-bold"><Home className="h-5 w-5" style={{ color: "#E3BE63" }} /> Reserve my spot</p>
-              <p className="mt-1 text-[15px] text-white/80"><span className="font-bold text-white">$250.00 today</span> books your spot. The rest{chosen ? ` (${formatCurrency(Math.max(0, total - 250))})` : ""} is due when the job is done and you're happy.</p>
+              <p className="mt-1 text-[15px] text-white/80"><span className="font-bold text-white">$250 today</span> books your spot. The rest{chosen ? ` (${formatCurrency(Math.max(0, total - 250))})` : ""} is due when the job is done and you're happy.</p>
               <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null} className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
-                <CreditCard className="h-5 w-5" /> {doorBusy === "reserve" ? "Opening your payment page…" : "Reserve my spot · $250.00"}
+                <CreditCard className="h-5 w-5" /> {doorBusy === "reserve" ? "Opening your payment page…" : "Reserve my spot · $250"}
               </button>
-              <p className="mt-3 text-center text-[15px] leading-snug text-white">Card, Apple Pay, Google Pay, bank account or Cash App. <span className="font-bold">The $250.00 is not refundable.</span> You can move your date any time.</p>
+              <p className="mt-3 text-center text-[15px] leading-snug text-white">Card, Apple Pay, Google Pay, bank account or Cash App. <span className="font-bold">The $250 is not refundable.</span> You can move your date any time.</p>
               <p className="mt-2 text-center text-[15px] leading-snug text-white/85">By reserving, you agree to our <button type="button" onClick={() => setTerms(true)} className="inline-flex min-h-[44px] items-center font-bold underline underline-offset-2" style={{ color: "#E3BE63" }}>Terms</button>.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
@@ -1304,7 +1304,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
                 <div className="mt-2 grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => void openDoor("reserve")} disabled={doorBusy !== null}
                     className="flex h-12 items-center justify-center gap-1.5 rounded-xl text-[15px] font-bold text-[#15130F] shadow-lg active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
-                    <Home className="h-4 w-4" /> {doorBusy === "reserve" ? "Opening…" : "Reserve · $250.00"}
+                    <Home className="h-4 w-4" /> {doorBusy === "reserve" ? "Opening…" : "Reserve · $250"}
                   </button>
                   <button type="button" onClick={() => void openDoor("finance")} disabled={doorBusy !== null}
                     className="flex h-12 items-center justify-center gap-1.5 rounded-xl bg-[#FFB3C7] text-[15px] font-bold text-black shadow-lg active:scale-[0.98] disabled:opacity-70">
