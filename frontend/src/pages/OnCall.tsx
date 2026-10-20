@@ -267,16 +267,26 @@ function TodoLists() {
     const t = setInterval(load, 120_000);
     return () => clearInterval(t);
   }, [load]);
+  const drop = (id: string) => setData((d) => d && {
+    estimates: d.estimates.filter((r) => r.lead_id !== id), follow_ups: d.follow_ups.filter((r) => r.lead_id !== id),
+  });
   if (!data) return <p className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />Loading your to-do lists…</p>;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <TodoColumn title="Need an estimate" sub="Talked but not priced first, then new leads, then no address." rows={data.estimates} accent="border-t-sky-500" />
-      <TodoColumn title="Follow up" sub="Call-back days first, then replies, then opened it, then not opened." rows={data.follow_ups} accent="border-t-emerald-500" />
+      <TodoColumn title="Need an estimate" sub="Talked but not priced first, then new leads, then no address." rows={data.estimates} accent="border-t-sky-500" onRemoved={drop} />
+      <TodoColumn title="Follow up" sub="Call-back days first, then replies, then opened it, then not opened." rows={data.follow_ups} accent="border-t-emerald-500" onRemoved={drop} />
     </div>
   );
 }
 
-function TodoColumn({ title, sub, rows, accent }: { title: string; sub: string; rows: OnCallTodoRow[]; accent: string }) {
+function TodoColumn({ title, sub, rows, accent, onRemoved }: {
+  title: string; sub: string; rows: OnCallTodoRow[]; accent: string; onRemoved: (id: string) => void;
+}) {
+  const notALead = async (r: OnCallTodoRow) => {
+    if (!window.confirm(`Take ${r.name || "this one"} off the lists? (Not a lead: a worker, a wrong number, spam.)`)) return;
+    try { await api.onCallNotALead(r.lead_id); onRemoved(r.lead_id); toast.success("Taken off the lists"); }
+    catch (e) { toast.error(errMessage(e, "Couldn't do that")); }
+  };
   // Grouped by where they are, in the order the server ranked them.
   const groups = useMemo(() => {
     const m = new Map<string, OnCallTodoRow[]>();
@@ -302,6 +312,10 @@ function TodoColumn({ title, sub, rows, accent }: { title: string; sub: string; 
                   <Link to={`/leads/${r.lead_id}`} className="block truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
                   <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>
                 </div>
+                <button type="button" onClick={() => void notALead(r)} title="Not a lead (worker, wrong number, spam)"
+                        className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-rose-700">
+                  Not a lead
+                </button>
               </div>
             ))}
           </div>

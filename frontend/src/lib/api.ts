@@ -2762,6 +2762,7 @@ export const api = {
   onCallAskBreak: (minutes: number) => request<OnCallBreak>("/api/on-call/breaks", { method: "POST", body: JSON.stringify({ minutes }) }),
   onCallTakeBreak: (id: string) => request<OnCallBreak>(`/api/on-call/breaks/${id}/take`, { method: "POST" }),
   onCallCancelBreak: (id: string) => request<{ ok: boolean }>(`/api/on-call/breaks/${id}/cancel`, { method: "POST" }),
+  onCallNotALead: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/not-a-lead`, { method: "POST" }),
   onCallTodo: () => request<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] }>("/api/on-call/todo"),
   onCallQueue: () => request<{ leads: OnCallLead[] }>("/api/on-call/queue"),
   onCallCalled: (leadId: string) => request<{ ok: boolean }>(`/api/on-call/leads/${leadId}/called`, { method: "POST" }),

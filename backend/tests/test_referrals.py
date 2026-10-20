@@ -68,8 +68,15 @@ def test_the_review_switch_and_stars(db, monkeypatch, quiet):
     assert sp.set_ask_review(on["token"], sp.AskReviewBody(on=False), STAFF)["ask_review"] is False
     assert sp.after_info(on["token"])["ask_review"] is False
     assert sp.set_ask_review(on["token"], sp.AskReviewBody(on=True), STAFF)["ask_review"] is True
+    monkeypatch.setattr(hooks, "_settle_stars", lambda lead_id, delay=None: None)   # the 90 s wait, run by hand
     hooks.on_answer(lead.id, "stars", 2, {"comment": "Took too long"})
     assert ("tag", "stars_2") in quiet and ("tag", "nps_detractor") in quiet
+    from database import PayLink
+    import json as _json
+    link = db.query(PayLink).filter(PayLink.token == on["token"]).first()
+    link.answers, link.answered_at = _json.dumps({"stars": 2, "comment": "Took too long"}), "2026-10-19T00:00:00"
+    db.commit()
+    hooks.low_stars_check(lead.id)
     assert any(k == "alan" and "2/5" in m and "Took too long" in m for k, m in quiet)
     quiet.clear()
     hooks.on_answer(lead.id, "stars", 5, {})

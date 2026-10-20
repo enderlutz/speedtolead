@@ -198,7 +198,10 @@ def todo(user: dict = Depends(require_staff)):
     db = get_db()
     try:
         since = oc._iso(oc.now_utc() - timedelta(days=TODO_DAYS))
-        leads = db.query(Lead).filter(Lead.created_at >= since).all()
+        # Form leads only: GHL phone contacts copied over (a worker, a Toast
+        # code, a wrong number) and anyone marked "Not a lead" stay off.
+        leads = (db.query(Lead).filter(Lead.created_at >= since, Lead.status.notin_(("archived", "contact")),
+                                       Lead.pipeline_version != "contact").all())
         ids = [l.id for l in leads]
         scheduled, overdue = _scheduled_send_state(db, ids)
         stops, dnc = _stops(db, ids)
@@ -237,6 +240,25 @@ def todo(user: dict = Depends(require_staff)):
         follow.sort(key=newest, reverse=True)
         follow.sort(key=lambda r: (_FOLLOW_ORDER[r["key"]], r["stage"] != "Call-backs due now", r.get("at", "")))
         return {"estimates": estimates, "follow_ups": follow}
+    finally:
+        db.close()
+
+
+@router.post("/on-call/leads/{lead_id}/not-a-lead")
+def not_a_lead(lead_id: str, user: dict = Depends(require_staff)):
+    """Off every list (Alan, 2026-10-19: "that's literally my worker").
+    Archived, so it stays findable."""
+    db = get_db()
+    try:
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        if not lead:
+            raise HTTPException(404, "Lead not found")
+        lead.status = "archived"
+        lead.updated_at = oc._iso(oc.now_utc())
+        db.commit()
+        from services.activity_log import log_event
+        log_event(lead_id, "not_a_lead", f"Marked not a lead by {user.get('name') or user.get('sub')}")
+        return {"ok": True}
     finally:
         db.close()
 
