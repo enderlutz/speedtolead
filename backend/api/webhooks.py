@@ -477,8 +477,9 @@ async def ghl_message_webhook(request: Request):
 
 @router.post("/webhook/ghl/activity")
 async def ghl_activity_webhook(request: Request):
-    """Instant pull (Alan, 2026-10-19). A GHL workflow ("Customer replied",
-    "Call status", outbound message...) posts here with the contact; we pull
+    """Instant pull (Alan, 2026-10-19). A GHL workflow ("Form submitted",
+    "Customer replied", "Call status"...) posts here with the contact. A
+    customer we don't have yet runs the lead pull at once; otherwise we pull
     that customer's texts and calls within seconds, and again 3 minutes later
     for the recording. Any payload shape GHL sends: contact_id, contactId,
     id, or contact.id."""
@@ -497,7 +498,11 @@ async def ghl_activity_webhook(request: Request):
         lead_id = fast_sync.want_contact(db, str(cid))
     finally:
         db.close()
-    return {"status": "queued" if lead_id else "no lead", "lead_id": lead_id}
+    if not lead_id:
+        # Someone new (a form fill): pull leads now, not in 5 minutes.
+        fast_sync.new_lead_soon()
+        return {"status": "pulling new lead", "lead_id": ""}
+    return {"status": "queued", "lead_id": lead_id}
 
 
 @router.post("/webhook/ghl/message-status")

@@ -112,3 +112,23 @@ def test_callback_owner_from_the_call(db):
     db.commit()
     db.refresh(lead)
     assert lead.callback_owner == "alanbonner"
+
+
+def test_a_new_form_fill_pulls_leads_now_and_once_more(monkeypatch):
+    """Someone we don't have yet: the lead pull runs at once and again
+    shortly after; a burst of webhooks shares that one run."""
+    import threading
+    import services.poller as poller
+    calls = []
+    gate = threading.Event()
+    monkeypatch.setattr(poller, "poll_ghl_contacts", lambda: (calls.append(1), gate.wait(2)))
+    monkeypatch.setattr(fs, "NEW_LEAD_AGAIN_SECONDS", 0)
+    assert fs.new_lead_soon() is True
+    assert fs.new_lead_soon() is False
+    gate.set()
+    for t in [t for t in threading.enumerate() if t.name == "new-lead-pull"]:
+        t.join(5)
+    assert len(calls) == 2
+    assert fs.new_lead_soon() is True
+    for t in [t for t in threading.enumerate() if t.name == "new-lead-pull"]:
+        t.join(5)

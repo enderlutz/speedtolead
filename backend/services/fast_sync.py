@@ -56,6 +56,36 @@ def want(lead_id: str, delay: float = 0.0, *, again: bool = False) -> None:
             _due[lead_id + "|again"] = time.time() + delay + RECHECK_SECONDS
 
 
+NEW_LEAD_AGAIN_SECONDS = 45     # GHL's card can land after the form webhook
+_new_lead_pending = threading.Event()
+
+
+def new_lead_soon() -> bool:
+    """A form fill from someone we don't have yet (Alan, 2026-10-19: "go high
+    level just tells you a new lead came in"): run the lead pull now instead
+    of waiting up to 5 minutes, and once more shortly after in case GHL made
+    the card a little later. Several webhooks at once share one run."""
+    if _new_lead_pending.is_set():
+        return False
+    _new_lead_pending.set()
+
+    def run():
+        from services.poller import poll_ghl_contacts
+        try:
+            for i in range(2):
+                if i:
+                    time.sleep(NEW_LEAD_AGAIN_SECONDS)
+                try:
+                    poll_ghl_contacts()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"fast_sync: instant lead pull failed: {e}")
+        finally:
+            _new_lead_pending.clear()
+
+    threading.Thread(target=run, daemon=True, name="new-lead-pull").start()
+    return True
+
+
 def want_contact(db, contact_id: str, *, again: bool = True) -> str:
     lead = db.query(Lead.id).filter(Lead.ghl_contact_id == contact_id).first() if contact_id else None
     if lead:

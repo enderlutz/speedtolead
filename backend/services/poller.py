@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 import json
 import logging
+import threading
 from datetime import datetime, timezone, timedelta
 import clock
 from config import get_settings
@@ -612,8 +613,18 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
         db.close()
 
 
+# One lead pull at a time: the 5-minute loop and an instant form-fill pull
+# (services/fast_sync.py:new_lead_soon) must not both insert the same lead.
+_POLL_LOCK = threading.Lock()
+
+
 def poll_ghl_contacts():
     """Sync leads from both GHL locations with delay between to avoid rate limits."""
+    with _POLL_LOCK:
+        _poll_ghl_contacts()
+
+
+def _poll_ghl_contacts():
     import time
     settings = get_settings()
     _sync_location(settings.ghl_location_id, settings.ghl_location_1_label, _CFG_A)
