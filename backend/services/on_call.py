@@ -139,10 +139,58 @@ def message_person(db, user, text: str) -> bool:
     try:
         if (user.alert_channel or "whatsapp") == "sms":
             return bool(ghl.send_sms(cid, text))
-        return bool(ghl.send_whatsapp(cid, text))
+        ok = bool(ghl.send_whatsapp(cid, text))
+        if ok:
+            import threading
+            threading.Thread(target=_check_whatsapp, args=(user.display_name or user.username, cid, text),
+                             daemon=True, name="wa-check").start()
+        return ok
     except Exception as e:  # noqa: BLE001
         logger.warning("on call: alert to %s failed: %s", user.username, e)
         return False
+
+
+# WhatsApp accepts the send and fails it a few seconds later when the person
+# hasn't written to us in 24 hours (Olga, 2026-10-20: every alert since the
+# day before bounced, and nobody knew). So look again shortly after, and tell
+# Alan: what they missed, and once in a while, how to fix it.
+WA_CHECK_AFTER_SECONDS = 25
+WA_HOWTO_EVERY = timedelta(hours=3)
+_wa_howto_sent: dict[str, datetime] = {}
+
+
+def _check_whatsapp(name: str, cid: str, text: str) -> str:
+    """'failed' (Alan told), 'ok', or '' when it couldn't tell."""
+    import time
+    from services import ghl
+    time.sleep(WA_CHECK_AFTER_SECONDS)
+    try:
+        convs = ghl.get_conversations(cid)
+        msgs = ghl.get_conversation_messages(convs[0]["id"]) if convs else []
+    except Exception as e:  # noqa: BLE001
+        logger.warning("on call: WhatsApp check for %s failed: %s", name, e)
+        return ""
+    mine = next((m for m in msgs if m.get("messageType") == "TYPE_WHATSAPP" and m.get("direction") == "outbound"
+                 and (m.get("body") or "").strip()[:80] == text.strip()[:80]), None)
+    if not mine:
+        return ""
+    if mine.get("status") != "failed":
+        return "ok"
+    now = now_utc()
+    lines = []
+    last = _wa_howto_sent.get(name)
+    if not last or now - last > WA_HOWTO_EVERY:
+        _wa_howto_sent[name] = now
+        why = mine.get("error") or "WhatsApp didn't deliver it"
+        lines.append(f"{name} isn't getting WhatsApp alerts ({why[:120]}). "
+                     f"Ask {name} to send \"on\" to the Sterling WhatsApp, 346-589-7877.")
+    # Their own lead, the 5-minute alarm and the shift reminder matter; a
+    # "not yours" heads-up doesn't need forwarding.
+    if not text.startswith("New lead:"):
+        lines.append(f"{name} missed this: {text[:300]}")
+    if lines:
+        _alan("\n\n".join(lines))
+    return "failed"
 
 
 def _alan(text: str) -> None:
@@ -289,9 +337,11 @@ def tick(when: datetime | None = None) -> dict:
         cutoff, floor = _iso(when - LATE_AFTER), _iso(when - timedelta(hours=3))
         late = (db.query(Lead).filter(Lead.oncall_at != "", Lead.oncall_at <= cutoff, Lead.oncall_at >= floor,
                                       Lead.first_call_at == "", Lead.oncall_late_at == "").all())
+        from database import User
+        names = {u.username: (u.display_name or u.username) for u in db.query(User).all()} if late else {}
         for lead in late:
             lead.oncall_late_at = _iso(when)
-            who = lead.oncall_to or "nobody on call"
+            who = names.get(lead.oncall_to, lead.oncall_to) if lead.oncall_to else "nobody on call"
             _alan(f"5 minutes, no call yet: {lead.contact_name or 'a lead'} ({lead.contact_phone or 'no phone'}). "
                   f"On call: {who}. {get_settings().frontend_url}/leads/{lead.id}")
             # Everybody, loud (Alan, 2026-10-19: "it needs to tell everybody").
