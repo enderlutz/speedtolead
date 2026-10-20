@@ -1033,6 +1033,164 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         );
   };
 
+  // Shared by the fence and the washing screens (Alan, 2026-10-19: keep
+  // "almost finished", "did they mention anything" and the neighbour
+  // question on a washing job).
+  const almostPanel = (
+    <>
+      {/* Almost finished — catch the customer while the crew is still there.
+          Either they're home and the crew walks it with them, or the crew
+          texts them from their own phone: the crew can't see GHL, so nothing
+          sends from here (Alan, 2026-10-15). */}
+      <Panel icon={MessageSquare} accent={ACCENT.cyan}
+             title={tr("20–30 minutes from finishing")}
+             sub={tr("Show the customer before you pack up")}>
+        {job.almost_done_sent_at ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-3">
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-900">
+              <CheckCircle2 className="h-4 w-4" />
+              {job.almost_done_how === "walked" ? tr("Walked it with the customer") : job.almost_done_how === "texted" ? tr("Texted the customer") : tr("Sent")}
+            </span>
+            <span className="text-xs text-emerald-800">
+              {new Date(job.almost_done_sent_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              {job.almost_done_sent_by ? ` by ${job.almost_done_sent_by}` : ""}
+            </span>
+            <Button variant="outline" size="sm" className="ml-auto h-8"
+                    onClick={async () => {
+                      if (!confirm(tr("Undo this? Only if it was tapped by mistake or there's a second visit."))) return;
+                      try {
+                        const r = await api.resetCompanyCamAlmostDone(leadId);
+                        setData((d) => (d ? { ...d, job: r.job } : d));
+                      } catch (e) { toast.error(errMessage(e, tr("Couldn't reset"))); }
+                    }}>
+              <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tr("Undo")}
+            </Button>
+          </div>
+        ) : (
+          <AlmostDone text={almostDoneText} defaultText={almost_done_default} onText={setAlmostDoneText}
+                      phone={customer.phone} blocked={customer.do_not_contact}
+                      onMark={async (how) => {
+                        try {
+                          const r = await api.markCompanyCamAlmostDone(leadId, how);
+                          setData((d) => (d ? { ...d, job: r.job } : d));
+                          toast.success(how === "walked" ? tr("Marked: walked it with them") : tr("Marked: texted them"));
+                        } catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); }
+                      }} />
+        )}
+        {customer.do_not_contact ? (
+          <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
+            <Ban className="h-3.5 w-3.5 shrink-0" />
+            {tr("This customer has opted out — nothing will send.")}
+          </p>
+        ) : null}
+      </Panel>
+    </>
+  );
+  const heardPanel = (
+    <>
+      {/* What the crew heard. */}
+      <Panel icon={ShoppingCart} accent={ACCENT.violet}
+             title={tr("Did the customer mention anything else?")}
+             sub={tr("Tick anything they brought up")}>
+        <div className="flex flex-wrap gap-1.5">
+          {upsell_options.map((o) => {
+            const on = job.upsells.includes(o.key);
+            return (
+              <Button key={o.key} size="sm"
+                      variant={on ? "default" : "outline"}
+                      className={cn("h-9 text-xs font-medium",
+                                    on && "bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-600 hover:to-purple-700")}
+                      onClick={() => void patch({
+                        upsells: on ? job.upsells.filter((u) => u !== o.key)
+                                    : [...job.upsells, o.key],
+                      })}>
+                {on ? <Check className="mr-1 h-3 w-3" /> : null}{tr(o.label)}
+              </Button>
+            );
+          })}
+        </div>
+        <Field label={tr("Notes on what they wanted")}>
+          <BlurText rows={2} value={job.upsell_notes}
+                    placeholder={tr("What they actually said…")}
+                    onSave={(v) => void patch({ upsell_notes: v })} />
+        </Field>
+      </Panel>
+    </>
+  );
+  const neighborPanel = (
+    <>
+      {/* Neighbours and friends — the cheapest lead there is. Made so simple
+          it can't go wrong (Alan, 2026-10-16): one question, three answers. */}
+      <Panel icon={Users} accent={ACCENT.rose}
+             title={tr("Any neighbour or friend interested?")}
+             sub={tr("Ask the customer before you leave")}>
+        <p className="text-sm font-semibold">{tr("Does anyone else want a quote? A neighbour, a friend, family?")}</p>
+        <div className="grid gap-2">
+          {([
+            ["none", tr("No one")],
+            ["details", tr("Yes, and I got their name and number")],
+            ["no_details", tr("Yes, but I didn't get their info")],
+          ] as const).map(([v, label]) => (
+            <Button key={v} size="lg" variant={(job.neighbor_status || "") === v ? "default" : "outline"}
+                    className={cn("h-auto min-h-12 w-full justify-start whitespace-normal py-2.5 text-left text-base font-semibold",
+                      (job.neighbor_status || "") === v && v !== "none" && "bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700")}
+                    onClick={() => void patch({ neighbor_status: job.neighbor_status === v ? "" : v })}>
+              {(job.neighbor_status || "") === v ? <CheckCircle2 className="mr-2 h-5 w-5 shrink-0" /> : <span className="mr-2 h-5 w-5 shrink-0 rounded-full border-2 border-current opacity-40" />}
+              {label}
+            </Button>
+          ))}
+        </div>
+        {job.neighbor_status === "no_details" ? (
+          <p className="flex items-start gap-1.5 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {tr("Alan's been told. He'll call the customer to find out who. Nothing else to do.")}
+          </p>
+        ) : null}
+        {job.neighbor_status === "details" ? (
+          <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              <Field label={tr("Their name")}>
+                <BlurText value={job.neighbor_first_name} placeholder={tr("First name")}
+                          onSave={(v) => void patch({ neighbor_first_name: v })} />
+              </Field>
+              <Field label={tr("Last name (if they gave it)")}>
+                <BlurText value={job.neighbor_last_name} placeholder={tr("Last name")}
+                          onSave={(v) => void patch({ neighbor_last_name: v })} />
+              </Field>
+              <Field label={tr("Phone number")}>
+                <BlurText value={job.neighbor_phone} placeholder="(713) 555-0101"
+                          onSave={(v) => void patch({ neighbor_phone: v })} />
+              </Field>
+              <Field label={tr("What do they want done?")}>
+                <BlurText value={job.neighbor_project}
+                          placeholder={tr("e.g. their back fence")}
+                          onSave={(v) => void patch({ neighbor_project: v })} />
+              </Field>
+            </div>
+            <Field label={tr("Anything else (optional)")} hint={tr("Which house, best time to call.")}>
+              <BlurText rows={2} value={job.neighbor_notes}
+                        placeholder={tr("e.g. House to the left. Call after 5.")}
+                        onSave={(v) => void patch({ neighbor_notes: v })} />
+            </Field>
+            {job.neighbor_sent_at ? (
+              <p className="flex items-start gap-1.5 text-sm font-semibold text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {tr("Sent to Alan. He'll take it from here.")}
+              </p>
+            ) : (
+              <Button size="lg" className="h-12 w-full text-base font-semibold"
+                      onClick={() => {
+                        // A note still being typed saves on blur; give it a beat.
+                        (document.activeElement as HTMLElement | null)?.blur?.();
+                        setTimeout(() => void patch({ neighbor_send: true }), 350);
+                      }}>
+                <Send className="mr-1.5 h-4 w-4" /> {tr("Send to Alan")}
+              </Button>
+            )}
+          </div>
+        ) : null}
+      </Panel>
+    </>
+  );
+
   return (
     <div className="space-y-3.5">
       {canManage ? (
@@ -1253,6 +1411,25 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               <div className="space-y-3.5 p-2 sm:p-3">{pwSecs.map((sec) => renderStep(sec.key))}</div>
             </section>
           ) : null}
+          {almostPanel}
+          {heardPanel}
+          {/* Bleach on a washing job is logged, not taken off the stain
+              shelf (Alan, 2026-10-19). */}
+          <Panel icon={ClipboardCheck} accent={ACCENT.slate}
+                 title={tr("End of job — what we actually used")}
+                 sub={tr("Fill this in before you leave")}>
+            <StatTile icon={Sparkles} label={tr("Gallons of bleach used")} accent={ACCENT.cyan}
+                      hint={job.pw_bleach_gallons ? tr("✓ Recorded") : tr("Logged for this job only, not the stain shelf")}>
+              <Input key={job.pw_bleach_gallons} type="number" inputMode="decimal" step="0.5" placeholder={tr("Gallons")}
+                     defaultValue={job.pw_bleach_gallons || ""}
+                     className="h-10 text-base font-semibold tabular-nums"
+                     onBlur={(e) => {
+                       const v = parseFloat(e.target.value || "0");
+                       if (v !== (job.pw_bleach_gallons || 0)) void patch({ pw_bleach_gallons: v });
+                     }} />
+            </StatTile>
+          </Panel>
+          {neighborPanel}
           <PwFinish job={job} blockers={blockers} choices={data.pw_finish_choices}
                     onFinish={async (how) => {
                       const r = await api.markCompanyCamDone(leadId, how);
@@ -1496,80 +1673,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
         {renderStep("stain_before")}
         {renderStep("stain_after")}
 
-      {/* Almost finished — catch the customer while the crew is still there.
-          Either they're home and the crew walks it with them, or the crew
-          texts them from their own phone: the crew can't see GHL, so nothing
-          sends from here (Alan, 2026-10-15). */}
-      <Panel icon={MessageSquare} accent={ACCENT.cyan}
-             title={tr("20–30 minutes from finishing")}
-             sub={tr("Show the customer before you pack up")}>
-        {job.almost_done_sent_at ? (
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 p-3">
-            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-900">
-              <CheckCircle2 className="h-4 w-4" />
-              {job.almost_done_how === "walked" ? tr("Walked it with the customer") : job.almost_done_how === "texted" ? tr("Texted the customer") : tr("Sent")}
-            </span>
-            <span className="text-xs text-emerald-800">
-              {new Date(job.almost_done_sent_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-              {job.almost_done_sent_by ? ` by ${job.almost_done_sent_by}` : ""}
-            </span>
-            <Button variant="outline" size="sm" className="ml-auto h-8"
-                    onClick={async () => {
-                      if (!confirm(tr("Undo this? Only if it was tapped by mistake or there's a second visit."))) return;
-                      try {
-                        const r = await api.resetCompanyCamAlmostDone(leadId);
-                        setData((d) => (d ? { ...d, job: r.job } : d));
-                      } catch (e) { toast.error(errMessage(e, tr("Couldn't reset"))); }
-                    }}>
-              <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tr("Undo")}
-            </Button>
-          </div>
-        ) : (
-          <AlmostDone text={almostDoneText} defaultText={almost_done_default} onText={setAlmostDoneText}
-                      phone={customer.phone} blocked={customer.do_not_contact}
-                      onMark={async (how) => {
-                        try {
-                          const r = await api.markCompanyCamAlmostDone(leadId, how);
-                          setData((d) => (d ? { ...d, job: r.job } : d));
-                          toast.success(how === "walked" ? tr("Marked: walked it with them") : tr("Marked: texted them"));
-                        } catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); }
-                      }} />
-        )}
-        {customer.do_not_contact ? (
-          <p className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
-            <Ban className="h-3.5 w-3.5 shrink-0" />
-            {tr("This customer has opted out — nothing will send.")}
-          </p>
-        ) : null}
-      </Panel>
+      {almostPanel}
 
-      {/* What the crew heard. */}
-      <Panel icon={ShoppingCart} accent={ACCENT.violet}
-             title={tr("Did the customer mention anything else?")}
-             sub={tr("Tick anything they brought up")}>
-        <div className="flex flex-wrap gap-1.5">
-          {upsell_options.map((o) => {
-            const on = job.upsells.includes(o.key);
-            return (
-              <Button key={o.key} size="sm"
-                      variant={on ? "default" : "outline"}
-                      className={cn("h-9 text-xs font-medium",
-                                    on && "bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-600 hover:to-purple-700")}
-                      onClick={() => void patch({
-                        upsells: on ? job.upsells.filter((u) => u !== o.key)
-                                    : [...job.upsells, o.key],
-                      })}>
-                {on ? <Check className="mr-1 h-3 w-3" /> : null}{tr(o.label)}
-              </Button>
-            );
-          })}
-        </div>
-        <Field label={tr("Notes on what they wanted")}>
-          <BlurText rows={2} value={job.upsell_notes}
-                    placeholder={tr("What they actually said…")}
-                    onSave={(v) => void patch({ upsell_notes: v })} />
-        </Field>
-      </Panel>
+      {heardPanel}
 
       {/* What actually happened. The gap from the estimates is the number
           worth having — for pricing, and for the stain inventory. */}
@@ -1620,75 +1726,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
       </RoleGroup>
 
-      {/* Neighbours and friends — the cheapest lead there is. Made so simple
-          it can't go wrong (Alan, 2026-10-16): one question, three answers. */}
-      <Panel icon={Users} accent={ACCENT.rose}
-             title={tr("Any neighbour or friend interested?")}
-             sub={tr("Ask the customer before you leave")}>
-        <p className="text-sm font-semibold">{tr("Does anyone else want a quote? A neighbour, a friend, family?")}</p>
-        <div className="grid gap-2">
-          {([
-            ["none", tr("No one")],
-            ["details", tr("Yes, and I got their name and number")],
-            ["no_details", tr("Yes, but I didn't get their info")],
-          ] as const).map(([v, label]) => (
-            <Button key={v} size="lg" variant={(job.neighbor_status || "") === v ? "default" : "outline"}
-                    className={cn("h-auto min-h-12 w-full justify-start whitespace-normal py-2.5 text-left text-base font-semibold",
-                      (job.neighbor_status || "") === v && v !== "none" && "bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-600 hover:to-pink-700")}
-                    onClick={() => void patch({ neighbor_status: job.neighbor_status === v ? "" : v })}>
-              {(job.neighbor_status || "") === v ? <CheckCircle2 className="mr-2 h-5 w-5 shrink-0" /> : <span className="mr-2 h-5 w-5 shrink-0 rounded-full border-2 border-current opacity-40" />}
-              {label}
-            </Button>
-          ))}
-        </div>
-        {job.neighbor_status === "no_details" ? (
-          <p className="flex items-start gap-1.5 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {tr("Alan's been told. He'll call the customer to find out who. Nothing else to do.")}
-          </p>
-        ) : null}
-        {job.neighbor_status === "details" ? (
-          <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/40 p-3">
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              <Field label={tr("Their name")}>
-                <BlurText value={job.neighbor_first_name} placeholder={tr("First name")}
-                          onSave={(v) => void patch({ neighbor_first_name: v })} />
-              </Field>
-              <Field label={tr("Last name (if they gave it)")}>
-                <BlurText value={job.neighbor_last_name} placeholder={tr("Last name")}
-                          onSave={(v) => void patch({ neighbor_last_name: v })} />
-              </Field>
-              <Field label={tr("Phone number")}>
-                <BlurText value={job.neighbor_phone} placeholder="(713) 555-0101"
-                          onSave={(v) => void patch({ neighbor_phone: v })} />
-              </Field>
-              <Field label={tr("What do they want done?")}>
-                <BlurText value={job.neighbor_project}
-                          placeholder={tr("e.g. their back fence")}
-                          onSave={(v) => void patch({ neighbor_project: v })} />
-              </Field>
-            </div>
-            <Field label={tr("Anything else (optional)")} hint={tr("Which house, best time to call.")}>
-              <BlurText rows={2} value={job.neighbor_notes}
-                        placeholder={tr("e.g. House to the left. Call after 5.")}
-                        onSave={(v) => void patch({ neighbor_notes: v })} />
-            </Field>
-            {job.neighbor_sent_at ? (
-              <p className="flex items-start gap-1.5 text-sm font-semibold text-emerald-800">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {tr("Sent to Alan. He'll take it from here.")}
-              </p>
-            ) : (
-              <Button size="lg" className="h-12 w-full text-base font-semibold"
-                      onClick={() => {
-                        // A note still being typed saves on blur; give it a beat.
-                        (document.activeElement as HTMLElement | null)?.blur?.();
-                        setTimeout(() => void patch({ neighbor_send: true }), 350);
-                      }}>
-                <Send className="mr-1.5 h-4 w-4" /> {tr("Send to Alan")}
-              </Button>
-            )}
-          </div>
-        ) : null}
-      </Panel>
+      {neighborPanel}
       {/* The last tap of the day (Alan, 2026-10-16): ticks "Job done" on
           the customer's journey and tells Alan the invoice can go. */}
       <Panel icon={CheckCircle2} accent={ACCENT.emerald}

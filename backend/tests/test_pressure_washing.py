@@ -179,3 +179,16 @@ def test_the_crew_list_shows_pressure_washing_days(db, wired, monkeypatch):
     _wash_job(db, lead)
     rows = cc.company_cam_jobs("", user=BRENT)
     assert [(r["date"], r["task"]) for r in rows] == [("2026-10-20", "pressure_washing")]
+
+
+def test_the_almost_done_text_talks_about_the_washing():
+    import json as _json
+    from types import SimpleNamespace
+    from api.company_cam import _almost_done_text
+    lead = SimpleNamespace(contact_name="Jimmy Clark")
+    pw = SimpleNamespace(crew_json=_json.dumps([{"username": "BrentBrown", "date": "2026-10-20", "task": "pressure_washing"}]),
+                         pw_services_json='["house_wash"]')
+    fence = SimpleNamespace(crew_json=_json.dumps([{"username": "Chris", "date": "2026-10-20", "task": "cleaning"}]),
+                            pw_services_json="[]")
+    assert "pressure washing" in _almost_done_text(pw, lead) and "Jimmy" in _almost_done_text(pw, lead)
+    assert "your fence" in _almost_done_text(fence, lead)

@@ -1939,6 +1939,9 @@ class CompanyCamJob(Base):
     # "called_sent_photos" (not home: called and sent photos) | "".
     # When is completed_at / completed_by, the same "Job done" stamp.
     pw_finished_how = Column(Text, default="")
+    # Bleach used on a washing job: logged, never taken off the stain shelf
+    # (Alan, 2026-10-19: "a separate thing, we could log it").
+    pw_bleach_gallons = Column(Float, default=0.0)
 
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
@@ -4961,6 +4964,7 @@ def _run_migrations():
             # Pressure washing (Alan, 2026-10-19).
             ("pw_services_json", "TEXT DEFAULT '[]'"),
             ("pw_finished_how", "TEXT DEFAULT ''"),
+            ("pw_bleach_gallons", "DOUBLE PRECISION DEFAULT 0"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl

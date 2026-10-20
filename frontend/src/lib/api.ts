@@ -4089,6 +4089,7 @@ export interface CompanyCamJob {
    *  crew tapped "I'm finished". */
   pw_services?: string[];
   pw_finished_how?: PwFinishHow | "";
+  pw_bleach_gallons?: number;
   updated_at: string;
 }
 

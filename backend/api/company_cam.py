@@ -388,6 +388,7 @@ def _job_dict(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "no_cleaning": bool(getattr(job, "no_cleaning", False)),
         "pw_services": pw_services_of(job),
         "pw_finished_how": getattr(job, "pw_finished_how", "") or "",
+        "pw_bleach_gallons": float(getattr(job, "pw_bleach_gallons", 0) or 0),
         "updated_at": job.updated_at or "",
     }
 
@@ -495,8 +496,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             "estimate_sides": estimate_sides(db, lead),
             "cleaner_checklist": CLEANER_CHECKLIST,
             "stainer_checklist": STAINER_CHECKLIST,
-            "almost_done_default": ALMOST_DONE_TEMPLATE.format(
-                first_name=_first_name(lead.contact_name)),
+            "almost_done_default": _almost_done_text(job, lead),
             # What the cleaner has to settle on site. Derived, never stored,
             # so it cannot drift from the plan it describes.
             "cleaner_actions": cleaner_color_actions(_json_list(job.color_plan_json)),
@@ -555,6 +555,7 @@ class CompanyCamPatch(BaseModel):
     stain_gallons_bought: float | None = None
     bleach_gallons_used: float | None = None
     bleach_gallons_to_bring: float | None = None
+    pw_bleach_gallons: float | None = None
     final_color: str | None = None
     # A Stain Inventory id, or "" to clear. Sets final_color from it.
     final_stain_id: str | None = None
@@ -626,7 +627,7 @@ def update_company_cam(
         if body.color_plan is not None:
             job.color_plan_json = json.dumps(normalize_color_plan(body.color_plan))
         for field in ("actual_sqft", "stain_gallons_used",
-                      "stain_gallons_bought", "bleach_gallons_used", "bleach_gallons_to_bring"):
+                      "stain_gallons_bought", "bleach_gallons_used", "bleach_gallons_to_bring", "pw_bleach_gallons"):
             v = getattr(body, field)
             if v is not None:
                 setattr(job, field, max(0.0, float(v)))
@@ -1096,6 +1097,21 @@ def delete_photo(lead_id: str, photo_id: str, user: dict = Depends(get_current_u
 # review SMS, so it's auditable and consistent whoever presses it.
 # Texted from the crew's own phone, so it says who it's from (Alan,
 # 2026-10-15: they copy it into their own texts, not through GHL).
+def _almost_done_text(job, lead) -> str:
+    """The washing crew's text talks about the washing, not a fence (Alan,
+    2026-10-19)."""
+    tpl = PW_ALMOST_DONE_TEMPLATE if job is not None and is_pw_job(job, _crew_entries(job)) else ALMOST_DONE_TEMPLATE
+    return tpl.format(first_name=_first_name(lead.contact_name))
+
+
+PW_ALMOST_DONE_TEMPLATE = (
+    "Hey {first_name}, this is the crew from Sterling. We're almost finished "
+    "with your pressure washing and will be heading out shortly. If you're "
+    "home, come take a look and make sure you're completely happy with "
+    "everything. If you're not home, just reply and I'll send you photos of "
+    "everything before we go."
+)
+
 ALMOST_DONE_TEMPLATE = (
     "Hey {first_name}, this is the crew from Sterling Fence Staining. We're "
     "almost finished with your fence and will be heading out shortly. If "
@@ -1159,8 +1175,7 @@ def send_almost_done(
         # template is already longer than one segment, so the cap only exists
         # to stop a runaway paste.
         edited = (body.message or "").strip() if body else ""
-        message = edited[:900] or ALMOST_DONE_TEMPLATE.format(
-            first_name=_first_name(lead.contact_name))
+        message = edited[:900] or _almost_done_text(job, lead)
         ok = ghl.send_sms(
             lead.ghl_contact_id, message, location_id=lead.ghl_location_id or None
         )
