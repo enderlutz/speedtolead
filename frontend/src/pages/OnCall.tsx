@@ -264,7 +264,7 @@ function TodoLists() {
   }, []);
   useEffect(() => {
     load();
-    const t = setInterval(load, 120_000);
+    const t = setInterval(load, 30_000);
     return () => clearInterval(t);
   }, [load]);
   const drop = (id: string) => setData((d) => d && {
@@ -279,6 +279,15 @@ function TodoLists() {
   );
 }
 
+function FreshTimer({ since, nowMs }: { since: string; nowMs: number }) {
+  const sec = Math.max(0, Math.floor((nowMs - new Date(since).getTime()) / 1000));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const text = h ? `${h}h ${m}m` : `${m}:${String(s).padStart(2, "0")}`;
+  // Green the first 5 minutes, amber to 15, red after.
+  const color = sec < 300 ? "bg-emerald-100 text-emerald-800" : sec < 900 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-700";
+  return <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums ${color}`} title="Since they filled the form">⏱ {text}</span>;
+}
+
 function TodoColumn({ title, sub, rows, accent, onRemoved }: {
   title: string; sub: string; rows: OnCallTodoRow[]; accent: string; onRemoved: (id: string) => void;
 }) {
@@ -287,6 +296,14 @@ function TodoColumn({ title, sub, rows, accent, onRemoved }: {
     try { await api.onCallNotALead(r.lead_id); onRemoved(r.lead_id); toast.success("Taken off the lists"); }
     catch (e) { toast.error(errMessage(e, "Couldn't do that")); }
   };
+  // The "Just came in" timer ticks every second.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const anyFresh = rows.some((r) => r.key === "fresh");
+  useEffect(() => {
+    if (!anyFresh) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [anyFresh]);
   // Grouped by where they are, in the order the server ranked them.
   const groups = useMemo(() => {
     const m = new Map<string, OnCallTodoRow[]>();
@@ -309,7 +326,11 @@ function TodoColumn({ title, sub, rows, accent, onRemoved }: {
             {list.map((r) => (
               <div key={r.lead_id} className="flex items-center gap-2 border-b px-3 py-2 last:border-b-0">
                 <div className="min-w-0 flex-1">
-                  <Link to={`/leads/${r.lead_id}`} className="block truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
+                  <div className="flex items-center gap-2">
+                    <Link to={`/leads/${r.lead_id}`} className="truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
+                    {r.key === "fresh" ? <FreshTimer since={r.came_in} nowMs={nowMs} /> : null}
+                    {r.key === "fresh" && r.refill ? <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">filled again</span> : null}
+                  </div>
                   <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>
                 </div>
                 <button type="button" onClick={() => void notALead(r)} title="Not a lead (worker, wrong number, spam)"

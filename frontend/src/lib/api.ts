@@ -6191,6 +6191,7 @@ export interface OnCallBreak {
 }
 export interface OnCallTodoRow {
   lead_id: string; name: string; phone: string; address: string; created_at: string;
+  came_in: string; refill: boolean;
   stage: string; next: string; tone: string; key: string; ghl_contact_id?: string; ghl_location_id?: string;
 }
 export interface OnCallShift { id: string; username: string; date: string; start_min: number; end_min: number }

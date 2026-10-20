@@ -182,7 +182,10 @@ def cancel_break(break_id: str, user: dict = Depends(require_staff)):
 # ── The to-do lists ─────────────────────────────────────────────────────
 
 # Next-step keys (services/next_step.py) for each list, best first.
-_ESTIMATE_ORDER = {"price": 0, "discovery": 1, "address": 2, "overdue": 3}
+_ESTIMATE_ORDER = {"fresh": -1, "price": 0, "discovery": 1, "address": 2, "overdue": 3}
+# A form fill this recent sits on top with a running timer, first fill or
+# a repeat one (Alan, 2026-10-19, Joaquin Newton: filled again, sat 32nd).
+FRESH = timedelta(hours=24)
 _FOLLOW_ORDER = {"callback": 0, "replied": 1, "viewed": 2, "sent": 3}
 TODO_DAYS = 30
 
@@ -194,6 +197,7 @@ def todo(user: dict = Depends(require_staff)):
     Same rules as the Contacts page's next step; leads from the last 30 days."""
     del user
     from api.contacts import _last_send_times, _scheduled_send_state, _stops
+    from services.intake import last_intakes
     from services.next_step import next_steps
     db = get_db()
     try:
@@ -207,6 +211,7 @@ def todo(user: dict = Depends(require_staff)):
         stops, dnc = _stops(db, ids)
         steps = next_steps(db, ids, last_send=_last_send_times(db, ids),
                            scheduled=scheduled, overdue=overdue, stopped=stops | dnc)
+        fills = last_intakes(db, ids)
         estimates, follow = [], []
         names = {u.username: (u.display_name or u.username) for u in db.query(User).all()}
         now = oc.now_utc()
@@ -226,7 +231,14 @@ def todo(user: dict = Depends(require_staff)):
                 st = {"key": "callback", "stage": "Call-backs due now" if due else "Call-backs later today",
                       "next": f"{who + ' calls · ' if who else ''}{at}: {l.callback_note or 'asked for a call'}.",
                       "tone": "hot" if due else "warm", "at": l.callback_at, "owner": who}
-            row = {"lead_id": l.id, "name": l.contact_name or "", "phone": l.contact_phone or "",
+            # When they last filled the form: a repeat fill restarts the clock.
+            born, fill = oc._parse(l.created_at or ""), oc._parse(fills.get(l.id) or "")
+            came = max([d for d in (born, fill) if d], default=None)
+            refill = bool(fill and born and fill - born > timedelta(hours=24))
+            if came and now - came < FRESH and st["key"] in _ESTIMATE_ORDER:
+                st = {**st, "key": "fresh", "stage": "Just came in · call now", "tone": "hot",
+                      "next": ("Filled the form again. " if refill else "") + st["next"]}
+            row = {"lead_id": l.id, "came_in": oc._iso(came) if came else (l.created_at or ""), "refill": refill, "name": l.contact_name or "", "phone": l.contact_phone or "",
                    "ghl_contact_id": l.ghl_contact_id or "", "ghl_location_id": l.ghl_location_id or "",
                    "address": l.address or "", "created_at": l.created_at or "",
                    "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"], "at": st.get("at", ""), "owner": st.get("owner", "")}
@@ -234,7 +246,7 @@ def todo(user: dict = Depends(require_staff)):
                 estimates.append(row)
             elif st["key"] in _FOLLOW_ORDER and st["tone"] != "cold":
                 follow.append(row)
-        newest = lambda r: r["created_at"]  # noqa: E731
+        newest = lambda r: r["came_in"]  # noqa: E731
         estimates.sort(key=newest, reverse=True)
         estimates.sort(key=lambda r: _ESTIMATE_ORDER[r["key"]])
         follow.sort(key=newest, reverse=True)
