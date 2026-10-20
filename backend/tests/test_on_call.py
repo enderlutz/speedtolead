@@ -304,3 +304,45 @@ def test_the_five_minute_alert_uses_the_persons_name(db, sent):
     oc.tick(TEN_AM + timedelta(minutes=6))
     late = [t for u, t in sent["person"] if "5 MINUTES" in t]
     assert late and "It's Olga's" in late[0]
+
+
+def test_a_contact_typed_in_by_hand_has_no_clock():
+    """Teila Ebrahimi (2026-10-20): Amir's referral, Olga added her in the app."""
+    assert oc.added_by_team({"createdBy": {"source": "MOBILE_USER", "sourceName": "Olga Moran"}}) == "Olga Moran"
+    assert oc.added_by_team({"createdBy": {"source": "WEB_USER"}}) == "the team"
+    assert oc.added_by_team({"createdBy": {"source": "INTEGRATION", "sourceId": "Facebook"}}) == ""
+    assert oc.added_by_team({}) == ""
+
+
+def test_why_no_estimate(db):
+    """Need an estimate says why (Alan, 2026-10-20): never called, called with
+    no answer, texted back, talked; a voicemail over 30 seconds isn't a talk."""
+    from api.on_call import _why
+    from database import CallAnalysis, CallRecording
+    now = TEN_AM
+    came = (now - timedelta(days=3)).isoformat()
+
+    def row(key):
+        return {"lead_id": str(uuid.uuid4()), "came_in": came, "key": key, "stage": "", "tone": ""}
+
+    def call(lid, secs, vm=False, review=""):
+        rid = str(uuid.uuid4())
+        db.add(CallRecording(id=rid, lead_id=lid, call_direction="outbound", duration_seconds=secs, is_voicemail=vm,
+                             created_at=(now - timedelta(days=1)).isoformat()))
+        if review:
+            db.add(CallAnalysis(id=str(uuid.uuid4()), recording_id=rid, lead_id=lid, summary_one_line=review))
+
+    never, missed, texted, talked, vm_long = row("discovery"), row("discovery"), row("discovery"), row("price"), row("price")
+    call(missed["lead_id"], 20, vm=True)
+    db.add(Message(id=str(uuid.uuid4()), lead_id=texted["lead_id"], direction="inbound", body="Inside only",
+                   created_at=(now - timedelta(days=2)).isoformat()))
+    call(talked["lead_id"], 400)
+    call(vm_long["lead_id"], 45, review="Voicemail only — no intake data gathered.")
+    db.commit()
+    rows = [never, missed, texted, talked, vm_long]
+    _why(db, rows, now)
+    assert [r["key"] for r in rows] == ["never_called", "no_answer", "answered", "price", "no_answer"]
+    assert never["do"] == "Call them now."
+    assert '"Inside only"' in texted["why"] and texted["do"] == "Call them, then price it."
+    assert talked["why"].startswith("Talked 6 min")
+    assert missed["attempts"] == 1 and missed["called_at"]

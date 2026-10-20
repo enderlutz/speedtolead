@@ -123,6 +123,10 @@ class Lead(Base):
     callback_source = Column(Text, default="")     # recording id it came from
     callback_alerted_at = Column(Text, default="")
     callback_owner = Column(Text, default="")      # users.username who promised it
+    # Who on the team typed this contact into GHL by hand (a referral, a
+    # call-in), or "" for a form fill. No 5-minute clock, not in speed to lead
+    # (Alan, 2026-10-20, Teila Ebrahimi: Amir's referral, Olga added her).
+    added_by = Column(Text, default="")
     created_at = Column(Text, default="")
     updated_at = Column(Text, default="")
 
@@ -5062,7 +5066,8 @@ def _run_migrations():
         logger.info("Migration: added on_call_shifts.reminded_at")
 
     for col in ("oncall_to", "oncall_at", "first_call_at", "first_call_by", "oncall_late_at",
-                "callback_at", "callback_note", "callback_source", "callback_alerted_at", "callback_owner"):
+                "callback_at", "callback_note", "callback_source", "callback_alerted_at", "callback_owner",
+                "added_by"):
         if col not in existing:
             with _engine.begin() as conn:
                 conn.execute(text(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''"))

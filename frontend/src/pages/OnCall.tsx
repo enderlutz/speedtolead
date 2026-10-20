@@ -279,19 +279,22 @@ function TodoLists() {
   const quiet = data.follow_ups.filter((r) => !URGENT_KEYS.has(r.key));
   return (
     <div className="grid gap-3 lg:grid-cols-3">
-      <TodoColumn title="Need an estimate" sub="New leads first, then talked but not priced, then no address." rows={data.estimates} accent="border-t-sky-500" onRemoved={drop} />
+      <TodoColumn title="Need an estimate" sub="Why each one has no estimate yet, and what to do." rows={data.estimates} accent="border-t-sky-500" onRemoved={drop} />
       <TodoColumn title="Urgent · Alan & Olga" sub="Promised call-backs, then people who replied and went quiet." rows={urgent} accent="border-t-rose-500" onRemoved={drop} />
       <TodoColumn title="No reply yet · Geoconda" sub="Estimate sent, never answered. Opened it first, then not opened." rows={quiet} accent="border-t-emerald-500" onRemoved={drop} />
     </div>
   );
 }
 
-function FreshTimer({ since, nowMs }: { since: string; nowMs: number }) {
-  const sec = Math.max(0, Math.floor((nowMs - new Date(since).getTime()) / 1000));
+function FreshTimer({ since, nowMs, calledAt }: { since: string; nowMs: number; calledAt?: string }) {
+  // The first call try stops it, answered or not (idea #2, Susanna Lee).
+  const end = calledAt ? new Date(calledAt).getTime() : nowMs;
+  const sec = Math.max(0, Math.floor((end - new Date(since).getTime()) / 1000));
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   const text = h ? `${h}h ${m}m` : `${m}:${String(s).padStart(2, "0")}`;
   // Green the first 5 minutes, amber to 15, red after.
   const color = sec < 300 ? "bg-emerald-100 text-emerald-800" : sec < 900 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-700";
+  if (calledAt) return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${color}`} title="Time from the form to the first call">✓ called in {text}</span>;
   return <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums ${color}`} title="Since they filled the form">⏱ {text}</span>;
 }
 
@@ -305,7 +308,7 @@ function TodoColumn({ title, sub, rows, accent, onRemoved }: {
   };
   // The "Just came in" timer ticks every second.
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const anyFresh = rows.some((r) => r.key === "fresh");
+  const anyFresh = rows.some((r) => r.key === "fresh" && !r.called_at);
   useEffect(() => {
     if (!anyFresh) return;
     const t = setInterval(() => setNowMs(Date.now()), 1000);
@@ -335,14 +338,23 @@ function TodoColumn({ title, sub, rows, accent, onRemoved }: {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <Link to={`/leads/${r.lead_id}`} className="truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
-                    {r.key === "fresh" ? <FreshTimer since={r.came_in} nowMs={nowMs} /> : null}
+                    {r.key === "fresh" ? <FreshTimer since={r.came_in} nowMs={nowMs} calledAt={r.called_at} /> : null}
                     {r.key === "fresh" && r.refill ? <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">filled again</span> : null}
                   </div>
-                  <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>
+                  {r.why ? (
+                    <>
+                      <p className="text-xs text-muted-foreground">{r.why}</p>
+                      <p className="text-xs font-semibold text-foreground">→ {r.do}</p>
+                      {r.address ? <p className="truncate text-[11px] text-muted-foreground">{r.address}</p> : null}
+                    </>
+                  ) : <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>}
                 </div>
-                <button type="button" onClick={() => void notALead(r)} title="Not a lead (worker, wrong number, spam)"
-                        className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-rose-700">
-                  Not a lead
+                {/* Spam, a worker, a wrong number: off the lists. Was a "Not a
+                    lead" button that read like a label on every row (Alan, 2026-10-20). */}
+                <button type="button" onClick={() => void notALead(r)} title="Remove from the lists (spam, a worker, a wrong number)"
+                        aria-label="Remove from the lists"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md text-sm text-muted-foreground/60 hover:bg-muted hover:text-rose-700">
+                  ✕
                 </button>
               </div>
             ))}

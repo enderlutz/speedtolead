@@ -519,7 +519,10 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                             {**form_data, "address": full_address}, approval_status, postal, approval_reason
                         )
 
+                    from services.on_call import added_by_team
+                    added_by = added_by_team(contact)
                     fields = dict(
+                        added_by=added_by,
                         ghl_contact_id=contact_id,
                         ghl_location_id=location_id,
                         location_label=label,
@@ -586,7 +589,8 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
                         notify_new_lead(lead.to_dict(), board_label=cfg.board_label)
                         try:
                             from services.on_call import start_clock
-                            start_clock(lead_id)
+                            if not added_by:  # a referral typed in by hand: no clock
+                                start_clock(lead_id)
                         except Exception as e:  # noqa: BLE001
                             logger.warning(f"Poller: on-call start_clock failed for {lead_id}: {e}")
                         # Start any sequence triggered by lead_created, keyed on

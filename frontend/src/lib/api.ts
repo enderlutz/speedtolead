@@ -6232,6 +6232,9 @@ export interface OnCallBreak {
 export interface OnCallTodoRow {
   lead_id: string; name: string; phone: string; address: string; created_at: string;
   came_in: string; refill: boolean;
+  /** Need an estimate only: why there's none yet, the one thing to do, the
+   *  first call try since the fill (stops the timer), who typed it in by hand. */
+  why?: string; do?: string; called_at?: string; attempts?: number; added_by?: string;
   stage: string; next: string; tone: string; key: string; ghl_contact_id?: string; ghl_location_id?: string;
 }
 export interface OnCallShift { id: string; username: string; date: string; start_min: number; end_min: number }

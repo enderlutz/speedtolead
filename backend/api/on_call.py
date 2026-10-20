@@ -181,8 +181,24 @@ def cancel_break(break_id: str, user: dict = Depends(require_staff)):
 
 # ── The to-do lists ─────────────────────────────────────────────────────
 
-# Next-step keys (services/next_step.py) for each list, best first.
-_ESTIMATE_ORDER = {"fresh": -1, "price": 0, "discovery": 1, "address": 2, "overdue": 3}
+# Need an estimate, best first. The keys are why there's no estimate yet
+# (Alan, 2026-10-20: "it needs to tell us why … if we haven't called them,
+# tell us that we need to call them"); _why() sorts each lead into one.
+_ESTIMATE_ORDER = {"fresh": -1, "never_called": 0, "price": 1, "answered": 2, "no_answer": 3,
+                   "address": 4, "overdue": 5}
+# The next-step keys (services/next_step.py) that land in Need an estimate.
+_NO_ESTIMATE = {"price", "discovery", "address", "overdue"}
+_WHY_STAGE = {
+    "never_called": "Nobody has called them",
+    "price": "Talked to them · not priced",
+    "answered": "Texted back · nobody talked to them",
+    "no_answer": "Called · no answer",
+    "address": "No address",
+    "overdue": "Send stuck",
+}
+# A call over 30 seconds that the call review says never reached them
+# (a voicemail, a gatekeeper) is not a conversation.
+_NO_TALK = re.compile(r"\b(voicemail|never connected|no contact|no intake call|unavailable|unreachable)\b", re.I)
 # A form fill this recent sits on top with a running timer, first fill or
 # a repeat one (Alan, 2026-10-19, Joaquin Newton: filled again, sat 32nd).
 FRESH = timedelta(hours=24)
@@ -235,17 +251,19 @@ def todo(user: dict = Depends(require_staff)):
             born, fill = oc._parse(l.created_at or ""), oc._parse(fills.get(l.id) or "")
             came = max([d for d in (born, fill) if d], default=None)
             refill = bool(fill and born and fill - born > timedelta(hours=24))
-            if came and now - came < FRESH and st["key"] in _ESTIMATE_ORDER:
+            if came and now - came < FRESH and st["key"] in _NO_ESTIMATE and not l.added_by:
                 st = {**st, "key": "fresh", "stage": "Just came in · call now", "tone": "hot",
                       "next": ("Filled the form again. " if refill else "") + st["next"]}
             row = {"lead_id": l.id, "came_in": oc._iso(came) if came else (l.created_at or ""), "refill": refill, "name": l.contact_name or "", "phone": l.contact_phone or "",
                    "ghl_contact_id": l.ghl_contact_id or "", "ghl_location_id": l.ghl_location_id or "",
                    "address": l.address or "", "created_at": l.created_at or "",
-                   "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"], "at": st.get("at", ""), "owner": st.get("owner", "")}
-            if st["key"] in _ESTIMATE_ORDER:
+                   "stage": st["stage"], "next": st["next"], "tone": st["tone"], "key": st["key"], "at": st.get("at", ""), "owner": st.get("owner", ""),
+                   "added_by": l.added_by or ""}
+            if st["key"] in _NO_ESTIMATE or st["key"] == "fresh":
                 estimates.append(row)
             elif st["key"] in _FOLLOW_ORDER and st["tone"] != "cold":
                 follow.append(row)
+        _why(db, estimates, now)
         newest = lambda r: r["came_in"]  # noqa: E731
         estimates.sort(key=newest, reverse=True)
         estimates.sort(key=lambda r: _ESTIMATE_ORDER[r["key"]])
@@ -254,6 +272,86 @@ def todo(user: dict = Depends(require_staff)):
         return {"estimates": estimates, "follow_ups": follow}
     finally:
         db.close()
+
+
+def _day_label(d: datetime, now: datetime) -> str:
+    d, today = d.astimezone(oc.HOUSTON), now.astimezone(oc.HOUSTON).date()
+    t = oc.fmt_min(d.hour * 60 + d.minute)
+    if d.date() == today:
+        return f"today {t}"
+    if (today - d.date()).days == 1:
+        return f"yesterday {t}"
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _why(db, rows: list[dict], now: datetime) -> None:
+    """Why each lead has no estimate yet and the one thing to do, from the
+    calls and texts since they last filled the form. Fills why/do, and
+    called_at (the first try after the fill stops the fresh timer)."""
+    from database import CallAnalysis, CallRecording, Message
+    ids = [r["lead_id"] for r in rows]
+    if not ids:
+        return
+    calls: dict[str, list] = {}
+    for c in (db.query(CallRecording).filter(CallRecording.lead_id.in_(ids), CallRecording.call_direction == "outbound")
+              .order_by(CallRecording.created_at).all()):
+        calls.setdefault(c.lead_id, []).append(c)
+    reviews = {a.recording_id: a.summary_one_line or "" for a in
+               db.query(CallAnalysis).filter(CallAnalysis.lead_id.in_(ids)).all()}
+    texts: dict[str, Message] = {}
+    for m in (db.query(Message).filter(Message.lead_id.in_(ids), Message.direction == "inbound")
+              .order_by(Message.created_at.desc()).all()):
+        texts.setdefault(m.lead_id, m)
+    for r in rows:
+        came = oc._parse(r["came_in"])
+        tries = [c for c in calls.get(r["lead_id"], []) if (d := oc._parse(c.created_at or "")) and (not came or d >= came)]
+        talks = [c for c in tries if not c.is_voicemail and (c.duration_seconds or 0) >= 30
+                 and not _NO_TALK.search(reviews.get(c.id, ""))]
+        txt = texts.get(r["lead_id"])
+        txt_at = oc._parse(txt.created_at or "") if txt else None
+        answered = bool(txt and txt_at and (not came or txt_at >= came) and (txt.body or "").strip())
+        r["called_at"] = tries[0].created_at if tries else ""
+        r["attempts"] = len(tries)
+        last = oc._parse(tries[-1].created_at) if tries else None
+        tried = (f"Called {len(tries)}× (last {_day_label(last, now)}), no answer." if len(tries) > 1
+                 else f"Called {_day_label(last, now)}, no answer.") if last else ""
+        quote = ""
+        if answered:
+            body = " ".join((txt.body or "").split())
+            quote = f'They texted {_day_label(txt_at, now)}: "{body[:70]}{"…" if len(body) > 70 else ""}"'
+        key = r["key"]
+        if key in ("price", "discovery", "fresh"):
+            if talks:
+                key = "price" if key != "fresh" else key
+                mins = max(c.duration_seconds or 0 for c in talks) // 60
+                why = f"Talked {mins or 1} min {_day_label(oc._parse(talks[-1].created_at), now)}. No estimate after."
+                do = "Price it today and send it."
+            elif answered:
+                key = "answered" if key != "fresh" else key
+                why = f"{quote}. " + (tried or "Nobody has called them.")
+                do = "Call them, then price it." if not tries else "Price it from the map and send it with a text."
+            elif tries:
+                key = "no_answer" if key != "fresh" else key
+                why = tried
+                do = "Price it from the map and send it with a text. No answer still gets an estimate."
+            else:
+                key = "never_called" if key != "fresh" else key
+                why = "Nobody has called them yet."
+                do = "Call them now."
+        elif key == "address":
+            why = "We don't have their address. " + (tried or "Nobody has called them.")
+            do = "Call or text them for the address."
+        else:  # overdue
+            why = "The estimate was queued but never went out."
+            do = "Check the send queue."
+        if r.get("added_by"):
+            why = f"Added by hand by {r['added_by'].split()[0]} (a referral, not a form). " + why
+        if key == "fresh" and r.get("refill"):
+            why = "Filled the form again. " + why
+        r["key"], r["why"], r["do"] = key, why, do
+        if key != "fresh":
+            r["stage"] = _WHY_STAGE[key]
+            r["tone"] = "hot" if key in ("never_called", "price", "answered", "overdue") else "warm"
 
 
 @router.post("/on-call/leads/{lead_id}/not-a-lead")

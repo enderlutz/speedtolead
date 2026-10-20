@@ -230,6 +230,16 @@ def _give(db, lead, user, when: datetime, *, alert: bool = True) -> None:
                                   f"If nobody calls in 5 minutes you'll hear about it.")
 
 
+def added_by_team(contact: dict) -> str:
+    """Who typed this GHL contact in by hand ("Olga Moran"), or "" when it
+    came from a form. A form or Facebook lead is created by an INTEGRATION;
+    a person in the app or on the website is MOBILE_USER / WEB_USER."""
+    by = (contact or {}).get("createdBy") or {}
+    if str(by.get("source") or "").upper().endswith("_USER"):
+        return str(by.get("sourceName") or "the team")
+    return ""
+
+
 def start_clock(lead_id: str, when: datetime | None = None, came_in: datetime | None = None) -> str:
     """A new lead (or a repeat form fill) arrived. Returns who got it,
     MORNING if it waits for 8 AM, or "" when nobody was on call."""
