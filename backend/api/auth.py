@@ -1,6 +1,7 @@
 """Dashboard authentication — JWT-based login for internal users."""
 from __future__ import annotations
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
@@ -105,7 +106,14 @@ def require_revenue(user: dict = Depends(get_current_user)):
 def login(body: LoginRequest):
     db = get_db()
     try:
-        user = db.query(User).filter(User.username == body.username).first()
+        # The username as typed first; then forgiving of what a phone keyboard
+        # does to "Jose Arthur" — capitals, a trailing space, no space at all
+        # (Alan, 2026-10-21: Jose couldn't log in). Never the password.
+        typed = (body.username or "").strip()
+        user = db.query(User).filter(User.username == typed).first()
+        if not user and typed:
+            squash = lambda v: re.sub(r"\s+", "", (v or "").lower())  # noqa: E731
+            user = next((u for u in db.query(User).all() if squash(u.username) == squash(typed)), None)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
         if not bcrypt.checkpw(body.password.encode(), user.password_hash.encode()):
