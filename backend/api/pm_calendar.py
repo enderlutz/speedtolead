@@ -336,7 +336,8 @@ def move(body: MoveBody, user: dict = Depends(require_admin)):
             raise HTTPException(404, "That day isn't on the job any more. Refresh.")
         going = [me]
         if not me["helper"]:
-            going += [e for e in entries if e is not me and e["helper"] and e["date"] == src]
+            # The helpers on the same card: same job, same day, same task.
+            going += [e for e in entries if e is not me and e["helper"] and e["date"] == src and e["task"] == me["task"]]
         target = _rows(db, dst, dst)
         keep = []
         for e in entries:

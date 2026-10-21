@@ -20,7 +20,7 @@ import type { PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DayStamp, JobChip, type JobLinkComponent } from "./bits";
 import { LINE, MUTED, PAPER, RING, TODAY_WASH } from "./look";
-import { rankDay } from "./dates";
+import { groupJobs, groupKey, type JobGroup } from "./dates";
 
 /** Laptop or phone. Only one layout is on the page at a time, so every day
  *  is one drop target (both hidden-by-CSS copies would confuse the drag). */
@@ -36,10 +36,8 @@ function useWide(): boolean {
   return wide;
 }
 
-const keyOf = (x: PmDay) => `${x.lead_id}|${x.username}|${x.task}|${x.date}`;
-
-function Draggable({ x, n, children, on }: { x: PmDay; n: number; children: ReactNode; on: boolean }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: keyOf(x), data: { x, n }, disabled: !on });
+function Draggable({ g, children, on }: { g: JobGroup; children: ReactNode; on: boolean }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: groupKey(g), data: { g }, disabled: !on });
   return (
     <div ref={setNodeRef} {...(on ? listeners : {})} {...(on ? attributes : {})}
          className={cn(on && "touch-manipulation", isDragging && "opacity-30")}>
@@ -59,8 +57,8 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   /** Week shows this many chips a day, then "+N more" (tap → that day). */
   maxChips?: number;
   canEdit?: boolean;
-  /** Drop a job on another day. */
-  onMove?: (x: PmDay, toDate: string) => void;
+  /** Drop a job (the lead tech and their helpers) on another day. */
+  onMove?: (g: JobGroup, toDate: string) => void;
   /** "+ Add" under a day. */
   onAdd?: (d: string) => void;
   /** Week: narrow columns, so each job is two lines, the customer on top. */
@@ -69,20 +67,20 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   const last = dates.length - 1;
   const dnd = !!(canEdit && onMove);
   const wide = useWide();
-  const [dragging, setDragging] = useState<{ x: PmDay; n: number } | null>(null);
+  const [dragging, setDragging] = useState<JobGroup | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
-  const onStart = (e: DragStartEvent) => setDragging((e.active.data.current as { x: PmDay; n: number }) || null);
+  const onStart = (e: DragStartEvent) => setDragging((e.active.data.current as { g: JobGroup } | undefined)?.g || null);
   const onEnd = (e: DragEndEvent) => {
     setDragging(null);
-    const x = (e.active.data.current as { x: PmDay } | undefined)?.x;
+    const g = (e.active.data.current as { g: JobGroup } | undefined)?.g;
     const to = e.over ? String(e.over.id) : "";
-    if (x && to && to !== x.date) onMove?.(x, to);
+    if (g && to && to !== g.x.date) onMove?.(g, to);
   };
-  const chip = (x: PmDay, n: number) => (
-    <Draggable key={keyOf(x)} x={x} n={n} on={dnd}><JobChip x={x} n={n} Link={Link} stacked={stacked && wide} /></Draggable>
+  const chip = (g: JobGroup) => (
+    <Draggable key={groupKey(g)} g={g} on={dnd}><JobChip g={g} Link={Link} stacked={stacked && wide} /></Draggable>
   );
   const moreBtn = "flex min-h-11 w-full items-center rounded-lg px-2 text-left text-[14px] font-bold text-[#8C6224] hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60";
   const addBtn = (d: string) => canEdit && onAdd ? (
@@ -102,12 +100,12 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
             </div>
           ))}
           {dates.map((d, i) => {
-            const ranked = rankDay(byDay.get(d) || []);
-            const cap = maxChips ?? ranked.length;
+            const groups = groupJobs(byDay.get(d) || []);
+            const cap = maxChips ?? groups.length;
             return (
               <DropDay key={d} day={d} className={cn("min-h-[220px] space-y-1.5 p-1.5 transition-colors", i < last && cn("border-r", LINE), d === today && "bg-[#C9972F]/5")}>
-                {ranked.slice(0, cap).map(({ x, n }) => chip(x, n))}
-                {ranked.length > cap ? <button type="button" onClick={() => onPickDay(d)} className={moreBtn}>+{ranked.length - cap} more</button> : null}
+                {groups.slice(0, cap).map(chip)}
+                {groups.length > cap ? <button type="button" onClick={() => onPickDay(d)} className={moreBtn}>+{groups.length - cap} more</button> : null}
                 {addBtn(d)}
               </DropDay>
             );
@@ -118,14 +116,14 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
       /* Phone: the same days, top to bottom. */
       <div className={cn("rounded-2xl", PAPER, RING)}>
         {dates.map((d, i) => {
-          const ranked = rankDay(byDay.get(d) || []);
+          const groups = groupJobs(byDay.get(d) || []);
           return (
             <DropDay key={d} day={d} className={cn("grid grid-cols-[56px_1fr] gap-1.5 px-2 py-1.5 transition-colors", i > 0 && cn("border-t", LINE),
                                          i === 0 && "rounded-t-2xl", i === last && "rounded-b-2xl", d === today && TODAY_WASH)}>
               <DayStamp day={d} today={today} onClick={() => onPickDay(d)} />
               <div className="min-w-0 space-y-1.5 py-1">
-                {ranked.length
-                  ? ranked.map(({ x, n }) => chip(x, n))
+                {groups.length
+                  ? groups.map(chip)
                   : <p className={cn("flex min-h-11 items-center px-1 text-[15px]", MUTED)}>Nothing on.</p>}
                 {addBtn(d)}
               </div>
@@ -141,7 +139,7 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
       <DndContext sensors={sensors} onDragStart={onStart} onDragEnd={onEnd} onDragCancel={() => setDragging(null)}>
         {body}
         <DragOverlay dropAnimation={null}>
-          {dragging ? <div className="w-56 rotate-1 shadow-xl"><JobChip x={dragging.x} n={dragging.n} /></div> : null}
+          {dragging ? <div className="w-56 rotate-1 shadow-xl"><JobChip g={dragging} /></div> : null}
         </DragOverlay>
       </DndContext>
     </>

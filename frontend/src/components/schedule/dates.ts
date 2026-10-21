@@ -124,3 +124,29 @@ export function rankDay(items: PmDay[]): RankedJob[] {
 }
 
 export const firstName = (s: string) => (s || "").trim().split(/\s+/)[0] || s;
+
+/**
+ * One card per job per task (Alan, 2026-10-21): the lead tech(s) and the
+ * helpers riding with them on one card, not a card per person. `x` is the
+ * first lead tech's row (the helper's when there's no lead), `n` their
+ * morning order, `people` reads "Jose + Christian" or "Brent & Chris".
+ */
+export type JobGroup = { key: string; x: PmDay; leads: PmDay[]; helpers: PmDay[]; n: number; people: string };
+
+export function groupJobs(items: PmDay[]): JobGroup[] {
+  const out: JobGroup[] = [];
+  const by = new Map<string, JobGroup>();
+  for (const { x, n } of rankDay(items)) {   // main techs come first, so a lead opens the card
+    const k = `${x.lead_id}|${x.task}`;
+    let g = by.get(k);
+    if (!g) { g = { key: k, x, leads: [], helpers: [], n, people: "" }; by.set(k, g); out.push(g); }
+    if (x.helper) g.helpers.push(x);
+    else { if (!g.leads.length) { g.x = x; g.n = n; } g.leads.push(x); }
+  }
+  const names = (rows: PmDay[]) => rows.map((r) => firstName(r.person)).join(" & ");
+  for (const g of out) {
+    g.people = g.leads.length ? names(g.leads) + (g.helpers.length ? ` + ${names(g.helpers)}` : "") : `${names(g.helpers)} (helper)`;
+  }
+  return out;
+}
+export const groupKey = (g: JobGroup) => `${g.key}|${g.x.date}`;

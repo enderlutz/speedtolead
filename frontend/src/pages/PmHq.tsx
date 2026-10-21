@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
 import { ScheduleTopBar } from "@/components/schedule/ScheduleTopBar";
 import { AgendaView } from "@/components/schedule/AgendaView";
+import type { JobGroup } from "@/components/schedule/dates";
 import { MultiDayView } from "@/components/schedule/MultiDayView";
 import { MonthView } from "@/components/schedule/MonthView";
 import { DayBanner } from "@/components/schedule/bits";
@@ -53,15 +54,17 @@ function ago(ts: string): string {
 // Pressure washing is the third kind of day (Alan, 2026-10-19).
 const TASK_LABEL: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", "": "On the job" };
 const TASK_CLS: Record<string, string> = {
-  cleaning: "bg-sky-100 text-sky-900 ring-sky-200",
-  staining: "bg-emerald-100 text-emerald-900 ring-emerald-200",
-  pressure_washing: "bg-indigo-100 text-indigo-900 ring-indigo-200",
+  cleaning: "bg-ink/10 text-ink ring-ink/20",
+  staining: "bg-cedar/15 text-cedar ring-cedar/30",
+  pressure_washing: "bg-walnut/15 text-walnut ring-walnut/30",
   "": "bg-muted text-foreground ring-border",
 };
+// The Sterling look (2026-10-20): ink for cleaning, cedar for the stain,
+// walnut for washing. Green only ever means done.
 const TASK_ON: Record<string, string> = {
-  cleaning: "bg-sky-600 text-white ring-sky-600",
-  staining: "bg-emerald-700 text-white ring-emerald-700",
-  pressure_washing: "bg-indigo-600 text-white ring-indigo-600",
+  cleaning: "bg-ink text-white ring-ink",
+  staining: "bg-cedar text-white ring-cedar",
+  pressure_washing: "bg-walnut text-white ring-walnut",
 };
 
 /** The services on a washing job, as small chips. */
@@ -241,15 +244,19 @@ function CalendarView() {
   const loading = loaded !== `${range.start}|${range.end}`;
 
   const [addDay, setAddDay] = useState("");
-  // Drag a job to another day (Alan, 2026-10-21). It moves on screen at once;
-  // the server catches up, and a failure puts it back.
-  const moveJob = async (x: PmDay, to: string) => {
-    const helpers = x.helper ? [] : (days || []).filter((d) => d.lead_id === x.lead_id && d.date === x.date && d.helper);
-    const going = new Set([x, ...helpers]);
+  // Drag a job to another day (Alan, 2026-10-21): the card is the lead tech
+  // and their helpers, so all of them go. It moves on screen at once; the
+  // server catches up, and a failure puts it back.
+  const moveJob = async (g: JobGroup, to: string) => {
+    const going = new Set([...g.leads, ...g.helpers]);
     setDays((ds) => (ds || []).map((d) => (going.has(d) ? { ...d, date: to } : d)));
     try {
-      await api.pmHqMove({ lead_id: x.lead_id, username: x.username, task: x.task, from_date: x.date, to_date: to });
-      toast.success(`${x.name} moved to ${fmtDay(to, { weekday: "long", month: "short", day: "numeric" })}${helpers.length ? `, with ${helpers.map((h) => h.person).join(" and ")}` : ""}`);
+      // Moving a lead tech takes their helpers along on the server; a card
+      // with no lead tech moves each helper on its own.
+      for (const r of g.leads.length ? g.leads : g.helpers) {
+        await api.pmHqMove({ lead_id: r.lead_id, username: r.username, task: r.task, from_date: r.date, to_date: to });
+      }
+      toast.success(`${g.x.name} moved to ${fmtDay(to, { weekday: "long", month: "short", day: "numeric" })} · ${g.people}`);
     } catch (e) { toast.error(errMessage(e, "Couldn't move it")); }
     load();
   };
@@ -287,7 +294,7 @@ function CalendarView() {
           ) : null}
           <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
                         onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"}
-                        canEdit={canEdit} onMove={(x, to) => void moveJob(x, to)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+                        canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </>
       )}
     </div>
@@ -303,8 +310,12 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
   const lanes = useMemo(() => {
     const m = new Map<string, PmDay[]>();
     for (const x of items) { if (!m.has(x.username)) m.set(x.username, []); m.get(x.username)!.push(x); }
-    // Main techs first, helpers after.
+    // Main techs first, helpers after. A helper whose lead tech is on the
+    // same job that day shows on the lead tech's card instead (one card per
+    // job, Alan, 2026-10-21); a helper with nobody to ride with keeps a lane.
+    const hasLead = (r: PmDay) => items.some((o) => o.lead_id === r.lead_id && o.date === r.date && !o.helper && o.username !== r.username);
     return [...m.entries()].map(([username, rows]) => ({ username, person: rows[0].person, rows, helper: rows.every((r) => r.helper) }))
+      .filter((l) => !l.helper || !l.rows.every(hasLead))
       .sort((a, b) => Number(a.helper) - Number(b.helper) || a.person.localeCompare(b.person));
   }, [items]);
 
@@ -426,6 +437,10 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
       onChange();
     } catch (e) { toast.error(errMessage(e, "Couldn't add them")); }
   };
+  const dropMate = async (m: PmDay) => {
+    try { await api.pmHqUnassign({ lead_id: m.lead_id, date: m.date, username: m.username, task: m.task }); onChange(); }
+    catch (e) { toast.error(errMessage(e, "Couldn't take them off")); }
+  };
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
          className={cn("flex items-stretch gap-2 rounded-lg bg-background p-2 ring-1 ring-border", isDragging && "z-10 shadow-lg ring-2 ring-primary")}>
@@ -444,7 +459,16 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
         <PayChip x={x} />
         {x.task === "pressure_washing" || !x.task ? <PwServices list={x.pw_services} /> : null}
         <JobStatus x={x} canEdit={canEdit} crew={crew} onChange={onChange} />
-        {mates.length ? <p className="mt-1.5 text-xs font-semibold text-foreground">With {[...new Set(mates.map((m) => m.person + (m.helper ? " (helper)" : "")))].join(" and ")}</p> : null}
+        {mates.map((m) => (
+          <div key={`${m.username}|${m.task}`} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+            <span className="font-semibold">With {m.person}{m.helper ? " (helper)" : ""}</span>
+            <PayChip x={m} />
+            {canEdit && !finished ? (
+              <button type="button" onClick={() => void dropMate(m)} aria-label={`Take ${m.person} off ${x.name}`}
+                      className="min-h-8 rounded-full px-2 font-semibold text-muted-foreground hover:bg-muted hover:text-rose-700">Take off</button>
+            ) : null}
+          </div>
+        ))}
         {canEdit && free.length && !finished ? (
           picking ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -555,8 +579,12 @@ function AddToDay({ day, crew, onDone, onCancel }: {
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<{ lead_id: string; name: string; address: string }[]>([]);
   const [customer, setCustomer] = useState<{ lead_id: string; name: string; address: string } | null>(null);
-  const [who, setWho] = useState<Record<string, Task | undefined>>({});
-  const [helpers, setHelpers] = useState<Set<string>>(new Set());
+  // One job type per add (Alan, 2026-10-21: cleaning and staining are never
+  // the same day). The lead tech(s) first, then anyone riding along: a helper
+  // follows the lead tech's order and never has to be given a task of their own.
+  const [task, setTask] = useState<Task | null>(null);
+  const [leads, setLeads] = useState<string[]>([]);
+  const [helpers, setHelpers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -570,79 +598,110 @@ function AddToDay({ day, crew, onDone, onCancel }: {
     return () => window.clearTimeout(t);
   }, [q, customer]);
 
-  const chosen = Object.entries(who).filter(([, t]) => t !== undefined) as [string, Task][];
+  const nameOf = (u: string) => crew.find((c) => c.username === u)?.name || u;
+  const first = (u: string) => nameOf(u).split(/\s+/)[0];
+  const flip = (list: string[], u: string) => (list.includes(u) ? list.filter((x) => x !== u) : [...list, u]);
+  const pickLead = (u: string) => { setLeads((l) => flip(l, u)); setHelpers((h) => h.filter((x) => x !== u)); };
+  const ready = !!customer && !!task && leads.length > 0;
+  const who = leads.map(first).join(" & ") + (helpers.length ? `, with ${helpers.map(first).join(" and ")} helping` : "");
+  const dayWords = fmtDay(day, { weekday: "short", month: "short", day: "numeric" });
+
   const save = async () => {
-    if (!customer || !chosen.length) return;
+    if (!customer || !task || !ready) return;
     setSaving(true);
     try {
-      // Main techs first so a helper has someone to follow.
-      const ordered = [...chosen].sort(([a], [b]) => Number(helpers.has(a)) - Number(helpers.has(b)));
-      for (const [username, task] of ordered) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username, task, helper: helpers.has(username) });
-      toast.success(`${customer.name} is on ${fmtDay(day)}`);
+      // Lead techs first so a helper has someone to follow.
+      for (const u of leads) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username: u, task, helper: false });
+      for (const u of helpers) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username: u, task, helper: true });
+      toast.success(`${customer.name} is on ${dayWords}: ${TASK_LABEL[task]} · ${who}`);
       onDone();
     } catch (e) { toast.error(errMessage(e, "Something went wrong")); } finally { setSaving(false); }
   };
 
+  const chip = (on: boolean) => cn("min-h-11 rounded-full px-4 text-[15px] font-semibold ring-1 transition-colors",
+    on ? "bg-ink text-gold-light ring-ink" : "bg-background ring-border hover:bg-muted");
+  const step = "text-[15px] font-bold";
+
   return (
-    <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+    <div className="space-y-4 rounded-xl border border-gold/50 bg-gold/5 p-3">
       {!customer ? (
         <>
-          <p className="text-sm font-semibold">1. Which customer?</p>
+          <p className={step}>1. Which customer?</p>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or address" className="pl-8 text-base sm:text-sm" />
+            <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or address" className="pl-8 text-base" />
           </div>
           <div className="space-y-1">
-            {!q.trim() ? <p className="text-[11px] text-muted-foreground">Booked customers first. Type to search anyone.</p> : null}
+            {!q.trim() ? <p className="text-sm text-muted-foreground">Booked customers first. Type to search anyone.</p> : null}
             {options.map((o) => (
               <button key={o.lead_id} type="button" onClick={() => setCustomer(o)}
-                      className="block w-full rounded-lg bg-background px-3 py-2 text-left ring-1 ring-border hover:bg-muted">
-                <span className="block text-sm font-semibold">{o.name}</span>
-                <span className="block text-xs text-muted-foreground">{o.address}</span>
+                      className="block min-h-12 w-full rounded-lg bg-background px-3 py-2 text-left ring-1 ring-border hover:bg-muted">
+                <span className="block text-[15px] font-semibold">{o.name}</span>
+                <span className="block text-sm text-muted-foreground">{o.address}</span>
               </button>
             ))}
-            {q.trim() && !options.length ? <p className="text-xs text-muted-foreground">No one found.</p> : null}
+            {q.trim() && !options.length ? <p className="text-sm text-muted-foreground">No one found.</p> : null}
           </div>
         </>
       ) : (
         <>
           <div className="flex items-center justify-between gap-2">
-            <div><p className="text-sm font-semibold">{customer.name}</p><p className="text-xs text-muted-foreground">{customer.address}</p></div>
-            <button type="button" onClick={() => { setCustomer(null); setWho({}); }} className="text-xs font-semibold text-primary">Change</button>
+            <div><p className="text-[16px] font-bold">{customer.name}</p><p className="text-sm text-muted-foreground">{customer.address}</p></div>
+            <button type="button" onClick={() => { setCustomer(null); setTask(null); setLeads([]); setHelpers([]); }} className="min-h-11 px-2 text-sm font-semibold text-bronze">Change</button>
           </div>
-          <p className="text-sm font-semibold">2. Who, and are they cleaning, staining or pressure washing?</p>
-          <p className="text-[11px] text-muted-foreground">Tap Helper for someone who rides along (like Alfredo): their order follows the main tech's.</p>
-          {!crew.length ? <p className="text-xs text-muted-foreground">No crew accounts yet. Make one in Settings, Permissions.</p> : null}
-          <div className="space-y-1.5">
-            {crew.map((c) => {
-              const t = who[c.username];
-              return (
-                <div key={c.username} className={cn("flex flex-wrap items-center gap-1.5 rounded-lg p-1.5", t !== undefined && "bg-background ring-1 ring-border")}>
-                  <span className="w-28 truncate text-sm font-semibold">{c.name}</span>
-                  {(["cleaning", "staining", "pressure_washing"] as const).map((k) => (
-                    <button key={k} type="button" onClick={() => setWho((w) => ({ ...w, [c.username]: w[c.username] === k ? undefined : k }))}
-                            className={cn("min-h-11 rounded-lg px-3 text-sm font-semibold ring-1",
-                              t === k ? TASK_ON[k] : "bg-background ring-border")}>
-                      {TASK_LABEL[k]}
-                    </button>
-                  ))}
-                  {t !== undefined ? (
-                    <button type="button" onClick={() => setHelpers((h) => { const n = new Set(h); if (n.has(c.username)) n.delete(c.username); else n.add(c.username); return n; })}
-                            className={cn("min-h-10 rounded-lg px-3 text-sm font-semibold ring-1",
-                              helpers.has(c.username) ? "bg-amber-500 text-white ring-amber-500" : "bg-background ring-border")}>
-                      Helper
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
+
+          <div>
+            <p className={step}>2. What's the job?</p>
+            <div className="mt-1.5 grid grid-cols-3 gap-2">
+              {(["cleaning", "staining", "pressure_washing"] as const).map((k) => (
+                <button key={k} type="button" onClick={() => setTask(k)}
+                        className={cn("min-h-12 rounded-lg px-2 text-[15px] font-semibold ring-1", task === k ? TASK_ON[k] : "bg-background ring-border hover:bg-muted")}>
+                  {TASK_LABEL[k]}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {task ? (
+            <div>
+              <p className={step}>3. Who's the lead tech?</p>
+              {!crew.length ? <p className="text-sm text-muted-foreground">No crew accounts yet. Make one in Settings, Permissions.</p> : null}
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {crew.map((c) => (
+                  <button key={c.username} type="button" onClick={() => pickLead(c.username)} aria-pressed={leads.includes(c.username)} className={chip(leads.includes(c.username))}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+              {leads.length > 1 ? <p className="mt-1 text-sm text-muted-foreground">Two lead techs: each keeps their own morning order.</p> : null}
+            </div>
+          ) : null}
+
+          {task && leads.length ? (
+            <div>
+              <p className={step}>4. Anyone helping? <span className="font-normal text-muted-foreground">(optional)</span></p>
+              <p className="text-sm text-muted-foreground">A helper rides with the lead tech and follows their order.</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {crew.filter((c) => !leads.includes(c.username)).map((c) => (
+                  <button key={c.username} type="button" onClick={() => setHelpers((h) => flip(h, c.username))} aria-pressed={helpers.includes(c.username)} className={chip(helpers.includes(c.username))}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {ready ? (
+            <p className="rounded-lg bg-background px-3 py-2 text-[15px] ring-1 ring-border">
+              <b>{TASK_LABEL[task!]}</b> on {dayWords} · <b>{who}</b>
+            </p>
+          ) : null}
         </>
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-        {customer ? <Button size="sm" onClick={() => void save()} disabled={!chosen.length || saving}>
-          {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}Add to {fmtDay(day)}
+        <Button variant="ghost" size="sm" onClick={onCancel} className="min-h-11">Cancel</Button>
+        {customer ? <Button size="sm" onClick={() => void save()} disabled={!ready || saving} className="min-h-11 bg-ink text-gold-light hover:bg-ink/90">
+          {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}Add {customer.name.split(/\s+/)[0]} to {dayWords}
         </Button> : null}
       </div>
     </div>

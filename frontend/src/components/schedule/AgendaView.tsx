@@ -9,7 +9,7 @@ import type { PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DayStamp, type JobLinkComponent } from "./bits";
 import { INK, IVORY, LINE, MUTED, PAPER, RING, TASK_DOT, TASK_WORD, isDone } from "./look";
-import { fmt, groupByDay, monthBand, monthKey, rankDay } from "./dates";
+import { fmt, groupByDay, groupJobs, groupKey, monthBand, monthKey, type JobGroup } from "./dates";
 
 const shortDay = (d: string) => fmt(d, { month: "short", day: "numeric" });
 
@@ -53,31 +53,31 @@ export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier
 function DayRow({ day, today, first, items, Link, onPick }: {
   day: string; today: string; first: boolean; items: PmDay[]; Link: JobLinkComponent; onPick: () => void;
 }) {
-  const ranked = rankDay(items);
+  const groups = groupJobs(items);
   return (
     <div className={cn("grid grid-cols-[56px_1fr] gap-1 px-2 py-1.5", !first && cn("border-t", LINE), day === today && "bg-[#C9972F]/10")}>
       <DayStamp day={day} today={today} onClick={onPick} />
       <div className="min-w-0 py-0.5">
-        {ranked.length === 0
+        {groups.length === 0
           ? <p className={cn("flex min-h-11 items-center px-2 text-[15px]", MUTED)}>Nothing on today.</p>
-          : ranked.map(({ x, n }) => <JobLine key={`${x.lead_id}|${x.username}|${x.task}`} x={x} n={n} Link={Link} />)}
+          : groups.map((g) => <JobLine key={groupKey(g)} g={g} Link={Link} />)}
       </div>
     </div>
   );
 }
 
-/** "● Jose Arthur · 1. Michelle Stout · staining" with the address under it. */
-function JobLine({ x, n, Link }: { x: PmDay; n: number; Link: JobLinkComponent }) {
-  const fin = isDone(x);
+/** "● Jose + Christian · 1. Michelle Stout · staining" with the address under it. */
+function JobLine({ g, Link }: { g: JobGroup; Link: JobLinkComponent }) {
+  const x = g.x;
+  const fin = (g.leads.length ? g.leads : g.helpers).every(isDone);
   return (
     <Link leadId={x.lead_id} className={cn("flex min-h-11 items-start gap-2.5 rounded-xl px-2 py-1.5 hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60", fin ? MUTED : INK)}>
       <span className={cn("mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full", fin ? "bg-[#E4DCCB]" : TASK_DOT[x.task] ?? TASK_DOT[""])} aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[16px] leading-snug">
           {fin ? "✓ " : ""}
-          <b className="font-bold">{x.person}</b>
-          {x.helper ? <span className={MUTED}> (helper)</span> : null}
-          {" · "}{n}. {x.name}{" · "}
+          <b className="font-bold">{g.people}</b>
+          {" · "}{g.n}. {x.name}{" · "}
           <span className={cn(!fin && (x.task === "staining" ? "font-semibold text-[#B5651D]" : MUTED))}>{TASK_WORD[x.task] ?? x.task}</span>
         </span>
         <span className={cn("block truncate text-[14px] leading-snug", MUTED)}>{x.address}</span>
