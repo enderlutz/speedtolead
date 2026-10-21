@@ -51,3 +51,34 @@ average minutes). It should score from the recordings:
 Check first: the current call analysis reads the transcript text only. It
 doesn't hear tone of voice (monotone, annoyed), so tone needs either
 judgment from the words and pace, or an audio-based model.
+
+## Replace Olga's notebook: score every call, then hand the VA the next task (2026-10-21)
+
+Alan with Olga. Goal: no notebook. The system remembers, scores and directs.
+
+15. **Hear the call, not just read it.** Score tone from the audio: pace
+    (the script says speak slowly), monotone vs lively, talk ratio,
+    interrupting, long silences. Deepgram already gives word timings, so pace,
+    talk ratio and silences are cheap. Real tone (annoyed, flat, warm) needs an
+    audio emotion model (Hume or similar); Claude reads text only.
+16. **Grade against the real script.** The current grader
+    (backend/services/call_coach_rubric.md) still says "not a sales call,
+    3–5 minutes, never book". The new first-call script
+    (docs/sop/first-call-script.md) is a 12–15 minute call that walks packages,
+    picks a colour, books a date and sends the $250 link. Rewrite the rubric
+    from the script first; every score depends on it.
+17. **A score after every call, in minutes.** Recordings already arrive through
+    the every-minute sync and Deepgram transcribes in under a minute. Target:
+    score on the VA's screen ~2–3 minutes after hang-up, no GHL switch needed.
+    Live mid-call help needs a phone system that streams audio (Twilio Media
+    Streams, Dialpad, Aircall, JustCall); GHL's phone doesn't. Decide only after
+    post-call scoring runs for a few weeks.
+18. **Next task, one at a time.** After the score, On call shows one card: the
+    highest-value thing to do now (new lead in its 5 minutes, a promised
+    callback that's due, hot-then-silent, estimate never called…), ranked by
+    the chance-to-close score (#4) and matched to the VA's skills. Needs Alan to
+    write down each VA's skills and job.
+19. **What goes in the notebook goes in the system.** Promises made on the
+    call ("call me Thursday after 3", "send the colour samples") become tasks
+    automatically from the transcript (call_intent already pulls callback
+    phrases). Ask Olga what she writes down and make sure each kind is caught.
