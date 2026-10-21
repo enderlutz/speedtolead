@@ -66,6 +66,67 @@ _new_lead_pending = threading.Event()
 _new_lead_last = [0.0]
 
 
+# A form fill: pull just that person, now and every few seconds until GHL has
+# made their card (it can lag the form by up to a minute or two). Linda Crump
+# (2026-10-21) took 3 minutes because each "instant" pull re-read every card
+# in both pipelines, waited out a 2-minute gap after any crew text, and
+# retried only once. Seconds after the ping, measured from the ping.
+ONE_CONTACT_TRIES = (0, 5, 10, 20, 30, 45, 60, 90, 120, 180)
+NOT_A_LEAD_FOR_SECONDS = 6 * 3600   # crew/vendor texters: don't retry for 6 h
+_one_pending: set[str] = set()
+_not_a_lead: dict[str, float] = {}
+
+
+def _have_contact(contact_id: str) -> bool:
+    db = get_db()
+    try:
+        return db.query(Lead.id).filter(Lead.ghl_contact_id == contact_id).first() is not None
+    finally:
+        db.close()
+
+
+def new_contact_soon(contact_id: str) -> bool:
+    """Someone we don't have pinged (a form fill, or a crew/vendor text).
+    Pull that one contact until they show up; give up after 3 minutes and
+    remember them for 6 hours so a crew member's texts cost nothing."""
+    contact_id = (contact_id or "").strip()
+    if not contact_id:
+        return new_lead_soon()
+    now = time.time()
+    with _lock:
+        if contact_id in _one_pending or _not_a_lead.get(contact_id, 0) > now:
+            return False
+        _one_pending.add(contact_id)
+
+    def run():
+        from services.poller import poll_one_contact
+        t0 = time.time()
+        found = False
+        try:
+            for at in ONE_CONTACT_TRIES:
+                wait = t0 + at - time.time()
+                if wait > 0:
+                    time.sleep(wait)
+                try:
+                    poll_one_contact(contact_id)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"fast_sync: one-contact pull failed for {contact_id}: {e}")
+                if _have_contact(contact_id):
+                    found = True
+                    logger.info(f"fast_sync: new contact {contact_id} in after {time.time() - t0:.0f}s")
+                    break
+        finally:
+            with _lock:
+                _one_pending.discard(contact_id)
+                if not found:
+                    _not_a_lead[contact_id] = time.time() + NOT_A_LEAD_FOR_SECONDS
+                    for k in [k for k, v in _not_a_lead.items() if v < time.time()]:
+                        _not_a_lead.pop(k, None)
+
+    threading.Thread(target=run, daemon=True, name="new-contact-pull").start()
+    return True
+
+
 def new_lead_soon() -> bool:
     """A form fill from someone we don't have yet (Alan, 2026-10-19: "go high
     level just tells you a new lead came in"): run the lead pull now instead

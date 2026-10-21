@@ -142,8 +142,13 @@ def _find_pipeline_and_stages(location_id: str, cfg: "_PipelineCfg" = _CFG_A) ->
     return None, {}
 
 
-def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
-    """Sync leads from one GHL pipeline (cfg) for one GHL location."""
+def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A,
+                   only_contact: str | None = None):
+    """Sync leads from one GHL pipeline (cfg) for one GHL location.
+
+    only_contact: pull just that one person's card (one GHL call instead of
+    every page of every stage). A new form fill lands in seconds this way
+    (Alan, 2026-10-21: Linda Crump took 3 minutes to show up)."""
     import time
 
     if not location_id:
@@ -174,8 +179,23 @@ def _sync_location(location_id: str, label: str, cfg: "_PipelineCfg" = _CFG_A):
         if not stage_map:
             stage_map = {"all": ""}
 
+        contact_opps = (get_opportunities(location_id, pipeline_id, None, contact_id=only_contact)
+                        if only_contact else None)
+        if contact_opps is not None:
+            # Keep only that person's card even if GHL ignored the filter.
+            contact_opps = [o for o in contact_opps
+                            if (o.get("contact", {}) or {}).get("id") == only_contact
+                            or o.get("contactId") == only_contact]
+            if not contact_opps:
+                return
         for stage_name, stage_id in stage_map.items():
-            opps = get_opportunities(location_id, pipeline_id, stage_id if stage_id else None)
+            if contact_opps is not None:
+                opps = [o for o in contact_opps
+                        if not stage_id or o.get("pipelineStageId") == stage_id]
+                if not opps:
+                    continue
+            else:
+                opps = get_opportunities(location_id, pipeline_id, stage_id if stage_id else None)
             is_target_stage = any(t in stage_name for t in TARGET_STAGES)
             priority = TARGET_STAGES.get(stage_name, "MEDIUM")
             logger.info(f"Poller: {label} stage '{stage_name}' returned {len(opps)} opportunities")
@@ -626,6 +646,16 @@ def poll_ghl_contacts():
     """Sync leads from both GHL locations with delay between to avoid rate limits."""
     with _POLL_LOCK:
         _poll_ghl_contacts()
+
+
+def poll_one_contact(contact_id: str) -> None:
+    """Pull one person's opportunity from both Sterling pipelines, for a form
+    fill we were just told about. Two cheap GHL calls per pipeline."""
+    settings = get_settings()
+    with _POLL_LOCK:
+        for cfg in (_CFG_A, _CFG_B):
+            _sync_location(settings.ghl_location_id, settings.ghl_location_1_label, cfg,
+                           only_contact=contact_id)
 
 
 def _poll_ghl_contacts():

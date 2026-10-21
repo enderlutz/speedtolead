@@ -499,8 +499,9 @@ async def ghl_activity_webhook(request: Request):
     finally:
         db.close()
     if not lead_id:
-        # Someone new (a form fill): pull leads now, not in 5 minutes.
-        fast_sync.new_lead_soon()
+        # Someone new (a form fill): pull that one person now, and every
+        # few seconds until GHL has made their card.
+        fast_sync.new_contact_soon(str(cid))
         return {"status": "pulling new lead", "lead_id": ""}
     return {"status": "queued", "lead_id": lead_id}
 

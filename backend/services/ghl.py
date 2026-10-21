@@ -1088,14 +1088,18 @@ def update_contact_custom_fields(
     return False
 
 
-def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None = None) -> list[dict]:
-    """Fetch opportunities from a pipeline, optionally filtered by stage."""
+def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None = None,
+                      contact_id: str | None = None) -> list[dict]:
+    """Fetch opportunities from a pipeline, optionally filtered by stage or
+    by one contact (a single call for a brand-new form fill)."""
     all_opps: list[dict] = []
     page = 1
     while True:
         params: dict = {"location_id": location_id, "pipeline_id": pipeline_id, "limit": 100, "page": page}
         if stage_id:
             params["pipeline_stage_id"] = stage_id
+        if contact_id:
+            params["contact_id"] = contact_id
         try:
             r = _client.get(f"{GHL_BASE}/opportunities/search", headers=_headers(location_id), params=params, timeout=30)
             r.raise_for_status()

@@ -136,3 +136,28 @@ def test_a_new_form_fill_pulls_leads_now_and_once_more(monkeypatch):
     for t in [t for t in threading.enumerate() if t.name == "new-lead-pull"]:
         t.join(5)
     assert len(calls) == 4
+
+
+def test_a_form_fill_pulls_just_that_person_until_they_land(monkeypatch):
+    """Linda Crump (2026-10-21): the ping pulls that one contact, retries
+    until GHL has made the card, then stops. Someone who never becomes a
+    lead (a crew text) is left alone afterwards."""
+    import threading
+    import services.poller as poller
+    pulls = []
+    have = {"n": 0}
+    monkeypatch.setattr(poller, "poll_one_contact", lambda cid: pulls.append(cid))
+    monkeypatch.setattr(fs, "_have_contact", lambda cid: (have.__setitem__("n", have["n"] + 1), have["n"] >= 3)[1])
+    monkeypatch.setattr(fs, "ONE_CONTACT_TRIES", (0, 0.01, 0.02, 0.03, 0.04))
+    monkeypatch.setattr(fs, "_not_a_lead", {})
+    assert fs.new_contact_soon("c-linda") is True
+    for t in [t for t in threading.enumerate() if t.name == "new-contact-pull"]:
+        t.join(5)
+    assert pulls == ["c-linda"] * 3            # stopped once she was in
+
+    monkeypatch.setattr(fs, "_have_contact", lambda cid: False)
+    assert fs.new_contact_soon("c-crew") is True
+    for t in [t for t in threading.enumerate() if t.name == "new-contact-pull"]:
+        t.join(5)
+    assert pulls.count("c-crew") == 5
+    assert fs.new_contact_soon("c-crew") is False   # remembered, no more pulls
