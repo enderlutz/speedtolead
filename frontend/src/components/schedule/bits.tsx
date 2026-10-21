@@ -41,14 +41,23 @@ export function DayStamp({ day, today, onClick, column }: { day: string; today: 
  * room. A finished one gets a ✓ and goes quiet. `tiny` is the month grid's
  * size (the cell is the tap target, so the chip is a plain span).
  */
-export function JobChip({ x, n, Link, tiny }: { x: PmDay; n: number; Link?: JobLinkComponent; tiny?: boolean }) {
+export function JobChip({ x, n, Link, tiny, stacked }: { x: PmDay; n: number; Link?: JobLinkComponent; tiny?: boolean; stacked?: boolean }) {
   const fin = isDone(x);
-  const cls = cn("flex w-full items-center gap-1.5 rounded-lg text-left text-[14px] font-semibold leading-tight", RING,
-    tiny ? "min-h-7 px-1.5" : "min-h-11 px-2",
+  const cls = cn("flex w-full gap-1.5 rounded-lg text-left text-[14px] font-semibold leading-tight", RING,
+    stacked ? "flex-col items-stretch px-2 py-1.5" : "items-center",
+    tiny ? "min-h-7 px-1.5" : stacked ? "min-h-11" : "min-h-11 px-2",
     fin ? cn(IVORY, MUTED) : cn(PAPER, INK, !tiny && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60"));
-  const body = (
+  const icon = <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : TASK_ICON[x.task] ?? "•"}</span>;
+  // Week (Alan, 2026-10-21): the customer's name on top, wrapping to two
+  // lines, the worker under it, so a narrow column still shows who it is.
+  const body = stacked ? (
     <>
-      <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : TASK_ICON[x.task] ?? "•"}</span>
+      <span className="line-clamp-2 break-words text-[15px] font-bold">{x.name}</span>
+      <span className={cn("flex items-center gap-1.5 text-[14px] font-medium", MUTED)}>{icon}<span className="truncate">{n} · {firstName(x.person)}</span></span>
+    </>
+  ) : (
+    <>
+      {icon}
       <span className="min-w-0 flex-1 truncate">{n} {firstName(x.person)} · {x.name}</span>
     </>
   );

@@ -96,8 +96,11 @@ export default function PmHq() {
   const raw = params.get("tab");
   const tab: Tab = raw === "calendar" || raw === "past" ? raw : "today";
   const setTab = (k: Tab) => set({ tab: k });
+  // Week and Month use the whole screen so seven days have room for names
+  // (Alan, 2026-10-21: "I can't see the customer's name" on Week).
+  const wide = tab === "calendar" && ["week", "month"].includes(params.get("view") || "");
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
+    <div className={cn("mx-auto space-y-4 p-4 sm:p-6", wide ? "max-w-[1800px]" : "max-w-5xl")}>
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
           <HardHat className="h-5 w-5 text-primary" /> Project Manager HQ
@@ -283,7 +286,7 @@ function CalendarView() {
             </div>
           ) : null}
           <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
-                        onPickDay={pickDay} maxChips={view === "week" ? 4 : undefined}
+                        onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"}
                         canEdit={canEdit} onMove={(x, to) => void moveJob(x, to)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </>
       )}

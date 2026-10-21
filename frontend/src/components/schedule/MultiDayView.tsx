@@ -53,7 +53,7 @@ function DropDay({ day, className, children }: { day: string; className: string;
   return <div ref={setNodeRef} className={cn(className, isOver && "bg-[#C9972F]/15 ring-2 ring-inset ring-[#C9972F]")}>{children}</div>;
 }
 
-export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onAdd }: {
+export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, canEdit, onMove, onAdd, stacked }: {
   dates: string[]; byDay: Map<string, PmDay[]>; today: string; Link: JobLinkComponent;
   onPickDay: (d: string) => void;
   /** Week shows this many chips a day, then "+N more" (tap → that day). */
@@ -63,6 +63,8 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
   onMove?: (x: PmDay, toDate: string) => void;
   /** "+ Add" under a day. */
   onAdd?: (d: string) => void;
+  /** Week: narrow columns, so each job is two lines, the customer on top. */
+  stacked?: boolean;
 }) {
   const last = dates.length - 1;
   const dnd = !!(canEdit && onMove);
@@ -80,7 +82,7 @@ export function MultiDayView({ dates, byDay, today, Link, onPickDay, maxChips, c
     if (x && to && to !== x.date) onMove?.(x, to);
   };
   const chip = (x: PmDay, n: number) => (
-    <Draggable key={keyOf(x)} x={x} n={n} on={dnd}><JobChip x={x} n={n} Link={Link} /></Draggable>
+    <Draggable key={keyOf(x)} x={x} n={n} on={dnd}><JobChip x={x} n={n} Link={Link} stacked={stacked && wide} /></Draggable>
   );
   const moreBtn = "flex min-h-11 w-full items-center rounded-lg px-2 text-left text-[14px] font-bold text-[#8C6224] hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60";
   const addBtn = (d: string) => canEdit && onAdd ? (
