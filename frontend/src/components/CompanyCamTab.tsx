@@ -32,6 +32,7 @@ import {
 } from "@/lib/api";
 import { shrinkPhoto } from "@/lib/shrinkPhoto";
 import { photoTakenAt, stampText } from "@/lib/photoTime";
+import PhotoViewer from "@/components/PhotoViewer";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -252,10 +253,12 @@ function NoteBox({ photo, save }: { photo: CompanyCamPhoto; save: (note: string)
 }
 
 function PhotoCard({
-  leadId, photo, onPatch, onDelete, bare = false,
+  leadId, photo, onPatch, onDelete, onOpen, bare = false,
 }: {
   leadId: string;
   photo: CompanyCamPhoto;
+  /** Tap the picture: the full-screen viewer for its section. */
+  onOpen?: () => void;
   /** Just the picture, full width, nothing to fill in (the crew's scope). */
   bare?: boolean;
   onPatch: (p: { side?: string; note?: string; is_damage?: boolean }) => void | Promise<boolean | void>;
@@ -285,9 +288,9 @@ function PhotoCard({
   if (bare) {
     // Tap to open it full size, to zoom in on a side.
     return src ? (
-      <a href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border bg-muted">
+      <button type="button" onClick={onOpen} className="block w-full overflow-hidden rounded-xl border bg-muted">
         <img src={src} alt={tr("The fence scope")} className="max-h-[75vh] w-full object-contain" />
-      </a>
+      </button>
     ) : (
       <div className="flex h-56 items-center justify-center rounded-xl bg-muted"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
     );
@@ -299,8 +302,10 @@ function PhotoCard({
     )}>
       <div className="relative">
         {src ? (
-          <img src={src} alt={photo.side || `Photo ${photo.seq}`}
-               className="h-36 w-full bg-muted object-cover sm:h-40" loading="lazy" />
+          <button type="button" onClick={onOpen} className="block w-full" aria-label={tr("Open photo")}>
+            <img src={src} alt={photo.side || `Photo ${photo.seq}`}
+                 className="h-36 w-full bg-muted object-cover sm:h-40" loading="lazy" />
+          </button>
         ) : (
           <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-muted to-muted/50 sm:h-40">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -679,6 +684,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState<string>("");
+  const [viewer, setViewer] = useState<{ key: string; i: number; title: string } | null>(null);
   // The section the "Pick from our photos" sheet is adding to, if open.
   const [picking, setPicking] = useState<string | null>(null);
   // Management view or employee view (Alan, 2026-10-15): office staff can
@@ -943,7 +949,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             {sec.key === "fence_scope" && !manager ? (
               list.length ? (
                 <div className="space-y-2">
-                  {list.map((p) => <PhotoCard key={p.id} leadId={leadId} photo={p} bare onPatch={() => {}} onDelete={() => {}} />)}
+                  {list.map((p, n) => <PhotoCard key={p.id} leadId={leadId} photo={p} bare onPatch={() => {}} onDelete={() => {}}
+                                                 onOpen={() => setViewer({ key: sec.key, i: n, title: sec.label })} />)}
                 </div>
               ) : !job.scope_explanation.trim() ? (
                 <p className="rounded-xl bg-muted/50 px-3 py-3 text-sm text-muted-foreground">{tr("The office hasn't added the scope yet. Call the office before you start.")}</p>
@@ -951,8 +958,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             ) : list.length ? (
               <>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {list.map((p) => (
+                  {list.map((p, n) => (
                     <PhotoCard key={p.id} leadId={leadId} photo={p}
+                      onOpen={() => setViewer({ key: sec.key, i: n, title: sec.label })}
                       onPatch={async (pp) => {
                         try {
                           await api.updateCompanyCamPhoto(leadId, p.id, pp);
@@ -1796,6 +1804,9 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       </>)}
       {picking ? (
         <LibraryPicker leadId={leadId} section={picking} onClose={() => setPicking(null)} onAdded={() => void load()} />
+      ) : null}
+      {viewer && (photos[viewer.key] || []).length ? (
+        <PhotoViewer leadId={leadId} photos={photos[viewer.key] || []} start={viewer.i} title={tr(viewer.title)} onClose={() => setViewer(null)} />
       ) : null}
     </div>
   );

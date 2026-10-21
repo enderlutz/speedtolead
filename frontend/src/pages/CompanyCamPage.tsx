@@ -17,6 +17,11 @@ function day(iso: string) {
   return new Date(y, m - 1, d).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** Back to the Project Manager tab and day they came from. */
+function pmHqBack(): string {
+  try { return sessionStorage.getItem("pmhq:last") || "/pm-hq"; } catch { return "/pm-hq"; }
+}
+
 export default function CompanyCamPage() {
   const { leadId } = useParams<{ leadId: string }>();
   if (leadId) {
@@ -24,7 +29,7 @@ export default function CompanyCamPage() {
       <div className="mx-auto max-w-3xl space-y-3 p-3 sm:p-5">
         {/* Back to where they came from: PM HQ, or the Company Cam list. */}
         {new URLSearchParams(window.location.search).get("from") === "pm-hq" ? (
-          <Link to="/pm-hq" className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
+          <Link to={pmHqBack()} className="-ml-1 inline-flex min-h-11 items-center gap-1 px-1 text-base font-semibold text-muted-foreground hover:text-foreground">
             <ChevronLeft className="h-4 w-4" /> {tr("Project Manager")}
           </Link>
         ) : (

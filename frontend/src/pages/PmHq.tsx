@@ -10,7 +10,7 @@
  * My Schedule. Only admins add or remove days. No prices on this page.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { getCurrentUser, hasPerm } from "@/lib/api";
 import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -67,8 +67,28 @@ function PwServices({ list }: { list?: string[] }) {
   );
 }
 
+// The tab and the picked day live in the address (?tab=calendar&day=…), so
+// coming back from a customer lands on the same day (Alan, 2026-10-20: the
+// back button kept dropping him on Today). Company Cam's "Project Manager"
+// link goes back to the last one of these.
+export const PMHQ_LAST = "pmhq:last";
+
+function usePmParams() {
+  const [params, setParams] = useSearchParams();
+  const set = useCallback((patch: Record<string, string>) => {
+    setParams((p) => { const n = new URLSearchParams(p); for (const [k, v] of Object.entries(patch)) n.set(k, v); return n; }, { replace: true });
+  }, [setParams]);
+  useEffect(() => {
+    try { sessionStorage.setItem(PMHQ_LAST, `/pm-hq?${params.toString()}`); } catch { /* private mode */ }
+  }, [params]);
+  return [params, set] as const;
+}
+
 export default function PmHq() {
-  const [tab, setTab] = useState<Tab>("today");
+  const [params, set] = usePmParams();
+  const raw = params.get("tab");
+  const tab: Tab = raw === "calendar" || raw === "past" ? raw : "today";
+  const setTab = (k: Tab) => set({ tab: k });
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
       <div>
@@ -166,11 +186,14 @@ function TodayView() {
 // ── Calendar ──────────────────────────────────────────────────────────────
 function CalendarView() {
   const today = ctToday();
-  const [month, setMonth] = useState(() => today.slice(0, 7)); // YYYY-MM
+  const [params, set] = usePmParams();
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get("day") || "") ? params.get("day")! : today;
+  const [month, setMonth] = useState(() => day.slice(0, 7)); // YYYY-MM
   const [days, setDays] = useState<PmDay[] | null>(null);
   const [crew, setCrew] = useState<{ username: string; name: string }[]>([]);
   const [canEdit, setCanEdit] = useState(false);
-  const [picked, setPicked] = useState<string>(today);
+  const picked = day;
+  const setPicked = useCallback((d: string) => set({ day: d }), [set]);
 
   const grid = useMemo(() => {
     const [y, m] = month.split("-").map(Number);

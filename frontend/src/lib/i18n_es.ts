@@ -440,6 +440,7 @@ export const ES: Record<string, string> = {
   "Take photo": "Tomar foto",
   "From gallery": "De la galería",
   "Photo by": "Foto de",
+  "Open photo": "Abrir foto",
   "sent": "enviada",
   "Arrived": "Llegó",
   "The first photo taken that day": "La primera foto de ese día",
