@@ -259,12 +259,13 @@ function CalendarView() {
   // and their helpers, so all of them go. It moves on screen at once; the
   // server catches up, and a failure puts it back.
   const moveJob = async (g: JobGroup, to: string) => {
-    const going = new Set([...g.leads, ...g.helpers]);
+    const going = new Set(g.rows);
     setDays((ds) => (ds || []).map((d) => (going.has(d) ? { ...d, date: to } : d)));
     try {
-      // Moving a lead tech takes their helpers along on the server; a card
-      // with no lead tech moves each helper on its own.
-      for (const r of g.leads.length ? g.leads : g.helpers) {
+      // Moving a lead tech takes their helpers on that task along on the
+      // server; a card with no lead tech moves each helper on its own.
+      const movers = g.rows.filter((r) => !r.helper);
+      for (const r of movers.length ? movers : g.rows) {
         await api.pmHqMove({ lead_id: r.lead_id, username: r.username, task: r.task, from_date: r.date, to_date: to });
       }
       toast.success(`${g.x.name} moved to ${fmtDay(to, { weekday: "long", month: "short", day: "numeric" })} · ${g.people}`);
@@ -386,7 +387,15 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
   );
-  const ids = list.map((x) => `${x.lead_id}|${x.task}`);
+  // One card per customer in the lane (Alan, 2026-10-21: Brent cleans Amir's
+  // fence and washes the house the same morning, one card): the rows for
+  // each job together, dragged and taken off as one.
+  const merged = useMemo(() => {
+    const out: { x: PmDay; rows: PmDay[] }[] = [];
+    for (const r of list) { const m = out.find((o) => o.x.lead_id === r.lead_id); if (m) m.rows.push(r); else out.push({ x: r, rows: [r] }); }
+    return out;
+  }, [list]);
+  const ids = merged.map((m) => m.x.lead_id);
   // A helper's order follows whoever they ride with, so their list isn't dragged.
   const helper = list.every((x) => x.helper);
   const drag = canEdit && !helper;
@@ -396,17 +405,19 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
     const from = ids.indexOf(String(e.active.id));
     const to = e.over ? ids.indexOf(String(e.over.id)) : -1;
     if (from < 0 || to < 0 || from === to) return;
-    const next = arrayMove(list, from, to);
-    setList(next);
+    const next = arrayMove(merged, from, to);
+    setList(next.flatMap((m) => m.rows));
     try {
-      await api.pmHqOrder(day, [...new Set(next.map((x) => x.lead_id))], username);
+      await api.pmHqOrder(day, next.map((m) => m.x.lead_id), username);
       onChange();
     } catch (err) { setList(rows); toast.error(errMessage(err, "Couldn't change the order")); }
   };
 
-  const remove = async (x: PmDay) => {
-    try { await api.pmHqUnassign({ lead_id: x.lead_id, date: x.date, username: x.username, task: x.task }); onChange(); }
-    catch (e) { toast.error(errMessage(e, "Couldn't take them off")); }
+  const remove = async (rows: PmDay[]) => {
+    try {
+      for (const x of rows) await api.pmHqUnassign({ lead_id: x.lead_id, date: x.date, username: x.username, task: x.task });
+      onChange();
+    } catch (e) { toast.error(errMessage(e, "Couldn't take them off")); }
   };
 
   return (
@@ -418,8 +429,8 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void onDragEnd(e)}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <div className="space-y-2">
-            {list.map((x, i) => (
-              <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} canEdit={canEdit} drag={drag} onRemove={() => void remove(x)} crew={crew} onChange={onChange}
+            {merged.map(({ x, rows }, i) => (
+              <JobCard key={ids[i]} id={ids[i]} n={i + 1} x={x} tasks={rows.map((r) => r.task)} canEdit={canEdit} drag={drag} onRemove={() => void remove(rows)} crew={crew} onChange={onChange}
                        mates={dayItems.filter((d) => d.lead_id === x.lead_id && d.username !== x.username)} />
             ))}
           </div>
@@ -429,10 +440,12 @@ function WorkerLane({ day, username, person, rows, canEdit, onChange, crew, dayI
   );
 }
 
-function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
-  id: string; n: number; x: PmDay; canEdit: boolean; drag: boolean; onRemove: () => void;
+function JobCard({ id, n, x, tasks, canEdit, drag, onRemove, crew, mates, onChange }: {
+  id: string; n: number; x: PmDay; tasks: string[]; canEdit: boolean; drag: boolean; onRemove: () => void;
   crew: { username: string; name: string }[]; mates: PmDay[]; onChange: () => void;
 }) {
+  // A person once, even when they're on two tasks of the job.
+  const people = mates.filter((m, i) => mates.findIndex((o) => o.username === m.username) === i);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !drag });
   // A second person on the same job (Alan, 2026-10-18: Jose and Alfredo stain together).
   const [picking, setPicking] = useState(false);
@@ -449,8 +462,10 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
     } catch (e) { toast.error(errMessage(e, "Couldn't add them")); }
   };
   const dropMate = async (m: PmDay) => {
-    try { await api.pmHqUnassign({ lead_id: m.lead_id, date: m.date, username: m.username, task: m.task }); onChange(); }
-    catch (e) { toast.error(errMessage(e, "Couldn't take them off")); }
+    try {
+      for (const r of mates.filter((o) => o.username === m.username)) await api.pmHqUnassign({ lead_id: r.lead_id, date: r.date, username: r.username, task: r.task });
+      onChange();
+    } catch (e) { toast.error(errMessage(e, "Couldn't take them off")); }
   };
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
@@ -468,10 +483,11 @@ function JobCard({ id, n, x, canEdit, drag, onRemove, crew, mates, onChange }: {
           : <p className="truncate text-base font-semibold">{x.name}</p>}
         <p className="truncate text-xs text-muted-foreground">{x.address}</p>
         <PayChip x={x} />
-        {x.task === "pressure_washing" || !x.task ? <PwServices list={x.pw_services} /> : null}
+        {tasks.length > 1 ? <p className="mt-0.5 text-xs font-semibold">{tasks.map((t) => TASK_LABEL[t] ?? t).join(" + ")}</p> : null}
+        {tasks.includes("pressure_washing") || !x.task ? <PwServices list={x.pw_services} /> : null}
         <JobStatus x={x} canEdit={canEdit} crew={crew} onChange={onChange} />
-        {mates.map((m) => (
-          <div key={`${m.username}|${m.task}`} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+        {people.map((m) => (
+          <div key={m.username} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
             <span className="font-semibold">With {m.person}{m.helper ? " (helper)" : ""}</span>
             <PayChip x={m} />
             {canEdit && !finished ? (

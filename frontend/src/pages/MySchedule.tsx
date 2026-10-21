@@ -7,10 +7,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Phone, MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check, ChevronDown, Lock, CalendarClock } from "lucide-react";
+import { Phone, MapPin, Clock, CheckCircle2, ClipboardList, RefreshCw, Camera, Navigation, CloudRain, Sun, CloudSun, Cloud, CloudSnow, ChevronLeft, ChevronRight, Image as ImageIcon, Trash2, Loader2, BellRing, Timer, Check, ChevronDown, Lock, CalendarClock } from "lucide-react";
+import { addDays, dayList, spanLabel, startOfWeek } from "@/components/schedule/dates";
+import { DayStamp } from "@/components/schedule/bits";
+import { LINE, MUTED, PAPER, RING, TODAY_WASH } from "@/components/schedule/look";
 import type { MyJobTask, JobPhotoMeta } from "@/lib/api";
 import TodaysMap from "@/components/TodaysMap";
-import { errMessage } from "@/lib/utils";
+import { cn, errMessage } from "@/lib/utils";
 import { tr, isSpanish } from "@/lib/i18n";
 
 // Worker "My Schedule" — the single screen workers see on their phone.
@@ -24,7 +27,9 @@ import { tr, isSpanish } from "@/lib/i18n";
 //
 // Admins can hit this page directly to dogfood the worker UX.
 
-type Tab = "today" | "upcoming" | "past";
+// Today, the next 3 days, the week (Mon–Sun) and Past (Alan, 2026-10-21:
+// "my goal is to schedule out a whole week for him").
+type Tab = "today" | "3day" | "week" | "past";
 
 function ctISO(offsetDays = 0): string {
   // Date arithmetic in Central Time so "today"/"tomorrow" boundaries match
@@ -933,33 +938,70 @@ function payLabel(j: CamJob): string {
   return j.pay_type === "hourly" ? `${n}/${tr("hr")}` : n;
 }
 
-/** The Company Cam jobs the office put this person on, for the tab's days
+const TASK_BG: Record<string, string> = { staining: "bg-cedar", cleaning: "bg-ink", pressure_washing: "bg-walnut", "": "bg-walnut/70" };
+const dayWords = (iso: string) => {
+  if (!iso) return tr("Day not set yet");
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(isSpanish() ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric" });
+};
+/** "1st", "2nd" within a day, only when there's more than one job that day. */
+function nthOf(j: CamJob, sameDay: CamJob[]): string {
+  if (sameDay.length < 2) return "";
+  const i = sameDay.indexOf(j) + 1;
+  return isSpanish() ? `${i}º` : `${i}${i === 1 ? "st" : i === 2 ? "nd" : i === 3 ? "rd" : "th"}`;
+}
+const taskWord = (t: string | undefined) => t === "staining" ? tr("Staining") : t === "cleaning" ? tr("Fence cleaning") : t === "pressure_washing" ? tr("Pressure washing") : tr("Job");
+/** One customer, one row (Alan, 2026-10-21): the same day's rows for a job
+ *  fold into the first, every task on the badge. */
+function foldByJob(rows: CamJob[]): (CamJob & { tasks: string[] })[] {
+  const out: (CamJob & { tasks: string[] })[] = [];
+  for (const r of rows) {
+    const m = out.find((o) => o.lead_id === r.lead_id && o.date === r.date);
+    if (m) { if (r.task && !m.tasks.includes(r.task)) m.tasks.push(r.task); } else out.push({ ...r, tasks: r.task ? [r.task] : [] });
+  }
+  return out;
+}
+/** One Company Cam job for this person: the task in the Sterling colour,
+ *  the customer, the address, their own pay. Tap to open the job. */
+function CamJobRow({ j, nth, showDay }: { j: CamJob & { tasks?: string[] }; nth: string; showDay: boolean }) {
+  const tasks = j.tasks?.length ? j.tasks : [j.task || ""];
+  // The task is a small pill over the name, so the name gets the whole line
+  // on a phone (it used to read "Mich…" next to a wide badge).
+  return (
+    <Link to={`/company-cam/${j.lead_id}`}
+          className={cn("flex min-h-[60px] items-center gap-2 rounded-xl p-2.5 shadow-sm active:bg-[#E4DCCB]/60", PAPER, RING)}>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          {nth ? <span className="text-[14px] font-extrabold text-bronze">{nth}</span> : null}
+          {tasks.map((t) => (
+            <span key={t} className={cn("rounded-md px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide text-white", TASK_BG[t] ?? TASK_BG[""])}>{taskWord(t)}</span>
+          ))}
+          {showDay ? <span className={cn("text-[14px] font-medium", MUTED)}>{dayWords(j.date)}</span> : null}
+        </span>
+        <span className="mt-0.5 line-clamp-2 text-[16px] font-semibold capitalize leading-snug">{(j.name || tr("Customer")).toLowerCase()}</span>
+        {j.address ? <span className={cn("flex items-center gap-1 truncate text-[14px]", MUTED)}><MapPin className="h-3.5 w-3.5 shrink-0" />{j.address}</span> : null}
+      </span>
+      {payLabel(j) ? <span className="shrink-0 rounded-lg bg-gold/20 px-2 py-1 text-sm font-bold tabular-nums text-ink ring-1 ring-gold/40">{payLabel(j)}</span> : null}
+      <ChevronRight className={cn("h-5 w-5 shrink-0", MUTED)} />
+    </Link>
+  );
+}
+
+/** The Company Cam jobs the office put this person on, for Today and Past
  *  (Alan, 2026-10-16: "Cleaning · Yogi" on the day, tap to open it). */
-function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string }) {
-  const shown = jobs.filter((j) => (tab === "today" ? j.date === today : tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today))
+function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: "today" | "past"; today: string }) {
+  const shown = foldByJob(jobs.filter((j) => (tab === "today" ? j.date === today : !!j.date && j.date < today))
     // Same day: the order the office set in PM HQ (Alan, 2026-10-18).
-    .sort((a, b) => (a.date || "9").localeCompare(b.date || "9") || (a.order || 999) - (b.order || 999));
+    .sort((a, b) => (a.date || "9").localeCompare(b.date || "9") || (a.order || 999) - (b.order || 999)));
   if (!shown.length) return null;
-  // "1st", "2nd" within a day, only when there's more than one job that day.
-  const nth = (j: CamJob) => {
-    const same = shown.filter((x) => x.date && x.date === j.date);
-    if (same.length < 2) return "";
-    const i = same.indexOf(j) + 1;
-    return isSpanish() ? `${i}º` : `${i}${i === 1 ? "st" : i === 2 ? "nd" : i === 3 ? "rd" : "th"}`;
-  };
   // What the flat jobs on this tab add up to (Alan, 2026-10-17: they should
   // see the week's jobs and exactly what each one pays).
   const flatTotal = shown.reduce((t, j) => t + (j.pay_type === "flat" ? j.pay || 0 : 0), 0);
-  const day = (iso: string) => {
-    if (!iso) return tr("Day not set yet");
-    const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString(isSpanish() ? "es-US" : "en-US", { weekday: "short", month: "short", day: "numeric" });
-  };
   return (
     <div className="mb-4 space-y-2">
       {flatTotal > 0 ? (
-        <p className="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900 ring-1 ring-emerald-200">
-          <span>{tab === "today" ? tr("Today's flat pay") : tab === "upcoming" ? tr("Coming up, flat pay") : tr("Flat pay, past jobs")}</span>
+        <p className="flex items-center justify-between rounded-xl bg-gold/15 px-3 py-2 text-sm font-semibold text-ink ring-1 ring-gold/40">
+          <span>{tab === "today" ? tr("Today's flat pay") : tr("Flat pay, past jobs")}</span>
           <span className="text-base tabular-nums">${flatTotal % 1 ? flatTotal.toFixed(2) : flatTotal}</span>
         </p>
       ) : null}
@@ -972,37 +1014,69 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
           <span>
             <b className="block">{tr("First thing this morning: text each customer below when you'll get there.")}</b>
             {/* The wording follows the job: clean or stain (Alan, 2026-10-19). */}
-            {shown.some((j) => j.task !== "staining" && j.task !== "pressure_washing") ? (
+            {shown.some((j) => j.tasks.some((t) => t !== "staining" && t !== "pressure_washing")) ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to clean your fence.\"")}</span>
             ) : null}
-            {shown.some((j) => j.task === "staining") ? (
+            {shown.some((j) => j.tasks.includes("staining")) ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] to stain your fence.\"")}</span>
             ) : null}
-            {shown.some((j) => j.task === "pressure_washing") ? (
+            {shown.some((j) => j.tasks.includes("pressure_washing")) ? (
               <span className="mt-1 block italic">{tr("\"Hi, this is [your name] with Sterling Fence Staining. I'm planning to be at your house between [time] and [time] for your pressure washing.\"")}</span>
             ) : null}
           </span>
         </div>
       ) : null}
-      {shown.map((j) => (
-        <Link key={`${j.lead_id}-${j.date}-${j.task || ""}`} to={`/company-cam/${j.lead_id}`}
-              className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/60">
-          <span className={`flex min-h-12 w-24 shrink-0 flex-col items-center justify-center rounded-lg py-1 text-center text-xs font-bold leading-tight text-white ${j.task === "staining" ? "bg-emerald-700" : j.task === "cleaning" ? "bg-sky-600" : j.task === "pressure_washing" ? "bg-indigo-600" : "bg-stone-500"}`}>
-            {nth(j) ? <span className="text-[11px] font-extrabold">{nth(j)}</span> : null}
-            {/* Pressure washing (Alan, 2026-10-19): two words, so it wraps instead of shrinking. */}
-            <span className={j.task === "pressure_washing" ? "text-xs uppercase tracking-wide" : "text-sm uppercase tracking-wide"}>
-              {j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Fence cleaning") : j.task === "pressure_washing" ? tr("Pressure washing") : tr("Job")}
-            </span>
-            {tab !== "today" ? <span className="font-medium opacity-90">{day(j.date)}</span> : null}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-base font-semibold capitalize">{(j.name || tr("Customer")).toLowerCase()}</span>
-            {j.address ? <span className="flex items-center gap-1 truncate text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{j.address}</span> : null}
-          </span>
-          {payLabel(j) ? <span className="shrink-0 rounded-lg bg-emerald-100 px-2 py-1 text-sm font-bold tabular-nums text-emerald-900">{payLabel(j)}</span> : null}
-          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-        </Link>
-      ))}
+      {shown.map((j) => <CamJobRow key={`${j.lead_id}-${j.date}`} j={j} nth={nthOf(j, shown.filter((x) => x.date && x.date === j.date))} showDay={tab !== "today"} />)}
+    </div>
+  );
+}
+
+/**
+ * The next 3 days or the week, one block per day (Alan, 2026-10-21: "today,
+ * then 3 days, then the week"): the day stamp on the left, today in gold,
+ * and this person's jobs for the day on the right, in the morning order.
+ * Empty days still show, so a free day reads as free. A job with no day
+ * picked yet sits at the bottom.
+ */
+function CrewDays({ dates, camJobs, jobs, today, onSaved }: {
+  dates: string[]; camJobs: CamJob[]; jobs: ScheduledJob[]; today: string; onSaved: (j: ScheduledJob) => void;
+}) {
+  const inRange = foldByJob(camJobs.filter((j) => j.date && j.date >= dates[0] && j.date <= dates[dates.length - 1]));
+  // Pay is per job, so a clean-and-wash day counts it once.
+  const flatTotal = inRange.reduce((t, j) => t + (j.pay_type === "flat" ? j.pay || 0 : 0), 0);
+  const unset = foldByJob(camJobs.filter((j) => !j.date));
+  const last = dates.length - 1;
+  return (
+    <div className="space-y-3">
+      {flatTotal > 0 ? (
+        <p className="flex items-center justify-between rounded-xl bg-gold/15 px-3 py-2 text-sm font-semibold text-ink ring-1 ring-gold/40">
+          <span>{tr("Flat pay for these days")}</span>
+          <span className="text-base tabular-nums">${flatTotal % 1 ? flatTotal.toFixed(2) : flatTotal}</span>
+        </p>
+      ) : null}
+      <div className={cn("rounded-2xl", PAPER, RING)}>
+        {dates.map((d, i) => {
+          const mine = inRange.filter((j) => j.date === d).sort((a, b) => (a.order || 999) - (b.order || 999));
+          const legacy = jobs.filter((j) => j.job_date === d);
+          return (
+            <div key={d} className={cn("grid grid-cols-[56px_1fr] gap-2 px-2 py-2", i > 0 && cn("border-t", LINE),
+                                         i === 0 && "rounded-t-2xl", i === last && "rounded-b-2xl", d === today && TODAY_WASH)}>
+              <DayStamp day={d} today={today} />
+              <div className="min-w-0 space-y-2 py-1">
+                {mine.map((j) => <CamJobRow key={j.lead_id} j={j} nth={nthOf(j, mine)} showDay={false} />)}
+                {legacy.map((job) => <ListJobCard key={job.id} job={job} onSaved={onSaved} />)}
+                {!mine.length && !legacy.length ? <p className={cn("flex min-h-11 items-center px-1 text-[15px]", MUTED)}>{tr("Nothing on.")}</p> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {unset.length ? (
+        <div className="space-y-2">
+          <p className={cn("px-1 text-sm font-bold uppercase tracking-wide", MUTED)}>{tr("Day not set yet")}</p>
+          {unset.map((j) => <CamJobRow key={j.lead_id} j={j} nth="" showDay={false} />)}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1014,6 +1088,8 @@ export default function MySchedule() {
   const user = useMemo(() => getCurrentUser(), []);
   const [tab, setTab] = useState<Tab>("today");
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
+  // The day the 3-day and week views stand on; ‹ › step by a view.
+  const [anchor, setAnchor] = useState(() => ctISO(0));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -1033,12 +1109,18 @@ export default function MySchedule() {
   const todaysCam = camJobs.filter((j) => j.date === today);
   const allFlatToday = todaysCam.length > 0 && todaysCam.every((j) => j.pay_type === "flat");
 
+  const range = useMemo(() => {
+    if (tab === "3day") return { start: anchor, end: addDays(anchor, 2) };
+    if (tab === "week") { const mon = startOfWeek(anchor); return { start: mon, end: addDays(mon, 6) }; }
+    return null;
+  }, [tab, anchor]);
+
   const load = useCallback(async (which: Tab) => {
     setLoading(true);
     // TEMPORARY: the employeefragne test account sees sample jobs (frontend
     // only, never hits the API/DB). Remove with the fakeSchedule import.
     if (isFakeScheduleUser(user)) {
-      setJobs(buildFakeJobs(which, ctISO));
+      setJobs(buildFakeJobs(which === "past" ? "past" : which === "today" ? "today" : "upcoming", ctISO));
       setLoading(false);
       setRefreshing(false);
       return;
@@ -1049,8 +1131,8 @@ export default function MySchedule() {
       let params: { start?: string; end?: string; employee_id?: string };
       if (which === "today") {
         params = { start: today, end: today, ...adminPreview };
-      } else if (which === "upcoming") {
-        params = { start: ctISO(1), ...adminPreview };  // tomorrow → no end = all future
+      } else if (which === "3day" || which === "week") {
+        params = { start: range?.start || today, end: range?.end || today, ...adminPreview };
       } else {
         params = { start: ctISO(-30), end: ctISO(-1), ...adminPreview };  // last 30 days
       }
@@ -1063,7 +1145,7 @@ export default function MySchedule() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [today, user]);
+  }, [today, user, range]);
 
   useEffect(() => { load(tab); }, [tab, load]);
 
@@ -1098,14 +1180,15 @@ export default function MySchedule() {
 
   const tabBtn = (key: Tab, label: string) => (
     <button
-      onClick={() => setTab(key)}
-      className={`flex-1 text-sm font-medium py-2 rounded-md transition-colors ${
-        tab === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+      onClick={() => { setTab(key); if (key !== "past") setAnchor(today); }}
+      className={`min-h-11 flex-1 rounded-md text-[15px] font-semibold transition-colors ${
+        tab === key ? "bg-ink text-gold-light" : "text-muted-foreground hover:bg-muted"
       }`}
     >
       {label}
     </button>
   );
+  const step = (n: -1 | 1) => setAnchor((a) => addDays(a, n * (tab === "week" ? 7 : 3)));
 
   return (
     <div className="p-4 max-w-md mx-auto pb-24">
@@ -1129,9 +1212,20 @@ export default function MySchedule() {
       {/* Tabs */}
       <div className="flex gap-1 bg-muted/50 p-1 rounded-lg mb-4">
         {tabBtn("today", tr("Today"))}
-        {tabBtn("upcoming", tr("Upcoming"))}
+        {tabBtn("3day", tr("3 days"))}
+        {tabBtn("week", tr("Week"))}
         {tabBtn("past", tr("Past"))}
       </div>
+
+      {/* ‹ Today › over the 3-day and week views, the Sterling black bar. */}
+      {range ? (
+        <div className="mb-3 flex items-center gap-1 rounded-2xl bg-ink px-2 py-2 text-white">
+          <button type="button" onClick={() => setAnchor(today)} className="min-h-11 rounded-full border border-white/40 px-3 text-[15px] font-bold">{tr("Today")}</button>
+          <button type="button" onClick={() => step(-1)} aria-label={tr("Earlier")} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10"><ChevronLeft className="h-6 w-6" /></button>
+          <button type="button" onClick={() => step(1)} aria-label={tr("Later")} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10"><ChevronRight className="h-6 w-6" /></button>
+          <span className="ml-1 min-w-0 truncate font-heading text-[18px] font-bold text-gold">{spanLabel(range.start, range.end, false)}</span>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="text-center text-muted-foreground py-12">{tr("Loading…")}</div>
@@ -1165,13 +1259,15 @@ export default function MySchedule() {
             </div>
           )}
         </>
+      ) : range ? (
+        <CrewDays dates={dayList(range.start, tab === "week" ? 7 : 3)} camJobs={camJobs} jobs={jobs} today={today} onSaved={handleMaterialsSaved} />
       ) : (
         <>
-          <CamJobs jobs={camJobs} tab={tab} today={today} />
-          {grouped.length === 0 && camJobs.some((j) => (tab === "upcoming" ? !j.date || j.date > today : !!j.date && j.date < today)) ? null : grouped.length === 0 ? (
+          <CamJobs jobs={camJobs} tab="past" today={today} />
+          {grouped.length === 0 && camJobs.some((j) => !!j.date && j.date < today) ? null : grouped.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
-                {tab === "upcoming" ? tr("No upcoming jobs scheduled.") : tr("No jobs in the last 30 days.")}
+                {tr("No jobs in the last 30 days.")}
               </CardContent>
             </Card>
           ) : (

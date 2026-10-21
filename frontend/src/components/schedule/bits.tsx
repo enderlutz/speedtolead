@@ -45,17 +45,19 @@ export function DayStamp({ day, today, onClick, column }: { day: string; today: 
  */
 export function JobChip({ g, Link, tiny, stacked }: { g: JobGroup; Link?: JobLinkComponent; tiny?: boolean; stacked?: boolean }) {
   const x = g.x;
-  const fin = (g.leads.length ? g.leads : g.helpers).every(isDone);
+  const fin = g.rows.every(isDone);
+  const icons = g.tasks.map((t) => TASK_ICON[t] ?? "•").join("");
+  const pw = g.rows.find((r) => r.pw_services?.length)?.pw_services || [];
   const cls = cn("flex w-full gap-1.5 rounded-lg text-left text-[14px] font-semibold leading-tight", RING,
     stacked ? "flex-col items-stretch px-2 py-1.5" : "items-center",
     tiny ? "min-h-7 px-1.5" : stacked ? "min-h-11" : "min-h-11 px-2",
     fin ? cn(IVORY, MUTED) : cn(PAPER, INK, !tiny && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60"));
-  const icon = <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : TASK_ICON[x.task] ?? "•"}</span>;
+  const icon = <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : icons}</span>;
   const body = stacked ? (
     <>
       <span className="line-clamp-2 break-words text-[15px] font-bold">{x.name}</span>
       <span className={cn("flex items-start gap-1.5 text-[14px] font-medium", MUTED)}>{icon}<span className="line-clamp-2 break-words">{g.n} · {g.people}</span></span>
-      {x.task === "pressure_washing" && x.pw_services?.length ? <span className={cn("line-clamp-2 text-[14px]", MUTED)}>{x.pw_services.join(" · ")}</span> : null}
+      {g.tasks.includes("pressure_washing") && pw.length ? <span className={cn("line-clamp-2 text-[14px]", MUTED)}>{pw.join(" · ")}</span> : null}
     </>
   ) : (
     <>
@@ -63,7 +65,7 @@ export function JobChip({ g, Link, tiny, stacked }: { g: JobGroup; Link?: JobLin
       <span className="min-w-0 flex-1 truncate">{g.n} {g.people} · {x.name}</span>
     </>
   );
-  const title = `${[...g.leads, ...g.helpers].map((r) => r.person + (r.helper ? " (helper)" : "")).join(", ")} · ${x.name} · ${TASK_WORD[x.task] ?? x.task}`;
+  const title = `${[...g.leads, ...g.helpers].map((r) => r.person + (r.helper ? " (helper)" : "")).join(", ")} · ${x.name} · ${g.tasks.map((t) => TASK_WORD[t] ?? t).join(" + ")}`;
   if (tiny || !Link) return <span className={cls} title={title}>{body}</span>;
   return <Link leadId={x.lead_id} className={cls}>{body}</Link>;
 }

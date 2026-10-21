@@ -34,7 +34,7 @@ export function MonthView({ anchor, byDay, today, onPickDay }: {
               <span className={cn("flex h-7 w-7 items-center justify-center rounded-full text-[14px] font-bold tabular-nums",
                 d === today ? "bg-[#C9972F] text-[#15130F]" : inMonth ? INK : MUTED)}>{dayNumber(d)}</span>
               <span className="mt-1 flex flex-wrap items-center gap-0.5 sm:hidden">
-                {ranked.slice(0, 3).map((g, k) => <span key={k} className="text-[14px] leading-none" aria-hidden>{isDone(g.x) ? "✓" : TASK_ICON[g.x.task] ?? "•"}</span>)}
+                {ranked.slice(0, 3).map((g, k) => <span key={k} className="text-[14px] leading-none" aria-hidden>{g.rows.every(isDone) ? "✓" : g.tasks.map((t) => TASK_ICON[t] ?? "•").join("")}</span>)}
                 {ranked.length > 3 ? <span className={cn("text-[12px] font-bold", MUTED)}>+{ranked.length - 3}</span> : null}
               </span>
               <span className="mt-1 hidden space-y-1 sm:block">

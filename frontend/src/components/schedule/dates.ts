@@ -131,18 +131,32 @@ export const firstName = (s: string) => (s || "").trim().split(/\s+/)[0] || s;
  * first lead tech's row (the helper's when there's no lead), `n` their
  * morning order, `people` reads "Jose + Christian" or "Brent & Chris".
  */
-export type JobGroup = { key: string; x: PmDay; leads: PmDay[]; helpers: PmDay[]; n: number; people: string };
+export type JobGroup = {
+  key: string; x: PmDay; leads: PmDay[]; helpers: PmDay[]; n: number; people: string;
+  /** Every task on the card, in the day's order (fence cleaning, staining, washing). */
+  tasks: string[];
+  /** Every row behind the card (one per person per task), for a move. */
+  rows: PmDay[];
+};
+
+const TASK_ORDER = ["cleaning", "staining", "pressure_washing"];
 
 export function groupJobs(items: PmDay[]): JobGroup[] {
   const out: JobGroup[] = [];
   const by = new Map<string, JobGroup>();
   for (const { x, n } of rankDay(items)) {   // main techs come first, so a lead opens the card
-    const k = `${x.lead_id}|${x.task}`;
+    const k = x.lead_id;   // one customer, one card, whatever they're doing (Alan, 2026-10-21: Amir's clean + wash)
     let g = by.get(k);
-    if (!g) { g = { key: k, x, leads: [], helpers: [], n, people: "" }; by.set(k, g); out.push(g); }
-    if (x.helper) g.helpers.push(x);
-    else { if (!g.leads.length) { g.x = x; g.n = n; } g.leads.push(x); }
+    if (!g) { g = { key: k, x, leads: [], helpers: [], n, people: "", tasks: [], rows: [] }; by.set(k, g); out.push(g); }
+    g.rows.push(x);
+    if (!g.tasks.includes(x.task)) g.tasks.push(x.task);
+    if (x.helper) { if (!g.helpers.some((h) => h.username === x.username)) g.helpers.push(x); }
+    else {
+      if (!g.leads.length) { g.x = x; g.n = n; }
+      if (!g.leads.some((l) => l.username === x.username)) g.leads.push(x);
+    }
   }
+  for (const g of out) g.tasks.sort((a, b) => TASK_ORDER.indexOf(a) - TASK_ORDER.indexOf(b));
   const names = (rows: PmDay[]) => rows.map((r) => firstName(r.person)).join(" & ");
   for (const g of out) {
     g.people = g.leads.length ? names(g.leads) + (g.helpers.length ? ` + ${names(g.helpers)}` : "") : `${names(g.helpers)} (helper)`;

@@ -69,17 +69,19 @@ function DayRow({ day, today, first, items, Link, onPick }: {
 /** "● Jose + Christian · 1. Michelle Stout · staining" with the address under it. */
 function JobLine({ g, Link }: { g: JobGroup; Link: JobLinkComponent }) {
   const x = g.x;
-  const fin = (g.leads.length ? g.leads : g.helpers).every(isDone);
+  const fin = g.rows.every(isDone);
+  const stains = g.tasks.includes("staining");
+  const pw = g.rows.find((r) => r.pw_services?.length)?.pw_services || [];
   return (
     <Link leadId={x.lead_id} className={cn("flex min-h-11 items-start gap-2.5 rounded-xl px-2 py-1.5 hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60", fin ? MUTED : INK)}>
-      <span className={cn("mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full", fin ? "bg-[#E4DCCB]" : TASK_DOT[x.task] ?? TASK_DOT[""])} aria-hidden />
+      <span className={cn("mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full", fin ? "bg-[#E4DCCB]" : TASK_DOT[g.tasks[0]] ?? TASK_DOT[""])} aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[16px] leading-snug">
           {fin ? "✓ " : ""}
           <b className="font-bold">{g.people}</b>
           {" · "}{g.n}. {x.name}{" · "}
-          <span className={cn(!fin && (x.task === "staining" ? "font-semibold text-[#B5651D]" : MUTED))}>{TASK_WORD[x.task] ?? x.task}</span>
-          {x.task === "pressure_washing" && x.pw_services?.length ? <span className={MUTED}>{" · "}{x.pw_services.join(", ")}</span> : null}
+          <span className={cn(!fin && (stains ? "font-semibold text-[#B5651D]" : MUTED))}>{g.tasks.map((t) => TASK_WORD[t] ?? t).join(" + ")}</span>
+          {g.tasks.includes("pressure_washing") && pw.length ? <span className={MUTED}>{" · "}{pw.join(", ")}</span> : null}
         </span>
         <span className={cn("block truncate text-[14px] leading-snug", MUTED)}>{x.address}</span>
       </span>
