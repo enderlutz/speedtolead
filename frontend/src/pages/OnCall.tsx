@@ -46,7 +46,7 @@ export default function OnCall() {
   const [tab, setTab] = useState<Tab>("now");
   const btn = (k: Tab, label: string) => (
     <button key={k} type="button" onClick={() => setTab(k)}
-            className={`min-h-10 flex-1 rounded-md px-2 text-sm font-semibold ${tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>
+            className={`min-h-11 flex-1 rounded-md px-1 text-sm font-semibold ${tab === k ? "bg-ink text-white" : "text-muted-foreground hover:bg-muted"}`}>
       {label}
     </button>
   );
@@ -241,12 +241,14 @@ function Breaks({ onCallNow, tick, onChanged }: { onCallNow: boolean; tick: numb
           <Button variant="outline" disabled={busy} onClick={() => run(() => api.onCallCancelBreak(mine.id), "Break cancelled")}>Cancel</Button>
         </div>
       ) : onCallNow ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3">
-          <span className="text-sm font-semibold">Need a break?</span>
-          {[15, 25, 30, 60].map((m) => (
-            <Button key={m} size="sm" variant="outline" disabled={busy} className="min-h-10"
-                    onClick={() => run(() => api.onCallAskBreak(m), "Asked the team to cover you")}>{m} min</Button>
-          ))}
+        <div className="rounded-xl border border-dashed p-3">
+          <p className="mb-2 text-sm font-semibold">Need a break?</p>
+          <div className="grid grid-cols-4 gap-2">
+            {[15, 25, 30, 60].map((m) => (
+              <Button key={m} variant="outline" disabled={busy} className="min-h-11 text-base font-semibold"
+                      onClick={() => run(() => api.onCallAskBreak(m), "Asked the team to cover you")}>{m} min</Button>
+            ))}
+          </div>
         </div>
       ) : null}
     </>
@@ -261,6 +263,10 @@ const URGENT_KEYS = new Set(["callback", "replied"]);
 
 function TodoLists() {
   const [data, setData] = useState<{ estimates: OnCallTodoRow[]; follow_ups: OnCallTodoRow[] } | null>(null);
+  const [pick, setPick] = useState<"estimates" | "urgent" | "quiet">(() => {
+    try { const v = sessionStorage.getItem("oncall:list"); return v === "urgent" || v === "quiet" ? v : "estimates"; } catch { return "estimates"; }
+  });
+  useEffect(() => { try { sessionStorage.setItem("oncall:list", pick); } catch { /* private mode */ } }, [pick]);
   const load = useCallback(() => {
     api.onCallTodo().then(setData).catch((e) => toast.error(errMessage(e, "Couldn't load the to-do lists")));
   }, []);
@@ -277,11 +283,31 @@ function TodoLists() {
   // talked to us are Alan's and Olga's; never replied is Geoconda's.
   const urgent = data.follow_ups.filter((r) => URGENT_KEYS.has(r.key));
   const quiet = data.follow_ups.filter((r) => !URGENT_KEYS.has(r.key));
+  const lists = [
+    { key: "estimates", short: "Estimate", title: "Need an estimate", sub: "Why each one has no estimate yet, and what to do.", rows: data.estimates, accent: "border-t-ink" },
+    { key: "urgent", short: "Urgent", title: "Urgent · Alan & Olga", sub: "Promised call-backs, then people who replied and went quiet.", rows: urgent, accent: "border-t-rose-500" },
+    { key: "quiet", short: "No reply", title: "No reply yet · Geoconda", sub: "Estimate sent, never answered. Opened it first, then not opened.", rows: quiet, accent: "border-t-gold" },
+  ] as const;
   return (
-    <div className="grid gap-3 lg:grid-cols-3">
-      <TodoColumn title="Need an estimate" sub="Why each one has no estimate yet, and what to do." rows={data.estimates} accent="border-t-sky-500" onRemoved={drop} />
-      <TodoColumn title="Urgent · Alan & Olga" sub="Promised call-backs, then people who replied and went quiet." rows={urgent} accent="border-t-rose-500" onRemoved={drop} />
-      <TodoColumn title="No reply yet · Geoconda" sub="Estimate sent, never answered. Opened it first, then not opened." rows={quiet} accent="border-t-emerald-500" onRemoved={drop} />
+    <div>
+      {/* On a phone the three lists were one endless scroll with a scroll
+          inside each (Alan, 2026-10-21): one list at a time, picked up top.
+          A laptop still gets all three side by side. */}
+      <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-muted/60 p-1 lg:hidden" role="tablist" aria-label="Lists">
+        {lists.map((l) => (
+          <button key={l.key} type="button" role="tab" aria-selected={pick === l.key} onClick={() => setPick(l.key)}
+                  className={`flex min-h-12 flex-col items-center justify-center rounded-lg px-1 leading-tight ${pick === l.key ? "bg-ink text-white shadow-sm" : "text-muted-foreground"}`}>
+            <span className="text-sm font-bold">{l.short}</span>
+            <span className={`text-sm tabular-nums ${pick === l.key ? "text-gold-light" : ""}`}>{l.rows.length}</span>
+          </button>
+        ))}
+      </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        {lists.map((l) => (
+          <TodoColumn key={l.key} title={l.title} sub={l.sub} rows={l.rows} accent={l.accent} onRemoved={drop}
+                      className={pick === l.key ? "" : "hidden lg:flex"} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -294,12 +320,12 @@ function FreshTimer({ since, nowMs, calledAt }: { since: string; nowMs: number; 
   const text = h ? `${h}h ${m}m` : `${m}:${String(s).padStart(2, "0")}`;
   // Green the first 5 minutes, amber to 15, red after.
   const color = sec < 300 ? "bg-emerald-100 text-emerald-800" : sec < 900 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-700";
-  if (calledAt) return <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${color}`} title="Time from the form to the first call">✓ called in {text}</span>;
-  return <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums ${color}`} title="Since they filled the form">⏱ {text}</span>;
+  if (calledAt) return <span className={`shrink-0 rounded px-1.5 py-0.5 text-sm font-semibold tabular-nums ${color}`} title="Time from the form to the first call">✓ called in {text}</span>;
+  return <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-sm font-semibold tabular-nums ${color}`} title="Since they filled the form">⏱ {text}</span>;
 }
 
-function TodoColumn({ title, sub, rows, accent, onRemoved }: {
-  title: string; sub: string; rows: OnCallTodoRow[]; accent: string; onRemoved: (id: string) => void;
+function TodoColumn({ title, sub, rows, accent, onRemoved, className = "" }: {
+  title: string; sub: string; rows: OnCallTodoRow[]; accent: string; onRemoved: (id: string) => void; className?: string;
 }) {
   const notALead = async (r: OnCallTodoRow) => {
     if (!window.confirm(`Take ${r.name || "this one"} off the lists? (Not a lead: a worker, a wrong number, spam.)`)) return;
@@ -321,39 +347,41 @@ function TodoColumn({ title, sub, rows, accent, onRemoved }: {
     return [...m.entries()];
   }, [rows]);
   return (
-    <div className={`flex flex-col rounded-xl border border-t-4 bg-card ${accent}`}>
+    // min-w-0 + overflow-hidden: a one-line row used to push the whole
+    // column past the phone's edge, hiding the ✕ (Alan, 2026-10-21).
+    <div className={`flex min-w-0 flex-col overflow-hidden rounded-xl border border-t-4 bg-card ${accent} ${className}`}>
       <div className="border-b p-3">
         <p className="text-base font-semibold">{title} <span className="text-sm font-normal text-muted-foreground">({rows.length})</span></p>
-        <p className="text-xs text-muted-foreground">{sub}</p>
+        <p className="text-sm text-muted-foreground">{sub}</p>
       </div>
-      <div className="max-h-[70vh] overflow-y-auto">
+      <div className="lg:max-h-[70vh] lg:overflow-y-auto">
         {!rows.length ? <p className="p-6 text-center text-sm text-muted-foreground">Nothing here. 🎉</p> : null}
         {groups.map(([stage, list]) => (
           <div key={stage}>
-            <p className="sticky top-0 z-[1] flex items-center gap-1.5 bg-muted/90 px-3 py-1.5 text-xs font-semibold backdrop-blur">
+            <p className="sticky top-0 z-[1] flex items-center gap-1.5 bg-muted/90 px-3 py-2 text-sm font-semibold backdrop-blur">
               <span className={`h-2 w-2 rounded-full ${TONE_DOT[list[0].tone] ?? TONE_DOT.cold}`} />{stage} · {list.length}
             </p>
             {list.map((r) => (
-              <div key={r.lead_id} className="flex items-center gap-2 border-b px-3 py-2 last:border-b-0">
+              <div key={r.lead_id} className="flex items-start gap-2 border-b px-3 py-2.5 last:border-b-0">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <Link to={`/leads/${r.lead_id}`} className="truncate text-sm font-semibold underline-offset-2 hover:underline">{r.name || "No name"}</Link>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Link to={`/leads/${r.lead_id}`} className="min-w-0 text-base font-semibold leading-tight underline-offset-2 hover:underline">{r.name || "No name"}</Link>
                     {r.key === "fresh" ? <FreshTimer since={r.came_in} nowMs={nowMs} calledAt={r.called_at} /> : null}
-                    {r.key === "fresh" && r.refill ? <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">filled again</span> : null}
+                    {r.key === "fresh" && r.refill ? <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-sm font-semibold text-amber-800">filled again</span> : null}
                   </div>
                   {r.why ? (
                     <>
-                      <p className="text-xs text-muted-foreground">{r.why}</p>
-                      <p className="text-xs font-semibold text-foreground">→ {r.do}</p>
-                      {r.address ? <p className="truncate text-[11px] text-muted-foreground">{r.address}</p> : null}
+                      <p className="text-sm leading-snug text-muted-foreground">{r.why}</p>
+                      <p className="text-sm font-semibold text-foreground">→ {r.do}</p>
+                      {r.address ? <p className="truncate text-sm text-muted-foreground">{r.address}</p> : null}
                     </>
-                  ) : <p className="truncate text-xs text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>}
+                  ) : <p className="line-clamp-3 text-sm leading-snug text-muted-foreground">{r.next}{r.address ? ` · ${r.address}` : ""}</p>}
                 </div>
                 {/* Spam, a worker, a wrong number: off the lists. Was a "Not a
                     lead" button that read like a label on every row (Alan, 2026-10-20). */}
                 <button type="button" onClick={() => void notALead(r)} title="Remove from the lists (spam, a worker, a wrong number)"
                         aria-label="Remove from the lists"
-                        className="flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md text-sm text-muted-foreground/60 hover:bg-muted hover:text-rose-700">
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-base text-muted-foreground/60 hover:bg-muted hover:text-rose-700">
                   ✕
                 </button>
               </div>
