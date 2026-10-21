@@ -199,3 +199,39 @@ def test_the_crew_never_sees_a_dollar_figure_in_a_note():
     from api.company_cam import _no_money
     out = _no_money({"repair_notes": "the customer agreed $400 for the repairs, $1,250.50 total", "sqft": 900.0})
     assert "$" not in out["repair_notes"] and "[price hidden]" in out["repair_notes"] and out["sqft"] == 900.0
+
+
+def test_a_typed_service_and_a_note_reach_the_crew(db, wired):
+    """Alan, 2026-10-21 (Amir): "Back patio" isn't on the list, and each
+    service can carry a note for the crew ("all the pavers in the back")."""
+    lead = _lead(db)
+    cc.get_company_cam(lead.id, user=ALAN)
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(pw_items=[
+        {"key": "house_wash", "note": "Skip the back wall, fresh paint"},
+        {"label": "Driveway & sidewalks"},
+        {"label": "Back patio", "note": "All the pavers in the back"},
+    ]), user=ALAN)
+    assert r["job"]["pw_services"] == ["house_wash", "driveway", "x_back_patio"]
+    assert r["job"]["pw_custom"] == {"x_back_patio": "Back patio"}
+    assert r["job"]["pw_notes"] == {"house_wash": "Skip the back wall, fresh paint", "x_back_patio": "All the pavers in the back"}
+    payload = cc.get_company_cam(lead.id, user=ALAN)
+    assert {"key": "x_back_patio", "label": "Back patio"} in payload["pw_service_options"]
+    secs = {s["key"]: s for s in payload["pw_sections"]}
+    assert secs["pw_x_back_patio_before"]["label"] == "Back patio · Before"
+    assert secs["pw_x_back_patio_before"]["note"] == "All the pavers in the back"
+    assert secs["pw_house_wash_after"]["note"] == "Skip the back wall, fresh paint"
+    assert secs["pw_driveway_before"]["note"] == ""
+    # The crew can photograph it, and it counts toward the job.
+    pm.assign(pm.DayBody(lead_id=lead.id, date="2026-10-22", username="BrentBrown", task="pressure_washing"), user=ALAN)
+    for ph in ("before", "after"):
+        asyncio.run(cc.upload_photo(lead.id, file=_F(), section=f"pw_x_back_patio_{ph}", side="", note="", is_damage=False, user=BRENT))
+    photos = db.query(CompanyCamPhoto).filter(CompanyCamPhoto.lead_id == lead.id).all()
+    assert svc.pw_progress(["house_wash", "driveway", "x_back_patio"], {p.section for p in photos}) == (1, 3)
+    # PM HQ names it on the card.
+    assert pm._pw_labels(db.query(CompanyCamJob).filter_by(lead_id=lead.id).first()) == ["House wash", "Driveway & sidewalks", "Back patio"]
+    # Ticking services the old way keeps a typed one.
+    r = cc.update_company_cam(lead.id, cc.CompanyCamPatch(pw_services=["x_back_patio", "roof"]), user=ALAN)
+    assert r["job"]["pw_services"] == ["roof", "x_back_patio"]
+    with pytest.raises(HTTPException) as exc:
+        cc.update_company_cam(lead.id, cc.CompanyCamPatch(pw_items=[{"label": "Roof"}]), user=BRENT)
+    assert exc.value.status_code == 403

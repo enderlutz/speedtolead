@@ -1945,6 +1945,11 @@ class CompanyCamJob(Base):
     # as keys from services/company_cam.py PW_SERVICES (["house_wash", ...]).
     # The crew photographs each one before and after.
     pw_services_json = Column(Text, default="[]")
+    # A service the office typed that isn't on the list ("Back patio"), keyed
+    # x_<slug> → label, and a note per service for the crew ("all the pavers
+    # in the back") keyed by service (Alan, 2026-10-21, Amir).
+    pw_custom_json = Column(Text, default="{}")
+    pw_notes_json = Column(Text, default="{}")
     # How a washing job was finished, picked when they tapped "I'm finished":
     # "home_happy" (checked with the customer, they're happy) |
     # "called_sent_photos" (not home: called and sent photos) | "".
@@ -4978,6 +4983,8 @@ def _run_migrations():
             ("bleach_cost", "DOUBLE PRECISION DEFAULT 0"),
             # Pressure washing (Alan, 2026-10-19).
             ("pw_services_json", "TEXT DEFAULT '[]'"),
+            ("pw_custom_json", "TEXT DEFAULT '{}'"),
+            ("pw_notes_json", "TEXT DEFAULT '{}'"),
             ("pw_finished_how", "TEXT DEFAULT ''"),
             ("pw_bleach_gallons", "DOUBLE PRECISION DEFAULT 0"),
             ("briefing", "TEXT DEFAULT ''"),

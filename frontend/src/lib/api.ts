@@ -3873,6 +3873,8 @@ export const api = {
   updateCompanyCam: (
     leadId: string,
     patch: Partial<CompanyCamJob> & {
+      /** What's being washed, with a note each; a label not on the list becomes a typed service. */
+      pw_items?: { key?: string; label: string; note?: string }[];
       upsells?: string[];
       pickets_marked?: boolean;
       extras_confirmed?: boolean;
@@ -4099,6 +4101,10 @@ export interface CompanyCamJob {
    *  (keys of pw_service_options), and how the customer signed off when the
    *  crew tapped "I'm finished". */
   pw_services?: string[];
+  /** Services the office typed that aren't on the list: key (x_…) → label. */
+  pw_custom?: Record<string, string>;
+  /** The office's note per service, for the crew. */
+  pw_notes?: Record<string, string>;
   pw_finished_how?: PwFinishHow | "";
   pw_bleach_gallons?: number;
   updated_at: string;
@@ -4115,6 +4121,8 @@ export interface CompanyCamSection {
   /** Washing sections only: which service, and before or after. */
   service?: string;
   phase?: "before" | "after";
+  /** The office's note on that service, for the crew ("all the pavers in the back"). */
+  note?: string;
 }
 
 export interface CompanyCamPayload {

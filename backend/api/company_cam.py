@@ -35,6 +35,7 @@ from services.company_cam import (
     PW_TASK,
     is_pw_job,
     normalize_pw_services,
+    job_pw_sections, pw_custom_of, pw_notes_of, set_pw_items,
     pw_sections,
     pw_services_of,
     valid_section,
@@ -448,6 +449,8 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "completed_by": job.completed_by or "",
         "no_cleaning": bool(getattr(job, "no_cleaning", False)),
         "pw_services": pw_services_of(job),
+        "pw_custom": pw_custom_of(job),
+        "pw_notes": pw_notes_of(job),
         "pw_finished_how": getattr(job, "pw_finished_how", "") or "",
         "pw_bleach_gallons": float(getattr(job, "pw_bleach_gallons", 0) or 0),
         "updated_at": job.updated_at or "",
@@ -471,7 +474,7 @@ def _blockers(job: CompanyCamJob, photos: list[CompanyCamPhoto]) -> list[str]:
         services = pw_services_of(job)
         if not services:
             out.append("No services picked yet: the office ticks what we're washing.")
-        for sec in pw_sections(services):
+        for sec in job_pw_sections(job):
             if not by_section.get(sec["key"]):
                 out.append(f"{sec['label']} photos.")
         return out
@@ -589,8 +592,8 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # Pressure washing (Alan, 2026-10-19): every service the office
             # can tick, the before/after sections of the ticked ones, whether
             # this person gets the washing screen, and the two ways to finish.
-            "pw_service_options": PW_SERVICES,
-            "pw_sections": pw_sections(pw_services_of(job)),
+            "pw_service_options": PW_SERVICES + [{"key": k, "label": v} for k, v in pw_custom_of(job).items()],
+            "pw_sections": job_pw_sections(job),
             "pw_mode": _pw_view(job, user),
             "pw_finish_choices": PW_FINISH_CHOICES,
         }
@@ -662,6 +665,9 @@ class CompanyCamPatch(BaseModel):
     no_cleaning: bool | None = None
     # Pressure-washing services on the job (office only): keys from PW_SERVICES.
     pw_services: list[str] | None = None
+    # The same list with labels and a note each (Alan, 2026-10-21): a typed
+    # service ("Back patio") and "all the pavers in the back" for the crew.
+    pw_items: list[dict] | None = None
 
 
 @router.patch("/company-cam/{lead_id}", dependencies=[Depends(crew_guard)])
@@ -745,6 +751,10 @@ def update_company_cam(
             if not _sees_all(user):
                 raise HTTPException(403, "Only the office picks the services")
             job.pw_services_json = json.dumps(normalize_pw_services(body.pw_services))
+        if body.pw_items is not None:
+            if not _sees_all(user):
+                raise HTTPException(403, "Only the office picks the services")
+            set_pw_items(job, body.pw_items)
         if body.previously_stained is not None:
             v = body.previously_stained.strip().lower()
             if v not in ("yes", "no", ""):
@@ -907,7 +917,7 @@ def update_company_cam(
         return {"job": _job_dict(job, sqft_per_gallon(db, job), user), "blockers": _blockers(job, photos),
                 "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(db, job, user),
                 # Ticking a service or a washing day can switch the screen.
-                "pw_mode": _pw_view(job, user), "pw_sections": pw_sections(pw_services_of(job))}
+                "pw_mode": _pw_view(job, user), "pw_sections": job_pw_sections(job)}
     finally:
         db.close()
 

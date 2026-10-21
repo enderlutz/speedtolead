@@ -24,7 +24,7 @@ from api.auth import get_current_user, require_admin
 from api.company_cam import _crew_entries, _crew_options, _sees_all, default_pay, effective_order
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
 from services.company_cam import (
-    CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICE_LABELS, PW_SERVICES, STAINER_CHECKLIST, is_pw_job, pw_progress, pw_services_of,
+    CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICES, STAINER_CHECKLIST, is_pw_job, pw_custom_of, pw_label, pw_progress, pw_services_of,
 )
 
 router = APIRouter()
@@ -92,7 +92,8 @@ def _pw_photos(db, lead_ids) -> dict[str, set[str]]:
 
 
 def _pw_labels(job: CompanyCamJob) -> list[str]:
-    return [PW_SERVICE_LABELS[k] for k in pw_services_of(job)]
+    custom = pw_custom_of(job)
+    return [pw_label(k, custom) for k in pw_services_of(job)]
 
 
 def pw_job_progress(job: CompanyCamJob, sections: set[str]) -> dict:

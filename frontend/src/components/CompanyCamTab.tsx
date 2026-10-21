@@ -745,7 +745,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   useEffect(() => { void load(); }, [load]);
 
   const patch = async (
-    p: Partial<CompanyCamJob> & { upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew_pay?: { username: string } & CrewPay },
+    p: Partial<CompanyCamJob> & { pw_items?: { key?: string; label: string; note?: string }[]; upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew_pay?: { username: string } & CrewPay },
   ) => {
     if (!data) return;
     // Optimistic, because a crew on bad signal should see their typing stick.
@@ -919,6 +919,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
             }
           >
             {manager || sec.key !== "fence_scope" ? <p className="text-sm leading-relaxed text-muted-foreground">{tr(sec.hint)}</p> : null}
+            {/* The office's note on this service (Alan, 2026-10-21: "all the pavers in the back"). */}
+            {sec.note ? <p className="rounded-xl bg-gold/15 px-3 py-2.5 text-base font-semibold ring-1 ring-gold/40">📝 {sec.note}</p> : null}
 
             {sec.key === "fence_scope" && !manager && job.scope_explanation.trim() ? (
               <p className="whitespace-pre-wrap rounded-xl bg-gold/10 px-3 py-2.5 text-base">{job.scope_explanation}</p>
@@ -1511,8 +1513,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           any job (that's what turns a job with no fence days into a washing
           job); the crew sees only the ones picked. */}
       {manager || pwMode ? (
-        <PwServicesPanel options={pwOptions} picked={job.pw_services || []} manager={manager} pwMode={pwMode}
-                         onChange={(next) => void patch({ pw_services: next })} />
+        <PwServicesPanel options={pwOptions} picked={job.pw_services || []} notes={job.pw_notes || {}} manager={manager} pwMode={pwMode}
+                         onItems={(items) => void patch({ pw_items: items })} />
       ) : null}
 
       {pwMode ? (
@@ -1927,36 +1929,72 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 /** Which washing services are on the job (Alan, 2026-10-19). The office
  *  ticks them; the crew sees the list. Folded away on a fence job until
  *  someone opens it, so it doesn't crowd the fence screen. */
-function PwServicesPanel({ options, picked, manager, pwMode, onChange }: {
-  options: { key: string; label: string }[]; picked: string[]; manager: boolean; pwMode: boolean;
-  onChange: (next: string[]) => void;
+function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
+  options: { key: string; label: string }[]; picked: string[]; notes: Record<string, string>; manager: boolean; pwMode: boolean;
+  /** The whole list at once: what's picked, with a note each; a label not on the list is a typed service. */
+  onItems: (items: { key?: string; label: string; note?: string }[]) => void;
 }) {
   const [open, setOpen] = useState(pwMode || picked.length > 0);
-  const names = options.filter((o) => picked.includes(o.key));
+  const [typed, setTyped] = useState("");
+  // Notes are typed here and sent when the box loses focus, so one keystroke
+  // doesn't become one save.
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const names = picked.map((k) => ({ key: k, label: options.find((o) => o.key === k)?.label || k, note: notes[k] || "" }));
+  const send = (keys: string[], over: Record<string, string> = {}) =>
+    onItems(keys.map((k) => ({ key: k, label: options.find((o) => o.key === k)?.label || k, note: over[k] ?? draft[k] ?? notes[k] ?? "" })));
+  const addTyped = () => {
+    const label = typed.trim().replace(/\s+/g, " ").slice(0, 60);
+    if (!label) return;
+    const known = options.find((o) => o.label.toLowerCase() === label.toLowerCase());
+    setTyped("");
+    if (known) { if (!picked.includes(known.key)) send([...picked, known.key]); return; }
+    onItems([...names.map((n) => ({ key: n.key, label: n.label, note: draft[n.key] ?? n.note })), { label, note: "" }]);
+  };
   return (
-    <Panel icon={Waves} accent={ACCENT.blue} title={tr("Pressure washing services")}
-           sub={manager ? tr("Tick what the customer bought. The crew sees only these, each with a before and after photo.") : tr("What we're washing")}
+    <Panel icon={Waves} accent={ACCENT.walnut} title={tr("Pressure washing services")}
+           sub={manager ? tr("Tick what the customer bought, add anything not on the list, and leave the crew a note per service.") : tr("What we're washing")}
            collapsed={manager && !open} onToggle={manager ? () => setOpen((o) => !o) : undefined}
-           right={names.length ? <Pill accent={ACCENT.blue}>{names.length}</Pill> : null}>
+           right={names.length ? <Pill accent={ACCENT.walnut}>{names.length}</Pill> : null}>
       {manager ? (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {options.map((o) => {
-            const on = picked.includes(o.key);
-            return (
-              <label key={o.key} className={cn("flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-base font-semibold",
-                on ? "border-indigo-300 bg-indigo-50 text-indigo-950" : "border-border bg-card")}>
-                <input type="checkbox" className="h-5 w-5 shrink-0 accent-indigo-600" checked={on}
-                       onChange={() => onChange(on ? picked.filter((k) => k !== o.key) : [...picked, o.key])} />
-                {o.label}
-              </label>
-            );
-          })}
+        <div className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {options.map((o) => {
+              const on = picked.includes(o.key);
+              return (
+                <label key={o.key} className={cn("flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-base font-semibold",
+                  on ? "border-walnut bg-walnut/10 text-ink" : "border-border bg-card")}>
+                  <input type="checkbox" className="h-5 w-5 shrink-0 accent-[#5A3A1C]" checked={on}
+                         onChange={() => send(on ? picked.filter((k) => k !== o.key) : [...picked, o.key])} />
+                  {o.label}
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={tr("Something else, e.g. Back patio")} aria-label={tr("Add a service")}
+                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } }} className="h-11 min-w-0 flex-1 text-base" />
+            <Button type="button" variant="outline" onClick={addTyped} disabled={!typed.trim()} className="h-11 shrink-0">{tr("Add a service")}</Button>
+          </div>
+          {names.length ? (
+            <div className="space-y-1.5">
+              {names.map((n) => (
+                <label key={n.key} className="grid grid-cols-[minmax(0,9rem)_1fr] items-center gap-2 text-[15px]">
+                  <span className="truncate font-semibold">{n.label}</span>
+                  <Input value={draft[n.key] ?? n.note} maxLength={300} placeholder={tr("Note for the crew (optional)")}
+                         onChange={(e) => setDraft((d) => ({ ...d, [n.key]: e.target.value }))}
+                         onBlur={() => { if ((draft[n.key] ?? n.note) !== n.note) send(picked, { [n.key]: draft[n.key] ?? "" }); }}
+                         className="h-11 text-base" />
+                </label>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : names.length ? (
         <ul className="space-y-1.5">
           {names.map((o) => (
-            <li key={o.key} className="flex min-h-11 items-center gap-2 rounded-xl bg-indigo-50 px-3 text-base font-semibold text-indigo-950 ring-1 ring-indigo-200">
-              <Check className="h-4 w-4 shrink-0" /> {tr(o.label)}
+            <li key={o.key} className="rounded-xl bg-walnut/10 px-3 py-2 text-base font-semibold text-ink ring-1 ring-walnut/30">
+              <span className="flex min-h-7 items-center gap-2"><Check className="h-4 w-4 shrink-0" /> {tr(o.label)}</span>
+              {o.note ? <span className="block pl-6 text-[15px] font-medium text-walnut">{o.note}</span> : null}
             </li>
           ))}
         </ul>

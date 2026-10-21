@@ -811,11 +811,36 @@ PW_SERVICE_KEYS: tuple[str, ...] = tuple(s["key"] for s in PW_SERVICES)
 PW_SERVICE_LABELS: dict[str, str] = {s["key"]: s["label"] for s in PW_SERVICES}
 
 
+# A service the office typed in (Alan, 2026-10-21: "Back patio" isn't on the
+# list): keyed x_<slug>, its label kept on the job in pw_custom_json.
+CUSTOM_PW_RE = re.compile(r"^x_[a-z0-9]+(?:_[a-z0-9]+)*$")
+PW_CUSTOM_SECTION_RE = re.compile(r"^pw_(x_[a-z0-9]+(?:_[a-z0-9]+)*)_(before|after)$")
+
+
+def pw_custom_key(label: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", (label or "").strip().lower()).strip("_")[:40]
+    return f"x_{slug}" if slug else ""
+
+
 def normalize_pw_services(raw) -> list[str]:
-    """Known service keys only, no repeats, in the list's own order so the
-    crew always sees the services the same way round."""
-    want = {str(x or "").strip() for x in (raw or []) if isinstance(x, str)}
-    return [k for k in PW_SERVICE_KEYS if k in want]
+    """Known service keys in the list's own order (so the crew always sees
+    them the same way round), then any typed ones in the order given; no
+    repeats, nothing made up."""
+    want = [str(x or "").strip() for x in (raw or []) if isinstance(x, str)]
+    known = [k for k in PW_SERVICE_KEYS if k in want]
+    custom: list[str] = []
+    for k in want:
+        if CUSTOM_PW_RE.match(k) and k not in custom:
+            custom.append(k)
+    return known + custom
+
+
+def _job_map(job, attr: str) -> dict[str, str]:
+    try:
+        v = json.loads((getattr(job, attr, None) if job else None) or "{}")
+    except (ValueError, TypeError):
+        v = {}
+    return {str(k): str(x) for k, x in v.items() if isinstance(x, str) and x} if isinstance(v, dict) else {}
 
 
 def pw_services_of(job) -> list[str]:
@@ -827,6 +852,50 @@ def pw_services_of(job) -> list[str]:
     return normalize_pw_services(v if isinstance(v, list) else [])
 
 
+def pw_custom_of(job) -> dict[str, str]:
+    """Typed services on the job: key → label."""
+    return {k: v for k, v in _job_map(job, "pw_custom_json").items() if CUSTOM_PW_RE.match(k)}
+
+
+def pw_notes_of(job) -> dict[str, str]:
+    """The office's note per service, for the crew: key → note."""
+    return _job_map(job, "pw_notes_json")
+
+
+def pw_label(key: str, custom: dict[str, str] | None = None) -> str:
+    return PW_SERVICE_LABELS.get(key) or (custom or {}).get(key) or key[2:].replace("_", " ").capitalize()
+
+
+def set_pw_items(job, items) -> list[str]:
+    """The office's list of what's being washed, in one go:
+    [{key?, label, note?}]. A known key or label is that service; anything
+    else is a typed one. Returns the service keys now on the job."""
+    label_to_key = {v.lower(): k for k, v in PW_SERVICE_LABELS.items()}
+    services: list[str] = []
+    custom: dict[str, str] = {}
+    notes: dict[str, str] = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        key = str(it.get("key") or "").strip()
+        label = str(it.get("label") or "").strip()[:60]
+        note = str(it.get("note") or "").strip()[:300]
+        if key not in PW_SERVICE_KEYS and not CUSTOM_PW_RE.match(key):
+            key = label_to_key.get(label.lower(), "") or pw_custom_key(label)
+        if not key:
+            continue
+        if key not in services:
+            services.append(key)
+        if key.startswith("x_") and label:
+            custom[key] = label
+        if note:
+            notes[key] = note
+    job.pw_services_json = json.dumps(normalize_pw_services(services))
+    job.pw_custom_json = json.dumps(custom)
+    job.pw_notes_json = json.dumps(notes)
+    return pw_services_of(job)
+
+
 def pw_section_key(service: str, phase: str) -> str:
     return f"pw_{service}_{phase}"
 
@@ -836,14 +905,16 @@ PW_SECTION_KEYS: tuple[str, ...] = tuple(
 )
 
 
-def pw_sections(services: list[str]) -> list[dict]:
+def pw_sections(services: list[str], custom: dict[str, str] | None = None,
+                notes: dict[str, str] | None = None) -> list[dict]:
     """Two photo sections per picked service, the same shape as SECTIONS so
     the screen's photo section handles them unchanged. Before: every side,
     and anything already damaged marked as damage, so nobody blames us for
-    it later."""
+    it later. The office's note on a service rides on both its sections."""
     out: list[dict] = []
     for key in normalize_pw_services(services):
-        label = PW_SERVICE_LABELS[key]
+        label = pw_label(key, custom)
+        note = (notes or {}).get(key, "")
         out.append({
             "key": pw_section_key(key, "before"),
             "label": f"{label} · Before",
@@ -852,6 +923,7 @@ def pw_sections(services: list[str]) -> list[dict]:
             "wants_damage": True,
             "service": key,
             "phase": "before",
+            "note": note,
         })
         out.append({
             "key": pw_section_key(key, "after"),
@@ -861,13 +933,19 @@ def pw_sections(services: list[str]) -> list[dict]:
             "wants_damage": True,
             "service": key,
             "phase": "after",
+            "note": note,
         })
     return out
 
 
+def job_pw_sections(job) -> list[dict]:
+    """This job's washing sections, typed services and notes included."""
+    return pw_sections(pw_services_of(job), pw_custom_of(job), pw_notes_of(job))
+
+
 def valid_section(key: str) -> bool:
     """A fence section, or a before/after section of a known washing service."""
-    return key in SECTION_KEYS or key in PW_SECTION_KEYS
+    return key in SECTION_KEYS or key in PW_SECTION_KEYS or bool(PW_CUSTOM_SECTION_RE.match(key))
 
 
 def is_pw_job(job, entries: list[dict]) -> bool:

@@ -595,7 +595,11 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
   // lead tech(s) first, then anyone riding along: a helper follows the lead
   // tech's order and never has to be given a task of their own.
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [washing, setWashing] = useState<string[]>([]);
+  // What's being washed, in the order picked, each with a note for the crew
+  // (Alan, 2026-10-21: "Back patio: all the pavers in the back"). A typed
+  // service has no key yet; the server gives it one.
+  const [washing, setWashing] = useState<{ key: string; label: string; note: string }[]>([]);
+  const [typed, setTyped] = useState("");
   const [leads, setLeads] = useState<string[]>([]);
   const [helpers, setHelpers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -618,9 +622,21 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
   const order: Task[] = ["cleaning", "staining", "pressure_washing"];
   const pickTask = (k: Task) => setTasks((t) => order.filter((x) => (x === k ? !t.includes(k) : t.includes(x))));
   const washingOn = tasks.includes("pressure_washing");
+  const same = (a: { key: string; label: string }, b: { key: string; label: string }) => (a.key && a.key === b.key) || a.label.toLowerCase() === b.label.toLowerCase();
+  const washOn = (o: { key: string; label: string }) => washing.some((w) => same(w, o));
+  const flipWash = (o: { key: string; label: string }) =>
+    setWashing((w) => (w.some((x) => same(x, o)) ? w.filter((x) => !same(x, o)) : [...w, { key: o.key, label: o.label, note: "" }]));
+  const addTyped = () => {
+    const label = typed.trim().replace(/\s+/g, " ").slice(0, 60);
+    if (!label) return;
+    const known = pwOptions.find((o) => o.label.toLowerCase() === label.toLowerCase());
+    const item = { key: known?.key || "", label: known?.label || label, note: "" };
+    setWashing((w) => (w.some((x) => same(x, item)) ? w : [...w, item]));
+    setTyped("");
+  };
   const ready = !!customer && tasks.length > 0 && leads.length > 0;
   const jobWords = tasks.map((t) => TASK_LABEL[t]).join(" + ")
-    + (washingOn && washing.length ? ` (${washing.map((k) => pwOptions.find((o) => o.key === k)?.label || k).join(", ")})` : "");
+    + (washingOn && washing.length ? ` (${washing.map((w) => w.label).join(", ")})` : "");
   const who = leads.map(first).join(" & ") + (helpers.length ? `, with ${helpers.map(first).join(" and ")} helping` : "");
   const dayWords = fmtDay(day, { weekday: "short", month: "short", day: "numeric" });
 
@@ -635,7 +651,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
       }
       // What's being washed goes on the job itself (the crew's before/after
       // photo steps come from it). Nothing picked leaves the job's own list alone.
-      if (washingOn && washing.length) await api.updateCompanyCam(customer.lead_id, { pw_services: washing });
+      if (washingOn && washing.length) await api.updateCompanyCam(customer.lead_id, { pw_items: washing.map((w) => ({ key: w.key || undefined, label: w.label, note: w.note })) });
       toast.success(`${customer.name} is on ${dayWords}: ${jobWords} · ${who}`);
       onDone();
     } catch (e) { toast.error(errMessage(e, "Something went wrong")); } finally { setSaving(false); }
@@ -690,11 +706,31 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
               <p className={step}>What are we washing? <span className="font-normal text-muted-foreground">(tap all that apply)</span></p>
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {pwOptions.map((o) => (
-                  <button key={o.key} type="button" onClick={() => setWashing((w) => flip(w, o.key))} aria-pressed={washing.includes(o.key)} className={chip(washing.includes(o.key))}>
+                  <button key={o.key} type="button" onClick={() => flipWash(o)} aria-pressed={washOn(o)} className={chip(washOn(o))}>
                     {o.label}
                   </button>
                 ))}
+                {washing.filter((w) => !pwOptions.some((o) => same(w, o))).map((w) => (
+                  <button key={w.label} type="button" onClick={() => flipWash(w)} aria-pressed className={chip(true)}>{w.label} ✕</button>
+                ))}
               </div>
+              {/* Something not on the list (Alan, 2026-10-21: "Back patio"). */}
+              <div className="mt-2 flex gap-2">
+                <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Something else, e.g. Back patio" aria-label="Add a service"
+                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } }} className="h-11 min-w-0 flex-1 text-base" />
+                <Button type="button" variant="outline" onClick={addTyped} disabled={!typed.trim()} className="h-11 shrink-0"><Plus className="mr-1 h-4 w-4" />Add a service</Button>
+              </div>
+              {washing.length ? (
+                <div className="mt-2 space-y-1.5">
+                  {washing.map((w, i) => (
+                    <label key={w.key || w.label} className="grid grid-cols-[minmax(0,9rem)_1fr] items-center gap-2 text-[15px]">
+                      <span className="truncate font-semibold">{w.label}</span>
+                      <Input value={w.note} maxLength={300} placeholder="Note for the crew (optional), e.g. all the pavers in the back"
+                             onChange={(e) => setWashing((list) => list.map((x, k) => (k === i ? { ...x, note: e.target.value } : x)))} className="h-11 text-base" />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
