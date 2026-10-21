@@ -10,13 +10,15 @@ import { cn } from "@/lib/utils";
 import { FENCE_SIDES, type SideGroup } from "@/lib/fenceSides";
 import { tr } from "@/lib/i18n";
 
+// One Sterling look (Alan, 2026-10-20): inside is cedar, the stain side;
+// outside is ink. Everywhere in the app.
 const GROUP_ACCENT: Record<SideGroup, Accent> = {
-  Inside: ACCENT.violet,
-  Outside: ACCENT.cyan,
+  Inside: ACCENT.cedar,
+  Outside: ACCENT.ink,
 };
 
 /**
- * Tap the sides. Inside is violet, outside is sky, everywhere in the app.
+ * Tap the sides. Inside is cedar, outside is ink, everywhere in the app.
  *
  * `highlight` — the sides on the estimate. When given, those get a solid
  *   outline and the rest go faint, but every side stays tappable: a crew can

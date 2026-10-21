@@ -50,10 +50,12 @@ const PACKAGES = ["essential", "signature", "legacy"] as const;
 /** Icon + accent per photo section. Keyed on the backend's section keys; an
  *  unknown key still renders, just in grey with a camera. */
 const SECTION_LOOK: Record<string, { icon: React.ElementType; accent: Accent }> = {
-  fence_scope:  { icon: Ruler,      accent: ACCENT.violet },
+  // One Sterling look (Alan, 2026-10-20): ink for the office's scope, gold
+  // for a "before", cedar for the stain, green only for "after"/done.
+  fence_scope:  { icon: Ruler,      accent: ACCENT.ink },
   clean_before: { icon: Camera,     accent: ACCENT.gold },
-  clean_after:  { icon: Sparkles,   accent: ACCENT.cyan },
-  stain_before: { icon: Eye,        accent: ACCENT.blue },
+  clean_after:  { icon: Sparkles,   accent: ACCENT.forest },
+  stain_before: { icon: Eye,        accent: ACCENT.cedar },
   stain_after:  { icon: Paintbrush, accent: ACCENT.forest },
 };
 
@@ -1380,7 +1382,7 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
               either (Alan, 2026-10-16). Big enough for a thumb. */}
           <div className="mt-2 space-y-1.5">
             {customer.address ? (
-              <ContactRow icon={MapPin} text={customer.address} label={tr("address")}
+              <ContactRow icon={MapPin} text={customer.address.replace(/,?\s*(United States|USA)\s*$/i, "")} label={tr("address")}
                         href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.address)}`} external />
             ) : null}
             {customer.phone ? (
