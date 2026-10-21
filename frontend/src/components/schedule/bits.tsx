@@ -55,6 +55,7 @@ export function JobChip({ g, Link, tiny, stacked }: { g: JobGroup; Link?: JobLin
     <>
       <span className="line-clamp-2 break-words text-[15px] font-bold">{x.name}</span>
       <span className={cn("flex items-start gap-1.5 text-[14px] font-medium", MUTED)}>{icon}<span className="line-clamp-2 break-words">{g.n} · {g.people}</span></span>
+      {x.task === "pressure_washing" && x.pw_services?.length ? <span className={cn("line-clamp-2 text-[14px]", MUTED)}>{x.pw_services.join(" · ")}</span> : null}
     </>
   ) : (
     <>

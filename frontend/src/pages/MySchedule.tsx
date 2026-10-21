@@ -991,7 +991,7 @@ function CamJobs({ jobs, tab, today }: { jobs: CamJob[]; tab: Tab; today: string
             {nth(j) ? <span className="text-[11px] font-extrabold">{nth(j)}</span> : null}
             {/* Pressure washing (Alan, 2026-10-19): two words, so it wraps instead of shrinking. */}
             <span className={j.task === "pressure_washing" ? "text-xs uppercase tracking-wide" : "text-sm uppercase tracking-wide"}>
-              {j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Cleaning") : j.task === "pressure_washing" ? tr("Pressure washing") : tr("Job")}
+              {j.task === "staining" ? tr("Staining") : j.task === "cleaning" ? tr("Fence cleaning") : j.task === "pressure_washing" ? tr("Pressure washing") : tr("Job")}
             </span>
             {tab !== "today" ? <span className="font-medium opacity-90">{day(j.date)}</span> : null}
           </span>

@@ -24,7 +24,7 @@ from api.auth import get_current_user, require_admin
 from api.company_cam import _crew_entries, _crew_options, _sees_all, default_pay, effective_order
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
 from services.company_cam import (
-    CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICE_LABELS, STAINER_CHECKLIST, is_pw_job, pw_progress, pw_services_of,
+    CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICE_LABELS, PW_SERVICES, STAINER_CHECKLIST, is_pw_job, pw_progress, pw_services_of,
 )
 
 router = APIRouter()
@@ -200,6 +200,7 @@ def calendar(start: str, end: str, user: dict = Depends(_office)):
             for r in rows:
                 r["pay_type"], r["pay"] = "", 0.0
         return {"days": rows, "crew_options": _crew_options(db), "show_pay": _sees_all(user),
+                "pw_options": PW_SERVICES,   # what a washing job can include, for the add form
                 "can_edit": user.get("role") == "admin", "today": _today_ct()}
     finally:
         db.close()

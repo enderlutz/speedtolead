@@ -52,7 +52,16 @@ function ago(ts: string): string {
   return fmtDay(ts.slice(0, 10));
 }
 // Pressure washing is the third kind of day (Alan, 2026-10-19).
-const TASK_LABEL: Record<string, string> = { cleaning: "Cleaning", staining: "Staining", pressure_washing: "Pressure washing", "": "On the job" };
+// "Fence cleaning", not "Cleaning", so it never reads like pressure washing
+// (Alan, 2026-10-21: Amir gets the fence cleaned and the house washed).
+const TASK_LABEL: Record<string, string> = { cleaning: "Fence cleaning", staining: "Staining", pressure_washing: "Pressure washing", "": "On the job" };
+// What a washing job can include; mirrors PW_SERVICES on the server, which
+// the calendar also sends as pw_options.
+const PW_OPTIONS: { key: string; label: string }[] = [
+  { key: "house_wash", label: "House wash" }, { key: "windows", label: "Window cleaning" }, { key: "pool_deck", label: "Pool deck" },
+  { key: "driveway", label: "Driveway & sidewalks" }, { key: "patio", label: "Patio" }, { key: "gutters", label: "Gutters" },
+  { key: "roof", label: "Roof" }, { key: "fence", label: "Fence wash" },
+];
 const TASK_CLS: Record<string, string> = {
   cleaning: "bg-ink/10 text-ink ring-ink/20",
   staining: "bg-cedar/15 text-cedar ring-cedar/30",
@@ -228,6 +237,7 @@ function CalendarView() {
 
   const [days, setDays] = useState<PmDay[] | null>(null);
   const [crew, setCrew] = useState<{ username: string; name: string }[]>([]);
+  const [pwOptions, setPwOptions] = useState(PW_OPTIONS);
   const [canEdit, setCanEdit] = useState(false);
   const [loaded, setLoaded] = useState(""); // the range on screen; a spinner shows until it matches
   const seq = useRef(0); // the last request wins when arrows are tapped fast
@@ -237,6 +247,7 @@ function CalendarView() {
       .then((r) => {
         if (n !== seq.current) return;
         setDays(r.days); setCrew(r.crew_options); setCanEdit(r.can_edit); setLoaded(`${range.start}|${range.end}`);
+        if (r.pw_options?.length) setPwOptions(r.pw_options);
       })
       .catch((e) => toast.error(errMessage(e, "Something went wrong")));
   }, [range]);
@@ -280,7 +291,7 @@ function CalendarView() {
       ) : view === "day" ? (
         <>
           <DayBanner day={day} today={today} items={byDay.get(day) || []} />
-          <DayPanel key={day} day={day} items={byDay.get(day) || []} crew={crew} canEdit={canEdit} onChange={load} />
+          <DayPanel key={day} day={day} items={byDay.get(day) || []} crew={crew} pwOptions={pwOptions} canEdit={canEdit} onChange={load} />
         </>
       ) : view === "month" ? (
         <MonthView anchor={day} byDay={byDay} today={today} onPickDay={pickDay} />
@@ -289,7 +300,7 @@ function CalendarView() {
           {addDay ? (
             <div className="space-y-2 rounded-2xl border bg-card p-4">
               <p className="font-semibold">Add a customer to {fmtDay(addDay, { weekday: "long", month: "long", day: "numeric" })}</p>
-              <AddToDay key={addDay} day={addDay} crew={crew} onDone={() => { setAddDay(""); load(); }} onCancel={() => setAddDay("")} />
+              <AddToDay key={addDay} day={addDay} crew={crew} pwOptions={pwOptions} onDone={() => { setAddDay(""); load(); }} onCancel={() => setAddDay("")} />
             </div>
           ) : null}
           <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
@@ -301,8 +312,8 @@ function CalendarView() {
   );
 }
 
-function DayPanel({ day, items, crew, canEdit, onChange }: {
-  day: string; items: PmDay[]; crew: { username: string; name: string }[]; canEdit: boolean; onChange: () => void;
+function DayPanel({ day, items, crew, pwOptions, canEdit, onChange }: {
+  day: string; items: PmDay[]; crew: { username: string; name: string }[]; pwOptions: { key: string; label: string }[]; canEdit: boolean; onChange: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   // One column per worker (Alan, 2026-10-18): their jobs top to bottom in the
@@ -325,7 +336,7 @@ function DayPanel({ day, items, crew, canEdit, onChange }: {
         <p className="font-semibold">{fmtDay(day, { weekday: "long", month: "long", day: "numeric" })}</p>
         {canEdit && !adding ? <Button size="sm" onClick={() => setAdding(true)}><Plus className="mr-1 h-4 w-4" />Add a customer to this day</Button> : null}
       </div>
-      {adding ? <AddToDay day={day} crew={crew} onDone={() => { setAdding(false); onChange(); }} onCancel={() => setAdding(false)} /> : null}
+      {adding ? <AddToDay day={day} crew={crew} pwOptions={pwOptions} onDone={() => { setAdding(false); onChange(); }} onCancel={() => setAdding(false)} /> : null}
       {lanes.length === 0 && !adding ? <p className="text-sm text-muted-foreground">Nothing on this day.</p> : null}
       {lanes.length && canEdit ? <p className="text-[11px] text-muted-foreground">Hold the dots on a job and drag it up or down. Number 1 is where they start in the morning.</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -573,16 +584,18 @@ function JobStatus({ x, canEdit, crew, onChange }: {
   );
 }
 
-function AddToDay({ day, crew, onDone, onCancel }: {
-  day: string; crew: { username: string; name: string }[]; onDone: () => void; onCancel: () => void;
+function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
+  day: string; crew: { username: string; name: string }[]; pwOptions: { key: string; label: string }[]; onDone: () => void; onCancel: () => void;
 }) {
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<{ lead_id: string; name: string; address: string }[]>([]);
   const [customer, setCustomer] = useState<{ lead_id: string; name: string; address: string } | null>(null);
-  // One job type per add (Alan, 2026-10-21: cleaning and staining are never
-  // the same day). The lead tech(s) first, then anyone riding along: a helper
-  // follows the lead tech's order and never has to be given a task of their own.
-  const [task, setTask] = useState<Task | null>(null);
+  // The job types for the day, one or more (Alan, 2026-10-21: Brent cleans
+  // Amir's fence and washes the house and driveway the same morning). The
+  // lead tech(s) first, then anyone riding along: a helper follows the lead
+  // tech's order and never has to be given a task of their own.
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [washing, setWashing] = useState<string[]>([]);
   const [leads, setLeads] = useState<string[]>([]);
   const [helpers, setHelpers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -602,18 +615,28 @@ function AddToDay({ day, crew, onDone, onCancel }: {
   const first = (u: string) => nameOf(u).split(/\s+/)[0];
   const flip = (list: string[], u: string) => (list.includes(u) ? list.filter((x) => x !== u) : [...list, u]);
   const pickLead = (u: string) => { setLeads((l) => flip(l, u)); setHelpers((h) => h.filter((x) => x !== u)); };
-  const ready = !!customer && !!task && leads.length > 0;
+  const order: Task[] = ["cleaning", "staining", "pressure_washing"];
+  const pickTask = (k: Task) => setTasks((t) => order.filter((x) => (x === k ? !t.includes(k) : t.includes(x))));
+  const washingOn = tasks.includes("pressure_washing");
+  const ready = !!customer && tasks.length > 0 && leads.length > 0;
+  const jobWords = tasks.map((t) => TASK_LABEL[t]).join(" + ")
+    + (washingOn && washing.length ? ` (${washing.map((k) => pwOptions.find((o) => o.key === k)?.label || k).join(", ")})` : "");
   const who = leads.map(first).join(" & ") + (helpers.length ? `, with ${helpers.map(first).join(" and ")} helping` : "");
   const dayWords = fmtDay(day, { weekday: "short", month: "short", day: "numeric" });
 
   const save = async () => {
-    if (!customer || !task || !ready) return;
+    if (!customer || !ready) return;
     setSaving(true);
     try {
-      // Lead techs first so a helper has someone to follow.
-      for (const u of leads) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username: u, task, helper: false });
-      for (const u of helpers) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username: u, task, helper: true });
-      toast.success(`${customer.name} is on ${dayWords}: ${TASK_LABEL[task]} · ${who}`);
+      // Lead techs first so a helper has someone to follow; one day per job type.
+      for (const task of tasks) {
+        for (const u of leads) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username: u, task, helper: false });
+        for (const u of helpers) await api.pmHqAssign({ lead_id: customer.lead_id, date: day, username: u, task, helper: true });
+      }
+      // What's being washed goes on the job itself (the crew's before/after
+      // photo steps come from it). Nothing picked leaves the job's own list alone.
+      if (washingOn && washing.length) await api.updateCompanyCam(customer.lead_id, { pw_services: washing });
+      toast.success(`${customer.name} is on ${dayWords}: ${jobWords} · ${who}`);
       onDone();
     } catch (e) { toast.error(errMessage(e, "Something went wrong")); } finally { setSaving(false); }
   };
@@ -647,22 +670,35 @@ function AddToDay({ day, crew, onDone, onCancel }: {
         <>
           <div className="flex items-center justify-between gap-2">
             <div><p className="text-[16px] font-bold">{customer.name}</p><p className="text-sm text-muted-foreground">{customer.address}</p></div>
-            <button type="button" onClick={() => { setCustomer(null); setTask(null); setLeads([]); setHelpers([]); }} className="min-h-11 px-2 text-sm font-semibold text-bronze">Change</button>
+            <button type="button" onClick={() => { setCustomer(null); setTasks([]); setWashing([]); setLeads([]); setHelpers([]); }} className="min-h-11 px-2 text-sm font-semibold text-bronze">Change</button>
           </div>
 
           <div>
-            <p className={step}>2. What's the job?</p>
+            <p className={step}>2. What's the job? <span className="font-normal text-muted-foreground">(tap all that apply)</span></p>
             <div className="mt-1.5 grid grid-cols-3 gap-2">
-              {(["cleaning", "staining", "pressure_washing"] as const).map((k) => (
-                <button key={k} type="button" onClick={() => setTask(k)}
-                        className={cn("min-h-12 rounded-lg px-2 text-[15px] font-semibold ring-1", task === k ? TASK_ON[k] : "bg-background ring-border hover:bg-muted")}>
+              {order.map((k) => (
+                <button key={k} type="button" onClick={() => pickTask(k)} aria-pressed={tasks.includes(k)}
+                        className={cn("min-h-12 rounded-lg px-2 text-[15px] font-semibold ring-1", tasks.includes(k) ? TASK_ON[k] : "bg-background ring-border hover:bg-muted")}>
                   {TASK_LABEL[k]}
                 </button>
               ))}
             </div>
           </div>
 
-          {task ? (
+          {washingOn ? (
+            <div>
+              <p className={step}>What are we washing? <span className="font-normal text-muted-foreground">(tap all that apply)</span></p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {pwOptions.map((o) => (
+                  <button key={o.key} type="button" onClick={() => setWashing((w) => flip(w, o.key))} aria-pressed={washing.includes(o.key)} className={chip(washing.includes(o.key))}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {tasks.length ? (
             <div>
               <p className={step}>3. Who's the lead tech?</p>
               {!crew.length ? <p className="text-sm text-muted-foreground">No crew accounts yet. Make one in Settings, Permissions.</p> : null}
@@ -677,7 +713,7 @@ function AddToDay({ day, crew, onDone, onCancel }: {
             </div>
           ) : null}
 
-          {task && leads.length ? (
+          {tasks.length && leads.length ? (
             <div>
               <p className={step}>4. Anyone helping? <span className="font-normal text-muted-foreground">(optional)</span></p>
               <p className="text-sm text-muted-foreground">A helper rides with the lead tech and follows their order.</p>
@@ -693,7 +729,7 @@ function AddToDay({ day, crew, onDone, onCancel }: {
 
           {ready ? (
             <p className="rounded-lg bg-background px-3 py-2 text-[15px] ring-1 ring-border">
-              <b>{TASK_LABEL[task!]}</b> on {dayWords} · <b>{who}</b>
+              <b>{jobWords}</b> on {dayWords} · <b>{who}</b>
             </p>
           ) : null}
         </>

@@ -3854,7 +3854,7 @@ export const api = {
   /** The crew's Company Cam list: booked customers, or a search. No prices. */
   // PM HQ (Alan, 2026-10-18): the project manager's job calendar.
   getPmHqCalendar: (start: string, end: string) =>
-    request<{ days: PmDay[]; crew_options: { username: string; name: string }[]; can_edit: boolean; today: string }>(
+    request<{ days: PmDay[]; crew_options: { username: string; name: string }[]; pw_options?: { key: string; label: string }[]; can_edit: boolean; today: string }>(
       `/api/pm-hq/calendar?start=${start}&end=${end}`),
   getPmHqToday: () => request<{ today: string; jobs: PmTodayJob[] }>(`/api/pm-hq/today`),
   getPmHqPast: () => request<PmPastJob[]>(`/api/pm-hq/past`),

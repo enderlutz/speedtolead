@@ -79,6 +79,7 @@ function JobLine({ g, Link }: { g: JobGroup; Link: JobLinkComponent }) {
           <b className="font-bold">{g.people}</b>
           {" · "}{g.n}. {x.name}{" · "}
           <span className={cn(!fin && (x.task === "staining" ? "font-semibold text-[#B5651D]" : MUTED))}>{TASK_WORD[x.task] ?? x.task}</span>
+          {x.task === "pressure_washing" && x.pw_services?.length ? <span className={MUTED}>{" · "}{x.pw_services.join(", ")}</span> : null}
         </span>
         <span className={cn("block truncate text-[14px] leading-snug", MUTED)}>{x.address}</span>
       </span>

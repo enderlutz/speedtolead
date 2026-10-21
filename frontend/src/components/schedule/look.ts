@@ -15,7 +15,7 @@ export const TODAY_WASH = "bg-[#C9972F]/10";
 
 /** One icon per kind of day instead of a colour (easier to tell apart in the sun). */
 export const TASK_ICON: Record<string, string> = { cleaning: "🧽", staining: "🖌️", pressure_washing: "💦", "": "•" };
-export const TASK_WORD: Record<string, string> = { cleaning: "cleaning", staining: "staining", pressure_washing: "pressure washing", "": "on the job" };
+export const TASK_WORD: Record<string, string> = { cleaning: "fence cleaning", staining: "staining", pressure_washing: "pressure washing", "": "on the job" };
 /** The dot before a line in the schedule list. Staining is the stain itself (cedar). */
 export const TASK_DOT: Record<string, string> = { cleaning: "bg-[#15130F]", staining: "bg-[#B5651D]", pressure_washing: "bg-[#8C6224]", "": "bg-[#6B6256]" };
 
