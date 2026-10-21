@@ -3862,6 +3862,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/pm-hq/assign`, { method: "POST", body: JSON.stringify(b) }),
   pmHqOrder: (date: string, lead_ids: string[], username = "") =>
     request<{ ok: boolean }>(`/api/pm-hq/order`, { method: "POST", body: JSON.stringify({ date, lead_ids, username }) }),
+  pmHqMove: (b: { lead_id: string; username: string; task: string; from_date: string; to_date: string }) =>
+    request<{ ok: boolean; moved: number }>(`/api/pm-hq/move`, { method: "POST", body: JSON.stringify(b) }),
   pmHqUnassign: (b: { lead_id: string; date: string; username: string; task: string }) =>
     request<{ ok: boolean }>(`/api/pm-hq/unassign`, { method: "POST", body: JSON.stringify(b) }),
   getCompanyCamJobs: (q = "") =>

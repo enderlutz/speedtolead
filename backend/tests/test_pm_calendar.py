@@ -256,3 +256,31 @@ def test_a_view_only_login_sees_the_jobs_but_no_pay(db, monkeypatch):
     assert pm.calendar("2026-10-01", "2026-10-31", user=ALAN)["days"][0]["pay"] == 73.0
     with pytest.raises(HTTPException):
         pm._office({"sub": "Nobody", "name": "Nobody", "role": "social"})
+
+
+def test_drag_a_job_to_another_day_and_the_helper_goes_along(db, monkeypatch):
+    """Alan, 2026-10-21: Michelle Stout was put on Wednesday, meant for
+    Thursday. Jose's day moves, Christian (helping) goes with him, and it
+    lands last in Jose's Thursday order."""
+    _seed(db)
+    db.add(Lead(id="M", contact_name="Michelle Stout", address="x", status="closed"))
+    db.add(User(id="u3", username="Jose Arthur", display_name="Jose Arthur", role="worker", password_hash="x"))
+    db.add(User(id="u5", username="ChristianGarza", display_name="Christian Garza", role="worker", password_hash="x"))
+    db.commit()
+    monkeypatch.setattr(pm, "get_db", lambda: db); monkeypatch.setattr(cc, "get_db", lambda: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    pm.assign(pm.DayBody(lead_id="Y", date="2026-10-22", username="Jose Arthur", task="staining"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="M", date="2026-10-21", username="Jose Arthur", task="staining"), user=ALAN)
+    pm.assign(pm.DayBody(lead_id="M", date="2026-10-21", username="ChristianGarza", task="staining", helper=True), user=ALAN)
+    assert pm.move(pm.MoveBody(lead_id="M", username="jose arthur", task="staining",
+                               from_date="2026-10-21", to_date="2026-10-22"), user=ALAN)["moved"] == 2
+    assert sorted(_days(db, "M")) == [("ChristianGarza", "2026-10-22", "staining"), ("Jose Arthur", "2026-10-22", "staining")]
+    jose = [d["name"] for d in pm.calendar("2026-10-22", "2026-10-22", user=ALAN)["days"] if d["username"] == "Jose Arthur"]
+    assert jose == ["YOGI", "Michelle Stout"]
+    # Dragging the helper alone moves only the helper.
+    pm.move(pm.MoveBody(lead_id="M", username="ChristianGarza", task="staining",
+                        from_date="2026-10-22", to_date="2026-10-23"), user=ALAN)
+    assert sorted(_days(db, "M")) == [("ChristianGarza", "2026-10-23", "staining"), ("Jose Arthur", "2026-10-22", "staining")]
+    with pytest.raises(HTTPException):
+        pm.move(pm.MoveBody(lead_id="M", username="Jose Arthur", task="staining",
+                            from_date="2026-10-21", to_date="2026-10-24"), user=ALAN)

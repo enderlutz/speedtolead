@@ -303,6 +303,60 @@ def reorder(body: OrderBody, user: dict = Depends(require_admin)):
         db.close()
 
 
+class MoveBody(BaseModel):
+    lead_id: str
+    username: str
+    task: str = ""
+    from_date: str
+    to_date: str
+
+
+@router.post("/pm-hq/move")
+def move(body: MoveBody, user: dict = Depends(require_admin)):
+    """Drag a worker's job to another day (Alan, 2026-10-21: Michelle Stout
+    was put on Wednesday by mistake, she was meant for Thursday). A helper
+    riding with them on that job that day goes along; dragging a helper moves
+    only the helper. On the new day it goes last in their running order."""
+    src, dst = body.from_date[:10], body.to_date[:10]
+    try:
+        datetime.strptime(dst, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Pick a real day")
+    if src == dst:
+        return {"ok": True, "moved": 0}
+    db = get_db()
+    try:
+        job = db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == body.lead_id).first()
+        if not job:
+            raise HTTPException(404, "No job for that customer")
+        entries = _crew_entries(job)
+        me = next((e for e in entries if e["username"].lower() == body.username.lower()
+                   and e["date"] == src and e["task"] == body.task), None)
+        if me is None:
+            raise HTTPException(404, "That day isn't on the job any more. Refresh.")
+        going = [me]
+        if not me["helper"]:
+            going += [e for e in entries if e is not me and e["helper"] and e["date"] == src]
+        target = _rows(db, dst, dst)
+        keep = []
+        for e in entries:
+            if any(e is g for g in going):
+                # Already on that day for the same work: the move just merges.
+                if any(x is not e and x["username"].lower() == e["username"].lower() and x["date"] == dst
+                       and x["task"] == e["task"] for x in entries):
+                    continue
+                last = max((r["order"] or 0 for r in target if r["username"].lower() == e["username"].lower()
+                            and r["lead_id"] != body.lead_id), default=0)
+                e["date"], e["order"] = dst, last + 1
+            keep.append(e)
+        job.crew_json = json.dumps(keep)
+        job.updated_at = datetime.now(timezone.utc).isoformat()
+        db.commit()
+        return {"ok": True, "moved": len(going)}
+    finally:
+        db.close()
+
+
 @router.get("/pm-hq/today")
 def today(user: dict = Depends(_office)):
     """Today's jobs, one card per customer, with who's there and how far along."""

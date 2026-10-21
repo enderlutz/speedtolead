@@ -237,6 +237,19 @@ function CalendarView() {
   useEffect(() => { load(); }, [load]);
   const loading = loaded !== `${range.start}|${range.end}`;
 
+  const [addDay, setAddDay] = useState("");
+  // Drag a job to another day (Alan, 2026-10-21). It moves on screen at once;
+  // the server catches up, and a failure puts it back.
+  const moveJob = async (x: PmDay, to: string) => {
+    const helpers = x.helper ? [] : (days || []).filter((d) => d.lead_id === x.lead_id && d.date === x.date && d.helper);
+    const going = new Set([x, ...helpers]);
+    setDays((ds) => (ds || []).map((d) => (going.has(d) ? { ...d, date: to } : d)));
+    try {
+      await api.pmHqMove({ lead_id: x.lead_id, username: x.username, task: x.task, from_date: x.date, to_date: to });
+      toast.success(`${x.name} moved to ${fmtDay(to, { weekday: "long", month: "short", day: "numeric" })}${helpers.length ? `, with ${helpers.map((h) => h.person).join(" and ")}` : ""}`);
+    } catch (e) { toast.error(errMessage(e, "Couldn't move it")); }
+    load();
+  };
   const byDay = useMemo(() => groupByDay(days || []), [days]);
   const pickDay = useCallback((d: string) => set({ view: "day", day: d }), [set]);
   // One unit of the view: a day, 3 days, a week, a month; 4 weeks on the list.
@@ -262,8 +275,17 @@ function CalendarView() {
       ) : view === "month" ? (
         <MonthView anchor={day} byDay={byDay} today={today} onPickDay={pickDay} />
       ) : (
-        <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
-                      onPickDay={pickDay} maxChips={view === "week" ? 4 : undefined} />
+        <>
+          {addDay ? (
+            <div className="space-y-2 rounded-2xl border bg-card p-4">
+              <p className="font-semibold">Add a customer to {fmtDay(addDay, { weekday: "long", month: "long", day: "numeric" })}</p>
+              <AddToDay key={addDay} day={addDay} crew={crew} onDone={() => { setAddDay(""); load(); }} onCancel={() => setAddDay("")} />
+            </div>
+          ) : null}
+          <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
+                        onPickDay={pickDay} maxChips={view === "week" ? 4 : undefined}
+                        canEdit={canEdit} onMove={(x, to) => void moveJob(x, to)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+        </>
       )}
     </div>
   );
