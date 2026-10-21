@@ -130,7 +130,7 @@ export const ES: Record<string, string> = {
   "Failed to save materials": "No se pudieron guardar los materiales",
   "Fence cleaning": "Limpieza de cerca",
   "Add a service": "Agregar un servicio",
-  "Something else, e.g. Back patio": "Otra cosa, p. ej. Patio trasero",
+  "Type something else, e.g. Back patio": "Escribe otra cosa, p. ej. Patio trasero",
   "Note for the crew (optional)": "Nota para el equipo (opcional)",
   "Tick what the customer bought, add anything not on the list, and leave the crew a note per service.": "Marca lo que compró el cliente, agrega lo que no esté en la lista y deja una nota por servicio para el equipo.",
   "Fence staining": "Pintura de cerca",

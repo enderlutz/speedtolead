@@ -600,6 +600,7 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
   // service has no key yet; the server gives it one.
   const [washing, setWashing] = useState<{ key: string; label: string; note: string }[]>([]);
   const [typed, setTyped] = useState("");
+  const typedBox = useRef<HTMLInputElement>(null);
   const [leads, setLeads] = useState<string[]>([]);
   const [helpers, setHelpers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -628,7 +629,9 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
     setWashing((w) => (w.some((x) => same(x, o)) ? w.filter((x) => !same(x, o)) : [...w, { key: o.key, label: o.label, note: "" }]));
   const addTyped = () => {
     const label = typed.trim().replace(/\s+/g, " ").slice(0, 60);
-    if (!label) return;
+    // Tapped with nothing typed: put the cursor in the box instead of doing
+    // nothing (Alan, 2026-10-21: "it doesn't let me add the extra service").
+    if (!label) { typedBox.current?.focus(); toast.info("Type the service in the box, then tap Add"); return; }
     const known = pwOptions.find((o) => o.label.toLowerCase() === label.toLowerCase());
     const item = { key: known?.key || "", label: known?.label || label, note: "" };
     setWashing((w) => (w.some((x) => same(x, item)) ? w : [...w, item]));
@@ -716,9 +719,9 @@ function AddToDay({ day, crew, pwOptions, onDone, onCancel }: {
               </div>
               {/* Something not on the list (Alan, 2026-10-21: "Back patio"). */}
               <div className="mt-2 flex gap-2">
-                <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Something else, e.g. Back patio" aria-label="Add a service"
+                <Input ref={typedBox} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Type something else, e.g. Back patio" aria-label="Add a service"
                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } }} className="h-11 min-w-0 flex-1 text-base" />
-                <Button type="button" variant="outline" onClick={addTyped} disabled={!typed.trim()} className="h-11 shrink-0"><Plus className="mr-1 h-4 w-4" />Add a service</Button>
+                <Button type="button" onClick={addTyped} className="h-11 shrink-0 bg-ink text-gold-light hover:bg-ink/90"><Plus className="mr-1 h-4 w-4" />Add a service</Button>
               </div>
               {washing.length ? (
                 <div className="mt-2 space-y-1.5">

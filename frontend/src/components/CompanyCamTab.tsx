@@ -1936,6 +1936,7 @@ function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
 }) {
   const [open, setOpen] = useState(pwMode || picked.length > 0);
   const [typed, setTyped] = useState("");
+  const typedBox = useRef<HTMLInputElement>(null);
   // Notes are typed here and sent when the box loses focus, so one keystroke
   // doesn't become one save.
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -1944,7 +1945,7 @@ function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
     onItems(keys.map((k) => ({ key: k, label: options.find((o) => o.key === k)?.label || k, note: over[k] ?? draft[k] ?? notes[k] ?? "" })));
   const addTyped = () => {
     const label = typed.trim().replace(/\s+/g, " ").slice(0, 60);
-    if (!label) return;
+    if (!label) { typedBox.current?.focus(); return; }
     const known = options.find((o) => o.label.toLowerCase() === label.toLowerCase());
     setTyped("");
     if (known) { if (!picked.includes(known.key)) send([...picked, known.key]); return; }
@@ -1971,9 +1972,9 @@ function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
             })}
           </div>
           <div className="flex gap-2">
-            <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={tr("Something else, e.g. Back patio")} aria-label={tr("Add a service")}
+            <Input ref={typedBox} value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={tr("Type something else, e.g. Back patio")} aria-label={tr("Add a service")}
                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } }} className="h-11 min-w-0 flex-1 text-base" />
-            <Button type="button" variant="outline" onClick={addTyped} disabled={!typed.trim()} className="h-11 shrink-0">{tr("Add a service")}</Button>
+            <Button type="button" onClick={addTyped} className="h-11 shrink-0 bg-ink text-gold-light hover:bg-ink/90">{tr("Add a service")}</Button>
           </div>
           {names.length ? (
             <div className="space-y-1.5">
