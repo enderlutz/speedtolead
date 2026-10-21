@@ -65,6 +65,8 @@ function UserRow({
   const [clockIn, setClockIn] = useState(!u.no_clock_in);
   // Crew screens in Spanish for a Spanish speaker (Alan, 2026-10-16).
   const [spanish, setSpanish] = useState(!!u.spanish);
+  // Their usual hourly rate: pay on a job defaults to it (Alan, 2026-10-20).
+  const [rate, setRate] = useState(u.hourly_rate ? String(u.hourly_rate) : "");
   // Their name as everyone sees it ("Chris Moran"); the login stays the same.
   const [displayName, setDisplayName] = useState(u.display_name || "");
   // Set a new password (a forgotten one can't be read back; it's stored scrambled).
@@ -88,7 +90,7 @@ function UserRow({
       for (const k of Object.keys(draft)) {
         if (!!draft[k] !== !!roleDefaults[k]) overrides[k] = !!draft[k];
       }
-      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, spanish, job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username, ...(newPassword.trim() ? { password: newPassword.trim() } : {}) });
+      await api.updateUser(u.id, { role, see_all_jobs: seeAll, no_clock_in: !clockIn, spanish, hourly_rate: Math.max(0, parseFloat(rate) || 0), job_title: jobTitle, permissions: overrides, display_name: displayName.trim() || u.username, ...(newPassword.trim() ? { password: newPassword.trim() } : {}) });
       if (newPassword.trim()) { toast.success(`New password set. ${u.display_name || u.username} logs in as ${u.username}.`); setNewPassword(""); }
       toast.success(`Saved ${u.display_name || u.username}`);
       onChanged();
@@ -195,6 +197,14 @@ function UserRow({
               <input type="checkbox" checked={spanish} onChange={(e) => setSpanish(e.target.checked)} className="h-3.5 w-3.5" />
               Español <span className="text-muted-foreground">(their screens in Spanish)</span>
             </label>
+            {role === "worker" ? (
+              <label className="text-xs flex items-center gap-1.5" title="Pay on every job defaults to this until the office sets something else">
+                Hourly rate $
+                <input type="number" inputMode="decimal" min={0} step="0.5" value={rate} onChange={(e) => setRate(e.target.value)}
+                       className="h-7 w-20 rounded-md border border-input bg-background px-2 text-sm tabular-nums" placeholder="16" />
+                <span className="text-muted-foreground">/hr (job pay defaults to it)</span>
+              </label>
+            ) : null}
           </div>
 
           <p className="text-[11px] text-muted-foreground">

@@ -177,6 +177,8 @@ export interface AdminUser {
   /** Paid per job, so no daily clock-in. */
   no_clock_in?: boolean;
   spanish?: boolean;
+  /** The worker's usual rate; job pay defaults to it. */
+  hourly_rate?: number;
   overrides: Record<string, boolean>;    // per-account permission overrides
   effective: Record<string, boolean>;    // resolved effective permissions
   created_at: string;
@@ -1372,7 +1374,7 @@ export const api = {
     role?: string; see_all_jobs?: boolean; permissions?: Record<string, boolean>;
   }) => request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (id: string, body: {
-    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean; no_clock_in?: boolean; spanish?: boolean;
+    display_name?: string; job_title?: string; role?: string; see_all_jobs?: boolean; no_clock_in?: boolean; spanish?: boolean; hourly_rate?: number;
     password?: string; permissions?: Record<string, boolean>;
   }) => request<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteUser: (id: string) => request<{ status: string }>(`/api/admin/users/${id}`, { method: "DELETE" }),
@@ -4046,6 +4048,8 @@ export interface CompanyCamJob {
   scope_explanation: string;
   cleaning_notes: string;
   staining_notes: string;
+  /** The morning briefing from the office: what to pick up and where, what to protect, the gate code. */
+  briefing?: string;
   upsells: string[];
   upsell_notes: string;
   /** What actually happened. The gap from the estimates above is the number

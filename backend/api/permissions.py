@@ -192,6 +192,7 @@ class CreateUserBody(BaseModel):
 
 class UpdateUserBody(BaseModel):
     display_name: str | None = None
+    hourly_rate: float | None = None            # the worker's usual rate; job pay defaults to it
     job_title: str | None = None                # display label; does NOT affect access
     role: str | None = None
     see_all_jobs: bool | None = None
@@ -219,6 +220,7 @@ def _user_row(db, u: User) -> dict:
         "see_all_jobs": bool(getattr(u, "see_all_jobs", False)),
         "no_clock_in": bool(getattr(u, "no_clock_in", False)),
         "spanish": bool(getattr(u, "spanish", False)),
+        "hourly_rate": float(getattr(u, "hourly_rate", 0) or 0),
         "overrides": _load_overrides(u.permissions),
         "effective": effective_permissions(u.role, u.permissions, _role_override_raw(db, u.role)),
         "created_at": u.created_at or "",
@@ -333,6 +335,10 @@ def update_user(user_id: str, body: UpdateUserBody, user: dict = Depends(require
             u.no_clock_in = bool(body.no_clock_in)
         if body.spanish is not None:
             u.spanish = bool(body.spanish)
+        if body.hourly_rate is not None:
+            if body.hourly_rate < 0 or body.hourly_rate > 500:
+                raise HTTPException(400, "Hourly rate has to be between $0 and $500")
+            u.hourly_rate = round(float(body.hourly_rate), 2)
         if body.password:
             u.password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
         if body.permissions is not None:

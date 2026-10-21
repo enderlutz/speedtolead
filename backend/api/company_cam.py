@@ -16,10 +16,13 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
+from sqlalchemy import func
+
 from database import (
     CompanyCamJob,
     CompanyCamPhoto,
     Lead,
+    User,
     get_db,
 )
 from api.auth import get_current_user
@@ -134,13 +137,29 @@ def _public_crew(entries: list[dict]) -> list[dict]:
     return [{k: e[k] for k in ("username", "date", "task")} for e in entries]
 
 
-def _crew_pay(job: CompanyCamJob | None, user: dict) -> dict:
+def default_pay(db, entries: list[dict]) -> list[dict]:
+    """Pay on a job defaults to the worker's hourly rate (Alan, 2026-10-20)
+    until the office sets something else, so "Pay not set" only shows when
+    there's no rate on file either. In memory only: nothing is written."""
+    missing = {e["username"].lower() for e in entries if not e.get("pay_type")}
+    if not missing:
+        return entries
+    rates = {u.username.lower(): float(u.hourly_rate or 0) for u in
+             db.query(User).filter(func.lower(User.username).in_(missing)).all()}
+    out = []
+    for e in entries:
+        rate = rates.get(e["username"].lower(), 0.0)
+        out.append({**e, "pay_type": "hourly", "pay": rate} if not e.get("pay_type") and rate > 0 else e)
+    return out
+
+
+def _crew_pay(db, job: CompanyCamJob | None, user: dict) -> dict:
     """username -> {pay_type, pay}: every line for the office, only your own
     for the crew. Crew pay only, never the job's price."""
     me = (user.get("sub") or "").lower()
     office = _sees_all(user)
     return {e["username"]: {"pay_type": e["pay_type"], "pay": e["pay"]}
-            for e in _crew_entries(job) if office or e["username"].lower() == me}
+            for e in default_pay(db, _crew_entries(job)) if office or e["username"].lower() == me}
 
 
 def _crew_of(job: CompanyCamJob | None) -> list[str]:
@@ -391,6 +410,7 @@ def _job_dict_raw(job: CompanyCamJob, per_gallon: float | None = None) -> dict:
         "scope_explanation": job.scope_explanation or "",
         "cleaning_notes": job.cleaning_notes or "",
         "staining_notes": job.staining_notes or "",
+        "briefing": job.briefing or "",
         "upsells": [str(u) for u in upsells],
         "upsell_notes": job.upsell_notes or "",
         "actual_sqft": float(job.actual_sqft or 0),
@@ -558,7 +578,7 @@ def get_company_cam(lead_id: str, user: dict = Depends(get_current_user)):
             # Crew accounts the office can put on this job.
             "crew_options": _crew_options(db) if _sees_all(user) else [],
             # Pay per person on the job: all of it for the office, yours only for crew.
-            "crew_pay": _crew_pay(job, user),
+            "crew_pay": _crew_pay(db, job, user),
             "measure_options": measure_options(db, lead_id),
             "customer": {
                 "name": lead.contact_name or "",
@@ -589,6 +609,7 @@ class CompanyCamPatch(BaseModel):
     scope_explanation: str | None = None
     cleaning_notes: str | None = None
     staining_notes: str | None = None
+    briefing: str | None = None
     upsells: list[str] | None = None
     upsell_notes: str | None = None
     # Dollars in, cents stored.
@@ -683,7 +704,7 @@ def update_company_cam(
                 filter_checklist(body.stainer_checklist, "stainer"))
         for field in (
             "package", "color", "scope_explanation", "final_color",
-            "cleaning_notes", "staining_notes", "upsell_notes", "neighbor_notes",
+            "cleaning_notes", "staining_notes", "briefing", "upsell_notes", "neighbor_notes",
             "neighbor_first_name", "neighbor_last_name", "neighbor_phone",
             "neighbor_project",
         ):
@@ -694,6 +715,13 @@ def update_company_cam(
             v = getattr(body, field)
             if v is not None:
                 setattr(job, field, bool(v))
+        # Ticked straight on the flag with no status (Greg Moore, 2026-10-07:
+        # Alan never heard about it). Treated as "yes, no details".
+        if body.neighbor_interested and not (job.neighbor_status or "") and not job.neighbor_sent_at:
+            job.neighbor_status, job.neighbor_sent_at = "no_details", _now()
+            neighbor_alert_flag = "no_details"
+        else:
+            neighbor_alert_flag = ""
         if body.final_stain_id is not None:
             sid = body.final_stain_id.strip()
             if sid:
@@ -811,7 +839,7 @@ def update_company_cam(
             for hit in hits:  # pay is per person per job, on every day they're on it
                 hit.update(pay)
             job.crew_json = json.dumps(entries)
-        neighbor_alert = ""
+        neighbor_alert = neighbor_alert_flag
         if body.neighbor_status is not None:
             v = body.neighbor_status.strip().lower()
             if v not in ("none", "details", "no_details", ""):
@@ -877,7 +905,7 @@ def update_company_cam(
             .filter(CompanyCamPhoto.lead_id == lead_id).all()
         )
         return {"job": _job_dict(job, sqft_per_gallon(db, job), user), "blockers": _blockers(job, photos),
-                "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(job, user),
+                "estimate_sides": estimate_sides(db, lead), "crew_pay": _crew_pay(db, job, user),
                 # Ticking a service or a washing day can switch the screen.
                 "pw_mode": _pw_view(job, user), "pw_sections": pw_sections(pw_services_of(job))}
     finally:

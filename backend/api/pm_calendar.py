@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.auth import get_current_user, require_admin
-from api.company_cam import _crew_entries, _crew_options, _sees_all, effective_order
+from api.company_cam import _crew_entries, _crew_options, _sees_all, default_pay, effective_order
 from database import CompanyCamJob, CompanyCamPhoto, Lead, User, get_db
 from services.company_cam import (
     CLEANER_CHECKLIST, CREW_TASKS, PW_SERVICE_LABELS, STAINER_CHECKLIST, is_pw_job, pw_progress, pw_services_of,
@@ -164,7 +164,7 @@ def _rows(db, start: str = "", end: str = "") -> list[dict]:
         if not lead:
             continue
         prog = progress(j, j.lead_id in cleaned, pw.get(j.lead_id))
-        entries = _crew_entries(j)
+        entries = default_pay(db, _crew_entries(j))
         # When staining is booked, so a finished clean can say so.
         staining = sorted({(e["date"], names.get(e["username"].lower(), e["username"]))
                            for e in entries if e["task"] == "staining" and e["date"] and not e["helper"]})

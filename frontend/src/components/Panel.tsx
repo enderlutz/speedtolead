@@ -16,10 +16,13 @@ import { tr } from "@/lib/i18n";
 
 export function Panel({
   id, icon: Icon, title, sub, right, accent, className, bodyClassName,
-  collapsed, onToggle, children, keepMounted,
+  collapsed, onToggle, children, keepMounted, badge,
 }: {
   id?: string;
   icon: React.ElementType;
+  /** Replaces the icon chip: a numbered step circle on the crew's job screen
+   *  (Alan, 2026-10-20: "do this, in order"). */
+  badge?: React.ReactNode;
   title: React.ReactNode;
   sub?: React.ReactNode;
   right?: React.ReactNode;
@@ -35,15 +38,16 @@ export function Panel({
    *  not be rebuilt (the measuring map is created once). */
   keepMounted?: boolean;
 }) {
-  const chip = (
+  const chip = badge ?? (
     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accent.grad} shadow-sm shadow-black/10`}>
       <Icon className="h-4 w-4 text-white" />
     </div>
   );
+  // 16px titles and 14px subtitles: readable with reading glasses, outside.
   const text = (
     <div className="min-w-0 flex-1 text-left">
-      <div className="font-heading text-sm font-semibold leading-tight">{title}</div>
-      {sub ? <div className="line-clamp-2 text-xs leading-snug text-muted-foreground">{sub}</div> : null}
+      <div className="font-heading text-base font-semibold leading-tight">{title}</div>
+      {sub ? <div className="line-clamp-2 text-sm leading-snug text-muted-foreground">{sub}</div> : null}
     </div>
   );
   const bandCls = `flex w-full items-center gap-3 bg-gradient-to-r ${accent.band} px-3.5 py-3`;
@@ -68,9 +72,9 @@ export function Panel({
             type="button"
             onClick={onToggle}
             aria-label={collapsed ? "Open" : "Fold"}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-black/5 hover:text-foreground"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-black/5 hover:text-foreground"
           >
-            {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            {collapsed ? <ChevronDown className="h-6 w-6" /> : <ChevronUp className="h-6 w-6" />}
           </button>
         </div>
       ) : (

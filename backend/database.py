@@ -731,6 +731,9 @@ class User(Base):
     no_clock_in = Column(Boolean, default=False)
     # Crew screens in Spanish for this person (Alan, 2026-10-16: Jose).
     spanish = Column(Boolean, default=False)
+    # A worker's usual hourly rate (Alan, 2026-10-20): pay on a job defaults
+    # to it, so "Pay not set" only shows when there's no rate on file.
+    hourly_rate = Column(Float, default=0.0)
     # Per-account permission overrides — JSON {permission_key: bool} layered on
     # top of the role defaults (see api/permissions.py). Empty = pure role
     # defaults. The base role still governs server-side data security.
@@ -1847,6 +1850,10 @@ class CompanyCamJob(Base):
 
     cleaning_notes = Column(Text, default="")
     staining_notes = Column(Text, default="")
+    # The morning briefing (Alan, 2026-10-20): what to pick up and where, what
+    # to protect, the gate code. Shows at the top of the crew's screen with the
+    # colour, sides and gallons pulled from the job.
+    briefing = Column(Text, default="")
 
     upsells_json = Column(Text, default="[]")     # service keys the crew ticked
     upsell_notes = Column(Text, default="")
@@ -4973,6 +4980,7 @@ def _run_migrations():
             ("pw_services_json", "TEXT DEFAULT '[]'"),
             ("pw_finished_how", "TEXT DEFAULT ''"),
             ("pw_bleach_gallons", "DOUBLE PRECISION DEFAULT 0"),
+            ("briefing", "TEXT DEFAULT ''"),
         ):
             if col not in cc_cols:
                 t = ddl.replace("DOUBLE PRECISION", "REAL") if _engine.dialect.name != "postgresql" else ddl
@@ -5057,7 +5065,8 @@ def _run_migrations():
                 conn.execute(text("ALTER TABLE users ADD COLUMN disabled BOOLEAN DEFAULT FALSE"))
             logger.info("Migration: added users.disabled (archived/offboarded accounts blocked from login)")
         for col, ddl in (("phone", "TEXT DEFAULT ''"), ("alert_channel", "TEXT DEFAULT 'whatsapp'"),
-                         ("ghl_user_id", "TEXT DEFAULT ''"), ("ghl_contact_id", "TEXT DEFAULT ''")):
+                         ("ghl_user_id", "TEXT DEFAULT ''"), ("ghl_contact_id", "TEXT DEFAULT ''"),
+                         ("hourly_rate", "DOUBLE PRECISION DEFAULT 0" if _engine.dialect.name == "postgresql" else "REAL DEFAULT 0")):
             if col not in user_cols:
                 with _engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
