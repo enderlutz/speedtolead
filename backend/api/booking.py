@@ -42,6 +42,42 @@ LINK = "[link]"
 # 2026-10-15: the resend still said October 24 after the date changed).
 DAY = "[day]"
 HOLD_DAYS = 7
+# No fence staining, other services only (Alan, 2026-10-21: Teila is booked
+# for a pressure wash, no fence): no package, colour, sides or proposal.
+SERVICES_ONLY = "none"
+
+
+def services_only(b_or_tier) -> bool:
+    t = b_or_tier if isinstance(b_or_tier, str) else getattr(b_or_tier, "tier", "")
+    return (t or "") == SERVICES_ONLY
+
+
+def _what(lead: Lead, b: Booking | None = None, draft: dict | None = None) -> str:
+    """What the job is, in words: "your fence", or "your house soft wash and
+    gutter cleaning" when there's no fence."""
+    tier = b.tier if b is not None else (draft or {}).get("tier", "")
+    if not services_only(tier):
+        return "your fence"
+    lines = _services(b) if b is not None else [x for x in (draft or {}).get("services") or [] if isinstance(x, dict)]
+    names = [str(x.get("name") or "").strip().lower() for x in lines if x.get("name")]
+    if not names:
+        return "your service"
+    return "your " + (names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1])
+
+
+def _job_title(b: Booking) -> str:
+    """The job in a calendar title or email subject."""
+    if not services_only(b):
+        return "fence staining"
+    names = [x["name"] for x in _services(b)]
+    return ", ".join(names) if names else "your service"
+
+
+def deposit_cents(b: Booking | None) -> int:
+    """The $250, never more than a small services-only job costs."""
+    if b is not None and services_only(b) and b.total_cents:
+        return min(DEPOSIT_CENTS, b.total_cents)
+    return DEPOSIT_CENTS
 
 
 def _now() -> datetime:
@@ -77,7 +113,17 @@ def discount_cents(price_cents: int, kind: str, value: float) -> int:
     return max(0, min(off, price_cents - 100))
 
 
-def default_message(lead: Lead, iso: str, paid: PayLink | None = None) -> str:
+def default_message(lead: Lead, iso: str, paid: PayLink | None = None, b: Booking | None = None,
+                    draft: dict | None = None) -> str:
+    what = _what(lead, b, draft)
+    no_fence = what != "your fence"
+    if paid is not None and no_fence:
+        return (f"Hi {_first(lead)}, it's Alan with Sterling. Your payment is in, so you're booked for {DAY} "
+                f"for {what}. Here's your booking and what's left to pay: {LINK}")
+    if no_fence:
+        dep = hooks.money(deposit_cents(b) / 100) if b is not None else "$250"
+        return (f"Hi {_first(lead)}, it's Alan with Sterling. I'm holding {DAY} for {what}. "
+                f"Here's your booking, and the {dep} deposit locks it in: {LINK}")
     if paid is not None:
         # Paid before the invite went out, e.g. a deposit sent from Payment
         # links (Alan, 2026-10-17, Charlotte): confirm, don't ask again.
@@ -178,7 +224,7 @@ def _state(db, lead: Lead) -> dict:
     return {
         "draft": draft,
         "booking": _staff_dict(db, lead, _active(db, lead.id)),
-        "message": default_message(lead, draft["date"], paid) if draft.get("date") else "",
+        "message": default_message(lead, draft["date"], paid, draft=draft) if draft.get("date") else "",
         # Already paid (a Payment links deposit counts): the card says so and
         # the text confirms the day instead of asking for the deposit.
         "deposit_paid": {"amount": (paid.amount_cents or 0) / 100, "kind": paid.kind,
@@ -202,8 +248,8 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         state = f"CONFIRMED · {'paid in full' if paid_amt >= total else 'deposit paid'} {hooks.money(paid_amt)}"
         due = max(0.0, total - paid_amt)
     else:
-        state = f"HELD · waiting on the $250 deposit (hold to {_hold_until(b)})"
-        due = max(0.0, total - DEPOSIT_CENTS / 100)
+        state = f"HELD · waiting on the {hooks.money(deposit_cents(b) / 100)} deposit (hold to {_hold_until(b)})"
+        due = max(0.0, total - deposit_cents(b) / 100)
     try:
         fd = json.loads(lead.form_data or "{}")
     except Exception:
@@ -214,11 +260,15 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
     extras = site_extras(db.query(CompanyCamJob).filter(CompanyCamJob.lead_id == lead.id).first())
     raw = fd.get("fence_sides") or []
     sides = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
+    no_fence = services_only(b)
     lines = [
         state, "",
+        *([f"No fence staining · other services only · {hooks.money(total)}"] if no_fence else []),
+    ] + ([] if no_fence else [
         f"Package: {NAMES.get(b.tier, b.tier)} · {hooks.money(total)}"
         + (f" (was {hooks.money((b.price_cents or 0) / 100)}, {hooks.money(b.discount_cents / 100)} off"
            + (f" {b.discount_label}" if b.discount_label else "") + ")" if b.discount_cents else ""),
+    ]) + [
         *[f"Repair: {r['name']} × {r['qty']} @ {hooks.money(r['unit_price'])} = {hooks.money(r['qty'] * r['unit_price'])}" for r in _repairs(b)],
         *([f"Repairs discount{(' ' + b.repairs_discount_label) if b.repairs_discount_label else ''}: -{hooks.money(b.repairs_discount_cents / 100)}"] if b.repairs_discount_cents else []),
         *[f"Also booked: {sv['name']} {hooks.money(sv['price'])}" + (f" ({sv['description']})" if sv["description"] else "")
@@ -226,16 +276,19 @@ def _calendar_text(db, lead: Lead, b: Booking) -> tuple[str, str]:
         *[f"Added on site: {l['name']} × {l['qty']} @ {hooks.money(l['unit_cents'] / 100)} = {hooks.money(l['qty'] * l['unit_cents'] / 100)}"
           for l in extras["lines"]],
         f"Due after the job: {hooks.money(due + extras['total_cents'] / 100)}",
-        f"Color: {b.color or 'to pick on the day'}",
-        f"Fence: {fd.get('linear_feet') or '?'} ft",
-        f"Sides: {', '.join(sides) or 'see the lead'}",
-        "Included: cleaning, prep, two coats, cleanup",
     ]
+    if not no_fence:
+        lines += [
+            f"Color: {b.color or 'to pick on the day'}",
+            f"Fence: {fd.get('linear_feet') or '?'} ft",
+            f"Sides: {', '.join(sides) or 'see the lead'}",
+            "Included: cleaning, prep, two coats, cleanup",
+        ]
     if (b.notes or "").strip():
         lines += ["", f"Note on their invite: {b.notes.strip()}"]
     lines += ["", f"Customer: {name}", f"Phone: {lead.contact_phone or '-'}", f"Email: {lead.contact_email or '-'}",
               "", f"Their booking page: {booking_url(b.token)}", f"Lead: {_lead_url(lead)}"]
-    summary = f"{name} | Fence Staining | {'Confirmed' if paid else 'Held, deposit pending'}"
+    summary = f"{name} | {'Fence Staining' if not no_fence else _job_title(b)} | {'Confirmed' if paid else 'Held, deposit pending'}"
     return summary, "\n".join(lines)
 
 
@@ -298,21 +351,30 @@ class SendBody(BaseModel):
 def _email_html(lead: Lead, b: Booking, url: str, paid: PayLink | None = None) -> str:
     note = (f"<p style=\"background:#FFF8E6;border:1px solid #E8CF8E;border-radius:10px;padding:12px 14px\">"
             f"<b>A note from Alan</b><br>{html.escape(b.notes).replace(chr(10), '<br>')}</p>") if (b.notes or "").strip() else ""
+    no_fence = services_only(b)
+    job = _job_title(b).lower() if no_fence else "fence staining"
+    where = html.escape(lead.address or "your home")
+    dep = hooks.money(deposit_cents(b) / 100)
+    if paid is not None:
+        body_lines = (f"<p>Your {'payment' if paid.kind == 'full' else dep + ' deposit'} is in, so you're booked for "
+                      f"<b>{_long(b.date)}</b> for your {html.escape(job)} at {where}.</p>"
+                      f"<p>Your booking page has everything: the date, "
+                      f"{'what we are doing' if no_fence else 'your package and color'}, and what's left to pay after the job.</p>")
+    else:
+        body_lines = (f"<p>We're holding <b>{_long(b.date)}</b> for your {html.escape(job)} at {where}.</p>"
+                      f"<p>Your booking page has everything: the date, "
+                      f"{'what we are doing' if no_fence else 'your package and color'}, and the {dep} deposit that confirms your spot.</p>")
     return (
         f"<div style=\"font-family:Arial,sans-serif;font-size:16px;line-height:1.5;color:#15130F;max-width:520px\">"
         f"<p>Hi {html.escape(_first(lead))},</p>"
-        + (f"<p>Your {'payment' if paid.kind == 'full' else '$250 deposit'} is in, so you're booked for <b>{_long(b.date)}</b> "
-           f"for your fence staining at {html.escape(lead.address or 'your home')}.</p>"
-           f"<p>Your booking page has everything: the date, your package and color, and what's left to pay after the job.</p>"
-           if paid is not None else
-           f"<p>We're holding <b>{_long(b.date)}</b> for your fence staining at {html.escape(lead.address or 'your home')}.</p>"
-           f"<p>Your booking page has everything: the date, your package and color, and the $250 deposit that confirms your spot.</p>")
+        + (body_lines)
         +
         f"<p><a href=\"{url}\" style=\"background:#C9972F;color:#15130F;font-weight:bold;padding:12px 20px;"
         f"text-decoration:none;border-radius:8px;display:inline-block\">See my booking</a></p>"
         f"{note}"
-        f"<p style=\"color:#555;font-size:14px\">This is the day we're aiming for. Stain only goes on a dry fence, "
-        f"so if rain is coming we'll text you and pick the next dry day together.</p>"
+        f"<p style=\"color:#555;font-size:14px\">This is the day we're aiming for. "
+        + ("If rain is coming" if no_fence else "Stain only goes on a dry fence, so if rain is coming")
+        + " we'll text you and pick the next dry day together.</p>"
         f"<p>Questions? Call or text 346-589-7877.</p>"
         f"<p>Alan<br>Sterling Fence Staining</p></div>"
     )
@@ -330,13 +392,19 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         d = _booking_draft(lead)
         if not d.get("date"):
             raise HTTPException(status_code=400, detail="Pick the day first, then save the draft.")
-        if d.get("tier") not in TIERS:
+        no_fence = services_only(d.get("tier") or "")
+        if d.get("tier") not in TIERS and not no_fence:
             raise HTTPException(status_code=400, detail="Pick a package first, then save the draft.")
         if _day(d["date"]) < _now().date():
             raise HTTPException(status_code=400, detail="That day has already passed.")
-        tiers = _tiers(db, lead, d.get("estimate_id") or "")
-        if not tiers or not tiers.get(d["tier"]):
-            raise HTTPException(status_code=400, detail="This lead has no price for that package yet.")
+        if no_fence:
+            if not [sv for sv in (d.get("services") or []) if isinstance(sv, dict) and sv.get("name")]:
+                raise HTTPException(status_code=400, detail="No fence staining: add the services they're booking, with a price, then save the draft.")
+            tiers = {SERVICES_ONLY: 0.0}
+        else:
+            tiers = _tiers(db, lead, d.get("estimate_id") or "")
+            if not tiers or not tiers.get(d["tier"]):
+                raise HTTPException(status_code=400, detail="This lead has no price for that package yet.")
         b = _active(db, lead.id)
         if not body.notify and b is None:
             raise HTTPException(status_code=400, detail="Nothing has been sent yet. Send it first.")
@@ -348,10 +416,10 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             b = Booking(token=secrets.token_urlsafe(16), lead_id=lead.id, created_at=_now().isoformat(), status="held")
             db.add(b)
         b.date, b.tier = d["date"], d["tier"]
-        b.color, b.notes = d.get("color") or "", d.get("notes") or ""
+        b.color, b.notes = ("" if no_fence else d.get("color") or ""), d.get("notes") or ""
         b.klarna = 1 if d.get("klarna") else None
         price_cents = int(round(float(tiers[d["tier"]]) * 100))
-        off = discount_cents(price_cents, d.get("discount_type") or "", float(d.get("discount_value") or 0))
+        off = 0 if no_fence else discount_cents(price_cents, d.get("discount_type") or "", float(d.get("discount_value") or 0))
         b.price_cents = price_cents
         b.discount_cents = off or None
         b.discount_label = (d.get("discount_label") or "").strip() if off else ""
@@ -385,7 +453,7 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
             log_event(lead.id, "booking_updated", f"{b.date} {b.tier} {b.total_cents / 100:.2f} by {by}, not texted")
             return {**_state(db, lead), "emailed": False, "calendar": bool(cal), "calendar_link": cal, "texted": False}
 
-        msg = (body.message if body.message is not None else default_message(lead, b.date)).strip()
+        msg = (body.message if body.message is not None else default_message(lead, b.date, b=b)).strip()
         if not msg:
             raise HTTPException(status_code=400, detail="The text is empty.")
         if LINK not in msg and url not in msg:
@@ -407,8 +475,8 @@ def send_booking(lead_id: str, body: SendBody, user: dict = Depends(require_staf
         if body.email and (lead.contact_email or "").strip():
             try:
                 emailed = bool(ghl.send_email(contact_id=lead.ghl_contact_id,
-                                              subject=(f"You're booked: fence staining on {_long(b.date)}" if paid_now
-                                                       else f"Your date is held: fence staining on {_long(b.date)}"),
+                                              subject=(f"You're booked: {_job_title(b)} on {_long(b.date)}" if paid_now
+                                                       else f"Your date is held: {_job_title(b)} on {_long(b.date)}"),
                                               html_body=_email_html(lead, b, url, paid_now),
                                               location_id=lead.ghl_location_id or None))
             except Exception as e:  # noqa: BLE001
@@ -488,14 +556,15 @@ def booking_page(token: str, request: Request, preview: int = 0):
         return {
             "status": "cancelled" if b.status == "cancelled" else ("confirmed" if paid else "held"),
             "first_name": _first(lead), "address": lead.address or "",
-            "date": b.date, "tier": b.tier, "package": NAMES.get(b.tier, b.tier),
+            "date": b.date, "tier": b.tier, "package": "" if services_only(b) else NAMES.get(b.tier, b.tier),
+            "services_only": services_only(b),
             "color": b.color or "", "notes": b.notes or "", "sides": sides,
             "feet": float(fd.get("linear_feet") or 0) or 0,
-            "total": (b.total_cents or 0) / 100, "deposit": DEPOSIT_CENTS / 100,
+            "total": (b.total_cents or 0) / 100, "deposit": deposit_cents(b) / 100,
             "paid": ((paid.amount_cents or 0) / 100) if paid else 0,
             "paid_kind": paid.kind if paid else "",
             "hold_until": _hold_until(b),
-            "proposal_url": f"{proposal_base()}/p/{p.token}" if p else "",
+            "proposal_url": f"{proposal_base()}/p/{p.token}" if p and not services_only(b) else "",
             "klarna": bool(b.klarna),
             "price": (b.price_cents or b.total_cents or 0) / 100,
             "discount": (b.discount_cents or 0) / 100,
@@ -524,13 +593,13 @@ def booking_pay(token: str, request: Request):
         link = _open_link(db, lead.id, "deposit")
         if link is None:
             link = PayLink(token=secrets.token_urlsafe(20), lead_id=lead.id, kind="deposit",
-                           amount_cents=DEPOSIT_CENTS, status="open", created_by="customer",
+                           amount_cents=deposit_cents(b), status="open", created_by="customer",
                            created_at=_now().isoformat(), answers="{}")
             db.add(link)
-        link.amount_cents = DEPOSIT_CENTS
+        link.amount_cents = deposit_cents(b)
         link.job_tier = b.tier
         link.job_total_cents = b.total_cents
-        link.description = f"{NAMES.get(b.tier, b.tier)}, reserved on the booking invite for {_long(b.date)}"
+        link.description = f"{_job_title(b).capitalize() if services_only(b) else NAMES.get(b.tier, b.tier)}, reserved on the booking invite for {_long(b.date)}"
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_pay_opened", b.date)
@@ -565,7 +634,7 @@ def booking_finance(token: str, request: Request):
         link.job_total_cents = b.total_cents
         link.door = "finance"
         link.no_financing = None
-        link.description = f"{NAMES.get(b.tier, b.tier)}, financed on the booking invite for {_long(b.date)}"
+        link.description = f"{_job_title(b).capitalize() if services_only(b) else NAMES.get(b.tier, b.tier)}, financed on the booking invite for {_long(b.date)}"
         db.commit()
         if not _is_internal_user(request):
             log_event(lead.id, "booking_klarna_opened", b.date)

@@ -555,7 +555,7 @@ export interface BookingRepair { name: string; qty: number; unit_price: number }
 
 export interface BookingDraft {
   date?: string;
-  tier?: "" | "essential" | "signature" | "legacy";
+  tier?: "" | "essential" | "signature" | "legacy" | "none";
   color?: string;
   notes?: string;
   /** Offer Klarna for the whole job beside the $250. */

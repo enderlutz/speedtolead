@@ -16,8 +16,12 @@ import { Chips, Counter, FencePart, type FencePartKey } from "@/components/propo
 import { PICKETS, PARTS, POSTS, repairLines, repairsTotal } from "@/lib/repairs";
 
 type Tier = "essential" | "signature" | "legacy";
+/** "none": no fence staining, only other services (Alan, 2026-10-21, Teila). */
+type Pick = Tier | "none";
+const NONE_NAME = "No fence staining";
+const tierName = (k: string) => (k === "none" ? NONE_NAME : TIERS.find((t) => t.key === k)?.name || "");
 type Draft = {
-  date: string; tier: Tier; color: string; notes: string; klarna: boolean;
+  date: string; tier: Pick; color: string; notes: string; klarna: boolean;
   /** A discount: dollars or a percent off the package, and why. */
   dtype: "amount" | "percent"; dval: string; dlabel: string;
   /** Repairs agreed on the phone: the proposal's counters, same prices. */
@@ -94,7 +98,20 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
 
   // Paid already (a deposit from Payment links counts): confirm the day,
   // don't ask for the deposit again (Alan, 2026-10-17, Charlotte).
-  const presetFor = () => st?.deposit_paid
+  const svcWords = (() => {
+    const n = draft.services.map((x) => x.name.trim().toLowerCase()).filter(Boolean);
+    return n.length ? n.length === 1 ? n[0] : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : "service";
+  })();
+  // The deposit is never more than a small services-only job (same as the server).
+  const svcDeposit = (() => {
+    const sum = draft.services.reduce((t, x) => t + (x.name.trim() ? Number(x.price) || 0 : 0), 0);
+    return sum > 0 && sum < 250 ? formatCurrency(sum) : "$250";
+  })();
+  const presetFor = () => draft.tier === "none"
+    ? st?.deposit_paid
+      ? `Hi ${first}, it's Alan with Sterling. Your payment is in, so you're booked for ${DAY} for your ${svcWords}. Here's your booking and what's left to pay: ${LINK}`
+      : `Hi ${first}, it's Alan with Sterling. I'm holding ${DAY} for your ${svcWords}. Here's your booking, and the ${svcDeposit} deposit locks it in: ${LINK}`
+    : st?.deposit_paid
     ? `Hi ${first}, it's Alan with Sterling Fence Staining. Your ${st.deposit_paid.kind === "full" ? "payment" : "$250 deposit"} is in, so you're booked for ${DAY}. Here's your booking with your package, color and what's left to pay: ${LINK}`
     : `Hi ${first}, it's Alan with Sterling Fence Staining. I'm holding ${DAY} for your fence. Here's your booking, and the $250 deposit locks it in: ${LINK}`;
 
@@ -106,7 +123,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
       const d = s.draft;
       if (d?.updated_at || s.booking) setOpen(true);
       if (d?.updated_at) setDraft((x) => ({
-        date: d.date || x.date, tier: (d.tier || x.tier) as Tier, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
+        date: d.date || x.date, tier: (d.tier || x.tier) as Pick, color: d.color || "", notes: d.notes || "", klarna: !!d.klarna,
         dtype: d.discount_type === "percent" ? "percent" : "amount", dval: d.discount_value ? String(d.discount_value) : "", dlabel: d.discount_label || "",
         counts: d.repair_counts || {}, picketType: d.picket_type || PICKETS[0].key, postType: d.post_type || POSTS[0].key,
         rtype: d.repairs_discount_type === "percent" ? "percent" : "amount", rval: d.repairs_discount_value ? String(d.repairs_discount_value) : "", rlabel: d.repairs_discount_label || "",
@@ -131,9 +148,10 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
   const fd = (lead.form_data || {}) as Record<string, unknown>;
   const rawSides = fd.fence_sides;
   const sides = sidesInWords(Array.isArray(rawSides) ? (rawSides as string[]) : rawSides ? String(rawSides).split(",").map((v) => v.trim()) : []);
-  const price = tiers?.[draft.tier] || 0;
-  const off = discountOff(price, draft);
-  const lines = repairLines(draft.counts, draft.picketType, draft.postType);
+  const noFence = draft.tier === "none";
+  const price = noFence ? 0 : tiers?.[draft.tier] || 0;
+  const off = noFence ? 0 : discountOff(price, draft);
+  const lines = noFence ? [] : repairLines(draft.counts, draft.picketType, draft.postType);
   const repairs = repairsTotal(lines);
   // The repairs discount, the same rule as the server: up to all of the repairs.
   const roff = (() => {
@@ -249,7 +267,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide", sent.status === "confirmed" ? "bg-emerald-600 text-white" : "bg-amber-500 text-white")}>
               {sent.status === "confirmed" ? "Confirmed · deposit paid" : "Held · waiting on the $250"}
             </span>
-            <span className="font-semibold">{longDay(sent.date)} · {TIERS.find((t) => t.key === sent.tier)?.name} {formatCurrency(sent.total)}</span>
+            <span className="font-semibold">{longDay(sent.date)} · {tierName(sent.tier)} {formatCurrency(sent.total)}</span>
           </div>
           <p className="mt-1.5 text-muted-foreground">
             Sent {when(sent.sent_at)}{sent.sent_by ? ` by ${sent.sent_by}` : ""}{sent.sent_count > 1 ? ` (${sent.sent_count} times)` : ""} ·{" "}
@@ -304,15 +322,15 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
               className="h-9 rounded-lg border border-input bg-background px-2 text-sm" />
           </label>
         </div>
-        <label className="block text-sm">
+        {noFence ? null : <label className="block text-sm">
           <span className="font-semibold">Color</span>
           <input list="booking-colors" value={draft.color} placeholder="Pick or type a color" onChange={(e) => setDraft({ ...draft, color: e.target.value })}
             className="mt-1 h-11 w-full rounded-lg border border-input bg-background px-3 text-base" />
           <datalist id="booking-colors">{COLORS.map((c) => <option key={c} value={c} />)}</datalist>
-        </label>
+        </label>}
       </div>
       <div>
-        {priceSets.length > 1 ? (
+        {priceSets.length > 1 && !noFence ? (
           <div className="mb-3">
             <p className="text-sm font-semibold">Which estimate? <span className="font-normal text-muted-foreground">({priceSets.length} sent)</span></p>
             <div className="mt-1 space-y-1.5">
@@ -334,7 +352,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           </div>
         ) : null}
         <p className="text-sm font-semibold">Package</p>
-        <div className="mt-1 grid grid-cols-3 gap-2">
+        <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {TIERS.map((t) => (
             <button key={t.key} type="button" onClick={() => setDraft({ ...draft, tier: t.key })}
               className={cn("rounded-lg border px-2 py-2 text-left text-sm", draft.tier === t.key ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-input hover:bg-muted")}>
@@ -342,11 +360,19 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
               <span className="block tabular-nums text-muted-foreground">{tiers?.[t.key] ? formatCurrency(tiers[t.key]) : "No price yet"}</span>
             </button>
           ))}
+          {/* Not doing the fence, only other services (Teila, 2026-10-21):
+              the invite drops the package, colour, sides and proposal. */}
+          <button type="button" onClick={() => setDraft({ ...draft, tier: "none" })}
+            className={cn("rounded-lg border px-2 py-2 text-left text-sm", noFence ? "border-bronze bg-gold/15 font-semibold ring-1 ring-gold" : "border-dashed border-input hover:bg-muted")}>
+            <span className="block">{NONE_NAME}</span>
+            <span className="block text-muted-foreground">Other services only</span>
+          </button>
         </div>
+        {noFence ? <p className="mt-1.5 text-sm text-muted-foreground">Their invite shows only the services below. No package, color, sides or proposal.</p> : null}
       </div>
       {/* A discount on the package (Alan, 2026-10-15). They see it on the
           invite, and the deposit, balance and Klarna all use the new total. */}
-      <div className="rounded-xl border border-input p-3">
+      {noFence ? null : <div className="rounded-xl border border-input p-3">
         <p className="text-sm font-semibold">Discount <span className="font-normal text-muted-foreground">(optional)</span></p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <div className="inline-flex overflow-hidden rounded-lg border border-input">
@@ -372,12 +398,12 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             <span className="text-muted-foreground"> for the package</span>
           </p>
         ) : null}
-      </div>
+      </div>}
 
       {/* Repairs, folded: most jobs need none. The proposal's own counters
           and prices, so what's agreed on the phone matches what they'd have
           picked themselves (Alan, 2026-10-15). */}
-      <div className="overflow-hidden rounded-xl border border-input">
+      {noFence ? null : <div className="overflow-hidden rounded-xl border border-input">
         <button type="button" onClick={() => setRepairsOpen((v) => !v)}
           className="flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm">
           <span><span className="font-semibold">Repairs</span> <span className="text-muted-foreground">{lines.length ? `· ${lines.length} item${lines.length === 1 ? "" : "s"} · + ${formatCurrency(repairs - roff)}${roff ? ` (${formatCurrency(roff)} off)` : ""}` : "· any pickets, posts or boards to replace?"}</span></span>
@@ -434,12 +460,14 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
             ))}
           </ul>
         ) : null}
-      </div>
+      </div>}
       {/* Other services booked with the fence (Alan, 2026-10-16): house wash,
           driveway, patio… Each is its own line on their page and in the
           total, so the deposit, balance and Klarna all include it. */}
-      <div className="space-y-2 rounded-xl border border-input p-3">
-        <p className="text-sm"><span className="font-semibold">Other services</span> <span className="text-muted-foreground">· anything else they're booking with the fence</span></p>
+      <div className={cn("space-y-2 rounded-xl border p-3", noFence && !serviceLines.length ? "border-gold ring-1 ring-gold" : "border-input")}>
+        <p className="text-sm">{noFence
+          ? <><span className="font-semibold">Services</span> <span className="text-muted-foreground">· what they're booking, with the price</span></>
+          : <><span className="font-semibold">Other services</span> <span className="text-muted-foreground">· anything else they're booking with the fence</span></>}</p>
         <div className="flex flex-wrap gap-1.5">
           {SERVICE_PICKS.filter((n) => !draft.services.some((x) => x.name === n)).map((n) => (
             <button key={n} type="button" onClick={() => setDraft((d) => ({ ...d, services: [...d.services, { name: n, price: "", description: "" }] }))}
@@ -471,7 +499,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         ))}
         {serviceLines.length ? <p className="text-right text-sm font-semibold tabular-nums">+ {formatCurrency(servicesSum)}</p> : null}
       </div>
-      {off || repairs || servicesSum ? (
+      {!noFence && (off || repairs || servicesSum) ? (
         <p className="rounded-xl bg-muted/60 px-3 py-2 text-sm">
           {formatCurrency(price)} {tiers ? TIERS.find((t) => t.key === draft.tier)?.name : ""}
           {off ? <span className="text-emerald-700"> − {formatCurrency(off)} discount</span> : null}
@@ -541,7 +569,7 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
           <Send className="h-4 w-4" /> {busy === "send" ? "Sending…" : sent ? `Send again to ${first}` : `Send to ${first}`}
         </button>
         {st?.has_phone === false ? <p className="text-xs text-rose-700">This lead has no phone number.</p> : null}
-        {!total ? <p className="text-xs text-rose-700">No price for that package yet. Send the estimate first.</p> : null}
+        {!total ? <p className="text-xs text-rose-700">{noFence ? "Add a service with a price first." : "No price for that package yet. Send the estimate first."}</p> : null}
       </div>
       {saved?.updated_at ? <p className="text-xs text-muted-foreground">Draft saved {when(saved.updated_at)}{saved.updated_by ? ` by ${saved.updated_by}` : ""}</p> : null}
 
@@ -549,7 +577,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <BookingInvite
           firstName={first}
           address={lead.address || ""}
-          pkgName={TIERS.find((t) => t.key === draft.tier)?.name || ""}
+          pkgName={noFence ? "" : tierName(draft.tier)}
+          servicesOnly={noFence}
           color={draft.color}
           sides={sides}
           feet={Number(fd.linear_feet) || 0}
@@ -575,7 +604,8 @@ export function BookingInviteCard({ lead }: { lead: LeadDetail }) {
         <BookingInvite
           firstName={first}
           address={lead.address || ""}
-          pkgName={TIERS.find((t) => t.key === sent.tier)?.name || ""}
+          pkgName={sent.tier === "none" ? "" : tierName(sent.tier)}
+          servicesOnly={sent.tier === "none"}
           color={sent.color}
           sides={sides}
           feet={Number(fd.linear_feet) || 0}

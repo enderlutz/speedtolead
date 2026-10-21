@@ -305,3 +305,38 @@ def test_a_deposit_paid_from_payment_links_first_makes_the_invite_a_confirmation
     assert out["booking"]["status"] == "confirmed"
     assert "deposit is in" in ghl[0][1]
     assert ghl[1][0] == "email" and "booked for" in ghl[1][2] and "confirms your spot" not in ghl[1][2]
+
+
+def test_no_fence_staining_books_just_the_other_services(db, ghl):
+    """Alan, 2026-10-21 (Teila Ebrahimi): booked for a pressure wash, no
+    fence. No package, colour, sides or proposal anywhere; the text, email,
+    calendar and page talk about the service; the deposit is never more
+    than the job."""
+    from database import PayLink
+    lead = _lead(db, contact_name="Teila Ebrahimi", contact_phone="+17135550101", contact_email="t@example.com")
+    day = (date.today() + timedelta(days=1)).isoformat()
+    with pytest.raises(HTTPException):   # no services yet: nothing to book
+        pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="none"), STAFF)
+        bk.send_booking(lead.id, bk.SendBody(), STAFF)
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(
+        date=day, tier="none", color="Pecan", discount_type="amount", discount_value=50,
+        services=[{"name": "Pressure washing", "price": 590}]), STAFF)
+    st = bk.get_booking(lead.id, STAFF)
+    assert "your pressure washing" in st["message"] and "fence" not in st["message"].lower().replace("sterling fence", "")
+    b = bk.send_booking(lead.id, bk.SendBody(), STAFF)["booking"]
+    assert b["total"] == 590 and b["tier"] == "none"
+    sms = [x for x in ghl if x[0] == "sms"][-1][1]
+    assert "pressure washing" in sms and "$250 deposit" in sms
+    email = [x for x in ghl if x[0] == "email"][-1]
+    assert email[1].startswith("Your date is held: Pressure washing on") and "fence staining" not in email[2]
+    cal = [x for x in ghl if x[0] == "cal"][-1]
+    assert "Pressure washing" in cal[2] and "Package:" not in cal[3] and "Color:" not in cal[3] and "two coats" not in cal[3]
+    page = bk.booking_page(b["token"], _Req())
+    assert page["services_only"] and page["package"] == "" and page["color"] == "" and page["discount"] == 0
+    assert page["proposal_url"] == "" and page["deposit"] == 250
+    bk.booking_pay(b["token"], _Req())
+    assert db.query(PayLink).filter(PayLink.lead_id == lead.id, PayLink.kind == "deposit").one().amount_cents == 25000
+    # A small job: the deposit is never more than the job.
+    pl.save_booking_draft(lead.id, pl.BookingDraftBody(date=day, tier="none", services=[{"name": "Gutter cleaning", "price": 180}]), STAFF)
+    b = bk.send_booking(lead.id, bk.SendBody(notify=False), STAFF)["booking"]
+    assert bk.booking_page(b["token"], _Req())["deposit"] == 180

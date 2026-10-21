@@ -30,7 +30,7 @@ const STEPS = ["Picked your package", "Date held", "Deposit paid", "Job day", "F
 
 /** An all-day calendar file for the target date. Fine for every phone's
  *  calendar; no arrival window yet, so no time on it. */
-function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: string): string {
+function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: string, title = "Fence staining", deposit = DEPOSIT): string {
   const d = (x: Date) => `${x.getFullYear()}${String(x.getMonth() + 1).padStart(2, "0")}${String(x.getDate()).padStart(2, "0")}`;
   const next = new Date(date); next.setDate(next.getDate() + 1);
   const esc = (s: string) => s.replace(/[\\,;]/g, (m) => `\\${m}`).replace(/\n/g, "\\n");
@@ -39,14 +39,14 @@ function icsFile(date: Date, address: string, confirmed: boolean, proposalUrl: s
     `UID:sterling-${d(date)}-${address.replace(/\W/g, "").slice(0, 20)}@sterlingfencetx.com`,
     `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
     `DTSTART;VALUE=DATE:${d(date)}`, `DTEND;VALUE=DATE:${d(next)}`,
-    `SUMMARY:${esc(`Fence staining with Sterling${confirmed ? "" : " (date held)"}`)}`,
+    `SUMMARY:${esc(`${title} with Sterling${confirmed ? "" : " (date held)"}`)}`,
     `LOCATION:${esc(address)}`,
-    `DESCRIPTION:${esc(`${confirmed ? "Confirmed." : "Date held. Pay the $250 deposit to confirm."} Weather can move the day; we'll text you if it does.\n\nYour booking: ${proposalUrl}\nQuestions? Call or text ${PHONE}`)}`,
+    `DESCRIPTION:${esc(`${confirmed ? "Confirmed." : `Date held. Pay the $${deposit} deposit to confirm.`} Weather can move the day; we'll text you if it does.\n\nYour booking: ${proposalUrl}\nQuestions? Call or text ${PHONE}`)}`,
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
 }
 
-export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services }: {
+export function BookingInvite({ firstName, address, pkgName, color, sides, feet, total, date, notes, staff, onClose, page, initial, onPay, proposalHref, holdUntilIso, paidAmount, onSave, saveLabel, klarna, onFinance, discount, discountLabel, repairs, repairsDiscount, repairsDiscountLabel, services, servicesOnly }: {
   firstName: string; address: string; pkgName: string; color: string; sides: string[]; feet: number; total: number;
   /** Alan's note to them, e.g. the pergola price range from the call. */
   notes?: string;
@@ -72,6 +72,9 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   repairsDiscountLabel?: string;
   /** Other services booked with the fence; `total` already includes them. */
   services?: { name: string; price: number; description?: string }[];
+  /** No fence staining, only the services (Alan, 2026-10-21, Teila): no
+   *  package, colour, sides, coats or proposal on the page. */
+  servicesOnly?: boolean;
   /** Dollars off the package; `total` is already after it (Alan, 2026-10-15). */
   discount?: number;
   discountLabel?: string;
@@ -83,6 +86,10 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   onSave?: () => void;
   saveLabel?: string;
 }) {
+  // The $250, never more than a small services-only job (same as the server).
+  const dep = servicesOnly && total > 0 ? Math.min(DEPOSIT, total) : DEPOSIT;
+  const jobTitle = servicesOnly ? ((services || []).map((sv) => sv.name).join(", ") || "Your service") : "Fence staining";
+  const steps = servicesOnly ? ["Picked your services", ...STEPS.slice(1)] : STEPS;
   const [state, setState] = useState<BookingState | "cancelled">(initial ?? "held");
   const [paying, setPaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -99,9 +106,9 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   const confirmed = state === "confirmed";
   const repairSum = (repairs || []).reduce((t, r) => t + r.qty * r.unit_price, 0);
   const serviceSum = (services || []).reduce((t, sv) => t + sv.price, 0);
-  const paid = confirmed ? (paidAmount || DEPOSIT) : 0;
+  const paid = confirmed ? (paidAmount || dep) : 0;
   const paidInFull = confirmed && total > 0 && paid >= total;
-  const balance = Math.max(0, total - (confirmed ? paid : DEPOSIT));
+  const balance = Math.max(0, total - (confirmed ? paid : dep));
   const stepNow = confirmed ? 3 : 2; // index of the step they're on
   const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
   const longDate = date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -136,7 +143,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
   };
   const addToCalendar = () => {
     try {
-      const blob = new Blob([icsFile(date, address, confirmed, page ? window.location.href : `https://${proposalUrl}`)], { type: "text/calendar" });
+      const blob = new Blob([icsFile(date, address, confirmed, page ? window.location.href : `https://${proposalUrl}`, jobTitle, dep)], { type: "text/calendar" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = "sterling-fence-staining.ics";
@@ -147,10 +154,12 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
 
   const textMsg = confirmed
     ? `Hi ${firstName}, you're confirmed! Your deposit is in and ${longDate} is yours. Everything about your job is here: ${bookingUrl}`
-    : `Hi ${firstName}, it's Alan with Sterling Fence Staining. I'm holding ${longDate} for your fence. Here's your booking, and the $250 deposit locks it in: ${bookingUrl}`;
+    : servicesOnly
+      ? `Hi ${firstName}, it's Alan with Sterling. I'm holding ${longDate} for your ${jobTitle.toLowerCase()}. Here's your booking, and the ${formatCurrency(dep).replace(".00", "")} deposit locks it in: ${bookingUrl}`
+      : `Hi ${firstName}, it's Alan with Sterling Fence Staining. I'm holding ${longDate} for your fence. Here's your booking, and the $250 deposit locks it in: ${bookingUrl}`;
   const emailSubject = confirmed
-    ? `Confirmed: fence staining on ${longDate}`
-    : `Your date is held: fence staining on ${longDate}`;
+    ? `Confirmed: ${jobTitle.toLowerCase()} on ${longDate}`
+    : `Your date is held: ${jobTitle.toLowerCase()} on ${longDate}`;
   const fires = confirmed ? [
     "Stripe: $250 deposit paid (the same deposit link as the proposal's)",
     "This page: flips to Confirmed by itself (nobody touches anything)",
@@ -222,7 +231,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                 <div>
                   <p className="text-[19px] font-bold leading-tight">Your date is on hold</p>
                   {discount || repairsDiscount ? <p className="mt-0.5 inline-block rounded-full bg-emerald-500/20 px-2 py-0.5 text-[13px] font-bold text-emerald-300">You're saving {formatCurrency((discount || 0) + (repairsDiscount || 0))}{discountLabel && !repairsDiscount ? ` · ${discountLabel}` : ""}</p> : null}
-                  <p className="text-[15px] text-white/85">{klarna ? "The $250 deposit or Klarna confirms it" : `${formatCurrency(DEPOSIT)} deposit to confirm`}</p>
+                  <p className="text-[15px] text-white/85">{klarna ? "The $250 deposit or Klarna confirms it" : `${formatCurrency(dep)} deposit to confirm`}</p>
                 </div>
               </div>
               {klarna ? (
@@ -232,7 +241,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button type="button" onClick={pay} disabled={paying || financing}
                       className="flex h-14 items-center justify-center gap-1.5 rounded-xl text-[16px] font-bold text-[#15130F] shadow-md active:scale-[0.98] disabled:opacity-70" style={{ background: GOLD }}>
-                      <Lock className="h-4 w-4" /> {paying ? "Opening…" : `Reserve · ${formatCurrency(DEPOSIT).replace(".00", "")}`}
+                      <Lock className="h-4 w-4" /> {paying ? "Opening…" : `Reserve · ${formatCurrency(dep).replace(".00", "")}`}
                     </button>
                     <button type="button" onClick={() => void finance()} disabled={paying || financing}
                       className="flex h-14 items-center justify-center gap-1.5 rounded-xl bg-[#FFB3C7] text-[16px] font-bold text-black shadow-md active:scale-[0.98] disabled:opacity-70">
@@ -244,7 +253,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
               ) : (
               <button type="button" onClick={pay}
                 className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-xl text-[17px] font-bold text-[#15130F] shadow-md active:scale-[0.98]" style={{ background: GOLD }}>
-                <Lock className="h-5 w-5" /> {paying ? "Paying…" : `Pay ${formatCurrency(DEPOSIT)} to lock in my date`}
+                <Lock className="h-5 w-5" /> {paying ? "Paying…" : `Pay ${formatCurrency(dep)} to lock in my date`}
               </button>
               )}
               <p className="mt-2 text-center text-[13px] text-white/75">We hold it for you until {holdUntil.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.</p>
@@ -264,13 +273,13 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
             <div className="min-w-0">
               <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">{confirmed ? "Your start date" : "The date we're holding"}</p>
               <p className="font-heading text-[22px] font-bold leading-tight">{longDate}</p>
-              <p className="mt-1 text-[15px]">Fence staining{feet ? ` · ${feet} ft` : ""}</p>
+              <p className="mt-1 text-[15px]">{servicesOnly ? jobTitle : `Fence staining${feet ? ` · ${feet} ft` : ""}`}</p>
               <p className="mt-1 flex items-start gap-1.5 text-[14px] text-[#15130F]/75"><MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {address}</p>
             </div>
           </div>
           <div className="flex items-start gap-3 rounded-2xl bg-sky-50 p-3.5 ring-1 ring-sky-200">
             <CloudRain className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
-            <p className="text-[15px] leading-snug">This is the day we're aiming for. Stain only goes on a dry fence, so if rain is coming we'll text you and pick the next dry day together. We text you the day before, too.</p>
+            <p className="text-[15px] leading-snug">This is the day we're aiming for. {servicesOnly ? "If rain is coming" : "Stain only goes on a dry fence, so if rain is coming"} we'll text you and pick the next dry day together. We text you the day before, too.</p>
           </div>
 
           <button type="button" onClick={addToCalendar}
@@ -282,7 +291,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
           <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
             <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">Where you are</p>
             <ol className="mt-2 space-y-2.5">
-              {STEPS.map((s, i) => {
+              {steps.map((s, i) => {
                 const done = i < stepNow;
                 const now = i === stepNow;
                 return (
@@ -293,7 +302,7 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                       {done ? <Check className="h-4 w-4" /> : i + 1}
                     </span>
                     <span className={cn(done ? "text-[#15130F]/75" : now ? "font-bold" : "text-[#15130F]/70")}>
-                      {s}{now && i === 2 ? ` · ${formatCurrency(DEPOSIT)}` : ""}{now && i === 3 ? ` · ${weekday}` : ""}
+                      {s}{now && i === 2 ? ` · ${formatCurrency(dep)}` : ""}{now && i === 3 ? ` · ${weekday}` : ""}
                     </span>
                   </li>
                 );
@@ -305,13 +314,15 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
           <div className="rounded-2xl bg-white p-4 ring-1 ring-[#15130F]/10">
             <p className="text-[13px] font-bold uppercase tracking-wide text-[#8C6224]">Your job</p>
             <dl className="mt-2 space-y-2 text-[15px]">
-              <Row k="Package" v={pkgName} />
-              {color ? <Row k="Color" v={color} /> : null}
-              {sides.length ? <Row k="Sides" v={sides.join(", ")} /> : null}
-              <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
-              <div className="border-t border-[#15130F]/10 pt-2">
+              {servicesOnly ? null : <>
+                <Row k="Package" v={pkgName} />
+                {color ? <Row k="Color" v={color} /> : null}
+                {sides.length ? <Row k="Sides" v={sides.join(", ")} /> : null}
+                <Row k="Two coats, cleaning, prep and cleanup" v="Included" />
+              </>}
+              <div className={cn(!servicesOnly && "border-t border-[#15130F]/10 pt-2")}>
                 {/* The discount spelled out, so the math reads top to bottom. */}
-                {discount || repairs?.length || services?.length ? (
+                {!servicesOnly && (discount || repairs?.length || services?.length) ? (
                   <>
                     <Row k={pkgName || "Package"} v={formatCurrency(total + (discount || 0) - repairSum + (repairsDiscount || 0) - serviceSum)} />
                     {discount ? <div className="flex justify-between gap-3 font-semibold text-emerald-700">
@@ -340,11 +351,11 @@ export function BookingInvite({ firstName, address, pkgName, color, sides, feet,
                   </div>
                 ))}
                 <Row k="Job total" v={formatCurrency(total)} bold={!!(discount || repairs?.length || services?.length)} />
-                <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(DEPOSIT)} />
+                <Row k={confirmed ? (paidInFull ? "Paid" : "Deposit paid") : "Deposit to confirm"} v={confirmed ? `− ${formatCurrency(paid)}` : formatCurrency(dep)} />
                 <Row k="Due after the job" v={formatCurrency(balance)} bold />
               </div>
             </dl>
-            {page && !proposalHref ? null : <a href={proposalHref || "#"} target={proposalHref ? "_blank" : undefined} rel="noreferrer"
+            {servicesOnly || (page && !proposalHref) ? null : <a href={proposalHref || "#"} target={proposalHref ? "_blank" : undefined} rel="noreferrer"
               onClick={proposalHref ? undefined : (e) => { e.preventDefault(); setToast("Their proposal opens here"); }}
               className="mt-3 flex h-12 items-center justify-center gap-2 rounded-xl text-[15px] font-bold ring-1 ring-[#15130F]/15">
               <FileText className="h-4 w-4" style={{ color: GOLD }} /> See my full proposal

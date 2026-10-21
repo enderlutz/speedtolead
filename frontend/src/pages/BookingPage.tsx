@@ -18,6 +18,7 @@ type Booking = {
   repairs?: { name: string; qty: number; unit_price: number }[];
   repairs_discount?: number; repairs_discount_label?: string;
   services?: { name: string; price: number; description?: string }[];
+  services_only?: boolean;
 };
 
 export default function BookingPage() {
@@ -92,6 +93,7 @@ export default function BookingPage() {
       repairsDiscount={b.repairs_discount || 0}
       repairsDiscountLabel={b.repairs_discount_label || ""}
       services={b.services || []}
+      servicesOnly={!!b.services_only}
       onFinance={finance}
     />
   );

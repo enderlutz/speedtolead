@@ -527,7 +527,8 @@ def extend_price(lead_id: str, body: ExtendBody, user: dict = Depends(require_st
 # now it's drafted and previewed on the lead; sending it comes next. Kept in
 # form_data under its own key so saving it never re-prices the estimate.
 
-BOOKING_TIERS = ("essential", "signature", "legacy")
+# "none": no fence staining, just other services (Alan, 2026-10-21, Teila).
+BOOKING_TIERS = ("essential", "signature", "legacy", "none")
 
 
 class BookingDraftBody(BaseModel):
