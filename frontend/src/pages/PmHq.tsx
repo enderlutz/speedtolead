@@ -2,25 +2,33 @@
  * Project Manager HQ (Alan, 2026-10-18): the project manager's own job
  * calendar, separate from Google Calendar. Three tabs:
  *   Today     what's on today, who's there, how far along (live).
- *   Calendar  the month. Tap a day, add a customer, tap who's cleaning or
- *             staining. That day then says "Cleaning".
+ *   Calendar  Google Calendar's shapes (Alan, 2026-10-21): Schedule (a
+ *             vertical list), Day, 3 days, Week, Month. Day is where the
+ *             editing lives: add a customer, pick who's cleaning or staining,
+ *             drag the morning order. The views are in components/schedule/.
  *   Past jobs the jobs that are done.
  * Every day here is a crew day on the customer's Company Cam job, the same
  * thing the profile's "Who's on this job?" edits, and what the crew see on
  * My Schedule. Only admins add or remove days. No prices on this page.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getCurrentUser, hasPerm } from "@/lib/api";
 import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
-import { CalendarDays, GripVertical, CheckCircle2, ChevronLeft, ChevronRight, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
+import { CalendarDays, GripVertical, CheckCircle2, HardHat, History, Loader2, MapPin, Plus, RefreshCw, Search, Sun, X } from "lucide-react";
 import { api, type CrewDayTask, type PmDay, type PmPastJob, type PmProgress, type PmTodayJob } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn, errMessage } from "@/lib/utils";
+import { ScheduleTopBar } from "@/components/schedule/ScheduleTopBar";
+import { AgendaView } from "@/components/schedule/AgendaView";
+import { MultiDayView } from "@/components/schedule/MultiDayView";
+import { MonthView } from "@/components/schedule/MonthView";
+import { DayBanner } from "@/components/schedule/bits";
+import { addDays as plusDays, addMonths, dayList, groupByDay, isDay, monthGrid, parseView, rangeLabel, startOfWeek } from "@/components/schedule/dates";
 
 type Tab = "today" | "calendar" | "past";
 type Task = CrewDayTask;
@@ -55,7 +63,6 @@ const TASK_ON: Record<string, string> = {
   staining: "bg-emerald-700 text-white ring-emerald-700",
   pressure_washing: "bg-indigo-600 text-white ring-indigo-600",
 };
-const TASK_DOT: Record<string, string> = { cleaning: "bg-sky-500", staining: "bg-emerald-600", pressure_washing: "bg-indigo-500" };
 
 /** The services on a washing job, as small chips. */
 function PwServices({ list }: { list?: string[] }) {
@@ -184,87 +191,80 @@ function TodayView() {
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────
+// The view and the day live in the address: ?tab=calendar&view=week&day=….
+//   schedule  a vertical list, today −7 days to +35, Earlier/Later add 4 weeks
+//   day       the picked day, with the editing (DayPanel)
+//   3day      the picked day and the two after it
+//   week      Monday → Sunday of the picked day's week
+//   month     the picked day's month
+// Jobs have no clock time, only a date and a morning order, so every view
+// shows them the way Google shows all-day events.
 function CalendarView() {
   const today = ctToday();
   const [params, set] = usePmParams();
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(params.get("day") || "") ? params.get("day")! : today;
-  const [month, setMonth] = useState(() => day.slice(0, 7)); // YYYY-MM
+  const day = isDay(params.get("day")) ? params.get("day")! : today;
+  const view = parseView(params.get("view"));
+  // Earlier/Later on the schedule list, as 4-week steps either side of the
+  // anchor day. A new anchor (arrows, Today, a tap) starts over.
+  const [ext, setExt] = useState({ anchor: day, before: 0, after: 0 });
+  const before = ext.anchor === day ? ext.before : 0;
+  const after = ext.anchor === day ? ext.after : 0;
+
+  const range = useMemo(() => {
+    switch (view) {
+      case "day": return { start: day, end: day };
+      case "3day": return { start: day, end: plusDays(day, 2) };
+      case "week": { const mon = startOfWeek(day); return { start: mon, end: plusDays(mon, 6) }; }
+      case "month": { const g = monthGrid(day); return { start: g[0], end: g[g.length - 1] }; }
+      default: return { start: plusDays(day, -7 - 28 * before), end: plusDays(day, 35 + 28 * after) };
+    }
+  }, [view, day, before, after]);
+
   const [days, setDays] = useState<PmDay[] | null>(null);
   const [crew, setCrew] = useState<{ username: string; name: string }[]>([]);
   const [canEdit, setCanEdit] = useState(false);
-  const picked = day;
-  const setPicked = useCallback((d: string) => set({ day: d }), [set]);
-
-  const grid = useMemo(() => {
-    const [y, m] = month.split("-").map(Number);
-    const first = new Date(y, m - 1, 1);
-    const start = new Date(first); start.setDate(1 - first.getDay());
-    return Array.from({ length: 42 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return iso(d); });
-  }, [month]);
-
+  const [loaded, setLoaded] = useState(""); // the range on screen; a spinner shows until it matches
+  const seq = useRef(0); // the last request wins when arrows are tapped fast
   const load = useCallback(() => {
-    api.getPmHqCalendar(grid[0], grid[41])
-      .then((r) => { setDays(r.days); setCrew(r.crew_options); setCanEdit(r.can_edit); })
+    const n = ++seq.current;
+    api.getPmHqCalendar(range.start, range.end)
+      .then((r) => {
+        if (n !== seq.current) return;
+        setDays(r.days); setCrew(r.crew_options); setCanEdit(r.can_edit); setLoaded(`${range.start}|${range.end}`);
+      })
       .catch((e) => toast.error(errMessage(e, "Something went wrong")));
-  }, [grid]);
+  }, [range]);
   useEffect(() => { load(); }, [load]);
+  const loading = loaded !== `${range.start}|${range.end}`;
 
-  const byDay = useMemo(() => {
-    const m = new Map<string, PmDay[]>();
-    for (const d of days || []) { if (!m.has(d.date)) m.set(d.date, []); m.get(d.date)!.push(d); }
-    return m;
-  }, [days]);
-
-  const shift = (n: number) => {
-    const [y, m] = month.split("-").map(Number);
-    const d = new Date(y, m - 1 + n, 1);
-    setMonth(iso(d).slice(0, 7));
-  };
+  const byDay = useMemo(() => groupByDay(days || []), [days]);
+  const pickDay = useCallback((d: string) => set({ view: "day", day: d }), [set]);
+  // One unit of the view: a day, 3 days, a week, a month; 4 weeks on the list.
+  const step = (n: -1 | 1) => set({
+    day: view === "month" ? addMonths(day, n)
+      : plusDays(day, n * (view === "day" ? 1 : view === "3day" ? 3 : view === "week" ? 7 : 28)),
+  });
+  const goToday = () => { setExt({ anchor: today, before: 0, after: 0 }); set({ day: today }); };
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <Button variant="outline" size="sm" onClick={() => shift(-1)} aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></Button>
-        <p className="text-base font-semibold">{new Date(month + "-15T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</p>
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" onClick={() => { setMonth(today.slice(0, 7)); setPicked(today); }}>Today</Button>
-          <Button variant="outline" size="sm" onClick={() => shift(1)} aria-label="Next month"><ChevronRight className="h-4 w-4" /></Button>
-        </div>
-      </div>
-      {!days ? <Spinner /> : (
-        <div className="overflow-hidden rounded-2xl border bg-card">
-          <div className="grid grid-cols-7 border-b bg-muted/40 text-center text-[11px] font-semibold text-muted-foreground">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="py-1.5">{d}</div>)}
-          </div>
-          <div className="grid grid-cols-7">
-            {grid.map((d) => {
-              const items = byDay.get(d) || [];
-              const inMonth = d.slice(0, 7) === month;
-              return (
-                <button key={d} type="button" onClick={() => setPicked(d)}
-                        className={cn("min-h-16 border-b border-r p-1 text-left align-top transition-colors sm:min-h-24",
-                          !inMonth && "bg-muted/30 text-muted-foreground", picked === d && "bg-primary/10 ring-2 ring-inset ring-primary")}>
-                  <span className={cn("inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold tabular-nums",
-                    d === today && "bg-primary text-primary-foreground")}>{Number(d.slice(8))}</span>
-                  {/* Phones: a dot per crew day. Wider screens: the words. */}
-                  <div className="mt-0.5 flex flex-wrap gap-0.5 sm:hidden">
-                    {items.map((x, i) => <span key={i} className={cn("h-2 w-2 rounded-full", TASK_DOT[x.task] ?? "bg-zinc-400")} />)}
-                  </div>
-                  <div className="mt-0.5 hidden space-y-0.5 sm:block">
-                    {items.slice(0, 3).map((x, i) => (
-                      <div key={i} className={cn("truncate rounded px-1 py-0.5 text-[10px] font-semibold ring-1", TASK_CLS[x.task] ?? TASK_CLS[""])}>
-                        {TASK_LABEL[x.task]}: {x.name.split(" ")[0]}
-                      </div>
-                    ))}
-                    {items.length > 3 ? <div className="text-[10px] text-muted-foreground">+{items.length - 3} more</div> : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      <ScheduleTopBar view={view} label={rangeLabel(view, day, range.start, range.end, today)} loading={loading}
+                      onToday={goToday} onStep={step} onView={(v) => set({ view: v })} />
+      {!days ? <Spinner /> : view === "schedule" ? (
+        <AgendaView days={days} start={range.start} end={range.end} today={today} Link={JobLink} onPickDay={pickDay}
+                    onEarlier={() => setExt({ anchor: day, before: before + 1, after })}
+                    onLater={() => setExt({ anchor: day, before, after: after + 1 })} />
+      ) : view === "day" ? (
+        <>
+          <DayBanner day={day} today={today} items={byDay.get(day) || []} />
+          <DayPanel key={day} day={day} items={byDay.get(day) || []} crew={crew} canEdit={canEdit} onChange={load} />
+        </>
+      ) : view === "month" ? (
+        <MonthView anchor={day} byDay={byDay} today={today} onPickDay={pickDay} />
+      ) : (
+        <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
+                      onPickDay={pickDay} maxChips={view === "week" ? 4 : undefined} />
       )}
-      {days ? <DayPanel key={picked} day={picked} items={byDay.get(picked) || []} crew={crew} canEdit={canEdit} onChange={load} /> : null}
     </div>
   );
 }

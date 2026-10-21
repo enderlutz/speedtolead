@@ -1,0 +1,76 @@
+/**
+ * The small parts every schedule view shares: the Sterling colours, Google's
+ * day stamp (weekday small, number big, today in a gold circle) and the
+ * one-line job chip. Read outdoors on a phone: nothing under 14px, every tap
+ * target 44px tall.
+ */
+import type { ComponentType, ReactNode } from "react";
+import type { PmDay } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { dayNumber, firstName, fmt, weekdayShort } from "./dates";
+import { INK, IVORY, MUTED, PAPER, RING, TASK_ICON, TASK_WORD, isDone } from "./look";
+
+/** How a job opens. The page hands in its own JobLink: the office opens the
+ *  customer's Company Cam page, a view-only login gets plain text. */
+export type JobLinkComponent = ComponentType<{ leadId: string; className: string; children: ReactNode }>;
+
+const longDay = (d: string) => fmt(d, { weekday: "long", month: "long", day: "numeric" });
+
+/**
+ * Google's day stamp. In a list (the schedule, a phone's stacked days) the
+ * number sits on top with the weekday under it, in a 56px rail. As a column
+ * header the weekday goes on top. Today's number is a filled gold circle.
+ */
+export function DayStamp({ day, today, onClick, column }: { day: string; today: string; onClick?: () => void; column?: boolean }) {
+  const isToday = day === today;
+  const weekday = <span className={cn("text-[12px] font-bold uppercase leading-none tracking-[0.1em]", isToday ? "text-[#C9972F]" : MUTED)}>{weekdayShort(day)}</span>;
+  const number = (
+    <span className={cn("flex h-10 w-10 items-center justify-center rounded-full text-[22px] font-bold tabular-nums leading-none",
+      isToday ? "bg-[#C9972F] text-[#15130F] shadow-sm" : INK)}>{dayNumber(day)}</span>
+  );
+  const cls = cn("flex shrink-0 flex-col items-center justify-center gap-1 rounded-xl",
+    column ? "min-h-[72px] w-full py-2" : "min-h-[64px] w-14 py-1",
+    onClick && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60");
+  const inner = column ? <>{weekday}{number}</> : <>{number}{weekday}</>;
+  if (!onClick) return <div className={cls}>{inner}</div>;
+  return <button type="button" onClick={onClick} aria-label={`Open ${longDay(day)}`} className={cls}>{inner}</button>;
+}
+
+/**
+ * "🖌️ 1 Jose · Michelle Stout": one line, cut off with … when it runs out of
+ * room. A finished one gets a ✓ and goes quiet. `tiny` is the month grid's
+ * size (the cell is the tap target, so the chip is a plain span).
+ */
+export function JobChip({ x, n, Link, tiny }: { x: PmDay; n: number; Link?: JobLinkComponent; tiny?: boolean }) {
+  const fin = isDone(x);
+  const cls = cn("flex w-full items-center gap-1.5 rounded-lg text-left text-[14px] font-semibold leading-tight", RING,
+    tiny ? "min-h-7 px-1.5" : "min-h-11 px-2",
+    fin ? cn(IVORY, MUTED) : cn(PAPER, INK, !tiny && "hover:bg-[#F8F3E7] active:bg-[#E4DCCB]/60"));
+  const body = (
+    <>
+      <span className="shrink-0 text-[14px] leading-none" aria-hidden>{fin ? "✓" : TASK_ICON[x.task] ?? "•"}</span>
+      <span className="min-w-0 flex-1 truncate">{n} {firstName(x.person)} · {x.name}</span>
+    </>
+  );
+  if (tiny || !Link) return <span className={cls} title={`${x.person} · ${x.name} · ${TASK_WORD[x.task] ?? x.task}`}>{body}</span>;
+  return <Link leadId={x.lead_id} className={cls}>{body}</Link>;
+}
+
+/** The header over the Day view: the stamp, how many jobs and workers, a Today pill. */
+export function DayBanner({ day, today, items }: { day: string; today: string; items: PmDay[] }) {
+  const jobs = new Set(items.map((x) => x.lead_id)).size;
+  const workers = new Set(items.map((x) => x.username)).size;
+  const s = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
+  return (
+    <div className={cn("flex items-center gap-3 rounded-2xl px-3 py-1.5", PAPER, RING)}>
+      <DayStamp day={day} today={today} />
+      <div className="min-w-0">
+        <p className={cn("flex flex-wrap items-center gap-2 font-heading text-[18px] font-bold leading-tight", INK)}>
+          {fmt(day, { month: "long", day: "numeric", year: "numeric" })}
+          {day === today ? <span className="rounded-full bg-[#C9972F] px-2 py-0.5 text-[12px] font-bold uppercase tracking-[0.1em] text-[#15130F]">Today</span> : null}
+        </p>
+        <p className={cn("text-[15px]", MUTED)}>{jobs ? `${s(jobs, "job")} · ${s(workers, "worker")}` : "Nothing on this day"}</p>
+      </div>
+    </div>
+  );
+}

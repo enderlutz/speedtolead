@@ -1,0 +1,126 @@
+/**
+ * Dates for the Project Manager schedule (Alan, 2026-10-21: "make it like
+ * Google Calendar"). Every day here is a Houston calendar day as "YYYY-MM-DD";
+ * it is never re-zoned, only displayed (see lib/date.ts for the rule).
+ *
+ * Jobs have no clock time, only a date and an order per worker, so they show
+ * the way Google shows all-day events. Weeks run Monday → Sunday, the way the
+ * crew's week runs.
+ */
+import type { PmDay } from "@/lib/api";
+
+export type ScheduleView = "schedule" | "day" | "3day" | "week" | "month";
+
+export const VIEWS: { key: ScheduleView; label: string }[] = [
+  { key: "schedule", label: "Schedule" },
+  { key: "day", label: "Day" },
+  { key: "3day", label: "3 days" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+];
+
+export function parseView(s: string | null | undefined): ScheduleView {
+  return VIEWS.some((v) => v.key === s) ? (s as ScheduleView) : "schedule";
+}
+
+export const isDay = (s: string | null | undefined): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s || "");
+
+/** Noon local, so DST never moves the calendar day. */
+export function toDate(s: string): Date {
+  return new Date(s + "T12:00:00");
+}
+export function toIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+export function addDays(s: string, n: number): string {
+  const d = toDate(s); d.setDate(d.getDate() + n); return toIso(d);
+}
+/** Same day of the month n months away; the 31st becomes the 30th when it must. */
+export function addMonths(s: string, n: number): string {
+  const d = toDate(s);
+  const dom = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(dom, last));
+  return toIso(d);
+}
+/** The Monday on or before this day. */
+export function startOfWeek(s: string): string {
+  const d = toDate(s);
+  const back = (d.getDay() + 6) % 7; // Mon 0 … Sun 6
+  d.setDate(d.getDate() - back);
+  return toIso(d);
+}
+export function dayList(start: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => addDays(start, i));
+}
+/** Six Monday-start rows that cover this day's month: 42 days. */
+export function monthGrid(s: string): string[] {
+  return dayList(startOfWeek(s.slice(0, 8) + "01"), 42);
+}
+export const monthKey = (s: string) => s.slice(0, 7);
+export const dayNumber = (s: string) => Number(s.slice(8, 10));
+
+export function fmt(s: string, opts: Intl.DateTimeFormatOptions): string {
+  return toDate(s).toLocaleDateString("en-US", opts);
+}
+/** "WED" */
+export const weekdayShort = (s: string) => fmt(s, { weekday: "short" }).toUpperCase();
+/** "October 2026" */
+export const monthLong = (s: string) => fmt(s, { month: "long", year: "numeric" });
+/** "OCTOBER 2026" for the sticky band in the schedule list. */
+export const monthBand = (s: string) => monthLong(s).toUpperCase();
+
+const mon = (s: string) => fmt(s, { month: "short" });
+const monDay = (s: string) => fmt(s, { month: "short", day: "numeric" });
+const year = (s: string) => s.slice(0, 4);
+
+/** "Oct 19 – 25, 2026" · "Oct 26 – Nov 1, 2026" · "Dec 28, 2026 – Jan 3, 2027" (Google's shapes). */
+export function spanLabel(start: string, end: string, withYear: boolean): string {
+  if (year(start) !== year(end)) return `${monDay(start)}, ${year(start)} – ${monDay(end)}, ${year(end)}`;
+  const body = monthKey(start) === monthKey(end) ? `${monDay(start)} – ${dayNumber(end)}` : `${monDay(start)} – ${monDay(end)}`;
+  return withYear ? `${body}, ${year(start)}` : body;
+}
+/** "October 2026" · "Oct – Nov 2026" · "Dec 2026 – Jan 2027": the months a schedule list covers. */
+export function monthsLabel(start: string, end: string): string {
+  if (monthKey(start) === monthKey(end)) return monthLong(start);
+  if (year(start) === year(end)) return `${mon(start)} – ${mon(end)} ${year(start)}`;
+  return `${mon(start)} ${year(start)} – ${mon(end)} ${year(end)}`;
+}
+
+/** What the top bar says for this view and range. */
+export function rangeLabel(view: ScheduleView, anchor: string, start: string, end: string, today: string): string {
+  const otherYear = year(anchor) !== year(today);
+  switch (view) {
+    case "day": return fmt(anchor, { weekday: "short", month: "short", day: "numeric" }) + (otherYear ? `, ${year(anchor)}` : "");
+    case "3day": return spanLabel(start, end, otherYear);
+    case "week": return spanLabel(start, end, true);
+    case "month": return monthLong(anchor);
+    default: return monthsLabel(start, end);
+  }
+}
+
+// ── Grouping ───────────────────────────────────────────────────────────────
+export type RankedJob = { x: PmDay; n: number };
+
+export function groupByDay(days: PmDay[]): Map<string, PmDay[]> {
+  const m = new Map<string, PmDay[]>();
+  for (const d of days) { if (!m.has(d.date)) m.set(d.date, []); m.get(d.date)!.push(d); }
+  return m;
+}
+
+/**
+ * A day's rows in the order the day panel shows them: main techs first,
+ * helpers after, each worker's jobs in the order the API gives (that is the
+ * morning order, 1 = where they start). `n` is that number.
+ */
+export function rankDay(items: PmDay[]): RankedJob[] {
+  const lanes = new Map<string, PmDay[]>();
+  for (const x of items) { if (!lanes.has(x.username)) lanes.set(x.username, []); lanes.get(x.username)!.push(x); }
+  return [...lanes.values()]
+    .map((rows) => ({ rows, helper: rows.every((r) => r.helper), person: rows[0].person }))
+    .sort((a, b) => Number(a.helper) - Number(b.helper) || a.person.localeCompare(b.person))
+    .flatMap((l) => l.rows.map((x, i) => ({ x, n: i + 1 })));
+}
+
+export const firstName = (s: string) => (s || "").trim().split(/\s+/)[0] || s;
