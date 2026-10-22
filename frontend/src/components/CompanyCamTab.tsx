@@ -874,10 +874,16 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
   // drawing — every other stage needs an actual photo.
   // A pressure-washing job (Alan, 2026-10-19): the steps are a before and an
   // after for each service the office picked, nothing about a fence.
-  const pwMode = !!data.pw_mode;
+  // A job with fence work AND washing (Alan, 2026-10-22, Amir: Brent cleans
+  // the fence and washes the house, Jose stains) keeps the fence steps and
+  // gets the washing before/afters too. The washing-only layout is only for
+  // a job with no fence days at all.
+  const hasFenceDays = (job.crew || []).some((c) => c.task === "cleaning" || c.task === "staining");
+  const pwMode = !!data.pw_mode && !hasFenceDays;
   const pwOptions = data.pw_service_options || [];
   const pwSecs = (data.pw_sections || []).map((sec) => ({ ...sec, label: pwSectionLabel(sec, pwOptions) }));
-  const steps = (pwMode ? pwSecs : sections).map((sec) => {
+  const mixedPw = !pwMode && pwSecs.length > 0;
+  const steps = (pwMode ? pwSecs : mixedPw ? [...sections, ...pwSecs] : sections).map((sec) => {
     const n = (photos[sec.key] || []).length;
     const written = sec.key === "fence_scope" && !!job.scope_explanation.trim();
     return { ...sec, ...sectionLook(sec.key), n, done: n > 0 || written, written };
@@ -1512,9 +1518,23 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
       {/* Pressure washing (Alan, 2026-10-19). The office can tick services on
           any job (that's what turns a job with no fence days into a washing
           job); the crew sees only the ones picked. */}
-      {manager || pwMode ? (
+      {manager || pwMode || mixedPw ? (
         <PwServicesPanel options={pwOptions} picked={job.pw_services || []} notes={job.pw_notes || {}} manager={manager} pwMode={pwMode}
                          onItems={(items) => void patch({ pw_items: items })} />
+      ) : null}
+
+      {/* Fence job with washing on it: the washing before/afters, here. */}
+      {mixedPw ? (
+        <section className="overflow-hidden rounded-2xl bg-gold/5 ring-2 ring-gold/50">
+          <div className="flex items-center gap-3 bg-gradient-to-r from-stone-700 to-ink px-4 py-3 text-white">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20"><Waves className="h-5 w-5" /></span>
+            <span>
+              <span className="block font-heading text-lg font-bold leading-tight">{tr("Pressure washing")}</span>
+              <span className="block text-sm text-white/85">{tr("A before and an after photo of each service")}</span>
+            </span>
+          </div>
+          <div className="space-y-3.5 p-2 sm:p-3">{pwSecs.map((sec) => renderStep(sec.key))}</div>
+        </section>
       ) : null}
 
       {pwMode ? (
