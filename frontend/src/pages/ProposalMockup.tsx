@@ -381,6 +381,8 @@ function GoldFrame({ inset = 3 }: { inset?: number }) {
 const SIGNATURE_PHOTOS = [
   { name: "Redwood Naturaltone", src: "/proposal-mockup/stain-redwood-naturaltone.jpg" },
   { name: "Cedar Naturaltone", src: "/proposal-mockup/stain-cedar-naturaltone.jpg" },
+  // Also a Legacy solid; the note here is the semi-transparent one (Alan, 2026-10-22).
+  { name: "Simply Cedar", src: "/proposal-mockup/stain-simply-cedar.jpg", note: "Classic cedar orange-brown with the grain showing through. The colour most people picture when they say \"stained fence\"." },
   { name: "Pecan", src: "/proposal-mockup/stain-pecan.jpg" },
   { name: "Redwood", src: "/proposal-mockup/stain-redwood.jpg" },
   { name: "Cottage Gray", src: "/proposal-mockup/stain-cottage-gray.jpg" },
@@ -655,7 +657,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
   const hasDrawing = preview ? !!dressed?.scopeUrl : true;
   const [pkg, setPkg] = useState<PkgKey | null>(dressed?.reserved?.tier || null);
   const [palette, setPalette] = useState<"signature" | "legacy">("signature");
-  const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string } | null>(null);
+  const [colorOpen, setColorOpen] = useState<{ name: string; src: string; full?: string; finish: string; note?: string } | null>(null);
   const [picketType, setPicketType] = useState(PICKETS[0].key);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [colorAsk, setColorAsk] = useState("");
@@ -1064,7 +1066,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
           <div className="grid grid-cols-2 gap-2">
             {(palette === "signature" ? SIGNATURE_PHOTOS : LEGACY_PHOTOS).map((c) => (
               <button key={c.name} type="button"
-                onClick={() => setColorOpen({ name: c.name, src: c.src, full: "full" in c ? (c as { full: string }).full : undefined, finish: palette === "signature" ? "Signature · semi-transparent" : "Legacy · solid color" })}
+                onClick={() => setColorOpen({ name: c.name, src: c.src, full: "full" in c ? (c as { full: string }).full : undefined, note: "note" in c ? (c as { note: string }).note : undefined, finish: palette === "signature" ? "Signature · semi-transparent" : "Legacy · solid color" })}
                 className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#15130F] text-left shadow-md ring-1 ring-[#15130F]/10 transition active:scale-[0.98]">
                 <img src={c.src} alt={c.name} className="h-full w-full object-cover" loading="lazy" draggable={false} />
                 <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-3 pb-2.5 pt-8 text-[15px] font-bold text-white">{c.name}</span>
@@ -1340,7 +1342,7 @@ export default function ProposalMockup({ preview = false, dressed, doors, staffP
             <div className="p-5">
               <h3 className="font-heading text-3xl font-bold leading-tight">{colorOpen.name}</h3>
               <p className="mt-1 text-[12px] font-bold uppercase tracking-[0.15em] text-[#8C6224]">{colorOpen.finish}</p>
-              <p className="mt-3 text-[17px] leading-relaxed text-[#15130F]/85">{COLOR_NOTES[colorOpen.name] || "A real fence we stained in this color."}</p>
+              <p className="mt-3 text-[17px] leading-relaxed text-[#15130F]/85">{colorOpen.note || COLOR_NOTES[colorOpen.name] || "A real fence we stained in this color."}</p>
               <p className="mt-4 rounded-xl bg-[#F8F3E7] px-3 py-2.5 text-[15px] text-[#15130F]/80">Like it? Tell us when we talk. We'll make sure it suits your wood.</p>
               <button type="button" onClick={() => setColorOpen(null)} className="mt-4 h-12 w-full rounded-xl text-[17px] font-bold text-[#15130F]" style={{ background: GOLD }}>Back to the colors</button>
             </div>

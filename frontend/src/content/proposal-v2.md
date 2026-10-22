@@ -250,8 +250,9 @@ Alan walked through the current PDF proposal page by page. What he said:
   an extra $100 off, and there's no time frame on it." Written into the
   mockup that way; decision still his.
 - **Signature Finish photos page (in progress).** Real job photos with
-  the colour name on each: Redwood Naturaltone, Cedar Naturaltone, Cottage
-  Gray, Pecan, Monticello Tan, Redwood, Dark Walnut, Chocolate Chips.
+  the colour name on each: Redwood Naturaltone, Cedar Naturaltone, Simply
+  Cedar (added 2026-10-22), Cottage Gray, Pecan, Monticello Tan, Redwood,
+  Dark Walnut, Chocolate Chips.
   This is the shape of the stain library.
 - **Financing on the mockup** reads "or 3 monthly payments of $421.20 at
   0% interest". Alan asked for research on what works best (split in 4
