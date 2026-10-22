@@ -164,3 +164,18 @@ export function groupJobs(items: PmDay[]): JobGroup[] {
   return out;
 }
 export const groupKey = (g: JobGroup) => `${g.key}|${g.x.date}`;
+
+/** "Brent $116 · Jose $16/hr" — each person's pay on the card, once each
+ *  (pay is per person per job). Office only (Alan, 2026-10-22). */
+export function payLine(g: JobGroup): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of g.rows) {
+    if (seen.has(r.username)) continue;
+    seen.add(r.username);
+    const amt = r.pay ? `$${Number(r.pay).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "";
+    const v = !r.pay_type || !r.pay ? "pay not set" : r.pay_type === "hourly" ? `${amt}/hr` : amt;
+    out.push(`${firstName(r.person)} ${v}`);
+  }
+  return out.join(" · ");
+}

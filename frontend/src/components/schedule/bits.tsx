@@ -7,7 +7,7 @@
 import type { ComponentType, ReactNode } from "react";
 import type { PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { dayNumber, fmt, weekdayShort, type JobGroup } from "./dates";
+import { dayNumber, fmt, payLine, weekdayShort, type JobGroup } from "./dates";
 import { INK, IVORY, MUTED, PAPER, RING, TASK_ICON, TASK_WORD, isDone } from "./look";
 
 /** How a job opens. The page hands in its own JobLink: the office opens the
@@ -43,7 +43,7 @@ export function DayStamp({ day, today, onClick, column }: { day: string; today: 
  * top, wrapping, and the people under it. `tiny` is the month grid's size
  * (the cell is the tap target, so the chip is a plain span).
  */
-export function JobChip({ g, Link, tiny, stacked }: { g: JobGroup; Link?: JobLinkComponent; tiny?: boolean; stacked?: boolean }) {
+export function JobChip({ g, Link, tiny, stacked, showPay }: { g: JobGroup; Link?: JobLinkComponent; tiny?: boolean; stacked?: boolean; showPay?: boolean }) {
   const x = g.x;
   const fin = g.rows.every(isDone);
   const icons = g.tasks.map((t) => TASK_ICON[t] ?? "•").join("");
@@ -58,11 +58,13 @@ export function JobChip({ g, Link, tiny, stacked }: { g: JobGroup; Link?: JobLin
       <span className="line-clamp-2 break-words text-[15px] font-bold">{x.name}</span>
       <span className={cn("flex items-start gap-1.5 text-[14px] font-medium", MUTED)}>{icon}<span className="line-clamp-2 break-words">{g.n} · {g.people}</span></span>
       {g.tasks.includes("pressure_washing") && pw.length ? <span className={cn("line-clamp-2 text-[14px]", MUTED)}>{pw.join(" · ")}</span> : null}
+      {showPay ? <span className={cn("text-[14px] font-bold tabular-nums", payLine(g).includes("not set") ? "text-amber-700" : "text-[#8C6224]")}>💵 {payLine(g)}</span> : null}
     </>
   ) : (
     <>
       {icon}
       <span className="min-w-0 flex-1 truncate">{g.n} {g.people} · {x.name}</span>
+      {showPay ? <span className={cn("shrink-0 text-[14px] font-bold tabular-nums", payLine(g).includes("not set") ? "text-amber-700" : "text-[#8C6224]")}>{payLine(g)}</span> : null}
     </>
   );
   const title = `${[...g.leads, ...g.helpers].map((r) => r.person + (r.helper ? " (helper)" : "")).join(", ")} · ${x.name} · ${g.tasks.map((t) => TASK_WORD[t] ?? t).join(" + ")}`;

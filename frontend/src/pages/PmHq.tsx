@@ -286,7 +286,7 @@ function CalendarView() {
       <ScheduleTopBar view={view} label={rangeLabel(view, day, range.start, range.end, today)} loading={loading}
                       onToday={goToday} onStep={step} onView={(v) => set({ view: v })} />
       {!days ? <Spinner /> : view === "schedule" ? (
-        <AgendaView days={days} start={range.start} end={range.end} today={today} Link={JobLink} onPickDay={pickDay}
+        <AgendaView days={days} start={range.start} end={range.end} today={today} Link={JobLink} onPickDay={pickDay} showPay={isOffice()}
                     onEarlier={() => setExt({ anchor: day, before: before + 1, after })}
                     onLater={() => setExt({ anchor: day, before, after: after + 1 })} />
       ) : view === "day" ? (
@@ -305,7 +305,7 @@ function CalendarView() {
             </div>
           ) : null}
           <MultiDayView dates={dayList(range.start, view === "week" ? 7 : 3)} byDay={byDay} today={today} Link={JobLink}
-                        onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"}
+                        onPickDay={pickDay} maxChips={view === "week" ? 6 : undefined} stacked={view === "week"} showPay={isOffice()}
                         canEdit={canEdit} onMove={(g, to) => void moveJob(g, to)} onAdd={(d) => { setAddDay(d); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </>
       )}

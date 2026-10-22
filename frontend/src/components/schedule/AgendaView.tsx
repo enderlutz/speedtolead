@@ -9,13 +9,13 @@ import type { PmDay } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DayStamp, type JobLinkComponent } from "./bits";
 import { INK, IVORY, LINE, MUTED, PAPER, RING, TASK_DOT, TASK_WORD, isDone } from "./look";
-import { fmt, groupByDay, groupJobs, groupKey, monthBand, monthKey, type JobGroup } from "./dates";
+import { fmt, groupByDay, groupJobs, groupKey, monthBand, monthKey, payLine, type JobGroup } from "./dates";
 
 const shortDay = (d: string) => fmt(d, { month: "short", day: "numeric" });
 
-export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier, onLater }: {
+export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier, onLater, showPay }: {
   days: PmDay[]; start: string; end: string; today: string; Link: JobLinkComponent;
-  onPickDay: (d: string) => void; onEarlier: () => void; onLater: () => void;
+  onPickDay: (d: string) => void; onEarlier: () => void; onLater: () => void; showPay?: boolean;
 }) {
   const byDay = groupByDay(days);
   const dates = [...byDay.keys()].filter((d) => d >= start && d <= end);
@@ -40,7 +40,7 @@ export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier
           <h3 className={cn("sticky top-0 z-10 border-y px-4 py-2 text-[12px] font-bold uppercase tracking-[0.16em]", IVORY, LINE, MUTED)}>
             {monthBand(m.dates[0])}
           </h3>
-          {m.dates.map((d, i) => <DayRow key={d} day={d} today={today} first={i === 0} items={byDay.get(d) || []} Link={Link} onPick={() => onPickDay(d)} />)}
+          {m.dates.map((d, i) => <DayRow key={d} day={d} today={today} first={i === 0} items={byDay.get(d) || []} Link={Link} onPick={() => onPickDay(d)} showPay={showPay} />)}
         </section>
       ))}
       <button type="button" onClick={onLater} className={cn(more, "rounded-b-2xl border-t", LINE)}>
@@ -50,8 +50,8 @@ export function AgendaView({ days, start, end, today, Link, onPickDay, onEarlier
   );
 }
 
-function DayRow({ day, today, first, items, Link, onPick }: {
-  day: string; today: string; first: boolean; items: PmDay[]; Link: JobLinkComponent; onPick: () => void;
+function DayRow({ day, today, first, items, Link, onPick, showPay }: {
+  day: string; today: string; first: boolean; items: PmDay[]; Link: JobLinkComponent; onPick: () => void; showPay?: boolean;
 }) {
   const groups = groupJobs(items);
   return (
@@ -60,14 +60,14 @@ function DayRow({ day, today, first, items, Link, onPick }: {
       <div className="min-w-0 py-0.5">
         {groups.length === 0
           ? <p className={cn("flex min-h-11 items-center px-2 text-[15px]", MUTED)}>Nothing on today.</p>
-          : groups.map((g) => <JobLine key={groupKey(g)} g={g} Link={Link} />)}
+          : groups.map((g) => <JobLine key={groupKey(g)} g={g} Link={Link} showPay={showPay} />)}
       </div>
     </div>
   );
 }
 
 /** "● Jose + Christian · 1. Michelle Stout · staining" with the address under it. */
-function JobLine({ g, Link }: { g: JobGroup; Link: JobLinkComponent }) {
+function JobLine({ g, Link, showPay }: { g: JobGroup; Link: JobLinkComponent; showPay?: boolean }) {
   const x = g.x;
   const fin = g.rows.every(isDone);
   const stains = g.tasks.includes("staining");
@@ -84,6 +84,7 @@ function JobLine({ g, Link }: { g: JobGroup; Link: JobLinkComponent }) {
           {g.tasks.includes("pressure_washing") && pw.length ? <span className={MUTED}>{" · "}{pw.join(", ")}</span> : null}
         </span>
         <span className={cn("block truncate text-[14px] leading-snug", MUTED)}>{x.address}</span>
+        {showPay ? <span className={cn("block text-[14px] font-bold leading-snug tabular-nums", payLine(g).includes("not set") ? "text-amber-700" : "text-[#8C6224]")}>💵 {payLine(g)}</span> : null}
       </span>
     </Link>
   );
