@@ -1531,7 +1531,13 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           job); the crew sees only the ones picked. */}
       {manager || pwMode || mixedPw ? (
         <PwServicesPanel options={pwOptions} picked={job.pw_services || []} notes={job.pw_notes || {}} manager={manager} pwMode={pwMode}
-                         onItems={(items) => void patch({ pw_items: items })}
+                         onItems={(items) => void patch({
+                           // The ticked keys the way the live server reads them, so a tick
+                           // always sticks; the notes and typed services ride along for
+                           // the newer server (Alan, 2026-10-22: "it doesn't let me tick").
+                           pw_services: items.map((i) => i.key || "").filter(Boolean),
+                           pw_items: items,
+                         })}
                          briefing={job.briefing || ""} onBriefing={(next) => void patch({ briefing: next })} />
       ) : null}
 
