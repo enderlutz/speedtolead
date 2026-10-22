@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from fastapi import APIRouter, Query, Depends
+from pydantic import BaseModel
 from api.auth import require_staff
 from sqlalchemy import func
 from sqlalchemy.orm import defer
@@ -110,6 +111,38 @@ def _collected_by_lead(db, lead_ids: list[str]) -> dict[str, float]:
 
 
 # ─── KPIs ────────────────────────────────────────────────────────────────
+
+@router.get("/analytics/booked")
+def get_booked(user: dict = Depends(require_staff)):
+    """Booked this month: jobs whose customer first paid this month, at full
+    value, with the pace, the goal and the close rate (Alan, 2026-10-22)."""
+    from services.booked import booked_month
+    db = get_db()
+    try:
+        return booked_month(db)
+    finally:
+        db.close()
+
+
+class _GoalBody(BaseModel):
+    goal: float
+
+
+@router.put("/analytics/booked-goal")
+def put_booked_goal(body: _GoalBody, user: dict = Depends(require_staff)):
+    from fastapi import HTTPException
+    from services.booked import booked_month, set_goal
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Only an admin sets the goal")
+    if not (0 < body.goal <= 10_000_000):
+        raise HTTPException(400, "Pick a goal in dollars")
+    db = get_db()
+    try:
+        set_goal(db, body.goal)
+        return booked_month(db)
+    finally:
+        db.close()
+
 
 @router.get("/analytics/kpis")
 def get_kpis(pipeline_version: str | None = Query(None), user: dict = Depends(require_staff)):

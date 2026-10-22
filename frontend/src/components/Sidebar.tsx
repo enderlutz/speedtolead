@@ -8,7 +8,7 @@ import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogO
 //   matching icon here.
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, type KPIs, getCurrentUser, clearToken, hasPerm, getDivision, setDivision, type Division } from "@/lib/api";
+import { api, type KPIs, type BookedMonth, getCurrentUser, clearToken, hasPerm, getDivision, setDivision, type Division } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { tr } from "@/lib/i18n";
 
@@ -150,7 +150,60 @@ export function MobileHeader({ onToggle }: { onToggle: () => void }) {
   );
 }
 
+/** Booked this month (Alan, 2026-10-22: "one metric that drives growth"):
+ *  the full value of jobs whose customer paid their first dollar this month,
+ *  Stripe and QuickBooks, against the month's goal, with the pace and the
+ *  close rate behind it. Falls back to the old card if the server hasn't
+ *  got it yet. */
 function SidebarRevenueWidget() {
+  const [b, setB] = useState<BookedMonth | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { api.getBooked().then(setB).catch(() => setFailed(true)); }, []);
+  if (failed) return <SidebarOldRevenueWidget />;
+  if (!b) return null;
+  const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const pct = b.goal > 0 ? Math.min(Math.round((b.booked / b.goal) * 100), 100) : 0;
+  const pacePct = b.goal > 0 ? Math.min(Math.round((b.pace / b.goal) * 100), 100) : 0;
+  const onPace = b.pace >= b.goal;
+  const editGoal = async () => {
+    if (getCurrentUser()?.role !== "admin") return;
+    const v = window.prompt("Monthly booked goal in dollars", String(Math.round(b.goal)));
+    const n = Number(String(v || "").replace(/[^0-9.]/g, ""));
+    if (!n) return;
+    try { setB(await api.setBookedGoal(n)); } catch { /* keep the old goal */ }
+  };
+  return (
+    <div className="px-4 py-3 border-t border-sidebar-border">
+      <div className="flex items-center gap-1.5 mb-2">
+        <TrendingUp className="h-3 w-3 text-sidebar-foreground/50" />
+        <p className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40 font-semibold">Booked this month</p>
+      </div>
+      <p className="text-lg font-bold text-sidebar-foreground tabular-nums">{money(b.booked)} <span className="text-sm font-semibold text-sidebar-foreground/60">· {b.jobs} job{b.jobs === 1 ? "" : "s"}</span></p>
+      <p className={`text-[11px] mt-0.5 ${onPace ? "text-emerald-400" : "text-sidebar-foreground/60"}`}>
+        On pace for {money(b.pace)}
+      </p>
+      <div className="mt-2">
+        <button type="button" onClick={() => void editGoal()} className="flex w-full items-center justify-between text-[11px] mb-1" title="Tap to change the goal">
+          <span className="text-sidebar-foreground/50">Goal{b.goal_set ? "" : " (last month +25%)"}</span>
+          <span className="text-sidebar-foreground/70 font-medium tabular-nums">{money(b.goal)}</span>
+        </button>
+        <div className="relative h-1.5 bg-sidebar-accent rounded-full overflow-hidden">
+          <div className="absolute inset-y-0 left-0 bg-sidebar-foreground/20 rounded-full" style={{ width: `${pacePct}%` }} />
+          <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#B8862F] to-[#E3BE63] rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+      {b.close_rate !== null ? (
+        <p className="text-[11px] mt-2 text-sidebar-foreground/60">
+          Close rate <span className={b.close_rate >= b.close_rate_goal ? "text-emerald-400 font-semibold" : "text-sidebar-foreground font-semibold"}>{b.close_rate}%</span> · goal {b.close_rate_goal}%
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The old card: closed estimates and estimates sent. Shown only until the
+ *  server has the booked numbers. */
+function SidebarOldRevenueWidget() {
   const [kpis, setKpis] = useState<KPIs | null>(null);
 
   useEffect(() => {

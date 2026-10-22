@@ -2045,6 +2045,9 @@ export const api = {
     request<CorrectionRequest>(`/api/correction-requests/${id}/resolve`, { method: "POST" }),
 
   // Analytics
+  // Booked this month (Alan, 2026-10-22): jobs whose customer first paid this month, at full value.
+  getBooked: () => request<BookedMonth>(`/api/analytics/booked`),
+  setBookedGoal: (goal: number) => request<BookedMonth>(`/api/analytics/booked-goal`, { method: "PUT", body: JSON.stringify({ goal }) }),
   getKPIs: (pipelineVersion?: string) => {
     const qs = pipelineVersion ? `?pipeline_version=${pipelineVersion}` : "";
     return request<KPIs>(`/api/analytics/kpis${qs}`);
@@ -6269,3 +6272,10 @@ export interface OnCallLogRow {
   text_sent_at?: string;
 }
 export interface OnCallScore { username: string; name: string; leads: number; called: number; within_5_pct: number; avg_minutes: number | null; missed: number; won: number; close_pct: number }
+
+export interface BookedMonth {
+  month: string; booked: number; jobs: number; pace: number; goal: number; goal_set: boolean;
+  last_month: number; last_month_jobs: number; estimates_sent: number;
+  close_rate: number | null; close_rate_goal: number;
+  customers: { key: string; name: string; lead_id: string; first_paid: string; value: number }[];
+}
