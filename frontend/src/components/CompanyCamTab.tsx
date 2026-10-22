@@ -24,6 +24,7 @@ import {
   Droplets, Hammer, Search, Send, Copy, Users, ShoppingCart, MessageSquare, RotateCcw, ClipboardCheck,
   Ruler, Sparkles, Paintbrush, MapPin, Phone, Check, Ban, ImagePlus,
   Package, Hash, Hourglass, Images, Plus, X, Eye, Receipt, Waves,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -744,6 +745,12 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 
   useEffect(() => { void load(); }, [load]);
 
+  // Fix the customer's address or number from the job (Alan, 2026-10-21):
+  // the lead's contact route, which also updates GoHighLevel.
+  const saveContact = async (body: Record<string, string>) => {
+    try { await api.updateContact(leadId, body); toast.success(tr("Saved")); await load(); }
+    catch (e) { toast.error(errMessage(e, tr("Couldn't save"))); throw e; }
+  };
   const patch = async (
     p: Partial<CompanyCamJob> & { pw_items?: { key?: string; label: string; note?: string }[]; upsells?: string[]; recalc_gallons?: boolean; pickets_marked?: boolean; extras_confirmed?: boolean; neighbor_send?: boolean; crew_pay?: { username: string } & CrewPay },
   ) => {
@@ -1389,13 +1396,17 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           {/* Tap the address for Google Maps, the number to call; Copy for
               either (Alan, 2026-10-16). Big enough for a thumb. */}
           <div className="mt-2 space-y-1.5">
-            {customer.address ? (
-              <ContactRow icon={MapPin} text={customer.address.replace(/,?\s*(United States|USA)\s*$/i, "")} label={tr("address")}
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.address)}`} external />
+            {customer.address || manager ? (
+              <ContactRow icon={MapPin} text={(customer.address || "").replace(/,?\s*(United States|USA)\s*$/i, "")} label={tr("address")}
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(customer.address || "")}`} external
+                        editValue={manager ? customer.address || "" : undefined}
+                        onSave={(v) => saveContact({ address: v })} />
             ) : null}
-            {customer.phone ? (
-              <ContactRow icon={Phone} text={prettyPhone(customer.phone)} copyText={customer.phone} label={tr("number")}
-                        href={`tel:${customer.phone.replace(/[^\d+]/g, "")}`} />
+            {customer.phone || manager ? (
+              <ContactRow icon={Phone} text={prettyPhone(customer.phone || "")} copyText={customer.phone} label={tr("number")}
+                        href={`tel:${(customer.phone || "").replace(/[^\d+]/g, "")}`}
+                        editValue={manager ? customer.phone || "" : undefined}
+                        onSave={(v) => saveContact({ contact_phone: v })} />
             ) : null}
           </div>
         </div>
@@ -2761,10 +2772,33 @@ function prettyPhone(p: string) {
 
 /** The customer's address or number on the Company Cam header: tap it to
  *  open Maps or call, or Copy it. */
-function ContactRow({ icon: Icon, text, copyText, href, external, label }: {
+function ContactRow({ icon: Icon, text, copyText, href, external, label, editValue, onSave }: {
   icon: typeof Phone; text: string; copyText?: string; href: string; external?: boolean; label: string;
+  /** Office only (Alan, 2026-10-21): fix a wrong address or number right here. */
+  editValue?: string; onSave?: (v: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(editValue || "");
+  const [saving, setSaving] = useState(false);
+  if (editing && onSave) {
+    const save = async () => {
+      if (!val.trim()) return;
+      setSaving(true);
+      try { await onSave(val.trim()); setEditing(false); } finally { setSaving(false); }
+    };
+    return (
+      <div className="flex items-stretch gap-1.5">
+        <input autoFocus value={val} onChange={(e) => setVal(e.target.value)} aria-label={label}
+               onKeyDown={(e) => { if (e.key === "Enter") void save(); if (e.key === "Escape") setEditing(false); }}
+               className="min-h-14 min-w-0 flex-1 rounded-xl bg-white px-3 text-base font-semibold text-ink ring-2 ring-gold" />
+        <button type="button" onClick={() => void save()} disabled={saving || !val.trim()}
+                className="flex min-h-11 shrink-0 items-center rounded-xl bg-gold px-4 text-sm font-bold text-ink disabled:opacity-50">{saving ? "…" : tr("Save")}</button>
+        <button type="button" onClick={() => setEditing(false)}
+                className="flex min-h-11 shrink-0 items-center rounded-xl bg-white/10 px-3 text-sm font-bold text-white ring-1 ring-white/15">{tr("Cancel")}</button>
+      </div>
+    );
+  }
   const copy = async () => {
     try { await navigator.clipboard.writeText(copyText || text); setCopied(true); setTimeout(() => setCopied(false), 1500); toast.success(isSpanish() ? `Copiado: ${label}` : `Copied the ${label}`); }
     catch { toast.error(tr("Couldn't copy. Press and hold it to copy.")); }
@@ -2781,6 +2815,12 @@ function ContactRow({ icon: Icon, text, copyText, href, external, label }: {
               className="flex min-h-11 shrink-0 items-center gap-1 rounded-xl bg-white/10 px-3 text-sm font-bold text-white ring-1 ring-white/15 active:bg-white/20">
         {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? tr("Copied") : tr("Copy")}
       </button>
+      {onSave && editValue !== undefined ? (
+        <button type="button" onClick={() => { setVal(editValue); setEditing(true); }} aria-label={isSpanish() ? `Editar: ${label}` : `Edit the ${label}`}
+                className="flex min-h-11 shrink-0 items-center gap-1 rounded-xl bg-white/10 px-3 text-sm font-bold text-gold-light ring-1 ring-white/15 active:bg-white/20">
+          <Pencil className="h-4 w-4" /> {tr("Edit")}
+        </button>
+      ) : null}
     </div>
   );
 }
