@@ -387,7 +387,8 @@ const SIGNATURE_PHOTOS = [
   { name: "Redwood", src: "/proposal-mockup/stain-redwood.jpg" },
   { name: "Cottage Gray", src: "/proposal-mockup/stain-cottage-gray.jpg" },
   { name: "Monticello Tan", src: "/proposal-mockup/stain-monticello-tan.jpg" },
-  { name: "Dark Walnut", src: "/proposal-mockup/stain-dark-walnut.jpg" },
+  // Alan's photo of a gate run (2026-10-22) in place of the first one.
+  { name: "Dark Walnut", src: "/proposal-mockup/stain-dark-walnut.jpg", full: "/proposal-mockup/stain-dark-walnut-full.jpg" },
   { name: "Chocolate Chips", src: "/proposal-mockup/stain-chocolate-chips.jpg" },
 ];
 // Legacy solid colours: the best photo of each from the dashboard's Fence
