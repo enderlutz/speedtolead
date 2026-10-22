@@ -1520,7 +1520,8 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
           job); the crew sees only the ones picked. */}
       {manager || pwMode || mixedPw ? (
         <PwServicesPanel options={pwOptions} picked={job.pw_services || []} notes={job.pw_notes || {}} manager={manager} pwMode={pwMode}
-                         onItems={(items) => void patch({ pw_items: items })} />
+                         onItems={(items) => void patch({ pw_items: items })}
+                         briefing={job.briefing || ""} onBriefing={(next) => void patch({ briefing: next })} />
       ) : null}
 
       {/* Fence job with washing on it: the washing before/afters, here. */}
@@ -1949,10 +1950,32 @@ export default function CompanyCamTab({ leadId, profileLink = false }: { leadId:
 /** Which washing services are on the job (Alan, 2026-10-19). The office
  *  ticks them; the crew sees the list. Folded away on a fence job until
  *  someone opens it, so it doesn't crowd the fence screen. */
-function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
+// The washing notes also live in the job's briefing, under this line, so they
+// save and reach the crew on any server version (Alan, 2026-10-21: "it still
+// does not let me save").
+const PW_NOTES_MARK = "Washing notes:";
+function briefingNotes(briefing: string): Record<string, string> {
+  const i = briefing.indexOf(PW_NOTES_MARK);
+  if (i < 0) return {};
+  const out: Record<string, string> = {};
+  for (const line of briefing.slice(i + PW_NOTES_MARK.length).split("\n")) {
+    const m = line.match(/^\s*[•-]?\s*([^:]+):\s*(.+)$/);
+    if (m) out[m[1].trim().toLowerCase()] = m[2].trim();
+  }
+  return out;
+}
+function withBriefingNotes(briefing: string, rows: { label: string; note: string }[]): string {
+  const i = briefing.indexOf(PW_NOTES_MARK);
+  const head = (i < 0 ? briefing : briefing.slice(0, i)).trimEnd();
+  const lines = rows.filter((r) => r.note.trim()).map((r) => `• ${r.label}: ${r.note.trim()}`);
+  return lines.length ? `${head}${head ? "\n\n" : ""}${PW_NOTES_MARK}\n${lines.join("\n")}` : head;
+}
+
+function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems, briefing, onBriefing }: {
   options: { key: string; label: string }[]; picked: string[]; notes: Record<string, string>; manager: boolean; pwMode: boolean;
   /** The whole list at once: what's picked, with a note each; a label not on the list is a typed service. */
   onItems: (items: { key?: string; label: string; note?: string }[]) => void;
+  briefing: string; onBriefing: (next: string) => void;
 }) {
   const [open, setOpen] = useState(pwMode || picked.length > 0);
   const [typed, setTyped] = useState("");
@@ -1960,9 +1983,15 @@ function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
   // Notes are typed here and sent when the box loses focus, so one keystroke
   // doesn't become one save.
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const names = picked.map((k) => ({ key: k, label: options.find((o) => o.key === k)?.label || k, note: notes[k] || "" }));
-  const send = (keys: string[], over: Record<string, string> = {}) =>
-    onItems(keys.map((k) => ({ key: k, label: options.find((o) => o.key === k)?.label || k, note: over[k] ?? draft[k] ?? notes[k] ?? "" })));
+  const fromBrief = briefingNotes(briefing);
+  const labelOf = (k: string) => options.find((o) => o.key === k)?.label || k;
+  const names = picked.map((k) => ({ key: k, label: labelOf(k), note: notes[k] || fromBrief[labelOf(k).toLowerCase()] || "" }));
+  const send = (keys: string[], over: Record<string, string> = {}) => {
+    const rows = keys.map((k) => ({ key: k, label: labelOf(k), note: over[k] ?? draft[k] ?? names.find((n) => n.key === k)?.note ?? "" }));
+    onItems(rows);
+    const next = withBriefingNotes(briefing, rows);
+    if (next !== briefing) onBriefing(next);
+  };
   const addTyped = () => {
     const label = typed.trim().replace(/\s+/g, " ").slice(0, 60);
     if (!label) { typedBox.current?.focus(); return; }
@@ -2003,6 +2032,7 @@ function PwServicesPanel({ options, picked, notes, manager, pwMode, onItems }: {
                   <span className="truncate font-semibold">{n.label}</span>
                   <Input value={draft[n.key] ?? n.note} maxLength={300} placeholder={tr("Note for the crew (optional)")}
                          onChange={(e) => setDraft((d) => ({ ...d, [n.key]: e.target.value }))}
+                         onBlur={() => { if ((draft[n.key] ?? n.note) !== n.note) send(picked, { [n.key]: draft[n.key] ?? "" }); }}
                          className="h-11 text-base" />
                 </label>
               ))}
