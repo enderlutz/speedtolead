@@ -848,6 +848,8 @@ def pay_info(token: str, request: Request = None, preview: int = 0):
             # The in-page form needs an email for the receipt; when the lead
             # has none, the page asks for one.
             "has_email": bool(lead and (lead.contact_email or "").strip()),
+            # The whole job on a deposit, so the page can show what the $250 comes off.
+            "job_total": round((link.job_total_cents or 0) / 100, 2),
         }
     finally:
         db.close()
