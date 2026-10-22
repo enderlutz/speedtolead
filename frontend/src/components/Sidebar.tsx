@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import HoustonClock from "@/components/HoustonClock";
 import LangSwitch from "@/components/LangSwitch";
-import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Map, Contact, Lightbulb, Repeat, Megaphone, Clapperboard, PhoneCall } from "lucide-react";
+import { LayoutDashboard, Users, BarChart3, Settings2, Menu, X, TrendingUp, LogOut, DollarSign, Mic, HardHat, Calendar, Calculator, Gauge, FileText, Sun, Brain, MapPin, ListChecks, PaintBucket, Camera, Images, Contact, Lightbulb, Repeat, Megaphone, Clapperboard, PhoneCall } from "lucide-react";
 // Icons removed from this import when their nav items were hidden 2026-06-07:
 //   UsersRound (A&T Leads), ClipboardCheck (Sent Log), Brain (AI Fence Est.),
 //   Sparkles (Agents). When restoring any of those nav rows, re-add the
@@ -113,7 +113,9 @@ const NAV_ITEMS: { to: string; icon: typeof LayoutDashboard; label: string; rest
   // The same page to look at only: the jobs, no pay, no changes (Alec, 2026-10-20).
   { to: "/pm-hq", icon: HardHat, label: "Project Manager", perm: "pm_hq" },
   { to: "/crew-stats", icon: BarChart3, label: "Crew Stats", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
-  { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
+  // Archived (Alan, 2026-10-22): "it doesn't do us any good right now". The
+  // page and its data stay at /job-map; put this line back to bring it back.
+  // { to: "/job-map", icon: Map, label: "Job Map", restrictToAny: ["fragned", "alanbonner"], divisions: ["fence"] },
   { to: "/my-schedule", icon: Sun, label: "My Schedule", perm: "my_schedule" },
   { to: "/estimator", icon: MapPin, label: "Estimator", perm: "estimator", divisions: ["fence"] },
   { to: "/invoice-queue", icon: FileText, label: "Invoice Queue", perm: "invoice_queue", divisions: ["fence"] },
